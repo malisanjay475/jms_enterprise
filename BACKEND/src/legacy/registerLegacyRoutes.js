@@ -20978,6 +20978,36 @@ function guardMouldWriteMainOnly(res) {
   return false;
 }
 
+function isLocalServer() {
+  return String(process.env.SERVER_TYPE || '').toUpperCase() === 'LOCAL';
+}
+
+// LOCAL servers may drive the mould VERIFICATION workflow (approve / add note /
+// reset) even though the mould master itself is MAIN-authoritative. Because moulds
+// full-pull from MAIN and LOCAL's sync push is factory-filtered, a local write to
+// the verify_* columns of another factory's mould would be silently reverted on the
+// next pull. So instead we FORWARD the action to MAIN (the single source of truth,
+// same model as ERP fetch / upload push); MAIN writes it and it syncs back here.
+async function forwardMouldVerifyToMain(id, subpath, body) {
+  const mainUrl = String(process.env.MAIN_SERVER_URL || '').trim().replace(/\/$/, '');
+  if (!mainUrl) {
+    return { ok: false, status: 503, json: { ok: false, error: 'This factory server is not linked to the MAIN server yet, so verification cannot be recorded here.' } };
+  }
+  try {
+    const r = await fetch(`${mainUrl}/api/moulds/${encodeURIComponent(id)}${subpath}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body || {}),
+      signal: AbortSignal.timeout(15000)
+    });
+    let json = null;
+    try { json = await r.json(); } catch (_) { /* non-JSON */ }
+    return { ok: r.ok, status: r.status, json: json || { ok: r.ok, error: r.ok ? undefined : `MAIN returned HTTP ${r.status}` } };
+  } catch (e) {
+    return { ok: false, status: 502, json: { ok: false, error: 'Could not reach the MAIN server. Please try again when this factory server is online.' } };
+  }
+}
+
 // 6. UPLOAD (Real Excel Parsing)
 app.post('/api/upload/:type', async (req, res, next) => {
   const { type } = req.params;
@@ -23806,8 +23836,13 @@ function mouldVerifyStepAllowed(step, roleCode, roleLabel) {
 // POST /api/moulds/:id/verify  { step, session:{username} }  (id = mould_number)
 app.post('/api/moulds/:id/verify', async (req, res) => {
   try {
-    if (guardMouldWriteMainOnly(res)) return; // MAIN-only master
     const { id } = req.params;
+    // LOCAL forwards to MAIN (authoritative); MAIN's result syncs back here.
+    if (isLocalServer()) {
+      const fwd = await forwardMouldVerifyToMain(id, '/verify', req.body);
+      if (fwd.ok) { ttlCacheClear('moulds'); if (typeof syncService.triggerSync === 'function') syncService.triggerSync(); }
+      return res.status(fwd.ok ? 200 : fwd.status).json(fwd.json);
+    }
     const stepKey = String(req.body?.step || '').toLowerCase();
     const username = req.body?.session?.username || req.body?._user || getRequestUsername(req);
     if (!username) return res.status(401).json({ ok: false, error: 'Unauthorized' });
@@ -23881,8 +23916,12 @@ app.post('/api/moulds/:id/verify', async (req, res) => {
 // be re-verified from scratch.
 app.post('/api/moulds/:id/verify/reset', async (req, res) => {
   try {
-    if (guardMouldWriteMainOnly(res)) return;
     const { id } = req.params;
+    if (isLocalServer()) {
+      const fwd = await forwardMouldVerifyToMain(id, '/verify/reset', req.body);
+      if (fwd.ok) { ttlCacheClear('moulds'); if (typeof syncService.triggerSync === 'function') syncService.triggerSync(); }
+      return res.status(fwd.ok ? 200 : fwd.status).json(fwd.json);
+    }
     const username = req.body?.session?.username || req.body?._user || getRequestUsername(req);
     if (!username) return res.status(401).json({ ok: false, error: 'Unauthorized' });
 
@@ -23958,8 +23997,12 @@ app.get('/api/moulds/:id/verify-detail', async (req, res) => {
 // mould master columns. Role-gated the same way as completing that step.
 app.post('/api/moulds/:id/verify-note', async (req, res) => {
   try {
-    if (guardMouldWriteMainOnly(res)) return; // MAIN-only master
     const { id } = req.params;
+    if (isLocalServer()) {
+      const fwd = await forwardMouldVerifyToMain(id, '/verify-note', req.body);
+      if (fwd.ok && typeof syncService.triggerSync === 'function') syncService.triggerSync();
+      return res.status(fwd.ok ? 200 : fwd.status).json(fwd.json);
+    }
     const stepKey = String(req.body?.step || '').toLowerCase();
     const note = String(req.body?.note || '').trim();
     const username = req.body?.session?.username || req.body?._user || getRequestUsername(req);
@@ -24041,6 +24084,32 @@ app.get('/api/moulds/:id/moulding-history', async (req, res) => {
           GROUP BY machine ORDER BY good DESC`,
         [id, days, factoryId]
       );
+      // Downtime reason breakdown: aggregate every dpr_hourly.downtime_breakup
+      // ({code: minutes}) in the window, mapped to friendly names, sorted desc.
+      const dtRows = await q(
+        `SELECT downtime_breakup
+           FROM dpr_hourly
+          WHERE mould_no = $1
+            AND is_deleted = false
+            AND downtime_breakup IS NOT NULL
+            AND dpr_date >= (CURRENT_DATE - ($2::int - 1))
+            AND ($3::int IS NULL OR factory_id = $3 OR factory_id IS NULL)`,
+        [id, days, factoryId]
+      );
+      const dtTotals = {};
+      for (const row of dtRows) {
+        let bk = row.downtime_breakup;
+        if (typeof bk === 'string') { try { bk = JSON.parse(bk); } catch (_) { bk = null; } }
+        if (!bk || typeof bk !== 'object') continue;
+        for (const code of Object.keys(bk)) {
+          const min = Number(bk[code]);
+          if (min > 0) dtTotals[code] = (dtTotals[code] || 0) + min;
+        }
+      }
+      const downtimeReasons = Object.keys(dtTotals)
+        .map(code => ({ reason: (typeof mouldReasonName === 'function' ? mouldReasonName(code) : code), minutes: dtTotals[code] }))
+        .sort((a, b) => b.minutes - a.minutes);
+
       const totals = daily.reduce((a, r) => ({
         good: a.good + Number(r.good), reject: a.reject + Number(r.reject),
         shots: a.shots + Number(r.shots), downtime: a.downtime + Number(r.downtime)
@@ -24055,16 +24124,34 @@ app.get('/api/moulds/:id/moulding-history', async (req, res) => {
           machines: byMachine.length
         },
         daily,
-        byMachine
+        byMachine,
+        downtimeReasons
       };
     }
 
+    // "Last run": the most recent date this mould actually produced (any shift),
+    // regardless of the 7/30-day window — so a long-idle mould still shows when it
+    // last ran and on which machine.
+    const lastRunRows = await q(
+      `SELECT dpr_date::date AS d, machine
+         FROM dpr_hourly
+        WHERE mould_no = $1
+          AND is_deleted = false
+          AND (COALESCE(good_qty,0) > 0 OR COALESCE(shots,0) > 0)
+          AND ($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL)
+        ORDER BY dpr_date DESC, id DESC LIMIT 1`,
+      [id, factoryId]
+    );
+    const lastRun = lastRunRows.length
+      ? { date: lastRunRows[0].d, machine: lastRunRows[0].machine || null }
+      : null;
+
     const reqDays = Number(req.query.days);
     if (reqDays === 7 || reqDays === 30) {
-      return res.json({ ok: true, data: { [`d${reqDays}`]: await windowStats(reqDays) } });
+      return res.json({ ok: true, data: { lastRun, [`d${reqDays}`]: await windowStats(reqDays) } });
     }
     const [d7, d30] = await Promise.all([windowStats(7), windowStats(30)]);
-    res.json({ ok: true, data: { d7, d30 } });
+    res.json({ ok: true, data: { lastRun, d7, d30 } });
   } catch (e) {
     console.error('mould moulding-history error', e);
     res.status(500).json({ ok: false, error: String(e) });
