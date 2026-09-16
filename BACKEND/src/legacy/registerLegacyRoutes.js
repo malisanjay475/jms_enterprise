@@ -12064,8 +12064,13 @@ async function getPlanningOrderColourBreakdown(queryFn, orderNo, factoryId, opti
   // ("...1500, 3000, 4500, 6000 LID 3"). It deliberately KEEPS the trailing mould
   // number (LID 3) intact — unlike normalizeMouldFamilyCode, which strips it — so
   // sibling moulds (LID 1 vs LID 3) never merge their colours.
+  // collapsePlanningWhitespace already reduces every run of whitespace to a single
+  // space, so comma-spacing is normalized with split/trim/join (no backtracking
+  // regex on user-provided text — avoids the polynomial-regex / ReDoS class).
   const normalizeColourMatchKey = (value) => collapsePlanningWhitespace(value)
-    .replace(/\s*,\s*/g, ',')
+    .split(',')
+    .map((part) => part.trim())
+    .join(',')
     .toUpperCase()
     .trim();
   const normMouldNo = normalizeColourMatchKey(options.mouldNo);
