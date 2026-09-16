@@ -12058,13 +12058,23 @@ async function getPlanningOrderColourBreakdown(queryFn, orderNo, factoryId, opti
   `, [orderNo, factoryId]);
 
   const rows = Array.isArray(rawRows) ? rawRows : (Array.isArray(rawRows?.rows) ? rawRows.rows : []);
-  const normMouldNo = normalizePlanningText(options.mouldNo).toUpperCase();
-  const normMouldName = normalizePlanningText(options.mouldName).toUpperCase();
+  // Tolerant match key: collapse internal whitespace and comma-spacing, uppercase.
+  // This makes summary/master text ("...1500,3000,4500,6000 LID 3 DOUBLE CAVITY")
+  // match report text that only differs by spacing/comma variants
+  // ("...1500, 3000, 4500, 6000 LID 3"). It deliberately KEEPS the trailing mould
+  // number (LID 3) intact — unlike normalizeMouldFamilyCode, which strips it — so
+  // sibling moulds (LID 1 vs LID 3) never merge their colours.
+  const normalizeColourMatchKey = (value) => collapsePlanningWhitespace(value)
+    .replace(/\s*,\s*/g, ',')
+    .toUpperCase()
+    .trim();
+  const normMouldNo = normalizeColourMatchKey(options.mouldNo);
+  const normMouldName = normalizeColourMatchKey(options.mouldName);
   const normFamily = normalizeMouldFamilyCode(options.mouldFamily || options.mouldNo || options.mouldName);
 
   const exactRows = rows.filter((row) => {
-    const rowNo = normalizePlanningText(row.mould_no).toUpperCase();
-    const rowName = normalizePlanningText(row.mould_name).toUpperCase();
+    const rowNo = normalizeColourMatchKey(row.mould_no);
+    const rowName = normalizeColourMatchKey(row.mould_name);
     return (normMouldNo && rowNo === normMouldNo) || (normMouldName && rowName === normMouldName);
   });
 
