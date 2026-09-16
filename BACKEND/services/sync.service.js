@@ -2170,37 +2170,54 @@ async function applyRemoteDeletions(deletions) {
                 continue;
             }
 
-            const factoryScope = deletion.factory_id == null ? '__global__' : String(deletion.factory_id);
-            await client.query(`
-                INSERT INTO sync_deletions (table_name, record_pk, factory_id, factory_scope, deleted_at)
-                VALUES ($1, $2, $3, $4, $5)
-                ON CONFLICT (table_name, record_pk, factory_scope) DO NOTHING
-            `, [table, deletion.record_pk, deletion.factory_id ?? null, factoryScope, deletion.deleted_at || new Date().toISOString()]);
-
-            const entries = Object.entries(keyValues);
-            if (!entries.length) continue;
-
-            const params = entries.map(([, value]) => value);
-            const where = entries.map(([column], index) => `${column} = $${index + 1}`).join(' AND ');
-
-            let existingRow = null;
+            // Isolate every deletion in a SAVEPOINT. A type-incompatible key (e.g. an old
+            // integer id "7" pushed against a table whose key column is now uuid) makes the
+            // failing statement abort the WHOLE transaction at the Postgres level (25P02),
+            // even when we catch the JS error. That aborted state then fails the next query,
+            // rolls back the entire batch, and stalls LAST_DELETE_PULL so the same rows
+            // re-pull every cycle forever. The savepoint lets one bad row be skipped cleanly.
+            await client.query('SAVEPOINT sync_del');
             try {
-                const result = await client.query(`SELECT * FROM ${table} WHERE ${where} LIMIT 1`, params);
-                existingRow = result.rows[0] || null;
-            } catch (e) {
-                console.warn(`[Sync] Existing row check skipped for ${table}:`, e.message);
-            }
+                const factoryScope = deletion.factory_id == null ? '__global__' : String(deletion.factory_id);
+                await client.query(`
+                    INSERT INTO sync_deletions (table_name, record_pk, factory_id, factory_scope, deleted_at)
+                    VALUES ($1, $2, $3, $4, $5)
+                    ON CONFLICT (table_name, record_pk, factory_scope) DO NOTHING
+                `, [table, deletion.record_pk, deletion.factory_id ?? null, factoryScope, deletion.deleted_at || new Date().toISOString()]);
 
-            if (existingRow && existingRow.updated_at && deletion.deleted_at) {
-                const rowUpdatedAt = new Date(existingRow.updated_at).getTime();
-                const deletedAt = new Date(deletion.deleted_at).getTime();
-                if (Number.isFinite(rowUpdatedAt) && Number.isFinite(deletedAt) && rowUpdatedAt > deletedAt) {
+                const entries = Object.entries(keyValues);
+                if (!entries.length) {
+                    await client.query('RELEASE SAVEPOINT sync_del');
                     continue;
                 }
-            }
 
-            const deleteResult = await client.query(`DELETE FROM ${table} WHERE ${where}`, params);
-            stats.deleted += deleteResult.rowCount || 0;
+                const params = entries.map(([, value]) => value);
+                const where = entries.map(([column], index) => `${column} = $${index + 1}`).join(' AND ');
+
+                const result = await client.query(`SELECT * FROM ${table} WHERE ${where} LIMIT 1`, params);
+                const existingRow = result.rows[0] || null;
+
+                if (existingRow && existingRow.updated_at && deletion.deleted_at) {
+                    const rowUpdatedAt = new Date(existingRow.updated_at).getTime();
+                    const deletedAt = new Date(deletion.deleted_at).getTime();
+                    if (Number.isFinite(rowUpdatedAt) && Number.isFinite(deletedAt) && rowUpdatedAt > deletedAt) {
+                        await client.query('RELEASE SAVEPOINT sync_del');
+                        continue;
+                    }
+                }
+
+                const deleteResult = await client.query(`DELETE FROM ${table} WHERE ${where}`, params);
+                stats.deleted += deleteResult.rowCount || 0;
+                await client.query('RELEASE SAVEPOINT sync_del');
+            } catch (e) {
+                // Roll this single deletion back to the savepoint so the transaction stays
+                // usable and the batch can still commit + advance the watermark.
+                await client.query('ROLLBACK TO SAVEPOINT sync_del');
+                stats.skipped += 1;
+                // Pass external values as %s args (not in the format-string position)
+                // so an unexpected % in record_pk can't be treated as a format specifier.
+                console.warn('[Sync] Deletion skipped for %s (record_pk=%s): %s', table, deletion.record_pk, e.message);
+            }
         }
 
         await client.query('COMMIT');
