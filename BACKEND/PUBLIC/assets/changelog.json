@@ -11,8 +11,31 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.66.0",
+  "latest": "1.66.1",
   "versions": [
+    {
+      "version": "1.66.1",
+      "date": "2026-09-16",
+      "title": "Create Plan colours fixed & LOCAL sync stability",
+      "modules": [
+        {
+          "app": "planning",
+          "label": "Planning",
+          "icon": "bi-calendar3",
+          "changes": [
+            { "type": "fix", "text": "Create Plan now shows the OR/JR colour rows for a mould even when the item text has slightly different spacing, so colour-wise plans no longer come up empty." }
+          ]
+        },
+        {
+          "app": "all",
+          "label": "Platform",
+          "icon": "bi-hdd-network",
+          "changes": [
+            { "type": "fix", "text": "Fixed a factory LOCAL server slowdown caused by a plan-reorder deadlock and a stuck delete-sync loop." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.66.0",
       "date": "2026-09-15",
