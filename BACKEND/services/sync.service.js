@@ -2214,7 +2214,9 @@ async function applyRemoteDeletions(deletions) {
                 // usable and the batch can still commit + advance the watermark.
                 await client.query('ROLLBACK TO SAVEPOINT sync_del');
                 stats.skipped += 1;
-                console.warn(`[Sync] Deletion skipped for ${table} (record_pk=${deletion.record_pk}):`, e.message);
+                // Pass external values as %s args (not in the format-string position)
+                // so an unexpected % in record_pk can't be treated as a format specifier.
+                console.warn('[Sync] Deletion skipped for %s (record_pk=%s): %s', table, deletion.record_pk, e.message);
             }
         }
 
