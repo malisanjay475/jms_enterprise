@@ -11,8 +11,77 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.66.0",
+  "latest": "1.68.0",
   "versions": [
+    {
+      "version": "1.68.0",
+      "date": "2026-09-18",
+      "title": "QC remark on FPA approval",
+      "modules": [
+        {
+          "app": "quality",
+          "label": "Quality",
+          "icon": "bi-patch-check",
+          "changes": [
+            { "type": "feat", "text": "When approving an FPA you can now add an optional remark. It shows on the approved FPA, in the DPR Compliance Summary next to the FPA image, and in the QC app." }
+          ]
+        },
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            { "type": "improvement", "text": "The Compliance Summary job view now shows the QC approver's remark beside the FPA images." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.67.0",
+      "date": "2026-09-18",
+      "title": "Approval remarks & faster ERP fetch",
+      "modules": [
+        {
+          "app": "planning",
+          "label": "Planning",
+          "icon": "bi-calendar3",
+          "changes": [
+            { "type": "feat", "text": "The Job Card Approval screen now shows the OR and JR remarks from OR-JR Status, so you can see them while checking or approving a plan." }
+          ]
+        },
+        {
+          "app": "masters",
+          "label": "Masters",
+          "icon": "bi-box-seam",
+          "changes": [
+            { "type": "perf", "text": "Fetching the latest OR/JR Status, Summary and Details data from the ERP is now much faster for large lists." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.66.1",
+      "date": "2026-09-16",
+      "title": "Create Plan colours fixed & LOCAL sync stability",
+      "modules": [
+        {
+          "app": "planning",
+          "label": "Planning",
+          "icon": "bi-calendar3",
+          "changes": [
+            { "type": "fix", "text": "Create Plan now shows the OR/JR colour rows for a mould even when the item text has slightly different spacing, so colour-wise plans no longer come up empty." }
+          ]
+        },
+        {
+          "app": "all",
+          "label": "Platform",
+          "icon": "bi-hdd-network",
+          "changes": [
+            { "type": "fix", "text": "Fixed a factory LOCAL server slowdown caused by a plan-reorder deadlock and a stuck delete-sync loop." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.66.0",
       "date": "2026-09-15",
