@@ -32,6 +32,11 @@ jobs:
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          # Pin cmdline-tools: the runner image's preinstalled "latest" (16.0)
+          # started failing license acceptance (sdkmanager --licenses exit 1),
+          # breaking the build. A pinned known-good version installs cleanly.
+          cmdline-tools-version: "11076708"
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
