@@ -27558,7 +27558,7 @@ app.post('/api/qc/fpa', (req, res, next) => {
           fpa_status='Done', fpa_form_image=$9, fpa_form_url=$10, product_images=$11::jsonb,
           remarks=$12, supervisor=$13, fpa_done_at=$14, fpa_done_by=$15,
           fpa_approval_status='Pending', fpa_reject_reason=NULL,
-          fpa_reviewed_by=NULL, fpa_reviewed_at=NULL,
+          fpa_reviewed_by=NULL, fpa_reviewed_at=NULL, fpa_approve_remark=NULL,
           fpa_resubmit_count=COALESCE(fpa_resubmit_count,0)+1,
           updated_at=NOW()
         WHERE id=$16
@@ -27830,7 +27830,7 @@ app.post('/api/qc/fpa/:id/reject', async (req, res) => {
     const upd = await q(
       `UPDATE qc_job_checks
           SET fpa_approval_status='Rejected', fpa_reject_reason=$1,
-              fpa_reviewed_by=$2, fpa_reviewed_at=NOW(), updated_at=NOW()
+              fpa_reviewed_by=$2, fpa_reviewed_at=NOW(), fpa_approve_remark=NULL, updated_at=NOW()
         WHERE id=$3 AND fpa_status='Done'
           AND ($4::int IS NULL OR factory_id=$4 OR factory_id IS NULL)
         RETURNING id, machine, job_card_no, fpa_done_by`,
