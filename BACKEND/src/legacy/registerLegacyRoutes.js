@@ -5733,6 +5733,10 @@ async function initializeLegacyRuntime() {
     await q(`ALTER TABLE qc_job_checks ADD COLUMN IF NOT EXISTS fpa_reviewed_at TIMESTAMPTZ`);
     await q(`ALTER TABLE qc_job_checks ADD COLUMN IF NOT EXISTS fpa_reject_reason TEXT`);
     await q(`ALTER TABLE qc_job_checks ADD COLUMN IF NOT EXISTS fpa_resubmit_count INTEGER DEFAULT 0`);
+    // Optional remark the approver can leave when APPROVING an FPA (mirrors
+    // fpa_reject_reason for the reject path). Shown next to the FPA image in the
+    // QC app and the DPR Compliance Summary.
+    await q(`ALTER TABLE qc_job_checks ADD COLUMN IF NOT EXISTS fpa_approve_remark TEXT`);
 
     await q(`ALTER TABLE shifting_records ADD COLUMN IF NOT EXISTS shift_date DATE;`);
     await q(`ALTER TABLE shifting_records ADD COLUMN IF NOT EXISTS shift_type TEXT;`);
@@ -27491,7 +27495,9 @@ app.get('/api/qc/fpa/today', async (req, res) => {
     const d = date || new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date());
     const rows = await q(
       `SELECT id, date, shift, machine, line, job_card_no, order_no, item_name, mould_name,
-              fpa_form_url, product_images, fpa_done_by, fpa_done_at, remarks
+              fpa_form_url, product_images, fpa_done_by, fpa_done_at, remarks,
+              COALESCE(fpa_approval_status,'Pending') AS fpa_approval_status,
+              fpa_reviewed_by, fpa_reviewed_at, fpa_approve_remark
        FROM qc_job_checks
        WHERE date = $1::date
          AND fpa_status = 'Done'
@@ -27732,7 +27738,7 @@ app.get('/api/qc/fpa/list', async (req, res) => {
          jc.fpa_form_url, jc.product_images, jc.remarks,
          jc.fpa_done_by, jc.fpa_done_at,
          COALESCE(jc.fpa_approval_status, 'Pending') AS fpa_approval_status,
-         jc.fpa_reviewed_by, jc.fpa_reviewed_at, jc.fpa_reject_reason,
+         jc.fpa_reviewed_by, jc.fpa_reviewed_at, jc.fpa_reject_reason, jc.fpa_approve_remark,
          COALESCE(jc.fpa_resubmit_count, 0) AS fpa_resubmit_count
        FROM qc_job_checks jc
        WHERE jc.fpa_status = 'Done'
@@ -27763,7 +27769,7 @@ app.get('/api/qc/fpa/mine', async (req, res) => {
       `SELECT id, date, shift, machine, line, job_card_no, order_no, item_name, mould_name,
               fpa_form_url, product_images, remarks, fpa_done_by, fpa_done_at,
               COALESCE(fpa_approval_status,'Pending') AS fpa_approval_status,
-              fpa_reviewed_by, fpa_reviewed_at, fpa_reject_reason,
+              fpa_reviewed_by, fpa_reviewed_at, fpa_reject_reason, fpa_approve_remark,
               COALESCE(fpa_resubmit_count,0) AS fpa_resubmit_count
          FROM qc_job_checks
         WHERE fpa_status = 'Done'
@@ -27791,14 +27797,16 @@ app.post('/api/qc/fpa/:id/approve', async (req, res) => {
     }
     const factoryId = getFactoryId(req);
     const reviewer = String(username || 'QC').replace(/[^\w\s\-\.@]/g, '').slice(0, 100);
+    // Optional remark the approver may add on approval (empty → stored NULL).
+    const remark = String((req.body && req.body.remark) || '').trim().slice(0, 500) || null;
     const upd = await q(
       `UPDATE qc_job_checks
           SET fpa_approval_status='Approved', fpa_reviewed_by=$1, fpa_reviewed_at=NOW(),
-              fpa_reject_reason=NULL, updated_at=NOW()
-        WHERE id=$2 AND fpa_status='Done'
-          AND ($3::int IS NULL OR factory_id=$3 OR factory_id IS NULL)
+              fpa_reject_reason=NULL, fpa_approve_remark=$2, updated_at=NOW()
+        WHERE id=$3 AND fpa_status='Done'
+          AND ($4::int IS NULL OR factory_id=$4 OR factory_id IS NULL)
         RETURNING id, machine, job_card_no, fpa_done_by`,
-      [reviewer, id, factoryId]
+      [reviewer, remark, id, factoryId]
     );
     if (!upd.length) return res.status(404).json({ ok: false, error: 'FPA not found' });
     // Notify the submitting QC that their FPA was approved.
