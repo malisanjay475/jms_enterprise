@@ -11,8 +11,31 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.67.0",
+  "latest": "1.68.0",
   "versions": [
+    {
+      "version": "1.68.0",
+      "date": "2026-09-18",
+      "title": "QC remark on FPA approval",
+      "modules": [
+        {
+          "app": "quality",
+          "label": "Quality",
+          "icon": "bi-patch-check",
+          "changes": [
+            { "type": "feat", "text": "When approving an FPA you can now add an optional remark. It shows on the approved FPA, in the DPR Compliance Summary next to the FPA image, and in the QC app." }
+          ]
+        },
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            { "type": "improvement", "text": "The Compliance Summary job view now shows the QC approver's remark beside the FPA images." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.67.0",
       "date": "2026-09-18",
