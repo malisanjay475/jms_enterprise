@@ -15407,18 +15407,30 @@ app.get('/api/planning/job-card-approvals/:id', async (req, res) => {
         COALESCE(o.client_name, oj.client_name) AS resolved_client_name,
         COALESCE(oj.product_name, pb.item_name) AS resolved_product_name,
         oj.or_qty AS resolved_or_qty,
-        oj.or_remarks AS resolved_or_remarks,
-        oj.jr_remarks AS resolved_jr_remarks
+        ojr.or_remarks AS resolved_or_remarks,
+        ojr.jr_remarks AS resolved_jr_remarks
       FROM plan_board pb
       LEFT JOIN orders o ON TRIM(COALESCE(o.order_no, '')) = TRIM(COALESCE(pb.order_no, ''))
       LEFT JOIN LATERAL (
-        SELECT client_name, product_name, or_qty, or_remarks, jr_remarks
+        SELECT client_name, product_name, or_qty
         FROM or_jr_report r
         WHERE TRIM(COALESCE(r.or_jr_no, '')) = TRIM(COALESCE(pb.order_no, ''))
           AND ($2::int IS NULL OR r.factory_id = $2 OR r.factory_id IS NULL)
         ORDER BY r.id DESC
         LIMIT 1
       ) oj ON true
+      -- Remarks are pulled separately and pick the first NON-EMPTY value across
+      -- every matching OR-JR Status row (not just the newest). The newest row can
+      -- be a blank-JC placeholder/duplicate with empty remarks, which hid the OR
+      -- remark at the PPC Check stage even though another row carried it.
+      LEFT JOIN LATERAL (
+        SELECT
+          MAX(NULLIF(TRIM(COALESCE(r2.or_remarks, '')), '')) AS or_remarks,
+          MAX(NULLIF(TRIM(COALESCE(r2.jr_remarks, '')), '')) AS jr_remarks
+        FROM or_jr_report r2
+        WHERE TRIM(COALESCE(r2.or_jr_no, '')) = TRIM(COALESCE(pb.order_no, ''))
+          AND ($2::int IS NULL OR r2.factory_id = $2 OR r2.factory_id IS NULL)
+      ) ojr ON true
       WHERE pb.id = $1
         AND ($2::int IS NULL OR pb.factory_id = $2 OR pb.factory_id IS NULL)
       LIMIT 1
