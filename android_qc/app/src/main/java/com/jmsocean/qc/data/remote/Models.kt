@@ -165,7 +165,12 @@ data class FpaStatus(
     val date: String? = null,
     val shift: String? = null,
     val form_url: String? = null,
-    val product_images: JsonElement? = null
+    val product_images: JsonElement? = null,
+    // Quality approval workflow: status + the approver's optional remark (or reject reason).
+    val fpa_approval_status: String? = null,
+    val fpa_reviewed_by: String? = null,
+    val fpa_approve_remark: String? = null,
+    val fpa_reject_reason: String? = null
 )
 
 /** A row from GET /api/qc/material-issues (qc_material_issues), tolerant of nulls. */

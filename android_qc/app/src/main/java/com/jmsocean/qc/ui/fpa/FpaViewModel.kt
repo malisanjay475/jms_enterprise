@@ -33,6 +33,11 @@ data class FpaUiState(
     val savedProductUrls: List<String> = emptyList(),
     val doneBy: String? = null,
     val doneAt: String? = null,
+    // Quality approval status + the approver's remark (or reject reason).
+    val approvalStatus: String? = null,
+    val reviewedBy: String? = null,
+    val approveRemark: String? = null,
+    val rejectReason: String? = null,
     val balances: List<com.jmsocean.qc.data.remote.ColourBalance> = emptyList()
 ) {
     val canSubmit: Boolean
@@ -82,7 +87,11 @@ class FpaViewModel : ViewModel() {
                 savedFormUrl = absUrl(st.form_url),
                 savedProductUrls = parseUrls(st.product_images).map { u -> absUrl(u) ?: u },
                 doneBy = st.done_by,
-                doneAt = st.done_at
+                doneAt = st.done_at,
+                approvalStatus = st.fpa_approval_status,
+                reviewedBy = st.fpa_reviewed_by,
+                approveRemark = st.fpa_approve_remark,
+                rejectReason = st.fpa_reject_reason
             )
         }
     }

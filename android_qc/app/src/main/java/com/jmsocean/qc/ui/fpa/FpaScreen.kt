@@ -65,6 +65,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.jmsocean.qc.ui.theme.Crit
 import com.jmsocean.qc.ui.theme.Good
 import com.jmsocean.qc.ui.theme.Warn
 import java.io.File
@@ -186,6 +187,15 @@ fun FpaScreen(
 
                 s.alreadyDone -> Column {
                     DoneBanner(submittedNow = s.submitted, by = s.doneBy, at = s.doneAt)
+                    if (!s.approvalStatus.isNullOrBlank()) {
+                        Spacer(Modifier.height(10.dp))
+                        FpaApprovalCard(
+                            status = s.approvalStatus!!,
+                            reviewedBy = s.reviewedBy,
+                            approveRemark = s.approveRemark,
+                            rejectReason = s.rejectReason
+                        )
+                    }
                     Spacer(Modifier.height(14.dp))
                     if (s.savedFormUrl != null) {
                         SectionLabel("📋 Saved FPA form")
@@ -373,6 +383,44 @@ private fun DoneBanner(submittedNow: Boolean, by: String?, at: String?) {
                 Text(
                     meta.ifBlank { "This job's first piece approval is on record." },
                     fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun FpaApprovalCard(
+    status: String,
+    reviewedBy: String?,
+    approveRemark: String?,
+    rejectReason: String?
+) {
+    val approved = status.equals("Approved", ignoreCase = true)
+    val rejected = status.equals("Rejected", ignoreCase = true)
+    val accent = when { approved -> Good; rejected -> Crit; else -> Warn }
+    val label = when { approved -> "Approved by Quality"; rejected -> "Rejected by Quality"; else -> "Pending Quality approval" }
+    Card(
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        shape = RoundedCornerShape(12.dp),
+        modifier = Modifier.fillMaxWidth().border(1.dp, accent, RoundedCornerShape(12.dp))
+    ) {
+        Column(Modifier.padding(14.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(if (approved) "✔" else if (rejected) "✖" else "⏳", fontSize = 16.sp, color = accent)
+                Spacer(Modifier.size(8.dp))
+                Text(label, fontWeight = FontWeight.Bold, color = accent, fontSize = 14.sp)
+            }
+            if (!reviewedBy.isNullOrBlank()) {
+                Text("By $reviewedBy", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 2.dp))
+            }
+            val note = if (approved) approveRemark else if (rejected) rejectReason else null
+            if (!note.isNullOrBlank()) {
+                Spacer(Modifier.size(6.dp))
+                Text(
+                    "${if (approved) "Remark" else "Reason"}: $note",
+                    fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface
                 )
             }
         }

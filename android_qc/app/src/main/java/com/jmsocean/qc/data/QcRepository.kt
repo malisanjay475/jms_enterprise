@@ -140,7 +140,11 @@ class QcRepository(private val session: SessionStore) {
             done_by = doneRow["fpa_done_by"]?.jsonPrimitive?.contentOrNull,
             done_at = doneRow["fpa_done_at"]?.jsonPrimitive?.contentOrNull,
             form_url = doneRow["fpa_form_url"]?.jsonPrimitive?.contentOrNull,
-            product_images = doneRow["product_images"]
+            product_images = doneRow["product_images"],
+            fpa_approval_status = doneRow["fpa_approval_status"]?.jsonPrimitive?.contentOrNull,
+            fpa_reviewed_by = doneRow["fpa_reviewed_by"]?.jsonPrimitive?.contentOrNull,
+            fpa_approve_remark = doneRow["fpa_approve_remark"]?.jsonPrimitive?.contentOrNull,
+            fpa_reject_reason = doneRow["fpa_reject_reason"]?.jsonPrimitive?.contentOrNull
         )
     }
 
