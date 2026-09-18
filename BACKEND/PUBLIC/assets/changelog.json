@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.68.0",
+  "latest": "1.68.1",
   "versions": [
+    {
+      "version": "1.68.1",
+      "date": "2026-09-18",
+      "title": "OR/JR remarks show at PPC Check too",
+      "modules": [
+        {
+          "app": "planning",
+          "label": "Planning",
+          "icon": "bi-calendar3",
+          "changes": [
+            { "type": "fix", "text": "The OR and JR remarks now appear in the Job Card Approval screen at the PPC Check stage as well, not only at Moulding Approve." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.68.0",
       "date": "2026-09-18",
