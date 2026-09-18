@@ -15402,11 +15402,13 @@ app.get('/api/planning/job-card-approvals/:id', async (req, res) => {
         pb.*,
         COALESCE(o.client_name, oj.client_name) AS resolved_client_name,
         COALESCE(oj.product_name, pb.item_name) AS resolved_product_name,
-        oj.or_qty AS resolved_or_qty
+        oj.or_qty AS resolved_or_qty,
+        oj.or_remarks AS resolved_or_remarks,
+        oj.jr_remarks AS resolved_jr_remarks
       FROM plan_board pb
       LEFT JOIN orders o ON TRIM(COALESCE(o.order_no, '')) = TRIM(COALESCE(pb.order_no, ''))
       LEFT JOIN LATERAL (
-        SELECT client_name, product_name, or_qty
+        SELECT client_name, product_name, or_qty, or_remarks, jr_remarks
         FROM or_jr_report r
         WHERE TRIM(COALESCE(r.or_jr_no, '')) = TRIM(COALESCE(pb.order_no, ''))
           AND ($2::int IS NULL OR r.factory_id = $2 OR r.factory_id IS NULL)
@@ -15497,7 +15499,10 @@ app.get('/api/planning/job-card-approvals/:id', async (req, res) => {
           approval_role_label: stage.roleLabel,
           can_approve: !!resolved?.job_card_no && canActorApproveJcStage(actor, stage.code),
           ppc_remarks: plan.ppc_remarks || '',
-          moulding_remarks: plan.moulding_remarks || ''
+          moulding_remarks: plan.moulding_remarks || '',
+          // From OR-JR Status (or_jr_report) — read-only, shown in the approval modal.
+          or_remarks: plan.resolved_or_remarks || '',
+          jr_remarks: plan.resolved_jr_remarks || ''
         },
         colours,
         total_qty: totalQty
@@ -18162,37 +18167,53 @@ async function syncErpReport(cfgKey) {
 
   const { table, columns, keyCols, mapRow } = cfg;
   const colList = columns.map((c) => `"${c}"`).join(', ');
-  const placeholders = columns.map((_, i) => `$${i + 2}`).join(', '); // $1 = row_key
   const updates = columns.map((c) => `"${c}" = EXCLUDED."${c}"`).join(', ');
-  const sql = `
-    INSERT INTO ${table} (row_key, ${colList}, synced_at, updated_at)
-    VALUES ($1, ${placeholders}, now(), now())
-    ON CONFLICT (row_key) DO UPDATE SET ${updates}, synced_at = now(), updated_at = now()
-    RETURNING (xmax = 0) AS inserted
-  `;
+  const perRow = columns.length + 1; // +1 for row_key
 
-  let inserted = 0, updated = 0;
-  // The ERP legitimately returns several rows that share the same natural key
-  // (e.g. the same OR/JR + mould + item appearing more than once). Keying the
-  // upsert purely on that natural key made each later duplicate overwrite the
-  // earlier one, so those rows were silently dropped from the report. Keep every
-  // ERP row by disambiguating same-key rows with their occurrence order in the
-  // feed (base key for the first, "base#1", "base#2", ... for the rest). The
-  // suffix is deterministic across re-fetches, so unchanged feeds still update
-  // in place rather than piling up new rows.
+  // Build every (row_key, ...values) tuple up front, applying the same-key
+  // occurrence-order disambiguation. The ERP legitimately returns several rows
+  // that share the same natural key (same OR/JR + mould + item more than once);
+  // keying the upsert purely on that natural key made each later duplicate
+  // overwrite the earlier one, silently dropping rows. We keep every ERP row by
+  // suffixing duplicates with their occurrence index ("base", "base#1", ...).
+  // The suffix is deterministic across re-fetches, so unchanged feeds still
+  // update in place rather than piling up new rows.
   const keySeen = new Map();
+  const tuples = raw.map((r) => {
+    const mapped = mapRow(r);
+    const baseKey = erpRowKey(mapped, keyCols);
+    const n = keySeen.get(baseKey) || 0;
+    keySeen.set(baseKey, n + 1);
+    const rowKey = n === 0 ? baseKey : `${baseKey}#${n}`;
+    return [rowKey, ...columns.map((c) => (mapped[c] == null ? null : String(mapped[c])))];
+  });
+
+  // Batch the upsert into chunked multi-row INSERTs. The old code ran one query
+  // per ERP row inside the transaction, so a feed of thousands of rows meant
+  // thousands of round-trips — the main reason "Fetch Latest Data" was slow.
+  // Postgres caps a statement at 65535 bound params; keep chunks well under that.
+  const CHUNK = Math.max(1, Math.min(500, Math.floor(60000 / perRow)));
+  let inserted = 0, updated = 0;
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    for (const r of raw) {
-      const mapped = mapRow(r);
-      const baseKey = erpRowKey(mapped, keyCols);
-      const n = keySeen.get(baseKey) || 0;
-      keySeen.set(baseKey, n + 1);
-      const rowKey = n === 0 ? baseKey : `${baseKey}#${n}`;
-      const vals = columns.map((c) => (mapped[c] == null ? null : String(mapped[c])));
-      const out = await client.query(sql, [rowKey, ...vals]);
-      if (out.rows[0] && out.rows[0].inserted) inserted++; else updated++;
+    for (let i = 0; i < tuples.length; i += CHUNK) {
+      const slice = tuples.slice(i, i + CHUNK);
+      const valuesSql = slice.map((_, rowIdx) => {
+        const base = rowIdx * perRow;
+        const ph = Array.from({ length: perRow }, (_, j) => `$${base + j + 1}`);
+        // row_key is ph[0]; the mapped columns follow.
+        return `(${ph[0]}, ${ph.slice(1).join(', ')}, now(), now())`;
+      }).join(', ');
+      const sql = `
+        INSERT INTO ${table} (row_key, ${colList}, synced_at, updated_at)
+        VALUES ${valuesSql}
+        ON CONFLICT (row_key) DO UPDATE SET ${updates}, synced_at = now(), updated_at = now()
+        RETURNING (xmax = 0) AS inserted
+      `;
+      const params = slice.flat();
+      const out = await client.query(sql, params);
+      for (const row of out.rows) { if (row.inserted) inserted++; else updated++; }
     }
     await client.query('COMMIT');
   } catch (e) {
