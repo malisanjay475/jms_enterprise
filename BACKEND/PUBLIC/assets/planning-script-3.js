@@ -9518,6 +9518,12 @@
                 ['Job Card Date', p.job_card_date ? new Date(p.job_card_date).toLocaleDateString('en-GB') : '-']
               ].map(([k, v]) => `<div style="border:1px solid #dbeafe; border-radius:14px; padding:11px 12px; background:#f8fbff"><div style="font-size:.72rem; color:#64748b; font-weight:950; text-transform:uppercase">${esc(k)}</div><div style="font-weight:950; color:#0f172a; margin-top:3px">${esc(v || '-')}</div></div>`).join('')}
             </div>
+            ${[['OR Remarks', p.or_remarks], ['JR Remarks', p.jr_remarks]]
+              .filter(([, v]) => v && String(v).trim())
+              .map(([k, v]) => `<div style="border:1px solid #fde68a; background:#fffbeb; border-radius:14px; padding:11px 13px; margin-bottom:12px">
+                <div style="font-size:.72rem; color:#92700e; font-weight:950; text-transform:uppercase">${esc(k)} <span style="color:#b45309; font-weight:800">(from OR-JR Status)</span></div>
+                <div style="font-weight:850; color:#0f172a; margin-top:4px; white-space:pre-wrap; word-break:break-word">${esc(v)}</div>
+              </div>`).join('')}
             <div style="border:1px solid #dbeafe; border-radius:16px; overflow:hidden; margin-bottom:16px">
               <div style="display:grid; grid-template-columns:90px 1fr 180px; background:#eff6ff; color:#475569; font-weight:950; text-transform:uppercase; font-size:.76rem">
                 <div style="padding:10px 12px">Sr.No</div><div style="padding:10px 12px">Color Name</div><div style="padding:10px 12px; text-align:right">Colour Plan Qty</div>
