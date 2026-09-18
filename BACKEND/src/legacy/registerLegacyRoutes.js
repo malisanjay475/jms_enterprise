@@ -15402,11 +15402,13 @@ app.get('/api/planning/job-card-approvals/:id', async (req, res) => {
         pb.*,
         COALESCE(o.client_name, oj.client_name) AS resolved_client_name,
         COALESCE(oj.product_name, pb.item_name) AS resolved_product_name,
-        oj.or_qty AS resolved_or_qty
+        oj.or_qty AS resolved_or_qty,
+        oj.or_remarks AS resolved_or_remarks,
+        oj.jr_remarks AS resolved_jr_remarks
       FROM plan_board pb
       LEFT JOIN orders o ON TRIM(COALESCE(o.order_no, '')) = TRIM(COALESCE(pb.order_no, ''))
       LEFT JOIN LATERAL (
-        SELECT client_name, product_name, or_qty
+        SELECT client_name, product_name, or_qty, or_remarks, jr_remarks
         FROM or_jr_report r
         WHERE TRIM(COALESCE(r.or_jr_no, '')) = TRIM(COALESCE(pb.order_no, ''))
           AND ($2::int IS NULL OR r.factory_id = $2 OR r.factory_id IS NULL)
@@ -15497,7 +15499,10 @@ app.get('/api/planning/job-card-approvals/:id', async (req, res) => {
           approval_role_label: stage.roleLabel,
           can_approve: !!resolved?.job_card_no && canActorApproveJcStage(actor, stage.code),
           ppc_remarks: plan.ppc_remarks || '',
-          moulding_remarks: plan.moulding_remarks || ''
+          moulding_remarks: plan.moulding_remarks || '',
+          // From OR-JR Status (or_jr_report) — read-only, shown in the approval modal.
+          or_remarks: plan.resolved_or_remarks || '',
+          jr_remarks: plan.resolved_jr_remarks || ''
         },
         colours,
         total_qty: totalQty
