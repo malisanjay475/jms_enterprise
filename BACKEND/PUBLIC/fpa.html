@@ -83,6 +83,18 @@
         </div>
     </div>
 
+    <div class="rj-mask" id="ap-mask">
+        <div class="rj-box">
+            <div style="font-weight:800;font-size:15px;margin-bottom:10px;">Approve FPA</div>
+            <div style="font-size:13px;color:#6b7280;margin-bottom:8px;" id="ap-sub"></div>
+            <textarea id="ap-remark" class="form-input" rows="3" placeholder="Remark (optional) — shown to QC in the app and in DPR Compliance…" style="width:100%;resize:vertical;"></textarea>
+            <div style="display:flex;gap:8px;margin-top:12px;justify-content:flex-end;">
+                <button class="btn btn-outline small" onclick="closeApprove()">Cancel</button>
+                <button class="btn small" style="background:#10b981;color:#fff;" onclick="confirmApprove()">Approve</button>
+            </div>
+        </div>
+    </div>
+
     <script src="/assets/app.min.js?v=1576"></script>
     <script>
         JPSMS.auth.requireAuth();
@@ -133,14 +145,14 @@
             imgs.forEach(u => thumbs.push(`<a href="#" class="js-zoom" data-url="${esc(u)}" title="Product"><img src="${esc(u)}" alt="product"></a>`));
             const actions = (canApprove && st !== 'Approved')
                 ? `<div class="fpa-actions">
-                     <button class="btn small js-approve" data-id="${r.id}" style="background:#10b981;color:#fff;"><i class="bi bi-check-lg"></i> Approve</button>
+                     <button class="btn small js-approve" data-id="${r.id}" data-sub="${esc((r.machine||'') + ' / ' + (r.job_card_no||''))}" style="background:#10b981;color:#fff;"><i class="bi bi-check-lg"></i> Approve</button>
                      <button class="btn small js-reject" data-id="${r.id}" data-sub="${esc((r.machine||'') + ' / ' + (r.job_card_no||''))}" style="background:#ef4444;color:#fff;"><i class="bi bi-x-lg"></i> Reject</button>
                    </div>`
                 : '';
             const rejectNote = (st === 'Rejected' && r.fpa_reject_reason)
                 ? `<div class="fpa-reject"><b>Rejected:</b> ${esc(r.fpa_reject_reason)}${r.fpa_reviewed_by ? ' — ' + esc(r.fpa_reviewed_by) : ''}</div>` : '';
             const reviewNote = (st === 'Approved' && r.fpa_reviewed_by)
-                ? `<div style="font-size:12px;color:#047857;margin-top:8px;">Approved by ${esc(r.fpa_reviewed_by)} ${r.fpa_reviewed_at ? '· ' + fmtDT(r.fpa_reviewed_at) : ''}</div>` : '';
+                ? `<div style="font-size:12px;color:#047857;margin-top:8px;">Approved by ${esc(r.fpa_reviewed_by)} ${r.fpa_reviewed_at ? '· ' + fmtDT(r.fpa_reviewed_at) : ''}${r.fpa_approve_remark ? '<br><b>Remark:</b> ' + esc(r.fpa_approve_remark) : ''}</div>` : '';
             const resub = (r.fpa_resubmit_count > 0) ? ` <span style="color:#b45309;">(re-uploaded ${r.fpa_resubmit_count}×)</span>` : '';
             return `<div class="fpa-card st-${st}">
                 <div class="fpa-head">
@@ -165,7 +177,7 @@
             const zoom = ev.target.closest('.js-zoom');
             if (zoom) { ev.preventDefault(); openLightbox(zoom.getAttribute('data-url')); return; }
             const ap = ev.target.closest('.js-approve');
-            if (ap) { approveFpa(parseInt(ap.getAttribute('data-id'), 10)); return; }
+            if (ap) { openApprove(parseInt(ap.getAttribute('data-id'), 10), ap.getAttribute('data-sub') || ''); return; }
             const rj = ev.target.closest('.js-reject');
             if (rj) { openReject(parseInt(rj.getAttribute('data-id'), 10), rj.getAttribute('data-sub') || ''); return; }
         });
@@ -195,11 +207,14 @@
             }
         }
 
-        async function approveFpa(id) {
-            if (!confirm('Approve this FPA? It will then count in the DPR Compliance Summary.')) return;
+        let approveId = null;
+        function openApprove(id, sub) { approveId = id; document.getElementById('ap-sub').textContent = sub || ''; document.getElementById('ap-remark').value = ''; document.getElementById('ap-mask').classList.add('open'); }
+        function closeApprove() { approveId = null; document.getElementById('ap-mask').classList.remove('open'); }
+        async function confirmApprove() {
+            const remark = document.getElementById('ap-remark').value.trim();
             try {
-                const res = await JPSMS.api.post(`/qc/fpa/${id}/approve`, {});
-                if (res.ok) { JPSMS.toast('FPA approved'); loadFpa(); }
+                const res = await JPSMS.api.post(`/qc/fpa/${approveId}/approve`, { remark });
+                if (res.ok) { JPSMS.toast('FPA approved'); closeApprove(); loadFpa(); }
                 else JPSMS.toast(res.error || 'Approve failed', 'error');
             } catch (e) { JPSMS.toast('Approve failed', 'error'); }
         }
