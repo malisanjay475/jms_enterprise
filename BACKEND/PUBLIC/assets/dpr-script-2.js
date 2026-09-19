@@ -404,7 +404,7 @@
                             style="display:block;padding:0;border:2px solid #e2e8f0;background:#f8fafc;cursor:zoom-in;border-radius:10px;overflow:hidden;transition:border-color 0.2s,transform 0.2s;width:100%"
                             onmouseover="this.style.borderColor='#93c5fd';this.style.transform='scale(1.02)'"
                             onmouseout="this.style.borderColor='#e2e8f0';this.style.transform='scale(1)'">
-                            <img src="${dprEsc(src)}" alt="FPA image ${i + 1}" loading="lazy" decoding="async"
+                            <img src="${dprEsc(/^\/uploads\/qc-images\//.test(src) ? ('/api/qc/thumb?src=' + encodeURIComponent(src) + '&w=360') : src)}" alt="FPA image ${i + 1}" loading="lazy" decoding="async"
                                 style="width:100%;aspect-ratio:4/3;object-fit:cover;display:block;border-radius:8px">
                         </button>
                         ${(canDelFpa && fpaRowId) ? `<button type="button" title="Delete this FPA image"
