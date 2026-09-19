@@ -13263,6 +13263,13 @@ app.get('/api/admin/deleted-plans', async (req, res) => {
       return res.status(403).json({ ok: false, error: 'Admin or Superadmin only.' });
     }
 
+    // Factory scope: a non-global admin only sees candidates in the factories
+    // mapped to them via user_factories. Superadmin / global_access see all.
+    const scope = await getFactoryScopeForRequest(req);
+    if (scope.hasAccessControl && !scope.canSelectAllFactories && !scope.allowedFactoryIds.length) {
+      return res.json({ ok: true, plans: [] });
+    }
+
     const search = String(req.query.q || '').trim().toLowerCase();
 
     // DISTINCT ON keeps only the most recent snapshot per (plan_id, factory).
@@ -13293,8 +13300,13 @@ app.get('/api/admin/deleted-plans', async (req, res) => {
     `);
 
     let list = rows;
+    // Restrict to the admin's own factories unless they can select all.
+    if (scope.hasAccessControl && !scope.canSelectAllFactories) {
+      const allowed = new Set(scope.allowedFactoryIds);
+      list = list.filter(r => r.factoryId != null && allowed.has(Number(r.factoryId)));
+    }
     if (search) {
-      list = rows.filter(r =>
+      list = list.filter(r =>
         [r.orderNo, r.ourCode, r.planId, r.machine, r.mouldName, r.mouldNo]
           .some(v => String(v || '').toLowerCase().includes(search))
       );
@@ -13315,6 +13327,13 @@ app.post('/api/admin/recover-deleted-plan', async (req, res) => {
     const actor = await getRequestActor(req);
     if (!actor || !isAdminLikeRole(actor)) {
       return res.status(403).json({ ok: false, error: 'Admin or Superadmin only.' });
+    }
+
+    // Factory scope for non-global admins (superadmin / global_access bypass).
+    const scope = await getFactoryScopeForRequest(req);
+    const restrictFactories = scope.hasAccessControl && !scope.canSelectAllFactories;
+    if (restrictFactories && !scope.allowedFactoryIds.length) {
+      return res.status(403).json({ ok: false, error: 'No factories are mapped to your account.' });
     }
 
     const planId  = String(req.body?.planId  || '').trim();
@@ -13361,6 +13380,13 @@ app.post('/api/admin/recover-deleted-plan', async (req, res) => {
     const snapFactoryId = (planSnap.factory_id != null ? planSnap.factory_id
                           : (histRows[0].factory_id != null ? histRows[0].factory_id : factoryId));
 
+    // Enforce factory scope: a non-global admin may only recover plans that
+    // belong to a factory mapped to them.
+    if (restrictFactories &&
+        !(snapFactoryId != null && scope.allowedFactoryIds.includes(Number(snapFactoryId)))) {
+      return res.status(403).json({ ok: false, error: 'You can only recover plans from your own factory.' });
+    }
+
     // Guard: never create a duplicate if a live row already exists.
     const existing = await q(
       `SELECT id FROM plan_board
@@ -13405,7 +13431,18 @@ app.post('/api/admin/recover-deleted-plan', async (req, res) => {
     cols.push('"updated_at"'); placeholders.push('NOW()'); // literal — no bound value
 
     const insertSql = `INSERT INTO plan_board (${cols.join(', ')}) VALUES (${placeholders.join(', ')}) RETURNING id, plan_id`;
-    const inserted = await q(insertSql, values);
+    let inserted;
+    try {
+      inserted = await q(insertSql, values);
+    } catch (insErr) {
+      // A concurrent recovery can slip past the live-row check above; the
+      // plan_board unique index then rejects the losing INSERT with 23505.
+      // Report it as a conflict rather than a 500.
+      if (insErr && insErr.code === '23505') {
+        return res.status(409).json({ ok: false, error: `Plan ${snapPlanId} was just recovered by another request.` });
+      }
+      throw insErr;
+    }
     const newId = inserted[0]?.id;
 
     await q(

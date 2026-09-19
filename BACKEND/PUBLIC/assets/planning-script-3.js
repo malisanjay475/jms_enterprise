@@ -7801,6 +7801,10 @@
               const data = (res && res.data) ? res.data : res;
               if (res.ok || (data && data.ok)) {
                 if (typeof toast === 'function') toast((data && data.message) || 'Plan recovered', 'success');
+                // The recovery POST hits /admin/... so it misses the cache's
+                // /planning/ auto-invalidation rule — drop the board cache
+                // manually or the restored plan stays hidden until the TTL.
+                if (window._planCache && window._planCache.invalidate) window._planCache.invalidate();
                 await window.loadRecoverDeletedList();
                 if (typeof loadMasterPlan === 'function') loadMasterPlan();
               } else {
