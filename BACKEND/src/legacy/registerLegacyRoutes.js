@@ -5505,6 +5505,8 @@ async function initializeLegacyRuntime() {
     await q(`ALTER TABLE qc_job_checks ADD COLUMN IF NOT EXISTS factory_id INTEGER`);
     await q(`ALTER TABLE qc_job_checks ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW()`);
     await qIdx(`CREATE INDEX IF NOT EXISTS idx_qc_job_checks_lookup ON qc_job_checks (job_card_no, plan_id, machine, date, shift)`);
+    // Speeds up the FPA list/pending-count (WHERE fpa_status='Done' + approval status + date).
+    await qIdx(`CREATE INDEX IF NOT EXISTS idx_qc_job_checks_fpa ON qc_job_checks (fpa_status, fpa_approval_status, date)`);
 
     // QC VERIFICATION TABLE — QC supervisor verifies hourly DPR entries every 2 hrs
     // UNIQUE on (machine, dpr_date, shift, hour_slot) — not dpr_entry_id, because
@@ -27968,7 +27970,11 @@ app.get('/api/qc/fpa/list', async (req, res) => {
          COALESCE(jc.fpa_resubmit_count, 0) AS fpa_resubmit_count
        FROM qc_job_checks jc
        WHERE jc.fpa_status = 'Done'
-         AND jc.date = $1::date
+         -- Always surface PENDING FPAs regardless of the selected date so an
+         -- approver never misses one stuck on an earlier day (this makes the
+         -- page's Pending count match the sidebar badge). Approved/Rejected
+         -- stay scoped to the chosen date.
+         AND (COALESCE(jc.fpa_approval_status,'Pending') = 'Pending' OR jc.date = $1::date)
          AND ($2::text IS NULL OR jc.shift = $2::text)
          AND ($3::text IS NULL OR jc.machine = $3::text)
          AND ($4::int IS NULL OR jc.factory_id = $4 OR jc.factory_id IS NULL)
