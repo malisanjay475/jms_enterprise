@@ -146,7 +146,9 @@
             if (!container) return;
             try {
                 const api = (window.JPSMS && window.JPSMS.api) ? window.JPSMS.api : window.api;
-                const res = await api.get('/dpr/stopped-machines');
+                // Scope the banner to the Factory dropdown too, so it matches the matrix below.
+                const bannerFactory = document.getElementById('s-factory')?.value || '';
+                const res = await api.get(`/dpr/stopped-machines?factory_id=${encodeURIComponent(bannerFactory || 'all')}`);
                 const list = (res && res.ok && Array.isArray(res.data)) ? res.data : [];
                 window.__dprStoppedMachines = list;
                 if (!list.length) return;
@@ -1198,6 +1200,12 @@
                     }
 
                     const processQuery = `&process=${encodeURIComponent(dprProcess)}`;
+                    // Factory dropdown must scope the SERVER query, not just the client-side
+                    // machine-list filter. Without this, changing Factory left the summary
+                    // matrix scoped by the x-factory-id header (the user's home factory), so
+                    // other units showed 0. Backend honours ?factory_id via resolveReportFactoryId
+                    // ('all' -> every factory the request may see; LOCAL boxes stay pinned).
+                    const factoryQuery = `&factory_id=${encodeURIComponent(selectedFactory || 'all')}`;
                     const selectedLines = selLines.slice(); // [] = all lines
                     const groupBy = 'machine'; // Compliance Summary is always machine-wise now
                     const filterMode = document.getElementById('s-eff-filter')?.value || '';
@@ -1224,18 +1232,18 @@
                     // Carries into the next shift until Moulding solves it.
                     const memoPromise = J.api.get('/qc/memos/active-by-machine').catch(() => ({ ok: false, data: [] }));
                     if (shiftMode === 'Both') {
-                        promises.push(J.api.get(`/dpr/summary-matrix?fromDate=${fromDate}&toDate=${toDate}&shift=Day${processQuery}`));
-                        promises.push(J.api.get(`/dpr/summary-matrix?fromDate=${fromDate}&toDate=${toDate}&shift=Night${processQuery}`));
+                        promises.push(J.api.get(`/dpr/summary-matrix?fromDate=${fromDate}&toDate=${toDate}&shift=Day${processQuery}${factoryQuery}`));
+                        promises.push(J.api.get(`/dpr/summary-matrix?fromDate=${fromDate}&toDate=${toDate}&shift=Night${processQuery}${factoryQuery}`));
                         promises.push(J.api.get(`/shift/team-range?fromDate=${fromDate}&toDate=${toDate}&shift=Day`));
                         promises.push(J.api.get(`/shift/team-range?fromDate=${fromDate}&toDate=${toDate}&shift=Night`));
                     } else if (shiftMode === 'Day') {
-                        promises.push(J.api.get(`/dpr/summary-matrix?fromDate=${fromDate}&toDate=${toDate}&shift=Day${processQuery}`));
+                        promises.push(J.api.get(`/dpr/summary-matrix?fromDate=${fromDate}&toDate=${toDate}&shift=Day${processQuery}${factoryQuery}`));
                         promises.push(Promise.resolve({ ok: true, data: { dates: {} } }));
                         promises.push(J.api.get(`/shift/team-range?fromDate=${fromDate}&toDate=${toDate}&shift=Day`));
                         promises.push(Promise.resolve({ ok: true, data: {} }));
                     } else { // Night
                         promises.push(Promise.resolve({ ok: true, data: { dates: {} } }));
-                        promises.push(J.api.get(`/dpr/summary-matrix?fromDate=${fromDate}&toDate=${toDate}&shift=Night${processQuery}`));
+                        promises.push(J.api.get(`/dpr/summary-matrix?fromDate=${fromDate}&toDate=${toDate}&shift=Night${processQuery}${factoryQuery}`));
                         promises.push(Promise.resolve({ ok: true, data: {} }));
                         promises.push(J.api.get(`/shift/team-range?fromDate=${fromDate}&toDate=${toDate}&shift=Night`));
                     }
