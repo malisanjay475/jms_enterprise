@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.69.1",
+  "latest": "1.69.2",
   "versions": [
+    {
+      "version": "1.69.2",
+      "date": "2026-09-19",
+      "title": "Recover a permanently-deleted Master Plan",
+      "modules": [
+        {
+          "app": "planning",
+          "label": "Planning",
+          "icon": "bi-calendar3",
+          "changes": [
+            { "type": "feat", "text": "Admins and Superadmins can now bring back a plan that was deleted by mistake. Open Master Plan and use 'Recover Deleted' to find and restore plans that were checked or approved before being removed." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.69.1",
       "date": "2026-09-19",
