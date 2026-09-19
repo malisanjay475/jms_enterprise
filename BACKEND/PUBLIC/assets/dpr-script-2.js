@@ -104,6 +104,60 @@
         if (wrap) wrap.style.display = 'none';
     }
 
+    // QC 2-hour Online Report inside the DPR job modal (select QC → see the slot checks).
+    const QC_ONLINE_SLOTS = ['06-07', '08-09', '10-11', '12-01', '02-03', '04-05'];
+    function qcSlotCell(status, problem, remarks) {
+        if (!status) return '<span style="color:#cbd5e1">—</span>';
+        const ok = String(status).toUpperCase().includes('OK') && !String(status).toUpperCase().includes('NOT');
+        const badge = ok ? '<span style="color:#059669;font-weight:700">✔ OK</span>'
+                         : '<span style="color:#dc2626;font-weight:700">✘ Not OK</span>';
+        const extra = ok ? '' : `<div style="font-size:11px;color:#64748b">${dprEsc([problem, remarks].filter(Boolean).join(' · '))}</div>`;
+        return badge + extra;
+    }
+    async function toggleJobOnlineQC(btn) {
+        const box = document.getElementById('modalJobOnlineQC');
+        if (!box) return;
+        if (box.style.display !== 'none') { box.style.display = 'none'; btn.innerHTML = '<i class="bi bi-clipboard-data"></i> Show QC 2-hour Online Report'; return; }
+        box.style.display = 'block';
+        btn.innerHTML = '<i class="bi bi-clipboard-data"></i> Hide QC 2-hour Online Report';
+        box.innerHTML = '<div style="color:#64748b;font-size:0.82rem">Loading QC checks…</div>';
+        const scope = getJobSummaryScope();
+        const machine = btn.getAttribute('data-machine') || '';
+        try {
+            const qs = new URLSearchParams();
+            if (scope.date) qs.set('date', scope.date);
+            if (scope.shift) qs.set('shift', scope.shift);
+            if (machine) qs.set('machine', machine);
+            const res = await fetch(`/api/qc/online-report/list?${qs.toString()}`);
+            const json = await res.json();
+            const rows = (json.ok && Array.isArray(json.data)) ? json.data : [];
+            if (!rows.length) { box.innerHTML = '<div style="color:#64748b;font-size:0.82rem">No QC 2-hour checks for this machine/shift.</div>'; return; }
+            let html = `<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:0.8rem">
+                <thead><tr style="text-align:left;color:#64748b">
+                  <th style="padding:6px 8px">Slot</th><th style="padding:6px 8px">Visual</th>
+                  <th style="padding:6px 8px">Colour</th><th style="padding:6px 8px">Function/Fitment</th>
+                  <th style="padding:6px 8px">By</th><th style="padding:6px 8px">When</th>
+                </tr></thead><tbody>`;
+            QC_ONLINE_SLOTS.forEach(sl => {
+                const r = rows.find(x => x.slot === sl);
+                if (!r) return;
+                const when = r.entered_at ? new Date(r.entered_at).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', hour12: true }) : '';
+                html += `<tr style="border-top:1px solid #f1f5f9">
+                  <td style="padding:6px 8px;font-weight:600">${dprEsc(sl)}</td>
+                  <td style="padding:6px 8px">${qcSlotCell(r.visual_status, r.visual_problem, r.visual_remarks)}</td>
+                  <td style="padding:6px 8px">${qcSlotCell(r.colour_status, r.colour_problem, r.colour_remarks)}</td>
+                  <td style="padding:6px 8px">${qcSlotCell(r.ff_status, r.ff_problem, '')}</td>
+                  <td style="padding:6px 8px;color:#64748b">${dprEsc(r.entered_by || '')}</td>
+                  <td style="padding:6px 8px;color:#64748b">${dprEsc(when)}</td>
+                </tr>`;
+            });
+            html += '</tbody></table></div>';
+            box.innerHTML = html;
+        } catch (e) {
+            box.innerHTML = '<div style="color:#b91c1c;font-size:0.82rem">Failed to load QC checks.</div>';
+        }
+    }
+
     function openColourHistory(encodedColour) {
         const colour = decodeURIComponent(encodedColour || '');
         const panel = document.getElementById('modalJobHistoryPanel');
@@ -360,6 +414,13 @@
                     </div>
                 ` : '<div style="color:#64748b; font-size:0.82rem; margin-top:10px">No FPA images saved for this job yet.</div>'}
                 ${fpaApprovalNote}
+                <div style="margin-top:14px; border-top:1px dashed #e2e8f0; padding-top:12px">
+                    <button type="button" onclick="toggleJobOnlineQC(this)" data-machine="${dprEsc(machine)}"
+                        style="display:inline-flex; align-items:center; gap:6px; background:#0ea5e9; color:#fff; border:none; border-radius:8px; padding:8px 14px; font-weight:700; font-size:0.82rem; cursor:pointer">
+                        <i class="bi bi-clipboard-data"></i> Show QC 2-hour Online Report
+                    </button>
+                    <div id="modalJobOnlineQC" style="display:none; margin-top:10px"></div>
+                </div>
             `;
         } catch (err) {
             box.innerHTML = `<div style="color:#b91c1c; font-size:0.85rem">QC evidence could not be loaded: ${String(err.message || err)}</div>`;

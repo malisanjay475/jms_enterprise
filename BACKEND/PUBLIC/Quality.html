@@ -419,9 +419,12 @@
                     const res = await JPSMS.api.get('/machines?process=Moulding');
                     if (res.ok && Array.isArray(res.data)) {
                         const sel = document.getElementById('filter-machine');
-                        res.data.forEach(m => {
-                            const machineName = typeof m === 'string' ? m : (m.machine || m.machine_name || m.name || '');
-                            if (!machineName) return;
+                        // Natural machine-number order (matches supervisor.html): "M2" before "M10".
+                        const names = res.data
+                            .map(m => (typeof m === 'string' ? m : (m.machine || m.machine_name || m.name || '')))
+                            .filter(Boolean)
+                            .sort((a, b) => String(a).localeCompare(String(b), undefined, { numeric: true, sensitivity: 'base' }));
+                        names.forEach(machineName => {
                             const opt = document.createElement('option');
                             opt.value = machineName;
                             opt.textContent = machineName;
@@ -494,6 +497,12 @@
                 const detail = ok ? '' : `<div style="font-size:11px;color:var(--text-muted)">${[problem, remarks].filter(Boolean).join(' · ')}</div>`;
                 return badge + detail;
             }
+            function fmtQcWhen(ts) {
+                if (!ts) return '';
+                const d = new Date(ts);
+                if (isNaN(d)) return '';
+                return d.toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', hour12: true });
+            }
             async function loadOnlineQC() {
                 const box = document.getElementById('onlineqc-container');
                 box.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text-muted)">Loading QC checks…</div>';
@@ -513,7 +522,7 @@
                     const byMachine = {};
                     rows.forEach(r => { (byMachine[r.machine] = byMachine[r.machine] || []).push(r); });
                     let html = '';
-                    Object.keys(byMachine).sort().forEach(m => {
+                    Object.keys(byMachine).sort((a, b) => String(a).localeCompare(String(b), undefined, { numeric: true, sensitivity: 'base' })).forEach(m => {
                         const slots = byMachine[m];
                         const first = slots[0] || {};
                         html += `<div class="card" style="margin-bottom:14px;padding:14px">
@@ -523,7 +532,7 @@
                             <thead><tr style="text-align:left;color:var(--text-muted)">
                               <th style="padding:6px 8px">Slot</th><th style="padding:6px 8px">Visual</th>
                               <th style="padding:6px 8px">Colour</th><th style="padding:6px 8px">Function/Fitment</th>
-                              <th style="padding:6px 8px">By</th>
+                              <th style="padding:6px 8px">By</th><th style="padding:6px 8px">When</th>
                             </tr></thead><tbody>`;
                         QC_SLOT_ORDER.forEach(sl => {
                             const r = slots.find(x => x.slot === sl);
@@ -534,6 +543,7 @@
                               <td style="padding:6px 8px">${qcStatusCell(r.colour_status, r.colour_problem, r.colour_remarks)}</td>
                               <td style="padding:6px 8px">${qcStatusCell(r.ff_status, r.ff_problem, '')}</td>
                               <td style="padding:6px 8px;color:var(--text-muted)">${r.entered_by || ''}</td>
+                              <td style="padding:6px 8px;color:var(--text-muted)">${fmtQcWhen(r.entered_at)}</td>
                             </tr>`;
                         });
                         html += '</tbody></table></div></div>';
@@ -561,8 +571,9 @@
                     let html = '';
 
                     // Sort lines numerically/alphabetically
-                    Object.keys(lines).sort().forEach(lineName => {
-                        const machines = lines[lineName];
+                    Object.keys(lines).sort((a, b) => String(a).localeCompare(String(b), undefined, { numeric: true, sensitivity: 'base' })).forEach(lineName => {
+                        const machines = (lines[lineName] || []).slice()
+                            .sort((a, b) => String(a.machine).localeCompare(String(b.machine), undefined, { numeric: true, sensitivity: 'base' }));
 
                         html += `
                         <div class="card" style="margin-bottom:24px; border:1px solid #e2e8f0; border-radius:12px; overflow:hidden; box-shadow:0 4px 6px -1px rgba(0,0,0,0.05)">
