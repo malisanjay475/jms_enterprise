@@ -28047,6 +28047,46 @@ app.get('/api/qc/fpa/pending-count', async (req, res) => {
   }
 });
 
+// GET /api/qc/thumb?src=/uploads/qc-images/<file>&w=360 — fast, cached, EXIF-rotated
+// thumbnail for the FPA grids. Phone photos are multi-MB; the grid only needs a small
+// image (the lightbox still loads the full one). Cached to qc-images/.thumbs and served
+// with a 1-year immutable cache. Falls back to the original if resizing is unavailable.
+app.get('/api/qc/thumb', (req, res) => {
+  const src = String(req.query.src || '');
+  // Only files directly inside PUBLIC/uploads/qc-images (no path traversal).
+  if (!/^\/uploads\/qc-images\/[A-Za-z0-9._-]+$/.test(src)) return res.status(400).end('bad src');
+  const w = Math.min(1200, Math.max(60, parseInt(req.query.w, 10) || 360));
+  const srcPath = path.join(_qcImgDir, path.basename(src));
+  if (!fs.existsSync(srcPath)) return res.status(404).end('not found');
+
+  const sendFile = (p) => {
+    res.set('Cache-Control', 'public, max-age=31536000, immutable');
+    res.type('image/jpeg');
+    fs.createReadStream(p).on('error', () => { try { res.end(); } catch (_) {} }).pipe(res);
+  };
+
+  const thumbDir = path.join(_qcImgDir, '.thumbs');
+  const cachePath = path.join(thumbDir, `${path.basename(src).replace(/\.[^.]+$/, '')}.${w}.jpg`);
+  // Serve cached thumbnail when it's at least as new as the source.
+  try {
+    const cs = fs.statSync(cachePath), ss = fs.statSync(srcPath);
+    if (cs.mtimeMs >= ss.mtimeMs) return sendFile(cachePath);
+  } catch (_) {}
+
+  let sharp = null;
+  try { sharp = require('sharp'); } catch (_) { sharp = null; }
+  if (!sharp) return sendFile(srcPath); // no resizer → original (still cached)
+
+  try { fs.mkdirSync(thumbDir, { recursive: true }); } catch (_) {}
+  sharp(srcPath)
+    .rotate() // honour EXIF orientation so thumbs aren't sideways
+    .resize({ width: w, withoutEnlargement: true })
+    .jpeg({ quality: 68, mozjpeg: true })
+    .toFile(cachePath)
+    .then(() => sendFile(cachePath))
+    .catch(() => sendFile(srcPath)); // any resize failure → original
+});
+
 // GET /api/qc/fpa/mine — a QC user's own FPAs (for the native app: see Pending / Rejected).
 app.get('/api/qc/fpa/mine', async (req, res) => {
   try {
