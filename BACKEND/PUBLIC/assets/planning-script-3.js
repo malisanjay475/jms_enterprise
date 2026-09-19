@@ -700,6 +700,7 @@
               <div class="master-toolbar-bottom">
                 <div class="master-toolbar-secondary">
                   <button class="btn" onclick="window.showAuditLog()" title="View Activity Log"><i class="bi bi-clock-history"></i> History</button>
+                  <button class="btn" id="btnRecoverDeleted" style="display:none" onclick="window.openRecoverDeletedModal()" title="Recover permanently deleted plans (Admin / Superadmin)"><i class="bi bi-arrow-counterclockwise"></i> Recover Deleted</button>
                 </div>
               </div>
             </div>
@@ -7668,6 +7669,156 @@
           }
         }
         window.loadMasterPlan = loadMasterPlan;
+
+        /* ─────────────────────────────────────────────────────────────
+           RECOVER PERMANENTLY-DELETED PLANS (Admin / Superadmin)
+           Rebuilds a hard-deleted plan_board row from the JC-approval
+           snapshot via /api/admin/recover-deleted-plan.
+        ───────────────────────────────────────────────────────────── */
+        (function initRecoverDeletedUI() {
+          const isAdminLike = () => {
+            try {
+              if (!(window.JPSMS && window.JPSMS.auth)) return false;
+              const u = JPSMS.auth.getUser() || {};
+              const r = String(u.role_code || u.role || '').toLowerCase();
+              return r === 'admin' || r === 'superadmin' ||
+                (JPSMS.auth.hasRole && (JPSMS.auth.hasRole('admin') || JPSMS.auth.hasRole('superadmin')));
+            } catch (_) { return false; }
+          };
+
+          // Reveal the toolbar button once auth is known.
+          const reveal = () => {
+            const btn = document.getElementById('btnRecoverDeleted');
+            if (btn) btn.style.display = isAdminLike() ? '' : 'none';
+          };
+          reveal();
+          setTimeout(reveal, 400);
+          setTimeout(reveal, 1500);
+
+          const rApi = () => (window.JPSMS && window.JPSMS.api) ? window.JPSMS.api : window.api;
+          const rEsc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c =>
+            ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+          function ensureModal() {
+            if (document.getElementById('recoverDeletedModal')) return;
+            const wrap = document.createElement('div');
+            wrap.innerHTML = `
+              <div id="recoverDeletedModal" style="z-index:10000;display:none;position:fixed;inset:0;background:rgba(15,23,42,0.6);align-items:flex-start;justify-content:center;overflow-y:auto;padding:24px 10px;">
+                <div style="background:#fff;border-radius:16px;width:900px;max-width:98vw;box-shadow:0 18px 52px rgba(0,0,0,0.28);overflow:hidden;margin:auto;">
+                  <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;background:#0f172a;color:#fff;">
+                    <div style="font-weight:800;font-size:1.05rem;"><i class="bi bi-arrow-counterclockwise"></i> Recover Deleted Plans</div>
+                    <button class="btn" onclick="window.closeRecoverDeletedModal()" style="background:transparent;color:#fff;border:none;font-size:1.2rem;"><i class="bi bi-x-lg"></i></button>
+                  </div>
+                  <div style="padding:14px 20px;border-bottom:1px solid #e2e8f0;">
+                    <div style="display:flex;gap:8px;align-items:center;">
+                      <input id="recoverSearch" placeholder="Search order, mould, machine, plan id..." style="flex:1;height:40px;border:1px solid #cbd5e1;border-radius:10px;padding:0 12px;font-size:.95rem;"/>
+                      <button class="btn" onclick="window.loadRecoverDeletedList()" style="height:40px"><i class="bi bi-arrow-clockwise"></i> Refresh</button>
+                    </div>
+                    <div class="muted mini" style="margin-top:8px;">Only plans that carry a saved snapshot (were PPC-checked / Moulding-approved / rejected before deletion) can be recovered here.</div>
+                  </div>
+                  <div id="recoverDeletedBody" style="max-height:60vh;overflow-y:auto;padding:8px 20px 20px;"></div>
+                </div>
+              </div>`;
+            document.body.appendChild(wrap.firstElementChild);
+            const s = document.getElementById('recoverSearch');
+            if (s) s.addEventListener('input', () => renderRecoverList());
+          }
+
+          let _recoverCache = [];
+
+          function renderRecoverList() {
+            const body = document.getElementById('recoverDeletedBody');
+            if (!body) return;
+            const term = String((document.getElementById('recoverSearch') || {}).value || '').trim().toLowerCase();
+            const list = !term ? _recoverCache : _recoverCache.filter(r =>
+              [r.orderNo, r.ourCode, r.planId, r.machine, r.mouldName, r.mouldNo]
+                .some(v => String(v || '').toLowerCase().includes(term)));
+
+            if (!list.length) {
+              body.innerHTML = `<div class="muted" style="text-align:center;padding:28px;">No recoverable deleted plans found.</div>`;
+              return;
+            }
+            body.innerHTML = list.map(r => {
+              const when = r.lastActionAt ? new Date(r.lastActionAt).toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true }) : '-';
+              const fac = r.factoryName ? r.factoryName : (r.factoryId != null ? ('Factory ' + r.factoryId) : '-');
+              return `
+                <div style="display:flex;align-items:center;gap:14px;border:1px solid #e2e8f0;border-radius:12px;padding:12px 14px;margin-top:10px;">
+                  <div style="flex:1;min-width:0;">
+                    <div style="font-weight:800;font-size:.98rem;">${rEsc(r.orderNo || '-')} <span style="color:#64748b;font-weight:600;">· ${rEsc(r.planId || '-')}</span></div>
+                    <div style="font-size:.85rem;color:#475569;margin-top:3px;">
+                      <span style="margin-right:12px;"><i class="bi bi-cpu"></i> ${rEsc(r.machine || '-')}</span>
+                      <span style="margin-right:12px;"><i class="bi bi-box"></i> ${rEsc(r.mouldName || r.mouldNo || '-')}</span>
+                      <span><i class="bi bi-123"></i> Qty ${rEsc(r.planQty || '-')}</span>
+                    </div>
+                    <div style="font-size:.78rem;color:#94a3b8;margin-top:3px;"><i class="bi bi-building"></i> ${rEsc(fac)} · last action ${rEsc(when)}</div>
+                  </div>
+                  <button class="btn primary recover-btn" style="height:38px;white-space:nowrap;"
+                    data-plan="${rEsc(r.planId || '')}" data-order="${rEsc(r.orderNo || '')}" data-our="${rEsc(r.ourCode || '')}" data-fac="${r.factoryId == null ? '' : r.factoryId}">
+                    <i class="bi bi-arrow-counterclockwise"></i> Restore
+                  </button>
+                </div>`;
+            }).join('');
+
+            body.querySelectorAll('.recover-btn').forEach(btn => {
+              btn.addEventListener('click', () => window.recoverDeletedPlan(
+                btn.getAttribute('data-plan'), btn.getAttribute('data-order'),
+                btn.getAttribute('data-our'), btn.getAttribute('data-fac'), btn));
+            });
+          }
+
+          window.loadRecoverDeletedList = async function () {
+            const body = document.getElementById('recoverDeletedBody');
+            if (body) body.innerHTML = `<div class="muted" style="text-align:center;padding:28px;">Loading deleted plans...</div>`;
+            try {
+              const res = await rApi().get('/admin/deleted-plans');
+              const data = (res && res.data) ? res.data : res;
+              _recoverCache = (data && data.plans) ? data.plans : [];
+              renderRecoverList();
+            } catch (e) {
+              if (body) body.innerHTML = `<div class="error" style="text-align:center;padding:28px;">Failed to load: ${rEsc(e.message)}</div>`;
+            }
+          };
+
+          window.openRecoverDeletedModal = function () {
+            if (!isAdminLike()) { if (typeof toast === 'function') toast('Admin or Superadmin only', 'error'); return; }
+            ensureModal();
+            document.getElementById('recoverDeletedModal').style.display = 'flex';
+            window.loadRecoverDeletedList();
+          };
+
+          window.closeRecoverDeletedModal = function () {
+            const m = document.getElementById('recoverDeletedModal');
+            if (m) m.style.display = 'none';
+          };
+
+          window.recoverDeletedPlan = async function (planId, orderNo, ourCode, factoryId, btnEl) {
+            if (!confirm(`Restore plan ${planId || orderNo} back into Master Plan?`)) return;
+            if (btnEl) { btnEl.disabled = true; btnEl.innerHTML = '<i class="bi bi-hourglass-split"></i> Restoring...'; }
+            try {
+              const payload = { planId: planId || '', orderNo: orderNo || '', ourCode: ourCode || '' };
+              if (factoryId !== '' && factoryId != null) payload.factoryId = factoryId;
+              const res = await rApi().post('/admin/recover-deleted-plan', payload);
+              const data = (res && res.data) ? res.data : res;
+              if (res.ok || (data && data.ok)) {
+                if (typeof toast === 'function') toast((data && data.message) || 'Plan recovered', 'success');
+                // The recovery POST hits /admin/... so it misses the cache's
+                // /planning/ auto-invalidation rule — drop the board cache
+                // manually or the restored plan stays hidden until the TTL.
+                if (window._planCache && window._planCache.invalidate) window._planCache.invalidate();
+                await window.loadRecoverDeletedList();
+                if (typeof loadMasterPlan === 'function') loadMasterPlan();
+              } else {
+                const msg = (data && data.error) || res.error || 'Recovery failed';
+                if (typeof toast === 'function') toast(msg, 'error'); else alert(msg);
+                if (btnEl) { btnEl.disabled = false; btnEl.innerHTML = '<i class="bi bi-arrow-counterclockwise"></i> Restore'; }
+              }
+            } catch (e) {
+              const msg = e.message || 'Recovery error';
+              if (typeof toast === 'function') toast(msg, 'error'); else alert(msg);
+              if (btnEl) { btnEl.disabled = false; btnEl.innerHTML = '<i class="bi bi-arrow-counterclockwise"></i> Restore'; }
+            }
+          };
+        })();
 
         function renderMasterTable(list) {
           const NOW = new Date();

@@ -5779,6 +5779,12 @@ async function initializeLegacyRuntime() {
     await qIdx(`CREATE INDEX IF NOT EXISTS idx_dpr_hourly_planprod ON dpr_hourly(factory_id, plan_id) WHERE is_deleted = false AND plan_id IS NOT NULL;`);
     // std_actual setups are read by the same (shift, dpr_date, factory_id) filter.
     await qIdx(`CREATE INDEX IF NOT EXISTS idx_std_actual_shift_date_fac ON std_actual(shift, dpr_date, factory_id) WHERE is_deleted = false;`);
+    // DPR Compliance Summary perf: the summary-matrix mould-name fallback looks up
+    // mould_planning_summary by (or_jr_no, mould_name). The only existing unique index
+    // is on (or_jr_no, mould_no), so that lookup had no support and was previously done
+    // as a whole-table GROUP BY materialised twice per request. This index lets the
+    // rewritten per-row LATERAL lookup use an index range scan instead.
+    await qIdx(`CREATE INDEX IF NOT EXISTS idx_mps_orjr_mouldname ON mould_planning_summary(or_jr_no, mould_name);`);
 
     // Per-machine P1–P4 priority labels
     await q(`ALTER TABLE plan_board ADD COLUMN IF NOT EXISTS machine_priority TEXT DEFAULT NULL`);
@@ -7413,6 +7419,9 @@ app.post('/api/dpr/submit', async (req, res) => {
         factoryId || 1 // Default to 1 if missing
       ]
     );
+
+    // New production entry → drop cached Compliance Summary so it shows at once.
+    ttlCacheClear('dprSummaryMatrix');
 
     // Replace any SYSTEM-AUTOFILL carry-forward row for THIS slot. Auto-fill copies an
     // ongoing quick-action into elapsed slots so a down machine's idle hours are recorded,
@@ -13235,6 +13244,231 @@ app.get('/api/planning/audit', async (req, res) => {
   } catch (e) {
     console.error('planning/audit', e);
     res.status(500).json({ error: String(e) });
+  }
+});
+
+/* ============================================================
+   RECOVER PERMANENTLY-DELETED PLANS (Admin / Superadmin only)
+   ------------------------------------------------------------
+   /api/planning/delete is a HARD delete of the plan_board row —
+   the row is physically gone and only { machine, order } is kept
+   in plan_audit_logs. HOWEVER, every JC approval action stores a
+   FULL snapshot of the plan_board row in
+   plan_job_card_approval_history.snapshot->'plan'. If the plan
+   was ever PPC-checked / Moulding-approved / rejected before it
+   was deleted, that snapshot lets us rebuild the row.
+
+   - GET  /api/admin/deleted-plans        list plans that have a
+                                           snapshot but no live row.
+   - POST /api/admin/recover-deleted-plan  re-insert the plan_board
+                                           row from the latest snapshot.
+============================================================ */
+
+// GET /api/admin/deleted-plans — recoverable candidates (snapshot exists, live row does not)
+app.get('/api/admin/deleted-plans', async (req, res) => {
+  try {
+    const actor = await getRequestActor(req);
+    if (!actor || !isAdminLikeRole(actor)) {
+      return res.status(403).json({ ok: false, error: 'Admin or Superadmin only.' });
+    }
+
+    // Factory scope: a non-global admin only sees candidates in the factories
+    // mapped to them via user_factories. Superadmin / global_access see all.
+    const scope = await getFactoryScopeForRequest(req);
+    if (scope.hasAccessControl && !scope.canSelectAllFactories && !scope.allowedFactoryIds.length) {
+      return res.json({ ok: true, plans: [] });
+    }
+
+    const search = String(req.query.q || '').trim().toLowerCase();
+
+    // DISTINCT ON keeps only the most recent snapshot per (plan_id, factory).
+    const rows = await q(`
+      SELECT DISTINCT ON (h.plan_id, COALESCE(h.factory_id, 0))
+        h.plan_id                          AS "planId",
+        h.order_no                         AS "orderNo",
+        h.our_code                         AS "ourCode",
+        h.factory_id                       AS "factoryId",
+        f.name                             AS "factoryName",
+        h.acted_at                         AS "lastActionAt",
+        h.snapshot->'plan'->>'machine'     AS "machine",
+        h.snapshot->'plan'->>'mould_name'  AS "mouldName",
+        h.snapshot->'plan'->>'mould_no'    AS "mouldNo",
+        h.snapshot->'plan'->>'plan_qty'    AS "planQty",
+        h.snapshot->'plan'->>'status'      AS "status"
+      FROM plan_job_card_approval_history h
+      LEFT JOIN factories f ON f.id = h.factory_id
+      WHERE h.snapshot ? 'plan'
+        AND COALESCE(h.plan_id, '') <> ''
+        AND NOT EXISTS (
+          SELECT 1 FROM plan_board pb
+           WHERE pb.plan_id = h.plan_id
+             AND COALESCE(pb.factory_id, 0) = COALESCE(h.factory_id, 0)
+             AND COALESCE(pb.is_deleted, false) = false
+        )
+      ORDER BY h.plan_id, COALESCE(h.factory_id, 0), h.acted_at DESC
+    `);
+
+    let list = rows;
+    // Restrict to the admin's own factories unless they can select all.
+    if (scope.hasAccessControl && !scope.canSelectAllFactories) {
+      const allowed = new Set(scope.allowedFactoryIds);
+      list = list.filter(r => r.factoryId != null && allowed.has(Number(r.factoryId)));
+    }
+    if (search) {
+      list = list.filter(r =>
+        [r.orderNo, r.ourCode, r.planId, r.machine, r.mouldName, r.mouldNo]
+          .some(v => String(v || '').toLowerCase().includes(search))
+      );
+    }
+    // Most recently touched (i.e. most recently deleted) first.
+    list.sort((a, b) => new Date(b.lastActionAt || 0) - new Date(a.lastActionAt || 0));
+
+    res.json({ ok: true, plans: list });
+  } catch (e) {
+    console.error('admin/deleted-plans', e);
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// POST /api/admin/recover-deleted-plan — rebuild the plan_board row from its latest snapshot
+app.post('/api/admin/recover-deleted-plan', async (req, res) => {
+  try {
+    const actor = await getRequestActor(req);
+    if (!actor || !isAdminLikeRole(actor)) {
+      return res.status(403).json({ ok: false, error: 'Admin or Superadmin only.' });
+    }
+
+    // Factory scope for non-global admins (superadmin / global_access bypass).
+    const scope = await getFactoryScopeForRequest(req);
+    const restrictFactories = scope.hasAccessControl && !scope.canSelectAllFactories;
+    if (restrictFactories && !scope.allowedFactoryIds.length) {
+      return res.status(403).json({ ok: false, error: 'No factories are mapped to your account.' });
+    }
+
+    const planId  = String(req.body?.planId  || '').trim();
+    const orderNo = String(req.body?.orderNo || '').trim();
+    const ourCode = String(req.body?.ourCode || '').trim();
+    const factoryIdRaw = req.body?.factoryId;
+    const factoryId = (factoryIdRaw === undefined || factoryIdRaw === null || factoryIdRaw === '')
+      ? null : Number(factoryIdRaw);
+
+    if (!planId && !(orderNo && ourCode)) {
+      return res.status(400).json({ ok: false, error: 'Provide planId (or orderNo + ourCode) to recover.' });
+    }
+
+    // Find the latest snapshot that actually carries a plan row.
+    const conds = [`h.snapshot ? 'plan'`];
+    const params = [];
+    if (planId)  { params.push(planId);  conds.push(`h.plan_id = $${params.length}`); }
+    if (orderNo) { params.push(orderNo); conds.push(`TRIM(h.order_no) = TRIM($${params.length})`); }
+    if (ourCode) { params.push(ourCode); conds.push(`TRIM(COALESCE(h.our_code,'')) = TRIM($${params.length})`); }
+    if (factoryId !== null && !Number.isNaN(factoryId)) {
+      params.push(factoryId); conds.push(`COALESCE(h.factory_id,0) = COALESCE($${params.length}::int,0)`);
+    }
+
+    const histRows = await q(
+      `SELECT snapshot, plan_id, order_no, factory_id
+         FROM plan_job_card_approval_history h
+        WHERE ${conds.join(' AND ')}
+        ORDER BY h.acted_at DESC
+        LIMIT 1`,
+      params
+    );
+    if (!histRows.length) {
+      return res.status(404).json({ ok: false, error: 'No recoverable snapshot found for this plan. It may have been deleted before any PPC/Moulding approval, so no snapshot exists.' });
+    }
+
+    const snap = histRows[0].snapshot || {};
+    const planSnap = snap.plan || null;
+    if (!planSnap || typeof planSnap !== 'object') {
+      return res.status(404).json({ ok: false, error: 'Snapshot does not contain a full plan row.' });
+    }
+
+    const snapPlanId    = planSnap.plan_id  || histRows[0].plan_id  || planId;
+    const snapOrderNo   = planSnap.order_no || histRows[0].order_no || orderNo;
+    const snapFactoryId = (planSnap.factory_id != null ? planSnap.factory_id
+                          : (histRows[0].factory_id != null ? histRows[0].factory_id : factoryId));
+
+    // Enforce factory scope: a non-global admin may only recover plans that
+    // belong to a factory mapped to them.
+    if (restrictFactories &&
+        !(snapFactoryId != null && scope.allowedFactoryIds.includes(Number(snapFactoryId)))) {
+      return res.status(403).json({ ok: false, error: 'You can only recover plans from your own factory.' });
+    }
+
+    // Guard: never create a duplicate if a live row already exists.
+    const existing = await q(
+      `SELECT id FROM plan_board
+        WHERE plan_id = $1
+          AND COALESCE(factory_id,0) = COALESCE($2::int,0)
+          AND COALESCE(is_deleted,false) = false
+        LIMIT 1`,
+      [snapPlanId, snapFactoryId]
+    );
+    if (existing.length) {
+      return res.status(409).json({ ok: false, error: `Plan ${snapPlanId} is already present (row ${existing[0].id}). Nothing to recover.` });
+    }
+
+    // Rebuild the INSERT from the snapshot, keeping only columns that still exist
+    // in plan_board today. The original primary key is intentionally dropped so a
+    // fresh serial is assigned — restoring the old id could collide with a row
+    // created after the deletion. updated_at is stamped NOW() so the recovered row
+    // syncs to MAIN/LOCAL (a status write that skips updated_at gets resurrected).
+    const colInfo = await q(
+      `SELECT column_name, data_type
+         FROM information_schema.columns
+        WHERE table_name = 'plan_board'`
+    );
+    const typeByCol = new Map(colInfo.map(c => [c.column_name, String(c.data_type).toLowerCase()]));
+
+    const cols = [];
+    const placeholders = [];
+    const values = [];
+    for (const [key, val] of Object.entries(planSnap)) {
+      if (key === 'id' || key === 'is_deleted' || key === 'updated_at') continue; // forced below
+      if (!typeByCol.has(key)) continue;   // column dropped since the snapshot
+      if (val === undefined) continue;
+      const dtype = typeByCol.get(key);
+      const isJson = (dtype === 'jsonb' || dtype === 'json');
+      cols.push(`"${key}"`);
+      placeholders.push(`$${values.length + 1}${isJson ? '::jsonb' : ''}`);
+      values.push(isJson && val !== null && typeof val === 'object' ? JSON.stringify(val) : val);
+    }
+
+    // Force a clean, visible restore state.
+    cols.push('"is_deleted"'); placeholders.push(`$${values.length + 1}`); values.push(false);
+    cols.push('"updated_at"'); placeholders.push('NOW()'); // literal — no bound value
+
+    const insertSql = `INSERT INTO plan_board (${cols.join(', ')}) VALUES (${placeholders.join(', ')}) RETURNING id, plan_id`;
+    let inserted;
+    try {
+      inserted = await q(insertSql, values);
+    } catch (insErr) {
+      // A concurrent recovery can slip past the live-row check above; the
+      // plan_board unique index then rejects the losing INSERT with 23505.
+      // Report it as a conflict rather than a 500.
+      if (insErr && insErr.code === '23505') {
+        return res.status(409).json({ ok: false, error: `Plan ${snapPlanId} was just recovered by another request.` });
+      }
+      throw insErr;
+    }
+    const newId = inserted[0]?.id;
+
+    await q(
+      "INSERT INTO plan_audit_logs (plan_id, action, details, user_name) VALUES ($1, 'RECOVER_DELETED', $2, $3)",
+      [newId, JSON.stringify({ recovered_plan_id: snapPlanId, order: snapOrderNo, factory_id: snapFactoryId, source: 'approval-history snapshot' }), actor.username]
+    );
+
+    // Re-evaluate the order status so it drops back to planned, then push the row out.
+    if (snapOrderNo) { try { await syncOrderStatus(snapOrderNo); } catch (_) {} }
+    if (typeof syncService !== 'undefined' && syncService.triggerSync) {
+      try { syncService.triggerSync(); } catch (_) {}
+    }
+
+    res.json({ ok: true, message: `Plan ${snapPlanId} recovered for ${snapOrderNo}.`, id: newId, planId: snapPlanId });
+  } catch (e) {
+    console.error('admin/recover-deleted-plan', e);
+    res.status(500).json({ ok: false, error: String(e) });
   }
 });
 
@@ -22121,6 +22355,20 @@ app.get('/api/dpr/summary-matrix', async (req, res) => {
     // [[project_reports_factory_scope_gotcha]]
     const factoryId = await resolveScopedReportFactoryId(req);
 
+    // ── Response cache ────────────────────────────────────────────────────────
+    // The summary-matrix query is heavy (many joins over dpr_hourly / std_actual /
+    // plan_board / moulds). The Compliance Summary fires it repeatedly — Day+Night
+    // in parallel on every open, again on each factory/shift/process toggle, and on
+    // every re-open. Serving identical requests from a short-lived cache makes those
+    // repeats instant. Live ranges (include today) use a short TTL so fresh entries
+    // still appear quickly; purely-historical ranges (never change) cache far longer.
+    // DPR write endpoints call ttlCacheClear('dprSummaryMatrix') so edits show at once.
+    const _todayStr = todayLocalDateStr(new Date());
+    const cacheKey = `${fDate}|${tDate}|${shift}|${requestedProcess || ''}|${factoryId || 'all'}`;
+    const isLiveRange = tDate >= _todayStr;
+    const cachedMatrix = ttlCacheGet('dprSummaryMatrix', cacheKey);
+    if (cachedMatrix) return res.json(cachedMatrix);
+
     // Guard against duplicate dpr_hourly rows. An outdated LOCAL server that syncs
     // dpr_hourly without a global_id makes MAIN insert a fresh copy each cycle, so one
     // hourly reading can exist N times (KAN-119). Collapse to one row per natural key
@@ -22194,11 +22442,15 @@ app.get('/api/dpr/summary-matrix', async (req, res) => {
         ORDER BY (pb2.plan_id = d.plan_id) DESC, pb2.id DESC
         LIMIT 1
       ) pb ON true
-      LEFT JOIN (
-        SELECT or_jr_no, mould_name, MAX(NULLIF(TRIM(mould_no), '')) as mould_no
-        FROM mould_planning_summary
-        GROUP BY or_jr_no, mould_name
-      ) mps ON mps.or_jr_no = d.order_no AND mps.mould_name = pb.mould_name
+      -- mould_no fallback from the plan summary. Was a whole-table GROUP BY
+      -- materialised on every request; rewritten as a per-row indexed lookup
+      -- (idx_mps_orjr_mouldname) — same value, a fraction of the cost. KAN-perf.
+      LEFT JOIN LATERAL (
+        SELECT MAX(mps2.or_jr_no) as or_jr_no, MAX(mps2.mould_name) as mould_name,
+               MAX(NULLIF(TRIM(mps2.mould_no), '')) as mould_no
+        FROM mould_planning_summary mps2
+        WHERE mps2.or_jr_no = d.order_no AND mps2.mould_name = pb.mould_name
+      ) mps ON true
       -- LATERAL LIMIT 1: duplicate usernames (multi-factory/synced accounts) would
       -- otherwise fan out each hourly entry and double-count good/reject in the matrix.
       LEFT JOIN LATERAL (
@@ -22329,11 +22581,14 @@ app.get('/api/dpr/summary-matrix', async (req, res) => {
         ORDER BY pb2.id DESC
         LIMIT 1
       ) pb ON true
-      LEFT JOIN (
-        SELECT or_jr_no, mould_name, MAX(NULLIF(TRIM(mould_no), '')) as mould_no 
-        FROM mould_planning_summary 
-        GROUP BY or_jr_no, mould_name
-      ) mps ON mps.or_jr_no = COALESCE(pb.order_no, s.order_no) AND mps.mould_name = COALESCE(pb.mould_name, s.mould_name)
+      -- Per-row indexed lookup (idx_mps_orjr_mouldname), replacing a whole-table
+      -- GROUP BY that was materialised on every request. Same value. KAN-perf.
+      LEFT JOIN LATERAL (
+        SELECT MAX(mps2.mould_name) as mould_name, MAX(NULLIF(TRIM(mps2.mould_no), '')) as mould_no
+        FROM mould_planning_summary mps2
+        WHERE mps2.or_jr_no = COALESCE(pb.order_no, s.order_no)
+          AND mps2.mould_name = COALESCE(pb.mould_name, s.mould_name)
+      ) mps ON true
       LEFT JOIN moulds m ON TRIM(m.mould_number) = TRIM(COALESCE(pb.mould_code, ''))
       LEFT JOIN moulds m2 ON TRIM(m2.mould_number) = COALESCE(NULLIF(TRIM(mps.mould_no), ''), NULLIF(TRIM(pb.mould_code), ''), '')
       -- m3/m4 are fuzzy mould-name fallbacks for std cycle-time/weight/cavity.
@@ -22504,7 +22759,11 @@ app.get('/api/dpr/summary-matrix', async (req, res) => {
       groupedData[dt] = { entries: dataMap, requiredSlots, status, maintenance: dateMaintMap, setups: dateSetups };
     });
 
-    res.json({ ok: true, data: { machines, dates: groupedData, closedPlants } });
+    const payload = { ok: true, data: { machines, dates: groupedData, closedPlants } };
+    // Live ranges: short TTL (fresh entries appear quickly, still covers the burst of
+    // parallel/re-open requests). Historical ranges never change → cache much longer.
+    ttlCacheSet('dprSummaryMatrix', cacheKey, payload, isLiveRange ? 12000 : 300000);
+    res.json(payload);
 
   } catch (e) { res.status(500).json({ ok: false, error: String(e) }); }
 });
@@ -22524,6 +22783,7 @@ app.post('/api/dpr/delete-entry', async (req, res) => {
     }
 
     await q('UPDATE dpr_hourly SET is_deleted = true WHERE id = $1', [id]);
+    ttlCacheClear('dprSummaryMatrix'); // deleted entry → refresh Compliance Summary now
     res.json({ ok: true });
   } catch (e) {
     console.error('delete-entry error', e);
@@ -22573,6 +22833,7 @@ app.post('/api/dpr/delete-quick', async (req, res) => {
         RETURNING id`,
       [ids, quickTypes, quickCodes]
     );
+    ttlCacheClear('dprSummaryMatrix'); // quick-action removed → refresh Compliance Summary now
     res.json({ ok: true, deleted: result.map(r => r.id), count: result.length });
   } catch (e) {
     console.error('delete-quick error', e);
@@ -22595,6 +22856,7 @@ app.post('/api/dpr/delete-setup', async (req, res) => {
     }
 
     await q('UPDATE std_actual SET is_deleted = true WHERE id = $1', [id]);
+    ttlCacheClear('dprSummaryMatrix'); // setup removed → refresh Compliance Summary now
     res.json({ ok: true });
   } catch (e) {
     console.error('delete-setup error', e);
@@ -30076,6 +30338,7 @@ shift = $2, dpr_date = $3, machine = $4, order_no = $5, mould_name = $6,
       ]);
     }
 
+    ttlCacheClear('dprSummaryMatrix'); // setup saved → refresh Compliance Summary now
     syncService.triggerSync();
     res.json({ ok: true });
   } catch (e) {
