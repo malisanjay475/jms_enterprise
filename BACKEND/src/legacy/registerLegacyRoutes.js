@@ -16696,6 +16696,38 @@ function resolveReportFactoryId(req) {
   return getFactoryId(req);
 }
 
+// Access-gated variant of resolveReportFactoryId for endpoints that let the user pick a
+// factory via the UI (?factory_id). resolveReportFactoryId trusts the requested id, so on
+// its own it would let a factory-scoped user read another unit's data by passing a different
+// factory_id. This validates the request against the user's actual access:
+//   - LOCAL box: always pinned to LOCAL_FACTORY_ID.
+//   - admin / superadmin / global_access (canSelectAllFactories): full freedom, incl. "all".
+//   - otherwise: honour the requested factory only if it's in the user's allowed set;
+//     any "all"/disallowed request collapses to the user's own (header/home) factory.
+// Keeps single-int scoping (null = all factories) so callers are unchanged.
+async function resolveScopedReportFactoryId(req) {
+  if (process.env.LOCAL_FACTORY_ID) return parseInt(process.env.LOCAL_FACTORY_ID, 10) || null;
+  const requested = resolveReportFactoryId(req); // query-or-header; null = all
+  const username = getRequestUsername(req);
+  if (!username) return requested; // no user context (internal/legacy) — unchanged behaviour
+  let access;
+  try {
+    access = await getAccessibleFactoriesForUser(username);
+  } catch (_) {
+    return getFactoryId(req); // fail safe: fall back to the caller's own header scope
+  }
+  if (access && access.canSelectAllFactories) return requested; // admins may pick any / all
+  const allowed = new Set(
+    ((access && access.factories) || [])
+      .map(f => normalizeFactoryId(f && f.id))
+      .filter(id => id !== null)
+  );
+  if (requested !== null && allowed.has(requested)) return requested; // one of their own units
+  const home = normalizeFactoryId(getFactoryId(req));
+  if (home !== null && allowed.has(home)) return home;
+  return allowed.size === 1 ? [...allowed][0] : home; // safe single scope (never widen to all)
+}
+
 // GET /api/dpr/stopped-machines
 // Machines that HAVE an active plan but have produced NOTHING (good_qty=0 AND
 // shots=0) for more than 2 hours — "machine stopped for any reason". Looks back
@@ -16704,7 +16736,7 @@ function resolveReportFactoryId(req) {
 // Powers the "Machines Stopped" alert at the top of the DPR Compliance Summary.
 app.get('/api/dpr/stopped-machines', async (req, res) => {
   try {
-    const factoryId = resolveReportFactoryId(req);
+    const factoryId = await resolveScopedReportFactoryId(req);
     const STOP_MIN = Math.max(15, Number(req.query.minutes) || 120);
     const WINDOW_DAYS = Math.max(1, Math.min(15, Number(req.query.days) || 5));
     const now = Date.now();
@@ -22078,8 +22110,14 @@ app.get('/api/dpr/summary-matrix', async (req, res) => {
 
     if (!fDate || !shift) return res.status(400).json({ ok: false, error: 'Date/Range and Shift required' });
 
-    // [FIX] Factory Isolation
-    const factoryId = getFactoryId(req);
+    // [FIX] Factory Isolation — honour the Compliance Summary Factory dropdown, which
+    // sends ?factory_id (getFactoryId reads only the x-factory-id header, so switching the
+    // dropdown left the query scoped to the user's home factory and other units showed 0).
+    // resolveScopedReportFactoryId prefers ?factory_id ('all' -> null = every factory), falls
+    // back to the header, stays pinned to LOCAL_FACTORY_ID on a LOCAL box, AND enforces the
+    // user's factory access so a scoped user can't read another unit by passing its id.
+    // [[project_reports_factory_scope_gotcha]]
+    const factoryId = await resolveScopedReportFactoryId(req);
 
     // Guard against duplicate dpr_hourly rows. An outdated LOCAL server that syncs
     // dpr_hourly without a global_id makes MAIN insert a fresh copy each cycle, so one

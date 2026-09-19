@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.68.1",
+  "latest": "1.68.2",
   "versions": [
+    {
+      "version": "1.68.2",
+      "date": "2026-09-19",
+      "title": "DPR Compliance Summary respects the Factory filter",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            { "type": "fix", "text": "In DPR Compliance Summary, changing the Factory now loads that unit's production data (and the Machines-Stopped alert follows it too). Earlier it stayed on your own unit and other factories showed zero." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.68.1",
       "date": "2026-09-18",
