@@ -5779,6 +5779,12 @@ async function initializeLegacyRuntime() {
     await qIdx(`CREATE INDEX IF NOT EXISTS idx_dpr_hourly_planprod ON dpr_hourly(factory_id, plan_id) WHERE is_deleted = false AND plan_id IS NOT NULL;`);
     // std_actual setups are read by the same (shift, dpr_date, factory_id) filter.
     await qIdx(`CREATE INDEX IF NOT EXISTS idx_std_actual_shift_date_fac ON std_actual(shift, dpr_date, factory_id) WHERE is_deleted = false;`);
+    // DPR Compliance Summary perf: the summary-matrix mould-name fallback looks up
+    // mould_planning_summary by (or_jr_no, mould_name). The only existing unique index
+    // is on (or_jr_no, mould_no), so that lookup had no support and was previously done
+    // as a whole-table GROUP BY materialised twice per request. This index lets the
+    // rewritten per-row LATERAL lookup use an index range scan instead.
+    await qIdx(`CREATE INDEX IF NOT EXISTS idx_mps_orjr_mouldname ON mould_planning_summary(or_jr_no, mould_name);`);
 
     // Per-machine P1–P4 priority labels
     await q(`ALTER TABLE plan_board ADD COLUMN IF NOT EXISTS machine_priority TEXT DEFAULT NULL`);
@@ -7413,6 +7419,9 @@ app.post('/api/dpr/submit', async (req, res) => {
         factoryId || 1 // Default to 1 if missing
       ]
     );
+
+    // New production entry → drop cached Compliance Summary so it shows at once.
+    ttlCacheClear('dprSummaryMatrix');
 
     // Replace any SYSTEM-AUTOFILL carry-forward row for THIS slot. Auto-fill copies an
     // ongoing quick-action into elapsed slots so a down machine's idle hours are recorded,
@@ -22346,6 +22355,20 @@ app.get('/api/dpr/summary-matrix', async (req, res) => {
     // [[project_reports_factory_scope_gotcha]]
     const factoryId = await resolveScopedReportFactoryId(req);
 
+    // ── Response cache ────────────────────────────────────────────────────────
+    // The summary-matrix query is heavy (many joins over dpr_hourly / std_actual /
+    // plan_board / moulds). The Compliance Summary fires it repeatedly — Day+Night
+    // in parallel on every open, again on each factory/shift/process toggle, and on
+    // every re-open. Serving identical requests from a short-lived cache makes those
+    // repeats instant. Live ranges (include today) use a short TTL so fresh entries
+    // still appear quickly; purely-historical ranges (never change) cache far longer.
+    // DPR write endpoints call ttlCacheClear('dprSummaryMatrix') so edits show at once.
+    const _todayStr = todayLocalDateStr(new Date());
+    const cacheKey = `${fDate}|${tDate}|${shift}|${requestedProcess || ''}|${factoryId || 'all'}`;
+    const isLiveRange = tDate >= _todayStr;
+    const cachedMatrix = ttlCacheGet('dprSummaryMatrix', cacheKey);
+    if (cachedMatrix) return res.json(cachedMatrix);
+
     // Guard against duplicate dpr_hourly rows. An outdated LOCAL server that syncs
     // dpr_hourly without a global_id makes MAIN insert a fresh copy each cycle, so one
     // hourly reading can exist N times (KAN-119). Collapse to one row per natural key
@@ -22419,11 +22442,15 @@ app.get('/api/dpr/summary-matrix', async (req, res) => {
         ORDER BY (pb2.plan_id = d.plan_id) DESC, pb2.id DESC
         LIMIT 1
       ) pb ON true
-      LEFT JOIN (
-        SELECT or_jr_no, mould_name, MAX(NULLIF(TRIM(mould_no), '')) as mould_no
-        FROM mould_planning_summary
-        GROUP BY or_jr_no, mould_name
-      ) mps ON mps.or_jr_no = d.order_no AND mps.mould_name = pb.mould_name
+      -- mould_no fallback from the plan summary. Was a whole-table GROUP BY
+      -- materialised on every request; rewritten as a per-row indexed lookup
+      -- (idx_mps_orjr_mouldname) — same value, a fraction of the cost. KAN-perf.
+      LEFT JOIN LATERAL (
+        SELECT MAX(mps2.or_jr_no) as or_jr_no, MAX(mps2.mould_name) as mould_name,
+               MAX(NULLIF(TRIM(mps2.mould_no), '')) as mould_no
+        FROM mould_planning_summary mps2
+        WHERE mps2.or_jr_no = d.order_no AND mps2.mould_name = pb.mould_name
+      ) mps ON true
       -- LATERAL LIMIT 1: duplicate usernames (multi-factory/synced accounts) would
       -- otherwise fan out each hourly entry and double-count good/reject in the matrix.
       LEFT JOIN LATERAL (
@@ -22554,11 +22581,14 @@ app.get('/api/dpr/summary-matrix', async (req, res) => {
         ORDER BY pb2.id DESC
         LIMIT 1
       ) pb ON true
-      LEFT JOIN (
-        SELECT or_jr_no, mould_name, MAX(NULLIF(TRIM(mould_no), '')) as mould_no 
-        FROM mould_planning_summary 
-        GROUP BY or_jr_no, mould_name
-      ) mps ON mps.or_jr_no = COALESCE(pb.order_no, s.order_no) AND mps.mould_name = COALESCE(pb.mould_name, s.mould_name)
+      -- Per-row indexed lookup (idx_mps_orjr_mouldname), replacing a whole-table
+      -- GROUP BY that was materialised on every request. Same value. KAN-perf.
+      LEFT JOIN LATERAL (
+        SELECT MAX(mps2.mould_name) as mould_name, MAX(NULLIF(TRIM(mps2.mould_no), '')) as mould_no
+        FROM mould_planning_summary mps2
+        WHERE mps2.or_jr_no = COALESCE(pb.order_no, s.order_no)
+          AND mps2.mould_name = COALESCE(pb.mould_name, s.mould_name)
+      ) mps ON true
       LEFT JOIN moulds m ON TRIM(m.mould_number) = TRIM(COALESCE(pb.mould_code, ''))
       LEFT JOIN moulds m2 ON TRIM(m2.mould_number) = COALESCE(NULLIF(TRIM(mps.mould_no), ''), NULLIF(TRIM(pb.mould_code), ''), '')
       -- m3/m4 are fuzzy mould-name fallbacks for std cycle-time/weight/cavity.
@@ -22729,7 +22759,11 @@ app.get('/api/dpr/summary-matrix', async (req, res) => {
       groupedData[dt] = { entries: dataMap, requiredSlots, status, maintenance: dateMaintMap, setups: dateSetups };
     });
 
-    res.json({ ok: true, data: { machines, dates: groupedData, closedPlants } });
+    const payload = { ok: true, data: { machines, dates: groupedData, closedPlants } };
+    // Live ranges: short TTL (fresh entries appear quickly, still covers the burst of
+    // parallel/re-open requests). Historical ranges never change → cache much longer.
+    ttlCacheSet('dprSummaryMatrix', cacheKey, payload, isLiveRange ? 12000 : 300000);
+    res.json(payload);
 
   } catch (e) { res.status(500).json({ ok: false, error: String(e) }); }
 });
@@ -22749,6 +22783,7 @@ app.post('/api/dpr/delete-entry', async (req, res) => {
     }
 
     await q('UPDATE dpr_hourly SET is_deleted = true WHERE id = $1', [id]);
+    ttlCacheClear('dprSummaryMatrix'); // deleted entry → refresh Compliance Summary now
     res.json({ ok: true });
   } catch (e) {
     console.error('delete-entry error', e);
@@ -22798,6 +22833,7 @@ app.post('/api/dpr/delete-quick', async (req, res) => {
         RETURNING id`,
       [ids, quickTypes, quickCodes]
     );
+    ttlCacheClear('dprSummaryMatrix'); // quick-action removed → refresh Compliance Summary now
     res.json({ ok: true, deleted: result.map(r => r.id), count: result.length });
   } catch (e) {
     console.error('delete-quick error', e);
@@ -22820,6 +22856,7 @@ app.post('/api/dpr/delete-setup', async (req, res) => {
     }
 
     await q('UPDATE std_actual SET is_deleted = true WHERE id = $1', [id]);
+    ttlCacheClear('dprSummaryMatrix'); // setup removed → refresh Compliance Summary now
     res.json({ ok: true });
   } catch (e) {
     console.error('delete-setup error', e);
@@ -30301,6 +30338,7 @@ shift = $2, dpr_date = $3, machine = $4, order_no = $5, mould_name = $6,
       ]);
     }
 
+    ttlCacheClear('dprSummaryMatrix'); // setup saved → refresh Compliance Summary now
     syncService.triggerSync();
     res.json({ ok: true });
   } catch (e) {
