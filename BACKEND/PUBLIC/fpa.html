@@ -69,7 +69,15 @@
         <div id="fpa-list"><div class="empty">Loading…</div></div>
     </div>
 
-    <div class="lb-mask" id="lb-mask" onclick="this.classList.remove('open')"><img id="lb-img" src="" alt=""></div>
+    <div class="lb-mask" id="lb-mask" onclick="closeLightbox()">
+        <img id="lb-img" src="" alt="" style="transition:transform .15s ease">
+        <div onclick="event.stopPropagation()" style="position:absolute; bottom:22px; left:50%; transform:translateX(-50%); display:flex; gap:10px; background:rgba(15,23,42,0.9); padding:8px 12px; border-radius:999px;">
+            <button type="button" onclick="lbZoom(-0.25, event)" title="Zoom out" style="width:38px;height:38px;border:none;border-radius:50%;background:#334155;color:#fff;font-size:1.3rem;cursor:pointer">&minus;</button>
+            <button type="button" onclick="lbZoom(0.25, event)" title="Zoom in" style="width:38px;height:38px;border:none;border-radius:50%;background:#334155;color:#fff;font-size:1.3rem;cursor:pointer">+</button>
+            <button type="button" onclick="lbRotate(event)" title="Rotate" style="width:38px;height:38px;border:none;border-radius:50%;background:#334155;color:#fff;font-size:1.05rem;cursor:pointer"><i class="bi bi-arrow-clockwise"></i></button>
+            <button type="button" onclick="closeLightbox()" title="Close" style="width:38px;height:38px;border:none;border-radius:50%;background:#dc2626;color:#fff;font-size:1.1rem;cursor:pointer"><i class="bi bi-x-lg"></i></button>
+        </div>
+    </div>
 
     <div class="rj-mask" id="rj-mask">
         <div class="rj-box">
@@ -110,12 +118,25 @@
         const fmtDT = v => { try { return v ? new Date(v).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : ''; } catch (_) { return ''; } };
         const parseImgs = v => { try { return Array.isArray(v) ? v : JSON.parse(v || '[]'); } catch (_) { return []; } };
 
+        let _lbZoom = 1, _lbRot = 0;
+        function lbApply() {
+            const img = document.getElementById('lb-img');
+            if (img) img.style.transform = `scale(${_lbZoom}) rotate(${_lbRot}deg)`;
+        }
         function openLightbox(url) {
             // Only allow same-origin relative or http(s) image URLs — never javascript:/data:.
             if (!url || !(/^https?:\/\//i.test(url) || url.startsWith('/'))) return;
+            _lbZoom = 1; _lbRot = 0;
             document.getElementById('lb-img').setAttribute('src', encodeURI(url));
+            lbApply();
             document.getElementById('lb-mask').classList.add('open');
         }
+        function closeLightbox() {
+            _lbZoom = 1; _lbRot = 0; lbApply();
+            document.getElementById('lb-mask').classList.remove('open');
+        }
+        function lbZoom(delta, ev) { if (ev) ev.stopPropagation(); _lbZoom = Math.min(5, Math.max(0.25, +(_lbZoom + delta).toFixed(2))); lbApply(); }
+        function lbRotate(ev) { if (ev) ev.stopPropagation(); _lbRot = (_lbRot + 90) % 360; lbApply(); }
 
         // Machine dropdown
         (async function loadMachines() {
