@@ -22078,8 +22078,12 @@ app.get('/api/dpr/summary-matrix', async (req, res) => {
 
     if (!fDate || !shift) return res.status(400).json({ ok: false, error: 'Date/Range and Shift required' });
 
-    // [FIX] Factory Isolation
-    const factoryId = getFactoryId(req);
+    // [FIX] Factory Isolation — honour the Compliance Summary Factory dropdown, which
+    // sends ?factory_id (getFactoryId reads only the x-factory-id header, so switching the
+    // dropdown left the query scoped to the user's home factory and other units showed 0).
+    // resolveReportFactoryId prefers ?factory_id ('all' -> null = every factory), falls back
+    // to the header, and stays pinned to LOCAL_FACTORY_ID on a LOCAL box. [[project_reports_factory_scope_gotcha]]
+    const factoryId = resolveReportFactoryId(req);
 
     // Guard against duplicate dpr_hourly rows. An outdated LOCAL server that syncs
     // dpr_hourly without a global_id makes MAIN insert a fresh copy each cycle, so one
