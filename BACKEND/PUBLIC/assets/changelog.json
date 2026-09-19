@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.69.2",
+  "latest": "1.69.3",
   "versions": [
+    {
+      "version": "1.69.3",
+      "date": "2026-09-19",
+      "title": "Much faster FPA images",
+      "modules": [
+        {
+          "app": "quality",
+          "label": "Quality",
+          "icon": "bi-patch-check",
+          "changes": [
+            { "type": "perf", "text": "FPA photos now load almost instantly — the grid shows small cached thumbnails and only loads the full image when you open it to zoom." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.69.2",
       "date": "2026-09-19",
