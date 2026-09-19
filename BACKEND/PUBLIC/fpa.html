@@ -117,6 +117,8 @@
 
         const fmtDT = v => { try { return v ? new Date(v).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : ''; } catch (_) { return ''; } };
         const parseImgs = v => { try { return Array.isArray(v) ? v : JSON.parse(v || '[]'); } catch (_) { return []; } };
+        // Grid uses a small cached thumbnail; the lightbox still opens the full image.
+        const thumbUrl = (u, w) => (/^\/uploads\/qc-images\//.test(u || '')) ? ('/api/qc/thumb?src=' + encodeURIComponent(u) + '&w=' + (w || 360)) : u;
 
         let _lbZoom = 1, _lbRot = 0;
         function lbApply() {
@@ -163,8 +165,8 @@
             const thumbs = [];
             // Use data-* attributes + event delegation (never inline JS with interpolated
             // DB values) so a crafted machine name / URL cannot inject script.
-            if (formUrl) thumbs.push(`<a href="#" class="js-zoom" data-url="${esc(formUrl)}" title="FPA form"><img src="${esc(formUrl)}" alt="form" loading="lazy" decoding="async"></a>`);
-            imgs.forEach(u => thumbs.push(`<a href="#" class="js-zoom" data-url="${esc(u)}" title="Product"><img src="${esc(u)}" alt="product" loading="lazy" decoding="async"></a>`));
+            if (formUrl) thumbs.push(`<a href="#" class="js-zoom" data-url="${esc(formUrl)}" title="FPA form"><img src="${esc(thumbUrl(formUrl, 360))}" alt="form" loading="lazy" decoding="async"></a>`);
+            imgs.forEach(u => thumbs.push(`<a href="#" class="js-zoom" data-url="${esc(u)}" title="Product"><img src="${esc(thumbUrl(u, 360))}" alt="product" loading="lazy" decoding="async"></a>`));
             const actions = (canApprove && st !== 'Approved')
                 ? `<div class="fpa-actions">
                      <button class="btn small js-approve" data-id="${r.id}" data-sub="${esc((r.machine||'') + ' / ' + (r.job_card_no||''))}" style="background:#10b981;color:#fff;"><i class="bi bi-check-lg"></i> Approve</button>

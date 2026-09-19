@@ -11,8 +11,24 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.69.0",
+  "latest": "1.69.1",
   "versions": [
+    {
+      "version": "1.69.1",
+      "date": "2026-09-19",
+      "title": "FPA page: accurate pending count & faster load",
+      "modules": [
+        {
+          "app": "quality",
+          "label": "Quality",
+          "icon": "bi-patch-check",
+          "changes": [
+            { "type": "fix", "text": "The FPA page now shows every pending approval (including ones from earlier days), so its Pending count matches the sidebar badge and no FPA gets missed." },
+            { "type": "perf", "text": "The FPA page loads much faster — added a database index and images now load on demand." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.69.0",
       "date": "2026-09-19",
