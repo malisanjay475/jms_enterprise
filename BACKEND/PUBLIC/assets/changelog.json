@@ -11,8 +11,34 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.68.2",
+  "latest": "1.69.0",
   "versions": [
+    {
+      "version": "1.69.0",
+      "date": "2026-09-19",
+      "title": "Quality: FPA alerts, image zoom/rotate & QC report views",
+      "modules": [
+        {
+          "app": "quality",
+          "label": "Quality",
+          "icon": "bi-patch-check",
+          "changes": [
+            { "type": "feat", "text": "A red count badge now appears on the FPA menu when approvals are pending, with a notification sound so approvers know a new FPA has arrived." },
+            { "type": "feat", "text": "FPA photos can be zoomed (+/-) and rotated in both the Quality FPA page and the DPR Compliance view." },
+            { "type": "improvement", "text": "Machines now show in natural number order (matching the Supervisor board) across the Quality filters and reports." },
+            { "type": "improvement", "text": "The Online QC Report now shows when each 2-hour check was submitted." }
+          ]
+        },
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            { "type": "improvement", "text": "The Compliance job view shows QC weights twice with the name of who saved them, and a new toggle to view that machine's 2-hour QC Online Report." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.68.2",
       "date": "2026-09-19",
