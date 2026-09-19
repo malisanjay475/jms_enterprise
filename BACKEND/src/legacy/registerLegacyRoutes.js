@@ -13236,6 +13236,194 @@ app.get('/api/planning/audit', async (req, res) => {
   }
 });
 
+/* ============================================================
+   RECOVER PERMANENTLY-DELETED PLANS (Admin / Superadmin only)
+   ------------------------------------------------------------
+   /api/planning/delete is a HARD delete of the plan_board row —
+   the row is physically gone and only { machine, order } is kept
+   in plan_audit_logs. HOWEVER, every JC approval action stores a
+   FULL snapshot of the plan_board row in
+   plan_job_card_approval_history.snapshot->'plan'. If the plan
+   was ever PPC-checked / Moulding-approved / rejected before it
+   was deleted, that snapshot lets us rebuild the row.
+
+   - GET  /api/admin/deleted-plans        list plans that have a
+                                           snapshot but no live row.
+   - POST /api/admin/recover-deleted-plan  re-insert the plan_board
+                                           row from the latest snapshot.
+============================================================ */
+
+// GET /api/admin/deleted-plans — recoverable candidates (snapshot exists, live row does not)
+app.get('/api/admin/deleted-plans', async (req, res) => {
+  try {
+    const actor = await getRequestActor(req);
+    if (!actor || !isAdminLikeRole(actor)) {
+      return res.status(403).json({ ok: false, error: 'Admin or Superadmin only.' });
+    }
+
+    const search = String(req.query.q || '').trim().toLowerCase();
+
+    // DISTINCT ON keeps only the most recent snapshot per (plan_id, factory).
+    const rows = await q(`
+      SELECT DISTINCT ON (h.plan_id, COALESCE(h.factory_id, 0))
+        h.plan_id                          AS "planId",
+        h.order_no                         AS "orderNo",
+        h.our_code                         AS "ourCode",
+        h.factory_id                       AS "factoryId",
+        f.name                             AS "factoryName",
+        h.acted_at                         AS "lastActionAt",
+        h.snapshot->'plan'->>'machine'     AS "machine",
+        h.snapshot->'plan'->>'mould_name'  AS "mouldName",
+        h.snapshot->'plan'->>'mould_no'    AS "mouldNo",
+        h.snapshot->'plan'->>'plan_qty'    AS "planQty",
+        h.snapshot->'plan'->>'status'      AS "status"
+      FROM plan_job_card_approval_history h
+      LEFT JOIN factories f ON f.id = h.factory_id
+      WHERE h.snapshot ? 'plan'
+        AND COALESCE(h.plan_id, '') <> ''
+        AND NOT EXISTS (
+          SELECT 1 FROM plan_board pb
+           WHERE pb.plan_id = h.plan_id
+             AND COALESCE(pb.factory_id, 0) = COALESCE(h.factory_id, 0)
+             AND COALESCE(pb.is_deleted, false) = false
+        )
+      ORDER BY h.plan_id, COALESCE(h.factory_id, 0), h.acted_at DESC
+    `);
+
+    let list = rows;
+    if (search) {
+      list = rows.filter(r =>
+        [r.orderNo, r.ourCode, r.planId, r.machine, r.mouldName, r.mouldNo]
+          .some(v => String(v || '').toLowerCase().includes(search))
+      );
+    }
+    // Most recently touched (i.e. most recently deleted) first.
+    list.sort((a, b) => new Date(b.lastActionAt || 0) - new Date(a.lastActionAt || 0));
+
+    res.json({ ok: true, plans: list });
+  } catch (e) {
+    console.error('admin/deleted-plans', e);
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// POST /api/admin/recover-deleted-plan — rebuild the plan_board row from its latest snapshot
+app.post('/api/admin/recover-deleted-plan', async (req, res) => {
+  try {
+    const actor = await getRequestActor(req);
+    if (!actor || !isAdminLikeRole(actor)) {
+      return res.status(403).json({ ok: false, error: 'Admin or Superadmin only.' });
+    }
+
+    const planId  = String(req.body?.planId  || '').trim();
+    const orderNo = String(req.body?.orderNo || '').trim();
+    const ourCode = String(req.body?.ourCode || '').trim();
+    const factoryIdRaw = req.body?.factoryId;
+    const factoryId = (factoryIdRaw === undefined || factoryIdRaw === null || factoryIdRaw === '')
+      ? null : Number(factoryIdRaw);
+
+    if (!planId && !(orderNo && ourCode)) {
+      return res.status(400).json({ ok: false, error: 'Provide planId (or orderNo + ourCode) to recover.' });
+    }
+
+    // Find the latest snapshot that actually carries a plan row.
+    const conds = [`h.snapshot ? 'plan'`];
+    const params = [];
+    if (planId)  { params.push(planId);  conds.push(`h.plan_id = $${params.length}`); }
+    if (orderNo) { params.push(orderNo); conds.push(`TRIM(h.order_no) = TRIM($${params.length})`); }
+    if (ourCode) { params.push(ourCode); conds.push(`TRIM(COALESCE(h.our_code,'')) = TRIM($${params.length})`); }
+    if (factoryId !== null && !Number.isNaN(factoryId)) {
+      params.push(factoryId); conds.push(`COALESCE(h.factory_id,0) = COALESCE($${params.length}::int,0)`);
+    }
+
+    const histRows = await q(
+      `SELECT snapshot, plan_id, order_no, factory_id
+         FROM plan_job_card_approval_history h
+        WHERE ${conds.join(' AND ')}
+        ORDER BY h.acted_at DESC
+        LIMIT 1`,
+      params
+    );
+    if (!histRows.length) {
+      return res.status(404).json({ ok: false, error: 'No recoverable snapshot found for this plan. It may have been deleted before any PPC/Moulding approval, so no snapshot exists.' });
+    }
+
+    const snap = histRows[0].snapshot || {};
+    const planSnap = snap.plan || null;
+    if (!planSnap || typeof planSnap !== 'object') {
+      return res.status(404).json({ ok: false, error: 'Snapshot does not contain a full plan row.' });
+    }
+
+    const snapPlanId    = planSnap.plan_id  || histRows[0].plan_id  || planId;
+    const snapOrderNo   = planSnap.order_no || histRows[0].order_no || orderNo;
+    const snapFactoryId = (planSnap.factory_id != null ? planSnap.factory_id
+                          : (histRows[0].factory_id != null ? histRows[0].factory_id : factoryId));
+
+    // Guard: never create a duplicate if a live row already exists.
+    const existing = await q(
+      `SELECT id FROM plan_board
+        WHERE plan_id = $1
+          AND COALESCE(factory_id,0) = COALESCE($2::int,0)
+          AND COALESCE(is_deleted,false) = false
+        LIMIT 1`,
+      [snapPlanId, snapFactoryId]
+    );
+    if (existing.length) {
+      return res.status(409).json({ ok: false, error: `Plan ${snapPlanId} is already present (row ${existing[0].id}). Nothing to recover.` });
+    }
+
+    // Rebuild the INSERT from the snapshot, keeping only columns that still exist
+    // in plan_board today. The original primary key is intentionally dropped so a
+    // fresh serial is assigned — restoring the old id could collide with a row
+    // created after the deletion. updated_at is stamped NOW() so the recovered row
+    // syncs to MAIN/LOCAL (a status write that skips updated_at gets resurrected).
+    const colInfo = await q(
+      `SELECT column_name, data_type
+         FROM information_schema.columns
+        WHERE table_name = 'plan_board'`
+    );
+    const typeByCol = new Map(colInfo.map(c => [c.column_name, String(c.data_type).toLowerCase()]));
+
+    const cols = [];
+    const placeholders = [];
+    const values = [];
+    for (const [key, val] of Object.entries(planSnap)) {
+      if (key === 'id' || key === 'is_deleted' || key === 'updated_at') continue; // forced below
+      if (!typeByCol.has(key)) continue;   // column dropped since the snapshot
+      if (val === undefined) continue;
+      const dtype = typeByCol.get(key);
+      const isJson = (dtype === 'jsonb' || dtype === 'json');
+      cols.push(`"${key}"`);
+      placeholders.push(`$${values.length + 1}${isJson ? '::jsonb' : ''}`);
+      values.push(isJson && val !== null && typeof val === 'object' ? JSON.stringify(val) : val);
+    }
+
+    // Force a clean, visible restore state.
+    cols.push('"is_deleted"'); placeholders.push(`$${values.length + 1}`); values.push(false);
+    cols.push('"updated_at"'); placeholders.push('NOW()'); // literal — no bound value
+
+    const insertSql = `INSERT INTO plan_board (${cols.join(', ')}) VALUES (${placeholders.join(', ')}) RETURNING id, plan_id`;
+    const inserted = await q(insertSql, values);
+    const newId = inserted[0]?.id;
+
+    await q(
+      "INSERT INTO plan_audit_logs (plan_id, action, details, user_name) VALUES ($1, 'RECOVER_DELETED', $2, $3)",
+      [newId, JSON.stringify({ recovered_plan_id: snapPlanId, order: snapOrderNo, factory_id: snapFactoryId, source: 'approval-history snapshot' }), actor.username]
+    );
+
+    // Re-evaluate the order status so it drops back to planned, then push the row out.
+    if (snapOrderNo) { try { await syncOrderStatus(snapOrderNo); } catch (_) {} }
+    if (typeof syncService !== 'undefined' && syncService.triggerSync) {
+      try { syncService.triggerSync(); } catch (_) {}
+    }
+
+    res.json({ ok: true, message: `Plan ${snapPlanId} recovered for ${snapOrderNo}.`, id: newId, planId: snapPlanId });
+  } catch (e) {
+    console.error('admin/recover-deleted-plan', e);
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
 
 
 /* ============================================================
