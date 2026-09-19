@@ -70,18 +70,37 @@
         if (jobDetailState.orderNo) fetchDetailedStats(jobDetailState.orderNo, jobDetailState.machine, jobDetailState.details || {});
     }
 
+    // FPA image viewer transform state (zoom + rotate).
+    let _jobImgZoom = 1, _jobImgRot = 0;
+    function applyJobImgTransform() {
+        const img = document.getElementById('modalJobImageLarge');
+        if (img) img.style.transform = `scale(${_jobImgZoom}) rotate(${_jobImgRot}deg)`;
+    }
     function openJobImage(src) {
         const wrap = document.getElementById('modalJobImageViewer');
         const img = document.getElementById('modalJobImageLarge');
         if (!wrap || !img) return;
+        _jobImgZoom = 1; _jobImgRot = 0;
         img.src = src;
+        img.style.transition = 'transform 0.15s ease';
+        applyJobImgTransform();
         wrap.style.display = 'flex';
     }
-
+    function zoomJobImage(delta, ev) {
+        if (ev) ev.stopPropagation();
+        _jobImgZoom = Math.min(5, Math.max(0.25, +(_jobImgZoom + delta).toFixed(2)));
+        applyJobImgTransform();
+    }
+    function rotateJobImage(ev) {
+        if (ev) ev.stopPropagation();
+        _jobImgRot = (_jobImgRot + 90) % 360;
+        applyJobImgTransform();
+    }
     function closeJobImage() {
         const wrap = document.getElementById('modalJobImageViewer');
         const img = document.getElementById('modalJobImageLarge');
-        if (img) img.src = '';
+        if (img) { img.src = ''; img.style.transform = ''; }
+        _jobImgZoom = 1; _jobImgRot = 0;
         if (wrap) wrap.style.display = 'none';
     }
 
@@ -285,8 +304,11 @@
             const weights = rows
                 .flatMap(r => [r.qc_weight_1, r.qc_weight_2, r.qc_weight_3])
                 .filter(v => v !== null && v !== undefined && String(v) !== '')
-                .slice(0, 3);
+                .slice(0, 2);
             const fpa = rows.find(r => r.fpa_form_image || (Array.isArray(r.product_images) && r.product_images.length));
+            // Who saved the QC weights (qc_job_checks.supervisor / fpa_done_by).
+            const qcSavedBy = (rows.find(r => r.supervisor || r.fpa_done_by) || {});
+            const qcSavedByName = qcSavedBy.supervisor || qcSavedBy.fpa_done_by || '';
             const fpaImages = fpa ? [fpa.fpa_form_image, ...((Array.isArray(fpa.product_images) ? fpa.product_images : []))].filter(Boolean) : [];
             const fpaRowId = fpa ? fpa.id : null;
             const canDelFpa = !!(window.canDeleteFpaImage && window.canDeleteFpaImage());
@@ -311,13 +333,14 @@
                         <div style="font-size:0.7rem; color:#1d4ed8; font-weight:800; text-transform:uppercase">Supervisor</div>
                         <div style="font-weight:800; color:#1e3a8a">${supervisorWeight || '-'}</div>
                     </div>
-                    ${[0, 1, 2].map(i => `
+                    ${[0, 1].map(i => `
                         <div style="background:#ecfdf5; border:1px solid #bbf7d0; border-radius:10px; padding:10px">
                             <div style="font-size:0.7rem; color:#047857; font-weight:800; text-transform:uppercase">QC Weight ${i + 1}</div>
                             <div style="font-weight:800; color:#064e3b">${weights[i] || '-'}</div>
                         </div>
                     `).join('')}
                 </div>
+                ${qcSavedByName ? `<div style="margin-top:8px; font-size:0.78rem; color:#475569"><i class="bi bi-person-check"></i> Saved by <b>${dprEsc(qcSavedByName)}</b></div>` : ''}
                 ${fpaImages.length ? `
                     <div style="font-size:0.85rem; color:#334155; font-weight:800; margin:14px 0 8px">FPA Images</div>
                     <div style="display:grid; grid-template-columns:repeat(3,1fr); gap:8px">
