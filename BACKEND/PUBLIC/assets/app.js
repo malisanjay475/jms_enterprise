@@ -1524,6 +1524,50 @@ function escHtml(value) {
 
     exports.MENU = MENU_CONFIG; // Export for users.html
 
+    // --- Live pending-FPA badge + notification sound (approver roles only) ---
+    let _fpaWatchTimer = null;
+    function startFpaPendingWatch(user) {
+        const APPROVER_ROLES = ['quality', 'quality_ass__manager', 'admin', 'superadmin'];
+        const role = String(user?.role_code || '').toLowerCase();
+        const uname = String(user?.username || '').toLowerCase();
+        if (!(APPROVER_ROLES.includes(role) || uname === 'superadmin')) return;
+        if (_fpaWatchTimer) { clearInterval(_fpaWatchTimer); _fpaWatchTimer = null; }
+
+        const beep = () => {
+            try {
+                const Ctx = window.AudioContext || window.webkitAudioContext;
+                if (!Ctx) return;
+                const ac = new Ctx();
+                const o = ac.createOscillator(), g = ac.createGain();
+                o.type = 'sine'; o.frequency.value = 880;
+                g.gain.setValueAtTime(0.0001, ac.currentTime);
+                g.gain.exponentialRampToValueAtTime(0.25, ac.currentTime + 0.02);
+                g.gain.exponentialRampToValueAtTime(0.0001, ac.currentTime + 0.45);
+                o.connect(g); g.connect(ac.destination);
+                o.start(); o.stop(ac.currentTime + 0.47);
+            } catch (_) {}
+        };
+        const render = (n) => {
+            const b = document.getElementById('fpa-pending-badge');
+            if (!b) return;
+            if (n > 0) { b.textContent = '(' + n + ')'; b.style.display = ''; }
+            else { b.textContent = ''; b.style.display = 'none'; }
+        };
+        const poll = async () => {
+            try {
+                const res = await exports.api.get('/qc/fpa/pending-count');
+                if (!res || !res.ok) return;
+                const n = Number(res.count) || 0;
+                render(n);
+                const prev = parseInt(localStorage.getItem('fpa_pending_seen') || '0', 10) || 0;
+                if (n > prev) beep();
+                localStorage.setItem('fpa_pending_seen', String(n));
+            } catch (_) {}
+        };
+        poll();
+        _fpaWatchTimer = setInterval(poll, 30000);
+    }
+
     // --- Render Sidebar ---
     exports.renderShell = (activePage) => {
         const user = exports.auth.getUser();
@@ -1617,10 +1661,14 @@ function escHtml(value) {
                             visibleSubItems.push(sub);
                             const subActive = subLinkMatchesLocation(sub.href) ? 'active-link' : '';
 
+                            // FPA sub-item carries a live "pending approvals" badge (see startFpaPendingWatch).
+                            const subBadge = (sub.id === 'qc_fpa')
+                                ? ` <span id="fpa-pending-badge" style="display:none; background:#dc2626; color:#fff; font-size:0.7rem; font-weight:800; padding:1px 7px; border-radius:10px; margin-left:4px; vertical-align:middle;"></span>`
+                                : '';
                             subHtml += `
                             <li>
                                 <a href="${sub.href}" target="_self" class="sub-link ${subActive}">
-                                    <i class="bi ${sub.icon || 'bi-chevron-right'}" style="font-size:0.9rem; margin-right:6px; opacity:0.8"></i> <span class="nav-text">${sub.label}</span>
+                                    <i class="bi ${sub.icon || 'bi-chevron-right'}" style="font-size:0.9rem; margin-right:6px; opacity:0.8"></i> <span class="nav-text">${sub.label}</span>${subBadge}
                                 </a>
                             </li>`;
                         }
@@ -1707,6 +1755,9 @@ function escHtml(value) {
         sidebar.className = 'sidebar app-shell-sidebar';
         sidebar.id = 'appSidebar';
         sidebar.innerHTML = html;
+
+        // Live "pending FPA approvals" badge + sound for approver roles.
+        try { startFpaPendingWatch(user); } catch (_) {}
 
         // Restore Collapsed State
         const isCollapsed = localStorage.getItem('sidebar_collapsed') === 'true';

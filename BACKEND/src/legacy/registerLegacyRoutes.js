@@ -27608,7 +27608,7 @@ app.post('/api/qc/fpa', (req, res, next) => {
           fpa_status='Done', fpa_form_image=$9, fpa_form_url=$10, product_images=$11::jsonb,
           remarks=$12, supervisor=$13, fpa_done_at=$14, fpa_done_by=$15,
           fpa_approval_status='Pending', fpa_reject_reason=NULL,
-          fpa_reviewed_by=NULL, fpa_reviewed_at=NULL,
+          fpa_reviewed_by=NULL, fpa_reviewed_at=NULL, fpa_approve_remark=NULL,
           fpa_resubmit_count=COALESCE(fpa_resubmit_count,0)+1,
           updated_at=NOW()
         WHERE id=$16
@@ -27797,6 +27797,25 @@ app.get('/api/qc/fpa/list', async (req, res) => {
   }
 });
 
+// GET /api/qc/fpa/pending-count — how many FPAs are awaiting approval (factory-scoped).
+// Drives the red badge + notification sound on the Quality sidebar FPA item.
+app.get('/api/qc/fpa/pending-count', async (req, res) => {
+  try {
+    const factoryId = resolveReportFactoryId ? resolveReportFactoryId(req) : getFactoryId(req);
+    const rows = await q(
+      `SELECT COUNT(*)::int AS n
+         FROM qc_job_checks
+        WHERE fpa_status = 'Done'
+          AND COALESCE(fpa_approval_status,'Pending') = 'Pending'
+          AND ($1::int IS NULL OR factory_id = $1 OR factory_id IS NULL)`,
+      [factoryId]
+    );
+    res.json({ ok: true, count: (rows[0] && rows[0].n) || 0 });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
 // GET /api/qc/fpa/mine — a QC user's own FPAs (for the native app: see Pending / Rejected).
 app.get('/api/qc/fpa/mine', async (req, res) => {
   try {
@@ -27880,7 +27899,7 @@ app.post('/api/qc/fpa/:id/reject', async (req, res) => {
     const upd = await q(
       `UPDATE qc_job_checks
           SET fpa_approval_status='Rejected', fpa_reject_reason=$1,
-              fpa_reviewed_by=$2, fpa_reviewed_at=NOW(), updated_at=NOW()
+              fpa_reviewed_by=$2, fpa_reviewed_at=NOW(), fpa_approve_remark=NULL, updated_at=NOW()
         WHERE id=$3 AND fpa_status='Done'
           AND ($4::int IS NULL OR factory_id=$4 OR factory_id IS NULL)
         RETURNING id, machine, job_card_no, fpa_done_by`,
