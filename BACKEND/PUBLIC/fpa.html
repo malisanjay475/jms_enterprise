@@ -142,7 +142,8 @@
         (async function loadMachines() {
             try {
                 const res = await JPSMS.api.get('/machines?process=Moulding');
-                const list = (res.data || res || []).map(m => (typeof m === 'string' ? m : m.machine)).filter(Boolean);
+                const list = (res.data || res || []).map(m => (typeof m === 'string' ? m : m.machine)).filter(Boolean)
+                    .sort((a, b) => String(a).localeCompare(String(b), undefined, { numeric: true, sensitivity: 'base' }));
                 const sel = document.getElementById('f-machine');
                 list.forEach(m => sel.add(new Option(m, m)));
             } catch (_) { /* non-fatal */ }
@@ -162,8 +163,8 @@
             const thumbs = [];
             // Use data-* attributes + event delegation (never inline JS with interpolated
             // DB values) so a crafted machine name / URL cannot inject script.
-            if (formUrl) thumbs.push(`<a href="#" class="js-zoom" data-url="${esc(formUrl)}" title="FPA form"><img src="${esc(formUrl)}" alt="form"></a>`);
-            imgs.forEach(u => thumbs.push(`<a href="#" class="js-zoom" data-url="${esc(u)}" title="Product"><img src="${esc(u)}" alt="product"></a>`));
+            if (formUrl) thumbs.push(`<a href="#" class="js-zoom" data-url="${esc(formUrl)}" title="FPA form"><img src="${esc(formUrl)}" alt="form" loading="lazy" decoding="async"></a>`);
+            imgs.forEach(u => thumbs.push(`<a href="#" class="js-zoom" data-url="${esc(u)}" title="Product"><img src="${esc(u)}" alt="product" loading="lazy" decoding="async"></a>`));
             const actions = (canApprove && st !== 'Approved')
                 ? `<div class="fpa-actions">
                      <button class="btn small js-approve" data-id="${r.id}" data-sub="${esc((r.machine||'') + ' / ' + (r.job_card_no||''))}" style="background:#10b981;color:#fff;"><i class="bi bi-check-lg"></i> Approve</button>
