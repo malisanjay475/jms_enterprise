@@ -27797,6 +27797,25 @@ app.get('/api/qc/fpa/list', async (req, res) => {
   }
 });
 
+// GET /api/qc/fpa/pending-count — how many FPAs are awaiting approval (factory-scoped).
+// Drives the red badge + notification sound on the Quality sidebar FPA item.
+app.get('/api/qc/fpa/pending-count', async (req, res) => {
+  try {
+    const factoryId = resolveReportFactoryId ? resolveReportFactoryId(req) : getFactoryId(req);
+    const rows = await q(
+      `SELECT COUNT(*)::int AS n
+         FROM qc_job_checks
+        WHERE fpa_status = 'Done'
+          AND COALESCE(fpa_approval_status,'Pending') = 'Pending'
+          AND ($1::int IS NULL OR factory_id = $1 OR factory_id IS NULL)`,
+      [factoryId]
+    );
+    res.json({ ok: true, count: (rows[0] && rows[0].n) || 0 });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
 // GET /api/qc/fpa/mine — a QC user's own FPAs (for the native app: see Pending / Rejected).
 app.get('/api/qc/fpa/mine', async (req, res) => {
   try {
