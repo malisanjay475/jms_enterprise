@@ -1,6 +1,6 @@
 <resources>
-    <color name="bone">#F7F5F1</color>
-    <color name="ink">#1A2332</color>
-    <color name="accent">#E2571C</color>
+    <color name="bone">#EEF2F5</color>
+    <color name="ink">#0E1622</color>
+    <color name="accent">#0E7C9B</color>
     <color name="white">#FFFFFF</color>
 </resources>

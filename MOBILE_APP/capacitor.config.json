@@ -1,0 +1,28 @@
+{
+  "appId": "com.jmsocean.app",
+  "appName": "JMS Ocean",
+  "webDir": "www",
+  "server": {
+    "url": "https://jmsocean.cloud/",
+    "cleartext": true,
+    "androidScheme": "https"
+  },
+  "android": {
+    "allowMixedContent": true,
+    "captureInput": true
+  },
+  "plugins": {
+    "SplashScreen": {
+      "launchShowDuration": 2000,
+      "launchAutoHide": true,
+      "backgroundColor": "#072450",
+      "androidSplashResourceName": "splash",
+      "androidScaleType": "CENTER_CROP",
+      "showSpinner": false
+    },
+    "StatusBar": {
+      "style": "DARK",
+      "backgroundColor": "#072450"
+    }
+  }
+}

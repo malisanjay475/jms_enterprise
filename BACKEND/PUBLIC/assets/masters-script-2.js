@@ -1091,6 +1091,14 @@
         box.appendChild(addBtn);
       }
 
+      // Mould Verification Status panel — shown for EVERYONE on the moulds master
+      // (read-only counts + per-department pending badge + Excel), hidden elsewhere.
+      if (type === 'moulds') {
+        if (typeof loadMouldVerifyStatus === 'function') loadMouldVerifyStatus();
+      } else if (typeof hideMouldVerifyStatus === 'function') {
+        hideMouldVerifyStatus();
+      }
+
       // Clear Data Button (Superadmin Only)
       const user = JPSMS.auth.getUser();
       let clearBtn = document.getElementById('clearDataBtn');
@@ -1424,8 +1432,15 @@
           // Action & Plan Status are UI helpers, we keep them but then follow strict data order.
           // Added confirmation workflow columns so completed OR/JR changes stay visible until confirmed.
           cols = ['action', 'priority', 'plan_status', 'status_change', 'confirmation_action', 'factory_name', 'mould_progress', ...orJrCols.filter(c => c !== 'factory_name')];
-        } else if ((currentType === 'machines' || (currentType === 'moulds' && jmsMouldWriteAllowed())) && JPSMS.auth.can('masters', 'edit')) {
-          // Mould master writes are MAIN/STANDALONE only — no per-row Edit action on LOCAL (KAN-114).
+        } else if (currentType === 'machines' && JPSMS.auth.can('masters', 'edit')) {
+          if (!cols.includes('actions')) cols.unshift('actions');
+        } else if (currentType === 'moulds') {
+          // Always add the actions column for moulds — on MAIN and on LOCAL.
+          // The Verification button lives here and verification is now allowed on
+          // LOCAL too (forwarded to MAIN), so approvers on a factory server must be
+          // able to reach it. Edit + History inside the cell stay gated by
+          // masters:edit AND jmsMouldWriteAllowed() (mould MASTER edits remain
+          // MAIN/STANDALONE only — KAN-114).
           if (!cols.includes('actions')) cols.unshift('actions');
         }
 
@@ -1511,13 +1526,16 @@
               base.render = function (data, type, row) {
                 const safeData = encodeURIComponent(JSON.stringify(row));
                 if (currentType === 'moulds') {
-                  if (!canWriteCurrentFactoryScope()) {
-                    return `<span style="color:#94a3b8; font-size:0.74rem; white-space:nowrap;">${getWriteLockShortHint()}</span>`;
-                  }
-                  return `<div style="white-space:nowrap">
-                            <button onclick="openMouldModal('edit', JSON.parse(decodeURIComponent('${safeData}')))" class="btn-action-icon" title="Edit"><i class="bi bi-pencil-square text-blue-600"></i></button>
-                            <button onclick="viewMouldHistory('${row.mould_number}')" class="btn-action-icon" title="History"><i class="bi bi-clock-history text-gray-600"></i></button>
-                        </div>`;
+                  // Verify button always shows (even read-only / LOCAL) so anyone can
+                  // view the 6-step verification progress; write actions gated below.
+                  const verified = !!row.verify_nkb_at;
+                  const verifyBtn = `<button onclick="openMouldVerifyModal(JSON.parse(decodeURIComponent('${safeData}')))" class="btn-action-icon" title="Verification"><i class="bi ${verified ? 'bi-patch-check-fill' : 'bi-patch-check'}" style="color:${verified ? '#16a34a' : '#64748b'}"></i></button>`;
+                  const canEditMould = JPSMS.auth.can('masters', 'edit') && canWriteCurrentFactoryScope() && jmsMouldWriteAllowed();
+                  const editBtns = canEditMould
+                    ? `<button onclick="openMouldModal('edit', JSON.parse(decodeURIComponent('${safeData}')))" class="btn-action-icon" title="Edit"><i class="bi bi-pencil-square text-blue-600"></i></button>
+                       <button onclick="viewMouldHistory('${row.mould_number}')" class="btn-action-icon" title="History"><i class="bi bi-clock-history text-gray-600"></i></button>`
+                    : '';
+                  return `<div style="white-space:nowrap; display:inline-flex; align-items:center; gap:2px">${editBtns}${verifyBtn}</div>`;
               } else if (currentType === 'users') {
                 const perms = row.permissions || {};
                 const permBadges = Object.keys(perms).map(k => perms[k] ? `<span style="background:#e0e7ff; color:#3730a3; padding:2px 6px; border-radius:4px; font-size:0.7rem; margin-right:4px">${k}</span>` : '').join('');
@@ -1617,6 +1635,26 @@
               else if (text === 'Partially Planned') color = '#f59e0b'; // Orange
 
               return `<span style="background:${color}; color:white; padding:2px 8px; border-radius:12px; font-size:0.75rem; white-space:nowrap; font-weight:600">${text}</span>`;
+            };
+          }
+
+          // Mould Number cell: append a verification badge (VERIFIED once NKB
+          // authorises, otherwise an in-progress N/6 chip). Only affects display;
+          // sort/filter keep the raw mould number.
+          if (c === 'mould_number' && currentType === 'moulds') {
+            base.render = function (data, type, row) {
+              if (type !== 'display') return data || '';
+              const steps = ['ppc', 'quality', 'moulding', 'toolroom', 'gm', 'nkb'];
+              let done = 0;
+              for (const s of steps) { if (row['verify_' + s + '_at']) done++; else break; }
+              const verified = !!row.verify_nkb_at;
+              let badge = '';
+              if (verified) {
+                badge = `<span title="Verified &amp; Authorised" style="display:inline-flex; align-items:center; gap:3px; margin-left:6px; padding:1px 7px; border-radius:999px; background:#dcfce7; color:#166534; font-size:0.64rem; font-weight:800; white-space:nowrap"><i class="bi bi-patch-check-fill"></i>VERIFIED</span>`;
+              } else if (done > 0) {
+                badge = `<span title="Verification in progress (${done} of 6)" style="display:inline-flex; align-items:center; margin-left:6px; padding:1px 7px; border-radius:999px; background:#fef3c7; color:#92400e; font-size:0.64rem; font-weight:800; white-space:nowrap">${done}/6</span>`;
+              }
+              return `<span style="white-space:nowrap">${data == null ? '' : data}${badge}</span>`;
             };
           }
 

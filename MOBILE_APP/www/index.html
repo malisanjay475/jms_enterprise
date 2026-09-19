@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>JMS Ocean</title>
+  <style>
+    :root {
+      --ocean-night: #071b2a;
+      --ocean-deep: #072450;
+      --ocean-bright: #01a8dd;
+      --panel: #ffffff;
+      --text: #0f172a;
+      --muted: #64748b;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: radial-gradient(circle at top, #0d3868 0%, var(--ocean-deep) 100%);
+      color: #ffffff;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      text-align: center;
+    }
+    .brand-container {
+      margin-bottom: 28px;
+    }
+    .logo-badge {
+      width: 88px;
+      height: 88px;
+      border-radius: 24px;
+      background: rgba(255, 255, 255, 0.12);
+      border: 1px solid rgba(255, 255, 255, 0.22);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 16px;
+      box-shadow: 0 16px 36px rgba(0, 0, 0, 0.35);
+    }
+    .logo-badge span {
+      font-size: 2.2rem;
+      font-weight: 900;
+      letter-spacing: -1px;
+      color: #ffffff;
+    }
+    h1 {
+      font-size: 1.8rem;
+      font-weight: 800;
+      letter-spacing: 0.5px;
+      margin-bottom: 6px;
+    }
+    p.subtitle {
+      font-size: 0.92rem;
+      color: #a0c4e2;
+      margin-bottom: 24px;
+    }
+    .status-card {
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.14);
+      border-radius: 16px;
+      padding: 20px;
+      width: 100%;
+      max-width: 360px;
+      backdrop-filter: blur(12px);
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.25);
+    }
+    .spinner {
+      width: 36px;
+      height: 36px;
+      border: 3px solid rgba(255, 255, 255, 0.2);
+      border-top-color: var(--ocean-bright);
+      border-radius: 50%;
+      animation: spin 0.9s linear infinite;
+      margin: 0 auto 16px;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    .btn {
+      display: block;
+      width: 100%;
+      padding: 12px;
+      border-radius: 10px;
+      font-weight: 700;
+      font-size: 0.92rem;
+      border: none;
+      cursor: pointer;
+      margin-top: 10px;
+      transition: all 0.2s;
+    }
+    .btn-primary {
+      background: linear-gradient(135deg, #01a8dd, #0284c7);
+      color: white;
+    }
+    .btn-outline {
+      background: transparent;
+      border: 1px solid rgba(255, 255, 255, 0.3);
+      color: white;
+    }
+    .server-select-box {
+      margin-top: 16px;
+      text-align: left;
+    }
+    .server-select-box label {
+      font-size: 0.78rem;
+      color: #a0c4e2;
+      text-transform: uppercase;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      margin-bottom: 6px;
+      display: block;
+    }
+    .server-select-box input {
+      width: 100%;
+      padding: 10px 12px;
+      border-radius: 8px;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      background: rgba(0, 0, 0, 0.25);
+      color: white;
+      font-size: 0.9rem;
+      outline: none;
+      margin-bottom: 8px;
+    }
+  </style>
+</head>
+<body>
+  <div class="brand-container">
+    <div class="logo-badge">
+      <span>JMS</span>
+    </div>
+    <h1>JMS OCEAN</h1>
+    <p class="subtitle">Enterprise Production & Planning Portal</p>
+  </div>
+
+  <div class="status-card">
+    <div id="loaderArea">
+      <div class="spinner"></div>
+      <p id="statusMsg" style="font-size:0.9rem; font-weight:600;">Connecting to server…</p>
+    </div>
+
+    <div id="serverConfigArea" style="display:none; margin-top:14px;">
+      <div class="server-select-box">
+        <label>Server Environment</label>
+        <input type="text" id="targetServerUrl" value="https://jmsocean.cloud/">
+      </div>
+      <button class="btn btn-primary" onclick="connectToServer()">Connect Now</button>
+      <button class="btn btn-outline" onclick="setLocalFactory()">Use Local Factory IP (192.168.1.173)</button>
+    </div>
+
+    <button id="switchBtn" class="btn btn-outline" style="margin-top:16px; font-size:0.8rem; opacity:0.8;" onclick="toggleConfig()">
+      Configure Server
+    </button>
+  </div>
+
+  <script>
+    const DEFAULT_SERVER = 'https://jmsocean.cloud/';
+    const LOCAL_FACTORY = 'http://192.168.1.173:3001/';
+
+    function getSavedServer() {
+      try {
+        return localStorage.getItem('jms_target_server') || DEFAULT_SERVER;
+      } catch (e) {
+        return DEFAULT_SERVER;
+      }
+    }
+
+    function saveServer(url) {
+      try {
+        localStorage.setItem('jms_target_server', url);
+      } catch (e) {}
+    }
+
+    function toggleConfig() {
+      const area = document.getElementById('serverConfigArea');
+      const btn = document.getElementById('switchBtn');
+      if (area.style.display === 'none') {
+        area.style.display = 'block';
+        btn.textContent = 'Hide Configuration';
+      } else {
+        area.style.display = 'none';
+        btn.textContent = 'Configure Server';
+      }
+    }
+
+    function setLocalFactory() {
+      document.getElementById('targetServerUrl').value = LOCAL_FACTORY;
+      connectToServer();
+    }
+
+    function connectToServer() {
+      let url = document.getElementById('targetServerUrl').value.trim();
+      if (!url) url = DEFAULT_SERVER;
+      if (!url.endsWith('/')) url += '/';
+      saveServer(url);
+      document.getElementById('statusMsg').textContent = 'Connecting to ' + url + '…';
+      window.location.href = url;
+    }
+
+    // Auto-connect after 1 second if not cancelled
+    const serverUrl = getSavedServer();
+    document.getElementById('targetServerUrl').value = serverUrl;
+
+    setTimeout(() => {
+      if (document.getElementById('serverConfigArea').style.display === 'none') {
+        window.location.href = serverUrl;
+      }
+    }, 1200);
+  </script>
+</body>
+</html>

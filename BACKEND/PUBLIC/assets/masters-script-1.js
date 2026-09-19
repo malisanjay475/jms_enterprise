@@ -374,6 +374,459 @@
       }
     }
 
+    /* ============================================================
+       MOULD VERIFICATION (strict 6-step badge workflow)
+       PPC -> Quality -> Moulding -> Tool Room -> GM Approve -> NKB Authorise.
+       Server enforces order + role; the UI mirrors it so only the eligible
+       next step is actionable for the current user.
+    ============================================================ */
+    const MOULD_VERIFY_STEPS = [
+      { key: 'ppc',      col: 'ppc',      label: 'PPC Check',              roles: ['ppc_manager', 'ppc_ass_manager'] },
+      { key: 'quality',  col: 'quality',  label: 'Quality Check',          roles: ['quality', 'quality_ass__manager'] },
+      { key: 'moulding', col: 'moulding', label: 'Moulding Check',         roles: ['moulding_manager', 'moulding_ass_manager'] },
+      { key: 'toolroom', col: 'toolroom', label: 'Tool Room Check',        roles: ['toolroom_manager'] },
+      { key: 'gm',       col: 'gm',       label: 'General Manager Approve', roles: ['general_manager'] },
+      { key: 'nkb',      col: 'nkb',      label: 'NKB Authorise',          roles: [] } // superadmin only
+    ];
+
+    // How many of the ordered steps are stamped, and whether fully verified.
+    function mouldVerifyProgress(row) {
+      let done = 0;
+      for (const s of MOULD_VERIFY_STEPS) {
+        if (row['verify_' + s.col + '_at']) done++; else break;
+      }
+      return { done, total: MOULD_VERIFY_STEPS.length, verified: !!row.verify_nkb_at };
+    }
+
+    function currentUserCanVerifyStep(step) {
+      const u = JPSMS.auth.getUser() || {};
+      const role = String(u.role_code || '').toLowerCase();
+      // admin AND superadmin can complete any step, including NKB Authorise.
+      if (role === 'superadmin' || role === 'admin') return true;
+      return step.roles.includes(role);
+    }
+
+    let _mvCurrentMouldNumber = null;
+
+    function openMouldVerifyModal(row) {
+      _mvCurrentMouldNumber = row.mould_number;
+      document.getElementById('mvMouldTitle').textContent =
+        `${row.mould_number || ''}${row.mould_name ? ' — ' + row.mould_name : ''}`;
+      renderMouldVerifySteps(row);
+      const u = JPSMS.auth.getUser() || {};
+      const urole = String(u.role_code || '').toLowerCase();
+      const canReset = urole === 'superadmin' || urole === 'admin';
+      const resetBtn = document.getElementById('mvResetBtn');
+      const anyDone = MOULD_VERIFY_STEPS.some(s => row['verify_' + s.col + '_at']);
+      resetBtn.style.display = (canReset && anyDone) ? 'inline-block' : 'none';
+      document.getElementById('mouldVerifyModal').style.display = 'flex';
+    }
+
+    function renderMouldVerifySteps(row) {
+      const prog = mouldVerifyProgress(row);
+      const banner = document.getElementById('mvBadgeBanner');
+      banner.style.display = prog.verified ? 'flex' : 'none';
+
+      // Verification is allowed on LOCAL too (the server forwards the action to
+      // MAIN), so this is NOT gated by jmsMouldWriteAllowed() — unlike mould master
+      // edits. Role + strict order are still enforced client- and server-side.
+      const writeAllowed = true;
+      const html = MOULD_VERIFY_STEPS.map((s, i) => {
+        const at = row['verify_' + s.col + '_at'];
+        const by = row['verify_' + s.col + '_by'];
+        const isDone = !!at;
+        const isNext = !isDone && i === prog.done;
+        const canAct = isNext && writeAllowed && currentUserCanVerifyStep(s);
+
+        let right = '';
+        if (isDone) {
+          right = `<span style="color:#166534; font-size:0.72rem; text-align:right">
+                     <i class="bi bi-check-circle-fill"></i> ${by || ''}<br>
+                     <span style="color:#94a3b8">${new Date(at).toLocaleString()}</span>
+                   </span>`;
+        } else if (canAct) {
+          right = `<button onclick="openMouldVerifyDetail('${s.key}')" class="btn-action"
+                     style="padding:5px 14px; font-size:0.76rem; background:#2563eb">Approve</button>`;
+        } else if (isNext) {
+          right = `<span style="color:#94a3b8; font-size:0.72rem">Awaiting ${s.label}</span>`;
+        } else {
+          right = `<span style="color:#cbd5e1; font-size:0.72rem"><i class="bi bi-lock-fill"></i> Locked</span>`;
+        }
+
+        const circleBg = isDone ? '#16a34a' : (isNext ? '#2563eb' : '#e2e8f0');
+        const circleColor = (isDone || isNext) ? '#fff' : '#94a3b8';
+        return `
+          <div style="display:flex; align-items:center; gap:12px; padding:10px 12px; border:1px solid ${isNext ? '#bfdbfe' : '#e2e8f0'}; border-radius:8px; background:${isDone ? '#f0fdf4' : (isNext ? '#eff6ff' : '#f8fafc')}">
+            <div style="width:26px; height:26px; border-radius:50%; background:${circleBg}; color:${circleColor}; display:flex; align-items:center; justify-content:center; font-weight:700; font-size:0.8rem; flex:0 0 auto">${isDone ? '<i class=\"bi bi-check-lg\"></i>' : (i + 1)}</div>
+            <div style="flex:1"><div style="font-weight:600; font-size:0.86rem; color:#0f172a">${s.label}</div></div>
+            <div>${right}</div>
+          </div>`;
+      }).join('');
+      document.getElementById('mvSteps').innerHTML = html;
+    }
+
+    async function submitMouldVerifyStep(stepKey) {
+      if (!_mvCurrentMouldNumber) return;
+      const step = MOULD_VERIFY_STEPS.find(s => s.key === stepKey);
+      if (!step) return;
+      if (!confirm(`Confirm "${step.label}" for mould ${_mvCurrentMouldNumber}?`)) return;
+      try {
+        const res = await JPSMS.api.post(
+          '/moulds/' + encodeURIComponent(_mvCurrentMouldNumber) + '/verify',
+          { step: stepKey, session: JPSMS.auth.getUser() }
+        );
+        alert(res.message || 'Done');
+        document.getElementById('mouldVerifyModal').style.display = 'none';
+        loadMasterData();
+      } catch (e) {
+        alert('Error: ' + e.message);
+      }
+    }
+
+    async function resetMouldVerify() {
+      if (!_mvCurrentMouldNumber) return;
+      if (!confirm(`Reset the ENTIRE verification chain for mould ${_mvCurrentMouldNumber}? All 6 steps must be redone.`)) return;
+      try {
+        const res = await JPSMS.api.post(
+          '/moulds/' + encodeURIComponent(_mvCurrentMouldNumber) + '/verify/reset',
+          { session: JPSMS.auth.getUser() }
+        );
+        alert(res.message || 'Reset');
+        document.getElementById('mouldVerifyModal').style.display = 'none';
+        loadMasterData();
+        if (typeof loadMouldVerifyStatus === 'function') loadMouldVerifyStatus();
+      } catch (e) {
+        alert('Error: ' + e.message);
+      }
+    }
+
+    /* ---- Verification Detail modal (read-only master + history + notes + confirm) ---- */
+    let _mvdStepKey = null;
+
+    function mvEsc(v) {
+      return String(v == null ? '' : v).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+    }
+
+    async function openMouldVerifyDetail(stepKey) {
+      if (!_mvCurrentMouldNumber) return;
+      _mvdStepKey = stepKey;
+      const step = MOULD_VERIFY_STEPS.find(s => s.key === stepKey);
+      document.getElementById('mvdTitle').textContent = 'Verification — ' + (step ? step.label : 'Review');
+      document.getElementById('mvdMouldTitle').textContent = '';
+      document.getElementById('mvdMasterGrid').innerHTML = '';
+      document.getElementById('mvdNotes').innerHTML = '';
+      document.getElementById('mvdNoteInput').value = '';
+      document.getElementById('mvdHistory').innerHTML = 'Loading…';
+      document.getElementById('mvdConfirmLabel').textContent = 'Confirm ' + (step ? step.label : 'Approval');
+      document.getElementById('mouldVerifyDetailModal').style.display = 'flex';
+
+      try {
+        const res = await JPSMS.api.get('/moulds/' + encodeURIComponent(_mvCurrentMouldNumber) + '/verify-detail');
+        if (!res.ok) throw new Error(res.error);
+        renderVerifyDetail(res.data);
+      } catch (e) {
+        document.getElementById('mvdMasterGrid').innerHTML = `<span style="color:#dc2626">Failed to load: ${mvEsc(e.message)}</span>`;
+      }
+      // History loads independently so a DPR hiccup doesn't block approval.
+      try {
+        const h = await JPSMS.api.get('/moulds/' + encodeURIComponent(_mvCurrentMouldNumber) + '/moulding-history');
+        if (h.ok) renderMouldingHistory(h.data);
+        else document.getElementById('mvdHistory').innerHTML = '<span style="color:#94a3b8">No history available.</span>';
+      } catch (_) {
+        document.getElementById('mvdHistory').innerHTML = '<span style="color:#94a3b8">No history available.</span>';
+      }
+    }
+
+    function renderVerifyDetail(data) {
+      const m = data.mould || {};
+      document.getElementById('mvdMouldTitle').textContent =
+        `${m.mould_number || ''}${m.mould_name ? ' — ' + m.mould_name : ''}`;
+      // Read-only master fields (plain text, no inputs => cannot be edited here).
+      document.getElementById('mvdMasterGrid').innerHTML = mouldFields.map(k => {
+        const label = mouldColumnTitles[k] || k.replace(/_/g, ' ').toUpperCase();
+        const val = m[k];
+        return `<div style="padding:5px 0; border-bottom:1px solid #f1f5f9">
+                  <div style="font-size:0.64rem; color:#94a3b8; letter-spacing:0.02em">${label}</div>
+                  <div style="color:#0f172a; font-weight:600">${val == null || val === '' ? '—' : mvEsc(val)}</div>
+                </div>`;
+      }).join('');
+      renderVerifyNotes(data.notes || []);
+    }
+
+    function renderVerifyNotes(notes) {
+      const wrap = document.getElementById('mvdNotes');
+      if (!notes.length) {
+        wrap.innerHTML = '<span style="color:#94a3b8; font-size:0.76rem">No details added yet.</span>';
+        return;
+      }
+      const stepLabel = k => (MOULD_VERIFY_STEPS.find(s => s.key === k) || {}).label || k;
+      wrap.innerHTML = notes.map(n => `
+        <div style="border:1px solid #e2e8f0; border-radius:6px; padding:7px 10px; background:#f8fafc">
+          <div style="font-size:0.82rem; color:#0f172a; white-space:pre-wrap">${mvEsc(n.note)}</div>
+          <div style="font-size:0.66rem; color:#94a3b8; margin-top:3px">${mvEsc(stepLabel(n.step))} · ${mvEsc(n.created_by || '')} · ${new Date(n.created_at).toLocaleString()}</div>
+        </div>`).join('');
+    }
+
+    function renderMouldingHistory(data) {
+      const blocks = [['d7', 'Last 7 Days'], ['d30', 'Last 30 Days']]
+        .filter(([k]) => data[k])
+        .map(([k, title]) => {
+          const w = data[k];
+          const t = w.totals || {};
+          const daily = (w.daily || []).map(r => `
+            <tr>
+              <td style="padding:3px 8px">${new Date(r.d).toLocaleDateString()}</td>
+              <td style="padding:3px 8px; text-align:right">${Number(r.good).toLocaleString('en-IN')}</td>
+              <td style="padding:3px 8px; text-align:right">${Number(r.reject).toLocaleString('en-IN')}</td>
+              <td style="padding:3px 8px; text-align:right">${Number(r.downtime).toLocaleString('en-IN')}</td>
+              <td style="padding:3px 8px; text-align:right">${r.machines}</td>
+            </tr>`).join('');
+          const machines = (w.byMachine || []).slice(0, 8).map(mm =>
+            `<span style="display:inline-block; margin:2px 4px 0 0; padding:2px 8px; border-radius:999px; background:#eef2ff; color:#3730a3; font-size:0.68rem">${mvEsc(mm.machine || 'Unassigned')}: ${Number(mm.good).toLocaleString('en-IN')}</span>`
+          ).join('');
+          // Downtime reason comparison for the period (largest first).
+          const dtr = (w.downtimeReasons || []);
+          const maxMin = dtr.length ? Number(dtr[0].minutes) || 1 : 1;
+          const reasonsHtml = dtr.length
+            ? `<div style="margin:8px 0; border-top:1px solid #f1f5f9; padding-top:6px">
+                 <div style="font-size:0.68rem; color:#94a3b8; margin-bottom:4px">DOWNTIME REASONS</div>
+                 ${dtr.map(d => {
+                   const pct = Math.max(4, Math.round((Number(d.minutes) / maxMin) * 100));
+                   return `<div style="display:flex; align-items:center; gap:8px; margin-bottom:3px">
+                             <span style="flex:0 0 42%; font-size:0.72rem; color:#475569; overflow:hidden; text-overflow:ellipsis; white-space:nowrap">${mvEsc(d.reason)}</span>
+                             <span style="flex:1; height:8px; background:#f1f5f9; border-radius:4px; overflow:hidden"><span style="display:block; height:100%; width:${pct}%; background:#f59e0b"></span></span>
+                             <span style="flex:0 0 auto; font-size:0.72rem; color:#0f172a; font-weight:600">${Number(d.minutes).toLocaleString('en-IN')}m</span>
+                           </div>`;
+                 }).join('')}
+               </div>`
+            : '';
+          return `
+            <div style="flex:1; min-width:320px; border:1px solid #e2e8f0; border-radius:8px; padding:10px 12px">
+              <div style="font-weight:700; color:#0f172a; margin-bottom:6px">${title}</div>
+              <div style="display:flex; flex-wrap:wrap; gap:10px; font-size:0.74rem; margin-bottom:8px">
+                <span>Good: <b style="color:#166534">${Number(t.good || 0).toLocaleString('en-IN')}</b></span>
+                <span>Reject: <b style="color:#b91c1c">${Number(t.reject || 0).toLocaleString('en-IN')}</b></span>
+                <span>Reject %: <b>${t.rejectPct || 0}%</b></span>
+                <span>Downtime: <b>${Number(t.downtime || 0).toLocaleString('en-IN')} min</b></span>
+                <span>Active days: <b>${t.activeDays || 0}</b></span>
+                <span>Machines: <b>${t.machines || 0}</b></span>
+              </div>
+              ${machines ? `<div style="margin-bottom:8px">${machines}</div>` : ''}
+              ${reasonsHtml}
+              ${daily
+                ? `<div style="max-height:150px; overflow:auto; border-top:1px solid #f1f5f9">
+                     <table style="width:100%; border-collapse:collapse; font-size:0.72rem">
+                       <thead><tr style="color:#94a3b8; text-align:left">
+                         <th style="padding:3px 8px">Date</th><th style="padding:3px 8px; text-align:right">Good</th>
+                         <th style="padding:3px 8px; text-align:right">Reject</th><th style="padding:3px 8px; text-align:right">Downtime</th>
+                         <th style="padding:3px 8px; text-align:right">Mc</th>
+                       </tr></thead><tbody>${daily}</tbody>
+                     </table>
+                   </div>`
+                : '<div style="color:#94a3b8; font-size:0.74rem">No production recorded in this period.</div>'}
+            </div>`;
+        });
+      const lr = data.lastRun;
+      const lastRunHtml = lr
+        ? `<div style="margin-bottom:10px; font-size:0.8rem; color:#0f172a">
+             <i class="bi bi-clock-history" style="color:#2563eb"></i>
+             <b>Last run:</b> ${new Date(lr.date).toLocaleDateString()}${lr.machine ? ' · ' + mvEsc(lr.machine) : ''}
+           </div>`
+        : `<div style="margin-bottom:10px; font-size:0.8rem; color:#94a3b8"><i class="bi bi-clock-history"></i> Last run: no production recorded yet</div>`;
+      document.getElementById('mvdHistory').innerHTML =
+        lastRunHtml + `<div style="display:flex; gap:12px; flex-wrap:wrap">${blocks.join('')}</div>`;
+    }
+
+    async function addMouldVerifyNote() {
+      if (!_mvCurrentMouldNumber || !_mvdStepKey) return;
+      const note = document.getElementById('mvdNoteInput').value.trim();
+      if (!note) { alert('Please type a detail to add.'); return; }
+      try {
+        const res = await JPSMS.api.post(
+          '/moulds/' + encodeURIComponent(_mvCurrentMouldNumber) + '/verify-note',
+          { step: _mvdStepKey, note, session: JPSMS.auth.getUser() }
+        );
+        if (!res.ok) throw new Error(res.error);
+        document.getElementById('mvdNoteInput').value = '';
+        // Reload just the notes.
+        const d = await JPSMS.api.get('/moulds/' + encodeURIComponent(_mvCurrentMouldNumber) + '/verify-detail');
+        if (d.ok) renderVerifyNotes(d.data.notes || []);
+      } catch (e) {
+        alert('Error: ' + e.message);
+      }
+    }
+
+    async function confirmMouldVerifyFromDetail() {
+      if (!_mvCurrentMouldNumber || !_mvdStepKey) return;
+      const step = MOULD_VERIFY_STEPS.find(s => s.key === _mvdStepKey);
+      if (!confirm(`Confirm "${step ? step.label : 'this step'}" for mould ${_mvCurrentMouldNumber}? This cannot be undone (only Admin/Superadmin can reset).`)) return;
+      try {
+        const res = await JPSMS.api.post(
+          '/moulds/' + encodeURIComponent(_mvCurrentMouldNumber) + '/verify',
+          { step: _mvdStepKey, session: JPSMS.auth.getUser() }
+        );
+        alert(res.message || 'Done');
+        document.getElementById('mouldVerifyDetailModal').style.display = 'none';
+        document.getElementById('mouldVerifyModal').style.display = 'none';
+        loadMasterData();
+        if (typeof loadMouldVerifyStatus === 'function') loadMouldVerifyStatus();
+      } catch (e) {
+        alert('Error: ' + e.message);
+      }
+    }
+
+    /* ============================================================
+       VERIFICATION STATUS panel + per-department pending badge (Mould Master).
+       Read-only, visible to everyone; drives quick access + Excel download.
+    ============================================================ */
+    let _mvStatusData = null;
+    let _mvPendingFilter = null; // Set<mould_number> or null
+
+    // Which step (department) is the current user responsible for? admin/superadmin => 'ALL'.
+    function mouldVerifyDeptForUser() {
+      const u = JPSMS.auth.getUser() || {};
+      const role = String(u.role_code || '').toLowerCase();
+      if (role === 'admin' || role === 'superadmin') return 'ALL';
+      const step = MOULD_VERIFY_STEPS.find(s => s.roles.includes(role));
+      if (step) return step.key;
+      if (role === 'general_manager') return 'gm';
+      return null;
+    }
+
+    // Register the DataTables row filter once — filters #masterTable to the moulds
+    // in _mvPendingFilter (by mould_number) when a pending chip is active.
+    function ensureMouldVerifyFilter() {
+      if (window._mvFilterRegistered || !window.$ || !$.fn || !$.fn.dataTable) return;
+      $.fn.dataTable.ext.search.push(function (settings, searchData, dataIndex) {
+        if (!settings.nTable || settings.nTable.id !== 'masterTable') return true;
+        if (!_mvPendingFilter) return true;
+        const rowObj = settings.aoData[dataIndex] && settings.aoData[dataIndex]._aData;
+        return rowObj ? _mvPendingFilter.has(String(rowObj.mould_number)) : true;
+      });
+      window._mvFilterRegistered = true;
+    }
+
+    async function loadMouldVerifyStatus() {
+      const panel = document.getElementById('mouldVerifyStatusPanel');
+      if (!panel) return;
+      ensureMouldVerifyFilter();
+      panel.style.display = 'block';
+      if (!_mvStatusData) panel.innerHTML = '<span style="color:#94a3b8; font-size:0.8rem">Loading verification status…</span>';
+      try {
+        const res = await JPSMS.api.get('/moulds/verification-summary');
+        if (!res.ok) throw new Error(res.error);
+        _mvStatusData = res.data;
+        renderMouldVerifyStatusPanel(res.data);
+      } catch (e) {
+        panel.innerHTML = '<span style="color:#dc2626; font-size:0.8rem">Could not load verification status.</span>';
+      }
+    }
+
+    function hideMouldVerifyStatus() {
+      const panel = document.getElementById('mouldVerifyStatusPanel');
+      if (panel) panel.style.display = 'none';
+      if (_mvPendingFilter) clearMouldPendingFilter();
+    }
+
+    function renderMouldVerifyStatusPanel(data) {
+      const panel = document.getElementById('mouldVerifyStatusPanel');
+      if (!panel) return;
+      const t = data.totals || {};
+      const dept = mouldVerifyDeptForUser();
+
+      // "Pending your verification" badge.
+      let myBadge = '';
+      if (dept && dept !== 'ALL') {
+        const n = (data.pendingByStep && data.pendingByStep[dept]) || 0;
+        const label = (MOULD_VERIFY_STEPS.find(s => s.key === dept) || {}).label || 'your step';
+        myBadge = `<button onclick="setMouldPendingFilter('${dept}')" style="border:none; cursor:pointer; padding:6px 12px; border-radius:999px; font-weight:800; font-size:0.8rem; background:${n > 0 ? '#fef3c7' : '#dcfce7'}; color:${n > 0 ? '#92400e' : '#166534'}">
+                     <i class="bi bi-hourglass-split"></i> Pending your verification (${label}): ${n}
+                   </button>`;
+      } else if (dept === 'ALL') {
+        const totalPending = t.total - t.verified;
+        myBadge = `<button onclick="setMouldPendingFilter('ALL')" style="border:none; cursor:pointer; padding:6px 12px; border-radius:999px; font-weight:800; font-size:0.8rem; background:#eef2ff; color:#3730a3">
+                     <i class="bi bi-hourglass-split"></i> Pending verification: ${totalPending}
+                   </button>`;
+      }
+
+      const totalsHtml = `
+        <span style="font-size:0.82rem; color:#166534; font-weight:700"><i class="bi bi-patch-check-fill"></i> Verified: ${t.verified || 0}</span>
+        <span style="font-size:0.82rem; color:#92400e; font-weight:700">In progress: ${t.inProgress || 0}</span>
+        <span style="font-size:0.82rem; color:#64748b; font-weight:700">Not started: ${t.notStarted || 0}</span>
+        <span style="font-size:0.82rem; color:#0f172a; font-weight:700">Total: ${t.total || 0}</span>`;
+
+      // Per-department pending chips (click to filter).
+      const chips = MOULD_VERIFY_STEPS.map(s => {
+        const n = (data.pendingByStep && data.pendingByStep[s.key]) || 0;
+        const active = n > 0;
+        return `<button onclick="setMouldPendingFilter('${s.key}')" title="Show moulds pending ${s.label}"
+                  style="border:1px solid ${active ? '#fcd34d' : '#e2e8f0'}; cursor:pointer; padding:3px 10px; border-radius:999px; font-size:0.72rem; font-weight:700; background:${active ? '#fffbeb' : '#f8fafc'}; color:${active ? '#92400e' : '#94a3b8'}">
+                  ${s.label}: ${n}
+                </button>`;
+      }).join(' ');
+
+      const filterActive = !!_mvPendingFilter;
+      panel.innerHTML = `
+        <div style="display:flex; flex-wrap:wrap; align-items:center; gap:10px 14px; justify-content:space-between">
+          <div style="display:flex; flex-wrap:wrap; align-items:center; gap:10px">
+            <span style="font-weight:800; color:#0f172a; font-size:0.9rem">Verification Status</span>
+            ${totalsHtml}
+          </div>
+          <div style="display:flex; align-items:center; gap:8px">
+            ${myBadge}
+            <button onclick="downloadMouldVerifyExcel()" class="btn-action" style="padding:6px 12px; font-size:0.78rem; background:#0f766e"><i class="bi bi-file-earmark-excel"></i> Excel</button>
+          </div>
+        </div>
+        <div style="margin-top:8px; display:flex; flex-wrap:wrap; align-items:center; gap:6px">
+          <span style="font-size:0.7rem; color:#94a3b8; margin-right:2px">PENDING BY DEPT:</span>
+          ${chips}
+          ${filterActive ? `<button onclick="clearMouldPendingFilter()" style="border:none; cursor:pointer; padding:3px 10px; border-radius:999px; font-size:0.72rem; font-weight:700; background:#fee2e2; color:#b91c1c"><i class="bi bi-x-lg"></i> Clear filter</button>` : ''}
+        </div>`;
+    }
+
+    function setMouldPendingFilter(stepKey) {
+      if (!_mvStatusData) return;
+      const set = new Set();
+      (_mvStatusData.moulds || []).forEach(m => {
+        if (m.verified) return;
+        if (stepKey === 'ALL' || m.nextStep === stepKey) set.add(String(m.mould_number));
+      });
+      _mvPendingFilter = set;
+      ensureMouldVerifyFilter();
+      if (typeof masterTable !== 'undefined' && masterTable) masterTable.draw();
+      renderMouldVerifyStatusPanel(_mvStatusData);
+    }
+
+    function clearMouldPendingFilter() {
+      _mvPendingFilter = null;
+      if (typeof masterTable !== 'undefined' && masterTable) masterTable.draw();
+      if (_mvStatusData) renderMouldVerifyStatusPanel(_mvStatusData);
+    }
+
+    async function downloadMouldVerifyExcel() {
+      const headers = {};
+      try {
+        const token = localStorage.getItem('token');
+        if (token) headers['Authorization'] = `Bearer ${token}`;
+        const u = JSON.parse(localStorage.getItem('user') || '{}');
+        if (u && u.username) headers['X-User-Name'] = u.username;
+        const fid = localStorage.getItem('jpsms_factory_id');
+        if (fid) headers['X-Factory-ID'] = fid;
+      } catch (_) {}
+      try {
+        const res = await fetch('/api/moulds/verification-status.xlsx', { headers });
+        if (!res.ok) throw new Error(`Download failed (${res.status})`);
+        const blob = await res.blob();
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = `Mould_Verification_Status_${new Date().toISOString().slice(0, 10)}.xlsx`;
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+      } catch (e) {
+        alert(e.message || 'Excel download failed');
+      }
+    }
+
     async function viewMouldHistory(id) {
       try {
         const res = await JPSMS.api.get('/moulds/history/' + encodeURIComponent(id));

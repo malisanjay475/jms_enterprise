@@ -290,6 +290,15 @@
             const fpaImages = fpa ? [fpa.fpa_form_image, ...((Array.isArray(fpa.product_images) ? fpa.product_images : []))].filter(Boolean) : [];
             const fpaRowId = fpa ? fpa.id : null;
             const canDelFpa = !!(window.canDeleteFpaImage && window.canDeleteFpaImage());
+            // QC approval remark left by Quality when approving the FPA (optional).
+            const fpaStatus = fpa ? (fpa.fpa_approval_status || 'Pending') : '';
+            const fpaReviewer = fpa ? (fpa.fpa_reviewed_by || '') : '';
+            const fpaRemark = fpa ? (fpa.fpa_approve_remark || '') : '';
+            const fpaApprovalNote = (fpaStatus === 'Approved' && (fpaReviewer || fpaRemark))
+                ? `<div style="margin-top:10px; background:#ecfdf5; border:1px solid #a7f3d0; border-radius:10px; padding:8px 12px; font-size:0.82rem; color:#065f46">
+                       <b>Approved${fpaReviewer ? ' by ' + dprEsc(fpaReviewer) : ''}</b>${fpaRemark ? ' — <b>Remark:</b> ' + dprEsc(fpaRemark) : ''}
+                   </div>`
+                : '';
 
             box.innerHTML = `
                 <h4 style="font-size:1rem; font-weight:900; color:#0f172a; margin:0 0 10px">QC</h4>
@@ -327,6 +336,7 @@
                         </div>`).join('')}
                     </div>
                 ` : '<div style="color:#64748b; font-size:0.82rem; margin-top:10px">No FPA images saved for this job yet.</div>'}
+                ${fpaApprovalNote}
             `;
         } catch (err) {
             box.innerHTML = `<div style="color:#b91c1c; font-size:0.85rem">QC evidence could not be loaded: ${String(err.message || err)}</div>`;

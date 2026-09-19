@@ -1546,6 +1546,22 @@ async function migrateMouldMasterSchema() {
     ['sfg_bag_size', 'TEXT'],
     ['std_volume_cap', 'TEXT'],
     ['labour_job_machine', 'TEXT'],
+    // ---- Mould Verification workflow (strict 6-step: PPC -> Quality -> Moulding
+    // -> Tool Room -> GM Approve -> NKB Authorise). Each step stamps who + when.
+    // Company-wide like the rest of the mould master: mastered on MAIN, synced to
+    // every LOCAL via SELECT * full-pull. verify_nkb_at NOT NULL == fully verified.
+    ['verify_ppc_by', 'TEXT'],
+    ['verify_ppc_at', 'TIMESTAMPTZ'],
+    ['verify_quality_by', 'TEXT'],
+    ['verify_quality_at', 'TIMESTAMPTZ'],
+    ['verify_moulding_by', 'TEXT'],
+    ['verify_moulding_at', 'TIMESTAMPTZ'],
+    ['verify_toolroom_by', 'TEXT'],
+    ['verify_toolroom_at', 'TIMESTAMPTZ'],
+    ['verify_gm_by', 'TEXT'],
+    ['verify_gm_at', 'TIMESTAMPTZ'],
+    ['verify_nkb_by', 'TEXT'],
+    ['verify_nkb_at', 'TIMESTAMPTZ'],
     ['updated_at', 'TIMESTAMPTZ DEFAULT NOW()'],
     ['factory_id', 'INTEGER'],
     ['last_updated_at', 'TIMESTAMP'],
@@ -1619,6 +1635,28 @@ async function migrateMouldMasterSchema() {
   await q(`UPDATE mould_audit_logs SET sync_id = gen_random_uuid() WHERE sync_id IS NULL`);
   await qIdx(`CREATE INDEX IF NOT EXISTS idx_mould_audit_mould_id_changed_at ON mould_audit_logs(mould_id, changed_at DESC)`);
   await qIdx(`CREATE INDEX IF NOT EXISTS idx_mould_audit_sync_id ON mould_audit_logs(sync_id)`);
+
+  // Mould Verification "added details" — additive notes an approver attaches at a
+  // verification step. Never touches the mould master columns (read-only master).
+  // Company-wide like the mould master; synced by surrogate sync_id.
+  await q(`
+    CREATE TABLE IF NOT EXISTS mould_verify_notes (
+      id SERIAL PRIMARY KEY,
+      mould_number TEXT NOT NULL,
+      step TEXT NOT NULL,
+      note TEXT NOT NULL,
+      created_by TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      factory_id INTEGER,
+      sync_id UUID DEFAULT gen_random_uuid(),
+      sync_status TEXT
+    )
+  `);
+  await q(`ALTER TABLE mould_verify_notes ADD COLUMN IF NOT EXISTS sync_id UUID DEFAULT gen_random_uuid()`);
+  await q(`ALTER TABLE mould_verify_notes ADD COLUMN IF NOT EXISTS sync_status TEXT`);
+  await q(`UPDATE mould_verify_notes SET sync_id = gen_random_uuid() WHERE sync_id IS NULL`);
+  await qIdx(`CREATE INDEX IF NOT EXISTS idx_mould_verify_notes_mould ON mould_verify_notes(mould_number, created_at DESC)`);
+  await qIdx(`CREATE UNIQUE INDEX IF NOT EXISTS idx_mould_verify_notes_sync_id ON mould_verify_notes(sync_id)`);
 
   // Local/main sync can insert explicit audit IDs. Keep the serial sequence ahead
   // of existing rows so future Mould Master uploads never reuse an old primary key.
@@ -4612,11 +4650,30 @@ async function bootstrapFreshCoreTables() {
     console.warn('[DB] Bootstrap factory seed skipped:', factorySeedErr.message);
   }
 
-  // One-time rename: update factory 1 to correct display name and location.
+  // One-time rename: correct factory display names and locations (owner request).
+  // Guarded to only touch the known auto-seeded / previous names so an admin's own
+  // edits are never clobbered, and idempotent (skips when already correct).
+  // Factory 1 (F1 / Dungra) -> JOYO PLASTICS - DUNGRA - UNIT-I. The "UNIT-I" suffix
+  // does NOT match the Unit-II ('%UNIT-II%') ERP self-heal above, so it stays F1/ERP 41.
   await q(
-    `UPDATE factories SET name = 'Dungra Plant 1', location = 'Dungra, Vapi', updated_at = NOW()
-     WHERE id = 1 AND (name IS DISTINCT FROM 'Dungra Plant 1' OR location IS DISTINCT FROM 'Dungra, Vapi')`
+    `UPDATE factories SET name = 'JOYO PLASTICS - DUNGRA - UNIT-I', location = 'Dungra, Vapi', updated_at = NOW()
+     WHERE id = 1 AND name IN ('Dungra Plant 1', 'Factory 1')
+       AND (name IS DISTINCT FROM 'JOYO PLASTICS - DUNGRA - UNIT-I' OR location IS DISTINCT FROM 'Dungra, Vapi')`
   ).catch(err => console.warn('[DB] Factory 1 rename skipped:', err.message));
+  // Factory 2 (F2 / Shivani) -> Shivani-Kachigam, location Kachigam.
+  await q(
+    `UPDATE factories SET name = 'Shivani-Kachigam', location = 'Kachigam', updated_at = NOW()
+     WHERE UPPER(TRIM(COALESCE(code, ''))) = 'F2'
+       AND name IN ('Factory 2', 'Shivani', 'Shivani-Kachigam')
+       AND (name IS DISTINCT FROM 'Shivani-Kachigam' OR location IS DISTINCT FROM 'Kachigam')`
+  ).catch(err => console.warn('[DB] Factory 2 rename skipped:', err.message));
+  // Factory 3 (F3 / Premier - Kachigam) -> add location Kachigam (name unchanged).
+  await q(
+    `UPDATE factories SET location = 'Kachigam', updated_at = NOW()
+     WHERE UPPER(TRIM(COALESCE(code, ''))) = 'F3'
+       AND name = 'Premier - Kachigam'
+       AND location IS DISTINCT FROM 'Kachigam'`
+  ).catch(err => console.warn('[DB] Factory 3 location update skipped:', err.message));
 
   if (process.env.SEED_DEFAULT_SUPERADMIN === '0') {
     return;
@@ -4749,14 +4806,22 @@ async function initializeLegacyRuntime() {
             ('ppc_ass_manager', 'PPC Ass. Manager'),
             ('moulding_manager', 'Moulding Manager'),
             ('moulding_ass_manager', 'Moulding Ass. Manager'),
-            ('quality', 'Quality Manager'),
+            ('quality', 'QC HOD'),
             ('qc_supervisor', 'QC Supervisor'),
             ('shifting_supervisor', 'Shifting Supervisor'),
             ('maintenance_manager', 'Maintenance Manager'),
             ('toolroom_manager', 'Toolroom Manager'),
             ('maintenance_tech', 'Maintenance Technician'),
+            ('general_manager', 'General Manager'),
             ('admin', 'Admin')
             ON CONFLICT (code) DO NOTHING;
+
+            -- The seed above is DO NOTHING, so existing databases keep the old
+            -- 'quality' label ('Quality Manager'). Correct it to 'QC HOD' — but only
+            -- when it is still one of the known defaults, so a manually-customised
+            -- label is never clobbered.
+            UPDATE roles SET label = 'QC HOD'
+              WHERE code = 'quality' AND label IN ('Quality Manager', 'Quality', 'quality');
 
             CREATE TABLE IF NOT EXISTS notifications (
                 id SERIAL PRIMARY KEY,
@@ -5115,11 +5180,30 @@ async function initializeLegacyRuntime() {
       console.warn('[DB] Default factory seed skipped:', factorySeedError.message);
     }
 
-    // One-time rename: update factory 1 to correct display name and location.
+    // One-time rename: correct factory display names and locations (owner request).
+    // Guarded to only touch the known auto-seeded / previous names so an admin's own
+    // edits are never clobbered, and idempotent (skips when already correct).
+    // Factory 1 (F1 / Dungra) -> JOYO PLASTICS - DUNGRA - UNIT-I. The "UNIT-I" suffix
+    // does NOT match the Unit-II ('%UNIT-II%') ERP self-heal above, so it stays F1/ERP 41.
     await q(
-      `UPDATE factories SET name = 'Dungra Plant 1', location = 'Dungra, Vapi', updated_at = NOW()
-       WHERE id = 1 AND (name IS DISTINCT FROM 'Dungra Plant 1' OR location IS DISTINCT FROM 'Dungra, Vapi')`
+      `UPDATE factories SET name = 'JOYO PLASTICS - DUNGRA - UNIT-I', location = 'Dungra, Vapi', updated_at = NOW()
+       WHERE id = 1 AND name IN ('Dungra Plant 1', 'Factory 1')
+         AND (name IS DISTINCT FROM 'JOYO PLASTICS - DUNGRA - UNIT-I' OR location IS DISTINCT FROM 'Dungra, Vapi')`
     ).catch(err => console.warn('[DB] Factory 1 rename skipped:', err.message));
+    // Factory 2 (F2 / Shivani) -> Shivani-Kachigam, location Kachigam.
+    await q(
+      `UPDATE factories SET name = 'Shivani-Kachigam', location = 'Kachigam', updated_at = NOW()
+       WHERE UPPER(TRIM(COALESCE(code, ''))) = 'F2'
+         AND name IN ('Factory 2', 'Shivani', 'Shivani-Kachigam')
+         AND (name IS DISTINCT FROM 'Shivani-Kachigam' OR location IS DISTINCT FROM 'Kachigam')`
+    ).catch(err => console.warn('[DB] Factory 2 rename skipped:', err.message));
+    // Factory 3 (F3 / Premier - Kachigam) -> add location Kachigam (name unchanged).
+    await q(
+      `UPDATE factories SET location = 'Kachigam', updated_at = NOW()
+       WHERE UPPER(TRIM(COALESCE(code, ''))) = 'F3'
+         AND name = 'Premier - Kachigam'
+         AND location IS DISTINCT FROM 'Kachigam'`
+    ).catch(err => console.warn('[DB] Factory 3 location update skipped:', err.message));
 
     // [FIX] Universal Schema Fix for Sync
     // Ensure ALL sync tables have sync_id, factory_id, and UNIQUE INDEX on sync_id
@@ -5620,6 +5704,39 @@ async function initializeLegacyRuntime() {
     await q(`ALTER TABLE qc_job_checks ADD COLUMN IF NOT EXISTS fpa_done_at TIMESTAMPTZ`);
     await q(`ALTER TABLE qc_job_checks ADD COLUMN IF NOT EXISTS fpa_done_by TEXT`);
     await q(`ALTER TABLE qc_job_checks ADD COLUMN IF NOT EXISTS fpa_form_url TEXT`);
+
+    // QC FPA APPROVAL WORKFLOW — FPA submitted by QC goes Pending -> Approved/Rejected.
+    // Only an Approved FPA counts in the DPR Compliance Summary. A Rejected FPA is sent
+    // back to the QC user (with a reason) to correct and re-upload.
+    //
+    // IMPORTANT: add fpa_approval_status WITHOUT a default first, backfill existing FPAs to
+    // 'Approved' (grandfather so historical DPR data does not flip to Pending), and only THEN
+    // set the default to 'Pending'. If the column were created with DEFAULT 'Pending', every
+    // existing row would be filled with 'Pending' on ADD COLUMN and the backfill would match
+    // nothing — silently hiding all past FPAs. This DO block also makes the backfill run
+    // exactly once (only when the column is first created), so genuinely-pending FPAs on later
+    // boots are never force-approved.
+    await q(`
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.columns
+          WHERE table_name = 'qc_job_checks' AND column_name = 'fpa_approval_status'
+        ) THEN
+          ALTER TABLE qc_job_checks ADD COLUMN fpa_approval_status TEXT;
+          UPDATE qc_job_checks SET fpa_approval_status = 'Approved' WHERE fpa_status = 'Done';
+          ALTER TABLE qc_job_checks ALTER COLUMN fpa_approval_status SET DEFAULT 'Pending';
+        END IF;
+      END $$;
+    `);
+    await q(`ALTER TABLE qc_job_checks ADD COLUMN IF NOT EXISTS fpa_reviewed_by TEXT`);
+    await q(`ALTER TABLE qc_job_checks ADD COLUMN IF NOT EXISTS fpa_reviewed_at TIMESTAMPTZ`);
+    await q(`ALTER TABLE qc_job_checks ADD COLUMN IF NOT EXISTS fpa_reject_reason TEXT`);
+    await q(`ALTER TABLE qc_job_checks ADD COLUMN IF NOT EXISTS fpa_resubmit_count INTEGER DEFAULT 0`);
+    // Optional remark the approver can leave when APPROVING an FPA (mirrors
+    // fpa_reject_reason for the reject path). Shown next to the FPA image in the
+    // QC app and the DPR Compliance Summary.
+    await q(`ALTER TABLE qc_job_checks ADD COLUMN IF NOT EXISTS fpa_approve_remark TEXT`);
 
     await q(`ALTER TABLE shifting_records ADD COLUMN IF NOT EXISTS shift_date DATE;`);
     await q(`ALTER TABLE shifting_records ADD COLUMN IF NOT EXISTS shift_type TEXT;`);
@@ -11945,13 +12062,28 @@ async function getPlanningOrderColourBreakdown(queryFn, orderNo, factoryId, opti
   `, [orderNo, factoryId]);
 
   const rows = Array.isArray(rawRows) ? rawRows : (Array.isArray(rawRows?.rows) ? rawRows.rows : []);
-  const normMouldNo = normalizePlanningText(options.mouldNo).toUpperCase();
-  const normMouldName = normalizePlanningText(options.mouldName).toUpperCase();
+  // Tolerant match key: collapse internal whitespace and comma-spacing, uppercase.
+  // This makes summary/master text ("...1500,3000,4500,6000 LID 3 DOUBLE CAVITY")
+  // match report text that only differs by spacing/comma variants
+  // ("...1500, 3000, 4500, 6000 LID 3"). It deliberately KEEPS the trailing mould
+  // number (LID 3) intact — unlike normalizeMouldFamilyCode, which strips it — so
+  // sibling moulds (LID 1 vs LID 3) never merge their colours.
+  // collapsePlanningWhitespace already reduces every run of whitespace to a single
+  // space, so comma-spacing is normalized with split/trim/join (no backtracking
+  // regex on user-provided text — avoids the polynomial-regex / ReDoS class).
+  const normalizeColourMatchKey = (value) => collapsePlanningWhitespace(value)
+    .split(',')
+    .map((part) => part.trim())
+    .join(',')
+    .toUpperCase()
+    .trim();
+  const normMouldNo = normalizeColourMatchKey(options.mouldNo);
+  const normMouldName = normalizeColourMatchKey(options.mouldName);
   const normFamily = normalizeMouldFamilyCode(options.mouldFamily || options.mouldNo || options.mouldName);
 
   const exactRows = rows.filter((row) => {
-    const rowNo = normalizePlanningText(row.mould_no).toUpperCase();
-    const rowName = normalizePlanningText(row.mould_name).toUpperCase();
+    const rowNo = normalizeColourMatchKey(row.mould_no);
+    const rowName = normalizeColourMatchKey(row.mould_name);
     return (normMouldNo && rowNo === normMouldNo) || (normMouldName && rowName === normMouldName);
   });
 
@@ -14763,43 +14895,68 @@ app.post('/api/planning/reseq', async (req, res) => {
     return res.json({ ok: false, error: 'Missing machine or orderedIds' });
   }
 
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
+  // Two concurrent reseq/drag operations on the same machine used to update
+  // plan_board rows in the *client-supplied* order, so transaction A could lock
+  // row X then wait on Y while B locked Y then waited on X -> deadlock (40P01).
+  // We now lock every target row up front in a fixed id order (so no two
+  // transactions can form a lock cycle) and retry once if a deadlock still slips
+  // through under heavy load.
+  const MAX_ATTEMPTS = 3;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
 
-    // Normalize machine name to canonical master value
-    const mn = await client.query('SELECT machine FROM machines WHERE TRIM(LOWER(machine)) = TRIM(LOWER($1)) LIMIT 1', [machine]);
-    if (mn.rows.length) machine = mn.rows[0].machine;
+      // Normalize machine name to canonical master value
+      const mn = await client.query('SELECT machine FROM machines WHERE TRIM(LOWER(machine)) = TRIM(LOWER($1)) LIMIT 1', [machine]);
+      if (mn.rows.length) machine = mn.rows[0].machine;
 
-    // Only reseq ids that actually belong to this machine.
-    // ORDER BY keeps a deterministic order when appending "missing" ids below.
-    const existing = await client.query(
-      'SELECT id FROM plan_board WHERE machine = $1 ORDER BY COALESCE(seq, 999999) ASC, id ASC',
-      [machine]
-    );
-    const valid = new Set(existing.rows.map(r => String(r.id)));
-    const finalOrder = orderedIds.map(String).filter(id => valid.has(id));
-    // Append any machine plans missing from the supplied order (safety, keeps them queued)
-    existing.rows.forEach(r => { if (!finalOrder.includes(String(r.id))) finalOrder.push(String(r.id)); });
+      // Only reseq ids that actually belong to this machine.
+      // ORDER BY keeps a deterministic order when appending "missing" ids below.
+      const existing = await client.query(
+        'SELECT id FROM plan_board WHERE machine = $1 ORDER BY COALESCE(seq, 999999) ASC, id ASC',
+        [machine]
+      );
+      const valid = new Set(existing.rows.map(r => String(r.id)));
+      const finalOrder = orderedIds.map(String).filter(id => valid.has(id));
+      // Append any machine plans missing from the supplied order (safety, keeps them queued)
+      existing.rows.forEach(r => { if (!finalOrder.includes(String(r.id))) finalOrder.push(String(r.id)); });
 
-    for (let i = 0; i < finalOrder.length; i++) {
-      await client.query('UPDATE plan_board SET seq = $1, updated_at = NOW() WHERE id = $2', [(i + 1) * 10, finalOrder[i]]);
+      // Lock all affected rows in a deterministic order (by id) BEFORE updating.
+      // This is the key deadlock fix: every concurrent transaction acquires these
+      // locks in the same order, so a lock cycle is impossible.
+      if (finalOrder.length) {
+        await client.query(
+          'SELECT id FROM plan_board WHERE id = ANY($1::int[]) ORDER BY id ASC FOR UPDATE',
+          [finalOrder.map(Number)]
+        );
+      }
+
+      for (let i = 0; i < finalOrder.length; i++) {
+        await client.query('UPDATE plan_board SET seq = $1, updated_at = NOW() WHERE id = $2', [(i + 1) * 10, finalOrder[i]]);
+      }
+
+      await client.query(
+        "INSERT INTO plan_audit_logs (plan_id, action, details, user_name) VALUES ($1, 'RESEQ', $2, 'System')",
+        [finalOrder[0] || null, JSON.stringify({ machine, order: finalOrder })]
+      );
+
+      await client.query('COMMIT');
+      client.release();
+      syncService.triggerSync();
+      return res.json({ ok: true, count: finalOrder.length });
+    } catch (e) {
+      try { await client.query('ROLLBACK'); } catch (_) {}
+      client.release();
+      // 40P01 = deadlock detected. Retry with a short backoff before giving up.
+      if (e && e.code === '40P01' && attempt < MAX_ATTEMPTS) {
+        console.warn(`planning/reseq deadlock (attempt ${attempt}/${MAX_ATTEMPTS}), retrying...`);
+        await new Promise(r => setTimeout(r, 60 * attempt));
+        continue;
+      }
+      console.error('planning/reseq', e);
+      return res.status(500).json({ ok: false, error: String(e) });
     }
-
-    await client.query(
-      "INSERT INTO plan_audit_logs (plan_id, action, details, user_name) VALUES ($1, 'RESEQ', $2, 'System')",
-      [finalOrder[0] || null, JSON.stringify({ machine, order: finalOrder })]
-    );
-
-    await client.query('COMMIT');
-    syncService.triggerSync();
-    res.json({ ok: true, count: finalOrder.length });
-  } catch (e) {
-    try { await client.query('ROLLBACK'); } catch (_) {}
-    console.error('planning/reseq', e);
-    res.status(500).json({ ok: false, error: String(e) });
-  } finally {
-    client.release();
   }
 });
 
@@ -15249,7 +15406,9 @@ app.get('/api/planning/job-card-approvals/:id', async (req, res) => {
         pb.*,
         COALESCE(o.client_name, oj.client_name) AS resolved_client_name,
         COALESCE(oj.product_name, pb.item_name) AS resolved_product_name,
-        oj.or_qty AS resolved_or_qty
+        oj.or_qty AS resolved_or_qty,
+        ojr.or_remarks AS resolved_or_remarks,
+        ojr.jr_remarks AS resolved_jr_remarks
       FROM plan_board pb
       LEFT JOIN orders o ON TRIM(COALESCE(o.order_no, '')) = TRIM(COALESCE(pb.order_no, ''))
       LEFT JOIN LATERAL (
@@ -15260,6 +15419,18 @@ app.get('/api/planning/job-card-approvals/:id', async (req, res) => {
         ORDER BY r.id DESC
         LIMIT 1
       ) oj ON true
+      -- Remarks are pulled separately and pick the first NON-EMPTY value across
+      -- every matching OR-JR Status row (not just the newest). The newest row can
+      -- be a blank-JC placeholder/duplicate with empty remarks, which hid the OR
+      -- remark at the PPC Check stage even though another row carried it.
+      LEFT JOIN LATERAL (
+        SELECT
+          MAX(NULLIF(TRIM(COALESCE(r2.or_remarks, '')), '')) AS or_remarks,
+          MAX(NULLIF(TRIM(COALESCE(r2.jr_remarks, '')), '')) AS jr_remarks
+        FROM or_jr_report r2
+        WHERE TRIM(COALESCE(r2.or_jr_no, '')) = TRIM(COALESCE(pb.order_no, ''))
+          AND ($2::int IS NULL OR r2.factory_id = $2 OR r2.factory_id IS NULL)
+      ) ojr ON true
       WHERE pb.id = $1
         AND ($2::int IS NULL OR pb.factory_id = $2 OR pb.factory_id IS NULL)
       LIMIT 1
@@ -15344,7 +15515,10 @@ app.get('/api/planning/job-card-approvals/:id', async (req, res) => {
           approval_role_label: stage.roleLabel,
           can_approve: !!resolved?.job_card_no && canActorApproveJcStage(actor, stage.code),
           ppc_remarks: plan.ppc_remarks || '',
-          moulding_remarks: plan.moulding_remarks || ''
+          moulding_remarks: plan.moulding_remarks || '',
+          // From OR-JR Status (or_jr_report) — read-only, shown in the approval modal.
+          or_remarks: plan.resolved_or_remarks || '',
+          jr_remarks: plan.resolved_jr_remarks || ''
         },
         colours,
         total_qty: totalQty
@@ -18009,37 +18183,53 @@ async function syncErpReport(cfgKey) {
 
   const { table, columns, keyCols, mapRow } = cfg;
   const colList = columns.map((c) => `"${c}"`).join(', ');
-  const placeholders = columns.map((_, i) => `$${i + 2}`).join(', '); // $1 = row_key
   const updates = columns.map((c) => `"${c}" = EXCLUDED."${c}"`).join(', ');
-  const sql = `
-    INSERT INTO ${table} (row_key, ${colList}, synced_at, updated_at)
-    VALUES ($1, ${placeholders}, now(), now())
-    ON CONFLICT (row_key) DO UPDATE SET ${updates}, synced_at = now(), updated_at = now()
-    RETURNING (xmax = 0) AS inserted
-  `;
+  const perRow = columns.length + 1; // +1 for row_key
 
-  let inserted = 0, updated = 0;
-  // The ERP legitimately returns several rows that share the same natural key
-  // (e.g. the same OR/JR + mould + item appearing more than once). Keying the
-  // upsert purely on that natural key made each later duplicate overwrite the
-  // earlier one, so those rows were silently dropped from the report. Keep every
-  // ERP row by disambiguating same-key rows with their occurrence order in the
-  // feed (base key for the first, "base#1", "base#2", ... for the rest). The
-  // suffix is deterministic across re-fetches, so unchanged feeds still update
-  // in place rather than piling up new rows.
+  // Build every (row_key, ...values) tuple up front, applying the same-key
+  // occurrence-order disambiguation. The ERP legitimately returns several rows
+  // that share the same natural key (same OR/JR + mould + item more than once);
+  // keying the upsert purely on that natural key made each later duplicate
+  // overwrite the earlier one, silently dropping rows. We keep every ERP row by
+  // suffixing duplicates with their occurrence index ("base", "base#1", ...).
+  // The suffix is deterministic across re-fetches, so unchanged feeds still
+  // update in place rather than piling up new rows.
   const keySeen = new Map();
+  const tuples = raw.map((r) => {
+    const mapped = mapRow(r);
+    const baseKey = erpRowKey(mapped, keyCols);
+    const n = keySeen.get(baseKey) || 0;
+    keySeen.set(baseKey, n + 1);
+    const rowKey = n === 0 ? baseKey : `${baseKey}#${n}`;
+    return [rowKey, ...columns.map((c) => (mapped[c] == null ? null : String(mapped[c])))];
+  });
+
+  // Batch the upsert into chunked multi-row INSERTs. The old code ran one query
+  // per ERP row inside the transaction, so a feed of thousands of rows meant
+  // thousands of round-trips — the main reason "Fetch Latest Data" was slow.
+  // Postgres caps a statement at 65535 bound params; keep chunks well under that.
+  const CHUNK = Math.max(1, Math.min(500, Math.floor(60000 / perRow)));
+  let inserted = 0, updated = 0;
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    for (const r of raw) {
-      const mapped = mapRow(r);
-      const baseKey = erpRowKey(mapped, keyCols);
-      const n = keySeen.get(baseKey) || 0;
-      keySeen.set(baseKey, n + 1);
-      const rowKey = n === 0 ? baseKey : `${baseKey}#${n}`;
-      const vals = columns.map((c) => (mapped[c] == null ? null : String(mapped[c])));
-      const out = await client.query(sql, [rowKey, ...vals]);
-      if (out.rows[0] && out.rows[0].inserted) inserted++; else updated++;
+    for (let i = 0; i < tuples.length; i += CHUNK) {
+      const slice = tuples.slice(i, i + CHUNK);
+      const valuesSql = slice.map((_, rowIdx) => {
+        const base = rowIdx * perRow;
+        const ph = Array.from({ length: perRow }, (_, j) => `$${base + j + 1}`);
+        // row_key is ph[0]; the mapped columns follow.
+        return `(${ph[0]}, ${ph.slice(1).join(', ')}, now(), now())`;
+      }).join(', ');
+      const sql = `
+        INSERT INTO ${table} (row_key, ${colList}, synced_at, updated_at)
+        VALUES ${valuesSql}
+        ON CONFLICT (row_key) DO UPDATE SET ${updates}, synced_at = now(), updated_at = now()
+        RETURNING (xmax = 0) AS inserted
+      `;
+      const params = slice.flat();
+      const out = await client.query(sql, params);
+      for (const row of out.rows) { if (row.inserted) inserted++; else updated++; }
     }
     await client.query('COMMIT');
   } catch (e) {
@@ -20865,6 +21055,36 @@ function guardMouldWriteMainOnly(res) {
   return false;
 }
 
+function isLocalServer() {
+  return String(process.env.SERVER_TYPE || '').toUpperCase() === 'LOCAL';
+}
+
+// LOCAL servers may drive the mould VERIFICATION workflow (approve / add note /
+// reset) even though the mould master itself is MAIN-authoritative. Because moulds
+// full-pull from MAIN and LOCAL's sync push is factory-filtered, a local write to
+// the verify_* columns of another factory's mould would be silently reverted on the
+// next pull. So instead we FORWARD the action to MAIN (the single source of truth,
+// same model as ERP fetch / upload push); MAIN writes it and it syncs back here.
+async function forwardMouldVerifyToMain(id, subpath, body) {
+  const mainUrl = String(process.env.MAIN_SERVER_URL || '').trim().replace(/\/$/, '');
+  if (!mainUrl) {
+    return { ok: false, status: 503, json: { ok: false, error: 'This factory server is not linked to the MAIN server yet, so verification cannot be recorded here.' } };
+  }
+  try {
+    const r = await fetch(`${mainUrl}/api/moulds/${encodeURIComponent(id)}${subpath}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body || {}),
+      signal: AbortSignal.timeout(15000)
+    });
+    let json = null;
+    try { json = await r.json(); } catch (_) { /* non-JSON */ }
+    return { ok: r.ok, status: r.status, json: json || { ok: r.ok, error: r.ok ? undefined : `MAIN returned HTTP ${r.status}` } };
+  } catch (e) {
+    return { ok: false, status: 502, json: { ok: false, error: 'Could not reach the MAIN server. Please try again when this factory server is online.' } };
+  }
+}
+
 // 6. UPLOAD (Real Excel Parsing)
 app.post('/api/upload/:type', async (req, res, next) => {
   const { type } = req.params;
@@ -23658,6 +23878,558 @@ app.get('/api/moulds/history/:id', async (req, res) => {
   } catch (e) { res.status(500).json({ ok: false, error: String(e) }); }
 });
 
+/* ============================================================
+   MOULD VERIFICATION WORKFLOW (strict 6-step)
+   PPC -> Quality -> Moulding -> Tool Room -> GM Approve -> NKB Authorise.
+   Each step must be completed in order; a step stamps who + when on the
+   moulds row. Once NKB authorises, the mould shows the Verification Badge.
+   Mould master is company-wide + MAIN-mastered, so writes are MAIN-only and
+   sync out to every LOCAL via the SELECT * full-pull (same as the rest of the
+   mould columns).
+============================================================ */
+// Ordered steps. `roles` = role_codes allowed for that step (admin/superadmin
+// may act on any step). `label` is for messages/audit.
+const MOULD_VERIFY_STEPS = [
+  { key: 'ppc',      col: 'ppc',      label: 'PPC Check',            roles: ['ppc_manager', 'ppc_ass_manager'] },
+  { key: 'quality',  col: 'quality',  label: 'Quality Check',        roles: ['quality', 'quality_ass__manager'] },
+  { key: 'moulding', col: 'moulding', label: 'Moulding Check',       roles: ['moulding_manager', 'moulding_ass_manager'] },
+  { key: 'toolroom', col: 'toolroom', label: 'Tool Room Check',      roles: ['toolroom_manager'] },
+  { key: 'gm',       col: 'gm',       label: 'General Manager Approve', roles: ['general_manager'] },
+  { key: 'nkb',      col: 'nkb',      label: 'NKB Authorise',        roles: [] } // superadmin only
+];
+
+function mouldVerifyStepAllowed(step, roleCode, roleLabel) {
+  const role = String(roleCode || '').toLowerCase();
+  const label = String(roleLabel || '').toLowerCase();
+  // admin AND superadmin can complete ANY step (including NKB Authorise) and reset.
+  if (role === 'superadmin' || role === 'admin') return true;
+  if (step.roles.includes(role)) return true;
+  // Fallback for the GM step when the role_code differs but the label matches.
+  if (step.key === 'gm' && label.includes('general manager')) return true;
+  return false;
+}
+
+// POST /api/moulds/:id/verify  { step, session:{username} }  (id = mould_number)
+app.post('/api/moulds/:id/verify', async (req, res) => {
+  try {
+    const { id } = req.params;
+    // LOCAL forwards to MAIN (authoritative); MAIN's result syncs back here.
+    if (isLocalServer()) {
+      const fwd = await forwardMouldVerifyToMain(id, '/verify', req.body);
+      if (fwd.ok) {
+        ttlCacheClear('moulds');
+        // OPTIMISTIC LOCAL APPLY: stamp the same step locally right now so the NEXT
+        // department sees it move to them instantly, without waiting for the pull
+        // cycle. Idempotent — the subsequent pull brings MAIN's identical values.
+        try {
+          const stepKey = String(req.body?.step || '').toLowerCase();
+          const step = MOULD_VERIFY_STEPS.find(s => s.key === stepKey);
+          const actor = req.body?.session?.username || req.body?._user || 'MAIN';
+          if (step) {
+            await q(
+              `UPDATE moulds SET verify_${step.col}_by = COALESCE(verify_${step.col}_by, $1),
+                                 verify_${step.col}_at = COALESCE(verify_${step.col}_at, NOW()),
+                                 updated_at = NOW()
+                WHERE mould_number = $2`,
+              [actor, id]
+            );
+          }
+        } catch (applyErr) { console.warn('[verify] optimistic local apply skipped:', applyErr.message); }
+        if (typeof syncService.triggerSync === 'function') syncService.triggerSync();
+      }
+      return res.status(fwd.ok ? 200 : fwd.status).json(fwd.json);
+    }
+    const stepKey = String(req.body?.step || '').toLowerCase();
+    const username = req.body?.session?.username || req.body?._user || getRequestUsername(req);
+    if (!username) return res.status(401).json({ ok: false, error: 'Unauthorized' });
+
+    const stepIdx = MOULD_VERIFY_STEPS.findIndex(s => s.key === stepKey);
+    if (stepIdx === -1) return res.status(400).json({ ok: false, error: 'Invalid verification step' });
+    const step = MOULD_VERIFY_STEPS[stepIdx];
+
+    const urow = (await q(
+      `SELECT u.role_code, LOWER(COALESCE(r.label,'')) AS role_label
+         FROM users u LEFT JOIN roles r ON r.code = u.role_code
+        WHERE u.username = $1 LIMIT 1`,
+      [username]
+    ))[0];
+    if (!urow) return res.status(403).json({ ok: false, error: 'User not found' });
+    if (!mouldVerifyStepAllowed(step, urow.role_code, urow.role_label)) {
+      return res.status(403).json({ ok: false, error: `You do not have permission to complete "${step.label}".` });
+    }
+
+    const rows = await q(`SELECT * FROM moulds WHERE mould_number = $1 LIMIT 1`, [id]);
+    if (!rows.length) return res.status(404).json({ ok: false, error: 'Mould not found' });
+    const mould = rows[0];
+
+    // Strict order: every prior step must already be stamped.
+    for (let i = 0; i < stepIdx; i++) {
+      if (!mould[`verify_${MOULD_VERIFY_STEPS[i].col}_at`]) {
+        return res.status(409).json({ ok: false, error: `Complete "${MOULD_VERIFY_STEPS[i].label}" first.` });
+      }
+    }
+    // Idempotent: already done.
+    if (mould[`verify_${step.col}_at`]) {
+      return res.json({ ok: true, message: `${step.label} already completed.` });
+    }
+
+    const factoryId = mould.factory_id || null;
+    ttlCacheClear('moulds');
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query(
+        `UPDATE moulds
+            SET verify_${step.col}_by = $1,
+                verify_${step.col}_at = NOW(),
+                updated_at = NOW()
+          WHERE mould_number = $2`,
+        [username, id]
+      );
+      await client.query(
+        `INSERT INTO mould_audit_logs(mould_id, action_type, changed_fields, changed_by, factory_id)
+         VALUES($1, 'VERIFY', $2, $3, $4)`,
+        [id, JSON.stringify({ message: `${step.label} completed` }), username, factoryId]
+      );
+      await client.query('COMMIT');
+    } catch (e) {
+      await client.query('ROLLBACK');
+      throw e;
+    } finally {
+      client.release();
+    }
+
+    if (typeof syncService.triggerSync === 'function') syncService.triggerSync();
+    res.json({ ok: true, message: `${step.label} completed.` });
+  } catch (e) {
+    console.error('mould verify error', e);
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// POST /api/moulds/:id/verify/reset  { session:{username} }  (superadmin only)
+// Clears the whole verification chain — used when a mould is re-worked and must
+// be re-verified from scratch.
+app.post('/api/moulds/:id/verify/reset', async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (isLocalServer()) {
+      const fwd = await forwardMouldVerifyToMain(id, '/verify/reset', req.body);
+      if (fwd.ok) {
+        ttlCacheClear('moulds');
+        // Optimistic local clear so the reset is visible immediately (see /verify).
+        try {
+          const setNull = MOULD_VERIFY_STEPS
+            .map(s => `verify_${s.col}_by = NULL, verify_${s.col}_at = NULL`)
+            .join(', ');
+          await q(`UPDATE moulds SET ${setNull}, updated_at = NOW() WHERE mould_number = $1`, [id]);
+        } catch (applyErr) { console.warn('[verify/reset] optimistic local apply skipped:', applyErr.message); }
+        if (typeof syncService.triggerSync === 'function') syncService.triggerSync();
+      }
+      return res.status(fwd.ok ? 200 : fwd.status).json(fwd.json);
+    }
+    const username = req.body?.session?.username || req.body?._user || getRequestUsername(req);
+    if (!username) return res.status(401).json({ ok: false, error: 'Unauthorized' });
+
+    const urow = (await q('SELECT role_code FROM users WHERE username = $1 LIMIT 1', [username]))[0];
+    const role = String(urow?.role_code || '').toLowerCase();
+    if (role !== 'superadmin' && role !== 'admin' && String(username).toLowerCase() !== 'superadmin') {
+      return res.status(403).json({ ok: false, error: 'Only Admin or Superadmin can reset verification.' });
+    }
+
+    const rows = await q(`SELECT factory_id FROM moulds WHERE mould_number = $1 LIMIT 1`, [id]);
+    if (!rows.length) return res.status(404).json({ ok: false, error: 'Mould not found' });
+    const factoryId = rows[0].factory_id || null;
+
+    ttlCacheClear('moulds');
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const setNull = MOULD_VERIFY_STEPS
+        .map(s => `verify_${s.col}_by = NULL, verify_${s.col}_at = NULL`)
+        .join(', ');
+      await client.query(`UPDATE moulds SET ${setNull}, updated_at = NOW() WHERE mould_number = $1`, [id]);
+      await client.query(
+        `INSERT INTO mould_audit_logs(mould_id, action_type, changed_fields, changed_by, factory_id)
+         VALUES($1, 'VERIFY', $2, $3, $4)`,
+        [id, JSON.stringify({ message: 'Verification reset' }), username, factoryId]
+      );
+      await client.query('COMMIT');
+    } catch (e) {
+      await client.query('ROLLBACK');
+      throw e;
+    } finally {
+      client.release();
+    }
+
+    if (typeof syncService.triggerSync === 'function') syncService.triggerSync();
+    res.json({ ok: true, message: 'Verification reset.' });
+  } catch (e) {
+    console.error('mould verify reset error', e);
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// GET /api/moulds/:id/verify-detail
+// Read-only detail for the verification Approve screen: full mould master row
+// (never edited from here), all added notes, and the computed step status.
+app.get('/api/moulds/:id/verify-detail', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const rows = await q(`SELECT * FROM moulds WHERE mould_number = $1 LIMIT 1`, [id]);
+    if (!rows.length) return res.status(404).json({ ok: false, error: 'Mould not found' });
+    const mould = rows[0];
+    const notes = await q(
+      `SELECT id, step, note, created_by, created_at
+         FROM mould_verify_notes
+        WHERE mould_number = $1
+        ORDER BY created_at DESC LIMIT 200`,
+      [id]
+    );
+    const steps = MOULD_VERIFY_STEPS.map(s => ({
+      key: s.key, label: s.label,
+      by: mould[`verify_${s.col}_by`] || null,
+      at: mould[`verify_${s.col}_at`] || null
+    }));
+    res.json({ ok: true, data: { mould, notes, steps } });
+  } catch (e) {
+    console.error('mould verify-detail error', e);
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// POST /api/moulds/:id/verify-note  { step, note, session:{username} }
+// Adds an approver's extra detail for a step. ADDITIVE ONLY — never touches the
+// mould master columns. Role-gated the same way as completing that step.
+app.post('/api/moulds/:id/verify-note', async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (isLocalServer()) {
+      const fwd = await forwardMouldVerifyToMain(id, '/verify-note', req.body);
+      if (fwd.ok && typeof syncService.triggerSync === 'function') syncService.triggerSync();
+      return res.status(fwd.ok ? 200 : fwd.status).json(fwd.json);
+    }
+    const stepKey = String(req.body?.step || '').toLowerCase();
+    const note = String(req.body?.note || '').trim();
+    const username = req.body?.session?.username || req.body?._user || getRequestUsername(req);
+    if (!username) return res.status(401).json({ ok: false, error: 'Unauthorized' });
+    if (!note) return res.status(400).json({ ok: false, error: 'Note cannot be empty' });
+
+    const step = MOULD_VERIFY_STEPS.find(s => s.key === stepKey);
+    if (!step) return res.status(400).json({ ok: false, error: 'Invalid verification step' });
+
+    const urow = (await q(
+      `SELECT u.role_code, LOWER(COALESCE(r.label,'')) AS role_label
+         FROM users u LEFT JOIN roles r ON r.code = u.role_code
+        WHERE u.username = $1 LIMIT 1`,
+      [username]
+    ))[0];
+    if (!urow) return res.status(403).json({ ok: false, error: 'User not found' });
+    if (!mouldVerifyStepAllowed(step, urow.role_code, urow.role_label)) {
+      return res.status(403).json({ ok: false, error: `You do not have permission to add details for "${step.label}".` });
+    }
+
+    const mrows = await q(`SELECT factory_id FROM moulds WHERE mould_number = $1 LIMIT 1`, [id]);
+    if (!mrows.length) return res.status(404).json({ ok: false, error: 'Mould not found' });
+    const factoryId = mrows[0].factory_id || null;
+
+    await q(
+      `INSERT INTO mould_verify_notes(mould_number, step, note, created_by, factory_id)
+       VALUES($1, $2, $3, $4, $5)`,
+      [id, stepKey, note, username, factoryId]
+    );
+    await q(
+      `INSERT INTO mould_audit_logs(mould_id, action_type, changed_fields, changed_by, factory_id)
+       VALUES($1, 'VERIFY_NOTE', $2, $3, $4)`,
+      [id, JSON.stringify({ message: `Added detail for ${step.label}` }), username, factoryId]
+    );
+
+    if (typeof syncService.triggerSync === 'function') syncService.triggerSync();
+    res.json({ ok: true, message: 'Detail added.' });
+  } catch (e) {
+    console.error('mould verify-note error', e);
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// GET /api/moulds/:id/moulding-history?days=7  (defaults to both 7 & 30)
+// Aggregates this mould's production from dpr_hourly over the trailing window:
+// per-day totals + a period summary + a per-machine breakdown. Matches on
+// dpr_hourly.mould_no = moulds.mould_number, factory-tolerant.
+app.get('/api/moulds/:id/moulding-history', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const factoryId = getFactoryId(req);
+
+    async function windowStats(days) {
+      const daily = await q(
+        `SELECT dpr_date::date AS d,
+                COALESCE(SUM(good_qty),0)     AS good,
+                COALESCE(SUM(reject_qty),0)   AS reject,
+                COALESCE(SUM(shots),0)        AS shots,
+                COALESCE(SUM(downtime_min),0) AS downtime,
+                COUNT(DISTINCT machine)       AS machines
+           FROM dpr_hourly
+          WHERE mould_no = $1
+            AND is_deleted = false
+            AND dpr_date >= (CURRENT_DATE - ($2::int - 1))
+            AND ($3::int IS NULL OR factory_id = $3 OR factory_id IS NULL)
+          GROUP BY d ORDER BY d DESC`,
+        [id, days, factoryId]
+      );
+      const byMachine = await q(
+        `SELECT machine,
+                COALESCE(SUM(good_qty),0)   AS good,
+                COALESCE(SUM(reject_qty),0) AS reject,
+                COUNT(DISTINCT dpr_date::date) AS active_days
+           FROM dpr_hourly
+          WHERE mould_no = $1
+            AND is_deleted = false
+            AND dpr_date >= (CURRENT_DATE - ($2::int - 1))
+            AND ($3::int IS NULL OR factory_id = $3 OR factory_id IS NULL)
+          GROUP BY machine ORDER BY good DESC`,
+        [id, days, factoryId]
+      );
+      // Downtime reason breakdown: aggregate every dpr_hourly.downtime_breakup
+      // ({code: minutes}) in the window, mapped to friendly names, sorted desc.
+      const dtRows = await q(
+        `SELECT downtime_breakup
+           FROM dpr_hourly
+          WHERE mould_no = $1
+            AND is_deleted = false
+            AND downtime_breakup IS NOT NULL
+            AND dpr_date >= (CURRENT_DATE - ($2::int - 1))
+            AND ($3::int IS NULL OR factory_id = $3 OR factory_id IS NULL)`,
+        [id, days, factoryId]
+      );
+      const dtTotals = {};
+      for (const row of dtRows) {
+        let bk = row.downtime_breakup;
+        if (typeof bk === 'string') { try { bk = JSON.parse(bk); } catch (_) { bk = null; } }
+        if (!bk || typeof bk !== 'object') continue;
+        for (const code of Object.keys(bk)) {
+          const min = Number(bk[code]);
+          if (min > 0) dtTotals[code] = (dtTotals[code] || 0) + min;
+        }
+      }
+      const downtimeReasons = Object.keys(dtTotals)
+        .map(code => ({ reason: (typeof mouldReasonName === 'function' ? mouldReasonName(code) : code), minutes: dtTotals[code] }))
+        .sort((a, b) => b.minutes - a.minutes);
+
+      const totals = daily.reduce((a, r) => ({
+        good: a.good + Number(r.good), reject: a.reject + Number(r.reject),
+        shots: a.shots + Number(r.shots), downtime: a.downtime + Number(r.downtime)
+      }), { good: 0, reject: 0, shots: 0, downtime: 0 });
+      const produced = totals.good + totals.reject;
+      return {
+        days,
+        totals: {
+          ...totals,
+          rejectPct: produced > 0 ? +(totals.reject / produced * 100).toFixed(2) : 0,
+          activeDays: daily.length,
+          machines: byMachine.length
+        },
+        daily,
+        byMachine,
+        downtimeReasons
+      };
+    }
+
+    // "Last run": the most recent date this mould actually produced (any shift),
+    // regardless of the 7/30-day window — so a long-idle mould still shows when it
+    // last ran and on which machine.
+    const lastRunRows = await q(
+      `SELECT dpr_date::date AS d, machine
+         FROM dpr_hourly
+        WHERE mould_no = $1
+          AND is_deleted = false
+          AND (COALESCE(good_qty,0) > 0 OR COALESCE(shots,0) > 0)
+          AND ($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL)
+        ORDER BY dpr_date DESC, id DESC LIMIT 1`,
+      [id, factoryId]
+    );
+    const lastRun = lastRunRows.length
+      ? { date: lastRunRows[0].d, machine: lastRunRows[0].machine || null }
+      : null;
+
+    const reqDays = Number(req.query.days);
+    if (reqDays === 7 || reqDays === 30) {
+      return res.json({ ok: true, data: { lastRun, [`d${reqDays}`]: await windowStats(reqDays) } });
+    }
+    const [d7, d30] = await Promise.all([windowStats(7), windowStats(30)]);
+    res.json({ ok: true, data: { lastRun, d7, d30 } });
+  } catch (e) {
+    console.error('mould moulding-history error', e);
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// Shared: compute each mould's verification standing (next-pending step + counts).
+// Read-only; visible to everyone.
+function computeMouldVerifyStanding(rows) {
+  const steps = MOULD_VERIFY_STEPS;
+  const pendingByStep = {}; steps.forEach(s => { pendingByStep[s.key] = 0; });
+  let verified = 0, notStarted = 0, inProgress = 0;
+  const moulds = rows.map(m => {
+    let doneCount = 0, nextKey = null, nextLabel = null;
+    for (const s of steps) {
+      if (m[`verify_${s.col}_at`]) doneCount++;
+      else { nextKey = s.key; nextLabel = s.label; break; }
+    }
+    const isVerified = !!m.verify_nkb_at;
+    if (isVerified) verified++;
+    else {
+      pendingByStep[nextKey] = (pendingByStep[nextKey] || 0) + 1;
+      if (doneCount === 0) notStarted++; else inProgress++;
+    }
+    return {
+      mould_number: m.mould_number, mould_name: m.mould_name, factory_id: m.factory_id,
+      done: doneCount, verified: isVerified, nextStep: isVerified ? null : nextKey, nextStepLabel: isVerified ? null : nextLabel
+    };
+  });
+  return {
+    totals: { total: rows.length, verified, inProgress, notStarted },
+    pendingByStep, moulds
+  };
+}
+
+const MOULD_VERIFY_SELECT = `SELECT mould_number, mould_name, factory_id,
+    verify_ppc_by, verify_ppc_at, verify_quality_by, verify_quality_at,
+    verify_moulding_by, verify_moulding_at, verify_toolroom_by, verify_toolroom_at,
+    verify_gm_by, verify_gm_at, verify_nkb_by, verify_nkb_at
+  FROM moulds ORDER BY mould_number ASC`;
+
+// GET /api/moulds/verification-summary — counts + per-mould next-pending step.
+// Read-only; any logged-in user (drives the status panel + pending badges).
+app.get('/api/moulds/verification-summary', async (req, res) => {
+  try {
+    const rows = await q(MOULD_VERIFY_SELECT, []);
+    res.json({ ok: true, data: computeMouldVerifyStanding(rows), steps: MOULD_VERIFY_STEPS.map(s => ({ key: s.key, label: s.label })) });
+  } catch (e) {
+    console.error('mould verification-summary error', e);
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// GET /api/moulds/verification-status.xlsx — downloadable status of every mould.
+app.get('/api/moulds/verification-status.xlsx', async (req, res) => {
+  try {
+    const ExcelJS = require('exceljs');
+    // Full rows so the export carries ALL mould detail, not just the verify columns.
+    const rows = await q('SELECT * FROM moulds ORDER BY mould_number ASC', []);
+    const standing = computeMouldVerifyStanding(rows);
+    const byNumber = new Map(rows.map(r => [r.mould_number, r]));
+    const username = getRequestUsername(req) || 'System';
+
+    // Verified moulds first, then in-progress, then not-started; each by number.
+    const rankMould = m => (m.verified ? 0 : (m.done > 0 ? 1 : 2));
+    standing.moulds.sort((a, b) =>
+      rankMould(a) - rankMould(b) ||
+      String(a.mould_number || '').localeCompare(String(b.mould_number || ''), undefined, { numeric: true })
+    );
+
+    const BLUE = 'FF1E4E79', HEADFILL = 'FF2E6CA4', BAND = 'FFEFF4FA', WHITE = 'FFFFFFFF', INK = 'FF1F2937', GREY = 'FF64748B', GREEN = 'FF166534';
+    const FONT = 'Calibri';
+    const thin = { style: 'thin', color: { argb: 'FFD5DEEA' } };
+    const box = { top: thin, left: thin, right: thin, bottom: thin };
+    const fmtWhen = v => v ? new Date(v).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) : '';
+
+    const stepCols = MOULD_VERIFY_STEPS.map(s => ({ label: s.label, col: s.col }));
+    const prettyLabel = k => k.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+    // All mould master detail fields (except the two identity fields already shown).
+    const detailFields = MOULD_MASTER_FIELDS.filter(f => f !== 'mould_number' && f !== 'mould_name');
+    const cols = [
+      { label: 'Mould Number', w: 20, key: 'mould_number' },
+      { label: 'Mould Name', w: 30, key: 'mould_name' },
+      { label: 'Status', w: 16, key: 'status' },
+      { label: 'Next Pending Dept', w: 22, key: 'next' },
+      // Each step split into who + when so "who completed and when" is explicit.
+      ...stepCols.flatMap(sc => ([
+        { label: sc.label + ' — By', w: 18, key: 'stepby_' + sc.col },
+        { label: sc.label + ' — When', w: 20, key: 'stepat_' + sc.col }
+      ])),
+      ...detailFields.map(f => ({ label: prettyLabel(f), w: 16, key: 'd_' + f }))
+    ];
+    const NCOL = cols.length;
+
+    const wb = new ExcelJS.Workbook();
+    wb.creator = username;
+    const ws = wb.addWorksheet('Verification Status', { views: [{ state: 'frozen', ySplit: 5 }] });
+    ws.columns = cols.map(c => ({ width: c.w }));
+
+    ws.mergeCells(1, 1, 1, NCOL);
+    const t = ws.getCell(1, 1);
+    t.value = 'MOULD MASTER — VERIFICATION STATUS';
+    t.font = { name: FONT, size: 14, bold: true, color: { argb: WHITE } };
+    t.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: BLUE } };
+    t.alignment = { horizontal: 'center', vertical: 'middle' };
+    ws.getRow(1).height = 30;
+
+    const tt = standing.totals;
+    const pend = MOULD_VERIFY_STEPS.map(s => `${s.label}: ${standing.pendingByStep[s.key] || 0}`).join('    |    ');
+    ws.mergeCells(2, 1, 2, NCOL);
+    ws.getCell(2, 1).value = `Total: ${tt.total}    |    Verified: ${tt.verified}    |    In progress: ${tt.inProgress}    |    Not started: ${tt.notStarted}`;
+    ws.getCell(2, 1).font = { name: FONT, size: 10, bold: true, color: { argb: INK } };
+    ws.mergeCells(3, 1, 3, NCOL);
+    ws.getCell(3, 1).value = `Pending — ${pend}    ||    Generated: ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })} by ${username}`;
+    ws.getCell(3, 1).font = { name: FONT, size: 10, italic: true, color: { argb: GREY } };
+
+    const HROW = 5;
+    cols.forEach((c, i) => {
+      const cell = ws.getCell(HROW, i + 1);
+      cell.value = c.label;
+      cell.font = { name: FONT, size: 10, bold: true, color: { argb: WHITE } };
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: HEADFILL } };
+      cell.alignment = { horizontal: 'left', vertical: 'middle' };
+      cell.border = box;
+    });
+    ws.getRow(HROW).height = 20;
+
+    let r = HROW + 1;
+    standing.moulds.forEach((m, idx) => {
+      const raw = byNumber.get(m.mould_number) || {};
+      const rowData = {
+        mould_number: m.mould_number,
+        mould_name: m.mould_name,
+        status: m.verified ? 'VERIFIED' : (m.done === 0 ? 'Not started' : 'In progress'),
+        next: m.verified ? '—' : (m.nextStepLabel || '')
+      };
+      stepCols.forEach(sc => {
+        const by = raw[`verify_${sc.col}_by`]; const at = raw[`verify_${sc.col}_at`];
+        rowData['stepby_' + sc.col] = at ? (by || '') : 'Pending';
+        rowData['stepat_' + sc.col] = at ? fmtWhen(at) : '';
+      });
+      detailFields.forEach(f => {
+        const v = raw[f];
+        rowData['d_' + f] = (v === null || v === undefined) ? '' : v;
+      });
+      cols.forEach((c, i) => {
+        const cell = ws.getCell(r, i + 1);
+        cell.value = rowData[c.key];
+        const isVerifiedCell = c.key === 'status' && m.verified;
+        cell.font = { name: FONT, size: 10, bold: isVerifiedCell, color: { argb: isVerifiedCell ? GREEN : INK } };
+        cell.alignment = { horizontal: 'left', vertical: 'middle' };
+        cell.border = box;
+        if (idx % 2 === 1) cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: BAND } };
+      });
+      r += 1;
+    });
+    if (!standing.moulds.length) {
+      ws.mergeCells(r, 1, r, NCOL);
+      ws.getCell(r, 1).value = 'No moulds found.';
+      ws.getCell(r, 1).font = { name: FONT, size: 10, italic: true, color: { argb: GREY } };
+    }
+
+    const buf = await wb.xlsx.writeBuffer();
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename=Mould_Verification_Status_${new Date().toISOString().slice(0, 10)}.xlsx`);
+    res.send(Buffer.from(buf));
+  } catch (e) {
+    console.error('/api/moulds/verification-status.xlsx', e);
+    res.status(500).json({ ok: false, error: String(e.message || e) });
+  }
+});
+
 
 // 3.5 JOB CARD PRINT LIST (Aggregated)
 app.get('/api/planning/job-cards', async (req, res) => {
@@ -24695,11 +25467,13 @@ WITH RankedPlans AS (
     r.job_card_no as "JobCardNo",
     r.job_card_no,
 
-    --FPA status: 'Done' when First Piece Approved for this job card on this machine,
-    --else 'Pending'. Always non-null so the app can distinguish it from an old server.
+    --FPA status: 'Done' only when the First Piece Approval has been APPROVED by a QC approver
+    --for this job card on this machine; a submitted-but-not-yet-approved (or rejected) FPA
+    --stays 'Pending'. Always non-null so the app can distinguish it from an old server.
     COALESCE((SELECT jc.fpa_status FROM qc_job_checks jc
        WHERE TRIM(COALESCE(jc.job_card_no,'')) = TRIM(COALESCE(r.job_card_no,''))
          AND jc.machine = pb.machine AND jc.fpa_status = 'Done'
+         AND COALESCE(jc.fpa_approval_status, 'Approved') = 'Approved'
        ORDER BY jc.updated_at DESC LIMIT 1), 'Pending') as fpa_status,
 
     --Mixing Ratio(Constructed)
@@ -24816,10 +25590,19 @@ app.get('/api/job/colors', async (req, res) => {
     //    This is always the most accurate source — it's the exact colour breakdown saved when
     //    the plan was created. Only fall back to jc_details if plan_id is absent or empty.
     if (plan_id && String(plan_id) !== 'undefined' && String(plan_id) !== '') {
-      const pbRows = await q(
-        `SELECT colour_details FROM plan_board WHERE plan_id = $1 LIMIT 1`,
-        [String(plan_id)]
-      );
+      // plan_id (PLN-yr-seq) is NOT globally unique — it repeats per factory. A bare
+      // `WHERE plan_id = $1 LIMIT 1` can grab another factory's plan_board row and show
+      // ITS colour_details (seen on new units like JGUII whose plan_id collides with an
+      // existing factory). Scope to the requesting factory, prefer the exact factory
+      // match, and tolerate legacy NULL-factory rows as a fallback.
+      let pbSql = `SELECT colour_details FROM plan_board WHERE plan_id = $1`;
+      const pbParams = [String(plan_id)];
+      if (factoryIdTop) {
+        pbSql += ` AND (factory_id = $2 OR factory_id IS NULL) ORDER BY (factory_id = $2) DESC NULLS LAST`;
+        pbParams.push(factoryIdTop);
+      }
+      pbSql += ` LIMIT 1`;
+      const pbRows = await q(pbSql, pbParams);
       if (pbRows.length) {
         let cd = pbRows[0].colour_details || [];
         if (typeof cd === 'string') { try { cd = JSON.parse(cd); } catch (_) { cd = []; } }
@@ -26660,11 +27443,13 @@ app.get('/api/qc/fpa/status', async (req, res) => {
     if (!job_card_no) return res.json({ ok: true, done: false });
     const factoryId = getFactoryId(req);
     const rows = await q(
-      `SELECT id, date, shift, fpa_done_at, fpa_done_by, fpa_form_url, product_images
+      `SELECT id, date, shift, fpa_done_at, fpa_done_by, fpa_form_url, product_images,
+              COALESCE(fpa_approval_status,'Approved') AS fpa_approval_status,
+              fpa_reject_reason, fpa_reviewed_by, fpa_reviewed_at
        FROM qc_job_checks
        WHERE TRIM(COALESCE(job_card_no,'')) = TRIM($1)
          AND fpa_status = 'Done'
-         AND ($2 IS NULL OR machine = $2)
+         AND ($2::text IS NULL OR machine = $2::text)
          AND ($3::int IS NULL OR factory_id = $3 OR factory_id IS NULL)
        ORDER BY fpa_done_at DESC LIMIT 1`,
       [job_card_no, machine || null, factoryId]
@@ -26678,8 +27463,16 @@ app.get('/api/qc/fpa/status', async (req, res) => {
       const fpaDate = r.date
         ? new Intl.DateTimeFormat('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', year: 'numeric' }).format(new Date(r.date))
         : null;
+      const approval = r.fpa_approval_status || 'Approved';
       return res.json({
-        ok: true, done: true,
+        ok: true,
+        // 'done' now reflects an APPROVED FPA so the app's "already done" gate only trips on
+        // an approved one; a Pending/Rejected FPA still lets the QC user re-submit.
+        done: approval === 'Approved',
+        submitted: true,
+        approval_status: approval,
+        reject_reason: r.fpa_reject_reason || null,
+        reviewed_by: r.fpa_reviewed_by || null,
         date: fpaDate,
         shift: r.shift || null,
         done_by: r.fpa_done_by,
@@ -26688,7 +27481,7 @@ app.get('/api/qc/fpa/status', async (req, res) => {
         product_images: r.product_images
       });
     }
-    res.json({ ok: true, done: false });
+    res.json({ ok: true, done: false, submitted: false, approval_status: null });
   } catch (e) {
     res.status(500).json({ ok: false, error: String(e) });
   }
@@ -26702,11 +27495,13 @@ app.get('/api/qc/fpa/today', async (req, res) => {
     const d = date || new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date());
     const rows = await q(
       `SELECT id, date, shift, machine, line, job_card_no, order_no, item_name, mould_name,
-              fpa_form_url, product_images, fpa_done_by, fpa_done_at, remarks
+              fpa_form_url, product_images, fpa_done_by, fpa_done_at, remarks,
+              COALESCE(fpa_approval_status,'Pending') AS fpa_approval_status,
+              fpa_reviewed_by, fpa_reviewed_at, fpa_approve_remark
        FROM qc_job_checks
        WHERE date = $1::date
          AND fpa_status = 'Done'
-         AND ($2 IS NULL OR machine = $2)
+         AND ($2::text IS NULL OR machine = $2::text)
          AND ($3::int IS NULL OR factory_id = $3 OR factory_id IS NULL)
        ORDER BY fpa_done_at DESC
        LIMIT 100`,
@@ -26751,22 +27546,71 @@ app.post('/api/qc/fpa', (req, res, next) => {
     const factoryId = getFactoryId(req);
     const entryDate = date || new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(now);
 
-    await q(`
-      INSERT INTO qc_job_checks(
-        date, shift, hour_slot, plan_id, job_card_no, order_no, line, machine, item_name, mould_name,
-        fpa_status, fpa_form_image, fpa_form_url, product_images, remarks, supervisor,
-        fpa_done_at, fpa_done_by, factory_id, updated_at
-      ) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'Done',$11,$12,$13::jsonb,$14,$15,$16,$17,$18,NOW())
-      ON CONFLICT DO NOTHING
-    `, [
-      entryDate, shift || '', hour_slot || '',
-      plan_id || '', job_card_no || '', order_no || '',
-      line || '', machine || '', item_name || '', mould_name || '',
-      formUrl, formUrl, JSON.stringify(productUrls),
-      remarks || '', supervisor, now, supervisor, factoryId
-    ]);
+    // FPA is unique per job card + machine. A re-upload of a REJECTED (or any existing) FPA
+    // updates that row and puts it back into Pending for re-approval, rather than inserting a
+    // duplicate. Only when no prior FPA exists do we insert a fresh row.
+    const existing = job_card_no
+      ? await q(
+          `SELECT id FROM qc_job_checks
+             WHERE TRIM(COALESCE(job_card_no,'')) = TRIM($1)
+               AND machine = $2
+               AND ($3::int IS NULL OR factory_id = $3 OR factory_id IS NULL)
+             ORDER BY id DESC LIMIT 1`,
+          [job_card_no, machine || '', factoryId]
+        )
+      : [];
+
+    let fpaId;
+    if (existing.length) {
+      fpaId = existing[0].id;
+      await q(`
+        UPDATE qc_job_checks SET
+          date=$1, shift=$2, hour_slot=$3, plan_id=$4, order_no=$5, line=$6,
+          item_name=$7, mould_name=$8,
+          fpa_status='Done', fpa_form_image=$9, fpa_form_url=$10, product_images=$11::jsonb,
+          remarks=$12, supervisor=$13, fpa_done_at=$14, fpa_done_by=$15,
+          fpa_approval_status='Pending', fpa_reject_reason=NULL,
+          fpa_reviewed_by=NULL, fpa_reviewed_at=NULL,
+          fpa_resubmit_count=COALESCE(fpa_resubmit_count,0)+1,
+          updated_at=NOW()
+        WHERE id=$16
+      `, [
+        entryDate, shift || '', hour_slot || '', plan_id || '', order_no || '', line || '',
+        item_name || '', mould_name || '',
+        formUrl, formUrl, JSON.stringify(productUrls),
+        remarks || '', supervisor, now, supervisor, fpaId
+      ]);
+    } else {
+      const ins = await q(`
+        INSERT INTO qc_job_checks(
+          date, shift, hour_slot, plan_id, job_card_no, order_no, line, machine, item_name, mould_name,
+          fpa_status, fpa_form_image, fpa_form_url, product_images, remarks, supervisor,
+          fpa_done_at, fpa_done_by, factory_id, fpa_approval_status, updated_at
+        ) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'Done',$11,$12,$13::jsonb,$14,$15,$16,$17,$18,'Pending',NOW())
+        RETURNING id
+      `, [
+        entryDate, shift || '', hour_slot || '',
+        plan_id || '', job_card_no || '', order_no || '',
+        line || '', machine || '', item_name || '', mould_name || '',
+        formUrl, formUrl, JSON.stringify(productUrls),
+        remarks || '', supervisor, now, supervisor, factoryId
+      ]);
+      fpaId = ins && ins[0] && ins[0].id;
+    }
+
+    // Notify the FPA approver roles of this factory that an FPA is awaiting approval.
+    try {
+      for (const role of FPA_APPROVER_ROLES) {
+        await q(
+          `INSERT INTO qc_notifications (factory_id, recipient_role, message, ref_type, ref_id)
+           VALUES ($1,$2,$3,'FPA',$4)`,
+          [factoryId, role, `FPA awaiting approval — ${machine || '-'} / ${job_card_no || '-'} by ${supervisor}`, fpaId]
+        );
+      }
+    } catch (_) { /* notifications are best-effort */ }
+
     syncService.triggerSync();
-    res.json({ ok: true, form_url: formUrl, product_images: productUrls });
+    res.json({ ok: true, id: fpaId, form_url: formUrl, product_images: productUrls, approval_status: 'Pending' });
   } catch (e) {
     res.status(500).json({ ok: false, error: String(e) });
   }
@@ -26862,6 +27706,161 @@ app.post('/api/qc/fpa/delete-image', async (req, res) => {
 
     if (syncService && syncService.triggerSync) syncService.triggerSync();
     res.json({ ok: true, product_images: newProducts, fpa_form_image: newForm, cleared: nothingLeft });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// Helper: resolve the caller's role_code + username from body.session or the request.
+async function resolveCallerRole(req) {
+  const body = req.body || {};
+  const uname = (body.session ? (() => {
+    try { const s = typeof body.session === 'string' ? JSON.parse(body.session) : body.session; return s.username || s.user || ''; }
+    catch (_) { return ''; }
+  })() : '') || getRequestUsername(req) || '';
+  const urow = uname ? await q('SELECT role_code FROM users WHERE username=$1 LIMIT 1', [uname]) : [];
+  return { username: uname, role: String((urow[0] && urow[0].role_code) || '').toLowerCase() };
+}
+
+// GET /api/qc/fpa/list — line-wise FPA status for a date/shift (Quality FPA submenu).
+// Lists active plans (per machine/line) LEFT JOINed to the latest FPA for that job so each
+// line shows: NotDone | Pending | Approved | Rejected, with images + reviewer + reason.
+app.get('/api/qc/fpa/list', async (req, res) => {
+  try {
+    const { date, shift, machine } = req.query;
+    const factoryId = resolveReportFactoryId ? resolveReportFactoryId(req) : getFactoryId(req);
+    const d = date || new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date());
+    const mFilter = (machine && machine !== 'All' && machine !== 'All Machines') ? machine : null;
+    const rows = await q(
+      `SELECT
+         jc.id, jc.date, jc.shift, jc.machine, jc.line, jc.job_card_no, jc.order_no,
+         jc.item_name, jc.mould_name, jc.plan_id,
+         jc.fpa_form_url, jc.product_images, jc.remarks,
+         jc.fpa_done_by, jc.fpa_done_at,
+         COALESCE(jc.fpa_approval_status, 'Pending') AS fpa_approval_status,
+         jc.fpa_reviewed_by, jc.fpa_reviewed_at, jc.fpa_reject_reason, jc.fpa_approve_remark,
+         COALESCE(jc.fpa_resubmit_count, 0) AS fpa_resubmit_count
+       FROM qc_job_checks jc
+       WHERE jc.fpa_status = 'Done'
+         AND jc.date = $1::date
+         AND ($2::text IS NULL OR jc.shift = $2::text)
+         AND ($3::text IS NULL OR jc.machine = $3::text)
+         AND ($4::int IS NULL OR jc.factory_id = $4 OR jc.factory_id IS NULL)
+       ORDER BY
+         CASE COALESCE(jc.fpa_approval_status,'Pending')
+           WHEN 'Pending' THEN 0 WHEN 'Rejected' THEN 1 ELSE 2 END,
+         jc.machine ASC, jc.fpa_done_at DESC
+       LIMIT 300`,
+      [d, shift || null, mFilter, factoryId]
+    );
+    res.json({ ok: true, data: rows || [] });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// GET /api/qc/fpa/mine — a QC user's own FPAs (for the native app: see Pending / Rejected).
+app.get('/api/qc/fpa/mine', async (req, res) => {
+  try {
+    const { username, status, limit } = req.query;
+    const factoryId = getFactoryId(req);
+    const uname = username || getRequestUsername(req) || '';
+    const rows = await q(
+      `SELECT id, date, shift, machine, line, job_card_no, order_no, item_name, mould_name,
+              fpa_form_url, product_images, remarks, fpa_done_by, fpa_done_at,
+              COALESCE(fpa_approval_status,'Pending') AS fpa_approval_status,
+              fpa_reviewed_by, fpa_reviewed_at, fpa_reject_reason, fpa_approve_remark,
+              COALESCE(fpa_resubmit_count,0) AS fpa_resubmit_count
+         FROM qc_job_checks
+        WHERE fpa_status = 'Done'
+          AND ($1::text IS NULL OR fpa_done_by = $1::text)
+          AND ($2::text IS NULL OR COALESCE(fpa_approval_status,'Pending') = $2::text)
+          AND ($3::int IS NULL OR factory_id = $3 OR factory_id IS NULL)
+        ORDER BY fpa_done_at DESC
+        LIMIT $4`,
+      [uname || null, status || null, factoryId, Math.min(200, parseInt(limit) || 100)]
+    );
+    res.json({ ok: true, data: rows || [] });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// POST /api/qc/fpa/:id/approve — approver marks an FPA approved (then it counts in DPR).
+app.post('/api/qc/fpa/:id/approve', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!id) return res.status(400).json({ ok: false, error: 'id required' });
+    const { role, username } = await resolveCallerRole(req);
+    if (!isFpaApprover(role, username)) {
+      return res.status(403).json({ ok: false, error: 'Only QC HOD / Quality / admin can approve FPA.' });
+    }
+    const factoryId = getFactoryId(req);
+    const reviewer = String(username || 'QC').replace(/[^\w\s\-\.@]/g, '').slice(0, 100);
+    // Optional remark the approver may add on approval (empty → stored NULL).
+    const remark = String((req.body && req.body.remark) || '').trim().slice(0, 500) || null;
+    const upd = await q(
+      `UPDATE qc_job_checks
+          SET fpa_approval_status='Approved', fpa_reviewed_by=$1, fpa_reviewed_at=NOW(),
+              fpa_reject_reason=NULL, fpa_approve_remark=$2, updated_at=NOW()
+        WHERE id=$3 AND fpa_status='Done'
+          AND ($4::int IS NULL OR factory_id=$4 OR factory_id IS NULL)
+        RETURNING id, machine, job_card_no, fpa_done_by`,
+      [reviewer, remark, id, factoryId]
+    );
+    if (!upd.length) return res.status(404).json({ ok: false, error: 'FPA not found' });
+    // Notify the submitting QC that their FPA was approved.
+    try {
+      const r = upd[0];
+      if (r.fpa_done_by) {
+        await q(`INSERT INTO qc_notifications (factory_id, recipient_role, recipient_name, message, ref_type, ref_id)
+                 VALUES ($1,$2,$3,$4,'FPA',$5)`,
+          [factoryId, 'qc_supervisor', r.fpa_done_by,
+           `FPA approved — ${r.machine || '-'} / ${r.job_card_no || '-'}`, id]);
+      }
+    } catch (_) {}
+    if (syncService && syncService.triggerSync) syncService.triggerSync();
+    res.json({ ok: true, id, approval_status: 'Approved' });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// POST /api/qc/fpa/:id/reject — approver rejects with a reason; QC must correct & re-upload.
+app.post('/api/qc/fpa/:id/reject', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const reason = String((req.body && req.body.reason) || '').trim().slice(0, 500);
+    if (!id) return res.status(400).json({ ok: false, error: 'id required' });
+    if (!reason) return res.status(400).json({ ok: false, error: 'Reject reason required' });
+    const { role, username } = await resolveCallerRole(req);
+    if (!isFpaApprover(role, username)) {
+      return res.status(403).json({ ok: false, error: 'Only QC HOD / Quality / admin can reject FPA.' });
+    }
+    const factoryId = getFactoryId(req);
+    const reviewer = String(username || 'QC').replace(/[^\w\s\-\.@]/g, '').slice(0, 100);
+    const upd = await q(
+      `UPDATE qc_job_checks
+          SET fpa_approval_status='Rejected', fpa_reject_reason=$1,
+              fpa_reviewed_by=$2, fpa_reviewed_at=NOW(), updated_at=NOW()
+        WHERE id=$3 AND fpa_status='Done'
+          AND ($4::int IS NULL OR factory_id=$4 OR factory_id IS NULL)
+        RETURNING id, machine, job_card_no, fpa_done_by`,
+      [reason, reviewer, id, factoryId]
+    );
+    if (!upd.length) return res.status(404).json({ ok: false, error: 'FPA not found' });
+    // Notify the submitting QC that their FPA was rejected (with reason).
+    try {
+      const r = upd[0];
+      if (r.fpa_done_by) {
+        await q(`INSERT INTO qc_notifications (factory_id, recipient_role, recipient_name, message, ref_type, ref_id)
+                 VALUES ($1,$2,$3,$4,'FPA',$5)`,
+          [factoryId, 'qc_supervisor', r.fpa_done_by,
+           `FPA rejected — ${r.machine || '-'} / ${r.job_card_no || '-'}: ${reason.slice(0, 80)}`, id]);
+      }
+    } catch (_) {}
+    if (syncService && syncService.triggerSync) syncService.triggerSync();
+    res.json({ ok: true, id, approval_status: 'Rejected' });
   } catch (e) {
     res.status(500).json({ ok: false, error: String(e) });
   }
@@ -27417,7 +28416,7 @@ app.get('/api/qc/holds', async (req, res) => {
       `SELECT * FROM qc_holds
        WHERE machine = $1
          AND ($2::date IS NULL OR dpr_date = $2::date)
-         AND ($3 IS NULL OR status = $3)
+         AND ($3::text IS NULL OR status = $3::text)
          AND ($4::int IS NULL OR factory_id = $4 OR factory_id IS NULL)
        ORDER BY hold_at DESC LIMIT 50`,
       [machine || '', date || null, status || null, factoryId]
@@ -27455,7 +28454,7 @@ app.get('/api/qc/hold/active', async (req, res) => {
     const rows = await q(
       `SELECT id, reason, hold_by FROM qc_holds
        WHERE status = 'ACTIVE'
-         AND (($1 IS NOT NULL AND TRIM(COALESCE(job_card_no,'')) = TRIM($1)) OR ($2 IS NOT NULL AND machine = $2))
+         AND (($1::text IS NOT NULL AND TRIM(COALESCE(job_card_no,'')) = TRIM($1)) OR ($2::text IS NOT NULL AND machine = $2::text))
          AND ($3::int IS NULL OR factory_id = $3 OR factory_id IS NULL)
        ORDER BY hold_at DESC LIMIT 1`,
       [job_card_no || null, machine || null, factoryId]
@@ -27510,8 +28509,8 @@ app.get('/api/qc/material-issues', async (req, res) => {
     const factoryId = getFactoryId(req);
     const rows = await q(
       `SELECT * FROM qc_material_issues
-       WHERE ($1 IS NULL OR machine = $1)
-         AND ($2 IS NULL OR status = $2)
+       WHERE ($1::text IS NULL OR machine = $1::text)
+         AND ($2::text IS NULL OR status = $2::text)
          AND ($3::int IS NULL OR factory_id = $3 OR factory_id IS NULL)
        ORDER BY created_at DESC
        LIMIT $4`,
@@ -27573,6 +28572,13 @@ app.post('/api/qc/material-issues/:id/resolve', async (req, res) => {
 
 // The two Moulding roles a memo is sent to, by role_code (factory-scoped).
 const MEMO_TARGET_ROLES = ['moulding_manager', 'moulding_ass_manager'];
+// Roles allowed to Approve/Reject an FPA (QC HOD = role_code 'quality', Quality Ass. Manager,
+// plus admins). Enforced server-side; superadmin also passes via username check.
+const FPA_APPROVER_ROLES = ['quality', 'quality_ass__manager', 'admin', 'superadmin'];
+function isFpaApprover(role, username) {
+  const r = String(role || '').toLowerCase();
+  return FPA_APPROVER_ROLES.includes(r) || String(username || '').toLowerCase() === 'superadmin';
+}
 // Roles allowed to change a memo's lifecycle (accept/solve/deviation).
 const MEMO_MOULDING_ACTORS = ['moulding_manager', 'moulding_ass_manager', 'admin', 'superadmin'];
 // Roles that see every factory's memos and may reply/re-raise.
@@ -28167,7 +29173,7 @@ SUM(qty_checked) as total_checked,
     const activeIssues = Number((issueRes[0] || {}).c || 0);
 
     // 3. FPA done today
-    let fpaSql = `SELECT COUNT(DISTINCT job_card_no) as c FROM qc_job_checks WHERE date = $1::date AND fpa_status = 'Done'`;
+    let fpaSql = `SELECT COUNT(DISTINCT job_card_no) as c FROM qc_job_checks WHERE date = $1::date AND fpa_status = 'Done' AND COALESCE(fpa_approval_status,'Approved') = 'Approved'`;
     const fpaParams = [d1];
     if (machine && machine !== 'All' && machine !== 'All Machines') {
       fpaParams.push(machine);
@@ -28223,8 +29229,8 @@ app.get('/api/qc/dashboard/analysis', async (req, res) => {
 
     let baseWhere = `date >= $1 AND date <= $2`;
     let params = [d1, d2];
-    if (machine && machine !== 'All') {
-      baseWhere += ` AND machine = $3`;
+    if (machine && machine !== 'All' && machine !== 'All Machines') {
+      baseWhere += ` AND machine = $${params.length + 1}`;
       params.push(machine);
     }
 

@@ -11,8 +11,358 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.57.0",
+  "latest": "1.66.0",
   "versions": [
+    {
+      "version": "1.66.0",
+      "date": "2026-09-15",
+      "title": "Verification Excel — full detail & Verified first",
+      "modules": [
+        {
+          "app": "masters",
+          "label": "Masters",
+          "icon": "bi-box-seam",
+          "changes": [
+            { "type": "improvement", "text": "The verification Excel now includes every mould's full details, and each step shows who completed it and when in separate columns." },
+            { "type": "improvement", "text": "Verified moulds are now listed first in the Excel, followed by in-progress and not-started." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.65.0",
+      "date": "2026-09-15",
+      "title": "Verification status board, pending badges & faster LOCAL sync",
+      "modules": [
+        {
+          "app": "masters",
+          "label": "Masters",
+          "icon": "bi-box-seam",
+          "changes": [
+            { "type": "feat", "text": "Mould Master now shows a Verification Status strip — how many moulds are Verified, In progress and Not started, with a pending count per department." },
+            { "type": "feat", "text": "A 'Pending your verification' badge shows each department how many moulds are waiting for them; click it to filter the list to just those moulds." },
+            { "type": "feat", "text": "Everyone can now download the full verification status of every mould as an Excel file." },
+            { "type": "improvement", "text": "Approving on a factory server now updates instantly, so the next department sees it without waiting for a sync." },
+            { "type": "improvement", "text": "Admins can now approve any verification step (including the final authorisation) and reset, the same as Superadmin." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.64.0",
+      "date": "2026-09-15",
+      "title": "Verify on factory servers + last-run & downtime reasons",
+      "modules": [
+        {
+          "app": "masters",
+          "label": "Masters",
+          "icon": "bi-box-seam",
+          "changes": [
+            { "type": "feat", "text": "Verification steps can now be approved from a factory (LOCAL) server too — the action is sent to the main server automatically." },
+            { "type": "feat", "text": "The review screen now shows when the mould last ran and on which machine." },
+            { "type": "feat", "text": "The moulding history now compares the downtime reasons for the mould over the last 7 and 30 days." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.63.0",
+      "date": "2026-09-15",
+      "title": "Mould verification review screen & history",
+      "modules": [
+        {
+          "app": "masters",
+          "label": "Masters",
+          "icon": "bi-box-seam",
+          "changes": [
+            { "type": "feat", "text": "Approving a verification step now opens a review screen showing the mould's full details as read-only — they cannot be changed here." },
+            { "type": "feat", "text": "Approvers can add their own notes or observations at each step without altering the master mould data." },
+            { "type": "feat", "text": "The review screen shows the mould's moulding production for the last 7 and 30 days — good, reject, downtime and machines used." },
+            { "type": "improvement", "text": "The Quality Check step is now for QC HOD and Quality Ass. Manager." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.62.0",
+      "date": "2026-09-15",
+      "title": "Mould Master verification badge",
+      "modules": [
+        {
+          "app": "masters",
+          "label": "Masters",
+          "icon": "bi-box-seam",
+          "changes": [
+            { "type": "feat", "text": "Moulds now carry a 6-step verification: PPC, Quality, Moulding and Tool Room checks, then General Manager approval and NKB authorisation." },
+            { "type": "feat", "text": "Each step unlocks only after the previous one is done, and only the right role can complete its step." },
+            { "type": "feat", "text": "Once NKB authorises, the mould shows a green Verified badge in the list; until then it shows how many steps are done." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.61.0",
+      "date": "2026-09-15",
+      "title": "Supervisor spacing, priority controls & data fixes",
+      "modules": [
+        {
+          "app": "supervisor_app",
+          "label": "Supervisor",
+          "icon": "bi-clipboard-check",
+          "changes": [
+            { "type": "fix", "text": "Trimmed the empty space above the header so the dashboard sits higher on the screen." },
+            { "type": "fix", "text": "Job colour and quantity now always reflect the correct factory's plan." }
+          ]
+        },
+        {
+          "app": "planning",
+          "label": "Planning",
+          "icon": "bi-diagram-3",
+          "changes": [
+            { "type": "feat", "text": "Creating a machine priority now requires the proper role, enforced on the server." },
+            { "type": "feat", "text": "HR Managers can now set Create Priority for MC/MP scheduling." }
+          ]
+        },
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-journal-text",
+          "changes": [
+            { "type": "fix", "text": "A DPR entry now matches only its own order's row, preventing cross-order mix-ups." }
+          ]
+        },
+        {
+          "app": "all",
+          "label": "Data",
+          "icon": "bi-hdd-network",
+          "changes": [
+            { "type": "fix", "text": "Cleaned up corrupted machine names so machines display and group correctly across reports." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.60.0",
+      "date": "2026-09-13",
+      "title": "Executive Control Deck & Fleet Intelligence in Analytics",
+      "modules": [
+        {
+          "app": "all",
+          "label": "Analytics",
+          "icon": "bi-speedometer2",
+          "changes": [
+            { "type": "improvement", "text": "Unified executive control deck saving 140px vertical space with zero-state mould tooling fleet hub, dynamic date controls, and 3-pillar plant OEE breakdown." },
+            { "type": "feat", "text": "Added dual-mode views (Cards vs Compact Table) for Order and Machine Fleet with instant OEE status filtering, column sorting, and 3D Supervisor podium rankings." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.59.0",
+      "date": "2026-09-13",
+      "title": "Complete Redesign of Analytics Portal (analyze.html)",
+      "modules": [
+        {
+          "app": "all",
+          "label": "Analytics",
+          "icon": "bi-graph-up-arrow",
+          "changes": [
+            { "type": "feat", "text": "Brand new high-performance Analytics Portal with interactive Plant OEE gauge, multi-factor trend toggles, searchable Machine fleet matrix with visual utilization bars, 6-tab Order drilldown modal, Mould tooling analytics, Supervisor shift leaderboard podium, and Downtime Cockpit with Excel and CSV exports." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.58.2",
+      "date": "2026-09-13",
+      "title": "Mobile menu drawer fix on all pages",
+      "modules": [
+        {
+          "app": "all",
+          "label": "Platform",
+          "icon": "bi-list",
+          "changes": [
+            { "type": "fix", "text": "The mobile menu drawer alignment fix now applies on every page — pages that loaded the stylesheet without a version (Shifting, Supervisor, Quality, Scanning, WIP and others) were still showing the old cached layout." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.58.1",
+      "date": "2026-09-13",
+      "title": "Mobile menu drawer alignment",
+      "modules": [
+        {
+          "app": "all",
+          "label": "Platform",
+          "icon": "bi-list",
+          "changes": [
+            { "type": "fix", "text": "Fixed the mobile side menu: the full menu drawer now shows a clean vertical list with each item's label on the left and its dropdown arrow aligned on the right, instead of the arrows sitting misaligned below each item." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.58.0",
+      "date": "2026-09-13",
+      "title": "FPA approval workflow + Quality Dashboard fixes",
+      "modules": [
+        {
+          "app": "quality",
+          "label": "Quality",
+          "icon": "bi-clipboard-check",
+          "changes": [
+            { "type": "feat", "text": "New FPA menu under Quality shows line-wise First Piece Approvals with Pending / Approved / Rejected status and the submitted photos." },
+            { "type": "feat", "text": "FPA submitted from the QC app now needs approval: QC HOD / Quality Ass. Manager / admin can Approve or Reject it (rejection asks for a reason)." },
+            { "type": "fix", "text": "Quality Dashboard no longer errors and the rejection charts load again (Machines / Moulds / Products / Defect)." }
+          ]
+        },
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            { "type": "improvement", "text": "Compliance Summary now counts an FPA as Done only after it has been approved; a submitted-but-unapproved or rejected FPA stays Pending." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.57.9",
+      "date": "2026-09-12",
+      "title": "Complete Production Plan Report: Excel exports all rows",
+      "modules": [
+        {
+          "app": "planning",
+          "label": "Planning",
+          "icon": "bi-calendar3",
+          "changes": [
+            { "type": "fix", "text": "The Complete Production Plan Report Excel download now includes ALL matching plans, not just the 250 shown on screen — it re-fetches the full filtered result set before exporting." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.57.8",
+      "date": "2026-09-12",
+      "title": "Sidebar: correct role name and full plant name",
+      "modules": [
+        {
+          "app": "all",
+          "label": "General",
+          "icon": "bi-window-sidebar",
+          "changes": [
+            { "type": "fix", "text": "The user card now shows your proper role name (for example \"QC HOD\") instead of the internal code, and the plant name shows in full. Loads the latest app files so the fix takes effect after one refresh." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.57.7",
+      "date": "2026-09-12",
+      "title": "Complete Production Plan Report: Excel download",
+      "modules": [
+        {
+          "app": "planning",
+          "label": "Planning",
+          "icon": "bi-calendar3",
+          "changes": [
+            { "type": "feat", "text": "The Complete Production Plan Report now has an Excel button that downloads the current filtered results — Machine, OR No, Job Card, Mould, Product, Mould No, Client, Plan, Produced, Balance, Actual Start/End, Status, By and Completed At." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.57.6",
+      "date": "2026-09-12",
+      "title": "Sidebar: correct role name and full plant name",
+      "modules": [
+        {
+          "app": "all",
+          "label": "General",
+          "icon": "bi-window-sidebar",
+          "changes": [
+            { "type": "fix", "text": "The user card now shows your proper role name (for example \"QC HOD\") instead of the internal code." },
+            { "type": "fix", "text": "The plant name under your role now shows in full instead of being cut off with \"...\"." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.57.5",
+      "date": "2026-09-12",
+      "title": "Create Production Plan: Excel download",
+      "modules": [
+        {
+          "app": "planning",
+          "label": "Planning",
+          "icon": "bi-calendar3",
+          "changes": [
+            { "type": "feat", "text": "Create Production Plan now has an Excel button that downloads the selected order's moulds — OR No, mould name/number, item code, moulding sequence, Target/Planned/Balance qty, primary/secondary machine and planned status." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.57.4",
+      "date": "2026-09-12",
+      "title": "Supervisor: correct plan colours for new units",
+      "modules": [
+        {
+          "app": "supervisor_app",
+          "label": "Supervisor",
+          "icon": "bi-clipboard-check",
+          "changes": [
+            { "type": "fix", "text": "The Colour & QTY list now shows this unit's own plan colours. New units whose plan number matched an older unit could show the wrong factory's colours." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.57.3",
+      "date": "2026-09-12",
+      "title": "Fix: User Management error loading users",
+      "modules": [
+        {
+          "app": "users",
+          "label": "User Management",
+          "icon": "bi-people",
+          "changes": [
+            { "type": "fix", "text": "Fixed an 'Error loading users' on the User Management page introduced in the previous update; the role name now renders correctly." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.57.2",
+      "date": "2026-09-12",
+      "title": "User Management: show role names",
+      "modules": [
+        {
+          "app": "users",
+          "label": "User Management",
+          "icon": "bi-people",
+          "changes": [
+            { "type": "fix", "text": "The User Management list now shows the friendly role name (e.g. 'QC HOD') instead of the raw role code ('quality'), and existing databases are corrected so the Quality role reads 'QC HOD'." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.57.1",
+      "date": "2026-09-12",
+      "title": "Rename Quality Manager role to QC HOD",
+      "modules": [
+        {
+          "app": "users",
+          "label": "User Management",
+          "icon": "bi-person-gear",
+          "changes": [
+            { "type": "improvement", "text": "The 'Quality Manager' role is now shown as 'QC HOD'. Everyone already assigned this role keeps their access and simply shows as QC HOD — no need to reassign." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.57.0",
       "date": "2026-09-12",

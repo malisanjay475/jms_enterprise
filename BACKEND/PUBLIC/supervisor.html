@@ -10,7 +10,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="theme-color" content="#2563eb">
-  <link rel="stylesheet" href="/assets/app.css">
+  <link rel="stylesheet" href="/assets/app.css?v=12">
   <link rel="stylesheet" href="/assets/bootstrap-icons.min.css">
   <style>
     :root {
@@ -109,6 +109,9 @@
       margin: 0 auto;
       padding: 18px 12px 24px;
     }
+
+    /* App view hugs the top — trim the header whitespace */
+    #view-app .shell { padding-top: 8px; }
 
     /* ── Card ── */
     .card {
@@ -225,7 +228,7 @@
       align-items: center;
       justify-content: space-between;
       gap: 8px;
-      margin-bottom: 14px;
+      margin-bottom: 10px;
       overflow: hidden;
     }
 
@@ -1443,7 +1446,7 @@
       if (arrow) arrow.style.transform = isOpen ? '' : 'rotate(180deg)';
     }
   </script>
-  <script src="/assets/app.min.js?v=release75"></script>
+  <script src="/assets/app.min.js?v=1576"></script>
 
 </body>
 

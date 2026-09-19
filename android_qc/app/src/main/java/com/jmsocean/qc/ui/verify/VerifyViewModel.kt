@@ -17,7 +17,9 @@ data class VerifyUiState(
     val machine: String = "",
     val machines: List<String> = emptyList(),
     val jobContext: QueueJob? = null,
-    val balances: List<ColourBalance> = emptyList(),
+    val jobs: List<QueueJob> = emptyList(),
+    val selectedJob: QueueJob? = null,
+    val runningBalances: List<ColourBalance> = emptyList(),
     val date: String = Ist.date(),
     val shift: String = Ist.shift(),
     val slots: List<VerifySlot> = emptyList(),
@@ -53,19 +55,14 @@ class VerifyViewModel : ViewModel() {
         if (m.isBlank()) return
         viewModelScope.launch {
             repo.queue(m).onSuccess { jobs ->
-                val job = jobs.firstOrNull()
-                _state.update { it.copy(jobContext = job) }
-                val planId = job?.PlanID
-                if (!planId.isNullOrBlank()) {
-                    repo.colourBalance(planId).onSuccess { b -> _state.update { it.copy(balances = b) } }
-                } else _state.update { it.copy(balances = emptyList()) }
+                val running = jobs.firstOrNull { it.Status.equals("RUNNING", ignoreCase = true) }
+                    ?: jobs.firstOrNull()
+                _state.update { it.copy(jobs = jobs, jobContext = running, selectedJob = running, runningBalances = emptyList()) }
+                running?.PlanID?.let { pid ->
+                    repo.colourBalance(pid).onSuccess { b -> _state.update { it.copy(runningBalances = b) } }
+                }
             }
         }
-    }
-
-    fun setDate(date: String) {
-        _state.update { it.copy(date = date) }
-        load()
     }
 
     fun selectMachine(m: String) {
@@ -73,6 +70,15 @@ class VerifyViewModel : ViewModel() {
         _state.update { it.copy(machine = m) }
         loadContext()
         load()
+    }
+
+    fun selectJob(job: QueueJob) {
+        _state.update { it.copy(selectedJob = job, runningBalances = emptyList()) }
+        job.PlanID?.let { pid ->
+            viewModelScope.launch {
+                repo.colourBalance(pid).onSuccess { b -> _state.update { it.copy(runningBalances = b) } }
+            }
+        }
     }
 
     fun setShift(shift: String) {
@@ -104,6 +110,21 @@ class VerifyViewModel : ViewModel() {
                     load()
                 }
                 .onFailure { e -> _state.update { it.copy(busySlot = null, error = e.message) } }
+        }
+    }
+
+    fun submitDeviation(slot: VerifySlot, good: Int, reject: Int, desc: String, remarks: String) {
+        val s = _state.value
+        _state.update { it.copy(busySlot = slot.hour_slot, error = null, message = null) }
+        val note = "DEVIATION: $desc" + (if (remarks.isNotBlank()) " | $remarks" else "")
+        viewModelScope.launch {
+            repo.verifySubmit(
+                s.machine, s.date, s.shift, slot.hour_slot, good, reject, note,
+                statusOverride = "Deviation"
+            ).onSuccess {
+                _state.update { it.copy(busySlot = null, message = "Deviation recorded for ${slot.hour_slot}.") }
+                load()
+            }.onFailure { e -> _state.update { it.copy(busySlot = null, error = e.message) } }
         }
     }
 

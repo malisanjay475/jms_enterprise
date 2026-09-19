@@ -90,6 +90,7 @@ const SYNC_ALL = [
     'mould_audit_logs',
     'mould_planning_report',
     'mould_planning_summary',
+    'mould_verify_notes',
     'moulds',
     'notifications',
     'operator_history',
@@ -195,6 +196,9 @@ const CONFLICT_KEYS = {
     machine_operators: 'id',
     machine_status_logs: 'id',
     mould_audit_logs: 'id',
+    // Verification notes carry a surrogate sync_id so LOCAL & MAIN never collide on
+    // their independent serial ids (same pattern as assembly_plans).
+    mould_verify_notes: 'sync_id',
     // QC entry tables — surrogate UUID key. These are LOCAL-writable and factory-scoped
     // (each carries factory_id), with no stable business composite. Under full
     // replication the serial id collides across factories, so ON CONFLICT (id) would let
@@ -371,6 +375,7 @@ const SYNC_CONFLICT_INDEXES = {
 // factories on MAIN (e.g. moulds imported under factory_id = 2 when LOCAL is factory 1).
 const GLOBAL_MASTER_TABLES = new Set([
     'moulds',       // Mould master — company-wide reference, not factory-scoped
+    'mould_verify_notes', // Verification notes ride with the company-wide mould master
     // Users are company-wide: a person created on MAIN carries a single users.factory_id
     // (their "home" factory), but can be granted access to OTHER factories via
     // user_factories. Factory-scoping the users pull on users.factory_id meant a user
@@ -387,7 +392,7 @@ const GLOBAL_MASTER_TABLES = new Set([
     'erp_mould_item'
 ]);
 
-const SYNC_ID_REQUIRED_TABLES = ['notifications', 'dpr_reasons', 'assembly_plans', 'assembly_scans', 'maintenance_tickets', 'maintenance_worklogs', 'org_units', 'org_departments', 'org_grades', 'org_designations', 'org_people', 'qc_online_reports', 'qc_issue_memos', 'qc_training_sheets', 'qc_deviations', 'qc_job_checks'];
+const SYNC_ID_REQUIRED_TABLES = ['notifications', 'dpr_reasons', 'assembly_plans', 'assembly_scans', 'maintenance_tickets', 'maintenance_worklogs', 'org_units', 'org_departments', 'org_grades', 'org_designations', 'org_people', 'mould_verify_notes', 'qc_online_reports', 'qc_issue_memos', 'qc_training_sheets', 'qc_deviations', 'qc_job_checks'];
 
 // Deterministic sync_id backfill seeds for tables converted to a surrogate UUID key.
 // The same physical row already exists on MAIN AND on its factory's LOCAL (LOCAL pushed
@@ -411,8 +416,9 @@ const SYNC_SCHEMA_READY_KEY = 'SYNC_SCHEMA_READY_VERSION';
 // Bump this whenever ensureSyncRuntimeSchema()'s migrations change, so every server
 // re-runs the full startup sweep once instead of skipping it on the cached marker.
 // 2026-08-03: drop the obsolete uq_sync_conflict_notifications index (see ensureSyncIdSchema).
-// 2026-09-14: qc_* tables converted to surrogate sync_id key for full replication (Phase A batch 1).
-const SYNC_SCHEMA_READY_VERSION = '2026-09-14-qc-sync-id-v1';
+// 2026-09-15: mould_verify_notes → sync_id (develop).
+// 2026-09-19: qc_* tables converted to surrogate sync_id key for full replication (Phase A batch 1).
+const SYNC_SCHEMA_READY_VERSION = '2026-09-19-qc-sync-id-v1';
 
 // "Sync token" columns: app-schema UNIQUE columns that carry a per-row identity
 // token (a UUID) MAIN considers authoritative, but which a LOCAL row may have been
@@ -2193,37 +2199,54 @@ async function applyRemoteDeletions(deletions) {
                 continue;
             }
 
-            const factoryScope = deletion.factory_id == null ? '__global__' : String(deletion.factory_id);
-            await client.query(`
-                INSERT INTO sync_deletions (table_name, record_pk, factory_id, factory_scope, deleted_at)
-                VALUES ($1, $2, $3, $4, $5)
-                ON CONFLICT (table_name, record_pk, factory_scope) DO NOTHING
-            `, [table, deletion.record_pk, deletion.factory_id ?? null, factoryScope, deletion.deleted_at || new Date().toISOString()]);
-
-            const entries = Object.entries(keyValues);
-            if (!entries.length) continue;
-
-            const params = entries.map(([, value]) => value);
-            const where = entries.map(([column], index) => `${column} = $${index + 1}`).join(' AND ');
-
-            let existingRow = null;
+            // Isolate every deletion in a SAVEPOINT. A type-incompatible key (e.g. an old
+            // integer id "7" pushed against a table whose key column is now uuid) makes the
+            // failing statement abort the WHOLE transaction at the Postgres level (25P02),
+            // even when we catch the JS error. That aborted state then fails the next query,
+            // rolls back the entire batch, and stalls LAST_DELETE_PULL so the same rows
+            // re-pull every cycle forever. The savepoint lets one bad row be skipped cleanly.
+            await client.query('SAVEPOINT sync_del');
             try {
-                const result = await client.query(`SELECT * FROM ${table} WHERE ${where} LIMIT 1`, params);
-                existingRow = result.rows[0] || null;
-            } catch (e) {
-                console.warn(`[Sync] Existing row check skipped for ${table}:`, e.message);
-            }
+                const factoryScope = deletion.factory_id == null ? '__global__' : String(deletion.factory_id);
+                await client.query(`
+                    INSERT INTO sync_deletions (table_name, record_pk, factory_id, factory_scope, deleted_at)
+                    VALUES ($1, $2, $3, $4, $5)
+                    ON CONFLICT (table_name, record_pk, factory_scope) DO NOTHING
+                `, [table, deletion.record_pk, deletion.factory_id ?? null, factoryScope, deletion.deleted_at || new Date().toISOString()]);
 
-            if (existingRow && existingRow.updated_at && deletion.deleted_at) {
-                const rowUpdatedAt = new Date(existingRow.updated_at).getTime();
-                const deletedAt = new Date(deletion.deleted_at).getTime();
-                if (Number.isFinite(rowUpdatedAt) && Number.isFinite(deletedAt) && rowUpdatedAt > deletedAt) {
+                const entries = Object.entries(keyValues);
+                if (!entries.length) {
+                    await client.query('RELEASE SAVEPOINT sync_del');
                     continue;
                 }
-            }
 
-            const deleteResult = await client.query(`DELETE FROM ${table} WHERE ${where}`, params);
-            stats.deleted += deleteResult.rowCount || 0;
+                const params = entries.map(([, value]) => value);
+                const where = entries.map(([column], index) => `${column} = $${index + 1}`).join(' AND ');
+
+                const result = await client.query(`SELECT * FROM ${table} WHERE ${where} LIMIT 1`, params);
+                const existingRow = result.rows[0] || null;
+
+                if (existingRow && existingRow.updated_at && deletion.deleted_at) {
+                    const rowUpdatedAt = new Date(existingRow.updated_at).getTime();
+                    const deletedAt = new Date(deletion.deleted_at).getTime();
+                    if (Number.isFinite(rowUpdatedAt) && Number.isFinite(deletedAt) && rowUpdatedAt > deletedAt) {
+                        await client.query('RELEASE SAVEPOINT sync_del');
+                        continue;
+                    }
+                }
+
+                const deleteResult = await client.query(`DELETE FROM ${table} WHERE ${where}`, params);
+                stats.deleted += deleteResult.rowCount || 0;
+                await client.query('RELEASE SAVEPOINT sync_del');
+            } catch (e) {
+                // Roll this single deletion back to the savepoint so the transaction stays
+                // usable and the batch can still commit + advance the watermark.
+                await client.query('ROLLBACK TO SAVEPOINT sync_del');
+                stats.skipped += 1;
+                // Pass external values as %s args (not in the format-string position)
+                // so an unexpected % in record_pk can't be treated as a format specifier.
+                console.warn('[Sync] Deletion skipped for %s (record_pk=%s): %s', table, deletion.record_pk, e.message);
+            }
         }
 
         await client.query('COMMIT');

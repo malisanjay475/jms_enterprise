@@ -7,11 +7,12 @@ import com.jmsocean.qc.QcApp
 import com.jmsocean.qc.data.AppUpdater
 import com.jmsocean.qc.data.SyncManager
 import com.jmsocean.qc.data.remote.AppVersion
-import com.jmsocean.qc.data.remote.ColourBalance
 import com.jmsocean.qc.data.remote.QueueJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -23,15 +24,11 @@ data class QueueUiState(
     val loadingMachines: Boolean = false,
     val loadingJobs: Boolean = false,
     val error: String? = null,
+    val fpaDonePlanIds: Set<String> = emptySet(),
     // self-updater
     val update: AppVersion? = null,
     val downloadingUpdate: Boolean = false,
-    val updateError: String? = null,
-    // colour-wise plan/produced detail (opens when a job is tapped)
-    val detailJob: QueueJob? = null,
-    val detailLoading: Boolean = false,
-    val detailBalances: List<ColourBalance> = emptyList(),
-    val detailError: String? = null
+    val updateError: String? = null
 )
 
 class QueueViewModel : ViewModel() {
@@ -83,13 +80,10 @@ class QueueViewModel : ViewModel() {
         viewModelScope.launch {
             repo.machines()
                 .onSuccess { list ->
-                    // Queue order: group by plant+line (B-L1, C-L1 …), then by machine
-                    // index (Machine 1, 2, 3 …) ignoring tonnage — so 350-1 comes before 300-6.
-                    val sorted = list.sortedWith(com.jmsocean.qc.data.machineQueueComparator)
                     _state.update {
-                        it.copy(loadingMachines = false, machines = sorted)
+                        it.copy(loadingMachines = false, machines = list)
                     }
-                    sorted.firstOrNull()?.let { selectMachine(it) }
+                    list.firstOrNull()?.let { selectMachine(it) }
                 }
                 .onFailure { e ->
                     _state.update { it.copy(loadingMachines = false, error = e.message) }
@@ -110,33 +104,25 @@ class QueueViewModel : ViewModel() {
 
     fun loadJobs(machine: String? = null) {
         val target = machine ?: _state.value.selectedMachine ?: return
-        _state.update { it.copy(loadingJobs = true, error = null) }
+        _state.update { it.copy(loadingJobs = true, error = null, fpaDonePlanIds = emptySet()) }
         viewModelScope.launch {
             repo.queue(target)
-                .onSuccess { jobs -> _state.update { it.copy(loadingJobs = false, jobs = jobs) } }
+                .onSuccess { jobs ->
+                    _state.update { it.copy(loadingJobs = false, jobs = jobs) }
+                    refreshFpaDone(jobs)
+                }
                 .onFailure { e -> _state.update { it.copy(loadingJobs = false, error = e.message) } }
         }
     }
 
-    /** Tap a job → show colour-wise Plan / Produced / Balance (like supervisor.html). */
-    fun openDetail(job: QueueJob) {
-        _state.update {
-            it.copy(detailJob = job, detailLoading = true, detailBalances = emptyList(), detailError = null)
-        }
-        val planId = job.PlanID
-        if (planId.isNullOrBlank()) {
-            _state.update { it.copy(detailLoading = false, detailError = "No plan linked to this job.") }
-            return
-        }
+    /** Check FPA status per job (in parallel) so the card can show FPA ✓ and unlock QC. */
+    private fun refreshFpaDone(jobs: List<QueueJob>) {
         viewModelScope.launch {
-            repo.colourBalance(planId)
-                .onSuccess { list -> _state.update { it.copy(detailLoading = false, detailBalances = list) } }
-                .onFailure { e -> _state.update { it.copy(detailLoading = false, detailError = e.message ?: "Could not load colour balance") } }
+            val done = jobs.mapNotNull { it.PlanID }.distinct().map { planId ->
+                async { planId to (repo.fpaStatus(planId, "").getOrDefault(false)) }
+            }.awaitAll().filter { it.second }.map { it.first }.toSet()
+            _state.update { it.copy(fpaDonePlanIds = done) }
         }
-    }
-
-    fun closeDetail() = _state.update {
-        it.copy(detailJob = null, detailLoading = false, detailBalances = emptyList(), detailError = null)
     }
 
     fun logout() = repo.logout()

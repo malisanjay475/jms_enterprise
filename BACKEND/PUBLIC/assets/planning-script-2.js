@@ -365,6 +365,77 @@
       }
     };
 
+    // Excel download of the Complete Production Plan Report — ALL matching plans
+    // (not just the 250 shown on screen). Re-fetches with the current filters and a
+    // large limit so the sheet is the complete result set.
+    window.exportProductionCompletionExcel = async function () {
+      const btn = document.querySelector('button[onclick="window.exportProductionCompletionExcel()"]');
+      const oldHtml = btn ? btn.innerHTML : '';
+      const search = (document.getElementById('pcrSearch') || {}).value || '';
+      const from = (document.getElementById('pcrFrom') || {}).value || '';
+      const to = (document.getElementById('pcrTo') || {}).value || '';
+      let plans = [];
+      try {
+        if (btn) { btn.disabled = true; btn.innerHTML = '<i class="bi bi-arrow-repeat spin"></i> Preparing…'; }
+        const api = (window.JPSMS && window.JPSMS.api) ? window.JPSMS.api : window.api;
+        let url = `/planning/completed?limit=100000&search=${encodeURIComponent(search)}`;
+        if (from) url += `&from=${from}`;
+        if (to) url += `&to=${to}`;
+        const res = await api.get(url);
+        plans = (res && res.data) ? res.data : [];
+      } catch (e) {
+        // Fall back to whatever is loaded on screen if the full fetch fails.
+        plans = Array.isArray(window._pcrPlans) ? window._pcrPlans : [];
+      } finally {
+        if (btn) { btn.disabled = false; btn.innerHTML = oldHtml; }
+      }
+      if (!plans.length) { alert('No completed plans to export. Apply filters first.'); return; }
+      const esc = (s) => String(s == null ? '' : s).replace(/[<>&]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c]));
+      const num = (v) => { const n = Number(v); return Number.isFinite(n) ? n : ''; };
+      const dt = (v) => { if (!v) return ''; const d = new Date(v); return isNaN(d) ? String(v) : d.toLocaleString('en-GB'); };
+      const rows = plans.map((p) => {
+        const qty = num(p.planQty), prod = num(p.producedQty);
+        const bal = (qty !== '' && prod !== '') ? (prod - qty) : '';
+        return `<tr>
+          <td>${esc(p.machine || '-')}</td>
+          <td>${esc(p.order_no || p.orderNo || '-')}</td>
+          <td>${esc(p.jcNo || '-')}</td>
+          <td>${esc(p.mouldName || '-')}</td>
+          <td>${esc(p.itemName || '-')}</td>
+          <td>${esc(p.mouldCode || '-')}</td>
+          <td>${esc(p.clientName || '-')}</td>
+          <td style="text-align:right">${qty}</td>
+          <td style="text-align:right">${prod}</td>
+          <td style="text-align:right">${bal}</td>
+          <td>${esc(dt(p.actualStart))}</td>
+          <td>${esc(dt(p.actualEnd))}</td>
+          <td>${esc(p.status || 'DONE')}</td>
+          <td>${esc(p.completedBy || '-')}</td>
+          <td>${esc(dt(p.completedAt))}</td>
+        </tr>`;
+      }).join('');
+      const th = (t, a) => `<th style="background:#0f172a;color:#fff;border:1px solid #334155;padding:6px 8px;text-align:${a || 'left'}">${t}</th>`;
+      const table = `<table border="1" style="border-collapse:collapse;font-family:Arial;font-size:12px">
+        <thead>
+          <tr><td colspan="15" style="font-size:15px;font-weight:bold;padding:8px">Complete Production Plan Report (${plans.length} plans)</td></tr>
+          <tr>${th('Machine')}${th('OR No')}${th('Job Card')}${th('Mould')}${th('Product')}${th('Mould No')}${th('Client')}${th('Plan', 'right')}${th('Produced', 'right')}${th('Balance (Prod-Plan)', 'right')}${th('Actual Start')}${th('Actual End')}${th('Status')}${th('By')}${th('Completed At')}</tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>`;
+      const html = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel">
+        <head><meta charset="utf-8"><!--[if gte mso 9]><xml><x:ExcelWorkbook><x:ExcelWorksheets><x:ExcelWorksheet>
+        <x:Name>Completed Plans</x:Name><x:WorksheetOptions><x:Print><x:ValidPrinterInfo/></x:Print></x:WorksheetOptions>
+        </x:ExcelWorksheet></x:ExcelWorksheets></x:ExcelWorkbook></xml><![endif]--></head>
+        <body>${table}</body></html>`;
+      const blob = new Blob(['﻿' + html], { type: 'application/vnd.ms-excel' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `Complete_Production_Plans_${new Date().toISOString().slice(0, 10)}.xls`;
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 0);
+    };
+
     window.loadProductionCompletionReport = async function () {
     const list = document.getElementById('productionCompletionList');
     const searchEl = document.getElementById('pcrSearch');
@@ -399,6 +470,7 @@
       const res = await api.get(url);
       const plans = (res && res.data) ? res.data : [];
       console.log('[PCR] Results Received:', plans.length);
+      window._pcrPlans = plans; // keep for Excel export
 
       // Toggle clear button + update result count
       const clearBtn = document.getElementById('pcrClear');
