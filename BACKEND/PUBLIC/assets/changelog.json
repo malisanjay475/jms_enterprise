@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.69.3",
+  "latest": "1.69.4",
   "versions": [
+    {
+      "version": "1.69.4",
+      "date": "2026-09-19",
+      "title": "Faster DPR Compliance Summary",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            { "type": "perf", "text": "The DPR Compliance Summary now opens much faster, and re-opening or switching factory/shift is near-instant." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.69.3",
       "date": "2026-09-19",
