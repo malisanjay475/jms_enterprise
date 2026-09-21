@@ -29,6 +29,21 @@
       ]
     },
     {
+      "version": "1.69.5",
+      "date": "2026-09-21",
+      "title": "DPR Compliance Summary: admins can switch factory",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            { "type": "fix", "text": "Admins can again switch the Factory in DPR Compliance Summary and see that unit's data. A recent access check had limited factory switching to superadmins only." }
+          ]
+        }
+      ]
+    },
+    {
       "version": "1.69.4",
       "date": "2026-09-19",
       "title": "Faster DPR Compliance Summary",
