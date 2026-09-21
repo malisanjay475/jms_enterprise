@@ -5786,6 +5786,23 @@ async function initializeLegacyRuntime() {
     // rewritten per-row LATERAL lookup use an index range scan instead.
     await qIdx(`CREATE INDEX IF NOT EXISTS idx_mps_orjr_mouldname ON mould_planning_summary(or_jr_no, mould_name);`);
 
+    // Planning Board + Machine-Wise report perf: both drive off plan_board filtered to
+    // ACTIVE plans (status NOT IN ('COMPLETED','REJECTED')). Completed/rejected plans pile
+    // up forever while the active set stays small, so on a full-history table the board's
+    // driving filter was a growing seq scan. This partial index (predicate matches the
+    // board/machine-wise WHERE exactly, so the planner can use it) restricts the scan to
+    // just the live rows and keeps board load flat as history grows. Speeds LOCAL + MAIN.
+    await qIdx(`CREATE INDEX IF NOT EXISTS idx_plan_board_active ON plan_board(factory_id) WHERE status NOT IN ('COMPLETED', 'REJECTED');`);
+    // Supervisor perf: /api/dpr/recent (fired per machine as the supervisor grid opens) and
+    // the machine-wise / machine-date-history reports look up dpr_hourly by machine (+ date).
+    // No (machine, dpr_date) index existed, so each per-machine read scanned by date alone.
+    await qIdx(`CREATE INDEX IF NOT EXISTS idx_dpr_hourly_machine_date ON dpr_hourly(machine, dpr_date) WHERE is_deleted = false;`);
+    // Reports perf: tonnage / dpr-daily / other date-range rollups scan dpr_hourly by
+    // dpr_date alone (shift='all'), which the shift-leading idx_dpr_hourly_shift_date_fac
+    // cannot serve. A date-leading partial index turns those big range scans into an index
+    // range scan on the live rows.
+    await qIdx(`CREATE INDEX IF NOT EXISTS idx_dpr_hourly_date ON dpr_hourly(dpr_date) WHERE is_deleted = false;`);
+
     // Per-machine P1–P4 priority labels
     await q(`ALTER TABLE plan_board ADD COLUMN IF NOT EXISTS machine_priority TEXT DEFAULT NULL`);
     await qIdx(`CREATE INDEX IF NOT EXISTS idx_plan_board_machine_priority ON plan_board(machine, machine_priority) WHERE machine_priority IS NOT NULL`);
