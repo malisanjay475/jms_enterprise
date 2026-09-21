@@ -203,7 +203,18 @@ const TABLES_TO_PULL = [...SYNC_ALL];
 //   vendor_payments/grn_entries/jc_summaries/job_cards/plan_history — no writer anywhere;
 //     they only ever receive rows from MAIN, so a LOCAL has nothing to push.
 const LOCAL_NO_PUSH_TABLES = ['users', 'roles', 'erp_jr_status', 'erp_jr_summary', 'erp_jr_details', 'erp_bom', 'erp_mould_item',
-    'bom_master', 'bom_components', 'factories', 'vendor_payments', 'grn_entries', 'jc_summaries', 'job_cards', 'plan_history'];
+    'bom_master', 'bom_components', 'factories', 'vendor_payments', 'grn_entries', 'jc_summaries', 'job_cards', 'plan_history',
+    // Full-replication batch 6 — head-office modules authored on MAIN (procurement, HR,
+    // interview panel, job-card detail). They keep serial-id keys with internal id links
+    // (purchase_order_items→purchase_orders, hr_kra_* chains) intact; MAIN is the sole id
+    // minter so those ids are globally unique and safe under full replication. Factory LOCAL
+    // boxes treat them read-only (per "LOCAL read-only for masters/imports"), so a LOCAL never
+    // authors them and has nothing to push. If a module later needs LOCAL authoring, convert
+    // it (with sync_id links) instead of listing it here.
+    'jc_details', 'vendors', 'vendor_dispatch', 'vendor_users',
+    'purchase_orders', 'purchase_order_items', 'dispatch_items',
+    'hr_employee_profiles', 'hr_kra_templates', 'hr_kra_template_items',
+    'hr_kra_assignments', 'hr_kra_assignment_items', 'hr_interviews', 'hr_interview_scores'];
 
 const CONFLICT_KEYS = {
     users: 'id',
@@ -350,7 +361,14 @@ const CONFLICT_KEYS = {
     // payload (see upsertData). Upsert target is the expression index — see
     // RAW_CONFLICT_TARGETS.moulds. [[project_sync_conflict_natural_key]]
     moulds: 'mould_number, factory_id',
-    machines: 'id',
+    // Natural key (machine, factory_id) — same per-factory-master shape as moulds. machines
+    // is LOCAL-writable and pulled company-wide, so the serial id diverges across factories
+    // and can't be the conflict key. Backed by the existing expression unique index
+    // idx_machines_factory_machine_unique ((LOWER(machine)), (COALESCE(factory_id, 0))) —
+    // see RAW_CONFLICT_TARGETS.machines. machines.id is FK'd only by the machineData/Modbus
+    // tables, which are NOT synced, so re-minting an incoming factory's machine id locally is
+    // safe. [[project_sync_conflict_natural_key]] [[project_full_replication_all_locals]]
+    machines: 'machine, factory_id',
     bom_master: 'id',
     bom_components: 'id',
     // Surrogate UUID key: dpr_hourly has NO unique business composite (even
@@ -432,7 +450,12 @@ const RAW_CONFLICT_TARGETS = {
     // non-existent plain (mould_number, factory_id) index and fails every row with
     // 42P10. getConflictColumns still returns ['mould_number','factory_id'] for the
     // id-drop and deletion-PK parsing; only the upsert conflict target is overridden here.
-    moulds: `LOWER(mould_number), COALESCE(factory_id, 0)`
+    moulds: `LOWER(mould_number), COALESCE(factory_id, 0)`,
+    // machines' unique index idx_machines_factory_machine_unique ON
+    // ((LOWER(machine)), (COALESCE(factory_id, 0))) is an EXPRESSION index — reproduce it
+    // exactly or Postgres fails every row with 42P10. getConflictColumns still returns
+    // ['machine','factory_id']; only the upsert conflict target is overridden here.
+    machines: `LOWER(machine), COALESCE(factory_id, 0)`
 };
 
 const SYNC_CONFLICT_INDEXES = {
@@ -526,7 +549,9 @@ const SYNC_SCHEMA_READY_KEY = 'SYNC_SCHEMA_READY_VERSION';
 //             parent by wip_inventory_sync_id, drop serial FK (Phase A batch 4).
 // 2026-09-21: grinding_logs → sync_id; bom_*/factories/vendor_payments/grn_entries/
 //             jc_summaries/job_cards/plan_history marked MAIN-only (Phase A batch 5).
-const SYNC_SCHEMA_READY_VERSION = '2026-09-21-grinding-nopush-v5';
+// 2026-09-21: machines → natural key (machine, factory_id); vendor/purchase/HR/jc_details
+//             marked MAIN-only (Phase A batch 6). Guard now clears — full replication armable.
+const SYNC_SCHEMA_READY_VERSION = '2026-09-21-machines-nopush-v6';
 
 // "Sync token" columns: app-schema UNIQUE columns that carry a per-row identity
 // token (a UUID) MAIN considers authoritative, but which a LOCAL row may have been
