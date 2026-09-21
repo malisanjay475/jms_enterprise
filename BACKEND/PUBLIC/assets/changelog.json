@@ -11,8 +11,39 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.70.1",
+  "latest": "1.70.2",
   "versions": [
+    {
+      "version": "1.70.2",
+      "date": "2026-09-21",
+      "title": "Faster Planning, Supervisor & Reports",
+      "modules": [
+        {
+          "app": "planning",
+          "label": "Planning",
+          "icon": "bi-calendar3",
+          "changes": [
+            { "type": "perf", "text": "The Planning Board now loads faster and stays fast as old completed plans build up." }
+          ]
+        },
+        {
+          "app": "supervisor_app",
+          "label": "Supervisor",
+          "icon": "bi-display",
+          "changes": [
+            { "type": "perf", "text": "The Supervisor screen opens machine data faster." }
+          ]
+        },
+        {
+          "app": "all",
+          "label": "Reports",
+          "icon": "bi-graph-up",
+          "changes": [
+            { "type": "perf", "text": "Reports like Tonnage and date-range reports load faster." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.70.1",
       "date": "2026-09-21",
