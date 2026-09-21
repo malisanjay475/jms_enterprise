@@ -10,6 +10,58 @@ let MAIN_SERVER_URL = '';
 let LOCAL_FACTORY_ID = 1;
 let API_KEY = process.env.SYNC_API_KEY || 'jpsms-sync-key';
 
+// Full replication: when enabled on a LOCAL box, it pulls EVERY factory's data from MAIN
+// (not just its own home factory), so cross-factory users can view other units offline.
+// Requested via env FULL_REPLICATION=1 (or a server_config override), but only actually
+// turned on after assertFullReplicationSafe() confirms no LOCAL-writable table still keys
+// sync on the serial `id` — an id-keyed table would collide across factories once other
+// factories' rows arrive. If the guard fails the flag is forced OFF and the box keeps
+// running in normal per-factory mode. [[project_full_replication_all_locals]]
+let FULL_REPLICATION = false;
+function readBooleanEnv(name) {
+    const v = String(process.env[name] || '').trim().toLowerCase();
+    return v === '1' || v === 'true' || v === 'yes' || v === 'on';
+}
+
+// Parse the factoryId a LOCAL sends on /pull and /pull-deletions. 'all'/'*'/blank/non-numeric
+// means "serve every factory" (full replication) and returns null so getChanges applies no
+// factory filter; a positive integer scopes to that one factory (normal per-factory LOCAL).
+function normalizePullFactoryScope(factoryId) {
+    const raw = String(factoryId ?? '').trim().toLowerCase();
+    if (raw === '' || raw === 'all' || raw === '*') return null;
+    const n = Number.parseInt(raw, 10);
+    return Number.isInteger(n) && n > 0 ? n : null;
+}
+
+// What a LOCAL puts in the factoryId param of its pull requests: 'all' when full replication
+// is on (pull every factory), otherwise its own home factory id (normal per-factory sync).
+function localPullFactoryParam() {
+    return FULL_REPLICATION ? 'all' : String(LOCAL_FACTORY_ID);
+}
+
+// Safety interlock for full replication. Once a LOCAL pulls OTHER factories' rows, any table
+// whose sync ON CONFLICT key is still the serial `id` will collide across factories (each
+// server mints ids independently), overwriting/duplicating rows. This returns the tables that
+// make full replication unsafe: those in the push set, keyed on `id`, that a LOCAL actually
+// writes (i.e. NOT MAIN-only-write LOCAL_NO_PUSH_TABLES, whose ids are globally unique because
+// MAIN is the sole minter). Every such table must be converted to a natural/surrogate key
+// (batches 1-4) before the flag can turn on. [[project_full_replication_all_locals]]
+function findFullReplicationKeyOffenders() {
+    const offenders = [];
+    for (const table of TABLES_TO_PUSH) {
+        if (LOCAL_NO_PUSH_TABLES.includes(table)) continue; // MAIN-only writer → ids globally unique
+        const key = CONFLICT_KEYS[table];
+        // A missing entry falls back to 'id' in getConflictColumns; treat that as unsafe too.
+        if (!key || key.split(',').map(s => s.trim()).join(',') === 'id') offenders.push(table);
+    }
+    return offenders;
+}
+
+function assertFullReplicationSafe() {
+    const offenders = findFullReplicationKeyOffenders();
+    return { safe: offenders.length === 0, offenders };
+}
+
 function readPositiveIntegerEnv(name, fallback) {
     const value = Number.parseInt(process.env[name] || '', 10);
     return Number.isFinite(value) && value > 0 ? value : fallback;
@@ -724,7 +776,10 @@ router.get('/pull', async (req, res) => {
         // anything non-numeric is ignored (falls back to updated_at-only paging).
         const parsedAfterId = Number.parseInt(afterId, 10);
         const afterIdArg = Number.isFinite(parsedAfterId) ? parsedAfterId : null;
-        const rows = await getChanges(table, since || lastSync, factoryId, afterIdArg);
+        // A full-replication LOCAL asks for every factory by sending factoryId=all; treat
+        // that (and any blank/non-numeric value) as "no factory filter". A numeric value
+        // still scopes to that one factory (normal per-factory LOCAL).
+        const rows = await getChanges(table, since || lastSync, normalizePullFactoryScope(factoryId), afterIdArg);
         res.json({ ok: true, data: await coerceDateColumnsForWire(table, rows) });
     } catch (e) {
         console.error('[Sync] Pull Serve Error:', e);
@@ -738,7 +793,8 @@ router.get('/pull-deletions', async (req, res) => {
         const { since, apiKey, factoryId } = req.query;
         if (apiKey !== API_KEY) return res.status(403).json({ error: 'Invalid Key' });
 
-        const deletions = await getDeletionChanges(since, factoryId);
+        // factoryId=all (full replication) → no factory filter; numeric → that factory only.
+        const deletions = await getDeletionChanges(since, normalizePullFactoryScope(factoryId));
         res.json({ ok: true, data: deletions });
     } catch (e) {
         console.error('[Sync] Pull Deletions Error:', e);
@@ -786,6 +842,7 @@ router.get('/status', async (req, res) => {
             type: SERVER_TYPE,
             factory_id: LOCAL_FACTORY_ID,
             main_url: MAIN_SERVER_URL,
+            full_replication: FULL_REPLICATION,
             last_sync: lastSync,
             last_push: lastPush,
             last_pull: lastPull,
@@ -795,6 +852,23 @@ router.get('/status', async (req, res) => {
     } catch (e) {
         res.status(500).json({ error: e.message });
     }
+});
+
+// Readiness probe for full replication: is the key-conversion guard satisfied, and which
+// tables (if any) still block it. Read-only; safe to call on any server. Use this to decide
+// whether it's safe to set FULL_REPLICATION=1 on a LOCAL before actually doing so.
+router.get('/full-replication-readiness', (req, res) => {
+    const { safe, offenders } = assertFullReplicationSafe();
+    res.json({
+        ok: true,
+        server_type: SERVER_TYPE,
+        full_replication_enabled: FULL_REPLICATION,
+        guard_safe: safe,
+        blocking_tables: offenders,
+        note: safe
+            ? 'All LOCAL-writable sync tables use collision-free keys; FULL_REPLICATION=1 on a LOCAL will be honoured.'
+            : 'Convert the blocking_tables off the serial id key before enabling full replication.'
+    });
 });
 
 router.get('/health', async (req, res) => {
@@ -1001,7 +1075,24 @@ async function init(dbPool) {
         // env var wins; server_config is only a fallback for legacy LOCAL servers without .env entry
         if (!process.env.SYNC_API_KEY && config.SYNC_API_KEY) API_KEY = config.SYNC_API_KEY;
 
-        console.log(`[Sync] Init. Type: ${SERVER_TYPE}, Factory: ${LOCAL_FACTORY_ID}, Main: ${MAIN_SERVER_URL}`);
+        // Full replication: requested via env (or server_config fallback), but ONLY armed on
+        // a LOCAL after the safety guard confirms no LOCAL-writable table still keys on `id`.
+        const fullReplRequested = readBooleanEnv('FULL_REPLICATION')
+            || ['1', 'true', 'yes', 'on'].includes(String(config.FULL_REPLICATION || '').trim().toLowerCase());
+        FULL_REPLICATION = false;
+        if (fullReplRequested && SERVER_TYPE === 'LOCAL') {
+            const { safe, offenders } = assertFullReplicationSafe();
+            if (safe) {
+                FULL_REPLICATION = true;
+                console.log('[Sync] FULL REPLICATION ENABLED — this LOCAL will pull ALL factories\' data.');
+            } else {
+                console.error(`[Sync] FULL REPLICATION REQUESTED BUT BLOCKED: ${offenders.length} table(s) still key sync on the serial id and would collide across factories. Running in normal per-factory mode. Convert these first: ${offenders.join(', ')}`);
+            }
+        } else if (fullReplRequested) {
+            console.log(`[Sync] FULL_REPLICATION requested but ignored (only applies to LOCAL; this is ${SERVER_TYPE}).`);
+        }
+
+        console.log(`[Sync] Init. Type: ${SERVER_TYPE}, Factory: ${LOCAL_FACTORY_ID}, Main: ${MAIN_SERVER_URL}, FullReplication: ${FULL_REPLICATION}`);
         console.log('[Sync] Service Version: v4.7 (Global Master Tables, Paginated Pull, Moulds Full Sync)');
 
         await ensureDateTimezoneBackfill();
@@ -1507,7 +1598,7 @@ async function pullTableAllPages(table, since) {
 
     while (true) {
         pageNum += 1;
-        let url = `${MAIN_SERVER_URL}/api/sync/pull?table=${encodeURIComponent(table)}&since=${encodeURIComponent(currentSince)}&apiKey=${encodeURIComponent(API_KEY)}&factoryId=${encodeURIComponent(LOCAL_FACTORY_ID)}`;
+        let url = `${MAIN_SERVER_URL}/api/sync/pull?table=${encodeURIComponent(table)}&since=${encodeURIComponent(currentSince)}&apiKey=${encodeURIComponent(API_KEY)}&factoryId=${encodeURIComponent(localPullFactoryParam())}`;
         if (currentAfterId !== null) url += `&afterId=${encodeURIComponent(currentAfterId)}`;
         const response = await fetchWithSyncRetry(url, `Pull ${table} page ${pageNum}`);
 
@@ -1613,7 +1704,7 @@ async function pullDeletionChanges() {
 
     try {
         const response = await fetchWithSyncRetry(
-            `${MAIN_SERVER_URL}/api/sync/pull-deletions?since=${encodeURIComponent(lastPull)}&apiKey=${encodeURIComponent(API_KEY)}&factoryId=${encodeURIComponent(LOCAL_FACTORY_ID)}`,
+            `${MAIN_SERVER_URL}/api/sync/pull-deletions?since=${encodeURIComponent(lastPull)}&apiKey=${encodeURIComponent(API_KEY)}&factoryId=${encodeURIComponent(localPullFactoryParam())}`,
             'Pull deletions'
         );
         if (!response.ok) {
@@ -2993,6 +3084,10 @@ module.exports = {
         pushRowsToMain,
         coerceJsonColumnsForWire,
         upsertData,
-        setRuntimeForTests
+        setRuntimeForTests,
+        findFullReplicationKeyOffenders,
+        assertFullReplicationSafe,
+        normalizePullFactoryScope,
+        localPullFactoryParam
     }
 };
