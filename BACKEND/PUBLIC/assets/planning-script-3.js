@@ -588,6 +588,7 @@
                   <button class="btn" type="button" onclick="window.switchView('timeline')"><i class="bi bi-bar-chart-steps"></i> Machine Timeline</button>
                   <button class="btn" type="button" onclick="window.openMachineWiseReport()" title="Machine-Wise Plan Report (Summary + colour Detail, downloadable)"><i class="bi bi-file-earmark-spreadsheet"></i> Machine Report</button>
                   <button class="btn" type="button" onclick="window.switchView('excel_timeline')" style="background:linear-gradient(135deg,#eff6ff,#dbeafe); color:#1d4ed8; border-color:#bfdbfe; font-weight:700;"><i class="bi bi-grid-3x3-gap-fill"></i> Excel View Timeline</button>
+                  <button class="btn" type="button" onclick="window.downloadTimelineExcel()" title="Download the Machine Timeline as an Excel file — one row per plan, grouped per machine, with filter dropdowns"><i class="bi bi-file-earmark-excel"></i> Download Excel</button>
                   <button class="btn" type="button" onclick="window.switchView('master')"><i class="bi bi-table"></i> Master Plan</button>
                   <button class="btn" id="btnBalance" style="display:${canEdit ? 'inline-flex' : 'none'}"><i class="bi bi-shuffle"></i> Balance Load</button>
                   <button class="btn primary" id="btnAutoP1" style="display:${canEdit ? 'inline-flex' : 'none'}"><i class="bi bi-lightning-charge"></i> Auto-Assign P1</button>
@@ -2175,6 +2176,131 @@
           });
 
           window.renderTimelineRows(filtered);
+        };
+
+        // ── Download the Machine Timeline as a styled Excel file ────────────
+        // Reuses the exact rows on screen (window.timelineGroups, already ripple-
+        // computed + sorted) so "what you see is what you download", honouring the
+        // building / line / status / search filters. The per-plan ripple lives in
+        // the browser, so we POST the rows to the server which renders the workbook
+        // via ExcelJS (colour banding + frozen header + AutoFilter dropdowns).
+        let _tlXlsxBusy = false;
+        window.downloadTimelineExcel = async function () {
+          if (_tlXlsxBusy) return;
+          if (!window.timelineMachines || !window.timelineMachines.length) {
+            toast('Open Machine Timeline first, then download.');
+            return;
+          }
+
+          const fmtDur = (ms) => {
+            if (!Number.isFinite(ms) || ms <= 0) return '0m';
+            const d = Math.floor(ms / 86400000);
+            const h = Math.floor((ms % 86400000) / 3600000);
+            const mi = Math.floor((ms % 3600000) / 60000);
+            if (d > 0) return `${d}d ${h}h`;
+            if (h > 0) return `${h}h ${mi}m`;
+            return `${Math.max(1, mi)}m`;
+          };
+          const timeToEnd = (p) => {
+            const st = (p.status || '').toLowerCase();
+            let ms = 0, label = '';
+            if (st === 'running') {
+              ms = ((p._rippledExpRaw || p._rippledEndRaw) ? (p._rippledExpRaw || p._rippledEndRaw).getTime() : 0) - Date.now();
+              if (ms < 0) { ms = Math.abs(ms); label = 'OD '; }
+            } else if (p._rippledStartRaw && p._rippledEndRaw) {
+              ms = p._rippledEndRaw.getTime() - p._rippledStartRaw.getTime();
+            }
+            return (ms > 0 || label) ? (label + fmtDur(ms)).trim() : '-';
+          };
+
+          // Same filter predicate as filterTimeline() so the export matches the view.
+          const bVal = (document.getElementById('filt-bldg') || {}).value || '';
+          const lVal = (document.getElementById('filt-line') || {}).value || '';
+          const sVal = (document.getElementById('filt-status') || {}).value || '';
+          const qVal = ((document.getElementById('filt-search') || {}).value || '').toLowerCase().trim();
+
+          const machines = window.timelineMachines.slice().sort(window.tlMachineSort || (() => 0));
+          const rows = [];
+          machines.forEach(m => {
+            if (bVal && m.building !== bVal) return;
+            if (lVal && m.line !== lVal) return;
+            const mPlans = window.timelineGroups[m.code] || [];
+            if ((sVal === 'Running' || sVal === 'Planned') && mPlans.length === 0) return;
+            if (sVal === 'Stopped' && mPlans.length > 0) return;
+            mPlans.forEach((p, idx) => {
+              if (qVal) {
+                const combined = `${m.code} ${p.orderNo || ''} ${p.clientName || ''} ${p.jcNo || ''} ${p.mouldName || ''} ${p.mouldNo || ''} ${p.machinePriority || ''}`.toLowerCase();
+                if (!combined.includes(qVal)) return;
+              }
+              rows.push({
+                machine: m.code,
+                pos: idx + 1,
+                planId: p.planId || p.plan_id || '',
+                orderNo: p.orderNo || p.or_no || '',
+                orDate: p.orDate || null,
+                jcNo: p.jcNo || p.jc_no || p.job_card_no || '',
+                jcDate: p.jcDate || null,
+                mouldNo: p.mouldNo || p.mould_code || '',
+                mouldName: p.mouldName || p.mould_name || '',
+                client: p.clientName || p.client || '',
+                planQty: Number(p.planQty) || 0,
+                balQty: Number(p.balQty) || 0,
+                start: p._rippledStartRaw ? p._rippledStartRaw.toISOString() : null,
+                end: p._rippledEndRaw ? p._rippledEndRaw.toISOString() : null,
+                exp: p._rippledExpRaw ? p._rippledExpRaw.toISOString() : null,
+                planTime: fmtDur(p._stdTotalMs),
+                timeToEnd: timeToEnd(p),
+                status: (p.status || '').toLowerCase()
+              });
+            });
+          });
+
+          if (!rows.length) { toast('No plans match the current filters.'); return; }
+
+          const filterBits = [];
+          if (bVal) filterBits.push(`Building ${bVal}`);
+          if (lVal) filterBits.push(`Line ${lVal}`);
+          if (sVal) filterBits.push(`Status ${sVal}`);
+          if (qVal) filterBits.push(`Search "${qVal}"`);
+          const filterSummary = filterBits.length ? `Filters: ${filterBits.join(' · ')}` : 'All plans';
+
+          _tlXlsxBusy = true;
+          toast('Preparing Excel…');
+          try {
+            const headers = { 'Content-Type': 'application/json' };
+            const token = localStorage.getItem('token');
+            if (token) headers['Authorization'] = `Bearer ${token}`;
+            const factoryId = localStorage.getItem('jpsms_factory_id');
+            if (factoryId) headers['X-Factory-ID'] = factoryId;
+            let uname = '';
+            try { uname = (JSON.parse(localStorage.getItem('user') || '{}') || {}).username || ''; } catch (_) {}
+            if (uname) headers['X-User-Name'] = uname;
+
+            const res = await fetch('/api/reports/machine-timeline.xlsx', {
+              method: 'POST',
+              headers,
+              body: JSON.stringify({
+                factory: localStorage.getItem('jpsms_factory_name') || 'All Factories',
+                filterSummary,
+                rows
+              })
+            });
+            if (!res.ok) throw new Error(`Server responded ${res.status}`);
+            const blob = await res.blob();
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `Machine_Timeline_${new Date().toISOString().slice(0, 10)}.xlsx`;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            setTimeout(() => URL.revokeObjectURL(url), 4000);
+            toast(`Downloaded ${rows.length} plan row(s).`);
+          } catch (e) {
+            toast(`Excel download failed: ${e.message || e}`);
+          } finally {
+            _tlXlsxBusy = false;
+          }
         };
 
         // --- Drag and Drop Logic ---
