@@ -229,8 +229,13 @@ const CONFLICT_KEYS = {
     vendor_dispatch: 'id',
     vendor_payments: 'id',
     vendor_users: 'id',
-    wip_inventory: 'id',
-    wip_outward_logs: 'id',
+    // WIP chain (full-replication batch 4). Both have a sync_id column already.
+    // wip_inventory keys on its own sync_id (deterministic seed). wip_outward_logs keys on
+    // its own sync_id AND links to its parent inventory row by wip_inventory_sync_id (NOT the
+    // serial wip_inventory_id, which diverges cross-server) — the old FK to wip_inventory(id)
+    // is dropped and the link column backfilled, exactly like assembly_scans→assembly_plans.
+    wip_inventory: 'sync_id',
+    wip_outward_logs: 'sync_id',
     assembly_lines: 'line_id',
     // Surrogate UUID key: assembly_plans/assembly_scans have no business natural key,
     // and the serial id is minted independently on MAIN and every LOCAL, so
@@ -404,7 +409,7 @@ const GLOBAL_MASTER_TABLES = new Set([
     'erp_mould_item'
 ]);
 
-const SYNC_ID_REQUIRED_TABLES = ['notifications', 'dpr_reasons', 'assembly_plans', 'assembly_scans', 'maintenance_tickets', 'maintenance_worklogs', 'org_units', 'org_departments', 'org_grades', 'org_designations', 'org_people', 'mould_verify_notes', 'qc_online_reports', 'qc_issue_memos', 'qc_training_sheets', 'qc_deviations', 'qc_job_checks', 'plan_audit_logs', 'mould_audit_logs', 'machine_status_logs', 'operator_history', 'plan_job_card_approval_history', 'jobs_queue', 'planning_drops', 'shifting_records'];
+const SYNC_ID_REQUIRED_TABLES = ['notifications', 'dpr_reasons', 'assembly_plans', 'assembly_scans', 'maintenance_tickets', 'maintenance_worklogs', 'org_units', 'org_departments', 'org_grades', 'org_designations', 'org_people', 'mould_verify_notes', 'qc_online_reports', 'qc_issue_memos', 'qc_training_sheets', 'qc_deviations', 'qc_job_checks', 'plan_audit_logs', 'mould_audit_logs', 'machine_status_logs', 'operator_history', 'plan_job_card_approval_history', 'jobs_queue', 'planning_drops', 'shifting_records', 'wip_inventory', 'wip_outward_logs'];
 
 // Deterministic sync_id backfill seeds for tables converted to a surrogate UUID key.
 // The same physical row already exists on MAIN AND on its factory's LOCAL (LOCAL pushed
@@ -435,7 +440,11 @@ const SYNC_ID_SEED_COLUMNS = {
     // job-identity columns (the complete_*/status fields mutate and are excluded).
     jobs_queue: ['plan_id', 'machine', 'order_no', 'mould_no', 'jobcard_no'],
     planning_drops: ['order_no', 'item_code', 'mould_no', 'mould_name', 'dropped_by', 'created_at'],
-    shifting_records: ['machine_code', 'plan_id', 'quantity', 'from_location', 'to_location', 'shifted_by', 'created_at']
+    shifting_records: ['machine_code', 'plan_id', 'quantity', 'from_location', 'to_location', 'shifted_by', 'created_at'],
+    // Full-replication batch 4. wip_inventory seeds from its immutable identity columns
+    // (qty/updated_at mutate and are excluded). wip_outward_logs is NOT here — it needs the
+    // custom ensureSyncIdSchema branch (link column + FK drop + backfill) below.
+    wip_inventory: ['factory_id', 'order_no', 'item_code', 'item_name', 'mould_name', 'rack_no', 'created_at']
 };
 const SYNC_SCHEMA_READY_KEY = 'SYNC_SCHEMA_READY_VERSION';
 // Bump this whenever ensureSyncRuntimeSchema()'s migrations change, so every server
@@ -447,7 +456,9 @@ const SYNC_SCHEMA_READY_KEY = 'SYNC_SCHEMA_READY_VERSION';
 //             operator_history, plan_job_card_approval_history) → sync_id (Phase A batch 2).
 // 2026-09-21: jobs_queue/planning_drops/shifting_records → sync_id, machine_operators →
 //             operator_id natural key (Phase A batch 3).
-const SYNC_SCHEMA_READY_VERSION = '2026-09-21-wip-queue-sync-id-v3';
+// 2026-09-21: WIP chain — wip_inventory → sync_id, wip_outward_logs → sync_id + relink to
+//             parent by wip_inventory_sync_id, drop serial FK (Phase A batch 4).
+const SYNC_SCHEMA_READY_VERSION = '2026-09-21-wip-chain-sync-id-v4';
 
 // "Sync token" columns: app-schema UNIQUE columns that carry a per-row identity
 // token (a UUID) MAIN considers authoritative, but which a LOCAL row may have been
@@ -2649,6 +2660,56 @@ async function ensureSyncIdSchema() {
                           FROM ${table} WHERE sync_id IS NOT NULL
                     )
                     UPDATE ${table} t SET sync_id = gen_random_uuid()
+                      FROM ranked r WHERE t.id = r.id AND r.rn > 1
+                `);
+            } else if (table === 'wip_outward_logs') {
+                // Outward logs link to their parent wip_inventory row by the parent's stable
+                // sync_id, not the serial wip_inventory_id (which is minted independently on
+                // MAIN and every LOCAL). Ensure the link column, drop the invalid cross-server
+                // serial FK, backfill the link from the local inventory row, then derive a
+                // deterministic sync_id for the log. Same shape as assembly_scans.
+                if (!(await tableHasColumn('wip_outward_logs', 'wip_inventory_sync_id'))) {
+                    await pool.query('ALTER TABLE wip_outward_logs ADD COLUMN wip_inventory_sync_id UUID');
+                    tableColumnCache.delete('wip_outward_logs');
+                }
+                await pool.query('ALTER TABLE wip_outward_logs DROP CONSTRAINT IF EXISTS wip_outward_logs_wip_inventory_id_fkey');
+                await pool.query(`
+                    UPDATE wip_outward_logs l
+                       SET wip_inventory_sync_id = i.sync_id
+                      FROM wip_inventory i
+                     WHERE l.wip_inventory_id = i.id AND l.wip_inventory_sync_id IS NULL
+                `);
+                await pool.query(`
+                    WITH source AS (
+                        SELECT id,
+                               md5(concat_ws('|',
+                                   COALESCE(wip_inventory_sync_id::text, ''),
+                                   COALESCE(qty::text, ''),
+                                   COALESCE(to_location, ''),
+                                   COALESCE(receiver_name, ''),
+                                   COALESCE(created_by, ''),
+                                   COALESCE(created_at::text, '')
+                               )) AS seed
+                          FROM wip_outward_logs
+                         WHERE sync_id IS NULL
+                    )
+                    UPDATE wip_outward_logs t
+                       SET sync_id = (
+                           substr(source.seed, 1, 8) || '-' ||
+                           substr(source.seed, 9, 4) || '-' ||
+                           substr(source.seed, 13, 4) || '-' ||
+                           substr(source.seed, 17, 4) || '-' ||
+                           substr(source.seed, 21, 12)
+                       )::uuid
+                      FROM source
+                     WHERE t.id = source.id
+                `);
+                await pool.query(`
+                    WITH ranked AS (
+                        SELECT id, ROW_NUMBER() OVER (PARTITION BY sync_id ORDER BY id) AS rn
+                          FROM wip_outward_logs WHERE sync_id IS NOT NULL
+                    )
+                    UPDATE wip_outward_logs t SET sync_id = gen_random_uuid()
                       FROM ranked r WHERE t.id = r.id AND r.rn > 1
                 `);
             } else if (SYNC_ID_SEED_COLUMNS[table]) {
