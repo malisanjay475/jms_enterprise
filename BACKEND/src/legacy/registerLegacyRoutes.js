@@ -5858,11 +5858,15 @@ async function initializeLegacyRuntime() {
     }
 
     try {
-      // Fix Constraint to CASCADE for easier deletion
+      // Full replication: outward logs link to their parent by the parent's stable
+      // wip_inventory_sync_id, not the serial wip_inventory_id (which diverges across
+      // servers). The old FK to wip_inventory(id) is therefore dropped and NOT re-added —
+      // a synced log from another factory would otherwise violate it. The sync layer
+      // (ensureSyncIdSchema) also drops it and backfills the link; adding the column here
+      // guarantees it exists before any insert. [[project_full_replication_all_locals]]
       await q(`ALTER TABLE wip_outward_logs DROP CONSTRAINT IF EXISTS wip_outward_logs_wip_inventory_id_fkey`);
-      await q(`ALTER TABLE wip_outward_logs ADD CONSTRAINT wip_outward_logs_wip_inventory_id_fkey
-               FOREIGN KEY (wip_inventory_id) REFERENCES wip_inventory(id) ON DELETE CASCADE`);
-      console.log('[DB] Constraint fixed to CASCADE');
+      await q(`ALTER TABLE wip_outward_logs ADD COLUMN IF NOT EXISTS wip_inventory_sync_id UUID`);
+      console.log('[DB] wip_outward_logs FK dropped; sync_id link column ensured');
     } catch (e) {
       console.warn('[DB] wip_outward_logs constraint fix skipped:', e.message);
     }
@@ -27663,10 +27667,12 @@ app.post('/api/wip/outward', async (req, res) => {
       const factoryId = inventoryFactoryId ?? requestFactoryId;
       const actorName = normalizeOptionalText(user) || getRequestUsername(req) || 'WIP Supervisor';
 
+      // Link by the parent's stable sync_id (survives cross-server replication), in
+      // addition to the legacy serial wip_inventory_id kept for local convenience.
       await client.query(`
-        INSERT INTO wip_outward_logs(wip_inventory_id, qty, to_location, receiver_name, created_by, created_at, factory_id)
-VALUES($1, $2, $3, $4, $5, NOW(), $6)
-  `, [inventoryId, moveQty, toLocation, receiver || '', actorName, factoryId]);
+        INSERT INTO wip_outward_logs(wip_inventory_id, wip_inventory_sync_id, qty, to_location, receiver_name, created_by, created_at, factory_id)
+VALUES($1, $2, $3, $4, $5, $6, NOW(), $7)
+  `, [inventoryId, updatedRow?.sync_id || null, moveQty, toLocation, receiver || '', actorName, factoryId]);
 
       await recordWipStockMovement(client, {
         factory_id: factoryId,
@@ -27792,7 +27798,10 @@ l.*,
   i.item_name, i.mould_name, i.rack_no, i.order_no, i.item_code,
   m.mould_number as mould_no
       FROM wip_outward_logs l
-      LEFT JOIN wip_inventory i ON i.id = l.wip_inventory_id
+      LEFT JOIN wip_inventory i ON (
+        i.sync_id = l.wip_inventory_sync_id
+        OR (l.wip_inventory_sync_id IS NULL AND i.id = l.wip_inventory_id)
+      )
       LEFT JOIN moulds m ON(
     m.mould_number = i.item_code OR 
         m.mould_name = i.mould_name

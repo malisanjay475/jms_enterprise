@@ -10,6 +10,58 @@ let MAIN_SERVER_URL = '';
 let LOCAL_FACTORY_ID = 1;
 let API_KEY = process.env.SYNC_API_KEY || 'jpsms-sync-key';
 
+// Full replication: when enabled on a LOCAL box, it pulls EVERY factory's data from MAIN
+// (not just its own home factory), so cross-factory users can view other units offline.
+// Requested via env FULL_REPLICATION=1 (or a server_config override), but only actually
+// turned on after assertFullReplicationSafe() confirms no LOCAL-writable table still keys
+// sync on the serial `id` — an id-keyed table would collide across factories once other
+// factories' rows arrive. If the guard fails the flag is forced OFF and the box keeps
+// running in normal per-factory mode. [[project_full_replication_all_locals]]
+let FULL_REPLICATION = false;
+function readBooleanEnv(name) {
+    const v = String(process.env[name] || '').trim().toLowerCase();
+    return v === '1' || v === 'true' || v === 'yes' || v === 'on';
+}
+
+// Parse the factoryId a LOCAL sends on /pull and /pull-deletions. 'all'/'*'/blank/non-numeric
+// means "serve every factory" (full replication) and returns null so getChanges applies no
+// factory filter; a positive integer scopes to that one factory (normal per-factory LOCAL).
+function normalizePullFactoryScope(factoryId) {
+    const raw = String(factoryId ?? '').trim().toLowerCase();
+    if (raw === '' || raw === 'all' || raw === '*') return null;
+    const n = Number.parseInt(raw, 10);
+    return Number.isInteger(n) && n > 0 ? n : null;
+}
+
+// What a LOCAL puts in the factoryId param of its pull requests: 'all' when full replication
+// is on (pull every factory), otherwise its own home factory id (normal per-factory sync).
+function localPullFactoryParam() {
+    return FULL_REPLICATION ? 'all' : String(LOCAL_FACTORY_ID);
+}
+
+// Safety interlock for full replication. Once a LOCAL pulls OTHER factories' rows, any table
+// whose sync ON CONFLICT key is still the serial `id` will collide across factories (each
+// server mints ids independently), overwriting/duplicating rows. This returns the tables that
+// make full replication unsafe: those in the push set, keyed on `id`, that a LOCAL actually
+// writes (i.e. NOT MAIN-only-write LOCAL_NO_PUSH_TABLES, whose ids are globally unique because
+// MAIN is the sole minter). Every such table must be converted to a natural/surrogate key
+// (batches 1-4) before the flag can turn on. [[project_full_replication_all_locals]]
+function findFullReplicationKeyOffenders() {
+    const offenders = [];
+    for (const table of TABLES_TO_PUSH) {
+        if (LOCAL_NO_PUSH_TABLES.includes(table)) continue; // MAIN-only writer → ids globally unique
+        const key = CONFLICT_KEYS[table];
+        // A missing entry falls back to 'id' in getConflictColumns; treat that as unsafe too.
+        if (!key || key.split(',').map(s => s.trim()).join(',') === 'id') offenders.push(table);
+    }
+    return offenders;
+}
+
+function assertFullReplicationSafe() {
+    const offenders = findFullReplicationKeyOffenders();
+    return { safe: offenders.length === 0, offenders };
+}
+
 function readPositiveIntegerEnv(name, fallback) {
     const value = Number.parseInt(process.env[name] || '', 10);
     return Number.isFinite(value) && value > 0 ? value : fallback;
@@ -193,7 +245,10 @@ const CONFLICT_KEYS = {
     jc_details: 'id',
     jc_summaries: 'id',
     job_cards: 'id',
-    machine_operators: 'id',
+    // Natural key: operator_id is declared UNIQUE on the table and is the operator's
+    // company-wide identity, so it's collision-free across factories — unlike the serial id.
+    // [[project_full_replication_all_locals]] [[project_sync_conflict_natural_key]]
+    machine_operators: 'operator_id',
     // Append-only log/audit tables — surrogate UUID key for full replication. Serial id
     // is minted independently per server and collides across factories, so ON CONFLICT (id)
     // would overwrite unrelated rows. sync_id is UNIQUE (gen_random_uuid default); all are in
@@ -217,15 +272,22 @@ const CONFLICT_KEYS = {
     qc_job_checks: 'sync_id',
     qc_online_reports: 'sync_id',
     qc_training_sheets: 'sync_id',
-    shifting_records: 'id',
+    // Surrogate UUID key (full-replication batch 3): append-only shifting log, no factory_id,
+    // serial id collides across factories. Deterministic seed in SYNC_ID_SEED_COLUMNS.
+    shifting_records: 'sync_id',
     std_actual: 'plan_id, shift, dpr_date, machine',
     // Natural key matches uq_eqa_natural — serial id diverges LOCAL↔MAIN
     extra_qty_allowances: 'plan_id, colour, allowed_by, allowed_at',
     vendor_dispatch: 'id',
     vendor_payments: 'id',
     vendor_users: 'id',
-    wip_inventory: 'id',
-    wip_outward_logs: 'id',
+    // WIP chain (full-replication batch 4). Both have a sync_id column already.
+    // wip_inventory keys on its own sync_id (deterministic seed). wip_outward_logs keys on
+    // its own sync_id AND links to its parent inventory row by wip_inventory_sync_id (NOT the
+    // serial wip_inventory_id, which diverges cross-server) — the old FK to wip_inventory(id)
+    // is dropped and the link column backfilled, exactly like assembly_scans→assembly_plans.
+    wip_inventory: 'sync_id',
+    wip_outward_logs: 'sync_id',
     assembly_lines: 'line_id',
     // Surrogate UUID key: assembly_plans/assembly_scans have no business natural key,
     // and the serial id is minted independently on MAIN and every LOCAL, so
@@ -287,8 +349,10 @@ const CONFLICT_KEYS = {
     dpr_hourly: 'global_id',
     grn_entries: 'id',
     dispatch_items: 'id',
-    jobs_queue: 'id',
-    planning_drops: 'id',
+    // Surrogate UUID key (full-replication batch 3). jobs_queue: no factory_id/created_at,
+    // seed from its immutable job-identity columns. planning_drops: append-only drop log.
+    jobs_queue: 'sync_id',
+    planning_drops: 'sync_id',
     operator_history: 'sync_id',
     // HR Performance tables
     hr_employee_profiles: 'id',
@@ -397,7 +461,7 @@ const GLOBAL_MASTER_TABLES = new Set([
     'erp_mould_item'
 ]);
 
-const SYNC_ID_REQUIRED_TABLES = ['notifications', 'dpr_reasons', 'assembly_plans', 'assembly_scans', 'maintenance_tickets', 'maintenance_worklogs', 'org_units', 'org_departments', 'org_grades', 'org_designations', 'org_people', 'mould_verify_notes', 'qc_online_reports', 'qc_issue_memos', 'qc_training_sheets', 'qc_deviations', 'qc_job_checks', 'plan_audit_logs', 'mould_audit_logs', 'machine_status_logs', 'operator_history', 'plan_job_card_approval_history'];
+const SYNC_ID_REQUIRED_TABLES = ['notifications', 'dpr_reasons', 'assembly_plans', 'assembly_scans', 'maintenance_tickets', 'maintenance_worklogs', 'org_units', 'org_departments', 'org_grades', 'org_designations', 'org_people', 'mould_verify_notes', 'qc_online_reports', 'qc_issue_memos', 'qc_training_sheets', 'qc_deviations', 'qc_job_checks', 'plan_audit_logs', 'mould_audit_logs', 'machine_status_logs', 'operator_history', 'plan_job_card_approval_history', 'jobs_queue', 'planning_drops', 'shifting_records', 'wip_inventory', 'wip_outward_logs'];
 
 // Deterministic sync_id backfill seeds for tables converted to a surrogate UUID key.
 // The same physical row already exists on MAIN AND on its factory's LOCAL (LOCAL pushed
@@ -423,7 +487,16 @@ const SYNC_ID_SEED_COLUMNS = {
     mould_audit_logs: ['factory_id', 'mould_id', 'action_type', 'changed_by', 'changed_fields', 'changed_at'],
     machine_status_logs: ['machine', 'start_date', 'start_slot', 'created_at'],
     operator_history: ['operator_id', 'machine_at_time', 'scanned_by', 'scanned_at'],
-    plan_job_card_approval_history: ['factory_id', 'plan_id', 'order_no', 'action', 'approval_stage', 'acted_by', 'acted_at']
+    plan_job_card_approval_history: ['factory_id', 'plan_id', 'order_no', 'action', 'approval_stage', 'acted_by', 'acted_at'],
+    // Full-replication batch 3. jobs_queue has NO created_at — seed from its immutable
+    // job-identity columns (the complete_*/status fields mutate and are excluded).
+    jobs_queue: ['plan_id', 'machine', 'order_no', 'mould_no', 'jobcard_no'],
+    planning_drops: ['order_no', 'item_code', 'mould_no', 'mould_name', 'dropped_by', 'created_at'],
+    shifting_records: ['machine_code', 'plan_id', 'quantity', 'from_location', 'to_location', 'shifted_by', 'created_at'],
+    // Full-replication batch 4. wip_inventory seeds from its immutable identity columns
+    // (qty/updated_at mutate and are excluded). wip_outward_logs is NOT here — it needs the
+    // custom ensureSyncIdSchema branch (link column + FK drop + backfill) below.
+    wip_inventory: ['factory_id', 'order_no', 'item_code', 'item_name', 'mould_name', 'rack_no', 'created_at']
 };
 const SYNC_SCHEMA_READY_KEY = 'SYNC_SCHEMA_READY_VERSION';
 // Bump this whenever ensureSyncRuntimeSchema()'s migrations change, so every server
@@ -433,7 +506,11 @@ const SYNC_SCHEMA_READY_KEY = 'SYNC_SCHEMA_READY_VERSION';
 // 2026-09-19: qc_* tables converted to surrogate sync_id key for full replication (Phase A batch 1).
 // 2026-09-19: audit/log group (plan_audit_logs, mould_audit_logs, machine_status_logs,
 //             operator_history, plan_job_card_approval_history) → sync_id (Phase A batch 2).
-const SYNC_SCHEMA_READY_VERSION = '2026-09-19-audit-log-sync-id-v2';
+// 2026-09-21: jobs_queue/planning_drops/shifting_records → sync_id, machine_operators →
+//             operator_id natural key (Phase A batch 3).
+// 2026-09-21: WIP chain — wip_inventory → sync_id, wip_outward_logs → sync_id + relink to
+//             parent by wip_inventory_sync_id, drop serial FK (Phase A batch 4).
+const SYNC_SCHEMA_READY_VERSION = '2026-09-21-wip-chain-sync-id-v4';
 
 // "Sync token" columns: app-schema UNIQUE columns that carry a per-row identity
 // token (a UUID) MAIN considers authoritative, but which a LOCAL row may have been
@@ -699,7 +776,10 @@ router.get('/pull', async (req, res) => {
         // anything non-numeric is ignored (falls back to updated_at-only paging).
         const parsedAfterId = Number.parseInt(afterId, 10);
         const afterIdArg = Number.isFinite(parsedAfterId) ? parsedAfterId : null;
-        const rows = await getChanges(table, since || lastSync, factoryId, afterIdArg);
+        // A full-replication LOCAL asks for every factory by sending factoryId=all; treat
+        // that (and any blank/non-numeric value) as "no factory filter". A numeric value
+        // still scopes to that one factory (normal per-factory LOCAL).
+        const rows = await getChanges(table, since || lastSync, normalizePullFactoryScope(factoryId), afterIdArg);
         res.json({ ok: true, data: await coerceDateColumnsForWire(table, rows) });
     } catch (e) {
         console.error('[Sync] Pull Serve Error:', e);
@@ -713,7 +793,8 @@ router.get('/pull-deletions', async (req, res) => {
         const { since, apiKey, factoryId } = req.query;
         if (apiKey !== API_KEY) return res.status(403).json({ error: 'Invalid Key' });
 
-        const deletions = await getDeletionChanges(since, factoryId);
+        // factoryId=all (full replication) → no factory filter; numeric → that factory only.
+        const deletions = await getDeletionChanges(since, normalizePullFactoryScope(factoryId));
         res.json({ ok: true, data: deletions });
     } catch (e) {
         console.error('[Sync] Pull Deletions Error:', e);
@@ -761,6 +842,7 @@ router.get('/status', async (req, res) => {
             type: SERVER_TYPE,
             factory_id: LOCAL_FACTORY_ID,
             main_url: MAIN_SERVER_URL,
+            full_replication: FULL_REPLICATION,
             last_sync: lastSync,
             last_push: lastPush,
             last_pull: lastPull,
@@ -770,6 +852,23 @@ router.get('/status', async (req, res) => {
     } catch (e) {
         res.status(500).json({ error: e.message });
     }
+});
+
+// Readiness probe for full replication: is the key-conversion guard satisfied, and which
+// tables (if any) still block it. Read-only; safe to call on any server. Use this to decide
+// whether it's safe to set FULL_REPLICATION=1 on a LOCAL before actually doing so.
+router.get('/full-replication-readiness', (req, res) => {
+    const { safe, offenders } = assertFullReplicationSafe();
+    res.json({
+        ok: true,
+        server_type: SERVER_TYPE,
+        full_replication_enabled: FULL_REPLICATION,
+        guard_safe: safe,
+        blocking_tables: offenders,
+        note: safe
+            ? 'All LOCAL-writable sync tables use collision-free keys; FULL_REPLICATION=1 on a LOCAL will be honoured.'
+            : 'Convert the blocking_tables off the serial id key before enabling full replication.'
+    });
 });
 
 router.get('/health', async (req, res) => {
@@ -976,7 +1075,24 @@ async function init(dbPool) {
         // env var wins; server_config is only a fallback for legacy LOCAL servers without .env entry
         if (!process.env.SYNC_API_KEY && config.SYNC_API_KEY) API_KEY = config.SYNC_API_KEY;
 
-        console.log(`[Sync] Init. Type: ${SERVER_TYPE}, Factory: ${LOCAL_FACTORY_ID}, Main: ${MAIN_SERVER_URL}`);
+        // Full replication: requested via env (or server_config fallback), but ONLY armed on
+        // a LOCAL after the safety guard confirms no LOCAL-writable table still keys on `id`.
+        const fullReplRequested = readBooleanEnv('FULL_REPLICATION')
+            || ['1', 'true', 'yes', 'on'].includes(String(config.FULL_REPLICATION || '').trim().toLowerCase());
+        FULL_REPLICATION = false;
+        if (fullReplRequested && SERVER_TYPE === 'LOCAL') {
+            const { safe, offenders } = assertFullReplicationSafe();
+            if (safe) {
+                FULL_REPLICATION = true;
+                console.log('[Sync] FULL REPLICATION ENABLED — this LOCAL will pull ALL factories\' data.');
+            } else {
+                console.error(`[Sync] FULL REPLICATION REQUESTED BUT BLOCKED: ${offenders.length} table(s) still key sync on the serial id and would collide across factories. Running in normal per-factory mode. Convert these first: ${offenders.join(', ')}`);
+            }
+        } else if (fullReplRequested) {
+            console.log(`[Sync] FULL_REPLICATION requested but ignored (only applies to LOCAL; this is ${SERVER_TYPE}).`);
+        }
+
+        console.log(`[Sync] Init. Type: ${SERVER_TYPE}, Factory: ${LOCAL_FACTORY_ID}, Main: ${MAIN_SERVER_URL}, FullReplication: ${FULL_REPLICATION}`);
         console.log('[Sync] Service Version: v4.7 (Global Master Tables, Paginated Pull, Moulds Full Sync)');
 
         await ensureDateTimezoneBackfill();
@@ -1482,7 +1598,7 @@ async function pullTableAllPages(table, since) {
 
     while (true) {
         pageNum += 1;
-        let url = `${MAIN_SERVER_URL}/api/sync/pull?table=${encodeURIComponent(table)}&since=${encodeURIComponent(currentSince)}&apiKey=${encodeURIComponent(API_KEY)}&factoryId=${encodeURIComponent(LOCAL_FACTORY_ID)}`;
+        let url = `${MAIN_SERVER_URL}/api/sync/pull?table=${encodeURIComponent(table)}&since=${encodeURIComponent(currentSince)}&apiKey=${encodeURIComponent(API_KEY)}&factoryId=${encodeURIComponent(localPullFactoryParam())}`;
         if (currentAfterId !== null) url += `&afterId=${encodeURIComponent(currentAfterId)}`;
         const response = await fetchWithSyncRetry(url, `Pull ${table} page ${pageNum}`);
 
@@ -1588,7 +1704,7 @@ async function pullDeletionChanges() {
 
     try {
         const response = await fetchWithSyncRetry(
-            `${MAIN_SERVER_URL}/api/sync/pull-deletions?since=${encodeURIComponent(lastPull)}&apiKey=${encodeURIComponent(API_KEY)}&factoryId=${encodeURIComponent(LOCAL_FACTORY_ID)}`,
+            `${MAIN_SERVER_URL}/api/sync/pull-deletions?since=${encodeURIComponent(lastPull)}&apiKey=${encodeURIComponent(API_KEY)}&factoryId=${encodeURIComponent(localPullFactoryParam())}`,
             'Pull deletions'
         );
         if (!response.ok) {
@@ -2637,6 +2753,56 @@ async function ensureSyncIdSchema() {
                     UPDATE ${table} t SET sync_id = gen_random_uuid()
                       FROM ranked r WHERE t.id = r.id AND r.rn > 1
                 `);
+            } else if (table === 'wip_outward_logs') {
+                // Outward logs link to their parent wip_inventory row by the parent's stable
+                // sync_id, not the serial wip_inventory_id (which is minted independently on
+                // MAIN and every LOCAL). Ensure the link column, drop the invalid cross-server
+                // serial FK, backfill the link from the local inventory row, then derive a
+                // deterministic sync_id for the log. Same shape as assembly_scans.
+                if (!(await tableHasColumn('wip_outward_logs', 'wip_inventory_sync_id'))) {
+                    await pool.query('ALTER TABLE wip_outward_logs ADD COLUMN wip_inventory_sync_id UUID');
+                    tableColumnCache.delete('wip_outward_logs');
+                }
+                await pool.query('ALTER TABLE wip_outward_logs DROP CONSTRAINT IF EXISTS wip_outward_logs_wip_inventory_id_fkey');
+                await pool.query(`
+                    UPDATE wip_outward_logs l
+                       SET wip_inventory_sync_id = i.sync_id
+                      FROM wip_inventory i
+                     WHERE l.wip_inventory_id = i.id AND l.wip_inventory_sync_id IS NULL
+                `);
+                await pool.query(`
+                    WITH source AS (
+                        SELECT id,
+                               md5(concat_ws('|',
+                                   COALESCE(wip_inventory_sync_id::text, ''),
+                                   COALESCE(qty::text, ''),
+                                   COALESCE(to_location, ''),
+                                   COALESCE(receiver_name, ''),
+                                   COALESCE(created_by, ''),
+                                   COALESCE(created_at::text, '')
+                               )) AS seed
+                          FROM wip_outward_logs
+                         WHERE sync_id IS NULL
+                    )
+                    UPDATE wip_outward_logs t
+                       SET sync_id = (
+                           substr(source.seed, 1, 8) || '-' ||
+                           substr(source.seed, 9, 4) || '-' ||
+                           substr(source.seed, 13, 4) || '-' ||
+                           substr(source.seed, 17, 4) || '-' ||
+                           substr(source.seed, 21, 12)
+                       )::uuid
+                      FROM source
+                     WHERE t.id = source.id
+                `);
+                await pool.query(`
+                    WITH ranked AS (
+                        SELECT id, ROW_NUMBER() OVER (PARTITION BY sync_id ORDER BY id) AS rn
+                          FROM wip_outward_logs WHERE sync_id IS NOT NULL
+                    )
+                    UPDATE wip_outward_logs t SET sync_id = gen_random_uuid()
+                      FROM ranked r WHERE t.id = r.id AND r.rn > 1
+                `);
             } else if (SYNC_ID_SEED_COLUMNS[table]) {
                 await backfillDeterministicSyncId(table, SYNC_ID_SEED_COLUMNS[table]);
             } else {
@@ -2918,6 +3084,10 @@ module.exports = {
         pushRowsToMain,
         coerceJsonColumnsForWire,
         upsertData,
-        setRuntimeForTests
+        setRuntimeForTests,
+        findFullReplicationKeyOffenders,
+        assertFullReplicationSafe,
+        normalizePullFactoryScope,
+        localPullFactoryParam
     }
 };
