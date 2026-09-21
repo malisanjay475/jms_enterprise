@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.70.3",
+  "latest": "1.70.4",
   "versions": [
+    {
+      "version": "1.70.4",
+      "date": "2026-09-21",
+      "title": "Correct machine order in Running Plan Manpower Excel",
+      "modules": [
+        {
+          "app": "planning",
+          "label": "Planning",
+          "icon": "bi-calendar3",
+          "changes": [
+            { "type": "fix", "text": "The Running Plan Manpower Excel now lists machines in the exact master order (Building B to C to E to F, lines L1 to L4, then machine 1 onwards), so machines no longer appear split or out of sequence." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.70.3",
       "date": "2026-09-21",
