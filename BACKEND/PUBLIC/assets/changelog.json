@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.70.0",
+  "latest": "1.70.1",
   "versions": [
+    {
+      "version": "1.70.1",
+      "date": "2026-09-21",
+      "title": "Download Excel button on the Machine Timeline",
+      "modules": [
+        {
+          "app": "planning",
+          "label": "Planning",
+          "icon": "bi-calendar3",
+          "changes": [
+            { "type": "fix", "text": "The 'Download Excel' button now appears on the Machine Timeline's own filter bar (next to Reset), so you can export the timeline directly from the view you are looking at." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.70.0",
       "date": "2026-09-21",
@@ -24,6 +39,21 @@
           "icon": "bi-calendar3",
           "changes": [
             { "type": "feat", "text": "Machine Timeline now has a 'Download Excel' button. It gives one row per plan, grouped machine by machine, with Machine, Plan Id, OR No/Date, JC No/Date, Mould, Client, Plan Qty, Balance, Start/End/Expected End, plan time and time-to-end — colour-coded by status with a filter dropdown on every column. OR Date and JC Date come from OR-JR Status, and the download matches whatever filters you have on screen." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.69.5",
+      "date": "2026-09-21",
+      "title": "DPR Compliance Summary: admins can switch factory",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            { "type": "fix", "text": "Admins can again switch the Factory in DPR Compliance Summary and see that unit's data. A recent access check had limited factory switching to superadmins only." }
           ]
         }
       ]

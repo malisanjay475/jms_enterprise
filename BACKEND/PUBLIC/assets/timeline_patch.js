@@ -1591,6 +1591,10 @@
                         <i class="bi bi-arrow-counterclockwise" style="font-size:1.1rem"></i>
                     </button>
 
+                    <button onclick="window.downloadTimelineExcel()" title="Download this timeline as an Excel file — one row per plan, grouped per machine, with a filter dropdown on every column" style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:0.82rem;font-weight:700;color:#15803d;white-space:nowrap;border:1px solid #86efac;border-radius:6px;padding:6px 12px;background:#f0fdf4;">
+                        <i class="bi bi-file-earmark-excel" style="font-size:1rem"></i> Download Excel
+                    </button>
+
                     <div id="filter-count" style="margin-left:auto; font-weight:700; color:#475569; font-size:0.9rem; background:#e2e8f0; padding:6px 14px; border-radius:20px;"></div>
                 </div>`;
             if (con.parentNode) con.parentNode.insertBefore(stickyHeader, con);
