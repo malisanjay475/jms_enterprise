@@ -1364,20 +1364,43 @@
       w.document.open(); w.document.write(html); w.document.close();
     };
 
-    /* Machine order for MC/MP schedules: group by plant + line (e.g. "B -L1",
-       "C -L1"), then by the trailing machine index (Machine 1,2,3 …), ignoring
-       model/tonnage — so 350-1 (Machine 1) sorts before 300-6 (Machine 6). */
+    /* Machine order for MC/MP schedules & the Running Plan Manpower Excel:
+       Building (B → C → E → F …) → Line (L1 → L2 …) → trailing machine index
+       (Machine 1,2,3 …), ignoring model/tonnage — so 350-1 sorts before 300-6.
+       Parsed straight from the code so every spacing/dash variant lines up:
+       "B -L1-HYD-350-1", "C-L-1-OM-660-1" and "C -L1-HYD - 450-5" all group
+       under the same building+line. Blank/labour codes sort to the very end. */
     window.etvMachineCompare = function (a, b) {
-        const lineKey = (s) => {
-            const m = String(s || '').match(/^(.*?-L\s?\d+)/i);
-            return (m ? m[1] : String(s || '')).trim();
+        // Codes may carry a "table > machine" prefix — keep the machine part.
+        const code = (s) => {
+            const c = String(s == null ? '' : s).trim().toUpperCase();
+            return c.includes('>') ? c.split('>').pop().trim() : c;
         };
-        const idx = (s) => {
-            const m = String(s || '').trim().match(/(\d+)\s*$/);
-            return m ? parseInt(m[1], 10) : Number.MAX_SAFE_INTEGER;
+        // Building: a single leading letter followed by a space or dash (B, C, E, F).
+        // Multi-letter starts like "AYUSH-100-1" have no building → sort last.
+        const bldg = (s) => {
+            const m = code(s).match(/^([A-Z])[\s-]/);
+            return m ? m[1] : '~~~';
         };
-        const lc = lineKey(a).localeCompare(lineKey(b), undefined, { numeric: true, sensitivity: 'base' });
-        return lc !== 0 ? lc : (idx(a) - idx(b));
+        // Line number: first "L" + optional spaces/dashes + digits ("L1", "L-1", "L 2").
+        const lineNo = (s) => {
+            const m = code(s).match(/L[\s-]*(\d+)/);
+            return m ? Number(m[1]) : Number.MAX_SAFE_INTEGER;
+        };
+        // Machine number: the trailing integer group of the code (…-350-1 → 1, …-100-14 → 14).
+        const machNo = (s) => {
+            const m = code(s).match(/(\d+)\s*$/);
+            return m ? Number(m[1]) : Number.MAX_SAFE_INTEGER;
+        };
+
+        const bc = bldg(a).localeCompare(bldg(b), undefined, { numeric: true, sensitivity: 'base' });
+        if (bc !== 0) return bc;
+        const ln = lineNo(a) - lineNo(b);
+        if (ln !== 0) return ln;
+        const mn = machNo(a) - machNo(b);
+        if (mn !== 0) return mn;
+        // Tie-break: natural compare of the full clean code.
+        return code(a).localeCompare(code(b), undefined, { numeric: true, sensitivity: 'base' });
     };
 
     /* Manpower report (Create Priority): running plan machine-wise with STD
