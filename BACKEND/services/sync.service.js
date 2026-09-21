@@ -193,7 +193,17 @@ const TABLES_TO_PULL = [...SYNC_ALL];
 // ERP report tables (erp_jr_*) are populated on MAIN by the superadmin "Fetch
 // Latest Data" button pulling from the Joyo ERP. MAIN is authoritative; LOCAL
 // only pulls them down and must never push, or empty local tables would wipe MAIN.
-const LOCAL_NO_PUSH_TABLES = ['users', 'roles', 'erp_jr_status', 'erp_jr_summary', 'erp_jr_details', 'erp_bom', 'erp_mould_item'];
+// Tables a LOCAL never PUSHES because they are authored only on MAIN (or nowhere). Their
+// serial ids are therefore globally unique (MAIN is the sole minter), so they stay safe on
+// an `id` conflict key even under full replication — no per-factory conversion needed.
+// Full-replication batch 5 additions (write-origin audited):
+//   bom_master/bom_components — written only by erp.service (MAIN ERP sync).
+//   factories — seeded with fixed canonical ids (1..N) identically on every server; the id
+//     is the load-bearing factory_id referenced everywhere, so it must never be re-minted.
+//   vendor_payments/grn_entries/jc_summaries/job_cards/plan_history — no writer anywhere;
+//     they only ever receive rows from MAIN, so a LOCAL has nothing to push.
+const LOCAL_NO_PUSH_TABLES = ['users', 'roles', 'erp_jr_status', 'erp_jr_summary', 'erp_jr_details', 'erp_bom', 'erp_mould_item',
+    'bom_master', 'bom_components', 'factories', 'vendor_payments', 'grn_entries', 'jc_summaries', 'job_cards', 'plan_history'];
 
 const CONFLICT_KEYS = {
     users: 'id',
@@ -301,7 +311,9 @@ const CONFLICT_KEYS = {
     vendors: 'id',
     app_settings: 'key',
     factories: 'id',
-    grinding_logs: 'id',
+    // Surrogate UUID key (full-replication batch 5): LOCAL floor grinding/rejection log,
+    // serial id collides across factories. Deterministic seed in SYNC_ID_SEED_COLUMNS.
+    grinding_logs: 'sync_id',
     shift_teams: 'line, shift_date, shift',
     closed_plants: 'factory_id, dpr_date, plant, shift',
     machine_audit_logs: 'sync_id',
@@ -461,7 +473,7 @@ const GLOBAL_MASTER_TABLES = new Set([
     'erp_mould_item'
 ]);
 
-const SYNC_ID_REQUIRED_TABLES = ['notifications', 'dpr_reasons', 'assembly_plans', 'assembly_scans', 'maintenance_tickets', 'maintenance_worklogs', 'org_units', 'org_departments', 'org_grades', 'org_designations', 'org_people', 'mould_verify_notes', 'qc_online_reports', 'qc_issue_memos', 'qc_training_sheets', 'qc_deviations', 'qc_job_checks', 'plan_audit_logs', 'mould_audit_logs', 'machine_status_logs', 'operator_history', 'plan_job_card_approval_history', 'jobs_queue', 'planning_drops', 'shifting_records', 'wip_inventory', 'wip_outward_logs'];
+const SYNC_ID_REQUIRED_TABLES = ['notifications', 'dpr_reasons', 'assembly_plans', 'assembly_scans', 'maintenance_tickets', 'maintenance_worklogs', 'org_units', 'org_departments', 'org_grades', 'org_designations', 'org_people', 'mould_verify_notes', 'qc_online_reports', 'qc_issue_memos', 'qc_training_sheets', 'qc_deviations', 'qc_job_checks', 'plan_audit_logs', 'mould_audit_logs', 'machine_status_logs', 'operator_history', 'plan_job_card_approval_history', 'jobs_queue', 'planning_drops', 'shifting_records', 'wip_inventory', 'wip_outward_logs', 'grinding_logs'];
 
 // Deterministic sync_id backfill seeds for tables converted to a surrogate UUID key.
 // The same physical row already exists on MAIN AND on its factory's LOCAL (LOCAL pushed
@@ -496,7 +508,9 @@ const SYNC_ID_SEED_COLUMNS = {
     // Full-replication batch 4. wip_inventory seeds from its immutable identity columns
     // (qty/updated_at mutate and are excluded). wip_outward_logs is NOT here — it needs the
     // custom ensureSyncIdSchema branch (link column + FK drop + backfill) below.
-    wip_inventory: ['factory_id', 'order_no', 'item_code', 'item_name', 'mould_name', 'rack_no', 'created_at']
+    wip_inventory: ['factory_id', 'order_no', 'item_code', 'item_name', 'mould_name', 'rack_no', 'created_at'],
+    // Full-replication batch 5. Immutable columns only (helper skips any that don't exist).
+    grinding_logs: ['factory_id', 'plan_id', 'order_no', 'job_card_no', 'rejection_weight', 'rejection_qty', 'reason', 'created_by', 'created_at']
 };
 const SYNC_SCHEMA_READY_KEY = 'SYNC_SCHEMA_READY_VERSION';
 // Bump this whenever ensureSyncRuntimeSchema()'s migrations change, so every server
@@ -510,7 +524,9 @@ const SYNC_SCHEMA_READY_KEY = 'SYNC_SCHEMA_READY_VERSION';
 //             operator_id natural key (Phase A batch 3).
 // 2026-09-21: WIP chain — wip_inventory → sync_id, wip_outward_logs → sync_id + relink to
 //             parent by wip_inventory_sync_id, drop serial FK (Phase A batch 4).
-const SYNC_SCHEMA_READY_VERSION = '2026-09-21-wip-chain-sync-id-v4';
+// 2026-09-21: grinding_logs → sync_id; bom_*/factories/vendor_payments/grn_entries/
+//             jc_summaries/job_cards/plan_history marked MAIN-only (Phase A batch 5).
+const SYNC_SCHEMA_READY_VERSION = '2026-09-21-grinding-nopush-v5';
 
 // "Sync token" columns: app-schema UNIQUE columns that carry a per-row identity
 // token (a UUID) MAIN considers authoritative, but which a LOCAL row may have been
