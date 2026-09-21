@@ -9976,6 +9976,11 @@ app.get('/api/planning/board', async (req, res) => {
         COALESCE(mps.mould_no, m.mould_number, '-') AS "mouldNo",
         mps.cavity       AS "cavity",
         COALESCE(NULLIF(TRIM(pb.job_card_no), ''), ojr.job_card_no) AS "jcNo",
+        -- OR Date + JC Date sourced from OR-JR Status. OR Date is OR-level (any
+        -- OR-JR row for this OR, even without a JC); JC Date comes from the row
+        -- matched to THIS plan's job card.
+        ojrOr.or_jr_date  AS "orDate",
+        ojr.job_card_date AS "jcDate",
         pb.job_card_given,
         COALESCE(pb.jc_approval_status, 'PENDING') AS "jcApprovalStatus",
         pb.plan_qty     AS "planQty",
@@ -10023,7 +10028,7 @@ app.get('/api/planning/board', async (req, res) => {
       -- the OR when no row references this plan. Note: pb.job_card_no (persisted at
       -- link time) still wins over this via the COALESCE on the jcNo column above.
       LEFT JOIN LATERAL (
-         SELECT rpt.job_card_no
+         SELECT rpt.job_card_no, rpt.or_jr_date, rpt.job_card_date
          FROM or_jr_report rpt
          WHERE TRIM(rpt.or_jr_no) = TRIM(pb.order_no)
            AND NULLIF(TRIM(rpt.job_card_no), '') IS NOT NULL
@@ -10038,6 +10043,16 @@ app.get('/api/planning/board', async (req, res) => {
            rpt.id
          LIMIT 1
       ) ojr ON true
+      -- OR Date from OR-JR Status, independent of JC (an OR always has a date even
+      -- before any job card is issued). Deterministic: earliest OR-JR row for the OR.
+      LEFT JOIN LATERAL (
+         SELECT rpt2.or_jr_date
+         FROM or_jr_report rpt2
+         WHERE TRIM(rpt2.or_jr_no) = TRIM(pb.order_no)
+           AND rpt2.or_jr_date IS NOT NULL
+         ORDER BY rpt2.or_jr_date ASC, rpt2.id ASC
+         LIMIT 1
+      ) ojrOr ON true
       -- Optimized DPR Join: Only aggregate for current orders
       LEFT JOIN LATERAL (
           SELECT SUM(good_qty) as qty, MIN(created_at) as first_entry
@@ -17241,6 +17256,175 @@ app.get('/api/reports/machine-downtime.xlsx', async (req, res) => {
     res.send(Buffer.from(buf));
   } catch (e) {
     console.error('/api/reports/machine-downtime.xlsx', e);
+    res.status(500).json({ ok: false, error: String(e.message || e) });
+  }
+});
+
+// ------------------------------------------------------------------
+//  POST /api/reports/machine-timeline.xlsx
+//  Downloadable, styled Excel of the Machine Timeline. The timeline's
+//  per-plan ripple (Start / End / Exp End) is computed in the browser,
+//  so the client POSTs the exact rows it is showing and this endpoint
+//  renders them into a formatted workbook (colour-banded by status,
+//  grouped per machine with subtotals, frozen header + AutoFilter).
+//  Data is already factory-scoped at board-load time; the export just
+//  renders what the user sees, honouring any on-screen filters.
+// ------------------------------------------------------------------
+app.post('/api/reports/machine-timeline.xlsx', async (req, res) => {
+  try {
+    const ExcelJS = require('exceljs');
+    const body = req.body || {};
+    const rows = Array.isArray(body.rows) ? body.rows : [];
+    const factoryLabel = String(body.factory || 'All Factories');
+    const filterSummary = String(body.filterSummary || 'All plans');
+    const username = getRequestUsername(req) || 'System';
+
+    const BLUE = 'FF1E4E79', HEADFILL = 'FF2E6CA4', WHITE = 'FFFFFFFF',
+      INK = 'FF1F2937', GREY = 'FF64748B', REDINK = 'FFB91C1C',
+      SUBFILL = 'FFF1F5F9', SUBINK = 'FF334155',
+      RUNBG = 'FFDCFCE7', BALBG = 'FFFEF3C7', OVERBG = 'FFFEE2E2', QUEUEBG = 'FFF3F4F6';
+    const FONT = 'Calibri';
+    const thin = { style: 'thin', color: { argb: 'FFD5DEEA' } };
+    const box = { top: thin, left: thin, right: thin, bottom: thin };
+
+    const toDate = (v) => {
+      if (!v) return null;
+      const d = new Date(v);
+      return Number.isNaN(d.getTime()) ? null : d;
+    };
+
+    const cols = [
+      { label: 'Machine No', w: 18, key: 'machine' },
+      { label: '#', w: 5, key: 'pos', num: true },
+      { label: 'Plan Id', w: 16, key: 'planId' },
+      { label: 'OR No', w: 14, key: 'orderNo' },
+      { label: 'OR Date', w: 13, key: 'orDate', date: 'dd mmm yyyy' },
+      { label: 'JC No', w: 14, key: 'jcNo' },
+      { label: 'JC Date', w: 13, key: 'jcDate', date: 'dd mmm yyyy' },
+      { label: 'Mould No', w: 14, key: 'mouldNo' },
+      { label: 'Mould Name', w: 22, key: 'mouldName' },
+      { label: 'Client Name', w: 22, key: 'client' },
+      { label: 'Total Plan Qty', w: 13, key: 'planQty', num: true },
+      { label: 'Total Bal Qty', w: 13, key: 'balQty', num: true },
+      { label: 'Start Date', w: 16, key: 'start', date: 'dd mmm hh:mm' },
+      { label: 'End Date', w: 16, key: 'end', date: 'dd mmm hh:mm' },
+      { label: 'Expected End Date', w: 16, key: 'exp', date: 'dd mmm hh:mm' },
+      { label: 'Total Plan Time', w: 13, key: 'planTime' },
+      { label: 'Time To End', w: 13, key: 'timeToEnd' }
+    ];
+    const NCOL = cols.length;
+
+    const wb = new ExcelJS.Workbook();
+    wb.creator = username;
+    const ws = wb.addWorksheet('Machine Timeline', { views: [{ state: 'frozen', xSplit: 1, ySplit: 5 }] });
+    ws.columns = cols.map(c => ({ width: c.w }));
+
+    ws.mergeCells(1, 1, 1, NCOL);
+    const t = ws.getCell(1, 1);
+    t.value = 'MACHINE TIMELINE — PLAN QUEUE (LINE-WISE, PER MACHINE)';
+    t.font = { name: FONT, size: 14, bold: true, color: { argb: WHITE } };
+    t.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: BLUE } };
+    t.alignment = { horizontal: 'center', vertical: 'middle' };
+    ws.getRow(1).height = 30;
+
+    ws.mergeCells(2, 1, 2, NCOL);
+    ws.getCell(2, 1).value = `Factory: ${factoryLabel}    |    ${filterSummary}    |    Plans: ${rows.length}`;
+    ws.getCell(2, 1).font = { name: FONT, size: 10, color: { argb: INK } };
+    ws.mergeCells(3, 1, 3, NCOL);
+    ws.getCell(3, 1).value = `Generated: ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}    |    By: ${username}    |    Tip: click the table then Insert → Slicer for Machine / Client / Mould`;
+    ws.getCell(3, 1).font = { name: FONT, size: 10, italic: true, color: { argb: GREY } };
+
+    const HROW = 5;
+    cols.forEach((c, i) => {
+      const cell = ws.getCell(HROW, i + 1);
+      cell.value = c.label;
+      cell.font = { name: FONT, size: 10, bold: true, color: { argb: WHITE } };
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: HEADFILL } };
+      cell.alignment = { horizontal: c.num ? 'right' : 'left', vertical: 'middle', wrapText: true };
+      cell.border = box;
+    });
+    ws.getRow(HROW).height = 22;
+
+    const rowBg = (rw) => {
+      const st = String(rw.status || '').toLowerCase();
+      if (Number(rw.balQty) < 0) return OVERBG;
+      if (st === 'running') return RUNBG;
+      if (Number(rw.balQty) > 0) return BALBG;
+      return QUEUEBG;
+    };
+
+    let r = HROW + 1;
+    let prevMachine = null;
+    let grpCount = 0, grpBal = 0;
+    const writeSubtotal = (machine) => {
+      if (prevMachine === null) return;
+      ws.mergeCells(r, 1, r, NCOL);
+      const cell = ws.getCell(r, 1);
+      cell.value = `↳ ${prevMachine} · ${grpCount} plan(s) · Total Balance ${grpBal.toLocaleString('en-IN')}`;
+      cell.font = { name: FONT, size: 9, bold: true, color: { argb: SUBINK } };
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: SUBFILL } };
+      cell.alignment = { horizontal: 'left', vertical: 'middle' };
+      cell.border = box;
+      r += 1;
+    };
+
+    rows.forEach((rw) => {
+      const machine = String(rw.machine || '-');
+      if (prevMachine !== null && machine !== prevMachine) {
+        writeSubtotal(machine);
+        grpCount = 0; grpBal = 0;
+      }
+      prevMachine = machine;
+      grpCount += 1;
+      grpBal += Number(rw.balQty) || 0;
+
+      const bg = rowBg(rw);
+      cols.forEach((c, i) => {
+        const cell = ws.getCell(r, i + 1);
+        let v = rw[c.key];
+        if (c.date) {
+          const d = toDate(v);
+          cell.value = d || (v ? String(v) : '-');
+          if (d) cell.numFmt = c.date;
+        } else if (c.num) {
+          const n = Number(v);
+          cell.value = Number.isFinite(n) ? n : (v == null ? '' : v);
+          cell.numFmt = '#,##0';
+        } else {
+          cell.value = (v == null || v === '') ? '-' : String(v);
+        }
+        const isOverBal = c.key === 'balQty' && Number(rw.balQty) < 0;
+        cell.font = { name: FONT, size: 10, bold: isOverBal, color: { argb: isOverBal ? REDINK : INK } };
+        cell.alignment = { horizontal: c.num ? 'right' : 'left', vertical: 'middle', wrapText: c.key === 'mouldName' || c.key === 'client' };
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bg } };
+        cell.border = box;
+      });
+      r += 1;
+    });
+    writeSubtotal(null);
+
+    if (!rows.length) {
+      ws.mergeCells(r, 1, r, NCOL);
+      ws.getCell(r, 1).value = 'No plans match the current timeline filters.';
+      ws.getCell(r, 1).font = { name: FONT, size: 10, italic: true, color: { argb: GREY } };
+      r += 1;
+    }
+
+    // AutoFilter over the header + data (acts as per-column "slicer" dropdowns)
+    const lastDataRow = Math.max(HROW, r - 1);
+    ws.autoFilter = {
+      from: { row: HROW, column: 1 },
+      to: { row: lastDataRow, column: NCOL }
+    };
+
+    const buf = await wb.xlsx.writeBuffer();
+    const safeFactory = factoryLabel.replace(/[^A-Za-z0-9]+/g, '') || 'All';
+    const fname = `Machine_Timeline_${safeFactory}_${new Date().toISOString().slice(0, 10)}.xlsx`;
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename=${fname}`);
+    res.send(Buffer.from(buf));
+  } catch (e) {
+    console.error('/api/reports/machine-timeline.xlsx', e);
     res.status(500).json({ ok: false, error: String(e.message || e) });
   }
 });

@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.69.4",
+  "latest": "1.70.0",
   "versions": [
+    {
+      "version": "1.70.0",
+      "date": "2026-09-21",
+      "title": "Download the Machine Timeline as Excel",
+      "modules": [
+        {
+          "app": "planning",
+          "label": "Planning",
+          "icon": "bi-calendar3",
+          "changes": [
+            { "type": "feat", "text": "Machine Timeline now has a 'Download Excel' button. It gives one row per plan, grouped machine by machine, with Machine, Plan Id, OR No/Date, JC No/Date, Mould, Client, Plan Qty, Balance, Start/End/Expected End, plan time and time-to-end — colour-coded by status with a filter dropdown on every column. OR Date and JC Date come from OR-JR Status, and the download matches whatever filters you have on screen." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.69.4",
       "date": "2026-09-19",
