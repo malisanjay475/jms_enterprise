@@ -3110,10 +3110,18 @@ function setRuntimeForTests(patch = {}) {
     jsonColumnCache.clear();
 }
 
+// Effective full-replication state (env/config requested AND the startup guard passed).
+// The app read-path uses this to decide whether a LOCAL box may serve other factories'
+// data — never the raw env var, which is only the *request*.
+function isFullReplicationActive() {
+    return FULL_REPLICATION === true;
+}
+
 module.exports = {
     init,
     router,
     triggerSync,
+    isFullReplicationActive,
     __test: {
         fetchWithSyncRetry,
         pullChanges,
