@@ -6213,6 +6213,10 @@ app.post('/api/login', async (req, res) => {
     const factoryAccess = await getAccessibleFactoriesForUser(u);
     const factories = factoryAccess.factories;
     u.can_select_all_factories = factoryAccess.canSelectAllFactories;
+    // Tell the client whether this box serves every factory's data (full replication armed).
+    // On a normal LOCAL box only the home factory has data; with full replication the login
+    // factory picker's other-unit choices actually work. (fullReplicationActive is hoisted.)
+    u.full_replication = fullReplicationActive();
 
     // Don't send password back
     delete u.password;
@@ -16995,8 +16999,18 @@ function mouldReasonName(code) {
 // filter dropdown sends (empty / "all" => all factories) so selecting a factory
 // actually restricts the data. LOCAL servers stay pinned to their own factory
 // regardless, and with no query param we fall back to the request header.
+// A LOCAL box normally pins every report to its own factory (it only holds that data). But
+// when full replication is ACTIVE (guard passed) the box holds every factory's data, so it
+// should behave like MAIN and honour the selected factory. Reads the EFFECTIVE flag from the
+// sync service (never the raw env, which is only the request). Lazy-required to avoid any
+// load-order/circular issue; result is cached by require.
+function fullReplicationActive() {
+  try { return require('../../services/sync.service').isFullReplicationActive() === true; }
+  catch (_) { return false; }
+}
+
 function resolveReportFactoryId(req) {
-  if (process.env.LOCAL_FACTORY_ID) return parseInt(process.env.LOCAL_FACTORY_ID, 10) || null;
+  if (process.env.LOCAL_FACTORY_ID && !fullReplicationActive()) return parseInt(process.env.LOCAL_FACTORY_ID, 10) || null;
   if (Object.prototype.hasOwnProperty.call(req.query, 'factory_id')) {
     const v = String(req.query.factory_id == null ? '' : req.query.factory_id).trim();
     if (v === '' || v.toLowerCase() === 'all' || v === '*') return null;
@@ -17010,13 +17024,16 @@ function resolveReportFactoryId(req) {
 // factory via the UI (?factory_id). resolveReportFactoryId trusts the requested id, so on
 // its own it would let a factory-scoped user read another unit's data by passing a different
 // factory_id. This validates the request against the user's actual access:
-//   - LOCAL box: always pinned to LOCAL_FACTORY_ID.
+//   - LOCAL box: pinned to LOCAL_FACTORY_ID UNLESS full replication is active (then it holds
+//     every factory and behaves like MAIN — access-gated selection below).
 //   - admin / superadmin / global_access (canSelectAllFactories): full freedom, incl. "all".
 //   - otherwise: honour the requested factory only if it's in the user's allowed set;
 //     any "all"/disallowed request collapses to the user's own (header/home) factory.
 // Keeps single-int scoping (null = all factories) so callers are unchanged.
 async function resolveScopedReportFactoryId(req) {
-  if (process.env.LOCAL_FACTORY_ID) return parseInt(process.env.LOCAL_FACTORY_ID, 10) || null;
+  // Pin to the box's own factory on a normal LOCAL; when full replication is active the box
+  // has all factories, so fall through to the access-gated selection (same as MAIN).
+  if (process.env.LOCAL_FACTORY_ID && !fullReplicationActive()) return parseInt(process.env.LOCAL_FACTORY_ID, 10) || null;
   const requested = resolveReportFactoryId(req); // query-or-header; null = all
   const username = getRequestUsername(req);
   if (!username) return requested; // no user context (internal/legacy) — unchanged behaviour

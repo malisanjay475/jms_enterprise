@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.70.4",
+  "latest": "1.70.5",
   "versions": [
+    {
+      "version": "1.70.5",
+      "date": "2026-09-21",
+      "title": "Cross-factory data on local servers (opt-in)",
+      "modules": [
+        {
+          "app": "all",
+          "label": "Platform",
+          "icon": "bi-hdd-network",
+          "changes": [
+            { "type": "improvement", "text": "Groundwork completed for a local factory server to hold every unit's data, so users with cross-factory access can view other units on their local server. This is off by default and enabled per server after a pilot." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.70.4",
       "date": "2026-09-21",
