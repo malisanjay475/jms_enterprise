@@ -16967,7 +16967,13 @@ async function resolveScopedReportFactoryId(req) {
   } catch (_) {
     return getFactoryId(req); // fail safe: fall back to the caller's own header scope
   }
-  if (access && access.canSelectAllFactories) return requested; // admins may pick any / all
+  // Full freedom to pick any factory (incl. "all") for superadmin/global_access AND for the
+  // plain `admin` role. canSelectAllFactories alone excludes `admin` (it's superadmin/global
+  // only), but the rest of the app treats admin as full-access via isAdminLikeRole — and the
+  // seed/owner account is role_code='admin'. Without this an admin switching the DPR
+  // Compliance Summary factory got collapsed back to their home unit, so other factories
+  // showed 0. [[project_superadmin_gating]] [[project_dpr_compliance_factory_switch]]
+  if (access && (access.canSelectAllFactories || isAdminLikeRole(access.user))) return requested;
   const allowed = new Set(
     ((access && access.factories) || [])
       .map(f => normalizeFactoryId(f && f.id))

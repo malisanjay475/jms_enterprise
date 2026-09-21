@@ -123,19 +123,47 @@
     if (ex) ex.remove();
   }
 
+  // MutationObserver that re-stamps badges after the grid is rebuilt. Kept as a
+  // module-level handle so refresh() can pause it while IT mutates the grid
+  // (applyBadges appends badge spans → would otherwise re-trigger the observer).
+  var gridObserver = null;
+
   function refresh() {
     var ctx = currentContext();
     if (!ctx || !ctx.date) return;
     fetch('/api/machine-data/dpr-auto-bulk?date=' + encodeURIComponent(ctx.date) +
           '&shift=' + encodeURIComponent(ctx.shift || 'Day'), { credentials: 'same-origin' })
       .then(function (r) { return r.ok ? r.json() : null; })
-      .then(function (body) { if (body && body.ok && body.machines) applyBadges(body.machines); })
+      .then(function (body) {
+        if (body && body.ok && body.machines) {
+          if (gridObserver) gridObserver.disconnect();   // don't observe our own writes
+          applyBadges(body.machines);
+          startObserving();
+        }
+      })
       .catch(function () { /* silent: overlay is best-effort */ });
   }
 
-  // Re-apply on a gentle timer; the grid re-renders on its own, badges re-stamp.
+  // Watch the summary grid for user-initiated re-renders (Apply / filter / factory
+  // change all replace #summary-container's contents). We re-stamp badges ONLY when
+  // the grid actually changes — there is no time-based auto-refresh, so the page
+  // never reloads or flickers on its own while an operator is reading it.
+  function startObserving() {
+    var target = document.getElementById('summary-container');
+    if (!target || typeof MutationObserver === 'undefined') return;
+    if (!gridObserver) {
+      var pending = null;
+      gridObserver = new MutationObserver(function () {
+        clearTimeout(pending);
+        pending = setTimeout(refresh, 400); // debounce a burst of DOM writes into one re-stamp
+      });
+    }
+    gridObserver.observe(target, { childList: true, subtree: true });
+  }
+
+  // Stamp once on load, then only re-stamp when the user rebuilds the grid.
   document.addEventListener('DOMContentLoaded', function () {
     refresh();
-    setInterval(refresh, 15000);
+    startObserving();
   });
 })();
