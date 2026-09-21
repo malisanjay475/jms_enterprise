@@ -193,7 +193,10 @@ const CONFLICT_KEYS = {
     jc_details: 'id',
     jc_summaries: 'id',
     job_cards: 'id',
-    machine_operators: 'id',
+    // Natural key: operator_id is declared UNIQUE on the table and is the operator's
+    // company-wide identity, so it's collision-free across factories — unlike the serial id.
+    // [[project_full_replication_all_locals]] [[project_sync_conflict_natural_key]]
+    machine_operators: 'operator_id',
     // Append-only log/audit tables — surrogate UUID key for full replication. Serial id
     // is minted independently per server and collides across factories, so ON CONFLICT (id)
     // would overwrite unrelated rows. sync_id is UNIQUE (gen_random_uuid default); all are in
@@ -217,7 +220,9 @@ const CONFLICT_KEYS = {
     qc_job_checks: 'sync_id',
     qc_online_reports: 'sync_id',
     qc_training_sheets: 'sync_id',
-    shifting_records: 'id',
+    // Surrogate UUID key (full-replication batch 3): append-only shifting log, no factory_id,
+    // serial id collides across factories. Deterministic seed in SYNC_ID_SEED_COLUMNS.
+    shifting_records: 'sync_id',
     std_actual: 'plan_id, shift, dpr_date, machine',
     // Natural key matches uq_eqa_natural — serial id diverges LOCAL↔MAIN
     extra_qty_allowances: 'plan_id, colour, allowed_by, allowed_at',
@@ -287,8 +292,10 @@ const CONFLICT_KEYS = {
     dpr_hourly: 'global_id',
     grn_entries: 'id',
     dispatch_items: 'id',
-    jobs_queue: 'id',
-    planning_drops: 'id',
+    // Surrogate UUID key (full-replication batch 3). jobs_queue: no factory_id/created_at,
+    // seed from its immutable job-identity columns. planning_drops: append-only drop log.
+    jobs_queue: 'sync_id',
+    planning_drops: 'sync_id',
     operator_history: 'sync_id',
     // HR Performance tables
     hr_employee_profiles: 'id',
@@ -397,7 +404,7 @@ const GLOBAL_MASTER_TABLES = new Set([
     'erp_mould_item'
 ]);
 
-const SYNC_ID_REQUIRED_TABLES = ['notifications', 'dpr_reasons', 'assembly_plans', 'assembly_scans', 'maintenance_tickets', 'maintenance_worklogs', 'org_units', 'org_departments', 'org_grades', 'org_designations', 'org_people', 'mould_verify_notes', 'qc_online_reports', 'qc_issue_memos', 'qc_training_sheets', 'qc_deviations', 'qc_job_checks', 'plan_audit_logs', 'mould_audit_logs', 'machine_status_logs', 'operator_history', 'plan_job_card_approval_history'];
+const SYNC_ID_REQUIRED_TABLES = ['notifications', 'dpr_reasons', 'assembly_plans', 'assembly_scans', 'maintenance_tickets', 'maintenance_worklogs', 'org_units', 'org_departments', 'org_grades', 'org_designations', 'org_people', 'mould_verify_notes', 'qc_online_reports', 'qc_issue_memos', 'qc_training_sheets', 'qc_deviations', 'qc_job_checks', 'plan_audit_logs', 'mould_audit_logs', 'machine_status_logs', 'operator_history', 'plan_job_card_approval_history', 'jobs_queue', 'planning_drops', 'shifting_records'];
 
 // Deterministic sync_id backfill seeds for tables converted to a surrogate UUID key.
 // The same physical row already exists on MAIN AND on its factory's LOCAL (LOCAL pushed
@@ -423,7 +430,12 @@ const SYNC_ID_SEED_COLUMNS = {
     mould_audit_logs: ['factory_id', 'mould_id', 'action_type', 'changed_by', 'changed_fields', 'changed_at'],
     machine_status_logs: ['machine', 'start_date', 'start_slot', 'created_at'],
     operator_history: ['operator_id', 'machine_at_time', 'scanned_by', 'scanned_at'],
-    plan_job_card_approval_history: ['factory_id', 'plan_id', 'order_no', 'action', 'approval_stage', 'acted_by', 'acted_at']
+    plan_job_card_approval_history: ['factory_id', 'plan_id', 'order_no', 'action', 'approval_stage', 'acted_by', 'acted_at'],
+    // Full-replication batch 3. jobs_queue has NO created_at — seed from its immutable
+    // job-identity columns (the complete_*/status fields mutate and are excluded).
+    jobs_queue: ['plan_id', 'machine', 'order_no', 'mould_no', 'jobcard_no'],
+    planning_drops: ['order_no', 'item_code', 'mould_no', 'mould_name', 'dropped_by', 'created_at'],
+    shifting_records: ['machine_code', 'plan_id', 'quantity', 'from_location', 'to_location', 'shifted_by', 'created_at']
 };
 const SYNC_SCHEMA_READY_KEY = 'SYNC_SCHEMA_READY_VERSION';
 // Bump this whenever ensureSyncRuntimeSchema()'s migrations change, so every server
@@ -433,7 +445,9 @@ const SYNC_SCHEMA_READY_KEY = 'SYNC_SCHEMA_READY_VERSION';
 // 2026-09-19: qc_* tables converted to surrogate sync_id key for full replication (Phase A batch 1).
 // 2026-09-19: audit/log group (plan_audit_logs, mould_audit_logs, machine_status_logs,
 //             operator_history, plan_job_card_approval_history) → sync_id (Phase A batch 2).
-const SYNC_SCHEMA_READY_VERSION = '2026-09-19-audit-log-sync-id-v2';
+// 2026-09-21: jobs_queue/planning_drops/shifting_records → sync_id, machine_operators →
+//             operator_id natural key (Phase A batch 3).
+const SYNC_SCHEMA_READY_VERSION = '2026-09-21-wip-queue-sync-id-v3';
 
 // "Sync token" columns: app-schema UNIQUE columns that carry a per-row identity
 // token (a UUID) MAIN considers authoritative, but which a LOCAL row may have been
