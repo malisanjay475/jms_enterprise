@@ -1385,9 +1385,47 @@ app.get('/api/qc/reports', async (req, res) => {
 /* =========================
    DATABASE
 ========================= */
+// A failure to ACQUIRE a pooled connection is safe to retry: the query was
+// never sent to Postgres, so retrying cannot double-apply a write. Under a
+// transient load spike on a LOCAL box the TCP connect can time out (pg-pool's
+// connectionTimeoutMillis) or the socket can die mid-handshake ("Connection
+// terminated unexpectedly"); a brief backoff-and-retry rides those out instead
+// of bubbling a 500 up to the supervisor/queue pollers. We deliberately do NOT
+// retry errors that surface after a connection is held (e.g. query/statement
+// timeout, SQL errors) — those may have executed and are not safe to replay.
+const CONN_ACQUIRE_RETRYABLE = [
+  'Connection terminated due to connection timeout',
+  'Connection terminated unexpectedly',
+  'timeout exceeded when trying to connect',
+];
+
+function isConnAcquireError(err) {
+  if (!err) return false;
+  const msg = String((err && err.message) || err);
+  if (CONN_ACQUIRE_RETRYABLE.some((m) => msg.includes(m))) return true;
+  const code = err && err.code;
+  return code === 'ECONNRESET' || code === 'ETIMEDOUT' || code === 'ECONNREFUSED';
+}
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
 async function q(text, params) {
-  const { rows } = await pool.query(text, params);
-  return rows;
+  const maxAttempts = 3;
+  let lastErr;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const { rows } = await pool.query(text, params);
+      return rows;
+    } catch (err) {
+      lastErr = err;
+      if (attempt < maxAttempts && isConnAcquireError(err)) {
+        await sleep(150 * attempt); // 150ms, 300ms
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw lastErr;
 }
 
 // Resilient index creation. CREATE INDEX requires table ownership; on local
@@ -26009,8 +26047,6 @@ SELECT * FROM RankedPlans WHERE rn = 1
 ORDER BY sort_order ASC, seq ASC, updated_at ASC
   `;
 
-    fs.appendFileSync('debug_query.log', `[QUEUE] Params: ${JSON.stringify(params)} \nSQL: ${sql} \n`);
-
     const rows = await q(sql, params);
 
     // Map to frontend expected structure helpers (Supervisor.html uses 'Job Status' or 'Status')
@@ -26023,7 +26059,6 @@ ORDER BY sort_order ASC, seq ASC, updated_at ASC
     res.json({ ok: true, data });
   } catch (e) {
     console.error('/api/queue error', e);
-    fs.appendFileSync('debug_errors.log', `[QUEUE] ${e.message} \n`);
     res.status(500).json({ ok: false, error: String(e) });
   }
 });
