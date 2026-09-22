@@ -427,35 +427,43 @@
     // mould's verification sees all remarks any department has left. Any verification
     // department may also add one from here (not only whoever's step is pending).
     async function loadMouldVerifyRemarksInline() {
+      // Bind this load to the mould that is open now, so a slow response for mould A
+      // never renders into the panel after the user has switched to mould B.
+      const mouldNumber = _mvCurrentMouldNumber;
       const wrap = document.getElementById('mvRemarks');
       const addBox = document.getElementById('mvRemarkAdd');
       if (wrap) wrap.innerHTML = '<span style="color:#94a3b8; font-size:0.78rem">Loading remarks…</span>';
       // Show the add box to any user who belongs to a verification department.
       if (addBox) addBox.style.display = mouldVerifyDeptForUser() ? 'block' : 'none';
       try {
-        const d = await JPSMS.api.get('/moulds/' + encodeURIComponent(_mvCurrentMouldNumber) + '/verify-detail');
+        const d = await JPSMS.api.get('/moulds/' + encodeURIComponent(mouldNumber) + '/verify-detail');
+        if (mouldNumber !== _mvCurrentMouldNumber) return;
         if (d.ok && wrap) renderVerifyNotesInto(wrap, d.data.notes || []);
         else if (wrap) wrap.innerHTML = '<span style="color:#94a3b8; font-size:0.78rem">No remarks yet.</span>';
       } catch (_) {
+        if (mouldNumber !== _mvCurrentMouldNumber) return;
         if (wrap) wrap.innerHTML = '<span style="color:#94a3b8; font-size:0.78rem">Could not load remarks.</span>';
       }
     }
 
     async function addMouldVerifyRemarkInline() {
       if (!_mvCurrentMouldNumber) return;
+      const mouldNumber = _mvCurrentMouldNumber;
       const input = document.getElementById('mvRemarkInput');
       const note = (input && input.value || '').trim();
       if (!note) { alert('Please type a remark to add.'); return; }
       const dept = mouldVerifyDeptForUser();
       try {
         const res = await JPSMS.api.post(
-          '/moulds/' + encodeURIComponent(_mvCurrentMouldNumber) + '/verify-note',
+          '/moulds/' + encodeURIComponent(mouldNumber) + '/verify-note',
           { step: dept && dept !== 'ALL' ? dept : 'nkb', note, session: JPSMS.auth.getUser() }
         );
         if (!res.ok) throw new Error(res.error);
+        if (mouldNumber !== _mvCurrentMouldNumber) return;
         if (input) input.value = '';
         loadMouldVerifyRemarksInline();
       } catch (e) {
+        if (mouldNumber !== _mvCurrentMouldNumber) return;
         alert('Error: ' + e.message);
       }
     }
