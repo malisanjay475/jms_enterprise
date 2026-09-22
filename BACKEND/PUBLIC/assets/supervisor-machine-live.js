@@ -68,6 +68,6 @@
   document.addEventListener('DOMContentLoaded', function () {
     build();
     refresh();
-    setInterval(refresh, 10000);
+    // Auto-refresh disabled by request — machine tiles load once; reload the page to update.
   });
 })();
