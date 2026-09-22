@@ -44,50 +44,24 @@
             border: 1px solid #e2e8f0;
         }
 
-        @keyframes blink-red {
-            0% {
-                background-color: rgba(239, 68, 68, 0.1);
-                box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.2) inset;
-            }
-
-            50% {
-                background-color: rgba(239, 68, 68, 0.3);
-                box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.6) inset;
-            }
-
-            100% {
-                background-color: rgba(239, 68, 68, 0.1);
-                box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.2) inset;
-            }
-        }
-
+        /* Blinking removed — the constant flashing read as the Compliance
+           Summary "auto refreshing". Static red emphasis keeps the alert. */
         .blink-alert {
-            animation: blink-red 2s infinite;
-            /* Border removed to prevent table layout shifts */
+            background-color: rgba(239, 68, 68, 0.12);
+            box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.35) inset;
             position: relative;
             z-index: 10 !important;
-            /* Ensure it glows on top */
         }
 
-        /* Fast blink — only the Bal Qty value blinks red when plan is met/exceeded (Bal <= 0) */
-        @keyframes bal-blink-text {
-            0%, 100% { opacity: 1; }
-            50%      { opacity: 0.15; }
-        }
-
+        /* Bal Qty when plan is met/exceeded (Bal <= 0) — static red, no blink */
         .bal-blink {
-            animation: bal-blink-text 0.6s infinite;
             color: #dc2626 !important;
             font-weight: 800;
         }
 
-        /* 3-hour stale machine alert (Compliance Summary) */
-        @keyframes stale-pulse {
-            0%, 100% { box-shadow: inset 4px 0 0 #dc2626; }
-            50%      { box-shadow: inset 4px 0 0 rgba(220, 38, 38, 0.25); }
-        }
+        /* 3-hour stale machine alert (Compliance Summary) — static, no pulse */
         .stale-3h-cell {
-            animation: stale-pulse 1.2s infinite;
+            box-shadow: inset 4px 0 0 #dc2626;
             background: #fef2f2 !important;
         }
         .stale-3h-badge {
@@ -100,7 +74,6 @@
             padding: 1px 7px;
             border-radius: 10px;
             white-space: nowrap;
-            animation: bal-blink-text 1.2s infinite;
         }
         #dprStaleToast {
             position: fixed;

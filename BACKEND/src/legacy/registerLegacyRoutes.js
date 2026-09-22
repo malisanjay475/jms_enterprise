@@ -9786,7 +9786,7 @@ app.get('/api/planning/board', async (req, res) => {
     // EVERY board load (~9 write queries). Throttle to at most once per 60s per
     // process; the SELECT further down COALESCEs/strips any not-yet-healed values
     // inline, so a short skip window is invisible to the user.
-    if (shouldRunSelfHeal('planning/board', 60000)) {
+    if (shouldRunSelfHeal('planning/board', 300000)) { // was 60000 — widened to 5 min so the ~9 heavy normalisation UPDATEs spike the board far less often (the SELECT below COALESCEs/strips inline, so a longer skip window stays invisible)
     // Self-heal 1 (factory-scoped): Normalise plan_board.machine to the exact value stored
     // in the machines master for the SAME factory. This covers:
     //   a) Legacy prefix codes like "E -L1>HYD-350-1"  → "HYD-350-1"

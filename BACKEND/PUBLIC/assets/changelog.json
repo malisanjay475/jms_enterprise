@@ -11,8 +11,31 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.70.7",
+  "latest": "1.70.8",
   "versions": [
+    {
+      "version": "1.70.8",
+      "date": "2026-09-22",
+      "title": "DPR Compliance Summary sits still + faster Planning Board",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            { "type": "fix", "text": "The DPR Compliance Summary no longer flashes or blinks on its own — completed balances, low-efficiency rows and stale-machine alerts now show a steady colour instead of a blinking one, so the screen looks stable while you read it." }
+          ]
+        },
+        {
+          "app": "planning",
+          "label": "Planning",
+          "icon": "bi-calendar3",
+          "changes": [
+            { "type": "perf", "text": "The Planning Board opens quickly more often — the background data clean-up now runs at most once every few minutes instead of every minute, so it no longer slows a fresh open." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.70.7",
       "date": "2026-09-22",
