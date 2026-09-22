@@ -107,8 +107,9 @@
         .timeline-card:hover { transform: translateY(-3px); z-index: 20; box-shadow: 0 10px 20px -5px rgba(0, 0, 0, 0.15); }
         .timeline-card.dragging { opacity: 0.8; transform: scale(0.98); cursor: grabbing; }
         
-        .blink-urgent-border { animation: blinkBorder 2s infinite; }
-        @keyframes blinkBorder { 0% { border-left-color: #ef4444; } 50% { border-left-color: #fca5a5; } 100% { border-left-color: #ef4444; } }
+        /* Blinking removed — steady red edge instead of a 2s flash that read
+           as the Machine Timeline "refreshing" on its own. */
+        .blink-urgent-border { border-left-color: #ef4444 !important; }
         
         /* Filter Bar - Perfect Styling */
         .mod-filter-group {

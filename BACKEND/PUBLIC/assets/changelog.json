@@ -11,8 +11,47 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.70.5",
+  "latest": "1.70.7",
   "versions": [
+    {
+      "version": "1.70.7",
+      "date": "2026-09-22",
+      "title": "Machine Timeline no longer blinks",
+      "modules": [
+        {
+          "app": "planning",
+          "label": "Planning",
+          "icon": "bi-calendar3",
+          "changes": [
+            { "type": "fix", "text": "The Machine Timeline and Excel View Timeline no longer flash or blink on their own — urgent plans now show a steady red highlight instead of a blinking border, so the screen looks stable while you read it." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.70.6",
+      "date": "2026-09-22",
+      "title": "Steadier Planning timelines & fewer surprise refreshes",
+      "modules": [
+        {
+          "app": "planning",
+          "label": "Planning",
+          "icon": "bi-calendar3",
+          "changes": [
+            { "type": "fix", "text": "The Excel View Timeline no longer looks like it is refreshing every second while you read it — the flashing badges are now steady." },
+            { "type": "perf", "text": "The Machine Timeline and Excel View Timeline open faster and switching between them is now instant." }
+          ]
+        },
+        {
+          "app": "all",
+          "label": "Platform",
+          "icon": "bi-hdd-network",
+          "changes": [
+            { "type": "improvement", "text": "The Supervisor and Production Dashboard screens no longer reload on their own while you are working; use your browser refresh when you want the latest data." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.70.5",
       "date": "2026-09-21",
