@@ -640,7 +640,7 @@
         const dates = `${mvDate(j.startDate)}${j.endDate && j.endDate !== j.startDate ? ' – ' + mvDate(j.endDate) : ''}`;
         const sub = [dates, j.orderNo].filter(Boolean).join(' · ');
         return `
-          <div onclick="toggleMvdJob(${i})" style="border:1px solid ${i === 0 ? '#bfdbfe' : '#e2e8f0'}; border-radius:10px; padding:10px 12px; margin-bottom:8px; cursor:pointer; background:${i === 0 ? '#f8fbff' : '#fff'}">
+          <div onclick="toggleMvdJob(${i})" onkeydown="mvdJobKey(event, ${i})" role="button" tabindex="0" aria-expanded="${i === 0 ? 'true' : 'false'}" aria-controls="mvdJobDetail${i}" style="border:1px solid ${i === 0 ? '#bfdbfe' : '#e2e8f0'}; border-radius:10px; padding:10px 12px; margin-bottom:8px; cursor:pointer; background:${i === 0 ? '#f8fbff' : '#fff'}">
             <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:8px">
               <div>
                 <span style="font-weight:700; color:#0f172a">${mvEsc(label)}</span>
@@ -697,6 +697,16 @@
       const show = d.style.display === 'none';
       d.style.display = show ? 'block' : 'none';
       if (chev) chev.className = show ? 'bi bi-chevron-up' : 'bi bi-chevron-down';
+      const card = d.closest('[role="button"]');
+      if (card) card.setAttribute('aria-expanded', show ? 'true' : 'false');
+    }
+
+    // Enter / Space toggle for the keyboard-focusable job cards.
+    function mvdJobKey(ev, i) {
+      if (ev.key === 'Enter' || ev.key === ' ' || ev.key === 'Spacebar') {
+        ev.preventDefault();
+        toggleMvdJob(i);
+      }
     }
 
     async function addMouldVerifyNote() {
