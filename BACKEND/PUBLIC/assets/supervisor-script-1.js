@@ -571,9 +571,9 @@
         })
         .catch(() => { /* offline — try again next tick */ });
     }
-    setInterval(_checkAppVersion, 5 * 60 * 1000);
-    document.addEventListener('visibilitychange', () => { if (!document.hidden) _checkAppVersion(); });
-    _checkAppVersion(); // records the booted version
+    // Auto-refresh disabled by request — no longer poll /api/version to auto-reload.
+    // The page will pick up a new version only on a manual reload.
+    _checkAppVersion(); // records the booted version (never reloads on the first call)
 
     // ======== RECENT SLOT ENTRIES ========
     async function openRecentSlots() {
