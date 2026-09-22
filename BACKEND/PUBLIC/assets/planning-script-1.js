@@ -452,9 +452,9 @@
         border-radius: 4px;
         padding: 1px 5px;
         letter-spacing: .02em;
-        animation: etvLoadPulse 1.6s ease-in-out infinite;
+        /* Pulse animation removed — it made the whole grid look like it was
+           refreshing every ~1.6s while sitting idle. Static badge now. */
       }
-      @keyframes etvLoadPulse { 0%,100% { opacity: 1; } 50% { opacity: .55; } }
 
       /* ── Plan data cell ── */
       .etv-plan-cell {
@@ -643,11 +643,9 @@
       }
       .etv-card-change strong { font-weight: 900; }
       .etv-card-urgent {
-        animation: etvUrgentPulse 1.1s ease-in-out infinite;
-      }
-      @keyframes etvUrgentPulse {
-        0%, 100% { box-shadow: 0 0 0 0 rgba(220,38,38,0); }
-        50%      { box-shadow: 0 0 0 3px rgba(220,38,38,.35); }
+        /* Static red ring instead of an infinite pulse — the flashing read as
+           the view "refreshing every second". Still clearly flags urgent plans. */
+        box-shadow: 0 0 0 2px rgba(220,38,38,.45);
       }
       .etv-empty-inner {
         min-height: 64px;
@@ -738,6 +736,11 @@
       const wrap = document.getElementById('excelTimelineView');
       if (!wrap) return;
 
+      // Guard against overlapping loads — several view routers can call this for
+      // a single open, which used to blank-and-reload the grid repeatedly.
+      if (window._etvLoading) return;
+      window._etvLoading = true;
+
       // Render skeleton immediately
       wrap.innerHTML = `
         <div id="etv-wrap">
@@ -751,11 +754,24 @@
         const api = getApi();
         const proc = getProcFilter();
         const q = `process=${encodeURIComponent(proc)}`;
-        const [mRes, pRes, mouldRes] = await Promise.all([
-          api.get(`/masters/machines?${q}`),
-          api.get(`/planning/board?${q}`),
-          api.get(`/masters/moulds`).catch(() => null)
-        ]);
+
+        // Machines + moulds are independent — fetch them in parallel.
+        // The plan board is shared with the Machine Timeline through the same
+        // 2-minute cache (window._planBoardCache), so switching between the two
+        // timeline views no longer re-fetches the (heavy) board every time.
+        const machinesPromise = api.get(`/masters/machines?${q}`);
+        const mouldPromise    = api.get(`/masters/moulds`).catch(() => null);
+
+        let pRes;
+        const _pbc = window._planBoardCache;
+        const _pbNow = Date.now();
+        if (_pbc && _pbc.data && _pbc.process === proc && (_pbNow - _pbc.timestamp) < _pbc.ttl) {
+          pRes = _pbc.data;
+        } else {
+          pRes = await api.get(`/planning/board?${q}`);
+          if (_pbc) { _pbc.data = pRes; _pbc.timestamp = _pbNow; _pbc.process = proc; }
+        }
+        const [mRes, mouldRes] = await Promise.all([machinesPromise, mouldPromise]);
 
         /* ── Build manpower lookup from Mould Master (by mould name + number) ── */
         try {
@@ -941,6 +957,8 @@
         console.error('[ExcelTimeline]', e);
         document.getElementById('excelTimelineView').innerHTML =
           `<div style="padding:40px;text-align:center;color:#dc2626;font-weight:700"><i class="bi bi-exclamation-triangle-fill"></i> Failed to load: ${esc(e.message)}</div>`;
+      } finally {
+        window._etvLoading = false;
       }
     };
 

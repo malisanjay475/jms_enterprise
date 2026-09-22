@@ -1520,7 +1520,7 @@
                      <div style="margin-top:4px; font-size: 0.7rem; font-weight: 800; color: #0f172a; background: #e2e8f0; padding: 2px 8px; border-radius: 12px;">${mPlans.length} PLANS${(() => { const zbc = mPlans.filter(p => (Number(p.balQty)||0) <= 0 && (p.status||'').toLowerCase() !== 'running').length; return zbc > 0 ? ` <span style="background:#fef3c7;color:#b45309;font-size:.6rem;font-weight:800;border-radius:999px;padding:1px 5px" title="${zbc} plan(s) with zero/negative balance — sorted to end">(${zbc})</span>` : ''; })()}</div>
                      <div title="Total queued run-time${isOverloaded ? ' — over 30 days of load' : ''}" style="font-size: 0.68rem; font-weight: 900; ${isOverloaded ? 'color:#fff; background:#dc2626; border:1px solid #fca5a5;' : 'color:#075985; background:#e0f2fe; border:1px solid #7dd3fc;'} padding: 2px 8px; border-radius: 12px;">LOAD ${formatLoadDuration(totalLoadMs)}</div>
                      <div title="Remaining plan time at STD rate (balance qty ÷ std) — full-qty STD total: ${formatLoadDuration(_stdFullTotalMs)}" style="font-size: 0.68rem; font-weight: 900; color:#6d28d9; background:#f5f3ff; border:1px solid #ddd6fe; padding: 2px 8px; border-radius: 12px;">PLAN (STD) ${formatLoadDuration(_stdBalTotalMs)}</div>
-                     ${isOverloaded ? `<div title="This machine has more than 30 days of planned load" style="font-size:0.6rem; font-weight:900; color:#fff; background:#b91c1c; padding:2px 7px; border-radius:12px; letter-spacing:.02em; animation: etvLoadPulse 1.6s ease-in-out infinite;"><i class="bi bi-exclamation-triangle-fill"></i> 30+ DAYS</div>` : ''}
+                     ${isOverloaded ? `<div title="This machine has more than 30 days of planned load" style="font-size:0.6rem; font-weight:900; color:#fff; background:#b91c1c; padding:2px 7px; border-radius:12px; letter-spacing:.02em;"><i class="bi bi-exclamation-triangle-fill"></i> 30+ DAYS</div>` : ''}
                  </div>
 
                  <div class="timeline-track" 
@@ -1633,12 +1633,17 @@
             }
 
             const processQuery = `process=${encodeURIComponent(currentProcess)}`;
-            
+
+            // Kick off the machines fetch up front so it runs in parallel with the
+            // plan-board fetch below — they are independent. Previously these two
+            // awaits ran back-to-back, adding a full extra round-trip to every load.
+            const machinesPromise = api.get(`/masters/machines?${processQuery}`);
+
             // Serve from 2-minute client memory cache if valid
             const now = Date.now();
             let pRes;
-            if (window._planBoardCache.data && 
-                window._planBoardCache.process === currentProcess && 
+            if (window._planBoardCache.data &&
+                window._planBoardCache.process === currentProcess &&
                 (now - window._planBoardCache.timestamp) < window._planBoardCache.ttl) {
                 console.log('[Cache] Served timeline plan board from 2-minute memory cache.');
                 pRes = window._planBoardCache.data;
@@ -1650,7 +1655,7 @@
                 window._planBoardCache.process = currentProcess;
             }
 
-            const mRes = await api.get(`/masters/machines?${processQuery}`);
+            const mRes = await machinesPromise;
             window.allMachines = ((mRes && mRes.data) ? mRes.data : []).map(machine => ({
                 code: machine.machine,
                 name: machine.machine,

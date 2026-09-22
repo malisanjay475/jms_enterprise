@@ -835,11 +835,8 @@
 
         let refreshTimer;
         function startAutoRefresh() {
+            // Auto-refresh disabled by request — data loads on page load / manual refresh only.
             if (refreshTimer) clearInterval(refreshTimer);
-            refreshTimer = setInterval(() => {
-                const isToday = (document.getElementById('dateSelect').value === new Date().toISOString().split('T')[0]);
-                if (isToday) fetchData();
-            }, 30000);
         }
 
         function renderTable(rows) {
