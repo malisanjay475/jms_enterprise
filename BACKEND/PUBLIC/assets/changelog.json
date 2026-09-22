@@ -11,8 +11,24 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.71.0",
+  "latest": "1.72.0",
   "versions": [
+    {
+      "version": "1.72.0",
+      "date": "2026-09-22",
+      "title": "Mould verification now shows the last 2 jobs with real cycle time and weight",
+      "modules": [
+        {
+          "app": "masters",
+          "label": "Masters",
+          "icon": "bi-gear",
+          "changes": [
+            { "type": "feat", "text": "Opening a mould for verification now shows its last 2 jobs instead of the 7-day and 30-day history — tap a job to see its full details on the same page." },
+            { "type": "feat", "text": "Each job shows the average cycle time and average shot weight taken from the actual run data, so you can compare the real run against the mould's standard at a glance." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.71.0",
       "date": "2026-09-22",
