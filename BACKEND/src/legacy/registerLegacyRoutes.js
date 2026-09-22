@@ -24907,7 +24907,8 @@ app.get('/api/moulds/:id/recent-jobs', async (req, res) => {
     const facCond = `($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL)`;
     const out = [];
     for (const j of jobs) {
-      const good = Number(j.good), reject = Number(j.reject);
+      // Clamp to guard against negative persisted totals producing a negative %.
+      const good = Math.max(0, Number(j.good) || 0), reject = Math.max(0, Number(j.reject) || 0);
       const produced = good + reject;
 
       // REAL averages from the actual run (std_actual), matched on plan_id + machine.
@@ -24931,8 +24932,8 @@ app.get('/api/moulds/:id/recent-jobs', async (req, res) => {
           `SELECT AVG(v) AS avg_w FROM (
              SELECT unnest(ARRAY[qc_weight_1, qc_weight_2, qc_weight_3]) AS v
                FROM qc_job_checks
-              WHERE ((${j.plan_id ? 'TRIM(plan_id) = $1' : '$1 IS NULL'})
-                     OR (${j.jobcard_no ? 'TRIM(job_card_no) = $4' : '$4 IS NULL'}))
+              WHERE ((${j.plan_id ? 'TRIM(plan_id) = $1' : '$1::text IS NULL'})
+                     OR (${j.jobcard_no ? 'TRIM(job_card_no) = $4' : '$4::text IS NULL'}))
                 AND machine = $3 AND ${facCond}
            ) t WHERE v IS NOT NULL AND v > 0`,
           [j.plan_id || null, factoryId, j.machine, j.jobcard_no || null]
