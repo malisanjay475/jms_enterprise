@@ -9783,9 +9783,9 @@ app.get('/api/planning/board', async (req, res) => {
   try {
     // The self-heal block below is a set of idempotent data-normalisation UPDATEs.
     // They only have real work right after an import/sync, yet they used to run on
-    // EVERY board load (~9 write queries). Throttle to at most once per 60s per
+    // EVERY board load (~9 write queries). Throttle to at most once per 5 min per
     // process; the SELECT further down COALESCEs/strips any not-yet-healed values
-    // inline, so a short skip window is invisible to the user.
+    // inline, so a skip window is invisible to the user.
     if (shouldRunSelfHeal('planning/board', 300000)) { // was 60000 — widened to 5 min so the ~9 heavy normalisation UPDATEs spike the board far less often (the SELECT below COALESCEs/strips inline, so a longer skip window stays invisible)
     // Self-heal 1 (factory-scoped): Normalise plan_board.machine to the exact value stored
     // in the machines master for the SAME factory. This covers:
