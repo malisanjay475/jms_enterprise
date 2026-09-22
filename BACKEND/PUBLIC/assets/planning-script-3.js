@@ -2344,9 +2344,11 @@
               font-size: 0.74rem; font-weight: 800; text-align: center;
               border: 2px solid #fff; box-shadow: 0 1px 4px rgba(0,0,0,0.3); white-space: nowrap;
           }
-          @keyframes blinkBorder { 0% { border-color: #ef4444; box-shadow:0 0 5px #ef4444; } 50% { border-color: #fca5a5; box-shadow:none; } 100% { border-color: #ef4444; box-shadow:0 0 5px #ef4444; } }
+          /* Blinking removed — the constant flash read as the timeline
+             "refreshing". Urgent cards now show a steady red edge + glow. */
           .blink-urgent-border {
-             animation: blinkBorder 1.5s infinite;
+             border-color: #ef4444;
+             box-shadow: 0 0 5px rgba(239,68,68,.55);
              border-left-color: #ef4444 !important;
              border-left-width: 6px !important;
           }
