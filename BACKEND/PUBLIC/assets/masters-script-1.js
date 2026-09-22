@@ -573,13 +573,13 @@
       } catch (e) {
         document.getElementById('mvdMasterGrid').innerHTML = `<span style="color:#dc2626">Failed to load: ${mvEsc(e.message)}</span>`;
       }
-      // History loads independently so a DPR hiccup doesn't block approval.
+      // Last 2 jobs load independently so a DPR hiccup doesn't block approval.
       try {
-        const h = await JPSMS.api.get('/moulds/' + encodeURIComponent(_mvCurrentMouldNumber) + '/moulding-history');
-        if (h.ok) renderMouldingHistory(h.data);
-        else document.getElementById('mvdHistory').innerHTML = '<span style="color:#94a3b8">No history available.</span>';
+        const h = await JPSMS.api.get('/moulds/' + encodeURIComponent(_mvCurrentMouldNumber) + '/recent-jobs?limit=2');
+        if (h.ok) renderRecentJobs(h.data);
+        else document.getElementById('mvdHistory').innerHTML = '<span style="color:#94a3b8">No recent jobs available.</span>';
       } catch (_) {
-        document.getElementById('mvdHistory').innerHTML = '<span style="color:#94a3b8">No history available.</span>';
+        document.getElementById('mvdHistory').innerHTML = '<span style="color:#94a3b8">No recent jobs available.</span>';
       }
     }
 
@@ -617,74 +617,96 @@
         </div>`).join('');
     }
 
-    function renderMouldingHistory(data) {
-      const blocks = [['d7', 'Last 7 Days'], ['d30', 'Last 30 Days']]
-        .filter(([k]) => data[k])
-        .map(([k, title]) => {
-          const w = data[k];
-          const t = w.totals || {};
-          const daily = (w.daily || []).map(r => `
-            <tr>
-              <td style="padding:3px 8px">${new Date(r.d).toLocaleDateString()}</td>
-              <td style="padding:3px 8px; text-align:right">${Number(r.good).toLocaleString('en-IN')}</td>
-              <td style="padding:3px 8px; text-align:right">${Number(r.reject).toLocaleString('en-IN')}</td>
-              <td style="padding:3px 8px; text-align:right">${Number(r.downtime).toLocaleString('en-IN')}</td>
-              <td style="padding:3px 8px; text-align:right">${r.machines}</td>
-            </tr>`).join('');
-          const machines = (w.byMachine || []).slice(0, 8).map(mm =>
-            `<span style="display:inline-block; margin:2px 4px 0 0; padding:2px 8px; border-radius:999px; background:#eef2ff; color:#3730a3; font-size:0.68rem">${mvEsc(mm.machine || 'Unassigned')}: ${Number(mm.good).toLocaleString('en-IN')}</span>`
-          ).join('');
-          // Downtime reason comparison for the period (largest first).
-          const dtr = (w.downtimeReasons || []);
-          const maxMin = dtr.length ? Number(dtr[0].minutes) || 1 : 1;
-          const reasonsHtml = dtr.length
-            ? `<div style="margin:8px 0; border-top:1px solid #f1f5f9; padding-top:6px">
-                 <div style="font-size:0.68rem; color:#94a3b8; margin-bottom:4px">DOWNTIME REASONS</div>
-                 ${dtr.map(d => {
-                   const pct = Math.max(4, Math.round((Number(d.minutes) / maxMin) * 100));
-                   return `<div style="display:flex; align-items:center; gap:8px; margin-bottom:3px">
-                             <span style="flex:0 0 42%; font-size:0.72rem; color:#475569; overflow:hidden; text-overflow:ellipsis; white-space:nowrap">${mvEsc(d.reason)}</span>
-                             <span style="flex:1; height:8px; background:#f1f5f9; border-radius:4px; overflow:hidden"><span style="display:block; height:100%; width:${pct}%; background:#f59e0b"></span></span>
-                             <span style="flex:0 0 auto; font-size:0.72rem; color:#0f172a; font-weight:600">${Number(d.minutes).toLocaleString('en-IN')}m</span>
-                           </div>`;
-                 }).join('')}
-               </div>`
-            : '';
-          return `
-            <div style="flex:1; min-width:320px; border:1px solid #e2e8f0; border-radius:8px; padding:10px 12px">
-              <div style="font-weight:700; color:#0f172a; margin-bottom:6px">${title}</div>
-              <div style="display:flex; flex-wrap:wrap; gap:10px; font-size:0.74rem; margin-bottom:8px">
-                <span>Good: <b style="color:#166534">${Number(t.good || 0).toLocaleString('en-IN')}</b></span>
-                <span>Reject: <b style="color:#b91c1c">${Number(t.reject || 0).toLocaleString('en-IN')}</b></span>
-                <span>Reject %: <b>${t.rejectPct || 0}%</b></span>
-                <span>Downtime: <b>${Number(t.downtime || 0).toLocaleString('en-IN')} min</b></span>
-                <span>Active days: <b>${t.activeDays || 0}</b></span>
-                <span>Machines: <b>${t.machines || 0}</b></span>
+    // Last 2 jobs — each a clickable card showing the REAL average cycle time and
+    // weight from the actual run, expanding to per-day / downtime / QC detail.
+    let _mvdJobs = [];
+
+    function mvNum(v, dp) {
+      if (v == null || v === '' || isNaN(Number(v))) return '—';
+      return Number(v).toLocaleString('en-IN', dp != null ? { minimumFractionDigits: dp, maximumFractionDigits: dp } : {});
+    }
+    function mvDate(s) { return s ? new Date(s).toLocaleDateString() : '—'; }
+
+    function renderRecentJobs(data) {
+      _mvdJobs = (data && data.jobs) || [];
+      const host = document.getElementById('mvdHistory');
+      if (!_mvdJobs.length) {
+        host.innerHTML = '<span style="color:#94a3b8; font-size:0.78rem">No jobs recorded for this mould yet.</span>';
+        return;
+      }
+      host.innerHTML = _mvdJobs.map((j, i) => {
+        const label = j.jobCardNo || j.planId || j.jobKey || 'Job';
+        const meta = [j.machine, j.colour].filter(Boolean).join(' · ');
+        const dates = `${mvDate(j.startDate)}${j.endDate && j.endDate !== j.startDate ? ' – ' + mvDate(j.endDate) : ''}`;
+        const sub = [dates, j.orderNo].filter(Boolean).join(' · ');
+        return `
+          <div onclick="toggleMvdJob(${i})" onkeydown="mvdJobKey(event, ${i})" role="button" tabindex="0" aria-expanded="${i === 0 ? 'true' : 'false'}" aria-controls="mvdJobDetail${i}" style="border:1px solid ${i === 0 ? '#bfdbfe' : '#e2e8f0'}; border-radius:10px; padding:10px 12px; margin-bottom:8px; cursor:pointer; background:${i === 0 ? '#f8fbff' : '#fff'}">
+            <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:8px">
+              <div>
+                <span style="font-weight:700; color:#0f172a">${mvEsc(label)}</span>
+                ${meta ? `<span style="font-size:0.72rem; color:#64748b"> · ${mvEsc(meta)}</span>` : ''}
+                <div style="font-size:0.72rem; color:#64748b">${mvEsc(sub)}</div>
               </div>
-              ${machines ? `<div style="margin-bottom:8px">${machines}</div>` : ''}
-              ${reasonsHtml}
-              ${daily
-                ? `<div style="max-height:150px; overflow:auto; border-top:1px solid #f1f5f9">
-                     <table style="width:100%; border-collapse:collapse; font-size:0.72rem">
-                       <thead><tr style="color:#94a3b8; text-align:left">
-                         <th style="padding:3px 8px">Date</th><th style="padding:3px 8px; text-align:right">Good</th>
-                         <th style="padding:3px 8px; text-align:right">Reject</th><th style="padding:3px 8px; text-align:right">Downtime</th>
-                         <th style="padding:3px 8px; text-align:right">Mc</th>
-                       </tr></thead><tbody>${daily}</tbody>
-                     </table>
-                   </div>`
-                : '<div style="color:#94a3b8; font-size:0.74rem">No production recorded in this period.</div>'}
-            </div>`;
-        });
-      const lr = data.lastRun;
-      const lastRunHtml = lr
-        ? `<div style="margin-bottom:10px; font-size:0.8rem; color:#0f172a">
-             <i class="bi bi-clock-history" style="color:#2563eb"></i>
-             <b>Last run:</b> ${new Date(lr.date).toLocaleDateString()}${lr.machine ? ' · ' + mvEsc(lr.machine) : ''}
-           </div>`
-        : `<div style="margin-bottom:10px; font-size:0.8rem; color:#94a3b8"><i class="bi bi-clock-history"></i> Last run: no production recorded yet</div>`;
-      document.getElementById('mvdHistory').innerHTML =
-        lastRunHtml + `<div style="display:flex; gap:12px; flex-wrap:wrap">${blocks.join('')}</div>`;
+              <span style="font-size:0.68rem; color:#94a3b8"><i class="bi bi-chevron-down" id="mvdJobChev${i}"></i></span>
+            </div>
+            <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(84px, 1fr)); gap:6px; margin-top:8px">
+              ${mvTile('GOOD', mvNum(j.good), '#0f172a', '#f8fafc')}
+              ${mvTile('REJECT', mvNum(j.reject) + (j.rejectPct ? ` <span style="font-size:0.62rem;color:#64748b">${j.rejectPct}%</span>` : ''), '#0f172a', '#f8fafc')}
+              ${mvTile('AVG CYCLE <span style="font-size:0.58rem">REAL</span>', j.avgCycleReal != null ? mvNum(j.avgCycleReal, 1) + ' s' : '—', '#1d4ed8', '#eff6ff')}
+              ${mvTile('AVG WEIGHT <span style="font-size:0.58rem">REAL</span>', j.avgWeightReal != null ? mvNum(j.avgWeightReal, 3) : '—', '#1d4ed8', '#eff6ff')}
+            </div>
+            <div id="mvdJobDetail${i}" style="display:${i === 0 ? 'block' : 'none'}; margin-top:10px; border-top:1px solid #eef2f7; padding-top:10px">
+              ${renderJobDetail(j)}
+            </div>
+          </div>`;
+      }).join('');
+    }
+
+    function mvTile(label, val, color, bg) {
+      return `<div style="background:${bg}; border-radius:6px; padding:6px 8px">
+                <div style="font-size:0.62rem; color:#94a3b8; letter-spacing:0.02em">${label}</div>
+                <div style="font-size:0.95rem; font-weight:700; color:${color}">${val}</div>
+              </div>`;
+    }
+
+    function renderJobDetail(j) {
+      const rows = [
+        ['Cycle — std vs real', `${j.stdCycle != null ? mvNum(j.stdCycle, 1) + ' s' : '—'} → <b>${j.avgCycleReal != null ? mvNum(j.avgCycleReal, 1) + ' s' : '—'}</b>`],
+        ['Weight — std vs real', `${j.stdWeightKg != null ? mvNum(j.stdWeightKg, 3) + ' kg' : '—'} → <b>${j.avgWeightReal != null ? mvNum(j.avgWeightReal, 3) : '—'}</b>`],
+        ['Shots', mvNum(j.shots)],
+        ['Downtime', mvNum(j.downtime) + ' min'],
+        ['QC sample weight (avg)', j.qcWeightAvg != null ? mvNum(j.qcWeightAvg, 3) : '—'],
+        ['Operator', (j.operators && j.operators.length) ? mvEsc(j.operators.join(', ')) : '—']
+      ].map(([k, v]) => `<div style="display:flex; justify-content:space-between; gap:10px">
+                           <span style="color:#64748b">${k}</span><span style="color:#0f172a; text-align:right">${v}</span>
+                         </div>`).join('');
+      const perDay = (j.perDay || []).map(r =>
+        `${mvDate(r.d)}: ${mvNum(r.good)}g/${mvNum(r.reject)}r`).join(' · ');
+      const dtr = (j.downtimeReasons || []).slice(0, 4)
+        .map(d => `${mvEsc(d.reason)} ${mvNum(d.minutes)}m`).join(', ');
+      return `
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:5px 16px; font-size:0.78rem">${rows}</div>
+        ${perDay ? `<div style="font-size:0.68rem; color:#94a3b8; margin-top:8px">Per day — ${perDay}</div>` : ''}
+        ${dtr ? `<div style="font-size:0.68rem; color:#94a3b8; margin-top:3px">Top downtime — ${dtr}</div>` : ''}`;
+    }
+
+    function toggleMvdJob(i) {
+      const d = document.getElementById('mvdJobDetail' + i);
+      const chev = document.getElementById('mvdJobChev' + i);
+      if (!d) return;
+      const show = d.style.display === 'none';
+      d.style.display = show ? 'block' : 'none';
+      if (chev) chev.className = show ? 'bi bi-chevron-up' : 'bi bi-chevron-down';
+      const card = d.closest('[role="button"]');
+      if (card) card.setAttribute('aria-expanded', show ? 'true' : 'false');
+    }
+
+    // Enter / Space toggle for the keyboard-focusable job cards.
+    function mvdJobKey(ev, i) {
+      if (ev.key === 'Enter' || ev.key === ' ' || ev.key === 'Spacebar') {
+        ev.preventDefault();
+        toggleMvdJob(i);
+      }
     }
 
     async function addMouldVerifyNote() {

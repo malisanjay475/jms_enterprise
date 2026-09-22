@@ -24854,6 +24854,169 @@ app.get('/api/moulds/:id/moulding-history', async (req, res) => {
   }
 });
 
+// GET /api/moulds/:id/recent-jobs?limit=2
+// The last N jobs this mould ran, most recent first. A "job" = one job card / plan
+// run on one machine (same mould on two machines = two jobs). Each job carries its
+// production summary plus the REAL average cycle time and REAL average shot weight
+// taken from the actual run data (std_actual.cycle_act / std_actual.article_act),
+// and a detail bundle (per-day rows, downtime reasons, operators, QC sample weights)
+// so the click-to-expand needs no second round-trip. Factory-scoped because plan_id
+// is not globally unique. Replaces the 7/30-day history blocks in the verify modal.
+app.get('/api/moulds/:id/recent-jobs', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const factoryId = getFactoryId(req);
+    let limit = parseInt(req.query.limit, 10);
+    if (!Number.isFinite(limit) || limit < 1) limit = 2;
+    if (limit > 10) limit = 10;
+
+    // The mould master baselines to compare the real run against.
+    const mrows = await q(
+      `SELECT mould_number, mould_name, cycle_time, std_wt_kg, no_of_cav
+         FROM moulds WHERE mould_number = $1 LIMIT 1`,
+      [id]
+    );
+    const mould = mrows[0] || { mould_number: id };
+
+    // Identify the last N jobs. job_key = plan_id when present, else jobcard_no.
+    const jobs = await q(
+      `SELECT COALESCE(NULLIF(TRIM(plan_id), ''), NULLIF(TRIM(jobcard_no), '')) AS job_key,
+              machine,
+              MAX(NULLIF(TRIM(plan_id), ''))    AS plan_id,
+              MAX(NULLIF(TRIM(jobcard_no), '')) AS jobcard_no,
+              MAX(NULLIF(TRIM(order_no), ''))   AS order_no,
+              MAX(NULLIF(TRIM(colour), ''))     AS colour,
+              MIN(dpr_date)::text               AS start_date,
+              MAX(dpr_date)::text               AS end_date,
+              COALESCE(SUM(good_qty), 0)        AS good,
+              COALESCE(SUM(reject_qty), 0)      AS reject,
+              COALESCE(SUM(shots), 0)           AS shots,
+              COALESCE(SUM(downtime_min), 0)    AS downtime
+         FROM dpr_hourly
+        WHERE mould_no = $1
+          AND is_deleted = false
+          AND (COALESCE(good_qty, 0) > 0 OR COALESCE(shots, 0) > 0)
+          AND COALESCE(NULLIF(TRIM(plan_id), ''), NULLIF(TRIM(jobcard_no), '')) IS NOT NULL
+          AND ($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL)
+        GROUP BY job_key, machine
+        ORDER BY MAX(dpr_date) DESC, MAX(id) DESC
+        LIMIT $3`,
+      [id, factoryId, limit]
+    );
+
+    const facCond = `($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL)`;
+    const out = [];
+    for (const j of jobs) {
+      // Clamp to guard against negative persisted totals producing a negative %.
+      const good = Math.max(0, Number(j.good) || 0), reject = Math.max(0, Number(j.reject) || 0);
+      const produced = good + reject;
+
+      // REAL averages from the actual run (std_actual), matched on plan_id + machine.
+      let avgCycle = null, avgWeight = null;
+      if (j.plan_id) {
+        const a = (await q(
+          `SELECT AVG(NULLIF(cycle_act, 0))   AS avg_cycle,
+                  AVG(NULLIF(article_act, 0)) AS avg_weight
+             FROM std_actual
+            WHERE TRIM(plan_id) = $1 AND machine = $3 AND ${facCond}`,
+          [j.plan_id, factoryId, j.machine]
+        ))[0];
+        avgCycle = a && a.avg_cycle != null ? +Number(a.avg_cycle).toFixed(2) : null;
+        avgWeight = a && a.avg_weight != null ? +Number(a.avg_weight).toFixed(3) : null;
+      }
+
+      // QC sample weights (average of the three measured pieces) for this job.
+      let qcWeightAvg = null;
+      {
+        const qc = (await q(
+          `SELECT AVG(v) AS avg_w FROM (
+             SELECT unnest(ARRAY[qc_weight_1, qc_weight_2, qc_weight_3]) AS v
+               FROM qc_job_checks
+              WHERE ((${j.plan_id ? 'TRIM(plan_id) = $1' : '$1::text IS NULL'})
+                     OR (${j.jobcard_no ? 'TRIM(job_card_no) = $4' : '$4::text IS NULL'}))
+                AND machine = $3 AND ${facCond}
+           ) t WHERE v IS NOT NULL AND v > 0`,
+          [j.plan_id || null, factoryId, j.machine, j.jobcard_no || null]
+        ))[0];
+        qcWeightAvg = qc && qc.avg_w != null ? +Number(qc.avg_w).toFixed(3) : null;
+      }
+
+      // Per-day production for the expanded detail.
+      const perDay = await q(
+        `SELECT dpr_date::text AS d,
+                COALESCE(SUM(good_qty), 0)     AS good,
+                COALESCE(SUM(reject_qty), 0)   AS reject,
+                COALESCE(SUM(shots), 0)        AS shots,
+                COALESCE(SUM(downtime_min), 0) AS downtime
+           FROM dpr_hourly
+          WHERE mould_no = $1 AND is_deleted = false AND machine = $3
+            AND COALESCE(NULLIF(TRIM(plan_id), ''), NULLIF(TRIM(jobcard_no), '')) = $4
+            AND ${facCond}
+          GROUP BY d ORDER BY d`,
+        [id, factoryId, j.machine, j.job_key]
+      );
+
+      // Downtime reasons for this job (aggregate downtime_breakup, friendly names).
+      const dtRows = await q(
+        `SELECT downtime_breakup FROM dpr_hourly
+          WHERE mould_no = $1 AND is_deleted = false AND machine = $3
+            AND COALESCE(NULLIF(TRIM(plan_id), ''), NULLIF(TRIM(jobcard_no), '')) = $4
+            AND downtime_breakup IS NOT NULL AND ${facCond}`,
+        [id, factoryId, j.machine, j.job_key]
+      );
+      const dt = {};
+      for (const row of dtRows) {
+        let bk = row.downtime_breakup;
+        if (typeof bk === 'string') { try { bk = JSON.parse(bk); } catch (_) { bk = null; } }
+        if (!bk || typeof bk !== 'object') continue;
+        for (const code of Object.keys(bk)) {
+          const min = Number(bk[code]);
+          if (min > 0) dt[code] = (dt[code] || 0) + min;
+        }
+      }
+      const downtimeReasons = Object.keys(dt)
+        .map(code => ({ reason: (typeof mouldReasonName === 'function' ? mouldReasonName(code) : code), minutes: dt[code] }))
+        .sort((a, b) => b.minutes - a.minutes);
+
+      // Operators who ran the job.
+      const opRows = await q(
+        `SELECT DISTINCT NULLIF(TRIM(created_by), '') AS op
+           FROM dpr_hourly
+          WHERE mould_no = $1 AND is_deleted = false AND machine = $3
+            AND COALESCE(NULLIF(TRIM(plan_id), ''), NULLIF(TRIM(jobcard_no), '')) = $4
+            AND created_by IS NOT NULL AND ${facCond}`,
+        [id, factoryId, j.machine, j.job_key]
+      );
+
+      out.push({
+        jobKey: j.job_key,
+        jobCardNo: j.jobcard_no || null,
+        planId: j.plan_id || null,
+        machine: j.machine || null,
+        orderNo: j.order_no || null,
+        colour: j.colour || null,
+        startDate: j.start_date,
+        endDate: j.end_date,
+        good, reject, shots: Number(j.shots), downtime: Number(j.downtime),
+        rejectPct: produced > 0 ? +(reject / produced * 100).toFixed(2) : 0,
+        avgCycleReal: avgCycle,
+        avgWeightReal: avgWeight,
+        qcWeightAvg,
+        stdCycle: mould.cycle_time != null ? Number(mould.cycle_time) : null,
+        stdWeightKg: mould.std_wt_kg != null ? Number(mould.std_wt_kg) : null,
+        operators: opRows.map(r => r.op).filter(Boolean),
+        perDay,
+        downtimeReasons
+      });
+    }
+
+    res.json({ ok: true, data: { mould: { mould_number: mould.mould_number, mould_name: mould.mould_name }, jobs: out } });
+  } catch (e) {
+    console.error('mould recent-jobs error', e);
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
 // Shared: compute each mould's verification standing (next-pending step + counts).
 // Read-only; visible to everyone.
 function computeMouldVerifyStanding(rows) {
