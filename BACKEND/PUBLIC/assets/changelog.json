@@ -11,8 +11,24 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.70.8",
+  "latest": "1.71.0",
   "versions": [
+    {
+      "version": "1.71.0",
+      "date": "2026-09-22",
+      "title": "Mould verification remarks are now shared with every department",
+      "modules": [
+        {
+          "app": "masters",
+          "label": "Masters",
+          "icon": "bi-gear",
+          "changes": [
+            { "type": "feat", "text": "In Mould Verification, a remark left by any department is now visible to every department — PPC, Quality, Moulding, Tool Room, GM and NKB all see the same remarks whether their step is done, pending or still locked." },
+            { "type": "improvement", "text": "Any verification department can now add a remark at any time, not only when it is their turn, and each remark shows which department raised it." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.70.8",
       "date": "2026-09-22",

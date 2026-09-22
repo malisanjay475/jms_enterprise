@@ -730,6 +730,23 @@
 
       <div id="mvSteps" style="margin-top:14px; display:flex; flex-direction:column; gap:10px"></div>
 
+      <!-- Remarks from ALL departments — visible to every department, read-only list -->
+      <div style="margin-top:18px; border-top:1px solid #eee; padding-top:14px">
+        <h4 style="margin:0 0 8px 0; font-size:0.88rem; color:#0f172a">
+          <i class="bi bi-chat-left-text" style="color:#2563eb"></i> Remarks (all departments)
+        </h4>
+        <div id="mvRemarks" style="display:flex; flex-direction:column; gap:7px; max-height:240px; overflow:auto"></div>
+        <!-- Any verification department can add a remark that every department sees -->
+        <div id="mvRemarkAdd" style="display:none; margin-top:10px">
+          <textarea id="mvRemarkInput" rows="2" placeholder="Add a remark for all departments…"
+            style="width:100%; box-sizing:border-box; padding:8px 10px; border:1px solid #cbd5e1; border-radius:6px; font-size:0.82rem; resize:vertical"></textarea>
+          <div style="text-align:right; margin-top:6px">
+            <button type="button" onclick="addMouldVerifyRemarkInline()" class="btn-action"
+              style="padding:6px 14px; font-size:0.78rem; background:#2563eb"><i class="bi bi-plus-lg"></i> Add Remark</button>
+          </div>
+        </div>
+      </div>
+
       <div style="text-align:right; margin-top:20px; display:flex; justify-content:space-between; align-items:center; gap:10px; border-top:1px solid #eee; padding-top:12px">
         <button type="button" id="mvResetBtn" onclick="resetMouldVerify()"
           style="display:none; padding:7px 14px; border:1px solid #fecaca; background:#fff; color:#b91c1c; border-radius:6px; font-size:0.8rem">Reset Verification</button>
@@ -906,7 +923,7 @@
   <datalist id="machineList"></datalist>
   <datalist id="labourJobMachineList"></datalist>
 
-  <script src="/assets/masters-script-1.js?v=release93"></script>
+  <script src="/assets/masters-script-1.js?v=release95"></script>
 
   <!-- Scripts -->
   <script src="/assets/app.min.js?v=1576"></script>

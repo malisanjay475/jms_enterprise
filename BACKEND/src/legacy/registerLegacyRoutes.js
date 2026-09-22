@@ -24477,6 +24477,20 @@ function mouldVerifyStepAllowed(step, roleCode, roleLabel) {
   return false;
 }
 
+// Which verification department (step key) does this user belong to? Used so that
+// ANY verification department can leave a remark that every department then sees —
+// the remark is tagged with the author's own department, not whose turn it is.
+// Returns a step key, 'ALL' for admin/superadmin, or null if not a verify dept.
+function mouldVerifyDeptForRole(roleCode, roleLabel) {
+  const role = String(roleCode || '').toLowerCase();
+  const label = String(roleLabel || '').toLowerCase();
+  if (role === 'superadmin' || role === 'admin') return 'ALL';
+  const step = MOULD_VERIFY_STEPS.find(s => s.roles.includes(role));
+  if (step) return step.key;
+  if (label.includes('general manager')) return 'gm';
+  return null;
+}
+
 // POST /api/moulds/:id/verify  { step, session:{username} }  (id = mould_number)
 app.post('/api/moulds/:id/verify', async (req, res) => {
   try {
@@ -24677,14 +24691,11 @@ app.post('/api/moulds/:id/verify-note', async (req, res) => {
       if (fwd.ok && typeof syncService.triggerSync === 'function') syncService.triggerSync();
       return res.status(fwd.ok ? 200 : fwd.status).json(fwd.json);
     }
-    const stepKey = String(req.body?.step || '').toLowerCase();
+    const requestedStepKey = String(req.body?.step || '').toLowerCase();
     const note = String(req.body?.note || '').trim();
     const username = req.body?.session?.username || req.body?._user || getRequestUsername(req);
     if (!username) return res.status(401).json({ ok: false, error: 'Unauthorized' });
     if (!note) return res.status(400).json({ ok: false, error: 'Note cannot be empty' });
-
-    const step = MOULD_VERIFY_STEPS.find(s => s.key === stepKey);
-    if (!step) return res.status(400).json({ ok: false, error: 'Invalid verification step' });
 
     const urow = (await q(
       `SELECT u.role_code, LOWER(COALESCE(r.label,'')) AS role_label
@@ -24693,9 +24704,20 @@ app.post('/api/moulds/:id/verify-note', async (req, res) => {
       [username]
     ))[0];
     if (!urow) return res.status(403).json({ ok: false, error: 'User not found' });
-    if (!mouldVerifyStepAllowed(step, urow.role_code, urow.role_label)) {
-      return res.status(403).json({ ok: false, error: `You do not have permission to add details for "${step.label}".` });
+
+    // A remark may be left by ANY verification department at any time (not only the
+    // department whose step is currently pending) so every department stays in the
+    // loop. The remark is tagged with the AUTHOR's own department, so readers can see
+    // which department raised it. Admin/superadmin may target any step they pass.
+    const authorDept = mouldVerifyDeptForRole(urow.role_code, urow.role_label);
+    if (!authorDept) {
+      return res.status(403).json({ ok: false, error: 'Only mould-verification departments can add remarks.' });
     }
+    const stepKey = authorDept === 'ALL'
+      ? (MOULD_VERIFY_STEPS.some(s => s.key === requestedStepKey) ? requestedStepKey : 'nkb')
+      : authorDept;
+    const step = MOULD_VERIFY_STEPS.find(s => s.key === stepKey);
+    if (!step) return res.status(400).json({ ok: false, error: 'Invalid verification step' });
 
     const mrows = await q(`SELECT factory_id FROM moulds WHERE mould_number = $1 LIMIT 1`, [id]);
     if (!mrows.length) return res.status(404).json({ ok: false, error: 'Mould not found' });
