@@ -912,8 +912,20 @@ router.get('/full-replication-readiness', (req, res) => {
     });
 });
 
+// Push/pull lag of THIS server. Only a LOCAL pushes and pulls; MAIN/STANDALONE never set
+// LAST_PUSH/LAST_PULL, so reporting them as "Never" + ok:false there was a false alarm.
+// Company-wide LOCAL staleness is monitored on MAIN via /api/sync-alert instead.
 router.get('/health', async (req, res) => {
     if (!pool) return res.status(503).json({ error: 'Service initializing' });
+    if (SERVER_TYPE !== 'LOCAL') {
+        return res.json({
+            ok: true,
+            applicable: false,
+            server_type: SERVER_TYPE,
+            note: 'Push/pull lag only applies to LOCAL servers; see /api/sync-alert on MAIN for LOCAL staleness.',
+            timestamp: new Date().toISOString()
+        });
+    }
     try {
         let lastPush = 'Never';
         let lastPull = 'Never';
@@ -955,26 +967,6 @@ router.get('/health', async (req, res) => {
 // Use this to recover missing master data (e.g. moulds that were synced before pagination
 // was added, or moulds with historical updated_at values that slipped behind the watermark).
 // Only available on LOCAL servers. Authenticate with SYNC_API_KEY.
-router.get('/health', async (_req, res) => {
-    if (!pool) return res.status(503).json({ ok: false, error: 'Service initializing' });
-    try {
-        const STALE_MS = Number(process.env.SYNC_STALE_THRESHOLD_MS || 2 * 60 * 60 * 1000);
-        const cfg = await getServerConfigSnapshot();
-        const stamps = [cfg.LAST_SYNC, cfg.LAST_PUSH, cfg.LAST_PULL]
-            .map(v => (v ? new Date(v).getTime() : 0)).filter(t => t > 0);
-        const newest = stamps.length ? Math.max(...stamps) : 0;
-        const ageMs = newest ? (Date.now() - newest) : null;
-        const stale = newest === 0 || ageMs > STALE_MS;
-        res.json({
-            ok: !stale,
-            last_sync: cfg.LAST_SYNC || null, last_push: cfg.LAST_PUSH || null, last_pull: cfg.LAST_PULL || null,
-            age_minutes: ageMs != null ? Math.round(ageMs / 60000) : null,
-            threshold_minutes: Math.round(STALE_MS / 60000),
-            reason: stale ? (newest === 0 ? 'no sync activity yet' : `last sync ${Math.round(ageMs / 60000)}m ago`) : 'healthy'
-        });
-    } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
-});
-
 router.post('/admin/full-pull-reset', async (req, res) => {
     if (!pool) return res.status(503).json({ error: 'Service initializing' });
     try {
@@ -3097,6 +3089,7 @@ function setRuntimeForTests(patch = {}) {
     if (Object.prototype.hasOwnProperty.call(patch, 'MAIN_SERVER_URL')) MAIN_SERVER_URL = patch.MAIN_SERVER_URL;
     if (Object.prototype.hasOwnProperty.call(patch, 'LOCAL_FACTORY_ID')) LOCAL_FACTORY_ID = patch.LOCAL_FACTORY_ID;
     if (Object.prototype.hasOwnProperty.call(patch, 'API_KEY')) API_KEY = patch.API_KEY;
+    if (Object.prototype.hasOwnProperty.call(patch, 'FULL_REPLICATION')) FULL_REPLICATION = patch.FULL_REPLICATION === true;
     if (syncTimer) clearTimeout(syncTimer);
     if (triggerTimeout) clearTimeout(triggerTimeout);
     syncTimer = null;

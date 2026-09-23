@@ -384,3 +384,130 @@ describe('Sync service plan_board resurrection guard', () => {
     expect(insertCalls).toHaveLength(1);
   });
 });
+
+describe('Sync service full replication (cross-factory)', () => {
+  const originalFetch = global.fetch;
+
+  beforeEach(() => {
+    jest.resetModules();
+    jest.spyOn(console, 'log').mockImplementation(() => {});
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    jest.spyOn(console, 'error').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+    jest.restoreAllMocks();
+  });
+
+  it('parses the pull factory scope: all/*/blank/invalid => every factory, positive int => that factory', () => {
+    const { normalizePullFactoryScope } = require('../services/sync.service').__test;
+    expect(normalizePullFactoryScope('all')).toBeNull();
+    expect(normalizePullFactoryScope('ALL')).toBeNull();
+    expect(normalizePullFactoryScope('*')).toBeNull();
+    expect(normalizePullFactoryScope('')).toBeNull();
+    expect(normalizePullFactoryScope(undefined)).toBeNull();
+    expect(normalizePullFactoryScope('abc')).toBeNull();
+    expect(normalizePullFactoryScope('0')).toBeNull();
+    expect(normalizePullFactoryScope('-2')).toBeNull();
+    expect(normalizePullFactoryScope('3')).toBe(3);
+    expect(normalizePullFactoryScope(' 2 ')).toBe(2);
+  });
+
+  it('guard stays safe: no LOCAL-writable sync table is keyed on the serial id', () => {
+    // If this fails, a newly synced LOCAL-writable table is keyed on `id` and would collide
+    // across factories under full replication. Give it a natural/sync_id key, or add it to
+    // LOCAL_NO_PUSH_TABLES if only MAIN writes it.
+    const { assertFullReplicationSafe } = require('../services/sync.service').__test;
+    expect(assertFullReplicationSafe()).toEqual({ safe: true, offenders: [] });
+  });
+
+  it('pulls only the home factory when full replication is off, and every factory when on', async () => {
+    const syncService = require('../services/sync.service');
+    global.fetch = jest.fn().mockResolvedValue(mockResponse(200, { ok: true, data: [] }));
+
+    syncService.__test.setRuntimeForTests({
+      MAIN_SERVER_URL: 'http://main.example', LOCAL_FACTORY_ID: 3, API_KEY: 'k', FULL_REPLICATION: false
+    });
+    expect(syncService.__test.localPullFactoryParam()).toBe('3');
+    expect(syncService.isFullReplicationActive()).toBe(false);
+    await syncService.__test.pullTableAllPages('orders', '2026-09-01T00:00:00.000Z');
+    expect(global.fetch.mock.calls[0][0]).toContain('factoryId=3');
+
+    syncService.__test.setRuntimeForTests({ FULL_REPLICATION: true });
+    expect(syncService.__test.localPullFactoryParam()).toBe('all');
+    expect(syncService.isFullReplicationActive()).toBe(true);
+    await syncService.__test.pullTableAllPages('orders', '2026-09-01T00:00:00.000Z');
+    expect(global.fetch.mock.calls[1][0]).toContain('factoryId=all');
+  });
+
+  it('still pushes only the home factory rows when full replication is on', async () => {
+    const syncService = require('../services/sync.service');
+    const selects = [];
+    const pool = {
+      query: jest.fn(async (sql, params = []) => {
+        const text = String(sql);
+        if (text.includes('information_schema.columns')) {
+          return { rows: [{ column_name: 'id' }, { column_name: 'factory_id' }, { column_name: 'updated_at' }], rowCount: 3 };
+        }
+        if (text.startsWith('SELECT * FROM orders')) {
+          selects.push({ text, params });
+          return { rows: [], rowCount: 0 };
+        }
+        return { rows: [], rowCount: 0 };
+      })
+    };
+    syncService.__test.setRuntimeForTests({
+      pool, MAIN_SERVER_URL: 'http://main.example', LOCAL_FACTORY_ID: 3, API_KEY: 'k', FULL_REPLICATION: true
+    });
+    global.fetch = jest.fn();
+
+    await syncService.__test.pushTableAllBatches('orders', '2026-09-01T00:00:00.000Z');
+
+    expect(selects).toHaveLength(1);
+    expect(selects[0].text).toMatch(/factory_id = \$\d/);
+    expect(selects[0].params).toContain(3);
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+});
+
+describe('Sync service /health route', () => {
+  beforeEach(() => jest.resetModules());
+
+  function getHealthHandler(router) {
+    const layers = router.stack.filter((l) => l.route && l.route.path === '/health' && l.route.methods.get);
+    expect(layers).toHaveLength(1); // exactly one /health route (the duplicate was unreachable)
+    return layers[0].route.stack[0].handle;
+  }
+
+  function mockRes() {
+    const res = { statusCode: 200, body: null };
+    res.status = jest.fn((code) => { res.statusCode = code; return res; });
+    res.json = jest.fn((body) => { res.body = body; return res; });
+    return res;
+  }
+
+  it('reports not-applicable (ok:true) on MAIN instead of a false "Never" failure', async () => {
+    const syncService = require('../services/sync.service');
+    const pool = { query: jest.fn() };
+    syncService.__test.setRuntimeForTests({ pool, SERVER_TYPE: 'MAIN' });
+    const res = mockRes();
+    await getHealthHandler(syncService.router)({}, res);
+    expect(res.body).toMatchObject({ ok: true, applicable: false, server_type: 'MAIN' });
+    expect(pool.query).not.toHaveBeenCalled();
+  });
+
+  it('reports push/pull lag on a LOCAL server', async () => {
+    const syncService = require('../services/sync.service');
+    const recent = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+    const pool = {
+      query: jest.fn(async () => ({ rows: [{ key: 'LAST_PUSH', value: recent }, { key: 'LAST_PULL', value: recent }] }))
+    };
+    syncService.__test.setRuntimeForTests({ pool, SERVER_TYPE: 'LOCAL' });
+    const res = mockRes();
+    await getHealthHandler(syncService.router)({}, res);
+    expect(res.body.ok).toBe(true);
+    expect(res.body.last_push).toBe(recent);
+    expect(res.body.pull_lag_hours).toBeLessThan(1);
+  });
+});
