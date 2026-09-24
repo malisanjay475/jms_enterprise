@@ -48,7 +48,11 @@ const GUARDED_ROUTES = [
   { method: 'POST', path: /^\/api\/dpr\/setup\/clear\/?$/, need: 'admin' },
   // Per-entry deletes: the handler keeps its own role check (supervisor+, or the DPR
   // delete roles); with a verified session its session.username is the real user.
-  { method: 'POST', path: /^\/api\/dpr\/(delete|delete-entry|delete-quick|delete-setup)\/?$/, need: 'session' }
+  { method: 'POST', path: /^\/api\/dpr\/(delete|delete-entry|delete-quick|delete-setup)\/?$/, need: 'session' },
+  // Vendor master + purchase orders (list, create, delete vendors and their logins).
+  // The handlers had no check at all ("TODO: Add Admin Check"). Purchase staff use
+  // these pages, so a verified login is required rather than the Admin role.
+  { method: '*', path: /^\/api\/vendor\/admin(\/|$)/, need: 'session' }
 ];
 
 function findGuard(method, path) {
