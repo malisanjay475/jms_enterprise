@@ -28,21 +28,25 @@ const bcrypt = require('bcryptjs');
 const BACKEND_ROOT = path.resolve(__dirname, '..', '..');
 const STATIC_PUBLIC_DIR_NAME = fs.existsSync(path.join(BACKEND_ROOT, 'PUBLIC', 'index.html')) ? 'PUBLIC' : 'public';
 const STATIC_PUBLIC_DIR = path.join(BACKEND_ROOT, STATIC_PUBLIC_DIR_NAME);
+const { extensionForUpload } = require('../app/uploadSafety');
 
 // QC image uploads — disk storage so images are served as static files from PUBLIC/uploads/qc-images/
 const _qcImgDir = path.join(STATIC_PUBLIC_DIR, 'uploads', 'qc-images');
 fs.mkdirSync(_qcImgDir, { recursive: true });
+// The saved extension comes from an allowlist (uploadSafety.extensionForUpload), never
+// from the uploader: these files are served from the app's own origin, so a stored
+// "x.html" (previously accepted when sent with an image/* type) would run as a page.
 const uploadQC = multer({
   storage: multer.diskStorage({
     destination: (_req, _file, cb) => cb(null, _qcImgDir),
     filename: (_req, file, cb) => {
-      const ext = path.extname(file.originalname) || '.jpg';
+      const ext = extensionForUpload(file.originalname, file.mimetype);
       cb(null, `${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`);
     }
   }),
   limits: { fileSize: 10 * 1024 * 1024, files: 12 },
   fileFilter(_req, file, cb) {
-    if (/^image\//i.test(file.mimetype) || /\.(jpg|jpeg|png|gif|webp|mp4|mov)$/i.test(file.originalname)) return cb(null, true);
+    if (extensionForUpload(file.originalname, file.mimetype)) return cb(null, true);
     cb(new Error('Only images/videos allowed for QC uploads'), false);
   }
 });
@@ -52,10 +56,15 @@ const uploadQC = multer({
 // factory phones auto-update. Fixed filename keeps the download URL stable.
 const _qcAppDir = path.join(STATIC_PUBLIC_DIR, 'qc-app');
 fs.mkdirSync(_qcAppDir, { recursive: true });
+// multer writes the file BEFORE the route checks the credentials, so it must not go
+// straight to the served name: a failed login used to leave an attacker's APK in place
+// as jms-qc.apk for every factory phone. It lands under a dot-name (never served by
+// express.static) in the same folder, and the route renames it over jms-qc.apk only
+// after the credentials check passes (same folder, so the rename is atomic).
 const uploadQcApk = multer({
   storage: multer.diskStorage({
     destination: (_req, _file, cb) => cb(null, _qcAppDir),
-    filename: (_req, _file, cb) => cb(null, 'jms-qc.apk')
+    filename: (_req, _file, cb) => cb(null, `.upload-${Date.now()}-${Math.random().toString(36).slice(2)}.apk`)
   }),
   limits: { fileSize: 200 * 1024 * 1024, files: 1 },
   fileFilter(_req, file, cb) {
@@ -64,6 +73,16 @@ const uploadQcApk = multer({
     cb(new Error('Only .apk files allowed'), false);
   }
 });
+
+// Absolute path of an uploadQcApk temp file, rebuilt from our own folder and a filename
+// that must match the temp-name pattern above, so no request value ever steers a
+// rename/unlink path. null when there is no (valid) upload.
+const QC_APK_TEMP_NAME_RE = /^\.upload-\d+-[a-z0-9]+\.apk$/;
+function qcApkTempPath(file) {
+  const name = path.basename(String(file?.filename || ''));
+  if (!QC_APK_TEMP_NAME_RE.test(name)) return null;
+  return path.join(_qcAppDir, name);
+}
 
 const {
   getFinancialYearInfo,
@@ -145,11 +164,18 @@ module.exports = function registerLegacyRoutes({ app, pool, config, services }) 
      Additive + isolated: no existing behaviour changes.
      ============================================================ */
   app.post('/api/qc-app/publish', uploadQcApk.single('apk'), async (req, res) => {
+    // The upload sits under a temporary dot-name until the checks below pass; every
+    // other outcome deletes it (see uploadQcApk).
+    const tempPath = qcApkTempPath(req.file);
+    let published = false;
     try {
       const { username, password, versionCode, versionName, notes } = req.body || {};
       if (!username || !password) {
         return res.status(400).json({ ok: false, error: 'username and password required' });
       }
+      // Same lockout as /api/login, so this form can't be used to guess passwords.
+      const lockMsg = _checkBruteForce(username);
+      if (lockMsg) return res.status(429).json({ ok: false, error: lockMsg });
       // Read the password column the way /api/login does. Some schemas have no
       // password_hash column, so pull it defensively via to_jsonb to avoid a
       // "column does not exist" error.
@@ -159,18 +185,27 @@ module.exports = function registerLegacyRoutes({ app, pool, config, services }) 
            FROM users u WHERE username = $1 LIMIT 1`,
         [username]
       );
-      if (!rows.length) return res.status(401).json({ ok: false, error: 'Invalid credentials' });
+      if (!rows.length) {
+        _recordLoginFailure(username);
+        return res.status(401).json({ ok: false, error: 'Invalid credentials' });
+      }
       const valid = await bcrypt.compare(password, rows[0].pw || '');
-      if (!valid) return res.status(401).json({ ok: false, error: 'Invalid credentials' });
+      if (!valid) {
+        _recordLoginFailure(username);
+        return res.status(401).json({ ok: false, error: 'Invalid credentials' });
+      }
+      _clearLoginFailures(username);
       const role = String(rows[0].role_code || '').toLowerCase();
       if (role !== 'admin' && role !== 'superadmin') {
         return res.status(403).json({ ok: false, error: 'Admin access required' });
       }
-      if (!req.file) return res.status(400).json({ ok: false, error: 'APK file required (field "apk")' });
+      if (!tempPath) return res.status(400).json({ ok: false, error: 'APK file required (field "apk")' });
       const vc = parseInt(versionCode, 10);
       if (!Number.isFinite(vc)) {
         return res.status(400).json({ ok: false, error: 'versionCode (integer) required' });
       }
+      fs.renameSync(tempPath, path.join(_qcAppDir, 'jms-qc.apk'));
+      published = true;
       const meta = {
         versionCode: vc,
         versionName: String(versionName || vc),
@@ -182,6 +217,8 @@ module.exports = function registerLegacyRoutes({ app, pool, config, services }) 
       res.json({ ok: true, ...meta });
     } catch (e) {
       res.status(500).json({ ok: false, error: String(e.message || e) });
+    } finally {
+      if (tempPath && !published) fs.unlink(tempPath, () => { });
     }
   });
 
@@ -1067,6 +1104,9 @@ app.get('/.well-known/assetlinks.json', (req, res) => {
 // Must run BEFORE express.static so it can intercept the asset request; falls
 // through cleanly when no fresh precompressed sibling exists.
 const createPrecompressedStatic = require('../app/precompressedStatic');
+const authSessions = require('../app/auth');
+const { ensureUniqueIndex } = require('../db/indexUtils');
+const { validateDprQuantities } = require('../app/dprValidation');
 app.use(createPrecompressedStatic(PUBLIC_DIR, (req) => {
   const p = req.path;
   if (path.basename(p) === 'app.js') return 'no-cache';
@@ -1672,7 +1712,6 @@ async function migrateMouldMasterSchema() {
   await q(`ALTER TABLE mould_audit_logs ADD COLUMN IF NOT EXISTS sync_status TEXT`);
   await q(`UPDATE mould_audit_logs SET sync_id = gen_random_uuid() WHERE sync_id IS NULL`);
   await qIdx(`CREATE INDEX IF NOT EXISTS idx_mould_audit_mould_id_changed_at ON mould_audit_logs(mould_id, changed_at DESC)`);
-  await qIdx(`CREATE INDEX IF NOT EXISTS idx_mould_audit_sync_id ON mould_audit_logs(sync_id)`);
 
   // Mould Verification "added details" — additive notes an approver attaches at a
   // verification step. Never touches the mould master columns (read-only master).
@@ -3973,13 +4012,15 @@ async function syncOrderCompletionConfirmations(db = pool, { factoryId = null, a
   return { flagged, cleared };
 }
 
+// Raster types only. SVG is refused: it is served from the app's own origin and can
+// carry <script>, so opening the icon URL would run code as the logged-in user.
 function getImageExtensionFromDataUrl(dataUrl) {
-  const mime = String(dataUrl || '').match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,/i)?.[1]?.toLowerCase() || 'image/png';
-  if (mime.includes('jpeg')) return 'jpg';
-  if (mime.includes('gif')) return 'gif';
-  if (mime.includes('webp')) return 'webp';
-  if (mime.includes('svg')) return 'svg';
-  return 'png';
+  const mime = String(dataUrl || '').match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,/i)?.[1]?.toLowerCase() || '';
+  if (mime === 'image/jpeg' || mime === 'image/jpg') return 'jpg';
+  if (mime === 'image/png') return 'png';
+  if (mime === 'image/gif') return 'gif';
+  if (mime === 'image/webp') return 'webp';
+  return null;
 }
 
 function saveDataUrlImage(dataUrl, folderName, prefix) {
@@ -3989,10 +4030,12 @@ function saveDataUrlImage(dataUrl, folderName, prefix) {
   const payload = raw.split(',')[1];
   if (!payload) return null;
 
+  const ext = getImageExtensionFromDataUrl(raw);
+  if (!ext) return null;
+
   const uploadsDir = path.join(STATIC_PUBLIC_DIR, 'uploads', folderName);
   fs.mkdirSync(uploadsDir, { recursive: true });
 
-  const ext = getImageExtensionFromDataUrl(raw);
   const filename = `${prefix}_${Date.now()}_${Math.floor(Math.random() * 1000)}.${ext}`;
   const fullPath = path.join(uploadsDir, filename);
   fs.writeFileSync(fullPath, Buffer.from(payload, 'base64'));
@@ -4039,7 +4082,8 @@ async function pushAllUploadsToMain() {
   if (!fs.existsSync(uploadsDir)) return;
 
   // Collect all image files under uploads/
-  const IMAGE_EXT = /\.(jpg|jpeg|png|gif|webp|svg)$/i;
+  // Raster images only — MAIN's /api/sync/upload-asset refuses SVG (can carry script).
+  const IMAGE_EXT = /\.(jpg|jpeg|png|gif|webp)$/i;
   const files = [];
   function scanDir(dir, folder) {
     let entries;
@@ -4439,6 +4483,9 @@ async function bootstrapFreshCoreTables() {
   await q(`CREATE INDEX IF NOT EXISTS ual_username_idx    ON user_activity_log(username)`);
   await q(`CREATE INDEX IF NOT EXISTS ual_created_at_idx ON user_activity_log(created_at DESC)`);
   await q(`CREATE INDEX IF NOT EXISTS ual_action_idx     ON user_activity_log(action)`);
+  // Latest-event-per-user lookups in /api/activity/monitor. Existing databases get it
+  // from migration 012 before the server starts; this covers a brand-new (empty) table.
+  await q(`CREATE INDEX IF NOT EXISTS idx_ual_username_created_at ON user_activity_log(username, created_at DESC)`);
 
   await q(`
     CREATE TABLE IF NOT EXISTS machines (
@@ -4867,14 +4914,15 @@ async function initializeLegacyRuntime() {
     ]);
 
     // Non-blocking index creation (resilient — ownership/permission errors are non-fatal)
+    // Query performance telemetry. Harmless if the shared_preload_libraries entry isn't set
+    // yet. Run on its own: on a LOCAL whose DB user isn't a superuser it fails with
+    // "permission denied", and inside the batch below that failure silently cancelled every
+    // other statement (the duplicate-index DROPs there had never run on factory-1).
+    await qIdx(`CREATE EXTENSION IF NOT EXISTS pg_stat_statements`);
     await qIdx(`
-            -- Query performance telemetry. Harmless if the shared_preload_libraries
-            -- entry isn't set yet; it starts collecting after the DB is recreated.
-            CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
             CREATE INDEX IF NOT EXISTS idx_plan_board_machine ON plan_board(machine);
             CREATE INDEX IF NOT EXISTS idx_plan_board_status ON plan_board(status);
             CREATE INDEX IF NOT EXISTS idx_std_actual_plan_id ON std_actual(plan_id);
-            CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
 
             -- NEW MASTER PLAN OPTIMIZATION INDEXES
             -- dpr_hourly is a hot, sync-written table. It historically carried
@@ -5397,9 +5445,10 @@ async function initializeLegacyRuntime() {
         await q(`UPDATE ${table} SET factory_id = $1 WHERE factory_id IS NULL`, [FID]);
       }
 
-      // 3. Create Unique Index (Required for ON CONFLICT upsert)
-      // Note: We use a generic name pattern to avoid collisions
-      await q(`CREATE UNIQUE INDEX IF NOT EXISTS idx_${table}_sync_id ON ${table}(sync_id);`);
+      // 3. Unique index on sync_id (required for ON CONFLICT upsert). Skipped when an
+      // equivalent unique index already exists (a <table>_sync_id_key constraint or the
+      // sync service's uq_sync_id_<table>), which used to leave 2-3 identical copies.
+      await ensureUniqueIndex(q, { table, columns: 'sync_id', name: `idx_${table}_sync_id` });
     }
 
     // Stamp the heal version so subsequent boots skip the full-table backfill scans.
@@ -5421,7 +5470,7 @@ async function initializeLegacyRuntime() {
       await q(`DROP INDEX IF EXISTS std_actual_unique_key`);
     } catch (e) { console.log('[DB] Note: Drop constraint std_actual_unique_key failed:', e.message); }
 
-    await q(`CREATE UNIQUE INDEX IF NOT EXISTS idx_std_actual_sync_id ON std_actual(sync_id);`);
+    await ensureUniqueIndex(q, { table: 'std_actual', columns: 'sync_id', name: 'idx_std_actual_sync_id' });
 
     // [FIX] Machine names must be unique per factory, not globally.
     // Older schemas still have a global UNIQUE(machine) constraint, which breaks
@@ -6323,6 +6372,12 @@ app.post('/api/login', async (req, res) => {
       [u.username, u.role_code || '', _loginAppId, null, _loginDevice, _loginIp, _loginUa.slice(0, 500), String(req.body?.factory_id || ''), String(req.body?.session_id || '')]
     ).catch(() => {});
 
+    // Server-verified session (HttpOnly cookie) — see src/app/auth.js. A failure to
+    // issue it must not block login: the legacy identity still works outside the
+    // hard-locked admin routes.
+    await authSessions.issueSession(pool, req, res, u)
+      .catch((err) => console.warn('[Auth] session cookie not issued:', err.message));
+
     // Return user info + factories list
     res.json({ ok: true, data: u, factories, can_select_all_factories: factoryAccess.canSelectAllFactories });
 
@@ -6330,6 +6385,13 @@ app.post('/api/login', async (req, res) => {
     console.error('login error', e);
     res.status(500).json({ ok: false, error: String(e) });
   }
+});
+
+// POST /api/logout — ends this device's server session (clears the HttpOnly cookie,
+// which page JavaScript cannot remove itself).
+app.post('/api/logout', (req, res) => {
+  authSessions.clearSession(req, res);
+  res.json({ ok: true });
 });
 
 /* ============================================================
@@ -6610,6 +6672,9 @@ app.post('/api/users/save', async (req, res) => {
     }
 
     _invalidateFactoryCache(username);
+
+
+    authSessions.invalidateUserCache(username);
     res.json({ ok: true });
   } catch (e) {
     console.error('user save error', e);
@@ -6643,6 +6708,8 @@ app.post('/api/users/delete', async (req, res) => {
       return res.json({ ok: false, error: 'ID or Username required' });
     }
     _invalidateFactoryCache(targetUser.username);
+
+    authSessions.invalidateUserCache(targetUser.username);
     res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ ok: false, error: String(e) });
@@ -6663,6 +6730,8 @@ app.post('/api/users/password', async (req, res) => {
     const hash = await bcrypt.hash(password, 12);
     await q('UPDATE users SET password=$1 WHERE username=$2', [hash, username]);
     _invalidateFactoryCache(username);
+
+    authSessions.invalidateUserCache(username);
     res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ ok: false, error: String(e) });
@@ -7241,6 +7310,10 @@ app.post('/api/dpr/submit', async (req, res) => {
       MouldNo, JobCardNo, Colour, RejectBreakup,
       DowntimeBreakup, EntryType, Supervisor
     } = entry || {};
+
+    // Reject impossible quantities before anything is written (see src/app/dprValidation.js).
+    const qtyError = validateDprQuantities({ shots: Shots, good: GoodQty, reject: RejectQty, downtime: DowntimeMin });
+    if (qtyError) return res.json({ ok: false, error: qtyError });
 
     // FALLBACK: If MouldNo is missing but PlanID exists, fetch it
     if ((!MouldNo || MouldNo === '') && PlanID) {
@@ -9558,6 +9631,8 @@ app.post('/api/dpr/edit', async (req, res) => {
 
     // Basic validation
     if (!uniqueId) throw new Error("ID required");
+    const qtyError = validateDprQuantities({ shots: newShots, reject: newReject, downtime: newDowntime });
+    if (qtyError) return res.status(400).json({ ok: false, error: qtyError });
 
     // Recalculate Good Qty
     const s = Number(newShots) || 0;
@@ -20963,7 +21038,15 @@ app.post('/api/admin/users/create', async (req, res) => {
     if (requestedRole === 'superadmin' && !isSuperadminRole(actor)) {
       return res.status(403).json({ ok: false, error: 'Only superadmin can assign the superadmin role' });
     }
+    // The upsert below overwrites an existing account, so it must not let a
+    // non-superadmin replace (and demote) a superadmin.
+    const existing = (await q('SELECT role_code FROM users WHERE username = $1 LIMIT 1', [username]))[0];
+    if (existing && isSuperadminRole(existing) && !isSuperadminRole(actor)) {
+      return res.status(403).json({ ok: false, error: 'Only superadmin can edit superadmin users' });
+    }
 
+    // Stored as a bcrypt hash like every other password path (this route stored plain text).
+    const passwordHash = await bcrypt.hash(String(password), 12);
     await q(
       `INSERT INTO users(username, password, line, role_code, permissions)
 VALUES($1, $2, $3, $4, $5)
@@ -20972,8 +21055,9 @@ password = EXCLUDED.password,
   line = EXCLUDED.line,
   role_code = EXCLUDED.role_code,
   permissions = EXCLUDED.permissions`,
-      [username, password, line || null, requestedRole, permissions || '{}']
+      [username, passwordHash, line || null, requestedRole, permissions || '{}']
     );
+    authSessions.invalidateUserCache(username);
 
     res.json({ ok: true });
   } catch (e) {
@@ -21005,6 +21089,7 @@ app.post('/api/admin/users/update', async (req, res) => {
     );
 
     if (!rows.length) return res.json({ ok: false, error: 'User not found' });
+    authSessions.invalidateUserCache(username);
     res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ ok: false, error: String(e) });
@@ -21030,6 +21115,7 @@ app.post('/api/admin/users/delete', async (req, res) => {
 
     const rows = await q(`DELETE FROM users WHERE username = $1 RETURNING username`, [username]);
     if (!rows.length) return res.json({ ok: false, error: 'User not found' });
+    authSessions.invalidateUserCache(username);
 
     res.json({ ok: true });
   } catch (e) {
@@ -21048,12 +21134,15 @@ app.post('/api/admin/users/password', async (req, res) => {
       return res.status(403).json({ ok: false, error: 'Only superadmin can change a superadmin password' });
     }
 
+    // Stored as a bcrypt hash (this route stored plain text).
+    const passwordHash = await bcrypt.hash(String(password), 12);
     const rows = await q(
       `UPDATE users SET password = $2 WHERE username = $1 RETURNING username`,
-      [username, password]
+      [username, passwordHash]
     );
 
     if (!rows.length) return res.json({ ok: false, error: 'User not found' });
+    authSessions.invalidateUserCache(username);
     res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ ok: false, error: String(e) });
@@ -23376,8 +23465,8 @@ app.get('/api/admin/fix-sync-schema', async (req, res) => {
         await q(`UPDATE ${table} SET sync_id = gen_random_uuid() WHERE sync_id IS NULL`);
         await q(`UPDATE ${table} SET factory_id = $1 WHERE factory_id IS NULL`, [FID]);
 
-        // 3. Create Unique Index
-        await q(`CREATE UNIQUE INDEX IF NOT EXISTS idx_${table}_sync_id ON ${table}(sync_id);`);
+        // 3. Unique index on sync_id (skipped when an equivalent one already exists)
+        await ensureUniqueIndex(q, { table, columns: 'sync_id', name: `idx_${table}_sync_id` });
         logs.push(`Fixed ${table}`);
       } catch (err) {
         logs.push(`Error ${table}: ${err.message}`);
@@ -26043,18 +26132,17 @@ app.post('/api/ai/ask', async (req, res) => {
     }
 
     if (aiRes.type === 'sql') {
-      const sql = aiRes.content;
-      // 2. Safety Check (ReadOnly)
-      const forbidden = /(DROP|DELETE|UPDATE|INSERT|ALTER|TRUNCATE|GRANT|REVOKE|CREATE|REPLACE)/i;
-      if (forbidden.test(sql)) {
-        return res.json({ ok: false, error: 'Safety Block: AI generated a modification query.', sql });
-      }
-
-      // 3. Execute
-      const rows = await q(sql, []);
-      // Return as table
-      res.json({ ok: true, answer: rows, type: 'table', sql });
-      return;
+      // Model-written SQL is no longer executed. It ran with the app's full database
+      // rights behind only a keyword blocklist (COPY, functions and multi-statement
+      // tricks passed), so any prompt could read every table, including password
+      // hashes. The schema in its prompt also named columns that do not exist, so
+      // most generated queries failed anyway. Data questions stay off until Joy is
+      // rebuilt on fixed, read-only query tools.
+      return res.json({
+        ok: true,
+        type: 'text',
+        answer: 'I can’t look up live data yet — please use the reports and dashboards for numbers. I can still explain pages and help with how to use JMS. ⚡️'
+      });
     }
 
     // Fallback
@@ -32725,6 +32813,13 @@ app.post('/api/logout-all', async (req, res) => {
     const username = String(req.body?.username || '').trim();
     if (!username) return res.json({ ok: false, error: 'username required' });
 
+    // routeGuards requires a verified session. Anyone may log out their own other
+    // devices; only an admin may do it for someone else.
+    const isSelf = username.toLowerCase() === String(req.auth.username).toLowerCase();
+    if (!isSelf && !authSessions.isAdminLike(req.auth)) {
+      return res.status(403).json({ ok: false, error: 'You can only log out your own devices.' });
+    }
+
     const rows = await q(
       `UPDATE users SET logout_all_after = NOW()
        WHERE username = $1
@@ -32732,8 +32827,15 @@ app.post('/api/logout-all', async (req, res) => {
       [username]
     );
     if (!rows.length) return res.json({ ok: false, error: 'User not found' });
+    authSessions.invalidateUserCache(username);
 
     const cutoffMs = Math.round(Number(rows[0].cutoff_ms));
+    // Every session issued before the cutoff is now revoked. Give the calling device a
+    // fresh one stamped at the cutoff so it stays logged in.
+    if (isSelf) {
+      await authSessions.issueSession(pool, req, res, { id: req.auth.id, username: req.auth.username }, cutoffMs + 1)
+        .catch((err) => console.warn('[Auth] session re-issue after logout-all failed:', err.message));
+    }
     // Caller bumps its local login_at past this cutoff to stay logged in.
     res.json({ ok: true, cutoff_ms: cutoffMs, keep_login_at: cutoffMs + 1000 });
   } catch (e) {
@@ -32745,12 +32847,23 @@ app.post('/api/logout-all', async (req, res) => {
 // GET /api/activity/monitor  — admin view: who is online + recent history
 app.get('/api/activity/monitor', async (req, res) => {
   try {
-    // Latest status per user (last event within 10 min = online, 10-30 min = idle, >30 = offline)
+    // Latest status per user (last event within 10 min = online, 10-30 min = idle, >30 = offline).
+    // One index lookup per user (idx_ual_username_created_at, built by dataRetention)
+    // instead of DISTINCT ON over the whole log, which sorted all 1.87M rows on every
+    // 30 s refresh of the monitor page.
     const onlineRows = await q(`
-      SELECT DISTINCT ON (username)
-        username, role_code, app_id, page, device_type, ip_address, factory_id, action, created_at
-      FROM user_activity_log
-      ORDER BY username, created_at DESC
+      SELECT l.username, l.role_code, l.app_id, l.page, l.device_type, l.ip_address,
+             l.factory_id, l.action, l.created_at
+        FROM users u
+        CROSS JOIN LATERAL (
+          SELECT a.username, a.role_code, a.app_id, a.page, a.device_type, a.ip_address,
+                 a.factory_id, a.action, a.created_at
+            FROM user_activity_log a
+           WHERE a.username = u.username
+           ORDER BY a.created_at DESC
+           LIMIT 1
+        ) l
+       ORDER BY l.username
     `);
 
     // Actions today per user
@@ -32783,17 +32896,22 @@ app.get('/api/activity/monitor', async (req, res) => {
     for (const r of firstSeenRows) firstSeenMap[r.username] = r.first_seen_today;
 
     // Latest machine per supervisor (from dpr_entry / machine_select extra)
+    // Same per-user index lookup (was another whole-table DISTINCT ON).
     const machineRows = await q(`
-      SELECT DISTINCT ON (username)
-        username,
-        extra->>'machine' AS machine,
-        extra->>'order_no' AS order_no,
-        extra->>'colour' AS colour
-      FROM user_activity_log
-      WHERE action IN ('dpr_entry','machine_select','job_open')
-        AND extra IS NOT NULL
-        AND extra->>'machine' IS NOT NULL
-      ORDER BY username, created_at DESC
+      SELECT u.username, l.machine, l.order_no, l.colour
+        FROM users u
+        CROSS JOIN LATERAL (
+          SELECT a.extra->>'machine' AS machine,
+                 a.extra->>'order_no' AS order_no,
+                 a.extra->>'colour' AS colour
+            FROM user_activity_log a
+           WHERE a.username = u.username
+             AND a.action IN ('dpr_entry','machine_select','job_open')
+             AND a.extra IS NOT NULL
+             AND a.extra->>'machine' IS NOT NULL
+           ORDER BY a.created_at DESC
+           LIMIT 1
+        ) l
     `);
     const machineMap = {};
     for (const r of machineRows) machineMap[r.username] = { machine: r.machine, order_no: r.order_no, colour: r.colour };

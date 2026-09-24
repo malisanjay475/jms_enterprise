@@ -3,6 +3,7 @@ const router = express.Router();
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const multer = require('multer');
+const { rateLimit, ipKeyGenerator } = require('express-rate-limit');
 const path = require('path');
 const syncService = require('../services/sync.service');
 const {
@@ -73,7 +74,21 @@ const requireVendorAuth = async (req, res, next) => {
 ============================================================ */
 
 // POST /api/vendor/auth/login
-router.post('/auth/login', async (req, res) => {
+// Vendor portal login is internet-facing and had no lockout: 10 failed tries per
+// vendor code per IP in 15 minutes. Successful logins don't count.
+const vendorLoginLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 10,
+    standardHeaders: true,
+    legacyHeaders: false,
+    skipSuccessfulRequests: true,
+    requestWasSuccessful: (_req, res) => res.locals.vendorLoginOk === true,
+    keyGenerator: (req) => `${ipKeyGenerator(req.ip || '')}_${String((req.body && req.body.username) || '').trim().toLowerCase()}`,
+    validate: false,
+    message: { ok: false, error: 'Too many login attempts. Please wait 15 minutes and try again.' }
+});
+
+router.post('/auth/login', vendorLoginLimiter, async (req, res) => {
     try {
         const { username, password } = req.body;
         if (!username || !password) return res.json({ ok: false, error: 'Missing credentials' });
@@ -104,6 +119,7 @@ router.post('/auth/login', async (req, res) => {
             { expiresIn: '36500d' }
         );
 
+        res.locals.vendorLoginOk = true;
         res.json({ ok: true, token, vendor: { name: vendor.vendor_name, id: vendor.id } });
     } catch (e) {
         console.error('Vendor Login Error:', e);

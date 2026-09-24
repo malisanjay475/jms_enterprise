@@ -665,10 +665,14 @@
             try {
                 const raw = new URLSearchParams(window.location.search).get('next');
                 if (!raw) return '';
-                const decoded = decodeURIComponent(raw);
-                if (!decoded || decoded.includes('://') || decoded.startsWith('//')) return '';
-                if (decoded.includes('\0') || decoded.includes('<')) return '';
-                return decoded;
+                const decoded = decodeURIComponent(raw).trim();
+                // Only same-site paths: "/x" or "x.html". Blocks "javascript:",
+                // "//evil.com", "/\evil.com" and other scheme or host tricks.
+                if (!decoded || /[\0-\x1f<\\]/.test(decoded)) return '';
+                if (decoded.startsWith('//') || /^[a-z][a-z0-9+.-]*:/i.test(decoded)) return '';
+                const url = new URL(decoded, window.location.origin + '/');
+                if (url.origin !== window.location.origin) return '';
+                return url.pathname + url.search + url.hash;
             } catch (_e) {
                 return '';
             }
@@ -723,6 +727,7 @@
         }
 
         function logoutInModal() {
+            try { fetch('/api/logout', { method: 'POST', credentials: 'same-origin', keepalive: true }).catch(() => {}); } catch (_) { }
             document.getElementById('factory-modal').classList.remove('active');
             localStorage.removeItem('token');
             localStorage.removeItem('user');

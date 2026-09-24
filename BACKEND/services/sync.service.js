@@ -1,6 +1,8 @@
 // fetch is available globally in Node.js 18+ — no require needed
 const express = require('express');
 const rateLimit = require('express-rate-limit');
+const { allowedExtension, PRIVATE_UPLOAD_DIRS } = require('../src/app/uploadSafety');
+const { ensureUniqueIndex } = require('../src/db/indexUtils');
 
 const router = express.Router();
 
@@ -742,6 +744,13 @@ router.post('/upload-asset', uploadAssetLimiter, async (req, res) => {
         const safeFolder = String(folder || '').replace(/[^a-zA-Z0-9_-]/g, '');
         const safeFilename = String(filename || '').replace(/[^a-zA-Z0-9_.\-]/g, '');
         if (!safeFolder || !safeFilename) return res.status(400).json({ error: 'Invalid folder or filename' });
+        // Files land in PUBLIC/uploads and are served from the app's origin, so only image
+        // and video types are accepted (never .html/.svg/.js), and never into a private
+        // folder (resumes).
+        if (!allowedExtension(safeFilename)) return res.status(400).json({ error: 'File type not allowed' });
+        if (PRIVATE_UPLOAD_DIRS.some((d) => d.prefix === `/uploads/${safeFolder.toLowerCase()}/`)) {
+            return res.status(400).json({ error: 'Folder not allowed' });
+        }
         if (!data || typeof data !== 'string') return res.status(400).json({ error: 'Missing data' });
 
         const fs = require('fs');
@@ -3028,7 +3037,9 @@ async function ensureSyncIdSchema() {
             }
 
             await pool.query(`ALTER TABLE ${table} ALTER COLUMN sync_id SET DEFAULT gen_random_uuid()`);
-            await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS uq_sync_id_${table} ON ${table} (sync_id)`);
+            // Skipped when an equivalent unique index already exists (e.g. the table's
+            // <table>_sync_id_key constraint) — see src/db/indexUtils.js.
+            await ensureUniqueIndex((t, p) => pool.query(t, p), { table, columns: 'sync_id', name: `uq_sync_id_${table}` });
         } catch (e) {
             console.warn(`[Sync] sync_id schema skipped for ${table}:`, e.message);
         }
@@ -3045,7 +3056,9 @@ async function ensureSyncConflictIndexes() {
                 console.warn(`[Sync] conflict index skipped for ${table}: table does not exist`);
                 continue;
             }
-            await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS ${indexName} ON ${table} (${columns})`);
+            // ON CONFLICT needs *a* unique index on these columns; reuse the table's own
+            // unique constraint when it already has one instead of adding a twin.
+            await ensureUniqueIndex((t, p) => pool.query(t, p), { table, columns, name: indexName });
         } catch (e) {
             console.warn(`[Sync] conflict index skipped for ${table}:`, e.message);
         }

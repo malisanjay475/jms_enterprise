@@ -11,6 +11,7 @@ const createDbPool = require('../db/createDbPool');
 const runMigrations = require('./runMigrations');
 const createServices = require('../services/createServices');
 const createApp = require('./createApp');
+const { startDataRetention } = require('./dataRetention');
 
 function createHttpsServerIfConfigured(app, config) {
   if (!config.https?.enabled) return null;
@@ -140,6 +141,9 @@ async function startServer() {
   if (services.localNodeAgent?.init) {
     await services.localNodeAgent.init({ pool, config });
   }
+
+  // Daily clean-up of ever-growing tables (first run 10 min after boot, one worker).
+  startDataRetention(pool);
 
   // Graceful, DETERMINISTIC shutdown. Give in-flight requests a short grace
   // window, then force-close every remaining socket so the listener always

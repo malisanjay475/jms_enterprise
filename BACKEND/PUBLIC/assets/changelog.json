@@ -11,8 +11,146 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.72.1",
+  "latest": "1.72.8",
   "versions": [
+    {
+      "version": "1.72.8",
+      "date": "2026-09-24",
+      "title": "Security fixes for login, scanning, AI chat and vendors",
+      "modules": [
+        {
+          "app": "all",
+          "label": "Platform",
+          "icon": "bi-shield-lock",
+          "changes": [
+            { "type": "security", "text": "The login page only sends you on to pages inside JMS after you sign in, so a crafted link can no longer run code or send you to another website." },
+            { "type": "security", "text": "AI chat answers and result tables are shown as plain text, so data in them can no longer run code in your browser." }
+          ]
+        },
+        {
+          "app": "purchase",
+          "label": "Purchase",
+          "icon": "bi-truck",
+          "changes": [
+            { "type": "security", "text": "Vendor and purchase order admin actions now need you to be logged in, and the vendor portal login blocks a vendor code for 15 minutes after 10 wrong passwords." }
+          ]
+        },
+        {
+          "app": "all",
+          "label": "Packing scanning",
+          "icon": "bi-upc-scan",
+          "changes": [
+            { "type": "security", "text": "Wrong-barcode alerts and plan details on the scanning screens show barcodes and item names as plain text, so a tampered barcode can no longer run code." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.72.7",
+      "date": "2026-09-24",
+      "title": "Security updates for the libraries JMS is built on",
+      "modules": [
+        {
+          "app": "all",
+          "label": "Platform",
+          "icon": "bi-shield-lock",
+          "changes": [
+            { "type": "security", "text": "Updated the libraries that handle file uploads, images, automatic updates and logging to fix all known security problems in them." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.72.6",
+      "date": "2026-09-24",
+      "title": "Faster saving: 93 duplicate database indexes removed",
+      "modules": [
+        {
+          "app": "all",
+          "label": "Platform",
+          "icon": "bi-hdd-network",
+          "changes": [
+            { "type": "perf", "text": "Saving DPR entries, plans and other records is lighter on the server: 93 duplicate database indexes that were updated on every save have been removed." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.72.5",
+      "date": "2026-09-24",
+      "title": "DPR entries are checked before saving, and only the right people can change them",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            { "type": "fix", "text": "Shots, good quantity, rejects and downtime can no longer be negative, and downtime cannot be more than 60 minutes in one hour slot." },
+            { "type": "security", "text": "Editing, deleting or correcting DPR entries now checks the logged-in user on the server, so only people with the right role can change production records." },
+            { "type": "improvement", "text": "If editing or deleting an entry says \"Please log in again\", log out and log back in once." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.72.4",
+      "date": "2026-09-24",
+      "title": "Automatic clean-up of old data keeps the server fast",
+      "modules": [
+        {
+          "app": "all",
+          "label": "Platform",
+          "icon": "bi-hdd-network",
+          "changes": [
+            { "type": "perf", "text": "Old data is now cleaned up automatically every day: read notifications after 90 days, activity history after 180 days, and raw machine readings after 90 days. Unread notifications are always kept." },
+            { "type": "perf", "text": "The Activity Monitor page loads faster and no longer slows the server while it refreshes." },
+            { "type": "perf", "text": "Server log files are now kept for 14 days instead of growing forever." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.72.3",
+      "date": "2026-09-24",
+      "title": "Safer file uploads and private resumes",
+      "modules": [
+        {
+          "app": "all",
+          "label": "Platform",
+          "icon": "bi-shield-lock",
+          "changes": [
+            { "type": "security", "text": "Photo and video uploads (QC, machine icons) now accept only real image and video files, so a harmful file can no longer be uploaded disguised as a picture." },
+            { "type": "security", "text": "A new QC Android app is published only after the admin login is confirmed, so a wrong password can never replace the app the factory phones install." }
+          ]
+        },
+        {
+          "app": "hr",
+          "label": "HR",
+          "icon": "bi-people",
+          "changes": [
+            { "type": "security", "text": "Candidate resumes can now be opened only by HR and admins who are logged in." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.72.2",
+      "date": "2026-09-24",
+      "title": "Safer logins: the server now checks who you are before admin actions",
+      "modules": [
+        {
+          "app": "all",
+          "label": "Platform",
+          "icon": "bi-shield-lock",
+          "changes": [
+            { "type": "security", "text": "Logging in now starts a secure session that the server checks itself, so nobody can pretend to be another user." },
+            { "type": "security", "text": "Database backup and restore, bulk data clearing, user and password management and Joy now work only for a properly logged-in user with the right role." },
+            { "type": "improvement", "text": "If an admin tool says \"Please log in again\", log out and log back in once — this refreshes your login to the new secure session." },
+            { "type": "security", "text": "Logging out now also ends your session on the server, and \"Log out from all other devices\" keeps this device signed in." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.72.1",
       "date": "2026-09-24",
