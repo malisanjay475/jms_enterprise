@@ -179,7 +179,6 @@ function escHtml(value) {
     function userCanSelectAllFactories(user = readStoredJson('user', {})) {
         return localStorage.getItem('jpsms_can_all_factories') === 'true'
             || user?.can_select_all_factories === true
-            || user?.global_access === true
             || String(user?.role_code || '').toLowerCase() === 'superadmin'
             || String(user?.username || '').toLowerCase() === 'superadmin';
     }

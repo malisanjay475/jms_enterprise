@@ -139,8 +139,7 @@ async function getActorAccess(req) {
 
   const canSelectAllFactories =
     isSuperadmin(actor) ||
-    String(actor.username || '').toLowerCase() === 'superadmin' ||
-    actor.global_access === true;
+    String(actor.username || '').toLowerCase() === 'superadmin';
 
   if (canSelectAllFactories) {
     return { actor, canSelectAllFactories: true, factoryIds: [] };
@@ -152,6 +151,12 @@ async function getActorAccess(req) {
       WHERE user_id = $1`,
     [actor.id]
   );
+
+  // global_access is remote login only; it widens scope only for a global user with no
+  // factory mapping (legacy accounts), matching getAccessibleFactoriesForUser.
+  if (actor.global_access === true && !result.rows.length) {
+    return { actor, canSelectAllFactories: true, factoryIds: [] };
+  }
 
   return {
     actor,
