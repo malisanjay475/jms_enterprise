@@ -51,7 +51,7 @@ services:
       - "pg_stat_statements.track=top"
     environment:
       POSTGRES_USER: ${DB_USER:-jms_v1}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-JmsV1DbAuto9x4k2m7n1q5w8r}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required (set in deploy env/.env; no default)}
       POSTGRES_DB: ${DB_NAME:-jms_v1}
       # Hardcoded IST — do NOT use ${TZ:-Asia/Kolkata}: if the VPS host has TZ=UTC set
       # (Hostinger Ubuntu default) the :- fallback is SKIPPED and the container gets UTC.
@@ -93,7 +93,7 @@ services:
       DB_HOST: db
       DB_PORT: "5432"
       DB_USER: ${DB_USER:-jms_v1}
-      DB_PASSWORD: ${DB_PASSWORD:-JmsV1DbAuto9x4k2m7n1q5w8r}
+      DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required (set in deploy env/.env; no default)}
       DB_NAME: ${DB_NAME:-jms_v1}
       AUTO_IMPORT_DB_PATH: ${AUTO_IMPORT_DB_PATH:-}
       AUTO_IMPORT_DB_FORCE: ${AUTO_IMPORT_DB_FORCE:-0}
@@ -176,7 +176,7 @@ services:
       # Soft default (NOT :? required) so an unset var never hard-fails the whole
       # stack's `docker compose up` — staging has no PGADMIN_* in .env. Prod MUST
       # override this with a strong password in /opt/jms-enterprise/.env.
-      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD:-changeme_set_in_env}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD:?PGADMIN_DEFAULT_PASSWORD is required (set in deploy env/.env; no default)}
       # pgAdmin sits behind Traefik TLS termination; trust the proxy headers.
       PGADMIN_CONFIG_PROXY_X_HOST_COUNT: "1"
       PGADMIN_CONFIG_PROXY_X_PREFIX_COUNT: "1"

@@ -4998,7 +4998,13 @@ async function initializeLegacyRuntime() {
             INSERT INTO server_config (key, value) VALUES ('MAIN_SERVER_URL', '${process.env.MAIN_SERVER_URL || ''}') ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value;
             
             INSERT INTO server_config (key, value) VALUES ('LOCAL_FACTORY_ID', '${process.env.LOCAL_FACTORY_ID || '1'}') ON CONFLICT (key) DO NOTHING;
-            INSERT INTO server_config (key, value) VALUES ('SYNC_API_KEY', '${process.env.SYNC_API_KEY || 'jpsms-sync-key'}') ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value;
+            ${process.env.SYNC_API_KEY
+              // Only propagate the sync key from the environment. Never fall back
+              // to a hardcoded default: doing so used to overwrite a rotated key
+              // with a well-known value on every boot whenever the env var was
+              // missing. With no env var, leave whatever is already in the DB.
+              ? `INSERT INTO server_config (key, value) VALUES ('SYNC_API_KEY', '${process.env.SYNC_API_KEY}') ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value;`
+              : `-- SYNC_API_KEY not set in env; leaving existing server_config value untouched`}
 
             CREATE TABLE IF NOT EXISTS ai_memory (
                 id SERIAL PRIMARY KEY,
@@ -9811,11 +9817,11 @@ function buildPriorityTitle(priorityDate, shift) {
 // POST /api/planning/priority  → create a saved priority list
 app.post('/api/planning/priority', async (req, res) => {
   try {
-    // Role guard — only PPC managers, HR manager and admins/superadmin may create
+    // Role guard — only PPC managers, HR manager, General Manager and admins/superadmin may create
     // a priority (MC/MP) schedule. Mirrors the frontend gate in etvApplyPriorityRole
     // (planning-script-1.js); enforced here so the button-hiding can't be bypassed.
     const actor = await getRequestActor(req);
-    const PRIORITY_CREATE_ROLES = new Set(['ppc_ass_manager', 'ppc_manager', 'hr_manager']);
+    const PRIORITY_CREATE_ROLES = new Set(['ppc_ass_manager', 'ppc_manager', 'hr_manager', 'general_manager']);
     const roleOk = actor && (isAdminLikeRole(actor)
       || PRIORITY_CREATE_ROLES.has(String(actor.role_code || '').toLowerCase()));
     if (!roleOk) {
