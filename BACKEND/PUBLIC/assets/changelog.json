@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.72.6",
+  "latest": "1.72.7",
   "versions": [
+    {
+      "version": "1.72.7",
+      "date": "2026-09-24",
+      "title": "Security updates for the libraries JMS is built on",
+      "modules": [
+        {
+          "app": "all",
+          "label": "Platform",
+          "icon": "bi-shield-lock",
+          "changes": [
+            { "type": "security", "text": "Updated the libraries that handle file uploads, images, automatic updates and logging to fix all known security problems in them." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.72.6",
       "date": "2026-09-24",
