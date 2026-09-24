@@ -2347,10 +2347,14 @@ async function getAccessibleFactoriesForUser(userOrUsername) {
   }
 
   const role = String(user.role_code || '').toLowerCase();
-  const canSelectAllFactories = role === 'superadmin' || user.username === 'superadmin' || user.global_access === true;
+  const isSuperadmin = role === 'superadmin' || user.username === 'superadmin';
 
-  const factories = canSelectAllFactories
-    ? await q(`SELECT id, name, code, location, 'all' as user_role FROM factories WHERE is_active = true ORDER BY id`)
+  // global_access means "remote login" (geofence bypass) only — it does NOT widen the
+  // factory list. A global user sees just the factories ticked for them in user_factories.
+  // Legacy fallback: a global user with NO factory mapping keeps all factories, so
+  // existing unmapped global accounts are not locked out.
+  let factories = isSuperadmin
+    ? []
     : await q(
       `SELECT f.id, f.name, f.code, f.location, $2::text as user_role
          FROM factories f
@@ -2360,6 +2364,10 @@ async function getAccessibleFactoriesForUser(userOrUsername) {
         ORDER BY f.id`,
       [user.id, role || 'member']
     );
+  const canSelectAllFactories = isSuperadmin || (user.global_access === true && factories.length === 0);
+  if (canSelectAllFactories) {
+    factories = await q(`SELECT id, name, code, location, 'all' as user_role FROM factories WHERE is_active = true ORDER BY id`);
+  }
 
   const result = { user, factories, canSelectAllFactories };
   if (cacheKey) _factoryScopeCache.set(cacheKey, { data: result, exp: Date.now() + 60_000 });
