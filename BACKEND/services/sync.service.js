@@ -2,6 +2,7 @@
 const express = require('express');
 const rateLimit = require('express-rate-limit');
 const { allowedExtension, PRIVATE_UPLOAD_DIRS } = require('../src/app/uploadSafety');
+const { ensureUniqueIndex } = require('../src/db/indexUtils');
 
 const router = express.Router();
 
@@ -3036,7 +3037,9 @@ async function ensureSyncIdSchema() {
             }
 
             await pool.query(`ALTER TABLE ${table} ALTER COLUMN sync_id SET DEFAULT gen_random_uuid()`);
-            await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS uq_sync_id_${table} ON ${table} (sync_id)`);
+            // Skipped when an equivalent unique index already exists (e.g. the table's
+            // <table>_sync_id_key constraint) — see src/db/indexUtils.js.
+            await ensureUniqueIndex((t, p) => pool.query(t, p), { table, columns: 'sync_id', name: `uq_sync_id_${table}` });
         } catch (e) {
             console.warn(`[Sync] sync_id schema skipped for ${table}:`, e.message);
         }
@@ -3053,7 +3056,9 @@ async function ensureSyncConflictIndexes() {
                 console.warn(`[Sync] conflict index skipped for ${table}: table does not exist`);
                 continue;
             }
-            await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS ${indexName} ON ${table} (${columns})`);
+            // ON CONFLICT needs *a* unique index on these columns; reuse the table's own
+            // unique constraint when it already has one instead of adding a twin.
+            await ensureUniqueIndex((t, p) => pool.query(t, p), { table, columns, name: indexName });
         } catch (e) {
             console.warn(`[Sync] conflict index skipped for ${table}:`, e.message);
         }
