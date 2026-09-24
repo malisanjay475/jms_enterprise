@@ -16,7 +16,7 @@
     {
       "version": "1.72.1",
       "date": "2026-09-24",
-      "title": "Factory access follows the factories ticked for each user, and factory orders reach the main server again",
+      "title": "Factory access follows each user's ticked factories, orders sync to the main server again, and sync is faster",
       "modules": [
         {
           "app": "users",
@@ -32,7 +32,11 @@
           "label": "Platform",
           "icon": "bi-hdd-network",
           "changes": [
-            { "type": "fix", "text": "Orders entered at the factory are sent to the main server again — duplicate orders that were blocking the sync have been cleaned up." }
+            { "type": "fix", "text": "Orders entered at the factory are sent to the main server again — duplicate orders that were blocking the sync have been cleaned up." },
+            { "type": "fix", "text": "Factory and main server sync is much lighter — planning rows are no longer sent back and forth on every cycle, and notifications no longer download the same items over and over." },
+            { "type": "fix", "text": "Large batches of deletions now sync completely between the factory and the main server instead of stopping after the first batch." },
+            { "type": "perf", "text": "The machine monitor loads the latest machine readings almost instantly instead of taking seconds." },
+            { "type": "security", "text": "The sync key is no longer written into server access logs." }
           ]
         }
       ]
