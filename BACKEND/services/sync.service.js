@@ -99,6 +99,23 @@ const PULL_RETRY_BASE_DELAY_MS = readNonNegativeIntegerEnv(
     process.env.NODE_ENV === 'test' ? 0 : 1000
 );
 const PULL_MAX_RETRIES = readNonNegativeIntegerEnv('SYNC_PULL_MAX_RETRIES', 4);
+// Upper bound for any single HTTP call to MAIN. Without it a half-open connection could
+// hold syncInFlight=true and stall every later cycle. Generous because a 1000-row page
+// travels over the factory internet line.
+const SYNC_FETCH_TIMEOUT_MS = readPositiveIntegerEnv('SYNC_FETCH_TIMEOUT_MS', 120 * 1000);
+
+function withSyncTimeout(options = {}) {
+    return { ...options, signal: AbortSignal.timeout(SYNC_FETCH_TIMEOUT_MS) };
+}
+
+// GET pulls carry the sync key in this header. It used to travel as ?apiKey= in the URL,
+// which access logs record, so the key sat in plain text in logs/access.log on MAIN.
+// POST routes keep the key in the JSON body (bodies are not logged).
+const SYNC_KEY_HEADER = 'x-sync-api-key';
+
+function syncPullHeaders() {
+    return { [SYNC_KEY_HEADER]: API_KEY };
+}
 
 const SYNC_ALL = [
     'app_settings',
@@ -678,7 +695,7 @@ async function fetchWithSyncRetry(url, label, options = {}) {
         if (PULL_REQUEST_DELAY_MS > 0) await sleep(PULL_REQUEST_DELAY_MS);
 
         try {
-            const response = await fetch(url, options);
+            const response = await fetch(url, withSyncTimeout(options));
             if (response.ok || !isRetryableSyncStatus(response.status) || attempt > PULL_MAX_RETRIES) {
                 return response;
             }
@@ -807,8 +824,8 @@ router.post('/push-deletions', async (req, res) => {
 router.get('/pull', async (req, res) => {
     if (!pool) return res.status(503).json({ error: 'Service initializing' });
     try {
-        const { table, lastSync, since, apiKey, factoryId, afterId } = req.query;
-        if (apiKey !== API_KEY) return res.status(403).json({ error: 'Invalid Key' });
+        const { table, lastSync, since, factoryId, afterId } = req.query;
+        if (req.get(SYNC_KEY_HEADER) !== API_KEY) return res.status(403).json({ error: 'Invalid Key' });
         if (!TABLES_TO_PULL.includes(table)) return res.status(400).json({ error: 'Invalid Table' });
 
         // afterId is the keyset tiebreaker: the id of the last row the client
@@ -831,11 +848,12 @@ router.get('/pull', async (req, res) => {
 router.get('/pull-deletions', async (req, res) => {
     if (!pool) return res.status(503).json({ error: 'Service initializing' });
     try {
-        const { since, apiKey, factoryId } = req.query;
-        if (apiKey !== API_KEY) return res.status(403).json({ error: 'Invalid Key' });
+        const { since, factoryId, afterId } = req.query;
+        if (req.get(SYNC_KEY_HEADER) !== API_KEY) return res.status(403).json({ error: 'Invalid Key' });
 
         // factoryId=all (full replication) → no factory filter; numeric → that factory only.
-        const deletions = await getDeletionChanges(since, normalizePullFactoryScope(factoryId));
+        // afterId pages through large deletion batches (older LOCALs omit it: first page only).
+        const deletions = await getDeletionChanges(since, normalizePullFactoryScope(factoryId), parseAfterIdParam(afterId));
         res.json({ ok: true, data: deletions });
     } catch (e) {
         console.error('[Sync] Pull Deletions Error:', e);
@@ -1106,6 +1124,10 @@ async function init(dbPool) {
         });
 
         await ensureSyncRuntimeSchema(config);
+        // Background: must not hold up the first sync cycle or the app.
+        ensureSyncUpdatedAtIndexes().catch((e) => {
+            console.warn('[Sync] updated_at index build failed:', e.message);
+        });
         if (Object.keys(config).length === 0) {
             config = await getServerConfigSnapshot().catch(() => ({}));
         }
@@ -1134,7 +1156,7 @@ async function init(dbPool) {
         }
 
         console.log(`[Sync] Init. Type: ${SERVER_TYPE}, Factory: ${LOCAL_FACTORY_ID}, Main: ${MAIN_SERVER_URL}, FullReplication: ${FULL_REPLICATION}`);
-        console.log('[Sync] Service Version: v4.7 (Global Master Tables, Paginated Pull, Moulds Full Sync)');
+        console.log('[Sync] Service Version: v4.8 (No echo re-stamp, id-cursor paging for all tables + deletions, updated_at indexes, fetch timeouts)');
 
         await ensureDateTimezoneBackfill();
 
@@ -1191,6 +1213,7 @@ async function resyncIdKeyedSequences() {
 
 async function ensureSyncRuntimeSchema(config = {}) {
     await resyncIdKeyedSequences();
+    await ensureSyncTouchFunctions();
 
     if (!shouldForceSyncSchemaEnsure() && config[SYNC_SCHEMA_READY_KEY] === SYNC_SCHEMA_READY_VERSION) {
         console.log('[Sync] Schema already verified; skipping startup schema sweep.');
@@ -1324,11 +1347,11 @@ async function pushRowsToMain(table, rows) {
     wireRows = await coerceJsonColumnsForWire(table, wireRows);
     const payload = { factoryId: LOCAL_FACTORY_ID, table, data: wireRows, apiKey: API_KEY };
     try {
-        const response = await fetch(`${MAIN_SERVER_URL}/api/sync/push`, {
+        const response = await fetch(`${MAIN_SERVER_URL}/api/sync/push`, withSyncTimeout({
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)
-        });
+        }));
         if (!response.ok) {
             const text = await response.text().catch(() => '');
             return { ok: false, error: `HTTP ${response.status}: ${text.slice(0, 200)}` };
@@ -1574,41 +1597,57 @@ async function pushDeletionChanges() {
     const res = await pool.query(`SELECT value FROM server_config WHERE key = 'LAST_DELETE_PUSH'`);
     const lastPush = res.rows.length ? res.rows[0].value : '1970-01-01';
     const cycleWatermark = await getDatabaseNowIso();
-    let deletions = await getDeletionChanges(lastPush, LOCAL_FACTORY_ID);
 
-    // On LOCAL servers, never push deletions for auth-authoritative tables.
-    if (SERVER_TYPE === 'LOCAL' && LOCAL_NO_PUSH_TABLES.length) {
-        deletions = deletions.filter((d) => !LOCAL_NO_PUSH_TABLES.includes(d.table));
-    }
+    // Page through every tombstone newer than the watermark (id cursor). The old code sent
+    // only the first DELETE_BATCH_LIMIT and then advanced the watermark, so a bulk delete
+    // larger than one batch never reached MAIN beyond its first 1000 rows.
+    let afterId = null;
+    for (;;) {
+        const page = await getDeletionChanges(lastPush, LOCAL_FACTORY_ID, afterId);
+        if (page.length === 0) break;
 
-    if (deletions.length > 0) {
-        console.log(`[Sync] Pushing ${deletions.length} deletions...`);
-        let response;
-        try {
-            response = await fetch(`${MAIN_SERVER_URL}/api/sync/push-deletions`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ deletions, apiKey: API_KEY })
-            });
-        } catch (error) {
-            console.error('[Sync] Push Deletions Request Failed:', error.message);
-            stats.failed += deletions.length;
-            return stats;
+        // On LOCAL servers, never push deletions for auth-authoritative tables.
+        const deletions = (SERVER_TYPE === 'LOCAL' && LOCAL_NO_PUSH_TABLES.length)
+            ? page.filter((d) => !LOCAL_NO_PUSH_TABLES.includes(d.table))
+            : page;
+
+        if (deletions.length > 0) {
+            console.log(`[Sync] Pushing ${deletions.length} deletions...`);
+            let response;
+            try {
+                response = await fetch(`${MAIN_SERVER_URL}/api/sync/push-deletions`, withSyncTimeout({
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ deletions, apiKey: API_KEY })
+                }));
+            } catch (error) {
+                console.error('[Sync] Push Deletions Request Failed:', error.message);
+                stats.failed += deletions.length;
+                break;
+            }
+
+            if (!response.ok) {
+                const text = await response.text().catch(() => '');
+                console.error('[Sync] Push Deletions Failed:', text);
+                stats.failed += deletions.length;
+                break;
+            }
+            stats.deleted += deletions.length;
         }
 
-        if (!response.ok) {
-            const text = await response.text();
-            console.error('[Sync] Push Deletions Failed:', text);
-            stats.failed += deletions.length;
-            return stats;
-        }
-        stats.deleted += deletions.length;
+        if (page.length < DELETE_BATCH_LIMIT) break;
+        const nextAfterId = maxRowId(page);
+        if (nextAfterId === null || (afterId !== null && nextAfterId <= afterId)) break; // no forward progress
+        afterId = nextAfterId;
     }
 
-    // Always advance so deletion sync never gets permanently stuck.
-    await setServerConfigValue('LAST_DELETE_PUSH', cycleWatermark);
-    if (stats.failed > 0) {
-        console.warn(`[Sync] LAST_DELETE_PUSH advanced despite ${stats.failed} deletion push error(s).`);
+    // Hold the watermark when a batch failed so those tombstones are retried next cycle.
+    // (Previously it always advanced, and failed deletions were lost for good.) MAIN
+    // applies tombstones idempotently, so re-sending the ones that did land is harmless.
+    if (stats.failed === 0) {
+        await setServerConfigValue('LAST_DELETE_PUSH', cycleWatermark);
+    } else {
+        console.warn(`[Sync] LAST_DELETE_PUSH kept at ${lastPush} because ${stats.failed} deletion(s) failed to push — retrying next cycle.`);
     }
     return stats;
 }
@@ -1623,7 +1662,13 @@ async function pushDeletionChanges() {
 //
 //   This function pages through in batches of 1000 using the last returned row's updated_at
 //   as the new 'since' for each subsequent request, until fewer than 1000 rows are returned.
-async function pullTableAllPages(table, since) {
+//
+//   With `onPage`, each page is handed to the callback as soon as it arrives and is NOT
+//   kept in memory — pullChanges upserts page by page. Accumulating a whole table first
+//   (up to 136k notification rows in one cycle) held tens of MB in the web process and
+//   coincided with a measured 10 s event-loop freeze. Without `onPage` the rows are
+//   returned as one array (tests / small callers).
+async function pullTableAllPages(table, since, onPage = null) {
     const PAGE_LIMIT = 1000; // must match LIMIT in getChanges() on MAIN
     const allData = [];
     // `since` (the updated_at watermark) stays FIXED for the whole pagination;
@@ -1639,9 +1684,9 @@ async function pullTableAllPages(table, since) {
 
     while (true) {
         pageNum += 1;
-        let url = `${MAIN_SERVER_URL}/api/sync/pull?table=${encodeURIComponent(table)}&since=${encodeURIComponent(currentSince)}&apiKey=${encodeURIComponent(API_KEY)}&factoryId=${encodeURIComponent(localPullFactoryParam())}`;
+        let url = `${MAIN_SERVER_URL}/api/sync/pull?table=${encodeURIComponent(table)}&since=${encodeURIComponent(currentSince)}&factoryId=${encodeURIComponent(localPullFactoryParam())}`;
         if (currentAfterId !== null) url += `&afterId=${encodeURIComponent(currentAfterId)}`;
-        const response = await fetchWithSyncRetry(url, `Pull ${table} page ${pageNum}`);
+        const response = await fetchWithSyncRetry(url, `Pull ${table} page ${pageNum}`, { headers: syncPullHeaders() });
 
         if (!response.ok) {
             const errText = await response.text().catch(() => '');
@@ -1650,16 +1695,26 @@ async function pullTableAllPages(table, since) {
 
         const json = await response.json();
         const rows = json.data || [];
-        allData.push(...rows);
+        if (onPage) {
+            if (rows.length > 0) await onPage(rows);
+        } else {
+            allData.push(...rows);
+        }
 
         if (rows.length < PAGE_LIMIT) break; // this was the last page
 
         const lastRow = rows[rows.length - 1];
-        const lastId = lastRow?.id;
+        const lastId = maxRowId(rows);
 
-        if (lastId !== undefined && lastId !== null) {
-            // id keyset: keep `since` fixed, advance only afterId.
-            if (usedIdCursor && lastId === currentAfterId) break; // safety: no progress
+        if (lastId !== null) {
+            // id keyset: keep `since` fixed, advance only afterId. The cursor must strictly
+            // increase; if it doesn't, MAIN is not honouring afterId (e.g. an older build
+            // that fell back to an updated_at-ordered query) and further pages would just
+            // repeat rows, so stop instead of looping.
+            if (usedIdCursor && lastId <= currentAfterId) {
+                console.warn(`[Sync] Pull ${table}: page ${pageNum} did not advance the id cursor (${lastId} <= ${currentAfterId}); stopping pagination.`);
+                break;
+            }
             currentAfterId = lastId;
             usedIdCursor = true;
             console.log(`[Sync] Pull ${table} page ${pageNum} (${rows.length} rows). Fetching more afterId ${lastId}...`);
@@ -1689,15 +1744,15 @@ async function pullChanges() {
                 continue;
             }
 
-            const data = await pullTableAllPages(table, lastPull);
-
-            if (data.length > 0) {
-                console.log(`[Sync] Pulled ${data.length} rows for ${table}...`);
-                const tableStats = await upsertData(table, data);
-                stats.created += tableStats.created;
-                stats.updated += tableStats.updated;
-                stats.failed += tableStats.failed;
-            }
+            let pulled = 0;
+            await pullTableAllPages(table, lastPull, async (rows) => {
+                pulled += rows.length;
+                const pageStats = await upsertData(table, rows);
+                stats.created += pageStats.created;
+                stats.updated += pageStats.updated;
+                stats.failed += pageStats.failed;
+            });
+            if (pulled > 0) console.log(`[Sync] Pulled ${pulled} rows for ${table}...`);
         } catch (e) {
             console.error(`[Sync] Pull Failed ${table}:`, e.message);
             stats.failed += 1;
@@ -1744,22 +1799,34 @@ async function pullDeletionChanges() {
     const cycleWatermark = await getDatabaseNowIso();
 
     try {
-        const response = await fetchWithSyncRetry(
-            `${MAIN_SERVER_URL}/api/sync/pull-deletions?since=${encodeURIComponent(lastPull)}&apiKey=${encodeURIComponent(API_KEY)}&factoryId=${encodeURIComponent(localPullFactoryParam())}`,
-            'Pull deletions'
-        );
-        if (!response.ok) {
-            const errText = await response.text().catch(() => '');
-            throw new Error(`Pull deletions HTTP ${response.status}: ${errText.slice(0, 200)}`);
-        }
+        // Page with an id cursor so a bulk delete larger than one batch is fully applied
+        // before LAST_DELETE_PULL advances. An older MAIN ignores afterId and repeats its
+        // first page; the strict-progress check below stops that after one extra request.
+        let afterId = null;
+        let pageNum = 0;
+        for (;;) {
+            pageNum += 1;
+            let url = `${MAIN_SERVER_URL}/api/sync/pull-deletions?since=${encodeURIComponent(lastPull)}&factoryId=${encodeURIComponent(localPullFactoryParam())}`;
+            if (afterId !== null) url += `&afterId=${encodeURIComponent(afterId)}`;
+            const response = await fetchWithSyncRetry(url, `Pull deletions page ${pageNum}`, { headers: syncPullHeaders() });
+            if (!response.ok) {
+                const errText = await response.text().catch(() => '');
+                throw new Error(`Pull deletions HTTP ${response.status}: ${errText.slice(0, 200)}`);
+            }
 
-        const json = await response.json();
-        const deletions = json.data || [];
-        if (deletions.length > 0) {
-            console.log(`[Sync] Pulled ${deletions.length} deletions...`);
-            const applied = await applyRemoteDeletions(deletions);
-            stats.deleted += applied.deleted;
-            stats.failed += applied.failed;
+            const json = await response.json();
+            const deletions = json.data || [];
+            if (deletions.length > 0) {
+                console.log(`[Sync] Pulled ${deletions.length} deletions...`);
+                const applied = await applyRemoteDeletions(deletions);
+                stats.deleted += applied.deleted;
+                stats.failed += applied.failed;
+            }
+
+            if (deletions.length < DELETE_BATCH_LIMIT) break;
+            const nextAfterId = maxRowId(deletions);
+            if (nextAfterId === null || (afterId !== null && nextAfterId <= afterId)) break;
+            afterId = nextAfterId;
         }
     } catch (e) {
         console.error('[Sync] Pull Deletions Failed:', e);
@@ -1914,6 +1981,8 @@ async function upsertData(table, data) {
         try {
             if (attempt > 0) console.log(`[Sync] Upsert retry ${attempt + 1} for ${table} (${data.length} rows)`);
             await client.query('BEGIN');
+            // LOCAL applying rows pulled from MAIN: keep MAIN's updated_at (see SYNC_APPLY_FLAG).
+            if (SERVER_TYPE === 'LOCAL') await markSyncApply(client);
 
             // Set when at least one row in this batch carried an explicit 'id'
             // into the INSERT — those bypass nextval and leave the sequence stale.
@@ -2288,8 +2357,13 @@ async function getChanges(table, since, targetFactoryId, afterId) {
     }
 
     // Global master tables are NOT scoped to a factory — every LOCAL server should
-    // receive the complete set regardless of factory_id assignment.
-    if (targetFactoryId && !GLOBAL_MASTER_TABLES.has(table)) {
+    // receive the complete set regardless of factory_id assignment. Tables without a
+    // factory_id column (e.g. notifications) are served unscoped too. Filtering them on
+    // factory_id used to fail with 42703 and drop into a fallback query that ignored the
+    // afterId cursor, so every "page" returned roughly the same 1000 rows and the LOCAL
+    // re-pulled the table 70-136 times per cycle.
+    const hasFactoryId = await tableHasColumn(table, 'factory_id');
+    if (targetFactoryId && hasFactoryId && !GLOBAL_MASTER_TABLES.has(table)) {
         params.push(targetFactoryId);
         where.push(`(factory_id = $${params.length} OR factory_id IS NULL)`);
     }
@@ -2300,24 +2374,15 @@ async function getChanges(table, since, targetFactoryId, afterId) {
 
     sql += hasId ? ' ORDER BY id ASC LIMIT 1000' : ' ORDER BY updated_at ASC LIMIT 1000';
 
-    try {
-        const rows = await pool.query(sql, params);
-        return rows.rows;
-    } catch (e) {
-        if (e.code === '42703') {
-            if (targetFactoryId) params.pop();
-
-            let fallbackSql = `SELECT * FROM ${table}`;
-            if (normalizedSince) fallbackSql += ' WHERE updated_at > $1';
-            fallbackSql += ' ORDER BY updated_at ASC LIMIT 1000';
-            const fallback = await pool.query(fallbackSql, normalizedSince ? [normalizedSince] : []);
-            return fallback.rows;
-        }
-        throw e;
-    }
+    const rows = await pool.query(sql, params);
+    return rows.rows;
 }
 
-async function getDeletionChanges(since, targetFactoryId) {
+// Pages by the serial id (deleted_at is only a filter), like getChanges does for rows.
+// A single bulk delete stamps every tombstone with the same deleted_at, so a
+// deleted_at cursor would skip the rest of that block once the first page advanced
+// past it. `id` is returned so callers can pass it back as afterId.
+async function getDeletionChanges(since, targetFactoryId, afterId = null) {
     const params = [];
     const where = [];
     const normalizedSince = normalizeSyncTimestampInput(since);
@@ -2327,13 +2392,18 @@ async function getDeletionChanges(since, targetFactoryId) {
         where.push(`deleted_at > $${params.length}`);
     }
 
+    if (afterId !== null && afterId !== undefined) {
+        params.push(afterId);
+        where.push(`id > $${params.length}`);
+    }
+
     if (targetFactoryId) {
         params.push(targetFactoryId);
         where.push(`(factory_id = $${params.length} OR factory_id IS NULL)`);
     }
 
     let sql = `
-        SELECT table_name AS table, record_pk, factory_id, deleted_at
+        SELECT id, table_name AS table, record_pk, factory_id, deleted_at
         FROM sync_deletions
     `;
 
@@ -2341,9 +2411,25 @@ async function getDeletionChanges(since, targetFactoryId) {
         sql += ` WHERE ${where.join(' AND ')}`;
     }
 
-    sql += ` ORDER BY deleted_at ASC LIMIT ${DELETE_BATCH_LIMIT}`;
+    sql += ` ORDER BY id ASC LIMIT ${DELETE_BATCH_LIMIT}`;
     const result = await pool.query(sql, params);
     return result.rows;
+}
+
+function parseAfterIdParam(value) {
+    const parsed = Number.parseInt(value, 10);
+    return Number.isFinite(parsed) ? parsed : null;
+}
+
+// Largest numeric `id` in a page, or null. Used to advance an id cursor.
+function maxRowId(rows) {
+    let max = null;
+    for (const row of rows) {
+        if (row?.id === null || row?.id === undefined || row.id === '') continue;
+        const id = Number(row.id);
+        if (Number.isFinite(id) && (max === null || id > max)) max = id;
+    }
+    return max;
 }
 
 async function applyRemoteDeletions(deletions) {
@@ -2542,15 +2628,106 @@ async function ensureSyncOutboxSchema() {
     console.log('[Sync] Failed-row outbox ready');
 }
 
-async function ensureSyncUpdatedAtSchema() {
-    await pool.query(`
-        CREATE OR REPLACE FUNCTION touch_sync_updated_at_column() RETURNS trigger AS $$
+// Session flag the sync applier sets (transaction-local) while writing rows pulled from
+// MAIN. The updated_at triggers leave such rows' updated_at exactly as MAIN sent it.
+//
+// Why: the triggers used to re-stamp every row the applier wrote with the LOCAL's NOW(),
+// so a row received from MAIN looked freshly edited, was pushed straight back, MAIN
+// re-stamped it on arrival, and the next pull brought it back again — every edited row
+// bounced forever (measured: the same 5,634 plan_board rows each 2-3 min cycle). Keeping
+// MAIN's timestamp on the LOCAL ends that: the row is re-pushed at most once, and MAIN's
+// upsert guard (EXCLUDED.updated_at > existing) ignores an equal timestamp.
+//
+// MAIN deliberately does NOT set the flag: its arrival re-stamp is what makes a pushed row
+// visible to every OTHER server's pull watermark (other factories, global tables, full
+// replication). Keeping the sender's older timestamp there would hide late pushes.
+const SYNC_APPLY_FLAG = 'jms.sync_apply';
+
+async function markSyncApply(client) {
+    await client.query(`SELECT set_config('${SYNC_APPLY_FLAG}', 'on', true)`);
+}
+
+function buildTouchFunctionSql(name) {
+    return `
+        CREATE OR REPLACE FUNCTION ${name}() RETURNS trigger AS $$
         BEGIN
+            IF current_setting('${SYNC_APPLY_FLAG}', true) = 'on' THEN
+                RETURN NEW;
+            END IF;
             NEW.updated_at = NOW();
             RETURN NEW;
         END;
         $$ LANGUAGE plpgsql
-    `);
+    `;
+}
+
+// Runs on every boot (not behind the schema-version marker): it is cheap, idempotent, and
+// servers that already passed the one-time sweep still need the flag-aware bodies.
+// update_updated_at_column() is a legacy per-table trigger (7 tables, from an old DB
+// restore, not defined in this repo) that also re-stamps updated_at; it only gets the
+// flag-aware body where it already exists.
+async function ensureSyncTouchFunctions() {
+    try {
+        await pool.query(buildTouchFunctionSql('touch_sync_updated_at_column'));
+        const legacy = await pool.query(`SELECT 1 FROM pg_proc WHERE proname = 'update_updated_at_column' LIMIT 1`);
+        if (legacy.rowCount > 0) {
+            await pool.query(buildTouchFunctionSql('update_updated_at_column'));
+        }
+    } catch (e) {
+        // Several PM2 workers may replace the function at once ("tuple concurrently
+        // updated"); one of them wins, which is all that is needed.
+        console.warn('[Sync] updated_at trigger function refresh skipped:', e.message);
+    }
+}
+
+const SYNC_INDEX_LOCK_KEY = 918273646; // one index builder across PM2 workers
+
+// Every push, pull page and pending count filters on `updated_at > $since`. Only 2 of 81
+// sync tables had an index on it, so each of those queries was a full table scan
+// (measured on factory-1: hundreds of millions of rows read per day on std_actual,
+// notifications and dpr_hourly). Built CONCURRENTLY so reads and writes carry on; runs in
+// the background after init because the first build on a large table takes a while.
+// An interrupted CONCURRENTLY build leaves an INVALID index that IF NOT EXISTS would keep
+// skipping, so invalid leftovers are dropped and rebuilt.
+async function ensureSyncUpdatedAtIndexes() {
+    const client = await pool.connect();
+    let locked = false;
+    try {
+        const lock = await client.query('SELECT pg_try_advisory_lock($1) AS ok', [SYNC_INDEX_LOCK_KEY]);
+        locked = lock.rows[0]?.ok === true;
+        if (!locked) return; // another worker is on it
+
+        let built = 0;
+        for (const table of SYNC_ALL) {
+            try {
+                if (!(await tableExistsPublic(table))) continue;
+                if (!(await tableHasColumn(table, 'updated_at'))) continue;
+                const indexName = `idx_sync_updated_at_${table}`.slice(0, 63);
+                const existing = await client.query(
+                    `SELECT i.indisvalid
+                       FROM pg_class c JOIN pg_index i ON i.indexrelid = c.oid
+                      WHERE c.relname = $1 AND c.relkind = 'i'`,
+                    [indexName]
+                );
+                if (existing.rowCount > 0 && existing.rows[0].indisvalid) continue;
+                if (existing.rowCount > 0) {
+                    await client.query(`DROP INDEX CONCURRENTLY IF EXISTS ${indexName}`);
+                }
+                await client.query(`CREATE INDEX CONCURRENTLY IF NOT EXISTS ${indexName} ON ${table} (updated_at)`);
+                built += 1;
+            } catch (e) {
+                console.warn(`[Sync] updated_at index skipped for ${table}:`, e.message);
+            }
+        }
+        if (built > 0) console.log(`[Sync] Built ${built} updated_at index(es) for sync tables.`);
+    } finally {
+        if (locked) await client.query('SELECT pg_advisory_unlock($1)', [SYNC_INDEX_LOCK_KEY]).catch(() => {});
+        client.release();
+    }
+}
+
+async function ensureSyncUpdatedAtSchema() {
+    await pool.query(buildTouchFunctionSql('touch_sync_updated_at_column'));
 
     for (const table of SYNC_ALL) {
         try {
@@ -3137,6 +3314,13 @@ module.exports = {
         findFullReplicationKeyOffenders,
         assertFullReplicationSafe,
         normalizePullFactoryScope,
-        localPullFactoryParam
+        localPullFactoryParam,
+        getChanges,
+        getDeletionChanges,
+        pushDeletionChanges,
+        pullDeletionChanges,
+        ensureSyncTouchFunctions,
+        buildTouchFunctionSql,
+        maxRowId
     }
 };
