@@ -181,8 +181,8 @@
       const body = document.getElementById('aiChatBody');
       body.innerHTML = `
           <div class="msg bot">
-            ${greetWord}${namePart}! 👋<br>
-            I see you're on <strong>${cleanPage}</strong>.<br>
+            ${chatEsc(greetWord)}${chatEsc(namePart)}! 👋<br>
+            I see you're on <strong>${chatEsc(cleanPage)}</strong>.<br>
             How can I help you with this screen?
           </div>
         `;
@@ -198,7 +198,7 @@
     const txt = inp.value.trim();
     if (!txt) return;
 
-    addMsg(txt, 'user');
+    addMsg(chatText(txt), 'user');
     inp.value = '';
     inp.disabled = true;
 
@@ -219,9 +219,9 @@
 
       if (res.ok) {
         if (res.error) {
-          addMsg(res.error, 'error');
+          addMsg(chatText(res.error), 'error');
         } else if (res.type === 'text') {
-          addMsg(res.answer, 'bot');
+          addMsg(chatText(res.answer), 'bot');
         } else if (res.type === 'table') {
           if (!res.answer || res.answer.length === 0) {
             addMsg("No records found.", 'bot');
@@ -234,11 +234,11 @@
         }
       } else {
         removeMsg(thinkId);
-        addMsg(res.error || 'Server error', 'error');
+        addMsg(chatText(res.error || 'Server error'), 'error');
       }
     } catch (e) {
       removeMsg(thinkId);
-      addMsg(e.message, 'error');
+      addMsg(chatText(e.message), 'error');
     } finally {
       inp.disabled = false;
       inp.focus();
@@ -247,6 +247,18 @@
 
   document.getElementById('aiChatSend').onclick = sendMsg;
   document.getElementById('aiChatInput').onkeydown = (e) => { if (e.key === 'Enter') sendMsg(); };
+
+  // Model replies, DB values and error text are data, never markup.
+  function chatEsc(value) {
+    return String(value == null ? '' : value).replace(/[&<>"']/g, ch => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    }[ch]));
+  }
+
+  // Escaped text with line breaks and **bold** kept.
+  function chatText(value) {
+    return chatEsc(value).replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>').replace(/\n/g, '<br>');
+  }
 
   function addMsg(html, type) {
     const d = document.createElement('div');
@@ -268,11 +280,11 @@
     if (!rows.length) return;
     const keys = Object.keys(rows[0]);
     let h = `<div class="ai-table-wrap"><table class="ai-table"><thead><tr>`;
-    keys.forEach(k => h += `<th>${k}</th>`);
+    keys.forEach(k => h += `<th>${chatEsc(k)}</th>`);
     h += `</tr></thead><tbody>`;
     rows.forEach(r => {
       h += `<tr>`;
-      keys.forEach(k => h += `<td>${String(r[k] == null ? '-' : r[k])}</td>`);
+      keys.forEach(k => h += `<td>${chatEsc(r[k] == null ? '-' : r[k])}</td>`);
       h += `</tr>`;
     });
     h += `</tbody></table></div>`;
