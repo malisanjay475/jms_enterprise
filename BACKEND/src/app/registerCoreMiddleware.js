@@ -8,11 +8,16 @@ const cors = require('cors');
 const helmet = require('helmet');
 const { rateLimit, ipKeyGenerator } = require('express-rate-limit');
 const morgan = require('morgan');
+const { DailyLogStream } = require('./dailyLogStream');
 
-// Ensure log directory exists
+// Request log: one file per day (logs/access-YYYY-MM-DD.log), 14 days kept. The old
+// single access.log grew without limit (3 GB on factory-1).
 const LOG_DIR = path.join(process.cwd(), 'logs');
 if (!fs.existsSync(LOG_DIR)) fs.mkdirSync(LOG_DIR, { recursive: true });
-const accessLogStream = fs.createWriteStream(path.join(LOG_DIR, 'access.log'), { flags: 'a' });
+const accessLogStream = new DailyLogStream({
+  dir: LOG_DIR,
+  keepDays: Number.parseInt(process.env.ACCESS_LOG_KEEP_DAYS || '', 10) || 14
+});
 
 // Parse and validate CORS origins — only accept http(s):// URLs from the env var
 const _rawOrigins = (process.env.CORS_ORIGINS || '').split(',').map(s => s.trim()).filter(Boolean);

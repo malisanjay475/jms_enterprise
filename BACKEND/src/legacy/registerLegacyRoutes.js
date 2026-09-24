@@ -4482,6 +4482,9 @@ async function bootstrapFreshCoreTables() {
   await q(`CREATE INDEX IF NOT EXISTS ual_username_idx    ON user_activity_log(username)`);
   await q(`CREATE INDEX IF NOT EXISTS ual_created_at_idx ON user_activity_log(created_at DESC)`);
   await q(`CREATE INDEX IF NOT EXISTS ual_action_idx     ON user_activity_log(action)`);
+  // Latest-event-per-user lookups in /api/activity/monitor. Existing databases get it
+  // from migration 012 before the server starts; this covers a brand-new (empty) table.
+  await q(`CREATE INDEX IF NOT EXISTS idx_ual_username_created_at ON user_activity_log(username, created_at DESC)`);
 
   await q(`
     CREATE TABLE IF NOT EXISTS machines (
@@ -32835,12 +32838,23 @@ app.post('/api/logout-all', async (req, res) => {
 // GET /api/activity/monitor  — admin view: who is online + recent history
 app.get('/api/activity/monitor', async (req, res) => {
   try {
-    // Latest status per user (last event within 10 min = online, 10-30 min = idle, >30 = offline)
+    // Latest status per user (last event within 10 min = online, 10-30 min = idle, >30 = offline).
+    // One index lookup per user (idx_ual_username_created_at, built by dataRetention)
+    // instead of DISTINCT ON over the whole log, which sorted all 1.87M rows on every
+    // 30 s refresh of the monitor page.
     const onlineRows = await q(`
-      SELECT DISTINCT ON (username)
-        username, role_code, app_id, page, device_type, ip_address, factory_id, action, created_at
-      FROM user_activity_log
-      ORDER BY username, created_at DESC
+      SELECT l.username, l.role_code, l.app_id, l.page, l.device_type, l.ip_address,
+             l.factory_id, l.action, l.created_at
+        FROM users u
+        CROSS JOIN LATERAL (
+          SELECT a.username, a.role_code, a.app_id, a.page, a.device_type, a.ip_address,
+                 a.factory_id, a.action, a.created_at
+            FROM user_activity_log a
+           WHERE a.username = u.username
+           ORDER BY a.created_at DESC
+           LIMIT 1
+        ) l
+       ORDER BY l.username
     `);
 
     // Actions today per user
@@ -32873,17 +32887,22 @@ app.get('/api/activity/monitor', async (req, res) => {
     for (const r of firstSeenRows) firstSeenMap[r.username] = r.first_seen_today;
 
     // Latest machine per supervisor (from dpr_entry / machine_select extra)
+    // Same per-user index lookup (was another whole-table DISTINCT ON).
     const machineRows = await q(`
-      SELECT DISTINCT ON (username)
-        username,
-        extra->>'machine' AS machine,
-        extra->>'order_no' AS order_no,
-        extra->>'colour' AS colour
-      FROM user_activity_log
-      WHERE action IN ('dpr_entry','machine_select','job_open')
-        AND extra IS NOT NULL
-        AND extra->>'machine' IS NOT NULL
-      ORDER BY username, created_at DESC
+      SELECT u.username, l.machine, l.order_no, l.colour
+        FROM users u
+        CROSS JOIN LATERAL (
+          SELECT a.extra->>'machine' AS machine,
+                 a.extra->>'order_no' AS order_no,
+                 a.extra->>'colour' AS colour
+            FROM user_activity_log a
+           WHERE a.username = u.username
+             AND a.action IN ('dpr_entry','machine_select','job_open')
+             AND a.extra IS NOT NULL
+             AND a.extra->>'machine' IS NOT NULL
+           ORDER BY a.created_at DESC
+           LIMIT 1
+        ) l
     `);
     const machineMap = {};
     for (const r of machineRows) machineMap[r.username] = { machine: r.machine, order_no: r.order_no, colour: r.colour };
