@@ -238,8 +238,8 @@
                             <label class="form-label text-xs">Select Job</label>
                             <select class="form-select form-select-sm" onchange="switchPlan('${tid}', this.value)">
                                 ${plans.map(p => `
-                                    <option value="${p.id}" ${p.id === activePlan.id ? 'selected' : ''}>
-                                        ${p.id}: ${p.item_name.substring(0, 15)}...
+                                    <option value="${scanEsc(p.id)}" ${p.id === activePlan.id ? 'selected' : ''}>
+                                        ${scanEsc(p.id)}: ${scanEsc(String(p.item_name || '').substring(0, 15))}...
                                     </option>
                                 `).join('')}
                             </select>
@@ -251,12 +251,12 @@
 
                 // DIFFERENT HTML STRUCTURE FOR LIST VIEW
                 return `
-                <div class="scan-card" id="card-${tid}" data-plan-id="${activePlan.id}">
+                <div class="scan-card" id="card-${tid}" data-plan-id="${scanEsc(activePlan.id)}">
                     <!-- LEFT COLUMN: HEADER -->
                     <div class="scan-card-header">
-                        <span>${tid}</span>
+                        <span>${scanEsc(tid)}</span>
                         <span id="badge-${tid}" class="status-badge" style="background:${activePlan.status === 'RUNNING' ? '#dcfce7' : '#f1f5f9'}; color:${activePlan.status === 'RUNNING' ? '#166534' : '#475569'}">
-                            ${activePlan.status}
+                            ${scanEsc(activePlan.status)}
                         </span>
                     </div>
 

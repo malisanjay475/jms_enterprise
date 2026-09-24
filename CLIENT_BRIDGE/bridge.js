@@ -19,7 +19,51 @@ const TCP_RECONNECT_MS = Number(process.env.JMS_TCP_RECONNECT_MS || 4000);
 console.log(`Starting JPSMS Serial Bridge on port ${WS_PORT}...`);
 console.log(`[Persistent] Backend: ${BACKEND_URL}`);
 
-const wss = new WebSocket.Server({ port: WS_PORT });
+// Only JMS pages may drive the bridge. Without this, any website open on the
+// packing PC could connect to ws://localhost:8999 and use the bridge to open TCP
+// connections anywhere on the factory LAN. Browsers always send Origin; clients
+// without one (local tools) are allowed. Extra origins: JMS_BRIDGE_ALLOWED_ORIGINS
+// (comma-separated, e.g. "http://72.62.228.195:9093").
+const EXTRA_ALLOWED_ORIGINS = String(process.env.JMS_BRIDGE_ALLOWED_ORIGINS || '')
+    .split(',').map((o) => o.trim().toLowerCase().replace(/\/$/, '')).filter(Boolean);
+
+function isPrivateIPv4(host) {
+    const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(String(host || ''));
+    if (!m) return false;
+    const [a, b] = [Number(m[1]), Number(m[2])];
+    if ([m[1], m[2], m[3], m[4]].some((o) => Number(o) > 255)) return false;
+    return a === 10 || a === 127 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168);
+}
+
+function isAllowedOrigin(origin) {
+    if (!origin) return true;
+    const normalized = String(origin).trim().toLowerCase().replace(/\/$/, '');
+    if (EXTRA_ALLOWED_ORIGINS.includes(normalized)) return true;
+    let url;
+    try { url = new URL(normalized); } catch (_e) { return false; }
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return false;
+    const host = url.hostname.replace(/^\[|\]$/g, '');
+    return host === 'localhost' || host === '::1' || isPrivateIPv4(host)
+        || host === 'jmsocean.cloud' || host.endsWith('.jmsocean.cloud');
+}
+
+// TCP scanners (ESP32) live on the factory LAN. Set JMS_BRIDGE_ALLOW_PUBLIC_TCP=1
+// only if a scanner really sits on a public address.
+function isAllowedTcpTarget(host, port) {
+    const p = Number(port);
+    if (!Number.isInteger(p) || p < 1 || p > 65535) return false;
+    if (process.env.JMS_BRIDGE_ALLOW_PUBLIC_TCP === '1') return typeof host === 'string' && host.length > 0;
+    return isPrivateIPv4(host);
+}
+
+const wss = new WebSocket.Server({
+    port: WS_PORT,
+    verifyClient: (info) => {
+        const ok = isAllowedOrigin(info.origin);
+        if (!ok) console.warn('[Bridge] Rejected connection from origin %s', info.origin);
+        return ok;
+    }
+});
 
 // Track open ports
 // Map<path, { port: SerialPort, parser: Parser }>
@@ -82,6 +126,15 @@ wss.on('connection', (ws) => {
                     break;
 
                 case 'open-tcp':
+                    if (!isAllowedTcpTarget(msg.host, msg.port)) {
+                        console.warn('[Bridge] Refused TCP target %s:%s (not a LAN address)', msg.host, msg.port);
+                        ws.send(JSON.stringify({
+                            type: 'error',
+                            path: `${msg.host}:${msg.port}`,
+                            message: 'Scanner address must be a factory LAN IP (10.x, 172.16-31.x or 192.168.x).'
+                        }));
+                        break;
+                    }
                     openTcpPort(msg.host, msg.port, ws);
                     break;
 
@@ -168,7 +221,7 @@ function openPort(path, ws, options = {}) {
         });
 
         port.on('data', (raw) => {
-            console.log(`[${path}] RAW:`, raw.toString('hex'), `(${raw.toString().trim()})`);
+            console.log('[%s] RAW: %s (%s)', path, raw.toString('hex'), raw.toString().trim());
             const entry = openPorts.get(path);
             const currentWs = entry ? entry.activeWs : ws;
             if (currentWs && currentWs.readyState === WebSocket.OPEN) {
@@ -178,7 +231,7 @@ function openPort(path, ws, options = {}) {
 
         port.on('error', (err) => {
             let errMsg = err.message;
-            console.error(`${path} Error:`, errMsg);
+            console.error('%s Error: %s', path, errMsg);
 
             if (errMsg.includes('31')) {
                 errMsg = "General Failure (Error 31). Please re-plug the scanner and check Device Manager.";
@@ -216,7 +269,7 @@ function openPort(path, ws, options = {}) {
         });
 
     } catch (e) {
-        console.error(`Failed to open ${path}:`, e);
+        console.error('Failed to open %s:', path, e);
         ws.send(JSON.stringify({ type: 'error', path, message: e.message }));
         pendingPorts.delete(path);
     }
@@ -331,7 +384,7 @@ function openTcpPort(host, port, ws) {
     });
 
     client.on('error', (err) => {
-        console.error(`TCP ${key} Error:`, err.message);
+        console.error('TCP %s Error: %s', key, err.message);
         ws.send(JSON.stringify({ type: 'error', path: key, message: err.message }));
         openPorts.delete(key);
     });

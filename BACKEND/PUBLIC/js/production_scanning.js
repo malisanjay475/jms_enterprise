@@ -1,6 +1,14 @@
 // Production Scanning Shared Logic
 // Handles: Port Enumeration (Web Serial + Bridge + IP), State Management, API Calls
 
+// Escape text before it goes into innerHTML. Barcodes, item names and plan
+// fields come from scanners and the DB, so they must never be parsed as HTML.
+function scanEsc(value) {
+    return String(value == null ? '' : value).replace(/[&<>"']/g, ch => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    }[ch]));
+}
+
 // Global State
 let ALL_LINES = []; // Master Data from Settings
 let TABLE_PLANS = {};
@@ -187,7 +195,7 @@ function handleBridgeMessage(msg, renderCallback) {
             unlockTable(tid);
         } else {
             log(tid, `MISMATCH: ${msg.ean}`, 'error');
-            lockTable(tid, `WRONG BARCODE! <br> <span style="font-size:1.5rem; color:yellow">${msg.ean}</span>`);
+            lockTable(tid, `WRONG BARCODE! <br> <span style="font-size:1.5rem; color:yellow">${scanEsc(msg.ean)}</span>`);
         }
     }
     else if (msg.type === 'error') {
@@ -367,12 +375,12 @@ function getDetailsHtml(p) {
     return `
         <div class="form-group">
                 <label class="form-label" style="font-size:0.7rem; color:#94a3b8">Item</label>
-            <div style="font-weight:600; font-size:0.9rem">${p.item_name}</div>
+            <div style="font-weight:600; font-size:0.9rem">${scanEsc(p.item_name)}</div>
         </div>
-        <div class="ean-display">${p.ean_number || 'NO EAN'}</div>
+        <div class="ean-display">${scanEsc(p.ean_number || 'NO EAN')}</div>
         <div class="scan-metrics">
-            <div class="metric-box"><div class="metric-label">Plan</div><div class="metric-val" id="plan-qty-${p.table_id}">${p.plan_qty}</div></div>
-            <div class="metric-box"><div class="metric-label">Done</div><div class="metric-val" id="scan-qty-${p.table_id}" style="color:#2563eb">${p.scanned_qty || 0}</div></div>
+            <div class="metric-box"><div class="metric-label">Plan</div><div class="metric-val" id="plan-qty-${scanEsc(p.table_id)}">${scanEsc(p.plan_qty)}</div></div>
+            <div class="metric-box"><div class="metric-label">Done</div><div class="metric-val" id="scan-qty-${scanEsc(p.table_id)}" style="color:#2563eb">${scanEsc(p.scanned_qty || 0)}</div></div>
         </div>
     `;
 }
@@ -601,7 +609,7 @@ async function processScan(tid, ean) {
             // flashCard(tid, '#fee2e2'); // Old Flash
 
             // NEW: Lock Table
-            lockTable(tid, `WRONG BARCODE! <br> <span style="font-size:1.5rem; color:yellow">${ean}</span>`);
+            lockTable(tid, `WRONG BARCODE! <br> <span style="font-size:1.5rem; color:yellow">${scanEsc(ean)}</span>`);
 
         } else { log(tid, `Error: ${res.error}`, 'error'); }
     } catch (e) { log(tid, `API: ${e.message}`, 'error'); }
