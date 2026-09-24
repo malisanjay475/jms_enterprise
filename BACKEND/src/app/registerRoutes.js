@@ -6,6 +6,7 @@ const { getFactoryId } = require('./requestContext');
 const sseManager = require('./sseManager');
 const { createAuthMiddleware } = require('./auth');
 const { routeGuardMiddleware } = require('./routeGuards');
+const { createPrivateUploadGuard } = require('./uploadSafety');
 
 // ---------------------------------------------------------------------------
 // SSE helpers
@@ -183,6 +184,9 @@ function registerRoutes(app, deps) {
   // endpoints. Both must run before any route below.
   app.use('/api', createAuthMiddleware(pool));
   app.use(routeGuardMiddleware);
+  // Private upload folders (resumes) need a session with the right role. Root-mounted
+  // and registered before the legacy static handlers, which serve all of PUBLIC.
+  app.use(createPrivateUploadGuard(createAuthMiddleware(pool)));
 
   // -----------------------------------------------------------------------
   // SSE: register broadcast middleware early so it covers all routes below

@@ -11,8 +11,32 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.72.2",
+  "latest": "1.72.3",
   "versions": [
+    {
+      "version": "1.72.3",
+      "date": "2026-09-24",
+      "title": "Safer file uploads and private resumes",
+      "modules": [
+        {
+          "app": "all",
+          "label": "Platform",
+          "icon": "bi-shield-lock",
+          "changes": [
+            { "type": "security", "text": "Photo and video uploads (QC, machine icons) now accept only real image and video files, so a harmful file can no longer be uploaded disguised as a picture." },
+            { "type": "security", "text": "A new QC Android app is published only after the admin login is confirmed, so a wrong password can never replace the app the factory phones install." }
+          ]
+        },
+        {
+          "app": "hr",
+          "label": "HR",
+          "icon": "bi-people",
+          "changes": [
+            { "type": "security", "text": "Candidate resumes can now be opened only by HR and admins who are logged in." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.72.2",
       "date": "2026-09-24",

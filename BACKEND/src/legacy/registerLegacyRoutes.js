@@ -28,21 +28,25 @@ const bcrypt = require('bcryptjs');
 const BACKEND_ROOT = path.resolve(__dirname, '..', '..');
 const STATIC_PUBLIC_DIR_NAME = fs.existsSync(path.join(BACKEND_ROOT, 'PUBLIC', 'index.html')) ? 'PUBLIC' : 'public';
 const STATIC_PUBLIC_DIR = path.join(BACKEND_ROOT, STATIC_PUBLIC_DIR_NAME);
+const { extensionForUpload } = require('../app/uploadSafety');
 
 // QC image uploads — disk storage so images are served as static files from PUBLIC/uploads/qc-images/
 const _qcImgDir = path.join(STATIC_PUBLIC_DIR, 'uploads', 'qc-images');
 fs.mkdirSync(_qcImgDir, { recursive: true });
+// The saved extension comes from an allowlist (uploadSafety.extensionForUpload), never
+// from the uploader: these files are served from the app's own origin, so a stored
+// "x.html" (previously accepted when sent with an image/* type) would run as a page.
 const uploadQC = multer({
   storage: multer.diskStorage({
     destination: (_req, _file, cb) => cb(null, _qcImgDir),
     filename: (_req, file, cb) => {
-      const ext = path.extname(file.originalname) || '.jpg';
+      const ext = extensionForUpload(file.originalname, file.mimetype);
       cb(null, `${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`);
     }
   }),
   limits: { fileSize: 10 * 1024 * 1024, files: 12 },
   fileFilter(_req, file, cb) {
-    if (/^image\//i.test(file.mimetype) || /\.(jpg|jpeg|png|gif|webp|mp4|mov)$/i.test(file.originalname)) return cb(null, true);
+    if (extensionForUpload(file.originalname, file.mimetype)) return cb(null, true);
     cb(new Error('Only images/videos allowed for QC uploads'), false);
   }
 });
@@ -52,10 +56,15 @@ const uploadQC = multer({
 // factory phones auto-update. Fixed filename keeps the download URL stable.
 const _qcAppDir = path.join(STATIC_PUBLIC_DIR, 'qc-app');
 fs.mkdirSync(_qcAppDir, { recursive: true });
+// multer writes the file BEFORE the route checks the credentials, so it must not go
+// straight to the served name: a failed login used to leave an attacker's APK in place
+// as jms-qc.apk for every factory phone. It lands under a dot-name (never served by
+// express.static) in the same folder, and the route renames it over jms-qc.apk only
+// after the credentials check passes (same folder, so the rename is atomic).
 const uploadQcApk = multer({
   storage: multer.diskStorage({
     destination: (_req, _file, cb) => cb(null, _qcAppDir),
-    filename: (_req, _file, cb) => cb(null, 'jms-qc.apk')
+    filename: (_req, _file, cb) => cb(null, `.upload-${Date.now()}-${Math.random().toString(36).slice(2)}.apk`)
   }),
   limits: { fileSize: 200 * 1024 * 1024, files: 1 },
   fileFilter(_req, file, cb) {
@@ -64,6 +73,16 @@ const uploadQcApk = multer({
     cb(new Error('Only .apk files allowed'), false);
   }
 });
+
+// Absolute path of an uploadQcApk temp file, rebuilt from our own folder and a filename
+// that must match the temp-name pattern above, so no request value ever steers a
+// rename/unlink path. null when there is no (valid) upload.
+const QC_APK_TEMP_NAME_RE = /^\.upload-\d+-[a-z0-9]+\.apk$/;
+function qcApkTempPath(file) {
+  const name = path.basename(String(file?.filename || ''));
+  if (!QC_APK_TEMP_NAME_RE.test(name)) return null;
+  return path.join(_qcAppDir, name);
+}
 
 const {
   getFinancialYearInfo,
@@ -145,11 +164,18 @@ module.exports = function registerLegacyRoutes({ app, pool, config, services }) 
      Additive + isolated: no existing behaviour changes.
      ============================================================ */
   app.post('/api/qc-app/publish', uploadQcApk.single('apk'), async (req, res) => {
+    // The upload sits under a temporary dot-name until the checks below pass; every
+    // other outcome deletes it (see uploadQcApk).
+    const tempPath = qcApkTempPath(req.file);
+    let published = false;
     try {
       const { username, password, versionCode, versionName, notes } = req.body || {};
       if (!username || !password) {
         return res.status(400).json({ ok: false, error: 'username and password required' });
       }
+      // Same lockout as /api/login, so this form can't be used to guess passwords.
+      const lockMsg = _checkBruteForce(username);
+      if (lockMsg) return res.status(429).json({ ok: false, error: lockMsg });
       // Read the password column the way /api/login does. Some schemas have no
       // password_hash column, so pull it defensively via to_jsonb to avoid a
       // "column does not exist" error.
@@ -159,18 +185,27 @@ module.exports = function registerLegacyRoutes({ app, pool, config, services }) 
            FROM users u WHERE username = $1 LIMIT 1`,
         [username]
       );
-      if (!rows.length) return res.status(401).json({ ok: false, error: 'Invalid credentials' });
+      if (!rows.length) {
+        _recordLoginFailure(username);
+        return res.status(401).json({ ok: false, error: 'Invalid credentials' });
+      }
       const valid = await bcrypt.compare(password, rows[0].pw || '');
-      if (!valid) return res.status(401).json({ ok: false, error: 'Invalid credentials' });
+      if (!valid) {
+        _recordLoginFailure(username);
+        return res.status(401).json({ ok: false, error: 'Invalid credentials' });
+      }
+      _clearLoginFailures(username);
       const role = String(rows[0].role_code || '').toLowerCase();
       if (role !== 'admin' && role !== 'superadmin') {
         return res.status(403).json({ ok: false, error: 'Admin access required' });
       }
-      if (!req.file) return res.status(400).json({ ok: false, error: 'APK file required (field "apk")' });
+      if (!tempPath) return res.status(400).json({ ok: false, error: 'APK file required (field "apk")' });
       const vc = parseInt(versionCode, 10);
       if (!Number.isFinite(vc)) {
         return res.status(400).json({ ok: false, error: 'versionCode (integer) required' });
       }
+      fs.renameSync(tempPath, path.join(_qcAppDir, 'jms-qc.apk'));
+      published = true;
       const meta = {
         versionCode: vc,
         versionName: String(versionName || vc),
@@ -182,6 +217,8 @@ module.exports = function registerLegacyRoutes({ app, pool, config, services }) 
       res.json({ ok: true, ...meta });
     } catch (e) {
       res.status(500).json({ ok: false, error: String(e.message || e) });
+    } finally {
+      if (tempPath && !published) fs.unlink(tempPath, () => { });
     }
   });
 
@@ -3974,13 +4011,15 @@ async function syncOrderCompletionConfirmations(db = pool, { factoryId = null, a
   return { flagged, cleared };
 }
 
+// Raster types only. SVG is refused: it is served from the app's own origin and can
+// carry <script>, so opening the icon URL would run code as the logged-in user.
 function getImageExtensionFromDataUrl(dataUrl) {
-  const mime = String(dataUrl || '').match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,/i)?.[1]?.toLowerCase() || 'image/png';
-  if (mime.includes('jpeg')) return 'jpg';
-  if (mime.includes('gif')) return 'gif';
-  if (mime.includes('webp')) return 'webp';
-  if (mime.includes('svg')) return 'svg';
-  return 'png';
+  const mime = String(dataUrl || '').match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,/i)?.[1]?.toLowerCase() || '';
+  if (mime === 'image/jpeg' || mime === 'image/jpg') return 'jpg';
+  if (mime === 'image/png') return 'png';
+  if (mime === 'image/gif') return 'gif';
+  if (mime === 'image/webp') return 'webp';
+  return null;
 }
 
 function saveDataUrlImage(dataUrl, folderName, prefix) {
@@ -3990,10 +4029,12 @@ function saveDataUrlImage(dataUrl, folderName, prefix) {
   const payload = raw.split(',')[1];
   if (!payload) return null;
 
+  const ext = getImageExtensionFromDataUrl(raw);
+  if (!ext) return null;
+
   const uploadsDir = path.join(STATIC_PUBLIC_DIR, 'uploads', folderName);
   fs.mkdirSync(uploadsDir, { recursive: true });
 
-  const ext = getImageExtensionFromDataUrl(raw);
   const filename = `${prefix}_${Date.now()}_${Math.floor(Math.random() * 1000)}.${ext}`;
   const fullPath = path.join(uploadsDir, filename);
   fs.writeFileSync(fullPath, Buffer.from(payload, 'base64'));
@@ -4040,7 +4081,8 @@ async function pushAllUploadsToMain() {
   if (!fs.existsSync(uploadsDir)) return;
 
   // Collect all image files under uploads/
-  const IMAGE_EXT = /\.(jpg|jpeg|png|gif|webp|svg)$/i;
+  // Raster images only — MAIN's /api/sync/upload-asset refuses SVG (can carry script).
+  const IMAGE_EXT = /\.(jpg|jpeg|png|gif|webp)$/i;
   const files = [];
   function scanDir(dir, folder) {
     let entries;
