@@ -11,8 +11,26 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.72.1",
+  "latest": "1.72.2",
   "versions": [
+    {
+      "version": "1.72.2",
+      "date": "2026-09-24",
+      "title": "Safer logins: the server now checks who you are before admin actions",
+      "modules": [
+        {
+          "app": "all",
+          "label": "Platform",
+          "icon": "bi-shield-lock",
+          "changes": [
+            { "type": "security", "text": "Logging in now starts a secure session that the server checks itself, so nobody can pretend to be another user." },
+            { "type": "security", "text": "Database backup and restore, bulk data clearing, user and password management and Joy now work only for a properly logged-in user with the right role." },
+            { "type": "improvement", "text": "If an admin tool says \"Please log in again\", log out and log back in once — this refreshes your login to the new secure session." },
+            { "type": "security", "text": "Logging out now also ends your session on the server, and \"Log out from all other devices\" keeps this device signed in." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.72.1",
       "date": "2026-09-24",
