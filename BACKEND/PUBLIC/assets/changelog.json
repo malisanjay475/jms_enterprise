@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.72.5",
+  "latest": "1.72.6",
   "versions": [
+    {
+      "version": "1.72.6",
+      "date": "2026-09-24",
+      "title": "Faster saving: 93 duplicate database indexes removed",
+      "modules": [
+        {
+          "app": "all",
+          "label": "Platform",
+          "icon": "bi-hdd-network",
+          "changes": [
+            { "type": "perf", "text": "Saving DPR entries, plans and other records is lighter on the server: 93 duplicate database indexes that were updated on every save have been removed." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.72.5",
       "date": "2026-09-24",
