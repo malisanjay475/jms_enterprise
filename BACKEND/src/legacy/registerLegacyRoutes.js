@@ -4783,6 +4783,62 @@ async function waitForDb(pool, retries = 30, delay = 2000) {
 // then find everything present and finish fast.
 const LEGACY_INIT_LOCK_KEY = 4715132010;
 
+// Duplicate (order_no, factory) rows block idx_orders_factory_order_unique, and without
+// that index every orders sync push fails on MAIN (the upsert's ON CONFLICT target has no
+// matching unique index), so factory orders stop reaching MAIN. MAIN had 379 such pairs,
+// all created 3-Aug-2026. Keep the most recently updated copy of each order and delete the
+// rest. The delete trigger would write tombstones keyed by (order_no, factory_id) — the
+// same key as the row we keep — which the factory LOCAL servers would pull and apply,
+// deleting the live order there. So drop the tombstones written in this transaction.
+// Nothing references orders.id (all joins use order_no). No-op once the index exists.
+// The index is built in the same transaction, under a lock that blocks order writes, so
+// another worker (e.g. /api/orders/fetch-from-orjr, which does not take the init lock)
+// cannot insert a new duplicate between the cleanup and the index build.
+async function dedupeOrdersByFactoryKey() {
+  const client = await pool.connect();
+  try {
+    const idx = await client.query(
+      `SELECT 1 FROM pg_indexes WHERE schemaname = 'public' AND indexname = 'idx_orders_factory_order_unique'`
+    );
+    if (idx.rowCount > 0) return;
+
+    await client.query('BEGIN');
+    // Reads still work; order INSERT/UPDATE/DELETE wait until COMMIT. Give up rather than
+    // stall startup if a long-running writer holds the table.
+    await client.query(`SET LOCAL lock_timeout = '30s'`);
+    await client.query('LOCK TABLE orders IN SHARE ROW EXCLUSIVE MODE');
+    const del = await client.query(`
+      DELETE FROM orders o
+       USING (
+         SELECT id,
+                ROW_NUMBER() OVER (PARTITION BY order_no, COALESCE(factory_id, 0)
+                                   ORDER BY updated_at DESC NULLS LAST, id DESC) AS rn
+           FROM orders
+       ) d
+       WHERE o.id = d.id AND d.rn > 1
+       RETURNING o.id, o.order_no, o.factory_id`);
+    if (del.rowCount > 0) {
+      const hasDeletions = await client.query(`SELECT to_regclass('public.sync_deletions') IS NOT NULL AS ok`);
+      if (hasDeletions.rows[0].ok) {
+        // record_sync_deletion() stamps deleted_at = NOW(), i.e. this transaction's start time.
+        await client.query(`DELETE FROM sync_deletions WHERE table_name = 'orders' AND deleted_at = NOW()`);
+      }
+    }
+    await client.query(
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_factory_order_unique ON orders (order_no, (COALESCE(factory_id, 0)))`
+    );
+    await client.query('COMMIT');
+    if (del.rowCount > 0) {
+      console.warn(`[DB] orders: removed ${del.rowCount} duplicate (order_no, factory) row(s), kept the newest copy of each`);
+    }
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.warn('[DB] orders duplicate cleanup skipped:', err.message);
+  } finally {
+    client.release();
+  }
+}
+
 async function initializeLegacyRuntime() {
   let __initLockClient = null;
   try {
@@ -5426,6 +5482,7 @@ async function initializeLegacyRuntime() {
     } catch (e) {
       console.warn('[DB] orders_order_no_key index drop skipped:', e.message);
     }
+    await dedupeOrdersByFactoryKey();
     await q(`CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_factory_order_unique ON orders (order_no, (COALESCE(factory_id, 0)))`)
       .catch(err => console.warn('[DB] idx_orders_factory_order_unique skipped (duplicate order_no+factory in data):', err.message));
 
