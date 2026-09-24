@@ -11,8 +11,25 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.72.3",
+  "latest": "1.72.4",
   "versions": [
+    {
+      "version": "1.72.4",
+      "date": "2026-09-24",
+      "title": "Automatic clean-up of old data keeps the server fast",
+      "modules": [
+        {
+          "app": "all",
+          "label": "Platform",
+          "icon": "bi-hdd-network",
+          "changes": [
+            { "type": "perf", "text": "Old data is now cleaned up automatically every day: read notifications after 90 days, activity history after 180 days, and raw machine readings after 90 days. Unread notifications are always kept." },
+            { "type": "perf", "text": "The Activity Monitor page loads faster and no longer slows the server while it refreshes." },
+            { "type": "perf", "text": "Server log files are now kept for 14 days instead of growing forever." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.72.3",
       "date": "2026-09-24",
