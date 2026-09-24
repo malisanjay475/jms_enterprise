@@ -11,8 +11,26 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.72.0",
+  "latest": "1.72.1",
   "versions": [
+    {
+      "version": "1.72.1",
+      "date": "2026-09-24",
+      "title": "Faster, steadier server: sync no longer freezes the app, machine live pages load instantly",
+      "modules": [
+        {
+          "app": "all",
+          "label": "Platform",
+          "icon": "bi-hdd-network",
+          "changes": [
+            { "type": "perf", "text": "The factory server no longer re-sends the same plans and notifications to the head-office server every few minutes, which removes the short freezes users saw while saving or loading pages." },
+            { "type": "fix", "text": "Deleting many records at once now reaches the head-office server completely, even when more than 1,000 rows are deleted together." },
+            { "type": "perf", "text": "Machine Monitor and All Machine Data now load the latest machine readings instantly instead of taking 1 to 12 seconds." },
+            { "type": "security", "text": "The sync connection between the factory and head-office servers no longer exposes its access key in server logs." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.72.0",
       "date": "2026-09-22",
