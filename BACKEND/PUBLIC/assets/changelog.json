@@ -11,8 +11,40 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.72.7",
+  "latest": "1.72.8",
   "versions": [
+    {
+      "version": "1.72.8",
+      "date": "2026-09-24",
+      "title": "Security fixes for login, scanning, AI chat and vendors",
+      "modules": [
+        {
+          "app": "all",
+          "label": "Platform",
+          "icon": "bi-shield-lock",
+          "changes": [
+            { "type": "security", "text": "The login page only sends you on to pages inside JMS after you sign in, so a crafted link can no longer run code or send you to another website." },
+            { "type": "security", "text": "AI chat answers and result tables are shown as plain text, so data in them can no longer run code in your browser." }
+          ]
+        },
+        {
+          "app": "purchase",
+          "label": "Purchase",
+          "icon": "bi-truck",
+          "changes": [
+            { "type": "security", "text": "Vendor and purchase order admin actions now need you to be logged in, and the vendor portal login blocks a vendor code for 15 minutes after 10 wrong passwords." }
+          ]
+        },
+        {
+          "app": "all",
+          "label": "Packing scanning",
+          "icon": "bi-upc-scan",
+          "changes": [
+            { "type": "security", "text": "Wrong-barcode alerts and plan details on the scanning screens show barcodes and item names as plain text, so a tampered barcode can no longer run code." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.72.7",
       "date": "2026-09-24",
