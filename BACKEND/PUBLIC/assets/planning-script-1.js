@@ -1130,15 +1130,15 @@
     }
 
     /* ── Create Priority: role gating ───────────────────────────────────
-       Visible only to PPC managers, HR manager, admin and superadmin. */
+       Visible only to PPC managers, HR manager, General Manager, admin and superadmin. */
     window.etvApplyPriorityRole = function () {
-      const allowed = ['ppc_ass_manager', 'ppc_manager', 'hr_manager', 'admin', 'superadmin'];
+      const allowed = ['ppc_ass_manager', 'ppc_manager', 'hr_manager', 'general_manager', 'admin', 'superadmin'];
       let show = false;
       try {
         const auth = window.JPSMS && window.JPSMS.auth;
         const user = (auth && auth.getUser) ? (auth.getUser() || {}) : {};
         const role = String((user && user.role_code) || '').toLowerCase();
-        // Admin/superadmin always pass via the app's own helper; PPC/HR roles by role_code.
+        // Admin/superadmin always pass via the app's own helper; PPC/HR/GM roles by role_code.
         show = allowed.includes(role) || !!(auth && auth.isAdminLike && auth.isAdminLike(user));
       } catch (_) {}
       ['etv-priority-btn', 'etv-saved-priority-btn'].forEach(id => {

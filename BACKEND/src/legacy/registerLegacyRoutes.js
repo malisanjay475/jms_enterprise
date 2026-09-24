@@ -9817,11 +9817,11 @@ function buildPriorityTitle(priorityDate, shift) {
 // POST /api/planning/priority  → create a saved priority list
 app.post('/api/planning/priority', async (req, res) => {
   try {
-    // Role guard — only PPC managers, HR manager and admins/superadmin may create
+    // Role guard — only PPC managers, HR manager, General Manager and admins/superadmin may create
     // a priority (MC/MP) schedule. Mirrors the frontend gate in etvApplyPriorityRole
     // (planning-script-1.js); enforced here so the button-hiding can't be bypassed.
     const actor = await getRequestActor(req);
-    const PRIORITY_CREATE_ROLES = new Set(['ppc_ass_manager', 'ppc_manager', 'hr_manager']);
+    const PRIORITY_CREATE_ROLES = new Set(['ppc_ass_manager', 'ppc_manager', 'hr_manager', 'general_manager']);
     const roleOk = actor && (isAdminLikeRole(actor)
       || PRIORITY_CREATE_ROLES.has(String(actor.role_code || '').toLowerCase()));
     if (!roleOk) {
