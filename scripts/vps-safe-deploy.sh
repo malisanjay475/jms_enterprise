@@ -197,6 +197,27 @@ if ! $DC -p "$DEPLOY_PROJECT" -f "$DEPLOY_COMPOSE_FILE" pull app; then
   exit 1
 fi
 
+# Old app images piled up (12 x 827 MB on 24-Sep-2026): every staging and prod
+# deploy pulls a new tag and nothing removed them. After a healthy deploy, remove
+# app images of the same repository that no container uses, keeping the image
+# just deployed and this stack's previous one (the rollback target). Images the
+# other stack (staging/prod) is running are in use, so they are never touched.
+# Never fatal.
+prune_old_app_images() {
+  local current="$1" previous="$2" repo in_use
+  repo="${current%:*}"
+  [[ -n "$repo" && "$repo" != "$current" ]] || return 0
+  in_use="$(docker ps -a --format '{{.Image}}' | sort -u)"
+  docker images "$repo" --format '{{.Repository}}:{{.Tag}}' | while read -r img; do
+    [[ "$img" == *":<none>" ]] && continue
+    [[ "$img" == "$current" || "$img" == "$previous" ]] && continue
+    grep -Fxq "$img" <<<"$in_use" && continue
+    echo "[deploy] removing old app image $img"
+    docker rmi "$img" >/dev/null 2>&1 || true
+  done
+  docker image prune -f >/dev/null 2>&1 || true
+}
+
 # Pre-clean ALL stale containers with conflicting names before compose up.
 # --remove-orphans can race against containers that were just removed, causing
 # "No such container" errors. Removing them here (with || true so we never abort)
@@ -217,6 +238,7 @@ if wait_for_app_health "$DC" "$DEPLOY_COMPOSE_FILE" "$DEPLOY_PROJECT"; then
   printf '%s\n' "${DEPLOY_GIT_SHA:-unknown}" > "$DEPLOY_META_DIR/last_successful_git_sha"
   printf '%s\n' "${DEPLOY_ENVIRONMENT:-production}" > "$DEPLOY_META_DIR/last_successful_environment"
   echo "[deploy] deploy succeeded with image $APP_IMAGE"
+  prune_old_app_images "$APP_IMAGE" "$PREVIOUS_IMAGE" || true
   exit 0
 fi
 
