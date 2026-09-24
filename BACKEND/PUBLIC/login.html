@@ -723,6 +723,7 @@
         }
 
         function logoutInModal() {
+            try { fetch('/api/logout', { method: 'POST', credentials: 'same-origin', keepalive: true }).catch(() => {}); } catch (_) { }
             document.getElementById('factory-modal').classList.remove('active');
             localStorage.removeItem('token');
             localStorage.removeItem('user');

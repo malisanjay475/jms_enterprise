@@ -1067,6 +1067,7 @@ app.get('/.well-known/assetlinks.json', (req, res) => {
 // Must run BEFORE express.static so it can intercept the asset request; falls
 // through cleanly when no fresh precompressed sibling exists.
 const createPrecompressedStatic = require('../app/precompressedStatic');
+const authSessions = require('../app/auth');
 app.use(createPrecompressedStatic(PUBLIC_DIR, (req) => {
   const p = req.path;
   if (path.basename(p) === 'app.js') return 'no-cache';
@@ -6323,6 +6324,12 @@ app.post('/api/login', async (req, res) => {
       [u.username, u.role_code || '', _loginAppId, null, _loginDevice, _loginIp, _loginUa.slice(0, 500), String(req.body?.factory_id || ''), String(req.body?.session_id || '')]
     ).catch(() => {});
 
+    // Server-verified session (HttpOnly cookie) — see src/app/auth.js. A failure to
+    // issue it must not block login: the legacy identity still works outside the
+    // hard-locked admin routes.
+    await authSessions.issueSession(pool, req, res, u)
+      .catch((err) => console.warn('[Auth] session cookie not issued:', err.message));
+
     // Return user info + factories list
     res.json({ ok: true, data: u, factories, can_select_all_factories: factoryAccess.canSelectAllFactories });
 
@@ -6330,6 +6337,13 @@ app.post('/api/login', async (req, res) => {
     console.error('login error', e);
     res.status(500).json({ ok: false, error: String(e) });
   }
+});
+
+// POST /api/logout — ends this device's server session (clears the HttpOnly cookie,
+// which page JavaScript cannot remove itself).
+app.post('/api/logout', (req, res) => {
+  authSessions.clearSession(req, res);
+  res.json({ ok: true });
 });
 
 /* ============================================================
@@ -6610,6 +6624,9 @@ app.post('/api/users/save', async (req, res) => {
     }
 
     _invalidateFactoryCache(username);
+
+
+    authSessions.invalidateUserCache(username);
     res.json({ ok: true });
   } catch (e) {
     console.error('user save error', e);
@@ -6643,6 +6660,8 @@ app.post('/api/users/delete', async (req, res) => {
       return res.json({ ok: false, error: 'ID or Username required' });
     }
     _invalidateFactoryCache(targetUser.username);
+
+    authSessions.invalidateUserCache(targetUser.username);
     res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ ok: false, error: String(e) });
@@ -6663,6 +6682,8 @@ app.post('/api/users/password', async (req, res) => {
     const hash = await bcrypt.hash(password, 12);
     await q('UPDATE users SET password=$1 WHERE username=$2', [hash, username]);
     _invalidateFactoryCache(username);
+
+    authSessions.invalidateUserCache(username);
     res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ ok: false, error: String(e) });
@@ -20963,7 +20984,15 @@ app.post('/api/admin/users/create', async (req, res) => {
     if (requestedRole === 'superadmin' && !isSuperadminRole(actor)) {
       return res.status(403).json({ ok: false, error: 'Only superadmin can assign the superadmin role' });
     }
+    // The upsert below overwrites an existing account, so it must not let a
+    // non-superadmin replace (and demote) a superadmin.
+    const existing = (await q('SELECT role_code FROM users WHERE username = $1 LIMIT 1', [username]))[0];
+    if (existing && isSuperadminRole(existing) && !isSuperadminRole(actor)) {
+      return res.status(403).json({ ok: false, error: 'Only superadmin can edit superadmin users' });
+    }
 
+    // Stored as a bcrypt hash like every other password path (this route stored plain text).
+    const passwordHash = await bcrypt.hash(String(password), 12);
     await q(
       `INSERT INTO users(username, password, line, role_code, permissions)
 VALUES($1, $2, $3, $4, $5)
@@ -20972,8 +21001,9 @@ password = EXCLUDED.password,
   line = EXCLUDED.line,
   role_code = EXCLUDED.role_code,
   permissions = EXCLUDED.permissions`,
-      [username, password, line || null, requestedRole, permissions || '{}']
+      [username, passwordHash, line || null, requestedRole, permissions || '{}']
     );
+    authSessions.invalidateUserCache(username);
 
     res.json({ ok: true });
   } catch (e) {
@@ -21005,6 +21035,7 @@ app.post('/api/admin/users/update', async (req, res) => {
     );
 
     if (!rows.length) return res.json({ ok: false, error: 'User not found' });
+    authSessions.invalidateUserCache(username);
     res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ ok: false, error: String(e) });
@@ -21030,6 +21061,7 @@ app.post('/api/admin/users/delete', async (req, res) => {
 
     const rows = await q(`DELETE FROM users WHERE username = $1 RETURNING username`, [username]);
     if (!rows.length) return res.json({ ok: false, error: 'User not found' });
+    authSessions.invalidateUserCache(username);
 
     res.json({ ok: true });
   } catch (e) {
@@ -21048,12 +21080,15 @@ app.post('/api/admin/users/password', async (req, res) => {
       return res.status(403).json({ ok: false, error: 'Only superadmin can change a superadmin password' });
     }
 
+    // Stored as a bcrypt hash (this route stored plain text).
+    const passwordHash = await bcrypt.hash(String(password), 12);
     const rows = await q(
       `UPDATE users SET password = $2 WHERE username = $1 RETURNING username`,
-      [username, password]
+      [username, passwordHash]
     );
 
     if (!rows.length) return res.json({ ok: false, error: 'User not found' });
+    authSessions.invalidateUserCache(username);
     res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ ok: false, error: String(e) });
@@ -26043,18 +26078,17 @@ app.post('/api/ai/ask', async (req, res) => {
     }
 
     if (aiRes.type === 'sql') {
-      const sql = aiRes.content;
-      // 2. Safety Check (ReadOnly)
-      const forbidden = /(DROP|DELETE|UPDATE|INSERT|ALTER|TRUNCATE|GRANT|REVOKE|CREATE|REPLACE)/i;
-      if (forbidden.test(sql)) {
-        return res.json({ ok: false, error: 'Safety Block: AI generated a modification query.', sql });
-      }
-
-      // 3. Execute
-      const rows = await q(sql, []);
-      // Return as table
-      res.json({ ok: true, answer: rows, type: 'table', sql });
-      return;
+      // Model-written SQL is no longer executed. It ran with the app's full database
+      // rights behind only a keyword blocklist (COPY, functions and multi-statement
+      // tricks passed), so any prompt could read every table, including password
+      // hashes. The schema in its prompt also named columns that do not exist, so
+      // most generated queries failed anyway. Data questions stay off until Joy is
+      // rebuilt on fixed, read-only query tools.
+      return res.json({
+        ok: true,
+        type: 'text',
+        answer: 'I can’t look up live data yet — please use the reports and dashboards for numbers. I can still explain pages and help with how to use JMS. ⚡️'
+      });
     }
 
     // Fallback
@@ -32725,6 +32759,13 @@ app.post('/api/logout-all', async (req, res) => {
     const username = String(req.body?.username || '').trim();
     if (!username) return res.json({ ok: false, error: 'username required' });
 
+    // routeGuards requires a verified session. Anyone may log out their own other
+    // devices; only an admin may do it for someone else.
+    const isSelf = username.toLowerCase() === String(req.auth.username).toLowerCase();
+    if (!isSelf && !authSessions.isAdminLike(req.auth)) {
+      return res.status(403).json({ ok: false, error: 'You can only log out your own devices.' });
+    }
+
     const rows = await q(
       `UPDATE users SET logout_all_after = NOW()
        WHERE username = $1
@@ -32732,8 +32773,15 @@ app.post('/api/logout-all', async (req, res) => {
       [username]
     );
     if (!rows.length) return res.json({ ok: false, error: 'User not found' });
+    authSessions.invalidateUserCache(username);
 
     const cutoffMs = Math.round(Number(rows[0].cutoff_ms));
+    // Every session issued before the cutoff is now revoked. Give the calling device a
+    // fresh one stamped at the cutoff so it stays logged in.
+    if (isSelf) {
+      await authSessions.issueSession(pool, req, res, { id: req.auth.id, username: req.auth.username }, cutoffMs + 1)
+        .catch((err) => console.warn('[Auth] session re-issue after logout-all failed:', err.message));
+    }
     // Caller bumps its local login_at past this cutoff to stay logged in.
     res.json({ ok: true, cutoff_ms: cutoffMs, keep_login_at: cutoffMs + 1000 });
   } catch (e) {

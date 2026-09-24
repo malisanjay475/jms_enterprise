@@ -4,6 +4,8 @@ const path = require('path');
 const registerLegacyRoutes = require('../legacy/registerLegacyRoutes');
 const { getFactoryId } = require('./requestContext');
 const sseManager = require('./sseManager');
+const { createAuthMiddleware } = require('./auth');
+const { routeGuardMiddleware } = require('./routeGuards');
 
 // ---------------------------------------------------------------------------
 // SSE helpers
@@ -175,6 +177,12 @@ function registerJmsPlanReportRoute(app, pool) {
 
 function registerRoutes(app, deps) {
   const { config, pool, services } = deps;
+
+  // Verify the login session on every API call (sets req.auth and replaces the
+  // client-sent X-User-Name with the verified user), then hard-lock the dangerous
+  // endpoints. Both must run before any route below.
+  app.use('/api', createAuthMiddleware(pool));
+  app.use(routeGuardMiddleware);
 
   // -----------------------------------------------------------------------
   // SSE: register broadcast middleware early so it covers all routes below
