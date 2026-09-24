@@ -242,7 +242,9 @@ describe('route guards', () => {
       ['GET', '/api/admin/backup'], ['POST', '/api/admin/restore'], ['POST', '/api/admin/clear-data'],
       ['POST', '/api/admin/clear-std-actual'], ['POST', '/api/dpr/hourly/clear'], ['POST', '/api/admin/users/create'],
       ['POST', '/api/admin/users/password'], ['POST', '/api/users/delete'], ['POST', '/api/logout-all'],
-      ['POST', '/api/ai/ask'], ['PUT', '/api/machine-data/config/5']
+      ['POST', '/api/ai/ask'], ['PUT', '/api/machine-data/config/5'],
+      ['GET', '/api/vendor/admin/list'], ['POST', '/api/vendor/admin/save'], ['POST', '/api/vendor/admin/delete'],
+      ['POST', '/api/vendor/admin/po/save']
     ]) {
       expect(guards.findGuard(method, path)).not.toBeNull();
     }
