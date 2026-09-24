@@ -11,8 +11,25 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.72.4",
+  "latest": "1.72.5",
   "versions": [
+    {
+      "version": "1.72.5",
+      "date": "2026-09-24",
+      "title": "DPR entries are checked before saving, and only the right people can change them",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            { "type": "fix", "text": "Shots, good quantity, rejects and downtime can no longer be negative, and downtime cannot be more than 60 minutes in one hour slot." },
+            { "type": "security", "text": "Editing, deleting or correcting DPR entries now checks the logged-in user on the server, so only people with the right role can change production records." },
+            { "type": "improvement", "text": "If editing or deleting an entry says \"Please log in again\", log out and log back in once." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.72.4",
       "date": "2026-09-24",
