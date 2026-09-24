@@ -26,6 +26,7 @@ const EnvSchema = z.object({
   ALLOW_LEGACY_DB_DEFAULTS: z.string().optional(),
   LOCAL_FACTORY_ID: z.string().optional(),
   SERVER_TYPE: z.string().optional(),
+  TRUST_PROXY: z.string().optional(),
   MAIN_SERVER_URL: z.string().optional(),
   LOCAL_SERVER_AGENT_ENABLED: z.string().optional(),
   LOCAL_SERVER_NODE_ID: z.string().optional(),
@@ -107,6 +108,7 @@ function loadConfig(env = process.env) {
     appGitSha: runtimeRelease.commit || values.APP_GIT_SHA || '',
     localFactoryId: values.LOCAL_FACTORY_ID || null,
     serverType: values.SERVER_TYPE || '',
+    trustProxy: values.TRUST_PROXY || '',
     mainServerUrl: values.MAIN_SERVER_URL || '',
     localServer: {
       agentEnabled: values.LOCAL_SERVER_AGENT_ENABLED || '',

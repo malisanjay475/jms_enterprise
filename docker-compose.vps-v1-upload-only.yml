@@ -10,7 +10,7 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${DB_USER:-jms_v1}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-JmsV1DbAuto9x4k2m7n1q5w8r}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required (set in deploy env/.env; no default)}
       POSTGRES_DB: ${DB_NAME:-jms_v1}
     volumes:
       - jms_v1_pg_data:/var/lib/postgresql/data
@@ -41,7 +41,7 @@ services:
       DB_HOST: db
       DB_PORT: "5432"
       DB_USER: ${DB_USER:-jms_v1}
-      DB_PASSWORD: ${DB_PASSWORD:-JmsV1DbAuto9x4k2m7n1q5w8r}
+      DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required (set in deploy env/.env; no default)}
       DB_NAME: ${DB_NAME:-jms_v1}
       AUTO_IMPORT_DB_PATH: ${AUTO_IMPORT_DB_PATH:-}
       AUTO_IMPORT_DB_FORCE: ${AUTO_IMPORT_DB_FORCE:-0}

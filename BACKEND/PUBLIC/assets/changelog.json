@@ -11,8 +11,25 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.72.8",
+  "latest": "1.72.9",
   "versions": [
+    {
+      "version": "1.72.9",
+      "date": "2026-09-24",
+      "title": "Security hardening round 2",
+      "modules": [
+        {
+          "app": "all",
+          "label": "Platform",
+          "icon": "bi-shield-lock",
+          "changes": [
+            { "type": "security", "text": "The server now reads the real visitor's address behind our secure gateway, so rate limits and the office-network check work correctly." },
+            { "type": "security", "text": "Machine network addresses are hidden from anyone who is not an admin." },
+            { "type": "security", "text": "Removed built-in default passwords for the database and admin tools, and old default keys and leftover setup files, so nothing ships with a known password." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.72.8",
       "date": "2026-09-24",

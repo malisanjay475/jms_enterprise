@@ -10,7 +10,11 @@ let pool;
 let SERVER_TYPE = 'STANDALONE';
 let MAIN_SERVER_URL = '';
 let LOCAL_FACTORY_ID = 1;
-let API_KEY = process.env.SYNC_API_KEY || 'jpsms-sync-key';
+// No hardcoded default: a well-known fallback key used to let anyone authenticate
+// sync requests (and be sent to MAIN) whenever the env var was unset. When empty,
+// syncKeyValid() rejects every request (see below), so sync stays closed until a
+// real key is configured via SYNC_API_KEY or server_config.
+let API_KEY = process.env.SYNC_API_KEY || '';
 
 // Full replication: when enabled on a LOCAL box, it pulls EVERY factory's data from MAIN
 // (not just its own home factory), so cross-factory users can view other units offline.
@@ -117,6 +121,13 @@ const SYNC_KEY_HEADER = 'x-sync-api-key';
 
 function syncPullHeaders() {
     return { [SYNC_KEY_HEADER]: API_KEY };
+}
+
+// Validate a sync key supplied by a caller. Rejects when the server has no key
+// configured (API_KEY empty), so an unset key can never authenticate — and a
+// caller sending an empty/missing key never matches.
+function syncKeyValid(provided) {
+    return Boolean(API_KEY) && provided === API_KEY;
 }
 
 const SYNC_ALL = [
@@ -738,7 +749,7 @@ const uploadAssetLimiter = rateLimit({
 router.post('/upload-asset', uploadAssetLimiter, async (req, res) => {
     try {
         const { apiKey, folder, filename, data } = req.body || {};
-        if (apiKey !== API_KEY) return res.status(403).json({ error: 'Invalid Key' });
+        if (!syncKeyValid(apiKey)) return res.status(403).json({ error: 'Invalid Key' });
 
         // Validate inputs
         const safeFolder = String(folder || '').replace(/[^a-zA-Z0-9_-]/g, '');
@@ -772,7 +783,7 @@ router.post('/push', async (req, res) => {
     if (!pool) return res.status(503).json({ error: 'Service initializing' });
     try {
         const { factoryId, table, data, apiKey } = req.body || {};
-        if (apiKey !== API_KEY) return res.status(403).json({ error: 'Invalid Key' });
+        if (!syncKeyValid(apiKey)) return res.status(403).json({ error: 'Invalid Key' });
         if (!TABLES_TO_PUSH.includes(table)) return res.status(400).json({ error: 'Invalid Table' });
 
         console.log(`[Sync] Received ${Array.isArray(data) ? data.length : 0} rows for ${table} from Factory ${factoryId}`);
@@ -815,7 +826,7 @@ router.post('/push-deletions', async (req, res) => {
     if (!pool) return res.status(503).json({ error: 'Service initializing' });
     try {
         const { deletions, apiKey } = req.body || {};
-        if (apiKey !== API_KEY) return res.status(403).json({ error: 'Invalid Key' });
+        if (!syncKeyValid(apiKey)) return res.status(403).json({ error: 'Invalid Key' });
         if (!Array.isArray(deletions)) return res.status(400).json({ error: 'Invalid deletions payload' });
 
         const normalized = deletions.filter((entry) => entry && TABLES_TO_PUSH.includes(entry.table));
@@ -834,7 +845,7 @@ router.get('/pull', async (req, res) => {
     if (!pool) return res.status(503).json({ error: 'Service initializing' });
     try {
         const { table, lastSync, since, factoryId, afterId } = req.query;
-        if (req.get(SYNC_KEY_HEADER) !== API_KEY) return res.status(403).json({ error: 'Invalid Key' });
+        if (!syncKeyValid(req.get(SYNC_KEY_HEADER))) return res.status(403).json({ error: 'Invalid Key' });
         if (!TABLES_TO_PULL.includes(table)) return res.status(400).json({ error: 'Invalid Table' });
 
         // afterId is the keyset tiebreaker: the id of the last row the client
@@ -858,7 +869,7 @@ router.get('/pull-deletions', async (req, res) => {
     if (!pool) return res.status(503).json({ error: 'Service initializing' });
     try {
         const { since, factoryId, afterId } = req.query;
-        if (req.get(SYNC_KEY_HEADER) !== API_KEY) return res.status(403).json({ error: 'Invalid Key' });
+        if (!syncKeyValid(req.get(SYNC_KEY_HEADER))) return res.status(403).json({ error: 'Invalid Key' });
 
         // factoryId=all (full replication) → no factory filter; numeric → that factory only.
         // afterId pages through large deletion batches (older LOCALs omit it: first page only).
@@ -1006,7 +1017,7 @@ router.post('/admin/full-pull-reset', async (req, res) => {
     if (!pool) return res.status(503).json({ error: 'Service initializing' });
     try {
         const { apiKey } = req.body || {};
-        if (apiKey !== API_KEY) return res.status(403).json({ error: 'Invalid Key' });
+        if (!syncKeyValid(apiKey)) return res.status(403).json({ error: 'Invalid Key' });
         if (SERVER_TYPE !== 'LOCAL') return res.status(400).json({ error: 'Only available on LOCAL servers' });
 
         await setServerConfigValue('LAST_PULL', '1970-01-01T00:00:00.000Z');
@@ -1029,7 +1040,7 @@ router.post('/admin/full-push-reset', async (req, res) => {
     if (!pool) return res.status(503).json({ error: 'Service initializing' });
     try {
         const { apiKey } = req.body || {};
-        if (apiKey !== API_KEY) return res.status(403).json({ error: 'Invalid Key' });
+        if (!syncKeyValid(apiKey)) return res.status(403).json({ error: 'Invalid Key' });
         if (SERVER_TYPE !== 'LOCAL') return res.status(400).json({ error: 'Only available on LOCAL servers' });
 
         await setServerConfigValue('LAST_PUSH', '1970-01-01T00:00:00.000Z');
