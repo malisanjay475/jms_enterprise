@@ -39,7 +39,16 @@ const GUARDED_ROUTES = [
   // AI endpoints call a paid model and /ask ran model-written SQL.
   { method: '*', path: /^\/api\/ai(\/|$)/, need: 'session' },
   // Points the Modbus collector at factory-LAN IPs.
-  { method: 'PUT', path: /^\/api\/machine-data\/config\/[^/]+\/?$/, need: 'admin' }
+  { method: 'PUT', path: /^\/api\/machine-data\/config\/[^/]+\/?$/, need: 'admin' },
+  // DPR data changes. These handlers took the actor's role from the request body
+  // (session.username, or callerRole for set-qty), so anyone could rewrite or delete
+  // production records. set-qty trims/deletes rows to hit a target quantity.
+  { method: 'POST', path: /^\/api\/dpr\/superadmin-set-qty\/?$/, need: 'superadmin' },
+  { method: 'POST', path: /^\/api\/dpr\/edit\/?$/, need: 'admin' },
+  { method: 'POST', path: /^\/api\/dpr\/setup\/clear\/?$/, need: 'admin' },
+  // Per-entry deletes: the handler keeps its own role check (supervisor+, or the DPR
+  // delete roles); with a verified session its session.username is the real user.
+  { method: 'POST', path: /^\/api\/dpr\/(delete|delete-entry|delete-quick|delete-setup)\/?$/, need: 'session' }
 ];
 
 function findGuard(method, path) {

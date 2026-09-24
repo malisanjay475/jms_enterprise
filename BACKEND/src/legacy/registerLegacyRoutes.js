@@ -1105,6 +1105,7 @@ app.get('/.well-known/assetlinks.json', (req, res) => {
 // through cleanly when no fresh precompressed sibling exists.
 const createPrecompressedStatic = require('../app/precompressedStatic');
 const authSessions = require('../app/auth');
+const { validateDprQuantities } = require('../app/dprValidation');
 app.use(createPrecompressedStatic(PUBLIC_DIR, (req) => {
   const p = req.path;
   if (path.basename(p) === 'app.js') return 'no-cache';
@@ -7308,6 +7309,10 @@ app.post('/api/dpr/submit', async (req, res) => {
       DowntimeBreakup, EntryType, Supervisor
     } = entry || {};
 
+    // Reject impossible quantities before anything is written (see src/app/dprValidation.js).
+    const qtyError = validateDprQuantities({ shots: Shots, good: GoodQty, reject: RejectQty, downtime: DowntimeMin });
+    if (qtyError) return res.json({ ok: false, error: qtyError });
+
     // FALLBACK: If MouldNo is missing but PlanID exists, fetch it
     if ((!MouldNo || MouldNo === '') && PlanID) {
       try {
@@ -9624,6 +9629,8 @@ app.post('/api/dpr/edit', async (req, res) => {
 
     // Basic validation
     if (!uniqueId) throw new Error("ID required");
+    const qtyError = validateDprQuantities({ shots: newShots, reject: newReject, downtime: newDowntime });
+    if (qtyError) return res.status(400).json({ ok: false, error: qtyError });
 
     // Recalculate Good Qty
     const s = Number(newShots) || 0;

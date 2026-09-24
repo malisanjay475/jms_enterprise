@@ -175,6 +175,14 @@ function createAuthMiddleware(pool) {
       };
       // The verified identity wins over whatever the client claimed.
       req.headers['x-user-name'] = user.username;
+      // Many legacy handlers read the actor from a JSON body field `session.username`
+      // (DPR edit/delete/clear, date guards, ...) and look its role up in the DB. Bind
+      // it to the verified user too, so a logged-in operator can't claim to be an admin
+      // in the body. (JSON bodies are parsed before this middleware; multipart forms
+      // are parsed later by their route and are not covered here.)
+      if (req.body && typeof req.body.session === 'object' && req.body.session !== null) {
+        req.body.session.username = user.username;
+      }
 
       if (found.fromCookie && Date.now() - issuedAt > REFRESH_AFTER_MS) {
         await issueSession(pool, req, res, user).catch(() => {});
