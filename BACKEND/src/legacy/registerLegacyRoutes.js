@@ -74,6 +74,16 @@ const uploadQcApk = multer({
   }
 });
 
+// Absolute path of an uploadQcApk temp file, rebuilt from our own folder and a filename
+// that must match the temp-name pattern above, so no request value ever steers a
+// rename/unlink path. null when there is no (valid) upload.
+const QC_APK_TEMP_NAME_RE = /^\.upload-\d+-[a-z0-9]+\.apk$/;
+function qcApkTempPath(file) {
+  const name = path.basename(String(file?.filename || ''));
+  if (!QC_APK_TEMP_NAME_RE.test(name)) return null;
+  return path.join(_qcAppDir, name);
+}
+
 const {
   getFinancialYearInfo,
   getFinancialYearPrefix,
@@ -156,7 +166,7 @@ module.exports = function registerLegacyRoutes({ app, pool, config, services }) 
   app.post('/api/qc-app/publish', uploadQcApk.single('apk'), async (req, res) => {
     // The upload sits under a temporary dot-name until the checks below pass; every
     // other outcome deletes it (see uploadQcApk).
-    const tempPath = req.file?.path || null;
+    const tempPath = qcApkTempPath(req.file);
     let published = false;
     try {
       const { username, password, versionCode, versionName, notes } = req.body || {};
