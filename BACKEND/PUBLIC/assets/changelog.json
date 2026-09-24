@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.72.9",
+  "latest": "1.72.10",
   "versions": [
+    {
+      "version": "1.72.10",
+      "date": "2026-09-24",
+      "title": "General Manager can create MC/MP schedules",
+      "modules": [
+        {
+          "app": "planning",
+          "label": "Planning",
+          "icon": "bi-calendar3",
+          "changes": [
+            { "type": "improvement", "text": "The General Manager role can now create and view MC/MP schedules on the Excel View Timeline, the same as PPC and HR Managers." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.72.9",
       "date": "2026-09-24",
