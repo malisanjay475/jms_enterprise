@@ -1105,6 +1105,7 @@ app.get('/.well-known/assetlinks.json', (req, res) => {
 // through cleanly when no fresh precompressed sibling exists.
 const createPrecompressedStatic = require('../app/precompressedStatic');
 const authSessions = require('../app/auth');
+const { ensureUniqueIndex } = require('../db/indexUtils');
 const { validateDprQuantities } = require('../app/dprValidation');
 app.use(createPrecompressedStatic(PUBLIC_DIR, (req) => {
   const p = req.path;
@@ -1711,7 +1712,6 @@ async function migrateMouldMasterSchema() {
   await q(`ALTER TABLE mould_audit_logs ADD COLUMN IF NOT EXISTS sync_status TEXT`);
   await q(`UPDATE mould_audit_logs SET sync_id = gen_random_uuid() WHERE sync_id IS NULL`);
   await qIdx(`CREATE INDEX IF NOT EXISTS idx_mould_audit_mould_id_changed_at ON mould_audit_logs(mould_id, changed_at DESC)`);
-  await qIdx(`CREATE INDEX IF NOT EXISTS idx_mould_audit_sync_id ON mould_audit_logs(sync_id)`);
 
   // Mould Verification "added details" — additive notes an approver attaches at a
   // verification step. Never touches the mould master columns (read-only master).
@@ -4914,14 +4914,15 @@ async function initializeLegacyRuntime() {
     ]);
 
     // Non-blocking index creation (resilient — ownership/permission errors are non-fatal)
+    // Query performance telemetry. Harmless if the shared_preload_libraries entry isn't set
+    // yet. Run on its own: on a LOCAL whose DB user isn't a superuser it fails with
+    // "permission denied", and inside the batch below that failure silently cancelled every
+    // other statement (the duplicate-index DROPs there had never run on factory-1).
+    await qIdx(`CREATE EXTENSION IF NOT EXISTS pg_stat_statements`);
     await qIdx(`
-            -- Query performance telemetry. Harmless if the shared_preload_libraries
-            -- entry isn't set yet; it starts collecting after the DB is recreated.
-            CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
             CREATE INDEX IF NOT EXISTS idx_plan_board_machine ON plan_board(machine);
             CREATE INDEX IF NOT EXISTS idx_plan_board_status ON plan_board(status);
             CREATE INDEX IF NOT EXISTS idx_std_actual_plan_id ON std_actual(plan_id);
-            CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
 
             -- NEW MASTER PLAN OPTIMIZATION INDEXES
             -- dpr_hourly is a hot, sync-written table. It historically carried
@@ -5444,9 +5445,10 @@ async function initializeLegacyRuntime() {
         await q(`UPDATE ${table} SET factory_id = $1 WHERE factory_id IS NULL`, [FID]);
       }
 
-      // 3. Create Unique Index (Required for ON CONFLICT upsert)
-      // Note: We use a generic name pattern to avoid collisions
-      await q(`CREATE UNIQUE INDEX IF NOT EXISTS idx_${table}_sync_id ON ${table}(sync_id);`);
+      // 3. Unique index on sync_id (required for ON CONFLICT upsert). Skipped when an
+      // equivalent unique index already exists (a <table>_sync_id_key constraint or the
+      // sync service's uq_sync_id_<table>), which used to leave 2-3 identical copies.
+      await ensureUniqueIndex(q, { table, columns: 'sync_id', name: `idx_${table}_sync_id` });
     }
 
     // Stamp the heal version so subsequent boots skip the full-table backfill scans.
@@ -5468,7 +5470,7 @@ async function initializeLegacyRuntime() {
       await q(`DROP INDEX IF EXISTS std_actual_unique_key`);
     } catch (e) { console.log('[DB] Note: Drop constraint std_actual_unique_key failed:', e.message); }
 
-    await q(`CREATE UNIQUE INDEX IF NOT EXISTS idx_std_actual_sync_id ON std_actual(sync_id);`);
+    await ensureUniqueIndex(q, { table: 'std_actual', columns: 'sync_id', name: 'idx_std_actual_sync_id' });
 
     // [FIX] Machine names must be unique per factory, not globally.
     // Older schemas still have a global UNIQUE(machine) constraint, which breaks
@@ -23463,8 +23465,8 @@ app.get('/api/admin/fix-sync-schema', async (req, res) => {
         await q(`UPDATE ${table} SET sync_id = gen_random_uuid() WHERE sync_id IS NULL`);
         await q(`UPDATE ${table} SET factory_id = $1 WHERE factory_id IS NULL`, [FID]);
 
-        // 3. Create Unique Index
-        await q(`CREATE UNIQUE INDEX IF NOT EXISTS idx_${table}_sync_id ON ${table}(sync_id);`);
+        // 3. Unique index on sync_id (skipped when an equivalent one already exists)
+        await ensureUniqueIndex(q, { table, columns: 'sync_id', name: `idx_${table}_sync_id` });
         logs.push(`Fixed ${table}`);
       } catch (err) {
         logs.push(`Error ${table}: ${err.message}`);
