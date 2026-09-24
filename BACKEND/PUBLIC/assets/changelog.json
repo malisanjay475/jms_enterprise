@@ -11,8 +11,32 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.72.0",
+  "latest": "1.72.1",
   "versions": [
+    {
+      "version": "1.72.1",
+      "date": "2026-09-24",
+      "title": "Factory access follows the factories ticked for each user, and factory orders reach the main server again",
+      "modules": [
+        {
+          "app": "users",
+          "label": "User Management",
+          "icon": "bi-people",
+          "changes": [
+            { "type": "fix", "text": "Global Access now only lets a user log in from outside the factory — they see just the factories ticked for them, not every factory." },
+            { "type": "fix", "text": "A Global Access user with no factories ticked still sees all factories, so nobody gets locked out — tick their factories to limit them." }
+          ]
+        },
+        {
+          "app": "all",
+          "label": "Platform",
+          "icon": "bi-hdd-network",
+          "changes": [
+            { "type": "fix", "text": "Orders entered at the factory are sent to the main server again — duplicate orders that were blocking the sync have been cleaned up." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.72.0",
       "date": "2026-09-22",
