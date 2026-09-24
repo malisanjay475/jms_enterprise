@@ -1,6 +1,7 @@
 // fetch is available globally in Node.js 18+ — no require needed
 const express = require('express');
 const rateLimit = require('express-rate-limit');
+const { allowedExtension, PRIVATE_UPLOAD_DIRS } = require('../src/app/uploadSafety');
 
 const router = express.Router();
 
@@ -742,6 +743,13 @@ router.post('/upload-asset', uploadAssetLimiter, async (req, res) => {
         const safeFolder = String(folder || '').replace(/[^a-zA-Z0-9_-]/g, '');
         const safeFilename = String(filename || '').replace(/[^a-zA-Z0-9_.\-]/g, '');
         if (!safeFolder || !safeFilename) return res.status(400).json({ error: 'Invalid folder or filename' });
+        // Files land in PUBLIC/uploads and are served from the app's origin, so only image
+        // and video types are accepted (never .html/.svg/.js), and never into a private
+        // folder (resumes).
+        if (!allowedExtension(safeFilename)) return res.status(400).json({ error: 'File type not allowed' });
+        if (PRIVATE_UPLOAD_DIRS.some((d) => d.prefix === `/uploads/${safeFolder.toLowerCase()}/`)) {
+            return res.status(400).json({ error: 'Folder not allowed' });
+        }
         if (!data || typeof data !== 'string') return res.status(400).json({ error: 'Missing data' });
 
         const fs = require('fs');
