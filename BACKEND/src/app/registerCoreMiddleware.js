@@ -56,7 +56,9 @@ const apiLimiter = rateLimit({
 const SYNC_KEY = process.env.SYNC_API_KEY || '';
 function shouldSkipSyncLimiter(req) {
   if (!SYNC_KEY) return false;
-  const key = (req.body && req.body.apiKey) || (req.query && req.query.apiKey);
+  // GET pulls send the key in the x-sync-api-key header (never in the URL, which is
+  // logged); POST pushes send it in the JSON body.
+  const key = req.get('x-sync-api-key') || (req.body && req.body.apiKey);
   return key === SYNC_KEY;
 }
 const syncLimiter = rateLimit({

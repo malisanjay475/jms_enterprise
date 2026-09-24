@@ -180,6 +180,47 @@ async function windowAnalysis(pool, machineId, startISO, endISO) {
 
 const pct1 = (x) => Math.round(x * 1000) / 10;
 
+// Newest reading per machine. One index probe per machine on
+// idx_machine_readings_machine_time (machine_id, recorded_at DESC) instead of
+// DISTINCT ON over the whole table: that form sorted every reading ever stored
+// (1.5M rows on factory-1) on each call and spilled to disk (74 MB for /latest,
+// 1.5 GB for /all-latest), taking ~1.1 s and ~12 s. machine_monitor.html polls
+// /latest every 3 s. Same rows as before: machines without readings are left out,
+// ordered by machine_id.
+const LATEST_READINGS_SQL = `
+  SELECT m.id AS machine_id, m.machine AS machine_name,
+         r.recorded_at, r.good_shots, r.bad_shots, r.shot_counter_set,
+         r.cycle_time_s, r.ideal_cycle_time_s, r.product_code,
+         r.machine_running, r.machine_mode, r.oil_temp, r.down_time_reason
+    FROM machines m
+    CROSS JOIN LATERAL (
+      SELECT x.recorded_at, x.good_shots, x.bad_shots, x.shot_counter_set,
+             x.cycle_time_s, x.ideal_cycle_time_s, x.product_code,
+             x.machine_running, x.machine_mode, x.oil_temp, x.down_time_reason
+        FROM machine_readings x
+       WHERE x.machine_id = m.id
+       ORDER BY x.recorded_at DESC
+       LIMIT 1
+    ) r
+   ORDER BY m.id
+`;
+
+// Same approach for the "All Machine Data" page: enabled Modbus machines only.
+const ALL_LATEST_READINGS_SQL = `
+  SELECT m.id AS machine_id, m.machine AS machine_name, r.recorded_at, r.raw_json
+    FROM machine_modbus_config c
+    JOIN machines m ON m.id = c.machine_id
+    CROSS JOIN LATERAL (
+      SELECT x.recorded_at, x.raw_json
+        FROM machine_readings x
+       WHERE x.machine_id = m.id
+       ORDER BY x.recorded_at DESC
+       LIMIT 1
+    ) r
+   WHERE c.enabled = true
+   ORDER BY m.id
+`;
+
 // Best-effort daily plan target for a machine from plan_board (matched by name).
 async function getMachineTarget(pool, machineId) {
   try {
@@ -343,16 +384,7 @@ function registerMachineDataRoutes(app, pool) {
   // --- Reads for UI ----------------------------------------------------------
   router.get('/latest', async (req, res) => {
     try {
-      const { rows } = await pool.query(`
-        SELECT DISTINCT ON (r.machine_id)
-               r.machine_id, m.machine AS machine_name,
-               r.recorded_at, r.good_shots, r.bad_shots, r.shot_counter_set,
-               r.cycle_time_s, r.ideal_cycle_time_s, r.product_code,
-               r.machine_running, r.machine_mode, r.oil_temp, r.down_time_reason
-          FROM machine_readings r
-          JOIN machines m ON m.id = r.machine_id
-         ORDER BY r.machine_id, r.recorded_at DESC
-      `);
+      const { rows } = await pool.query(LATEST_READINGS_SQL);
       res.json({ ok: true, readings: rows });
     } catch (e) {
       res.status(500).json({ ok: false, error: String(e.message || e) });
@@ -604,14 +636,7 @@ function registerMachineDataRoutes(app, pool) {
   // the live "All Machine Data" page.
   router.get('/all-latest', async (req, res) => {
     try {
-      const { rows } = await pool.query(`
-        SELECT DISTINCT ON (r.machine_id)
-               r.machine_id, m.machine AS machine_name, r.recorded_at, r.raw_json
-          FROM machine_readings r
-          JOIN machines m ON m.id = r.machine_id
-          JOIN machine_modbus_config c ON c.machine_id = r.machine_id AND c.enabled = true
-         ORDER BY r.machine_id, r.recorded_at DESC
-      `);
+      const { rows } = await pool.query(ALL_LATEST_READINGS_SQL);
       const registers = keba.REGISTERS.map(x => ({ address: x.address, key: x.key, label: x.label }));
       res.json({
         ok: true,
@@ -856,4 +881,10 @@ function slotWindows(dateStr, shift) {
   });
 }
 
-module.exports = { registerMachineDataRoutes, ensureSchema, PROFILES };
+module.exports = {
+  registerMachineDataRoutes,
+  ensureSchema,
+  PROFILES,
+  LATEST_READINGS_SQL,
+  ALL_LATEST_READINGS_SQL
+};

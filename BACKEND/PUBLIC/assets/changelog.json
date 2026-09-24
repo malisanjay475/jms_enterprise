@@ -11,8 +11,36 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.72.0",
+  "latest": "1.72.1",
   "versions": [
+    {
+      "version": "1.72.1",
+      "date": "2026-09-24",
+      "title": "Factory access follows each user's ticked factories, orders sync to the main server again, and sync is faster",
+      "modules": [
+        {
+          "app": "users",
+          "label": "User Management",
+          "icon": "bi-people",
+          "changes": [
+            { "type": "fix", "text": "Global Access now only lets a user log in from outside the factory — they see just the factories ticked for them, not every factory." },
+            { "type": "fix", "text": "A Global Access user with no factories ticked still sees all factories, so nobody gets locked out — tick their factories to limit them." }
+          ]
+        },
+        {
+          "app": "all",
+          "label": "Platform",
+          "icon": "bi-hdd-network",
+          "changes": [
+            { "type": "fix", "text": "Orders entered at the factory are sent to the main server again — duplicate orders that were blocking the sync have been cleaned up." },
+            { "type": "fix", "text": "Factory and main server sync is much lighter — planning rows are no longer sent back and forth on every cycle, and notifications no longer download the same items over and over." },
+            { "type": "fix", "text": "Large batches of deletions now sync completely between the factory and the main server instead of stopping after the first batch." },
+            { "type": "perf", "text": "The machine monitor loads the latest machine readings almost instantly instead of taking seconds." },
+            { "type": "security", "text": "The sync key is no longer written into server access logs." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.72.0",
       "date": "2026-09-22",
