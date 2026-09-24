@@ -1,61 +1,71 @@
 #!/usr/bin/env bash
 # ============================================================
-# JMS Enterprise — VPS Crontab Installer for 5-Min Backups
+# JMS Enterprise — VPS backup crontab installer
 # ============================================================
-# Usage:
-#   Run this script on the VPS to set up 5-minute automated
-#   backups and Google Drive rclone sync jobs:
+# Usage (on the VPS, as root):
 #     bash /opt/jms-enterprise/scripts/vps-cron-setup.sh
+#
+# Safe to re-run: it removes the previous JMS backup block (between the
+# markers below, plus the legacy 5-minute lines) and writes the current one.
+# The old crontab is saved to /root/crontab.bak.<timestamp> first.
+#
+# Rollback: crontab /root/crontab.bak.<timestamp>
+#
+# Schedule
+#   - DB dump every 30 min, keep 48 (= 24 h)           -> $BACKUP_DIR/dumps
+#   - Uploads archive every hour, keep 2 days           -> $BACKUP_DIR/uploads_*.tar.gz
+#     (taken from inside the app container: uploads live in the jms_v1_uploads
+#      volume, not in $DEPLOY_PATH/BACKEND/PUBLIC/uploads, which is empty — the
+#      old job archived that empty folder every 15 min)
+#   - Google Drive sync every 30 min, offset 10 min after the dump
 # ============================================================
 
 set -euo pipefail
 
-DEPLOY_PATH="/opt/jms-enterprise"
-BACKUP_DIR="/opt/jms-backups"
+DEPLOY_PATH="${DEPLOY_PATH:-/opt/jms-enterprise}"
+BACKUP_DIR="${BACKUP_DIR:-/opt/jms-backups}"
 LOG_FILE="/var/log/jms-cron-backup.log"
+DB_CONTAINER="${DB_CONTAINER:-jms-enterprise-v1-db-1}"
+APP_CONTAINER="${APP_CONTAINER:-jms-enterprise-v1-app-1}"
+BEGIN_MARK="# === JMS ENTERPRISE AUTOMATED BACKUPS ==="
+END_MARK="# ========================================"
 
-echo "============================================================"
-echo "  Setting up High-Frequency 5-Minute Backups on VPS"
-echo "============================================================"
-
-# Ensure backup directories exist
 mkdir -p "$BACKUP_DIR"
 
-# Write cron jobs to temporary file
-TMP_CRON=$(mktemp)
+TS=$(date +%Y%m%d_%H%M%S)
+OLD_CRON=$(mktemp)
+NEW_CRON=$(mktemp)
+trap 'rm -f "$OLD_CRON" "$NEW_CRON"' EXIT
 
-# Retrieve current crontab to avoid overwriting existing rules
-crontab -l > "$TMP_CRON" 2>/dev/null || true
+crontab -l > "$OLD_CRON" 2>/dev/null || true
+CRON_BAK_DIR="${CRON_BAK_DIR:-/root}"
+cp "$OLD_CRON" "$CRON_BAK_DIR/crontab.bak.$TS"
+echo "[Cron] Saved current crontab to $CRON_BAK_DIR/crontab.bak.$TS"
 
-# Check if rules already exist to prevent duplication
-if grep -q "backup-db.sh" "$TMP_CRON"; then
-    echo "[Cron] 5-Minute cron rules already exist in crontab."
-else
-    echo "[Cron] Appending backup and sync rules to crontab..."
-    
-    cat <<EOF >> "$TMP_CRON"
+# Drop the old JMS block and any stray legacy JMS backup lines, keep everything else.
+awk -v b="$BEGIN_MARK" -v e="$END_MARK" '
+  $0 == b { skip = 1; next }
+  skip && $0 == e { skip = 0; next }
+  skip { next }
+  /backup-db\.sh|jms-backups\/uploads_|gdrive:JMS-Backups/ { next }
+  { print }
+' "$OLD_CRON" > "$NEW_CRON"
 
-# === JMS ENTERPRISE AUTOMATED BACKUPS ===
-# 1. Take database dump every 5 minutes (keeps last 288 files = 24 hours of history)
-*/5 * * * * DB_CONTAINER=jms-enterprise-v1-db-1 APP_CONTAINER=jms-enterprise-v1-app-1 BACKUP_DIR=$BACKUP_DIR MAX_BACKUPS=288 bash $DEPLOY_PATH/scripts/backup-db.sh >> $LOG_FILE 2>&1
+cat >> "$NEW_CRON" <<CRON
+$BEGIN_MARK
+# 1. DB dump every 30 minutes (keeps last 48 = 24 hours)
+*/30 * * * * DB_CONTAINER=$DB_CONTAINER APP_CONTAINER=$APP_CONTAINER BACKUP_DIR=$BACKUP_DIR MAX_BACKUPS=48 bash $DEPLOY_PATH/scripts/backup-db.sh >> $LOG_FILE 2>&1
+# 2. Uploads archive every hour from the app container's uploads volume; keep 2 days
+5 * * * * docker exec $APP_CONTAINER sh -c 'cd /app/PUBLIC && tar -czf - uploads' > $BACKUP_DIR/uploads_\$(date +\%Y-\%m-\%d_\%H).tar.gz 2>> $LOG_FILE; find $BACKUP_DIR -maxdepth 1 -name 'uploads_*.tar.gz' -mtime +2 -delete
+# 3. Offsite sync to Google Drive every 30 minutes (10 min after the dump)
+10,40 * * * * rclone sync "$BACKUP_DIR" "gdrive:JMS-Backups" --copy-links --log-file=/var/log/rclone-sync.log 2>&1
+$END_MARK
+CRON
 
-# 2. Archive uploads folder every 15 minutes
-*/15 * * * * tar -czf $BACKUP_DIR/uploads_\$(date +\%Y-\%m-\%d_\%H-\%M).tar.gz -C $DEPLOY_PATH/BACKEND/PUBLIC/uploads . >> $LOG_FILE 2>&1
+crontab "$NEW_CRON"
+echo "[Cron] Installed:"
+crontab -l | sed -n "/^$BEGIN_MARK\$/,/^$END_MARK\$/p"
 
-# 3. Offsite sync to Google Drive every 5 minutes (uploads new files instantly)
-*/5 * * * * rclone sync "$BACKUP_DIR" "gdrive:JMS-Backups" --copy-links --log-file=/var/log/rclone-sync.log 2>&1
-# ========================================
-EOF
-
-    # Apply new crontab
-    crontab "$TMP_CRON"
-    echo "[Cron] CRONTAB successfully configured!"
-fi
-
-rm -f "$TMP_CRON"
-
-echo "============================================================"
-echo "  Setup Complete!"
-echo "  - DB dumps occur every 5 mins at: $BACKUP_DIR"
-echo "  - GDrive offsite sync runs every 5 mins"
-echo "============================================================"
+# One-time cleanup: the old job left thousands of empty (20-byte) upload archives.
+REMOVED=$(find "$BACKUP_DIR" -maxdepth 1 -name 'uploads_*.tar.gz' -size -100c -print -delete | wc -l)
+echo "[Cron] Removed $REMOVED empty uploads_*.tar.gz files."
