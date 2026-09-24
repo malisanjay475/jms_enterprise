@@ -21,6 +21,7 @@
  */
 
 const keba = require('./kebaProfile');
+const { isAdminLike } = require('../../app/auth');
 
 const PROFILES = {
   [keba.PROFILE_ID]: keba,
@@ -268,7 +269,19 @@ function registerMachineDataRoutes(app, pool) {
          WHERE m.is_active = true
          ORDER BY m.machine ASC
       `);
-      res.json({ ok: true, config: rows });
+      // Modbus network details (IP/port/unit) expose the factory LAN. Only admins
+      // manage them; everyone else (e.g. the machine monitor page) needs just the
+      // machine id/name/enabled flag, so redact the network fields for non-admins.
+      const admin = isAdminLike(req.auth);
+      const config = admin ? rows : rows.map((r) => ({
+        machine_id: r.machine_id,
+        machine_name: r.machine_name,
+        factory_id: r.factory_id,
+        enabled: r.enabled,
+        profile_id: r.profile_id,
+        updated_at: r.updated_at,
+      }));
+      res.json({ ok: true, config });
     } catch (e) {
       res.status(500).json({ ok: false, error: String(e.message || e) });
     }
