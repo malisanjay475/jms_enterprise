@@ -4783,6 +4783,9 @@ const LEGACY_INIT_LOCK_KEY = 4715132010;
 // same key as the row we keep — which the factory LOCAL servers would pull and apply,
 // deleting the live order there. So drop the tombstones written in this transaction.
 // Nothing references orders.id (all joins use order_no). No-op once the index exists.
+// The index is built in the same transaction, under a lock that blocks order writes, so
+// another worker (e.g. /api/orders/fetch-from-orjr, which does not take the init lock)
+// cannot insert a new duplicate between the cleanup and the index build.
 async function dedupeOrdersByFactoryKey() {
   const client = await pool.connect();
   try {
@@ -4792,6 +4795,10 @@ async function dedupeOrdersByFactoryKey() {
     if (idx.rowCount > 0) return;
 
     await client.query('BEGIN');
+    // Reads still work; order INSERT/UPDATE/DELETE wait until COMMIT. Give up rather than
+    // stall startup if a long-running writer holds the table.
+    await client.query(`SET LOCAL lock_timeout = '30s'`);
+    await client.query('LOCK TABLE orders IN SHARE ROW EXCLUSIVE MODE');
     const del = await client.query(`
       DELETE FROM orders o
        USING (
@@ -4809,6 +4816,9 @@ async function dedupeOrdersByFactoryKey() {
         await client.query(`DELETE FROM sync_deletions WHERE table_name = 'orders' AND deleted_at = NOW()`);
       }
     }
+    await client.query(
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_factory_order_unique ON orders (order_no, (COALESCE(factory_id, 0)))`
+    );
     await client.query('COMMIT');
     if (del.rowCount > 0) {
       console.warn(`[DB] orders: removed ${del.rowCount} duplicate (order_no, factory) row(s), kept the newest copy of each`);
