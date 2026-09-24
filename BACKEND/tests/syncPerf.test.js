@@ -280,3 +280,54 @@ describe('deletion paging', () => {
     expect(configWrites).toContainEqual(['LAST_DELETE_PULL', '2026-09-24T06:00:00.000Z']);
   });
 });
+
+describe('sync key travels in a header, never in the URL', () => {
+  const express = require('express');
+  const request = require('supertest');
+
+  function mountRouter(syncService) {
+    const pool = schemaPool({ orders: ['id', 'updated_at', 'factory_id'] });
+    syncService.__test.setRuntimeForTests({ pool, API_KEY: 'secret-key' });
+    const app = express();
+    app.use(express.json());
+    app.use('/api/sync', syncService.router);
+    return app;
+  }
+
+  it('LOCAL pulls send the key as x-sync-api-key and leave it out of the URL', async () => {
+    const syncService = require('../services/sync.service');
+    syncService.__test.setRuntimeForTests({ MAIN_SERVER_URL: 'http://main.example', LOCAL_FACTORY_ID: 1, API_KEY: 'secret-key' });
+    global.fetch = jest.fn().mockResolvedValue(mockResponse(200, { ok: true, data: [] }));
+
+    await syncService.__test.pullTableAllPages('orders', '2026-09-24T00:00:00.000Z');
+
+    const [url, options] = global.fetch.mock.calls[0];
+    expect(url).not.toContain('secret-key');
+    expect(url).not.toContain('apiKey');
+    expect(options.headers['x-sync-api-key']).toBe('secret-key');
+  });
+
+  it('MAIN /pull and /pull-deletions reject a key in the query string', async () => {
+    const syncService = require('../services/sync.service');
+    const app = mountRouter(syncService);
+
+    const pull = await request(app).get('/api/sync/pull?table=orders&since=2026-09-24&apiKey=secret-key');
+    const del = await request(app).get('/api/sync/pull-deletions?since=2026-09-24&apiKey=secret-key');
+
+    expect(pull.status).toBe(403);
+    expect(del.status).toBe(403);
+  });
+
+  it('MAIN /pull and /pull-deletions accept the key from the header', async () => {
+    const syncService = require('../services/sync.service');
+    const app = mountRouter(syncService);
+
+    const pull = await request(app).get('/api/sync/pull?table=orders&since=2026-09-24').set('x-sync-api-key', 'secret-key');
+    const del = await request(app).get('/api/sync/pull-deletions?since=2026-09-24').set('x-sync-api-key', 'secret-key');
+
+    expect(pull.status).toBe(200);
+    expect(pull.body.ok).toBe(true);
+    expect(del.status).toBe(200);
+    expect(del.body.ok).toBe(true);
+  });
+});

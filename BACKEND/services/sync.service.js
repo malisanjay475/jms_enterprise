@@ -108,6 +108,15 @@ function withSyncTimeout(options = {}) {
     return { ...options, signal: AbortSignal.timeout(SYNC_FETCH_TIMEOUT_MS) };
 }
 
+// GET pulls carry the sync key in this header. It used to travel as ?apiKey= in the URL,
+// which access logs record, so the key sat in plain text in logs/access.log on MAIN.
+// POST routes keep the key in the JSON body (bodies are not logged).
+const SYNC_KEY_HEADER = 'x-sync-api-key';
+
+function syncPullHeaders() {
+    return { [SYNC_KEY_HEADER]: API_KEY };
+}
+
 const SYNC_ALL = [
     'app_settings',
     'assembly_lines',
@@ -815,8 +824,8 @@ router.post('/push-deletions', async (req, res) => {
 router.get('/pull', async (req, res) => {
     if (!pool) return res.status(503).json({ error: 'Service initializing' });
     try {
-        const { table, lastSync, since, apiKey, factoryId, afterId } = req.query;
-        if (apiKey !== API_KEY) return res.status(403).json({ error: 'Invalid Key' });
+        const { table, lastSync, since, factoryId, afterId } = req.query;
+        if (req.get(SYNC_KEY_HEADER) !== API_KEY) return res.status(403).json({ error: 'Invalid Key' });
         if (!TABLES_TO_PULL.includes(table)) return res.status(400).json({ error: 'Invalid Table' });
 
         // afterId is the keyset tiebreaker: the id of the last row the client
@@ -839,8 +848,8 @@ router.get('/pull', async (req, res) => {
 router.get('/pull-deletions', async (req, res) => {
     if (!pool) return res.status(503).json({ error: 'Service initializing' });
     try {
-        const { since, apiKey, factoryId, afterId } = req.query;
-        if (apiKey !== API_KEY) return res.status(403).json({ error: 'Invalid Key' });
+        const { since, factoryId, afterId } = req.query;
+        if (req.get(SYNC_KEY_HEADER) !== API_KEY) return res.status(403).json({ error: 'Invalid Key' });
 
         // factoryId=all (full replication) → no factory filter; numeric → that factory only.
         // afterId pages through large deletion batches (older LOCALs omit it: first page only).
@@ -1675,9 +1684,9 @@ async function pullTableAllPages(table, since, onPage = null) {
 
     while (true) {
         pageNum += 1;
-        let url = `${MAIN_SERVER_URL}/api/sync/pull?table=${encodeURIComponent(table)}&since=${encodeURIComponent(currentSince)}&apiKey=${encodeURIComponent(API_KEY)}&factoryId=${encodeURIComponent(localPullFactoryParam())}`;
+        let url = `${MAIN_SERVER_URL}/api/sync/pull?table=${encodeURIComponent(table)}&since=${encodeURIComponent(currentSince)}&factoryId=${encodeURIComponent(localPullFactoryParam())}`;
         if (currentAfterId !== null) url += `&afterId=${encodeURIComponent(currentAfterId)}`;
-        const response = await fetchWithSyncRetry(url, `Pull ${table} page ${pageNum}`);
+        const response = await fetchWithSyncRetry(url, `Pull ${table} page ${pageNum}`, { headers: syncPullHeaders() });
 
         if (!response.ok) {
             const errText = await response.text().catch(() => '');
@@ -1797,9 +1806,9 @@ async function pullDeletionChanges() {
         let pageNum = 0;
         for (;;) {
             pageNum += 1;
-            let url = `${MAIN_SERVER_URL}/api/sync/pull-deletions?since=${encodeURIComponent(lastPull)}&apiKey=${encodeURIComponent(API_KEY)}&factoryId=${encodeURIComponent(localPullFactoryParam())}`;
+            let url = `${MAIN_SERVER_URL}/api/sync/pull-deletions?since=${encodeURIComponent(lastPull)}&factoryId=${encodeURIComponent(localPullFactoryParam())}`;
             if (afterId !== null) url += `&afterId=${encodeURIComponent(afterId)}`;
-            const response = await fetchWithSyncRetry(url, `Pull deletions page ${pageNum}`);
+            const response = await fetchWithSyncRetry(url, `Pull deletions page ${pageNum}`, { headers: syncPullHeaders() });
             if (!response.ok) {
                 const errText = await response.text().catch(() => '');
                 throw new Error(`Pull deletions HTTP ${response.status}: ${errText.slice(0, 200)}`);
