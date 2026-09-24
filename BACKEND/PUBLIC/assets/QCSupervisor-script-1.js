@@ -1953,6 +1953,7 @@
         }
 
         function logout() {
+            try { fetch('/api/logout', { method: 'POST', credentials: 'same-origin', keepalive: true }).catch(() => {}); } catch (_) { }
             localStorage.removeItem('token');
             localStorage.removeItem('jpsmsSession');
             location.reload();

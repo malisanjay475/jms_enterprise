@@ -476,6 +476,9 @@ function escHtml(value) {
             }
         },
         logout: () => {
+            // End the server session too (its HttpOnly cookie can't be cleared from JS).
+            // keepalive lets the request finish while the page navigates away.
+            try { fetch('/api/logout', { method: 'POST', credentials: 'same-origin', keepalive: true }).catch(() => {}); } catch (_) { }
             // Reset loader state on logout
             loaderCount = 0;
             toggleLoader(false);

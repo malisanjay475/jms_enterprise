@@ -368,6 +368,7 @@
         }
 
         function logout() {
+            try { fetch('/api/logout', { method: 'POST', credentials: 'same-origin', keepalive: true }).catch(() => {}); } catch (_) { }
             localStorage.removeItem('adm_sess');
             location.reload();
         }
