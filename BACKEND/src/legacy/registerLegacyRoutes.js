@@ -13,8 +13,18 @@ const upload = multer({
     cb(new Error(`File type not allowed: ${file.originalname}`), false);
   }
 });
+// Restore uploads land in uploads/ under multer's random 32-hex-char name. The handler
+// rebuilds the path from that name (validated) instead of using req.file.path directly,
+// so no request value can steer which file psql/pg_restore read or which file is deleted.
+const RESTORE_UPLOAD_DIR = path.resolve('uploads');
+const RESTORE_TEMP_NAME_RE = /^[a-f0-9]{32}$/;
+function restoreTempPath(file) {
+  const name = path.basename(String(file?.filename || ''));
+  if (!RESTORE_TEMP_NAME_RE.test(name)) return null;
+  return path.join(RESTORE_UPLOAD_DIR, name);
+}
 const uploadRestore = multer({
-  dest: 'uploads/',
+  dest: RESTORE_UPLOAD_DIR,
   limits: { fileSize: 500 * 1024 * 1024 }, // 500 MB for DB restore files
   fileFilter(_req, file, cb) {
     const ALLOWED = /\.(sql|dump|backup)$/i;
@@ -31716,7 +31726,8 @@ app.post('/api/admin/restore', uploadRestore.single('file'), async (req, res) =>
   console.log('[Restore] Request received');
   if (!req.file) return res.status(400).json({ ok: false, error: 'No file uploaded' });
 
-  const filePath = req.file.path;
+  const filePath = restoreTempPath(req.file);
+  if (!filePath) return res.status(400).json({ ok: false, error: 'Invalid upload' });
   const isSql = req.file.originalname.endsWith('.sql');
 
   console.log('[Restore] File:', filePath, 'Type:', isSql ? 'SQL' : 'Binary');
