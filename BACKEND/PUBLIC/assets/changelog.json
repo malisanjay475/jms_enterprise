@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.74.7",
+  "latest": "1.74.8",
   "versions": [
+    {
+      "version": "1.74.8",
+      "date": "2026-09-25",
+      "title": "Reliable package installs on factory servers",
+      "modules": [
+        {
+          "app": "all",
+          "label": "Platform",
+          "icon": "bi-arrow-repeat",
+          "changes": [
+            { "type": "fix", "text": "Factory servers started by the local supervisor can install new packages again after an update, and no longer reinstall them on every start." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.74.7",
       "date": "2026-09-25",
