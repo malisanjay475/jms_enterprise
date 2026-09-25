@@ -21,8 +21,14 @@
 #include <HTTPClient.h>
 
 // ============ CONFIG — EDIT THESE ============
-const char* WIFI_SSID     = "B Packing";
-const char* WIFI_PASSWORD = "Joyo@2525";
+// Wi-Fi name/password and the optional device key live in secrets.h, which git
+// ignores, so they are never committed. First time: copy secrets_example.h to
+// secrets.h in this folder and fill it in.
+#if __has_include("secrets.h")
+#include "secrets.h"
+#else
+#error "secrets.h missing: copy secrets_example.h to secrets.h and fill in WIFI_SSID / WIFI_PASSWORD"
+#endif
 
 // Backend the scanner posts to. Use the LAN IP of the JMS LOCAL server that is
 // reachable from the packing network (recommended). Only use a public IP if you
@@ -34,9 +40,7 @@ const int   BACKEND_PORT  = 3001;
 // assembly_lines.line_id in the app (e.g. seen in the app as "Table B1").
 const char* TABLE_ID      = "Table B1";
 
-// Optional shared secret. Leave "" unless you set ASSEMBLY_DEVICE_KEY on the
-// backend; then put the same value here.
-const char* DEVICE_KEY    = "";
+// DEVICE_KEY (optional shared secret) is set in secrets.h.
 // =============================================
 
 // Barcode Scanner UART (ESP32-WROOM-32)
