@@ -1947,7 +1947,29 @@ async function tryResolveLegacyNotificationConflict(client, row, keys, vals) {
 // Pass `client` to run inside an open transaction — the call is then wrapped in a
 // savepoint so a failure rolls back only the setval, leaving the batch intact.
 // Without a client it runs standalone on the pool.
+// Tables where the column doesn't exist (e.g. job_cards is keyed by jobcard_no and has
+// no id on LOCAL). The setval failed there after every pull and logged a warning each
+// time; now it is checked once per table and skipped.
+const _serialColumnExists = new Map();
+async function serialColumnExists(table, column) {
+    const key = `${table}.${column}`;
+    if (!_serialColumnExists.has(key)) {
+        try {
+            const { rowCount } = await pool.query(
+                `SELECT 1 FROM information_schema.columns
+                  WHERE table_schema = current_schema() AND table_name = $1 AND column_name = $2`,
+                [table, column]
+            );
+            _serialColumnExists.set(key, rowCount > 0);
+        } catch (_e) {
+            return true; // unknown → let the guarded setval below try, as before
+        }
+    }
+    return _serialColumnExists.get(key);
+}
+
 async function resyncSerialSequence(table, column = 'id', client = null) {
+    if (!(await serialColumnExists(table, column))) return;
     const sql = `SELECT setval(seq, COALESCE((SELECT MAX(${column}) FROM ${table}), 0) + 1, false)
                    FROM pg_get_serial_sequence($1, $2) AS seq
                   WHERE seq IS NOT NULL`;
@@ -3336,6 +3358,7 @@ module.exports = {
         coerceJsonColumnsForWire,
         upsertData,
         setRuntimeForTests,
+        resyncSerialSequence,
         findFullReplicationKeyOffenders,
         assertFullReplicationSafe,
         normalizePullFactoryScope,
