@@ -472,9 +472,54 @@ async function checkUpdate(mainUrl) {
   }
 }
 
+// Files that never need a restart when they change: the release metadata (changes with
+// every release even when no code does) and the build-generated static variants
+// (.br/.gz/.min.*/.map), which precompressedStatic.js re-reads from disk and skips when
+// older than their source. The per-file updater doesn't copy those variants, so they
+// always differ here.
+const RELEASE_METADATA_FILES = new Set(['runtime-release.json', 'RELEASE_MANIFEST.json']);
+const DERIVED_STATIC_RE = /(\.gz|\.br|\.min\.js|\.min\.css|\.map|\.precompress-manifest\.json)$/i;
+function needsRestart(filePath) {
+  const name = path.basename(filePath);
+  return !RELEASE_METADATA_FILES.has(name) && !DERIVED_STATIC_RE.test(name);
+}
+
+// Writes the release zip into root, but only files whose content differs from what is
+// on disk. Returns how many files were written and how many of them were code (anything
+// but the release metadata). The factory also has a per-file updater ([AutoUpdate],
+// localNodeAgent.js) that usually copies a release's changed files first; this updater
+// then downloaded the whole package again and restarted the server a second time a
+// minute later. When every file already matches, no restart is needed.
+function applyReleaseZip(zip, root) {
+  const rootResolved = path.resolve(root);
+  let written = 0;
+  let codeChanged = 0;
+  for (const entry of zip.getEntries()) {
+    if (entry.isDirectory) continue;
+    const target = path.resolve(rootResolved, entry.entryName);
+    if (target !== rootResolved && !target.startsWith(rootResolved + path.sep)) {
+      throw new Error(`Release entry outside package root: ${entry.entryName}`);
+    }
+    const data = entry.getData();
+    let same = false;
+    try {
+      same = fs.existsSync(target) && fs.readFileSync(target).equals(data);
+    } catch (_e) {
+      same = false;
+    }
+    if (same) continue;
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.writeFileSync(target, data);
+    written += 1;
+    if (needsRestart(target)) codeChanged += 1;
+  }
+  return { written, codeChanged };
+}
+
 async function downloadAndApply(mainUrl, remote) {
   const packageRoot = PACKAGE_ROOT;
   const tmpPath = path.join(packageRoot, 'temp_update.zip');
+  let applied = { written: 0, codeChanged: 0 };
   try {
     const response = await fetch(new URL(remote.url, mainUrl).toString(), {
       headers: buildAuthHeaders()
@@ -491,7 +536,7 @@ async function downloadAndApply(mainUrl, remote) {
 
     console.log('[Updater] Download complete. Extracting release...');
     const zip = new AdmZip(tmpPath);
-    zip.extractAllTo(packageRoot, true);
+    applied = applyReleaseZip(zip, packageRoot);
 
     // After extracting new files, install any newly-added BACKEND/CLIENT_BRIDGE
     // packages before restart. Old supervisors may still be running in memory.
@@ -520,8 +565,14 @@ async function downloadAndApply(mainUrl, remote) {
     }
   }
 
-  console.log(`[Updater] Release ${remote.releaseId} applied. Restarting service...`);
+  if (applied.codeChanged === 0) {
+    // Files were already current (copied by the per-file updater): record the release,
+    // skip the restart.
+    console.log(`[Updater] Release ${remote.releaseId} recorded — all files already up to date, no restart needed.`);
+    return;
+  }
+  console.log(`[Updater] Release ${remote.releaseId} applied (${applied.codeChanged} file(s) changed). Restarting service...`);
   process.exit(0);
 }
 
-module.exports = { init, router };
+module.exports = { init, router, __test: { applyReleaseZip } };
