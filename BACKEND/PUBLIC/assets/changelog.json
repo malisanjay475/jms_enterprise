@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.74.10",
+  "latest": "1.74.11",
   "versions": [
+    {
+      "version": "1.74.11",
+      "date": "2026-09-25",
+      "title": "Smaller database: old local server heartbeats cleaned up",
+      "modules": [
+        {
+          "app": "all",
+          "label": "Platform",
+          "icon": "bi-hdd",
+          "changes": [
+            { "type": "perf", "text": "Local server status history older than 30 days is now cleared automatically every day, so the database stops growing from it." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.74.10",
       "date": "2026-09-25",
