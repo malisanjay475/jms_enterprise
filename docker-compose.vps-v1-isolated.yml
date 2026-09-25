@@ -77,7 +77,11 @@ services:
       db:
         condition: service_healthy
     ports:
-      - "${V1_HTTP_PORT:-9091}:3000"
+      # Loopback by default: the public entry point is Traefik (https://jmsocean.cloud),
+      # which reaches the container over the Docker network. Plain-HTTP access on the
+      # public IP (e.g. :9092) is closed; staging sets V1_HTTP_BIND=0.0.0.0 until it
+      # has its own domain. Probe on 25-Sep-2026: no local server used :9092.
+      - "${V1_HTTP_BIND:-127.0.0.1}:${V1_HTTP_PORT:-9091}:3000"
     volumes:
       - ./seed:/seed:ro
       # Persist uploaded files (machine icons, operator photos, etc.) across Docker deploys.
