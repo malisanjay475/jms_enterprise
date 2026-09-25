@@ -217,8 +217,19 @@
             if (!v.vendor_name) return JPSMS.toast('Vendor Name required', 'error');
 
             try {
-                await JPSMS.api.post('/vendor/admin/save', v);
+                const saved = await JPSMS.api.post('/vendor/admin/save', v);
                 JPSMS.toast('Vendor saved');
+                if (saved && saved.login) {
+                    // Shown only once — the server stores just the hash.
+                    alert('Vendor portal login created.
+
+Username: ' + saved.login.username +
+                        '
+Password: ' + saved.login.password +
+                        '
+
+Note it down and give it to the vendor now. It will not be shown again.');
+                }
                 closeModal();
                 loadVendors();
             } catch (e) {

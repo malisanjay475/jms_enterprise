@@ -25,6 +25,12 @@ const uploadRestore = multer({
 const fs = require('fs');
 const xlsx = require('xlsx');
 const bcrypt = require('bcryptjs');
+const { passwordLengthError } = require('../app/passwordPolicy');
+const {
+  checkBruteForce: _checkBruteForce,
+  recordLoginFailure: _recordLoginFailure,
+  clearLoginFailures: _clearLoginFailures
+} = require('../app/loginLockout');
 const BACKEND_ROOT = path.resolve(__dirname, '..', '..');
 const STATIC_PUBLIC_DIR_NAME = fs.existsSync(path.join(BACKEND_ROOT, 'PUBLIC', 'index.html')) ? 'PUBLIC' : 'public';
 const STATIC_PUBLIC_DIR = path.join(BACKEND_ROOT, STATIC_PUBLIC_DIR_NAME);
@@ -174,7 +180,7 @@ module.exports = function registerLegacyRoutes({ app, pool, config, services }) 
         return res.status(400).json({ ok: false, error: 'username and password required' });
       }
       // Same lockout as /api/login, so this form can't be used to guess passwords.
-      const lockMsg = _checkBruteForce(username);
+      const lockMsg = _checkBruteForce(username, req.ip);
       if (lockMsg) return res.status(429).json({ ok: false, error: lockMsg });
       // Read the password column the way /api/login does. Some schemas have no
       // password_hash column, so pull it defensively via to_jsonb to avoid a
@@ -186,15 +192,15 @@ module.exports = function registerLegacyRoutes({ app, pool, config, services }) 
         [username]
       );
       if (!rows.length) {
-        _recordLoginFailure(username);
+        _recordLoginFailure(username, req.ip);
         return res.status(401).json({ ok: false, error: 'Invalid credentials' });
       }
       const valid = await bcrypt.compare(password, rows[0].pw || '');
       if (!valid) {
-        _recordLoginFailure(username);
+        _recordLoginFailure(username, req.ip);
         return res.status(401).json({ ok: false, error: 'Invalid credentials' });
       }
-      _clearLoginFailures(username);
+      _clearLoginFailures(username, req.ip);
       const role = String(rows[0].role_code || '').toLowerCase();
       if (role !== 'admin' && role !== 'superadmin') {
         return res.status(403).json({ ok: false, error: 'Admin access required' });
@@ -6174,62 +6180,7 @@ async function initializeLegacyRuntime() {
   };
 }
 
-/* ============================================================
-   BRUTE-FORCE PROTECTION
-   In-memory per-username tracker. 5 failures → 15-min lockout.
-   Resets on successful login. Each PM2 worker has its own map,
-   which is acceptable for factory intranet use — Redis would be
-   needed for perfect cross-worker coordination.
-============================================================ */
-const _loginAttempts = new Map(); // key: username → { count, lockedUntil }
-const LOGIN_MAX_ATTEMPTS = 5;
-const LOGIN_LOCKOUT_MS = 15 * 60 * 1000; // 15 minutes
-const LOGIN_WINDOW_MS  = 15 * 60 * 1000; // reset window
-
-function _checkBruteForce(username) {
-  const key = String(username || '').toLowerCase().trim();
-  const now = Date.now();
-  const entry = _loginAttempts.get(key);
-  if (!entry) return null; // no prior failures
-  if (entry.lockedUntil && now < entry.lockedUntil) {
-    const remainingMin = Math.ceil((entry.lockedUntil - now) / 60000);
-    return `Too many failed attempts. Account locked for ${remainingMin} more minute(s).`;
-  }
-  // Lock expired — clear it
-  if (entry.lockedUntil && now >= entry.lockedUntil) {
-    _loginAttempts.delete(key);
-  }
-  return null;
-}
-
-function _recordLoginFailure(username) {
-  const key = String(username || '').toLowerCase().trim();
-  const now = Date.now();
-  let entry = _loginAttempts.get(key) || { count: 0, firstFailAt: now, lockedUntil: null };
-  // Reset window if first failure was long ago
-  if (now - entry.firstFailAt > LOGIN_WINDOW_MS) {
-    entry = { count: 0, firstFailAt: now, lockedUntil: null };
-  }
-  entry.count += 1;
-  if (entry.count >= LOGIN_MAX_ATTEMPTS) {
-    entry.lockedUntil = now + LOGIN_LOCKOUT_MS;
-    console.warn(`[Security] Login locked for "${key}" after ${entry.count} failures.`);
-  }
-  _loginAttempts.set(key, entry);
-}
-
-function _clearLoginFailures(username) {
-  _loginAttempts.delete(String(username || '').toLowerCase().trim());
-}
-
-// Purge stale entries every 30 minutes to prevent memory growth
-setInterval(() => {
-  const now = Date.now();
-  for (const [key, entry] of _loginAttempts) {
-    if (!entry.lockedUntil && now - entry.firstFailAt > LOGIN_WINDOW_MS) _loginAttempts.delete(key);
-    else if (entry.lockedUntil && now > entry.lockedUntil + 60000) _loginAttempts.delete(key);
-  }
-}, 30 * 60 * 1000).unref();
+// Brute-force protection for /api/login and the QC APK publish form: see src/app/loginLockout.js.
 
 /* ============================================================
    LOGIN (Modified for Multi-Factory)
@@ -6241,7 +6192,7 @@ app.post('/api/login', async (req, res) => {
     if (!username || !password) return res.json({ ok: false, error: 'Missing credentials' });
 
     // Brute-force check — fail fast before any DB query
-    const lockMsg = _checkBruteForce(username);
+    const lockMsg = _checkBruteForce(username, req.ip);
     if (lockMsg) return res.status(429).json({ ok: false, error: lockMsg });
 
     // 1. Fetch User
@@ -6255,8 +6206,10 @@ app.post('/api/login', async (req, res) => {
     );
 
     if (!rows.length) {
-      _recordLoginFailure(username);
-      return res.json({ ok: false, error: 'User not found' });
+      _recordLoginFailure(username, req.ip);
+      // Same message for unknown user and wrong password, so the form can't be used
+      // to find out which usernames exist.
+      return res.json({ ok: false, error: 'Invalid username or password' });
     }
     const u = rows[0];
 
@@ -6279,10 +6232,10 @@ app.post('/api/login', async (req, res) => {
     }
 
     if (!valid) {
-      _recordLoginFailure(username);
-      return res.json({ ok: false, error: 'Password is Wrong' });
+      _recordLoginFailure(username, req.ip);
+      return res.json({ ok: false, error: 'Invalid username or password' });
     }
-    _clearLoginFailures(username);
+    _clearLoginFailures(username, req.ip);
 
     // MAIN-server geofence: a non-global user may only log in from inside the factory.
     // LOCAL servers skip this entirely — factory-floor login is unchanged.
@@ -6612,6 +6565,11 @@ app.post('/api/users/save', async (req, res) => {
       }
     }
 
+    if (password) {
+      const pwError = passwordLengthError(password);
+      if (pwError) return res.status(400).json({ ok: false, error: pwError });
+    }
+
     if (userId) {
       if (!existingUser) {
         const existingUserRows = await q('SELECT id, username, role_code FROM users WHERE id = $1 LIMIT 1', [userId]);
@@ -6728,6 +6686,8 @@ app.post('/api/users/password', async (req, res) => {
     const actor = await getRequestActor(req);
     const { username, password } = req.body;
     if (!username || !password) return res.json({ ok: false, error: 'Missing credentials' });
+    const pwError = passwordLengthError(password);
+    if (pwError) return res.status(400).json({ ok: false, error: pwError });
     const targetUser = (await q('SELECT username, role_code FROM users WHERE username = $1 LIMIT 1', [username]))[0];
     if (!targetUser) return res.json({ ok: false, error: 'User not found' });
     if (isSuperadminRole(targetUser) && !isSuperadminRole(actor)) {
@@ -21042,6 +21002,8 @@ app.post('/api/admin/users/create', async (req, res) => {
     const actor = await getRequestActor(req);
     const requestedRole = String(role || 'operator').toLowerCase();
     if (!username || !password) return res.json({ ok: false, error: 'Missing credentials' });
+    const pwError = passwordLengthError(password);
+    if (pwError) return res.status(400).json({ ok: false, error: pwError });
     if (requestedRole === 'superadmin' && !isSuperadminRole(actor)) {
       return res.status(403).json({ ok: false, error: 'Only superadmin can assign the superadmin role' });
     }
@@ -21135,6 +21097,8 @@ app.post('/api/admin/users/password', async (req, res) => {
     const { username, password } = req.body;
     const actor = await getRequestActor(req);
     if (!username || !password) return res.json({ ok: false, error: 'Missing credentials' });
+    const pwError = passwordLengthError(password);
+    if (pwError) return res.status(400).json({ ok: false, error: pwError });
     const targetUser = (await q('SELECT username, role_code FROM users WHERE username = $1 LIMIT 1', [username]))[0];
     if (!targetUser) return res.json({ ok: false, error: 'User not found' });
     if (isSuperadminRole(targetUser) && !isSuperadminRole(actor)) {
@@ -32366,12 +32330,39 @@ app.post('/api/admin/restore', uploadRestore.single('file'), async (req, res) =>
     console.log(`[Restore Log]: ${msg} `);
   });
 
-  proc.on('close', (code) => {
+  // Report what actually happened. This used to answer { ok:true } whatever the exit
+  // code, so a failed or half-applied restore showed "Restore completed successfully".
+  // Nothing about how the restore runs has changed — only the reply.
+  // Rollback if a restore goes wrong: restore the safety dump taken before it (Settings →
+  // Backup, or the scheduled pg_dump on the VPS / factory backup folder) the same way.
+  let answered = false;
+  const reply = (status, body) => {
+    if (answered) return;
+    answered = true;
     fs.unlink(filePath, () => { });
-    // pg_restore returns 1 on warnings, so allow it if output implies success
-    console.log(`[Restore] Process ended with code ${code} `);
+    res.status(status).json(body);
+  };
 
-    res.json({ ok: true, message: 'Process Finished' });
+  proc.on('error', (err) => {
+    // e.g. pg_restore / psql not installed. Without this handler the spawn error
+    // was an uncaught exception.
+    console.error('[Restore] Could not start restore tool:', err.message);
+    reply(500, { ok: false, error: `Could not start the restore tool: ${err.message}` });
+  });
+
+  proc.on('close', (code) => {
+    console.log(`[Restore] Process ended with code ${code} `);
+    if (code === 0) {
+      return reply(200, { ok: true, message: 'Restore completed.' });
+    }
+    // pg_restore exits 1 when it hit errors it skipped over, so the database may be
+    // partly restored. 422 (not 5xx) so the tool's messages reach the Superadmin.
+    const detail = errorOutput.trim().slice(-1500) || 'no error output';
+    return reply(422, {
+      ok: false,
+      exitCode: code,
+      error: `The restore tool reported errors (exit code ${code}). The database may be only partly restored — check the data, and restore your last good backup if needed.\n\n${detail}`
+    });
   });
 });
 

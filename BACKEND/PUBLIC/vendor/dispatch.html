@@ -171,6 +171,12 @@
             }
 
             const res = await fetch('/api/vendor' + endpoint, opts);
+            if (res.status === 401) { // login expired (tokens now last 30 days)
+                localStorage.removeItem('vendor_token');
+                localStorage.removeItem('vendor_info');
+                window.location.href = 'login.html';
+                return new Promise(() => {});
+            }
             const data = await res.json();
             return data;
         }

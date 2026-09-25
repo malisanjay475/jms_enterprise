@@ -13,16 +13,25 @@
 //   -> 401 wrong key
 // HTTP stays 200 either way so a generic uptime probe won't misread it.
 
+const crypto = require('crypto');
 const express = require('express');
+
+function keyMatches(given, expected) {
+  const a = Buffer.from(String(given || ''));
+  const b = Buffer.from(String(expected || ''));
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
 
 function createSyncAlertRoute(pool) {
   const router = express.Router();
-  const API_KEY = process.env.SYNC_API_KEY || 'jms-secret-key-2024';
+  // No fallback key: a default written in the repo would open this endpoint to anyone
+  // whenever SYNC_API_KEY is unset. Without the env var every request gets 401.
+  const API_KEY = process.env.SYNC_API_KEY || '';
   const STALE_MS = Number(process.env.SYNC_STALE_THRESHOLD_MS || 2 * 60 * 60 * 1000);
 
   router.get('/', async (req, res) => {
     const key = req.query.key || req.headers['x-sync-key'] || '';
-    if (key !== API_KEY) return res.status(401).json({ ok: false, error: 'Invalid key' });
+    if (!API_KEY || !keyMatches(key, API_KEY)) return res.status(401).json({ ok: false, error: 'Invalid key' });
     if (!pool) return res.status(503).json({ ok: false, error: 'DB not ready' });
     try {
       const { rows } = await pool.query(`

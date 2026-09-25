@@ -1074,6 +1074,17 @@ function collectManifest() {
   return manifest;
 }
 
+// collectManifest hashes every served file (~240); a node fetches files one by one right
+// after reading the manifest, so reuse it for a minute instead of re-hashing per file.
+const MANIFEST_CACHE_MS = 60 * 1000;
+let manifestCache = { at: 0, manifest: null };
+function getManifestCached() {
+  if (!manifestCache.manifest || Date.now() - manifestCache.at > MANIFEST_CACHE_MS) {
+    manifestCache = { at: Date.now(), manifest: collectManifest() };
+  }
+  return manifestCache.manifest;
+}
+
 router.get('/:id/file-manifest', fileSyncLimiter, async (req, res) => {
   try {
     const localServerId = Number.parseInt(req.params.id, 10);
@@ -1083,6 +1094,7 @@ router.get('/:id/file-manifest', fileSyncLimiter, async (req, res) => {
     await authenticateNode(req, localServerId);   // verifies x-node-key
 
     const manifest = collectManifest();
+    manifestCache = { at: Date.now(), manifest };
     res.json({ ok: true, manifest });
   } catch (error) {
     res.status(error.statusCode || 500).json({ ok: false, error: error.message });
@@ -1099,6 +1111,13 @@ router.get('/:id/file', fileSyncLimiter, async (req, res) => {
 
     const relPath = String(req.query.p || '').replace(/\.\./g, '').replace(/^[\\/]+/, '');
     if (!relPath) return res.status(400).json({ ok: false, error: 'Missing ?p= path' });
+
+    // Only files the update manifest advertises may be fetched. Before, any file under
+    // the BACKEND root was served to a node (logs, uploads, temp dumps, .env if present).
+    const manifestKey = relPath.replace(/\\/g, '/');
+    if (!Object.prototype.hasOwnProperty.call(getManifestCached(), manifestKey)) {
+      return res.status(404).json({ ok: false, error: 'File not found' });
+    }
 
     const absPath = path.join(getBackendRoot(), relPath);
     // Safety: must stay inside BACKEND root

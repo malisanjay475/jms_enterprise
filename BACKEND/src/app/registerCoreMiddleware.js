@@ -28,24 +28,49 @@ function shouldSkipApiLimiter(req) {
   return fullPath.startsWith('/api/sync') || fullPath.startsWith('/sync');
 }
 
-// 600 requests/minute per IP for general API.
-// Raised from 300: factory WiFi shares 1 IP across all users.
-// 10 supervisors × avg 60 req/min = 600 req/min needed at peak.
-// Sync routes have their own stricter limiter.
+// 600 requests/minute per bucket for the general API.
+// Raised from 300: 10 supervisors × avg 60 req/min = 600 req/min at peak.
+// Sync routes have their own limiter.
+//
+// Bucket = the VERIFIED user (req.auth, from the session cookie) when there is one,
+// otherwise the client IP. It used to be `${ip}_${X-User-Name}`, and that header is set
+// by the client, so rotating it gave an attacker a fresh 600/min bucket per request.
+// With `trust proxy` set (createApp), req.ip is the real client address behind Traefik.
+// Mounted by registerRoutes AFTER the session middleware, so req.auth is available.
 const apiLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 600,
   standardHeaders: true,
   legacyHeaders: false,
   skip: shouldSkipApiLimiter,
-  keyGenerator: (req) => {
-    const user = req.headers['x-user-name'] || 'anonymous';
-    const ip = ipKeyGenerator(req.ip);
-    return `${ip}_${user}`;
-  },
+  keyGenerator: (req) => (req.auth && req.auth.username
+    ? `user:${String(req.auth.username).toLowerCase()}`
+    : `ip:${ipKeyGenerator(req.ip)}`),
   validate: false,
   message: { ok: false, error: 'Too many requests, please slow down.' }
 });
+
+// Server errors (5xx) used to return the raw exception text (`String(e)` in ~350 handlers:
+// SQL messages, table/column names, file paths). Send users a short message with a
+// reference and keep the detail in the server log. Sync and local-server (machine-to-
+// machine, key-authenticated) endpoints keep their detailed errors for diagnosis.
+const DETAILED_ERROR_PREFIXES = ['/api/sync', '/sync', '/api/local-servers', '/api/update'];
+function hideServerErrorDetails(req, res, next) {
+  const fullPath = `${req.baseUrl || ''}${req.path || ''}`;
+  if (!fullPath.startsWith('/api') || DETAILED_ERROR_PREFIXES.some((p) => fullPath.startsWith(p))) {
+    return next();
+  }
+  const originalJson = res.json.bind(res);
+  res.json = (body) => {
+    if (res.statusCode >= 500 && body && typeof body === 'object' && typeof body.error === 'string') {
+      const ref = `E${Date.now().toString(36).toUpperCase()}${Math.floor(Math.random() * 1296).toString(36).toUpperCase()}`;
+      console.error(`[API ${res.statusCode}] ref=${ref} ${req.method} ${fullPath}: ${body.error}`);
+      return originalJson({ ...body, error: `Server error — please try again. If it keeps happening, tell your admin (ref ${ref}).`, ref });
+    }
+    return originalJson(body);
+  };
+  return next();
+}
 
 // Sync routes get a separate, more focused limiter — they skip the main apiLimiter but still
 // need protection against unauthenticated abuse. Requests carrying the correct SYNC_API_KEY
@@ -82,8 +107,14 @@ function registerCoreMiddleware(app) {
   app.use(morgan('dev', { skip: (_req, res) => res.statusCode < 400 }));
 
   app.use(helmet({
-    // HSTS must be off — server runs plain HTTP on factory intranet and VPS port
-    strictTransportSecurity: false,
+    // HSTS only on MAIN, which is always served over HTTPS (Traefik, jmsocean.cloud).
+    // LOCAL factory servers run plain HTTP (browsers ignore HSTS there anyway) or an
+    // optional self-signed HTTPS port, where a pinned HSTS policy would lock browsers
+    // out of clicking through the certificate warning — so never on LOCAL.
+    // includeSubDomains stays off: other *.jmsocean.cloud services are separate apps.
+    strictTransportSecurity: String(process.env.SERVER_TYPE || '').toUpperCase() === 'MAIN'
+      ? { maxAge: 180 * 24 * 60 * 60, includeSubDomains: false }
+      : false,
     contentSecurityPolicy: {
       directives: {
         defaultSrc: ["'self'"],
@@ -117,7 +148,8 @@ function registerCoreMiddleware(app) {
       return compression.filter(req, res);
     }
   }));
-  app.use('/api/', apiLimiter);
+  app.use(hideServerErrorDetails);
+  // apiLimiter is mounted by registerRoutes, after the session middleware (see above).
   app.use(['/api/sync', '/sync'], syncLimiter);
 
   // ── Static asset cache headers ──────────────────────────────────────────
@@ -176,3 +208,5 @@ function registerCoreMiddleware(app) {
 }
 
 module.exports = registerCoreMiddleware;
+module.exports.apiLimiter = apiLimiter;
+module.exports.hideServerErrorDetails = hideServerErrorDetails;

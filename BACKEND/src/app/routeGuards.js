@@ -46,6 +46,10 @@ const GUARDED_ROUTES = [
   { method: 'POST', path: /^\/api\/dpr\/superadmin-set-qty\/?$/, need: 'superadmin' },
   { method: 'POST', path: /^\/api\/dpr\/edit\/?$/, need: 'admin' },
   { method: 'POST', path: /^\/api\/dpr\/setup\/clear\/?$/, need: 'admin' },
+  // The desktop installer bundles the whole server; only admins provision servers.
+  { method: 'GET', path: /^\/api\/local-servers\/desktop-installer\/download\/?$/, need: 'admin' },
+  // Makes a LOCAL check MAIN for a release and restart to apply it.
+  { method: 'POST', path: /^\/api\/update\/force-check\/?$/, need: 'session' },
   // Per-entry deletes: the handler keeps its own role check (supervisor+, or the DPR
   // delete roles); with a verified session its session.username is the real user.
   { method: 'POST', path: /^\/api\/dpr\/(delete|delete-entry|delete-quick|delete-setup)\/?$/, need: 'session' },

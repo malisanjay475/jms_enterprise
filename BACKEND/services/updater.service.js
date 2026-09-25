@@ -312,13 +312,19 @@ router.get('/download', async (req, res) => {
     const requestedRelease = String(req.query.release || '').trim();
     const nodeId = Number.parseInt(String(req.query.nodeId || ''), 10);
     const authenticatedNode = await authenticateNode(nodeId, req);
+    // The package is the full server source (backend + bridge). Only a registered LOCAL
+    // node with its key (x-node-key) may download it; it used to be open to anyone.
+    // Checked before the package is built so anonymous requests cost nothing.
+    if (!authenticatedNode) {
+      return res.status(401).json({ ok: false, error: 'Node authentication required (nodeId + x-node-key).' });
+    }
     const releaseInfo = buildCurrentReleasePackage();
 
     if (requestedRelease && requestedRelease !== releaseInfo.releaseId) {
       return res.status(404).json({ ok: false, error: 'Requested release is not available on this server' });
     }
 
-    if (authenticatedNode && !isReleaseAllowedForNode(releaseInfo, authenticatedNode.target_version)) {
+    if (!isReleaseAllowedForNode(releaseInfo, authenticatedNode.target_version)) {
       return res.status(409).json({ ok: false, error: `Node target version is ${authenticatedNode.target_version}; release ${releaseInfo.releaseId} is not approved for this node` });
     }
 

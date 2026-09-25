@@ -11,8 +11,43 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.72.12",
+  "latest": "1.72.13",
   "versions": [
+    {
+      "version": "1.72.13",
+      "date": "2026-09-25",
+      "title": "Login and data protection improvements",
+      "modules": [
+        {
+          "app": "all",
+          "label": "Platform",
+          "icon": "bi-shield-lock",
+          "changes": [
+            { "type": "security", "text": "A wrong login now says \"Invalid username or password\" whether the username or the password was wrong." },
+            { "type": "security", "text": "After 5 wrong passwords, only the computer or phone that tried is locked out for 15 minutes, so someone guessing cannot lock you out everywhere." },
+            { "type": "security", "text": "New and changed passwords must be at least 8 characters. Existing passwords keep working." },
+            { "type": "security", "text": "Server errors now show a short message with a reference code to give your admin, instead of technical details." }
+          ]
+        },
+        {
+          "app": "purchase",
+          "label": "Purchase",
+          "icon": "bi-truck",
+          "changes": [
+            { "type": "security", "text": "A new vendor gets a random first password, shown once when you save the vendor. Note it down and give it to the vendor." },
+            { "type": "security", "text": "Vendor portal logins now last 30 days, then the vendor logs in again." }
+          ]
+        },
+        {
+          "app": "settings",
+          "label": "Settings",
+          "icon": "bi-database",
+          "changes": [
+            { "type": "fix", "text": "Database restore now says if the restore tool reported errors, instead of always saying it succeeded." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.72.12",
       "date": "2026-09-25",
