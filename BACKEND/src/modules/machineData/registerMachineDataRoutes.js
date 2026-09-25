@@ -22,6 +22,7 @@
 
 const keba = require('./kebaProfile');
 const { isAdminLike } = require('../../app/auth');
+const { sendServerError } = require('../../app/httpErrors');
 
 const PROFILES = {
   [keba.PROFILE_ID]: keba,
@@ -283,7 +284,7 @@ function registerMachineDataRoutes(app, pool) {
       }));
       res.json({ ok: true, config });
     } catch (e) {
-      res.status(500).json({ ok: false, error: String(e.message || e) });
+      sendServerError(res, e);
     }
   });
 
@@ -303,7 +304,7 @@ function registerMachineDataRoutes(app, pool) {
       `);
       res.json({ ok: true, machines: rows });
     } catch (e) {
-      res.status(500).json({ ok: false, error: String(e.message || e) });
+      sendServerError(res, e);
     }
   });
 
@@ -347,7 +348,7 @@ function registerMachineDataRoutes(app, pool) {
       ]);
       res.json({ ok: true });
     } catch (e) {
-      res.status(500).json({ ok: false, error: String(e.message || e) });
+      sendServerError(res, e);
     }
   });
 
@@ -390,7 +391,7 @@ function registerMachineDataRoutes(app, pool) {
       ]);
       res.json({ ok: true });
     } catch (e) {
-      res.status(500).json({ ok: false, error: String(e.message || e) });
+      sendServerError(res, e);
     }
   });
 
@@ -400,7 +401,7 @@ function registerMachineDataRoutes(app, pool) {
       const { rows } = await pool.query(LATEST_READINGS_SQL);
       res.json({ ok: true, readings: rows });
     } catch (e) {
-      res.status(500).json({ ok: false, error: String(e.message || e) });
+      sendServerError(res, e);
     }
   });
 
@@ -433,7 +434,7 @@ function registerMachineDataRoutes(app, pool) {
       ]);
       res.json({ ok: true });
     } catch (e) {
-      res.status(500).json({ ok: false, error: String(e.message || e) });
+      sendServerError(res, e);
     }
   });
 
@@ -500,7 +501,7 @@ function registerMachineDataRoutes(app, pool) {
         avgCycle, peakCycle: peakCycleHour.max_cycle, peakCycleHour: peakCycleHour.hour, minCycle,
       });
     } catch (e) {
-      res.status(500).json({ ok: false, error: String(e.message || e) });
+      sendServerError(res, e);
     }
   });
 
@@ -539,7 +540,7 @@ function registerMachineDataRoutes(app, pool) {
         })),
       });
     } catch (e) {
-      res.status(500).json({ ok: false, error: String(e.message || e) });
+      sendServerError(res, e);
     }
   });
 
@@ -561,7 +562,7 @@ function registerMachineDataRoutes(app, pool) {
       } : { hasData: false };
       res.json({ ok: true, date, day: pub(dayA), night: pub(nightA) });
     } catch (e) {
-      res.status(500).json({ ok: false, error: String(e.message || e) });
+      sendServerError(res, e);
     }
   });
 
@@ -592,7 +593,7 @@ function registerMachineDataRoutes(app, pool) {
         tolPct, withinTolerancePct: Math.round((within / cy.length) * 1000) / 10,
       });
     } catch (e) {
-      res.status(500).json({ ok: false, error: String(e.message || e) });
+      sendServerError(res, e);
     }
   });
 
@@ -623,7 +624,7 @@ function registerMachineDataRoutes(app, pool) {
       const avgOee = valid.length ? Math.round((valid.reduce((s, x) => s + x.oee, 0) / valid.length) * 10) / 10 : null;
       res.json({ ok: true, days, machineId, trend: out, avgOee });
     } catch (e) {
-      res.status(500).json({ ok: false, error: String(e.message || e) });
+      sendServerError(res, e);
     }
   });
 
@@ -641,7 +642,7 @@ function registerMachineDataRoutes(app, pool) {
       `, [machineId, limit]);
       res.json({ ok: true, cycles: rows });
     } catch (e) {
-      res.status(500).json({ ok: false, error: String(e.message || e) });
+      sendServerError(res, e);
     }
   });
 
@@ -662,7 +663,7 @@ function registerMachineDataRoutes(app, pool) {
         })),
       });
     } catch (e) {
-      res.status(500).json({ ok: false, error: String(e.message || e) });
+      sendServerError(res, e);
     }
   });
 
@@ -683,7 +684,7 @@ function registerMachineDataRoutes(app, pool) {
       `, [machineId, limit]);
       res.json({ ok: true, readings: rows });
     } catch (e) {
-      res.status(500).json({ ok: false, error: String(e.message || e) });
+      sendServerError(res, e);
     }
   });
 
@@ -748,7 +749,7 @@ function registerMachineDataRoutes(app, pool) {
       }
       res.json({ ok: true, machine, date, shift, slots: out });
     } catch (e) {
-      res.status(500).json({ ok: false, error: String(e.message || e) });
+      sendServerError(res, e);
     }
   });
 
@@ -819,7 +820,7 @@ function registerMachineDataRoutes(app, pool) {
         fields,
       });
     } catch (e) {
-      res.status(500).json({ ok: false, error: String(e.message || e) });
+      sendServerError(res, e);
     }
   });
 
@@ -859,7 +860,7 @@ function registerMachineDataRoutes(app, pool) {
       }
       res.json({ ok: true, date, shift, machines });
     } catch (e) {
-      res.status(500).json({ ok: false, error: String(e.message || e) });
+      sendServerError(res, e);
     }
   });
 

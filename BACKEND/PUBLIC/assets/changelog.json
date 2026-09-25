@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.73.8",
+  "latest": "1.73.9",
   "versions": [
+    {
+      "version": "1.73.9",
+      "date": "2026-09-25",
+      "title": "Security hardening round 4",
+      "modules": [
+        {
+          "app": "all",
+          "label": "Platform",
+          "icon": "bi-shield-lock",
+          "changes": [
+            { "type": "security", "text": "When something goes wrong, the app now shows a short general message instead of internal database details, so technical information can no longer leak to the browser." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.73.8",
       "date": "2026-09-25",
