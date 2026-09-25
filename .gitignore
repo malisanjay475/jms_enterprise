@@ -133,6 +133,9 @@ BACKEND/job_card_api_snippet.js
 
 # Local deploy keys (never commit)
 .deploy-keys/
+# Deploy metadata + pre-deploy DB backups written on the VPS by vps-safe-deploy.sh.
+# Unignored, they made every deploy auto-stash them (182 stashes, 47 GB of .git).
+.deploy/
 
 # v2 removed from repo; ignore leftover folders on disk (delete manually if locked).
 /v2-backend/
