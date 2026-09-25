@@ -38,6 +38,7 @@ describe('data retention', () => {
         calls.push({ text, params: [] });
         if (text.includes('to_regclass')) return { rows: [{ ok: true }] };
         if (text.startsWith('SELECT id FROM machines')) return { rows: [{ id: 7 }, { id: 9 }] };
+        if (text.startsWith('SELECT id FROM local_servers')) return { rows: [{ id: 3 }, { id: 4 }] };
         return { rows: [], rowCount: 0 };
       })
     };
@@ -46,7 +47,7 @@ describe('data retention', () => {
 
   it('uses the agreed retention periods by default', () => {
     const { retentionDays } = require('../src/app/dataRetention');
-    expect(retentionDays()).toEqual({ notificationsRead: 90, activityLog: 180, syncDeletions: 30, machineReadings: 90, legacyAuthUsage: 30 });
+    expect(retentionDays()).toEqual({ notificationsRead: 90, activityLog: 180, syncDeletions: 30, machineReadings: 90, legacyAuthUsage: 30, localServerHeartbeats: 30 });
   });
 
   it('deletes in batches until a short batch, and drops notification tombstones in the same transaction', async () => {
@@ -76,6 +77,21 @@ describe('data retention', () => {
     const deletes = pool.calls.filter((c) => c.text.startsWith('DELETE FROM machine_readings'));
     expect(deletes.map((d) => d.params[0])).toEqual([7, 9]);
     expect(deletes[0].text).toContain('machine_id = $1 AND recorded_at < $2');
+  });
+
+  it('trims local server heartbeats per server, always keeping the newest 10', async () => {
+    const { runRetentionOnce } = require('../src/app/dataRetention');
+    const pool = makePool({ batches: { local_server_heartbeats: [5000, 40, 7] } });
+
+    const { summary } = await runRetentionOnce(pool, { now: Date.parse('2026-09-25T00:00:00Z') });
+
+    const deletes = pool.calls.filter((c) => c.text.startsWith('DELETE FROM local_server_heartbeats'));
+    // server 3: a full batch then a short one; server 4: one short batch.
+    expect(deletes.map((d) => d.params[0])).toEqual([3, 3, 4]);
+    expect(deletes[0].text).toContain('local_server_id = $1 AND created_at < $2');
+    expect(deletes[0].text).toMatch(/NOT IN \(\s*SELECT id FROM local_server_heartbeats WHERE local_server_id = \$1 ORDER BY created_at DESC LIMIT 10\)/);
+    expect(deletes[0].params[1]).toBe('2026-08-26T00:00:00.000Z'); // 30 days before now
+    expect(summary.find((s) => s.rule === 'local_server_heartbeats')).toMatchObject({ deleted: 5047, finished: true, keepDays: 30 });
   });
 
   it('does nothing when another worker holds the lock', async () => {
