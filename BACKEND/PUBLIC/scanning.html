@@ -192,6 +192,7 @@
 
             cardsContainer.innerHTML = tables.map(tid => {
                 const plans = TABLE_PLANS[tid];
+                const t = scanEsc(tid), tj = scanJsArg(tid);
                 // Prefer the persisted active (RUNNING) plan so this matches the
                 // Dashboard; fall back to the first plan if none is marked active.
                 const activePlan = plans.find(p => String(p.status || '').toUpperCase() === 'RUNNING') || plans[0];
@@ -201,7 +202,7 @@
                     jobSelectHtml = `
                         <div class="form-group mb-2">
                             <label class="form-label text-xs">Select Job</label>
-                            <select class="form-select form-select-sm" onchange="switchPlan('${tid}', this.value)">
+                            <select class="form-select form-select-sm" onchange="switchPlan(${tj}, this.value)">
                                 ${plans.map(p => `
                                     <option value="${scanEsc(p.id)}" ${p.id === activePlan.id ? 'selected' : ''}>
                                         ${scanEsc(p.id)}: ${scanEsc(String(p.item_name || '').substring(0, 15))}...
@@ -213,26 +214,26 @@
                 }
 
                 return `
-                <div class="scan-card" id="card-${tid}" data-plan-id="${scanEsc(activePlan.id)}">
+                <div class="scan-card" id="card-${t}" data-plan-id="${scanEsc(activePlan.id)}">
                     <div class="scan-card-header">
                         <span>${scanEsc(tid)}</span>
-                        <span id="badge-${tid}" class="status-badge" style="background:${activePlan.status === 'RUNNING' ? '#dcfce7' : '#f1f5f9'}; color:${activePlan.status === 'RUNNING' ? '#166534' : '#475569'}">
+                        <span id="badge-${t}" class="status-badge" style="background:${activePlan.status === 'RUNNING' ? '#dcfce7' : '#f1f5f9'}; color:${activePlan.status === 'RUNNING' ? '#166534' : '#475569'}">
                             ${scanEsc(activePlan.status)}
                         </span>
                     </div>
                     <div class="scan-card-body">
                         
                         ${jobSelectHtml}
-                        <div id="details-${tid}">${getDetailsHtml(activePlan)}</div>
+                        <div id="details-${t}">${getDetailsHtml(activePlan)}</div>
 
                         <!-- Scanner Control -->
                         ${getScannerControlHtml(tid)}
 
                         <!-- Manual Shim -->
-                        <input class="form-control mt-2" placeholder="Manual Input" onkeydown="handleManualScan(event, '${tid}')" style="font-size:0.8rem">
+                        <input class="form-control mt-2" placeholder="Manual Input" onkeydown="handleManualScan(event, ${tj})" style="font-size:0.8rem">
                         
                         <!-- Log -->
-                        <div class="log-area mt-2" id="log-${tid}"><div>Ready.</div></div>
+                        <div class="log-area mt-2" id="log-${t}"><div>Ready.</div></div>
                     </div>
                 </div>
                 `;

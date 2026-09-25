@@ -449,6 +449,13 @@
     </div>
 
     <script>
+        // This page doesn't load app.js, so it carries its own copy of escHtml.
+        function escHtml(value) {
+            return String(value == null ? '' : value).replace(/[&<>"']/g, ch => ({
+                '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+            }[ch]));
+        }
+
         let currentSize = 'l-50-50';
 
         let isUniqueMode = false;
@@ -533,15 +540,15 @@
                 <div class="code-area">
                     <div class="bc-wrap" id="bc-wrap-${index}"></div>
                 </div>
-                <div class="scan-value">${ean}</div>
+                <div class="scan-value">${escHtml(ean)}</div>
 
-                <div class="l-product">${name}</div>
+                <div class="l-product">${escHtml(name)}</div>
 
                 <div class="l-details">
-                    <div class="l-row"><span class="l-lbl">Capacity:</span> <span class="l-val">${cap}</span></div>
-                    <div class="l-row"><span class="l-lbl">MRP:</span> <span class="l-val">${mrpTxt}</span></div>
-                    <div class="l-row"><span class="l-lbl">Net Qty:</span> <span class="l-val">${qty}</span></div>
-                    <div class="l-row"><span class="l-lbl">MFG:</span> <span class="l-val">${mfg}</span></div>
+                    <div class="l-row"><span class="l-lbl">Capacity:</span> <span class="l-val">${escHtml(cap)}</span></div>
+                    <div class="l-row"><span class="l-lbl">MRP:</span> <span class="l-val">${escHtml(mrpTxt)}</span></div>
+                    <div class="l-row"><span class="l-lbl">Net Qty:</span> <span class="l-val">${escHtml(qty)}</span></div>
+                    <div class="l-row"><span class="l-lbl">MFG:</span> <span class="l-val">${escHtml(mfg)}</span></div>
                 </div>
 
                 <div class="l-footer">

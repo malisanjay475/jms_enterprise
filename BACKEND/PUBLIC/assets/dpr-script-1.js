@@ -2958,7 +2958,7 @@
                             masterHtml += `
                                 <div style="display:flex; align-items:center; gap:8px; padding:8px 14px; background:#0f172a; color:#fff; border-radius:12px 12px 0 0; font-size:0.8rem; font-weight:700; letter-spacing:.3px">
                                     <i class="bi bi-funnel-fill"></i>
-                                    <span>${_filterLabels[filterMode] || filterMode}</span>
+                                    <span>${escHtml(_filterLabels[filterMode] || filterMode)}</span>
                                     <span style="margin-left:auto; background:${_fCount ? '#3b82f6' : '#64748b'}; padding:2px 10px; border-radius:12px; font-weight:800">${_fCount} machine${_fCount === 1 ? '' : 's'}</span>
                                 </div>`;
                             masterHtml += `

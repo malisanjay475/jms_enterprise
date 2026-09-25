@@ -526,10 +526,10 @@
                 node.className = 'dynamic-node'; // Mark for cleanup
                 node.style.cssText = 'background:var(--joy-glass); padding:16px; border-radius:12px; border:1px solid var(--joy-primary); animation: fadeIn 0.5s ease; box-shadow: 0 0 15px rgba(139, 92, 246, 0.2); position:relative; overflow:hidden;';
                 node.innerHTML = `
-                    <div style="position:absolute; top:0; left:0; width:4px; height:100%; background:${item.color || '#d946ef'}"></div>
-                    <div style="color:${item.color || '#d946ef'}; font-size:1.2rem; margin-bottom:4px;"><i class="bi ${item.icon || 'bi-stars'}"></i></div>
-                    <div style="color:white; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${item.title}">${item.title}</div>
-                    <div style="color:#94a3b8; font-size:0.8rem;">${item.time || 'Just now'}</div>
+                    <div style="position:absolute; top:0; left:0; width:4px; height:100%; background:${escHtml(item.color || '#d946ef')}"></div>
+                    <div style="color:${escHtml(item.color || '#d946ef')}; font-size:1.2rem; margin-bottom:4px;"><i class="bi ${escHtml(item.icon || 'bi-stars')}"></i></div>
+                    <div style="color:white; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${escHtml(item.title)}">${escHtml(item.title)}</div>
+                    <div style="color:#94a3b8; font-size:0.8rem;">${escHtml(item.time || 'Just now')}</div>
                 `;
 
                 // Insert after the first static node or at 2nd position
