@@ -55,7 +55,7 @@ jobs:
 
       - name: Refresh staging over SSH (password)
         if: steps.gate.outputs.run == 'password'
-        uses: appleboy/ssh-action@v1.0.3
+        uses: appleboy/ssh-action@029f5b4aeeeb58fdfe1410a5d17f967dacf36262 # v1.0.3
         env:
           DEPLOY_PATH: ${{ secrets.STAGING_VPS_DEPLOY_PATH }}
           DEPLOY_BRANCH: develop
@@ -88,7 +88,7 @@ jobs:
 
       - name: Refresh staging over SSH (key)
         if: steps.gate.outputs.run == 'key'
-        uses: appleboy/ssh-action@v1.0.3
+        uses: appleboy/ssh-action@029f5b4aeeeb58fdfe1410a5d17f967dacf36262 # v1.0.3
         env:
           DEPLOY_PATH: ${{ secrets.STAGING_VPS_DEPLOY_PATH }}
           DEPLOY_BRANCH: develop

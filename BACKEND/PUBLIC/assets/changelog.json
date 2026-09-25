@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.74.1",
+  "latest": "1.74.2",
   "versions": [
+    {
+      "version": "1.74.2",
+      "date": "2026-09-25",
+      "title": "Safer automatic deployments",
+      "modules": [
+        {
+          "app": "all",
+          "label": "Platform",
+          "icon": "bi-shield-check",
+          "changes": [
+            { "type": "security", "text": "The automatic build and deploy steps now use fixed, verified versions of their tools, so an outside change cannot slip into the live server." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.74.1",
       "date": "2026-09-25",
