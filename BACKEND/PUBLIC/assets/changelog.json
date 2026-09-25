@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.73.9",
+  "latest": "1.73.10",
   "versions": [
+    {
+      "version": "1.73.10",
+      "date": "2026-09-25",
+      "title": "Code cleanup — remove dead duplicate routes",
+      "modules": [
+        {
+          "app": "all",
+          "label": "Platform",
+          "icon": "bi-braces",
+          "changes": [
+            { "type": "improvement", "text": "Removed old duplicate copies of internal endpoints that were never used, making the server code cleaner and easier to maintain. No change to how any screen works." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.73.9",
       "date": "2026-09-25",

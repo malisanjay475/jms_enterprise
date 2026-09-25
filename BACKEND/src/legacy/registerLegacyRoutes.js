@@ -14494,67 +14494,6 @@ async function checkOrderCompletion(orderNo) {
 }
 
 // 4. CREATE PLAN API (Re-Implemented)
-app.post('/api/planning/create', async (req, res) => {
-  const client = await pool.connect();
-  try {
-    const { planId, plant, machine, orderNo, itemCode, itemName, mouldName, planQty, balQty, startDate } = req.body;
-
-    // [FIX] Factory Isolation: Use Header -> Body -> Default
-    const factoryId = getFactoryId(req) || 1;
-
-    // Validate
-    if (!orderNo || !machine) return res.json({ ok: false, error: 'Missing required fields' });
-
-    await client.query('BEGIN');
-
-    const reservedPlanId = isFinancialYearScopedId(planId, 'PLN')
-      ? String(planId).trim().toUpperCase()
-      : await generateFinancialYearSequenceId(client.query.bind(client), {
-        prefix: 'PLN',
-        table: 'plan_board',
-        column: 'plan_id',
-        lockScope: `plan_board:plan_id:${getFinancialYearInfo().code}`
-      });
-
-    await client.query(`
-      INSERT INTO plan_board (
-        plan_id, plant, machine, order_no, item_code, item_name, mould_name, 
-        plan_qty, bal_qty, start_date, status, factory_id, created_at, updated_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'Planned', $11, NOW(), NOW())
-    `, [
-      reservedPlanId,
-      plant || 'DUNGRA', // Fallback, but factory_id is key
-      machine,
-      orderNo,
-      itemCode,
-      itemName,
-      mouldName,
-      planQty,
-      balQty,
-      startDate,
-      factoryId
-    ]);
-
-    // Log
-    await client.query(
-      "INSERT INTO plan_audit_logs (plan_id, action, details, user_name) VALUES ($1, 'CREATE', $2, 'System')",
-      [reservedPlanId, JSON.stringify({ order: orderNo, machine })]
-    );
-
-    await client.query('COMMIT');
-
-    // Sync
-    syncService.triggerSync();
-
-    res.json({ ok: true, planId: reservedPlanId, financial_year: getFinancialYearInfo().code });
-  } catch (e) {
-    try { await client.query('ROLLBACK'); } catch (_rollbackErr) { }
-    console.error('/api/planning/create', e);
-    res.status(500).json({ ok: false, error: String(e) });
-  } finally {
-    client.release();
-  }
-});
 
 
 // Helper to strip trailing space and number without regex (immune to ReDoS)
@@ -19854,25 +19793,6 @@ app.post('/api/upload/excel', async (req, res) => {
 ============================================================ */
 
 // 1. OR-JR STATUS REPORT (Plan vs Actual)
-app.get('/api/reports/or-jr', async (req, res) => {
-  try {
-    // Joins Plan Board with DPR to calculate total production per plan
-    const rows = await q(
-      `SELECT
-  p.plan_id, p.order_no, p.item_name, p.mould_name,
-    p.plan_qty,
-    COALESCE(SUM(d.good_qty), 0) AS produced,
-      (p.plan_qty - COALESCE(SUM(d.good_qty), 0)) AS balance,
-        p.status
-       FROM plan_board p
-       LEFT JOIN dpr_hourly d ON p.plan_id = d.plan_id
-         AND (d.factory_id = p.factory_id OR d.factory_id IS NULL OR p.factory_id IS NULL)
-       GROUP BY p.plan_id, p.order_no, p.item_name, p.mould_name, p.plan_qty, p.status
-       ORDER BY p.status, p.plan_id`
-    );
-    res.json({ ok: true, data: rows });
-  } catch (e) { res.status(500).json({ ok: false, error: String(e) }); }
-});
 
 // 2. MOULDING REPORT (Raw DPR Dump)
 app.get('/api/reports/moulding', async (req, res) => {
@@ -22377,80 +22297,6 @@ VALUES($1, $2, $3, $4, true, $5)
 });
 
 // GET /api/planning/orders/:orderNo/details (For Create Plan)
-app.get('/api/planning/orders/:orderNo/details', async (req, res) => {
-  try {
-    const { orderNo } = req.params;
-    // User requested to use MOULD PLAN SUMMARY REPORT
-    // We query mould_planning_summary by or_jr_no
-    const sql = `
-      SELECT 
-        s.*,
-    m.id as mould_id,
-    m.tonnage as master_tonnage,
-    m.no_of_cav as master_cav,
-    m.cycle_time as master_ct
-      FROM mould_planning_summary s
---User Request: "Match With ERP ITEM CODE And MOULD NO"
-      LEFT JOIN moulds m ON m.mould_number = s.mould_no 
-      WHERE s.or_jr_no = $1
-  `;
-
-    // [FIX] Factory Isolation
-    const factoryId = getFactoryId(req);
-    const params = [orderNo];
-    if (factoryId) {
-      // Assuming mould_planning_summary has factory_id
-      // We need to inject the AND clause before the final checks if any
-      // Actually the SQL ends with WHERE s.or_jr_no = $1
-      // So we can append
-      // But wait, the previous code didn't use params array for query execution with dynamic length in this specific block?
-      // Ah, line 4827 uses `await q(sql, [orderNo])`. 
-      // I need to reconstruct this.
-    }
-
-    let sqlQuery = `
-SELECT
-s.*,
-  m.id as mould_id,
-  m.tonnage as master_tonnage,
-  m.no_of_cav as master_cav,
-  m.cycle_time as master_ct,
-  m.primary_machine,
-  m.secondary_machine
-      FROM mould_planning_summary s
-      LEFT JOIN moulds m ON m.mould_number = s.mould_no 
-      WHERE s.or_jr_no = $1
-  `;
-
-    const queryParams = [orderNo];
-    if (factoryId) {
-      sqlQuery += ` AND s.factory_id = $2`;
-      queryParams.push(factoryId);
-    }
-
-    const rows = await q(sqlQuery, queryParams);
-
-    fs.appendFileSync('debug.log', `[${new Date().toISOString()}] /details -> OrderNo: '${orderNo}', Rows Found: ${rows.length} (Summary Table)\n`);
-
-    const data = rows.map(r => ({
-      ...r,
-      // Map Summary columns to Frontend Expected Props
-      // PRIORITY: Master Data (if linked) > Summary Report Data
-      masterMachineRaw: r.master_tonnage || r.tonnage,
-      masterCavity: r.master_cav || r.cavity,
-      masterCycleTime: r.master_ct || r.cycle_time,
-      primary_machine: r.primary_machine || r.primaryMachine,
-      secondary_machine: r.secondary_machine || r.secondaryMachine,
-      mould_name: r.mould_name || 'Unknown Mould',
-      item_code: r.item_code,
-      plan_qty: r.plan_qty
-    }));
-
-    res.json({ ok: true, data });
-  } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
-  }
-});
 
 /* ============================================================
    START SERVER (must be LAST)
@@ -22529,67 +22375,6 @@ app.get('/api/dpr/setup', async (req, res) => {
 });
 
 // GET /api/dpr/recent
-app.get('/api/dpr/recent', async (req, res) => {
-  try {
-    const { line, machine, limit, date, shift } = req.query;
-    const l = limit ? Number(limit) : 50; // Increased default limit
-
-    let sql = `
-      SELECT 
-        id as "UniqueID",
-        to_char(dpr_date, 'YYYY-MM-DD') as "Date",
-        hour_slot as "HourSlot",
-        colour as "Colour",
-        entry_type as "EntryType",
-        shots as "Shots",
-        good_qty as "GoodQty",
-        reject_qty as "RejectQty",
-        downtime_min as "DowntimeMin",
-        remarks as "Remarks",
-        shift as "Shift"
-      FROM dpr_hourly
-      WHERE is_deleted = false
-    `;
-    const params = [];
-    if (machine) {
-      sql += ` AND machine = $${params.length + 1}`;
-      params.push(machine);
-    }
-    if (line) {
-      sql += ` AND line = $${params.length + 1}`;
-      params.push(line);
-    }
-    if (date) {
-      sql += ` AND dpr_date = $${params.length + 1}`;
-      params.push(date);
-    }
-    if (shift) {
-      sql += ` AND shift = $${params.length + 1}`;
-      params.push(shift);
-    }
-    // NEW: Filter by PlanID (Specific Job)
-    const { planId } = req.query;
-    if (planId) {
-      sql += ` AND plan_id = $${params.length + 1}`;
-      params.push(planId);
-    }
-
-    // [FIX] Factory Isolation
-    const factoryId = getFactoryId(req);
-    if (factoryId) {
-      sql += ` AND factory_id = $${params.length + 1}`;
-      params.push(factoryId);
-    }
-
-    sql += ` ORDER BY hour_slot DESC, created_at DESC LIMIT $${params.length + 1}`;
-    params.push(l);
-
-    const rows = await q(sql, params);
-    res.json({ ok: true, data: { rows } });
-  } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
-  }
-});
 
 // GET /api/dpr/hourly (Full Hourly Report with Filters)
 app.get('/api/dpr/hourly', async (req, res) => {
@@ -23286,21 +23071,6 @@ app.post('/api/dpr/delete-setup', async (req, res) => {
 });
 
 // POST /api/dpr/hourly/clear
-app.post('/api/dpr/hourly/clear', async (req, res) => {
-  try {
-    const { session } = req.body;
-    if (!session || !session.username) return res.status(401).json({ ok: false, error: 'Unauthorized' });
-
-    // Verify Admin
-    const u = await q('SELECT role_code FROM users WHERE username=$1', [session.username]);
-    if (!u.length || !isAdminLikeRole(u[0])) {
-      return res.status(403).json({ ok: false, error: 'Admin or Superadmin access required' });
-    }
-
-    await q('TRUNCATE dpr_hourly');
-    res.json({ ok: true });
-  } catch (e) { res.status(500).json({ ok: false, error: String(e) }); }
-});
 
 // MACHINE MAINTENANCE ENDPOINTS
 app.post('/api/machine/maintenance/start', async (req, res) => {
@@ -23582,45 +23352,6 @@ app.get('/api/planning/kpis', async (req, res) => {
 });
 
 // GET /api/machines/status
-app.get('/api/machines/status', async (req, res) => {
-  try {
-    const { show_inactive } = req.query;
-    const requestedProcess = getRequestedMachineProcess(req, '');
-
-    // [FIX] Factory Isolation
-    const factoryId = getFactoryId(req);
-    let sql = `SELECT * FROM machines WHERE 1=1`;
-    const params = [];
-
-    if (factoryId) {
-      sql += ` AND factory_id = $1`;
-      params.push(factoryId);
-    }
-    if (requestedProcess) {
-      sql += ` AND COALESCE(NULLIF(TRIM(machine_process), ''), 'Moulding') = $${params.length + 1}`;
-      params.push(requestedProcess);
-    }
-    sql += ` ORDER BY building, line, machine`;
-
-    const rows = await q(sql, params);
-    const data = rows.map((m, i) => ({
-      id: m.id || (i + 1),
-      code: m.machine,
-      name: m.machine,
-      building: m.building || 'B',
-      line: m.line || '1',
-      machine_icon: m.machine_icon || null,
-      status: m.is_active ? 'running' : 'off',
-      is_active: m.is_active,
-      is_maintenance: false,
-      load_pct: Math.floor(Math.random() * 80)
-    }));
-
-    res.json({ ok: true, data });
-  } catch (e) {
-    res.status(500).json({ ok: false, error: 'Failed to fetch machines' });
-  }
-});
 
 // GET /api/planning/schedule
 app.get('/api/planning/schedule', async (req, res) => {
@@ -25340,111 +25071,8 @@ app.get('/api/moulds/verification-status.xlsx', async (req, res) => {
 
 
 // 3.5 JOB CARD PRINT LIST (Aggregated)
-app.get('/api/planning/job-cards', async (req, res) => {
-  try {
-    const { from, to, search } = req.query;
-
-    // We aggregate unique Job Cards from the Details table
-    const params = [];
-    let sql = `
-      SELECT DISTINCT ON(
-      COALESCE(data ->> 'jc_no', data ->> 'job_card_no', ''),
-      data ->> 'or_jr_no',
-      data ->> 'mould_no'
-    )
-    COALESCE(data ->> 'jc_no', data ->> 'job_card_no') as jc_no,
-      data ->> 'or_jr_no' as or_jr_no,
-      data ->> 'mould_no' as mould_no,
-      data ->> 'mould_code' as mould_code,
-      data ->> 'plan_date' as plan_date,
-      data ->> 'client_name' as client_name,
-      data ->> 'machine_name' as machine_name,
-      data ->> 'product_name' as product_name,
-      (SELECT COUNT(*) FROM jc_details d2 
-         WHERE COALESCE(d2.data ->> 'jc_no', d2.data ->> 'job_card_no') = COALESCE(t1.data ->> 'jc_no', t1.data ->> 'job_card_no')
-           AND d2.data ->> 'or_jr_no' = t1.data ->> 'or_jr_no'
-        ) as item_count
-      FROM jc_details t1
-      WHERE 1 = 1
-  `;
-
-    // [FIX] Factory Isolation
-    const factoryId = getFactoryId(req);
-    if (factoryId) {
-      params.push(factoryId);
-      sql += ` AND t1.factory_id = $${params.length} `;
-    }
-    const conditions = [];
-
-    // Date Filter (on plan_date)
-    if (from) {
-      params.push(from);
-      conditions.push(`(data ->> 'plan_date'):: date >= $${params.length} `);
-    }
-    if (to) {
-      params.push(to);
-      conditions.push(`(data ->> 'plan_date'):: date <= $${params.length} `);
-    }
-
-    // Search
-    if (search) {
-      params.push(`%${String(search).trim()}%`);
-      const i = params.length;
-      conditions.push(`(
-    COALESCE(data ->> 'jc_no', data ->> 'job_card_no', '') ILIKE $${i} OR
-        data ->> 'or_jr_no' ILIKE $${i} OR
-        data ->> 'mould_no' ILIKE $${i} OR
-        data ->> 'client_name' ILIKE $${i} OR
-        data ->> 'product_name' ILIKE $${i}
-  )`);
-    }
-
-    if (conditions.length) {
-      sql += ` AND ${conditions.join(' AND ')} `;
-    }
-
-    // Order by Date Desc
-    sql += ` ORDER BY COALESCE(data ->> 'jc_no', data ->> 'job_card_no', ''), data ->> 'or_jr_no', data ->> 'mould_no', (data ->> 'plan_date')::date DESC LIMIT 1000`;
-
-    const rows = await q(sql, params);
-
-    // Sort final result by Date Desc
-    rows.sort((a, b) => new Date(b.plan_date || 0) - new Date(a.plan_date || 0));
-
-    res.json({ ok: true, data: rows });
-  } catch (e) {
-    console.error('/api/planning/job-cards error', e);
-    res.status(500).json({ ok: false, error: String(e) });
-  }
-});
 
 // 3.6 SINGLE JOB CARD DETAILS (For Printing)
-app.get('/api/planning/job-card-print', async (req, res) => {
-  try {
-    const { or_jr_no, jc_no, mould_no } = req.query;
-    if (!or_jr_no || !jc_no) return res.status(400).json({ ok: false, error: 'Missing OR or JC No' });
-
-    const sql = `
-            SELECT data 
-            FROM jc_details
-WHERE
-TRIM(data ->> 'or_jr_no') = $1 AND
-  (TRIM(data ->> 'jc_no') = $2 OR TRIM(data ->> 'job_card_no') = $2)
-        `;
-    const params = [or_jr_no, jc_no];
-
-    const rows = await q(sql, params);
-    if (!rows.length) return res.status(404).json({ ok: false, error: 'Job Card not found' });
-
-    const items = rows.map(r => r.data);
-    const header = { ...items[0] };
-
-    res.json({ ok: true, header, items });
-
-  } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
-  }
-});
 
 // 3b. DELETE OR/JR Wise Detail rows by OR/JR No
 app.post('/api/masters/orjrwisedetail/delete-by-orjr', async (req, res) => {
@@ -25625,48 +25253,10 @@ app.get('/api/dpr/hourly/recent', async (req, res) => {
 });
 
 // Clear Hourly Data
-app.post('/api/dpr/hourly/clear', async (req, res) => {
-  try {
-    await q(`TRUNCATE TABLE dpr_hourly`);
-    res.json({ ok: true, message: 'Hourly Data Cleared' });
-  } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
-  }
-});
 
 // Restore Completed Plan (Admin)
-app.post('/api/planning/restore', async (req, res) => {
-  try {
-    const { orderNo } = req.body;
-    if (!orderNo) return res.status(400).json({ ok: false, error: 'Missing Order No' });
-
-    // 1. Check if it exists and is completed
-    const check = await q(`SELECT order_no, status FROM orders WHERE order_no = $1`, [orderNo]);
-    if (!check.length) return res.status(404).json({ ok: false, error: 'Order not found' });
-
-    // 2. Revert Status in ORDERS and OR_JR_REPORT
-    await q(`UPDATE orders SET status = 'Pending' WHERE order_no = $1`, [orderNo]);
-    await q(`UPDATE or_jr_report SET mld_status = 'Pending', is_closed = FALSE WHERE or_jr_no = $1`, [orderNo]);
-
-    // 3. Revert Plan Board Status
-    await q(`UPDATE plan_board SET status = 'Planned' WHERE order_no = $1 AND status = 'Completed'`, [orderNo]);
-
-    res.json({ ok: true, message: 'Restored successfully' });
-  } catch (e) {
-    console.error('/api/planning/restore', e);
-    res.status(500).json({ ok: false, error: String(e) });
-  }
-});
 
 // Clear Setup Data
-app.post('/api/dpr/setup/clear', async (req, res) => {
-  try {
-    await q(`TRUNCATE TABLE std_actual`);
-    res.json({ ok: true, message: 'Setup Data Cleared' });
-  } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
-  }
-});
 
 // 9. GENERIC MASTER GET (With Date/Search Filters)
 app.get('/api/masters/:type', async (req, res) => {
@@ -26068,37 +25658,6 @@ WHEN(SELECT COUNT(DISTINCT pb.mould_name) FROM plan_board pb WHERE pb.order_no =
 // -------------------------------------------------------------
 // OR-JR REPORT
 // -------------------------------------------------------------
-app.get('/api/reports/or-jr', async (req, res) => {
-  try {
-    const { from, to } = req.query;
-    let query = `SELECT * FROM or_jr_report`;
-    const params = [];
-    const conditions = [];
-
-    if (from) { params.push(from); conditions.push(`or_jr_date:: date >= $${params.length}:: date`); }
-    if (to) { params.push(to); conditions.push(`or_jr_date:: date <= $${params.length}:: date`); }
-
-    if (conditions.length) query += ` WHERE ${conditions.join(' AND ')} `;
-    else query += ` WHERE 1 = 1 `; // Ensure WHERE exists for appending
-
-    // User Request: Filter out Completed/Cancelled MLD Status
-    query += ` AND(mld_status IS NULL OR LOWER(mld_status) NOT IN('completed', 'cancelled')) `;
-
-    // [FIX] Factory Isolation
-    const factoryId = getFactoryId(req);
-    if (factoryId) {
-      params.push(factoryId);
-      query += ` AND factory_id = $${params.length} `;
-    }
-
-    query += ` ORDER BY created_date DESC LIMIT 50000`;
-
-    const rows = await q(query, params);
-    res.json({ ok: true, data: rows });
-  } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
-  }
-});
 
 /* ============================================================
    AI PLANNER
@@ -27897,74 +27456,6 @@ app.get('/api/reports/extra-qty-allowed', async (req, res) => {
 });
 
 // GET /api/std-actual/status - Check if Setup is done + Fetch Standards
-app.get('/api/std-actual/status', async (req, res) => {
-  try {
-    const { planId, shift, date, machine } = req.query;
-    if (!planId) return res.json({ ok: false, error: 'Missing planId' });
-
-    // 1+2. Resolve the plan's Mould Master standards the SAME way the queue/board
-    // does (line ~23588): prefer the planning summary's specific mould_no
-    // (e.g. "5272-BODY 2") over plan_board.mould_code, which can hold a COARSER
-    // base code (e.g. "5272-BODY") that resolves to a different mould's row —
-    // that was the bug: cavity showed 1 instead of 2. Match EXACTLY on
-    // moulds.mould_number and align with the "Mould Code" shown on the card.
-    const planRows = await q(`
-      SELECT
-        m.std_wt_kg, m.runner_weight, m.no_of_cav, m.cycle_time,
-        m.pcs_per_hour, m.manpower, m.std_volume_cap
-      FROM plan_board pb
-      LEFT JOIN mould_planning_summary mps
-        ON mps.or_jr_no = pb.order_no AND mps.mould_name = pb.mould_name
-      LEFT JOIN LATERAL (
-        SELECT mm.*
-        FROM moulds mm
-        WHERE UPPER(TRIM(mm.mould_number)) = UPPER(TRIM(COALESCE(NULLIF(TRIM(mps.mould_no),''), NULLIF(TRIM(pb.mould_code),''), '')))
-          AND TRIM(COALESCE(NULLIF(TRIM(mps.mould_no),''), NULLIF(TRIM(pb.mould_code),''), '')) <> ''
-        ORDER BY mm.updated_at DESC NULLS LAST, mm.id DESC
-        LIMIT 1
-      ) m ON TRUE
-      WHERE pb.plan_id = $1
-      -- plan_id / mps can fan out to multiple candidate rows: one carrying the
-      -- specific planning mould_no (e.g. "5272-BODY 2", cav 2) and one falling
-      -- back to pb.mould_code (coarse "5272-BODY", cav 1). Prefer the specific
-      -- planning-summary mould first (this is the code the card shows), then a
-      -- resolved master row.
-      ORDER BY (mps.mould_no IS NOT NULL) DESC,
-               (m.no_of_cav IS NOT NULL) DESC NULLS LAST,
-               m.updated_at DESC NULLS LAST, m.id DESC
-      LIMIT 1
-    `, [planId]);
-
-    let std = null;
-    const r0 = planRows.length ? planRows[0] : null;
-    if (r0 && (r0.std_wt_kg != null || r0.no_of_cav != null || r0.cycle_time != null)) {
-      std = {
-        article_std: r0.std_wt_kg,
-        runner_std: r0.runner_weight,
-        cavity_std: r0.no_of_cav,
-        cycle_std: r0.cycle_time,
-        pcshr_std: r0.pcs_per_hour,
-        man_std: r0.manpower,
-        sfgqty_std: r0.std_volume_cap
-      };
-    }
-
-    // 3. Fetch Existing Setup (ACTUALS)
-    // We check if a setup record exists for this planId (optionally filter by date/shift if needed, but usually setup is per Plan Run)
-    const rows = await q('SELECT * FROM std_actual WHERE plan_id=$1 LIMIT 1', [planId]);
-
-    // If we have a row, we return it. If not, we return done:false but INCLUDE standards.
-    if (rows.length) {
-      res.json({ ok: true, data: { done: true, row: rows[0], std } });
-    } else {
-      res.json({ ok: true, data: { done: false, std } });
-    }
-
-  } catch (e) {
-    console.error('api/std-actual/status', e);
-    res.status(500).json({ ok: false, error: String(e) });
-  }
-});
 
 // Duplicate /api/dpr/used-slots removed from here. Consolidated at line 1405.
 
@@ -28508,33 +27999,6 @@ app.post('/api/wip/reset', async (req, res) => {
 /* ============================================================
    DPR MODULE APIS
    ============================================================ */
-app.get('/api/dpr/hourly', async (req, res) => {
-  try {
-    const { date, shift, line } = req.query;
-    let sql = 'SELECT * FROM shifting_records WHERE 1=1';
-    const params = [];
-
-    if (date) {
-      sql += ` AND dpr_date::text LIKE $${params.length + 1} || '%'`;
-      params.push(date);
-    }
-    if (shift && shift !== 'All') {
-      sql += ` AND shift = $${params.length + 1} `;
-      params.push(shift);
-    }
-    if (line && line !== 'All Lines') {
-      sql += ` AND line = $${params.length + 1} `;
-      params.push(line);
-    }
-
-    sql += ' ORDER BY created_at DESC LIMIT 1000';
-
-    const rows = await q(sql, params);
-    res.json({ ok: true, data: rows });
-  } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
-  }
-});
 
 /* ============================================================
    QC MODULE APIS
@@ -30101,25 +29565,6 @@ app.post('/api/qc/notifications/read', async (req, res) => {
 });
 
 // --- Master Data APIs ---
-app.get('/api/machines', async (req, res) => {
-  try {
-    // [FIX] Factory Isolation
-    const factoryId = getFactoryId(req);
-    let sql = 'SELECT machine, line, is_active FROM machines WHERE 1=1';
-    const params = [];
-
-    if (factoryId) {
-      sql += ` AND factory_id = $1`;
-      params.push(factoryId);
-    }
-    sql += ` ORDER BY line ASC, machine ASC`;
-
-    const result = await q(sql, params);
-    res.json({ ok: true, data: result || [] });
-  } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
-  }
-});
 
 // 7. QC Compliance Summary Report
 app.get('/api/qc/compliance', async (req, res) => {
@@ -30505,107 +29950,8 @@ app.get('/api/qc/dashboard/analysis', async (req, res) => {
 /* ============================================================
    MACHINE MASTER CRUD (Added for Edit Machine Name)
    ============================================================ */
-app.post('/api/machines', async (req, res) => {
-  try {
-    const { machine, building, line, tonnage, machine_icon, machine_icon_base64 } = req.body;
-    const cleanMachine = normalizeMachineName(machine);
-    const resolvedMachineIcon = machine_icon_base64
-      ? saveDataUrlImage(machine_icon_base64, 'machines', 'machine')
-      : normalizeOptionalText(machine_icon);
-    if (!cleanMachine) return res.json({ ok: false, error: 'Machine Name required' });
 
-    // [FIX] Factory Isolation
-    const factoryId = getFactoryId(req);
 
-    await q(
-      `INSERT INTO machines(machine, building, line, tonnage, machine_icon, created_at, updated_at, factory_id)
-VALUES($1, $2, $3, $4, $5, NOW(), NOW(), $6)`,
-      [cleanMachine, building, line, tonnage, resolvedMachineIcon, factoryId]
-    );
-    res.json({ ok: true });
-  } catch (e) {
-    if (e.code === '23505') return res.json({ ok: false, error: 'Machine already exists for this factory' });
-    res.status(500).json({ ok: false, error: String(e) });
-  }
-});
-
-app.put('/api/machines/:id', async (req, res) => {
-  try {
-    const oldName = decodeURIComponent(req.params.id);
-    const { machine, building, line, tonnage, machine_icon, machine_icon_base64 } = req.body;
-    const factoryId = getFactoryId(req);
-    const cleanMachine = normalizeMachineName(machine);
-    const hasMachineIconField = Object.prototype.hasOwnProperty.call(req.body || {}, 'machine_icon');
-    const resolvedMachineIcon = machine_icon_base64
-      ? saveDataUrlImage(machine_icon_base64, 'machines', 'machine')
-      : (hasMachineIconField ? normalizeOptionalText(machine_icon) : undefined);
-
-    if (!cleanMachine) return res.json({ ok: false, error: 'Machine Name required' });
-
-    const client = await pool.connect();
-    try {
-      await client.query('BEGIN');
-
-      // Update Machine Master
-      // Assuming 'machine' is unique/PK. If 'id' exists, use custom logic, 
-      // but code implies 'machine' string is the key identifier everywhere.
-      const resUpd = await client.query(
-        resolvedMachineIcon !== undefined
-          ? `UPDATE machines 
-             SET machine = $1, building = $2, line = $3, tonnage = $4, machine_icon = $5, updated_at = NOW()
-             WHERE LOWER(machine) = LOWER($6)
-               AND (factory_id = $7 OR ($7 IS NULL AND factory_id IS NULL))`
-          : `UPDATE machines 
-             SET machine = $1, building = $2, line = $3, tonnage = $4, updated_at = NOW()
-             WHERE LOWER(machine) = LOWER($5)
-               AND (factory_id = $6 OR ($6 IS NULL AND factory_id IS NULL))`,
-        resolvedMachineIcon !== undefined
-          ? [cleanMachine, building, line, tonnage, resolvedMachineIcon, oldName, factoryId]
-          : [cleanMachine, building, line, tonnage, oldName, factoryId]
-      );
-
-      if (resUpd.rowCount === 0) {
-        throw new Error('Machine not found');
-      }
-
-      // If Name Changed, Cascade Update to vital tables
-      if (oldName !== cleanMachine) {
-        // 1. Plan Board
-        await client.query(`UPDATE plan_board SET machine = $1 WHERE machine = $2 AND (factory_id = $3 OR ($3 IS NULL AND factory_id IS NULL))`, [cleanMachine, oldName, factoryId]);
-        // 2. DPR Hourly
-        await client.query(`UPDATE dpr_hourly SET machine = $1 WHERE machine = $2 AND (factory_id = $3 OR ($3 IS NULL AND factory_id IS NULL))`, [cleanMachine, oldName, factoryId]);
-        // 3. QC Reports
-        await client.query(`UPDATE qc_online_reports SET machine = $1 WHERE machine = $2 AND (factory_id = $3 OR ($3 IS NULL AND factory_id IS NULL))`, [cleanMachine, oldName, factoryId]);
-        // 4. Mould Planning Summary
-        await client.query(`UPDATE mould_planning_summary SET machine_name = $1 WHERE machine_name = $2 AND (factory_id = $3 OR ($3 IS NULL AND factory_id IS NULL))`, [cleanMachine, oldName, factoryId]);
-        // 5. Mould Planning Report
-        await client.query(`UPDATE mould_planning_report SET machine_name = $1 WHERE machine_name = $2 AND (factory_id = $3 OR ($3 IS NULL AND factory_id IS NULL))`, [cleanMachine, oldName, factoryId]);
-      }
-
-      await client.query('COMMIT');
-      res.json({ ok: true });
-    } catch (e) {
-      await client.query('ROLLBACK');
-      throw e;
-    } finally {
-      client.release();
-    }
-  } catch (e) {
-    if (e.code === '23505') return res.status(400).json({ ok: false, error: 'Machine already exists for this factory' });
-    res.status(500).json({ ok: false, error: String(e) });
-  }
-});
-
-app.delete('/api/machines/:id', async (req, res) => {
-  try {
-    const machine = decodeURIComponent(req.params.id);
-    const factoryId = getFactoryId(req);
-    await q('DELETE FROM machines WHERE LOWER(machine) = LOWER($1) AND (factory_id = $2 OR ($2 IS NULL AND factory_id IS NULL))', [machine, factoryId]);
-    res.json({ ok: true });
-  } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
-  }
-});
 
 
 
@@ -30632,14 +29978,6 @@ app.post('/api/log-client-error', (req, res) => {
 });
 
 // 4. List ALL Std Actuals (For DPR Setup View)
-app.get('/api/dpr/setup', async (req, res) => {
-  try {
-    const rows = await q('SELECT * FROM std_actual ORDER BY created_at DESC LIMIT 500');
-    res.json({ ok: true, data: rows });
-  } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
-  }
-});
 
 // --- SHIFT TEAM APIS ---
 app.get('/api/shift/team', async (req, res) => {
@@ -31056,182 +30394,16 @@ app.get('/api/dpr/labour/summary', async (req, res) => {
 // --- STD ACTUAL APIs ---
 
 // 1. Check Status (Get Saved Actuals OR Master Standards)
-app.get('/api/std-actual/status', async (req, res) => {
-  try {
-    const { planId, machine } = req.query;
-    if (!planId) return res.json({ ok: false, error: 'PlanID required' });
-
-    // 1. Check if already saved
-    const exists = await q('SELECT * FROM std_actual WHERE plan_id=$1 LIMIT 1', [planId]);
-    if (exists.length) {
-      console.log('[STD DEBUG] Found Saved Record for:', planId);
-      // Return SAVED data + Master Standards (for comparison if needed)
-      // Note: Supervisor logic overwrites inputs with this data.
-      // We should ALSO fetch master standards to populate the STD side if missing?
-      // Supervisor app expects: row (actuals), std (standards)
-
-      const row = exists[0];
-
-      // Fetch Master Standards for this Mould
-      // NOTE: moulds has no uniqueness constraint on mould_number/mould_name, so duplicate
-      // master rows can exist. Use a LATERAL join to deterministically pick one match:
-      // exact mould_number match wins over mould_name match, ties broken by most recently
-      // updated row. Without this, an OR-based join could arbitrarily match a stale duplicate.
-      const mRes = await q(`
-      SELECT m.std_wt_kg as article_std, m.runner_weight as runner_std, m.no_of_cav as cavity_std,
-  m.cycle_time as cycle_std, m.pcs_per_hour as pcshr_std, m.manpower as man_std,
-  m.sfg_std_packing as sfgqty_std
-      FROM plan_board pb
-      LEFT JOIN mould_planning_summary mps ON mps.or_jr_no = pb.order_no AND mps.mould_name = pb.mould_name
-      LEFT JOIN LATERAL (
-        SELECT mm.*
-        FROM moulds mm
-        WHERE UPPER(TRIM(mm.mould_number)) = UPPER(TRIM(COALESCE(NULLIF(TRIM(mps.mould_no),''), NULLIF(TRIM(pb.mould_code),''), '')))
-          AND TRIM(COALESCE(NULLIF(TRIM(mps.mould_no),''), NULLIF(TRIM(pb.mould_code),''), '')) <> ''
-        ORDER BY mm.updated_at DESC NULLS LAST, mm.id DESC
-        LIMIT 1
-      ) m ON TRUE
-        WHERE pb.plan_id = $1
-  `, [planId]);
-
-      return res.json({ ok: true, data: { done: true, row, std: mRes[0] || {} } });
-    }
-
-    // 2. Not Saved -> Fetch Master Standards Only
-    console.log('[STD DEBUG] Fetching Std for PlanID:', planId);
-    const mRes = await q(`
-      SELECT m.std_wt_kg as article_std, m.runner_weight as runner_std, m.no_of_cav as cavity_std,
-  m.cycle_time as cycle_std, m.pcs_per_hour as pcshr_std, m.manpower as man_std,
-  m.sfg_std_packing as sfgqty_std
-      FROM plan_board pb
-      LEFT JOIN mould_planning_summary mps ON mps.or_jr_no = pb.order_no AND mps.mould_name = pb.mould_name
-      LEFT JOIN LATERAL (
-        SELECT mm.*
-        FROM moulds mm
-        WHERE UPPER(TRIM(mm.mould_number)) = UPPER(TRIM(COALESCE(NULLIF(TRIM(mps.mould_no),''), NULLIF(TRIM(pb.mould_code),''), '')))
-          AND TRIM(COALESCE(NULLIF(TRIM(mps.mould_no),''), NULLIF(TRIM(pb.mould_code),''), '')) <> ''
-        ORDER BY mm.updated_at DESC NULLS LAST, mm.id DESC
-        LIMIT 1
-      ) m ON TRUE
-      WHERE pb.plan_id = $1
-  `, [planId]);
-    console.log('[STD DEBUG] Result:', mRes[0]);
-
-    res.json({ ok: true, data: { done: false, std: mRes[0] || {} } });
-
-  } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
-  }
-});
 
 // 2. Save/Update
-app.post('/api/std-actual/save', async (req, res) => {
-  try {
-    const { session, payload, geo } = req.body;
-    const { PlanID, Shift, DprDate, Machine, OrderNo, MouldName,
-      ArticleActual, RunnerActual, CavityActual, CycleActual, PcsHrActual, ManActual,
-      EnteredBy, SfgQtyActual, OperatorActivities } = payload;
-
-    // Check if exists
-    const exists = await q('SELECT id FROM std_actual WHERE plan_id=$1', [PlanID]);
-
-    if (exists.length) {
-      // Update
-      await q(`
-        UPDATE std_actual SET
-shift = $2, dpr_date = $3, machine = $4, order_no = $5, mould_name = $6,
-  article_act = $7, runner_act = $8, cavity_act = $9, cycle_act = $10, pcshr_act = $11, man_act = $12,
-  entered_by = $13, sfgqty_act = $14, operator_activities = $15,
-  geo_lat = $16, geo_lng = $17, geo_acc = $18, updated_at = NOW()
-        WHERE plan_id = $1
-  `, [PlanID, Shift, DprDate, Machine, OrderNo, MouldName,
-        toNum(ArticleActual), toNum(RunnerActual), toNum(CavityActual), toNum(CycleActual), toNum(PcsHrActual), toNum(ManActual),
-        EnteredBy, toNum(SfgQtyActual), OperatorActivities,
-        (geo && geo.lat) || null, (geo && geo.lng) || null, (geo && geo.acc) || null
-      ]);
-    } else {
-      // Insert
-      const factoryId = getFactoryId(req); // [FIX] Factory Isolation
-      await q(`
-        INSERT INTO std_actual(
-    plan_id, shift, dpr_date, machine, line, order_no, mould_name,
-    article_act, runner_act, cavity_act, cycle_act, pcshr_act, man_act,
-    entered_by, sfgqty_act, operator_activities,
-    geo_lat, geo_lng, geo_acc, created_at, updated_at, factory_id
-  ) VALUES(
-    $1, $2, $3, $4, $5, $6, $7,
-    $8, $9, $10, $11, $12, $13,
-    $14, $15, $16,
-    $17, $18, $19, NOW(), NOW(), $20
-  )
-    `, [PlanID, Shift, DprDate, Machine, session ? session.line : '', OrderNo, MouldName,
-        toNum(ArticleActual), toNum(RunnerActual), toNum(CavityActual), toNum(CycleActual), toNum(PcsHrActual), toNum(ManActual),
-        EnteredBy, toNum(SfgQtyActual), OperatorActivities,
-        (geo && geo.lat) || null, (geo && geo.lng) || null, (geo && geo.acc) || null, factoryId
-      ]);
-    }
-
-    ttlCacheClear('dprSummaryMatrix'); // setup saved → refresh Compliance Summary now
-    syncService.triggerSync();
-    res.json({ ok: true });
-  } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
-  }
-});
 
 // 3. Clear ALL Std Actuals (Admin Only)
-app.post('/api/admin/clear-std-actual', async (req, res) => {
-  try {
-    const { user } = req.body;
-
-    // Security Check
-    const u = (await q('SELECT role_code, permissions FROM users WHERE username=$1', [user]))[0];
-    const perms = u ? (u.permissions || {}) : {};
-    const allowed = isAdminLikeRole(u) || (perms.critical_ops && perms.critical_ops.data_wipe);
-
-    if (!allowed) return res.status(403).json({ ok: false, error: 'Access Denied: Admin or Data Wipe permission required' });
-
-    await q('TRUNCATE TABLE std_actual');
-    console.log(`[ADMIN] STD ACTUAL CLEARED by ${user} `);
-    res.json({ ok: true });
-  } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
-  }
-});
 
 /* ============================================================
    PACKING / ASSEMBLY MODULE APIS
    ============================================================ */
 
 // 1. GET Assembly Plans (Grid)
-app.get('/api/assembly/grid', async (req, res) => {
-  try {
-    const { date } = req.query;
-    // We fetch logic: usually by date range.
-    // If date is provided, we fetch plans that overlap with that date?
-    // Or just all future plans + recent past?
-    // Let's matching strict date for now as per frontend request.
-
-    let sql = `SELECT * FROM assembly_plans WHERE 1 = 1`;
-    const params = [];
-
-    if (date) {
-      // Simple string match on start_time if stored as text?
-      // Or if stored as timestamptz, we check overlap
-      // frontend saves ISO string.
-      // Let's filter basically
-      sql += ` AND start_time::text LIKE $1 || '%'`;
-      params.push(date);
-    }
-
-    sql += ` ORDER BY start_time ASC`;
-
-    const rows = await q(sql, params);
-    res.json({ ok: true, data: rows });
-  } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
-  }
-});
 
 // 2. Create/Update Assembly Plan
 app.post('/api/assembly/plan', async (req, res) => {
@@ -32425,61 +31597,6 @@ app.get('/api/analyze/downtime/plant', async (req, res) => {
 // ============================================================
 // DASHBOARD APIs
 // ============================================================
-app.get('/api/dashboard/kpis', async (req, res) => {
-  try {
-    // 1. Production Today (Sum of DPR Good Qty for Today)
-    // Using current date/shift logic or simple 24h window
-    const prodRes = await q(`
-      SELECT COALESCE(SUM(good_qty), 0) as total 
-      FROM dpr_hourly 
-      WHERE created_at >= CURRENT_DATE
-  `);
-    const production = parseInt(prodRes[0].total, 10);
-
-    // 2. Active Machines (Count Running Plans)
-    const activeRes = await q(`
-      SELECT COUNT(DISTINCT machine) as active 
-      FROM plan_board 
-      WHERE status = 'RUNNING'
-  `);
-    const active = parseInt(activeRes[0].active, 10);
-
-    const pendingRes = await q(`
-      SELECT COUNT(*) as cnt
-        FROM orders o
-       WHERE COALESCE(o.status, 'Pending') <> 'Completed'
-          OR COALESCE(o.completion_confirmation_required, FALSE) = TRUE
-    `);
-    const orders = parseInt(pendingRes[0].cnt, 10);
-
-    // 4. DPR Entries (Last 24h Activity Count)
-    const dprRes = await q(`
-      SELECT COUNT(*) as cnt 
-      FROM dpr_hourly 
-      WHERE created_at >= (NOW() - INTERVAL '24 HOURS')
-`);
-    const dpr = parseInt(dprRes[0].cnt, 10);
-
-    // OEE / Util / Rejects (Mocked or Calc)
-    // For now return 0 or simple aggregates
-    res.json({
-      ok: true,
-      data: {
-        production,
-        active,
-        orders, // Backlog
-        dpr, // Activity
-        oee: 85, // Mock target
-        utilization: 78,
-        rejects: 1.2
-      }
-    });
-
-  } catch (e) {
-    console.error('/api/dashboard/kpis', e);
-    res.status(500).json({ ok: false, error: String(e) });
-  }
-});
 
 // ============================================================
 // ADMIN DATABASE TOOLS (Backup / Restore)
@@ -32878,61 +31995,6 @@ app.post('/api/approvals/review', async (req, res) => {
    Restored original logic for dpr.html
    ============================================================ */
 /*
-app.get('/api/dpr/summary-matrix', async (req, res) => {
-  try {
-    const { date, shift } = req.query; // '2023-10-27', 'Day' or 'Night'
-    const cleanDate = (date || '').trim();
-    const cleanShift = (shift || '').trim() || 'Day';
-
-    if (!cleanDate) return res.json({ ok: false, error: 'Date required' });
-
-    // 1. Fetch Machines (Active)
-    const machines = await q(`
-      SELECT machine, line, type 
-      FROM machines 
-      WHERE COALESCE(is_active, TRUE) = TRUE 
-      ORDER BY line ASC, machine ASC
-  `);
-
-    // 2. Fetch DPR Entries (Summary)
-    // We need to aggregate by machine to show availability/status
-    const entries = await q(`
-SELECT
-machine,
-  SUM(good_qty) as total_good,
-  SUM(reject_qty) as total_rej,
-  SUM(downtime_min) as total_dt,
-  MAX(created_at) as last_entry
-      FROM dpr_hourly
-      WHERE dpr_date = $1::date AND shift = $2
-      GROUP BY machine
-  `, [cleanDate, cleanShift]);
-
-    // 3. Transform to Map
-    const entryMap = {}; // machine -> { total_good, ... }
-    entries.forEach(e => {
-      entryMap[e.machine] = e;
-    });
-
-    // 4. Fetch Maintenance/Setups (Mock for now or real if tables exist)
-    const maintenance = {};
-    const setups = [];
-
-    res.json({
-      ok: true,
-      data: {
-        machines,
-        entries: entryMap,
-        maintenance,
-        setups
-      }
-    });
-
-  } catch (e) {
-    console.error('DPR Summary Matrix Error', e);
-    res.status(500).json({ ok: false, error: String(e) });
-  }
-});
 */
 
 /* ============================================================
