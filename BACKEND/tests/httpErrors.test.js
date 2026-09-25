@@ -76,3 +76,26 @@ describe('sendServerError', () => {
     } finally { restore(); }
   });
 });
+
+describe('safeError', () => {
+  let logSpy;
+  beforeEach(() => { logSpy = jest.spyOn(console, 'error').mockImplementation(() => {}); });
+  afterEach(() => { logSpy.mockRestore(); });
+
+  it('returns a generic string in production and logs the detail', () => {
+    const { mod, restore } = loadFresh({ NODE_ENV: 'production' });
+    try {
+      const out = mod.safeError(new Error('SELECT secret FROM users'));
+      expect(out).toBe('Internal server error');
+      expect(out).not.toMatch(/SELECT|users/);
+      expect(logSpy).toHaveBeenCalled();
+    } finally { restore(); }
+  });
+
+  it('returns the detail when EXPOSE_ERRORS=1', () => {
+    const { mod, restore } = loadFresh({ NODE_ENV: 'production', EXPOSE_ERRORS: '1' });
+    try {
+      expect(mod.safeError(new Error('detail here'))).toBe('detail here');
+    } finally { restore(); }
+  });
+});
