@@ -37,7 +37,10 @@ jobs:
           java-version: "17"
 
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+        # v4 drops the obsolete Android SDK 'tools' package that v3 tried to
+        # install (sdkmanager exit 1: "Failed to find package 'tools'"), which
+        # broke this build. Matches build-qc-android.yml, which already uses v4.
+        uses: android-actions/setup-android@v4
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
