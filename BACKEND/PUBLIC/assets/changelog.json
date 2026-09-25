@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.74.4",
+  "latest": "1.74.5",
   "versions": [
+    {
+      "version": "1.74.5",
+      "date": "2026-09-25",
+      "title": "Database restore upload hardened",
+      "modules": [
+        {
+          "app": "settings",
+          "label": "Settings",
+          "icon": "bi-database",
+          "changes": [
+            { "type": "security", "text": "Database restore only reads the file that was just uploaded, checked by name, before running the restore tool." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.74.4",
       "date": "2026-09-25",
