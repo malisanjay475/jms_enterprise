@@ -10,7 +10,7 @@
 # here, because this script never runs in that case.
 #
 # We run the request INSIDE the app container using node's http (the image is
-# node:20-alpine — it has node but NOT curl). This is exactly how the Docker
+# node:24-alpine — it has node but NOT curl). This is exactly how the Docker
 # healthcheck reaches the app, so it works regardless of host firewall or
 # published-port mapping.
 APP="$(docker ps --format '{{.Names}}' | grep -E 'jms-enterprise-v1-app' | head -1)"

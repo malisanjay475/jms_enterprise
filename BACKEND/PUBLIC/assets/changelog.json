@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.73.3",
+  "latest": "1.73.4",
   "versions": [
+    {
+      "version": "1.73.4",
+      "date": "2026-09-25",
+      "title": "Live server moved to a supported Node.js version",
+      "modules": [
+        {
+          "app": "all",
+          "label": "Platform",
+          "icon": "bi-cpu",
+          "changes": [
+            { "type": "security", "text": "The live server now runs on Node.js 24, which still gets security updates (the old version 20 no longer does), the same version the factory server uses." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.73.3",
       "date": "2026-09-25",

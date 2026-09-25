@@ -1,5 +1,6 @@
-# Base Image
-FROM node:20-alpine
+# Base Image — Node 24 LTS (Node 20 reached end of life in April 2026). The factory
+# LOCAL servers already run Node 24, so MAIN and LOCAL now use the same runtime.
+FROM node:24-alpine
 
 # pg_restore / psql / dropdb for optional AUTO_IMPORT_DB_PATH (see scripts/auto-import-db-if-needed.js)
 # tzdata: Alpine has no timezone database; without it Node's local-time methods
@@ -13,9 +14,10 @@ RUN npm install -g pm2@5
 # Working Directory
 WORKDIR /app
 
-# Install Dependencies
+# Install Dependencies — exactly what package-lock.json records (npm ci), without
+# dev dependencies. `npm install` could resolve newer versions than were tested.
 COPY package*.json ./
-RUN npm install --production
+RUN npm ci --omit=dev --no-audit --no-fund && npm cache clean --force
 
 # Copy server.js first so edits invalidate cache (avoids stale COPY . . layers on rebuild)
 COPY server.js ./server.js
