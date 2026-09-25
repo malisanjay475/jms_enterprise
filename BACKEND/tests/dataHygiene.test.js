@@ -46,7 +46,7 @@ describe('data retention', () => {
 
   it('uses the agreed retention periods by default', () => {
     const { retentionDays } = require('../src/app/dataRetention');
-    expect(retentionDays()).toEqual({ notificationsRead: 90, activityLog: 180, syncDeletions: 30, machineReadings: 90 });
+    expect(retentionDays()).toEqual({ notificationsRead: 90, activityLog: 180, syncDeletions: 30, machineReadings: 90, legacyAuthUsage: 30 });
   });
 
   it('deletes in batches until a short batch, and drops notification tombstones in the same transaction', async () => {

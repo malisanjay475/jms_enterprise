@@ -9,6 +9,7 @@ const { routeGuardMiddleware } = require('./routeGuards');
 const { createPrivateUploadGuard } = require('./uploadSafety');
 const { apiLimiter } = require('./registerCoreMiddleware');
 const { createReadinessCheck } = require('./healthCheck');
+const legacyAuthUsage = require('./legacyAuthUsage');
 const { sendServerError } = require('./httpErrors');
 
 // ---------------------------------------------------------------------------
@@ -244,6 +245,18 @@ function registerRoutes(app, deps) {
   };
   app.get('/api/health', readinessHandler);
   app.get('/health/ready', readinessHandler);
+
+  // Admin report: requests that still identify the user only by header/body (no login
+  // session). Evidence for when login can be required everywhere (legacyAuthUsage.js).
+  app.get('/api/admin/legacy-auth-usage', async (req, res) => {
+    try {
+      await legacyAuthUsage.flush();
+      res.json({ ok: true, ...(await legacyAuthUsage.getReport(pool, { days: req.query.days })) });
+    } catch (e) {
+      console.error('/api/admin/legacy-auth-usage', e);
+      res.status(500).json({ ok: false, error: 'Could not load the report' });
+    }
+  });
 
   app.use('/api/erp', services.erpRoutes);
   app.use('/api/local-servers', services.localServerService.router);
