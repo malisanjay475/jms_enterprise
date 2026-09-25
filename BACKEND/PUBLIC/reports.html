@@ -1066,11 +1066,17 @@
           ${shift !== 'Night' ? pill('Day Std / Act', `${summary.day.std} / ${summary.day.act}`, '#2563eb') : ''}
           ${shift !== 'Day' ? pill('Night Std / Act', `${summary.night.std} / ${summary.night.act}`, '#4f46e5') : ''}
           ${pill('Shortage', summary.shortage, summary.shortage < 0 ? '#dc2626' : '#16a34a')}
+          ${pill('Excess', '+' + (summary.excess || 0), '#0891b2')}
           ${pill('Shifts without Act manpower', summary.missing_act || 0, '#64748b')}
+          ${summary.missing_std ? pill('Shifts without Std manpower (mould master)', summary.missing_std, '#64748b') : ''}
+          ${pill('Idle (machine-days)', summary.idle || 0, '#475569')}
           ${pill('Full Day Maintenance (machine-days)', summary.full_day_maint || 0, '#b45309')}
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
           <span class="control-label" style="align-self:center">Machines under full day maintenance:</span> ${machines || '<span style="color:var(--text-light)">–</span>'}
+        </div>
+        <div style="margin-top:8px;font-size:0.75rem;color:var(--text-light)">
+          Full shift maintenance = at least ${Math.round((summary.full_maint_min || 518) / 60 * 10) / 10} hrs of maintenance and no production. Totals only count shifts where both Std and Act manpower are known. Idle and maintenance shifts count as 0.
         </div>`;
     }
 
@@ -1280,11 +1286,12 @@
         const ms = window._manShift || 'split';
         const txt = $.fn.dataTable.render.text();
         const cell = v => v == null ? '—' : v;
-        const maintNote = (sh, label) => sh.full_maint ? `${label}: full shift maintenance`
+        const maintNote = (sh, label) => sh.idle ? `${label}: idle`
+          : sh.full_maint ? `${label}: full shift maintenance`
           : (sh.maint_min > 0 ? `${label}: maint. ${sh.maint_min} min` : '');
         const shiftCols = (k, label) => [
           { title: `${label} Mould`, data: k + '.mould', defaultContent: '',
-            render: (v, t, r) => r[k].full_maint ? 'MAINTENANCE' : txt.display(v || '') },
+            render: (v, t, r) => r[k].full_maint ? 'MAINTENANCE' : r[k].idle ? 'IDLE' : txt.display(v || '') },
           { title: `${label} Std`, data: k + '.std', defaultContent: '', render: cell },
           { title: `${label} Act`, data: k + '.act', defaultContent: '', render: cell },
           { title: `${label} Diff`, data: k + '.diff', defaultContent: '', render: (v, t) => {
@@ -1301,6 +1308,7 @@
           { title: 'Total Act', data: 'total_act' },
           { title: 'Status', data: null, render: (d, t, r) => {
               if (r.full_day_maint) return 'Full Day Maintenance';
+              if (ms === 'split' ? r.idle : r[ms.toLowerCase()].idle) return 'Idle';
               return [ms !== 'Night' ? maintNote(r.day, 'Day') : '', ms !== 'Day' ? maintNote(r.night, 'Night') : '']
                 .filter(Boolean).join(' / ') || 'Running';
             } }
@@ -1376,6 +1384,7 @@
         order: (type === 'machine-wise' || type === 'machine-date-history') ? [] : undefined,
         createdRow: type === 'manpower' ? (row, r) => {
           if (r.full_day_maint) { row.style.background = '#fef3c7'; row.style.color = '#92400e'; row.style.fontWeight = '700'; }
+          else if (r.idle) { row.style.background = '#f1f5f9'; row.style.color = '#64748b'; }
         } : undefined,
         dom: 'Bfrtip',
         buttons: [

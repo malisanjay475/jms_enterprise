@@ -11,10 +11,10 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.73.4",
+  "latest": "1.73.5",
   "versions": [
     {
-      "version": "1.73.4",
+      "version": "1.73.5",
       "date": "2026-09-25",
       "title": "Live server moved to a supported Node.js version",
       "modules": [
@@ -24,6 +24,23 @@
           "icon": "bi-cpu",
           "changes": [
             { "type": "security", "text": "The live server now runs on Node.js 24, which still gets security updates (the old version 20 no longer does), the same version the factory server uses." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.73.4",
+      "date": "2026-09-25",
+      "title": "Manpower Report: idle machines and more accurate figures",
+      "modules": [
+        {
+          "app": "reports",
+          "label": "Reports",
+          "icon": "bi-people",
+          "changes": [
+            { "type": "improvement", "text": "Manpower Report now lists every active moulding machine; machines or shifts with no setup and no DPR entry show as Idle with 0 manpower." },
+            { "type": "fix", "text": "A shift now counts as full maintenance only when maintenance covers most of the shift and nothing was produced, and repeated DPR entries are no longer counted twice." },
+            { "type": "improvement", "text": "The report lists every mould run in a shift and shows excess manpower next to shortage." }
           ]
         }
       ]
