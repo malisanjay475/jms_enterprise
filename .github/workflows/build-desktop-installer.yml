@@ -13,6 +13,11 @@ on:
         description: 'Version override (e.g. 1.2.0) — leave blank to use package.json'
         required: false
 
+# Least privilege: checkout, build and artifacts only; electron-builder has
+# "publish": null, so the token never writes releases.
+permissions:
+  contents: read
+
 concurrency:
   group: build-desktop-installer
   cancel-in-progress: true
