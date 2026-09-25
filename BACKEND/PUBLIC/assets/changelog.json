@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.73.1",
+  "latest": "1.73.2",
   "versions": [
+    {
+      "version": "1.73.2",
+      "date": "2026-09-25",
+      "title": "Better server health checks",
+      "modules": [
+        {
+          "app": "all",
+          "label": "Platform",
+          "icon": "bi-heart-pulse",
+          "changes": [
+            { "type": "improvement", "text": "The server health check now tests the database too, so a database problem is caught during updates and by monitoring before users notice it." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.73.1",
       "date": "2026-09-25",
