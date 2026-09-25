@@ -15,6 +15,7 @@
 
 const crypto = require('crypto');
 const express = require('express');
+const { sendServerError } = require('../app/httpErrors');
 
 function keyMatches(given, expected) {
   const a = Buffer.from(String(given || ''));
@@ -56,7 +57,7 @@ function createSyncAlertRoute(pool) {
       res.json({ ok: stale.length === 0, threshold_minutes: Math.round(STALE_MS / 60000), checked: servers.length, stale, servers });
     } catch (e) {
       console.error('[sync-alert] query failed:', e.message);
-      res.status(500).json({ ok: false, error: e.message });
+      sendServerError(res, e);
     }
   });
 

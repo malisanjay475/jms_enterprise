@@ -31,7 +31,7 @@ const {
   recordLoginFailure: _recordLoginFailure,
   clearLoginFailures: _clearLoginFailures
 } = require('../app/loginLockout');
-const { sendServerError } = require('../app/httpErrors');
+const { sendServerError, safeError } = require('../app/httpErrors');
 const BACKEND_ROOT = path.resolve(__dirname, '..', '..');
 const STATIC_PUBLIC_DIR_NAME = fs.existsSync(path.join(BACKEND_ROOT, 'PUBLIC', 'index.html')) ? 'PUBLIC' : 'public';
 const STATIC_PUBLIC_DIR = path.join(BACKEND_ROOT, STATIC_PUBLIC_DIR_NAME);
@@ -1359,7 +1359,7 @@ app.get('/api/dpr/dashboard-matrix', async (req, res) => {
 
   } catch (e) {
     console.error('DPR Matrix Error', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -1372,7 +1372,7 @@ app.get('/api/admin/closed-plants', async (req, res) => {
     const rows = await q('SELECT id, dpr_date::text as dpr_date_str, plant, shift, remarks, closed_by FROM closed_plants WHERE factory_id = $1 OR ($1 IS NULL AND factory_id IS NULL) ORDER BY dpr_date DESC, plant ASC', [factoryId]);
     res.json({ ok: true, data: rows });
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -1396,7 +1396,7 @@ app.post('/api/admin/close-plant', async (req, res) => {
     res.json({ ok: true, message: 'Plant status updated' });
   } catch (e) {
     console.error('close-plant error', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -1406,7 +1406,7 @@ app.delete('/api/admin/close-plant/:id', async (req, res) => {
     syncService.triggerSync();
     res.json({ ok: true, message: 'Plant re-opened' });
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -1451,7 +1451,7 @@ app.get('/api/qc/reports', async (req, res) => {
 
     res.json({ ok: true, data: rows });
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -4248,7 +4248,7 @@ app.post('/api/sync/force-full-push', async (_req, res) => {
     res.json({ ok: true, message: 'Full re-push started — all local data is uploading to MAIN. Watch the "Last Data Push" time below.' });
   } catch (e) {
     console.error('[Sync] force-full-push failed:', e.message);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -4314,7 +4314,7 @@ app.post('/api/admin/plans/bulk-approve', async (req, res) => {
     res.json({ ok: true, message: `${count} plan(s) approved. Refresh the planning board.`, updated: count });
   } catch (e) {
     console.error('[Admin] bulk-approve error:', e.message);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -4337,7 +4337,7 @@ app.post('/api/admin/sync/reset-pull', async (req, res) => {
     res.json({ ok: true, message: 'LAST_PULL reset. Full re-pull starting on next sync cycle.' });
   } catch (e) {
     console.error('[Admin] reset-pull failed:', e.message);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -4346,7 +4346,7 @@ app.get('/api/legacy-health', async (_req, res) => {
     const r = await q('SELECT NOW() AS now', []);
     res.json({ ok: true, now: r[0].now });
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -6372,7 +6372,7 @@ app.post('/api/login', async (req, res) => {
 
   } catch (e) {
     console.error('login error', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -6395,7 +6395,7 @@ app.get('/api/factories', async (req, res) => {
       : await q('SELECT id, name, code, location, is_active FROM factories WHERE is_active = true ORDER BY id');
     res.json({ ok: true, data: rows, can_select_all_factories: access.canSelectAllFactories });
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -6430,7 +6430,7 @@ app.post('/api/factories/save', async (req, res) => {
     }
     res.json({ ok: true });
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -6452,7 +6452,7 @@ app.get('/api/factories/geofence', async (req, res) => {
     );
     res.json({ ok: true, data: rows });
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -6492,7 +6492,7 @@ app.post('/api/factories/geofence', async (req, res) => {
     );
     res.json({ ok: true });
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -6518,7 +6518,7 @@ app.get('/api/user/access', async (req, res) => {
       }
     });
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -6542,7 +6542,7 @@ app.get('/api/users', async (req, res) => {
     );
     res.json({ ok: true, data: rows });
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -6672,7 +6672,7 @@ app.post('/api/users/save', async (req, res) => {
     res.json({ ok: true });
   } catch (e) {
     console.error('user save error', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -6706,7 +6706,7 @@ app.post('/api/users/delete', async (req, res) => {
     authSessions.invalidateUserCache(targetUser.username);
     res.json({ ok: true });
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -6730,7 +6730,7 @@ app.post('/api/users/password', async (req, res) => {
     authSessions.invalidateUserCache(username);
     res.json({ ok: true });
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -6753,7 +6753,7 @@ app.get('/api/roles', async (req, res) => {
     `);
     res.json({ ok: true, data: rows });
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -6772,7 +6772,7 @@ app.post('/api/roles/create', async (req, res) => {
     );
     res.json({ ok: true, code: safeCode });
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -6917,7 +6917,7 @@ app.get('/api/machines/status', async (req, res) => {
     res.json({ ok: true, data: rows });
   } catch (e) {
     console.error('machines/status', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -6977,7 +6977,7 @@ app.get('/api/machines/live-status', async (req, res) => {
     res.json({ ok: true, data, date: dprDate, shift: currentShift });
   } catch (e) {
     console.error('machines/live-status', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -7015,7 +7015,7 @@ app.get('/api/masters/moulds', async (req, res) => {
     res.json({ ok: true, data: rows });
   } catch (e) {
     console.error('moulds fetch error', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -7121,7 +7121,7 @@ app.post('/api/std-actual/save', async (req, res) => {
     res.json({ ok: true });
   } catch (e) {
     console.error('std-actual/save', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -7232,7 +7232,7 @@ app.get('/api/dpr/used-slots', async (req, res) => {
     res.json({ ok: true, used: slots, data: slots });
   } catch (e) {
     console.error('dpr/used-slots', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -7695,7 +7695,7 @@ app.post('/api/dpr/submit', async (req, res) => {
     res.json({ ok: true, id: rows[0].id });
   } catch (e) {
     console.error('dpr/submit', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -7828,7 +7828,7 @@ app.post('/api/dpr/superadmin-set-qty', async (req, res) => {
     res.json({ ok: true, newProduced, newBal: planQtyForColour - newProduced });
   } catch (e) {
     console.error('/api/dpr/superadmin-set-qty', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -7851,7 +7851,7 @@ app.post('/api/dpr/delete', async (req, res) => {
     res.json({ ok: true });
   } catch (e) {
     console.error('dpr/delete', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -7942,7 +7942,7 @@ app.get('/api/dpr/recent', async (req, res) => {
     res.json({ ok: true, data: { rows } });
   } catch (e) {
     console.error('dpr/recent', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -8128,7 +8128,7 @@ app.get('/api/dpr/plan-drilldown', async (req, res) => {
     });
   } catch (e) {
     console.error('[plan-drilldown]', e.message);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -8237,7 +8237,7 @@ app.get('/api/planning/machine-jobs', async (req, res) => {
     res.json({ ok: true, data: rows });
   } catch (e) {
     console.error('[machine-jobs]', e.message);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -8538,7 +8538,7 @@ app.get('/api/debug/or-status', async (req, res) => {
       }
     });
   } catch (e) {
-    res.json({ ok: false, error: String(e) });
+    res.json({ ok: false, error: safeError(e) });
   }
 });
 
@@ -8591,7 +8591,7 @@ app.get('/api/debug/extra-qty', async (req, res) => {
         : 'No colour has more than one active grant row.'
     });
   } catch (e) {
-    res.json({ ok: false, error: String(e) });
+    res.json({ ok: false, error: safeError(e) });
   }
 });
 
@@ -8672,7 +8672,7 @@ app.get('/api/debug/dpr-by-machine', async (req, res) => {
         : 'All DPR entries are on a single machine for the given filters.'
     });
   } catch (e) {
-    res.json({ ok: false, error: String(e) });
+    res.json({ ok: false, error: safeError(e) });
   }
 });
 
@@ -8683,7 +8683,7 @@ app.get('/api/debug/ids', async (req, res) => {
     const dpr = await q(`SELECT id, plan_id, machine, order_no, good_qty FROM dpr_hourly ORDER BY created_at DESC LIMIT 20`);
     res.json({ ok: true, plans, dpr });
   } catch (e) {
-    res.json({ error: String(e) });
+    res.json({ ok: false, error: safeError(e) });
   }
 });
 
@@ -8697,7 +8697,7 @@ app.get('/api/shifting/locations', async (req, res) => {
     const locs = ['Moulding Itself', 'Shifting Wip', 'Shopfloor Wip', 'Printing', 'Tuffting', 'Packing'];
     res.json({ ok: true, data: locs });
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -9107,7 +9107,7 @@ app.get('/api/shifting/dashboard', async (req, res) => {
 
     res.json({ ok: true, data: rows });
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -9207,7 +9207,7 @@ app.get('/api/shifting/jobs', async (req, res) => {
 
     res.json({ ok: true, data: rows });
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -9404,7 +9404,7 @@ app.get('/api/shifting/matrix', async (req, res) => {
 
     res.json({ ok: true, data: rows });
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -9428,7 +9428,7 @@ app.post('/api/shifting/entry', async (req, res) => {
     syncService.triggerSync();
     res.json({ ok: true });
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -9543,7 +9543,7 @@ app.get('/api/assembly/grid', async (req, res) => {
     );
     res.json({ ok: true, data: rows });
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -9576,7 +9576,7 @@ app.get('/api/shifting/logs', async (req, res) => {
     );
     res.json({ ok: true, data: rows });
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -9600,7 +9600,7 @@ app.post('/api/shifting/delete-all', async (req, res) => {
     console.log(`[AUDIT] Shifting Logs cleared by ${username}`);
     res.json({ ok: true });
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -9781,7 +9781,7 @@ app.post('/api/job/complete', async (req, res) => {
     res.json({ ok: true });
   } catch (e) {
     console.error('job/complete', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -9842,7 +9842,7 @@ app.post('/api/planning/priority', async (req, res) => {
     res.json({ ok: true, id: rows[0].id, title, totalManpower });
   } catch (e) {
     console.error('priority create', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -9870,7 +9870,7 @@ app.get('/api/planning/priority', async (req, res) => {
     res.json({ ok: true, data: rows });
   } catch (e) {
     console.error('priority list', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -9888,7 +9888,7 @@ app.get('/api/planning/priority/:id', async (req, res) => {
     res.json({ ok: true, data: rows[0] });
   } catch (e) {
     console.error('priority get', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -9899,7 +9899,7 @@ app.delete('/api/planning/priority/:id', async (req, res) => {
     res.json({ ok: true });
   } catch (e) {
     console.error('priority delete', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -10302,7 +10302,7 @@ app.get('/api/planning/board', async (req, res) => {
     }));
 
     res.json({ ok: true, data: { plans: normalized } });
-  } catch (e) { res.status(500).json({ ok: false, error: String(e) }); }
+  } catch (e) { sendServerError(res, e); }
 });
 
 /* ============================================================
@@ -10488,7 +10488,7 @@ app.get('/api/reports/machine-date-history', async (req, res) => {
     res.json({ ok: true, machine, months, splitShift, data });
   } catch (e) {
     console.error('reports/machine-date-history', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -10802,7 +10802,7 @@ app.post('/api/planning/machine-priority', async (req, res) => {
     res.json({ ok: true, priorities: updated });
   } catch (e) {
     console.error('/api/planning/machine-priority POST', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -10817,7 +10817,7 @@ app.get('/api/planning/machine-priority', async (req, res) => {
     const rows = await q(`SELECT id, plan_id, order_no, machine, machine_priority FROM plan_board WHERE ${where} ORDER BY machine, machine_priority ASC`, params);
     res.json({ ok: true, data: rows });
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -10892,7 +10892,7 @@ app.post('/api/planning/switch-priority-job', async (req, res) => {
     });
   } catch (e) {
     console.error('/api/planning/switch-priority-job', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -10911,7 +10911,7 @@ app.post('/api/planning/set-jc', async (req, res) => {
     res.json({ ok: true });
   } catch (e) {
     console.error('Update JC error', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -10965,7 +10965,7 @@ app.post('/api/planning/complete', async (req, res) => {
     }
 
     res.json({ ok: true });
-  } catch (e) { res.status(500).json({ ok: false, error: String(e) }); }
+  } catch (e) { sendServerError(res, e); }
 });
 
 // POST /api/planning/restore-plan (Admin Only)
@@ -11010,7 +11010,7 @@ app.post('/api/planning/restore-plan', async (req, res) => {
     res.json({ ok: true, message: 'Plan restored successfully' });
   } catch (e) { 
     console.error('restore-plan error', e);
-    res.status(500).json({ ok: false, error: String(e) }); 
+    sendServerError(res, e); 
   }
 });
 
@@ -11074,7 +11074,7 @@ app.get('/api/grinding/jobs', async (req, res) => {
 
   } catch (e) {
     console.error('Grinding Fetch Error:', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -11101,7 +11101,7 @@ app.post('/api/grinding/entry', async (req, res) => {
 
   } catch (e) {
     console.error('Grinding Save Error:', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -11142,7 +11142,7 @@ app.get('/api/notifications', async (req, res) => {
     if (e && e.code === '42P01') {
       return res.json({ ok: true, data: [] });
     }
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -11174,7 +11174,7 @@ app.post('/api/notifications/send', async (req, res) => {
 
   } catch (e) {
     console.error('Notif Send Error:', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -11185,7 +11185,7 @@ app.post('/api/notifications/mark-read', async (req, res) => {
     await q('UPDATE notifications SET is_read = true WHERE id = $1', [id]);
     res.json({ ok: true });
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -11196,7 +11196,7 @@ app.post('/api/notifications/mark-all-read', async (req, res) => {
     await q('UPDATE notifications SET is_read = true WHERE target_user = $1', [user]);
     res.json({ ok: true });
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -12925,7 +12925,7 @@ app.post('/api/planning/update', async (req, res) => {
     res.json({ ok: true });
   } catch (e) {
     console.error('planning/update', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -13303,7 +13303,7 @@ app.get('/api/planning/plan/:id', async (req, res) => {
     });
   } catch (e) {
     console.error('planning/plan/:id', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -13401,7 +13401,7 @@ app.post('/api/planning/run', async (req, res) => {
 
   } catch (e) {
     console.error('planning/run', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -13444,7 +13444,7 @@ app.post('/api/planning/delete', async (req, res) => {
     res.json({ ok: true });
   } catch (e) {
     console.error('planning/delete', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -13455,7 +13455,7 @@ app.get('/api/planning/audit', async (req, res) => {
     res.json(logs);
   } catch (e) {
     console.error('planning/audit', e);
-    res.status(500).json({ error: String(e) });
+    res.status(500).json({ ok: false, error: safeError(e) });
   }
 });
 
@@ -13538,7 +13538,7 @@ app.get('/api/admin/deleted-plans', async (req, res) => {
     res.json({ ok: true, plans: list });
   } catch (e) {
     console.error('admin/deleted-plans', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -13680,7 +13680,7 @@ app.post('/api/admin/recover-deleted-plan', async (req, res) => {
     res.json({ ok: true, message: `Plan ${snapPlanId} recovered for ${snapOrderNo}.`, id: newId, planId: snapPlanId });
   } catch (e) {
     console.error('admin/recover-deleted-plan', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -13767,7 +13767,7 @@ app.get('/api/planning/orders/pending', async (req, res) => {
     res.json({ ok: true, data: rows });
   } catch (e) {
     console.error('planning/orders/pending', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -13782,7 +13782,7 @@ app.get('/api/planning/orders/:orderNo/details', async (req, res) => {
     res.json({ ok: true, data: bundle.moulds, sequenceMeta: bundle.sequenceMeta });
   } catch (e) {
     console.error('planning/orders/details', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -13830,7 +13830,7 @@ app.get('/api/planning/orders/:orderNo/history', async (req, res) => {
     });
   } catch (e) {
     console.error('planning/orders/history', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -13847,7 +13847,7 @@ app.get('/api/planning/orders/:orderNo/colour-plan', async (req, res) => {
     res.json({ ok: true, data: colourPlan.rows, meta: colourPlan.meta });
   } catch (e) {
     console.error('planning/orders/colour-plan', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -14089,7 +14089,7 @@ app.get('/api/planning/machines/compatible', async (req, res) => {
     res.json({ ok: true, data: scopedResult, machineNameMismatch, requestedMachineNames });
   } catch (e) {
     console.error('planning/compatible', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -14275,7 +14275,7 @@ app.get('/api/planning/mould-history', async (req, res) => {
     });
   } catch (e) {
     console.error('planning/mould-history', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -14386,7 +14386,7 @@ app.get('/api/planning/moulds/alternatives', async (req, res) => {
     res.json({ ok: true, data: rows });
   } catch (e) {
     console.error('planning/alternatives', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -14420,7 +14420,7 @@ app.get('/api/planning/orders/matching', async (req, res) => {
     res.json({ ok: true, data: rows });
   } catch (e) {
     console.error('planning/matching', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -14584,7 +14584,7 @@ app.post('/api/planning/drop', async (req, res) => {
     res.json({ ok: true });
   } catch (e) {
     console.error('/api/planning/drop', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -14652,7 +14652,7 @@ app.post('/api/planning/undrop', async (req, res) => {
     res.json({ ok: true });
   } catch (e) {
     console.error('/api/planning/undrop', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -14706,7 +14706,7 @@ app.post('/api/planning/start', async (req, res) => {
     res.json({ ok: true, message: 'Plan started' });
   } catch (e) {
     console.error('planning/start', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -14737,7 +14737,7 @@ app.post('/api/planning/stop', async (req, res) => {
     res.json({ ok: true, message: 'Plan stopped' });
   } catch (e) {
     console.error('planning/stop', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -14759,7 +14759,7 @@ app.get('/api/planning/suggestions', async (req, res) => {
 
     res.json({ ok: true, data: [...new Set(suggestions)] });
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -14989,7 +14989,7 @@ app.get('/api/planning/completed', async (req, res) => {
     }
   } catch (e) {
     console.error('/api/planning/completed Error:', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -15082,7 +15082,7 @@ app.get('/api/planning/colour-wise-completion', async (req, res) => {
     res.json({ ok: true, data: result });
   } catch (e) {
     console.error('/api/planning/colour-wise-completion', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -15113,7 +15113,7 @@ app.post('/api/planning/restore', async (req, res) => {
     res.json({ ok: true, message: 'Order restored to Pending' });
   } catch (e) {
     console.error('/api/planning/restore', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -15180,7 +15180,7 @@ app.get('/api/planning/mould-machines', async (req, res) => {
     res.json({ ok: true, machines, mouldName: resolvedMouldName });
   } catch (e) {
     console.error('planning/mould-machines', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -15270,7 +15270,7 @@ app.post('/api/planning/move', async (req, res) => {
     res.json({ ok: true });
   } catch (e) {
     console.error('planning/move', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -15343,7 +15343,7 @@ app.post('/api/planning/reseq', async (req, res) => {
         continue;
       }
       console.error('planning/reseq', e);
-      return res.status(500).json({ ok: false, error: String(e) });
+      return sendServerError(res, e);
     }
   }
 });
@@ -15587,7 +15587,7 @@ app.get('/api/planning/debug-jc-link', async (req, res) => {
       rows: annotated
     });
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -15658,7 +15658,7 @@ app.get('/api/planning/print-jc-plans', async (req, res) => {
     res.json({ ok: true, data: enriched });
   } catch (e) {
     console.error('/api/planning/print-jc-plans', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -15778,7 +15778,7 @@ app.get('/api/planning/job-card-approvals', async (req, res) => {
     res.json({ ok: true, data: enriched, items: enriched, count: enriched.length });
   } catch (e) {
     console.error('/api/planning/job-card-approvals', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -15914,7 +15914,7 @@ app.get('/api/planning/job-card-approvals/:id', async (req, res) => {
     });
   } catch (e) {
     console.error('/api/planning/job-card-approvals/:id', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -16107,7 +16107,7 @@ app.post('/api/planning/job-card-approvals/:id/action', async (req, res) => {
       try { await client.query('ROLLBACK'); } catch (_) {}
     }
     console.error('/api/planning/job-card-approvals/:id/action', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   } finally {
     if (client) client.release();
   }
@@ -16173,7 +16173,7 @@ app.get('/api/planning/job-cards', async (req, res) => {
 
   } catch (e) {
     console.error('/api/planning/job-cards', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -16702,7 +16702,7 @@ app.get('/api/planning/job-card-print', async (req, res) => {
 
   } catch (e) {
     console.error('/api/planning/job-card-print', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -16791,7 +16791,7 @@ app.post('/api/planning/job-card-label-log', async (req, res) => {
     res.json({ ok: true, inserted, count: labels.length });
   } catch (e) {
     console.error('/api/planning/job-card-label-log', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -16842,7 +16842,7 @@ app.get('/api/planning/job-card-label-log', async (req, res) => {
     res.json({ ok: true, data: rows, items: rows, count: rows.length });
   } catch (e) {
     console.error('/api/planning/job-card-label-log', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -16915,7 +16915,7 @@ app.patch('/api/masters/or-jr-remarks', async (req, res) => {
     res.json({ ok: true, id: rid });
   } catch (e) {
     console.error('/api/masters/or-jr-remarks', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -17656,7 +17656,7 @@ app.get('/api/org/bootstrap', async (req, res) => {
     }));
 
     res.json({ ok: true, data: { units, departments, grades, designations, people } });
-  } catch (e) { console.error('api/org/bootstrap', e); res.status(500).json({ ok: false, error: String(e) }); }
+  } catch (e) { console.error('api/org/bootstrap', e); sendServerError(res, e); }
 });
 
 // Generic CRUD for the four setup lists: /api/org/:kind (POST), /:kind/:id (PUT/DELETE).
@@ -17675,7 +17675,7 @@ app.post('/api/org/:kind', async (req, res, next) => {
     const ph = keys.map((_, i) => `$${i + 1}`).join(',');
     const ins = await q(`INSERT INTO ${cfg.table} (${keys.join(',')}) VALUES (${ph}) RETURNING *`, vals);
     res.json({ ok: true, data: ins[0] });
-  } catch (e) { console.error('api/org POST', e); res.status(500).json({ ok: false, error: String(e) }); }
+  } catch (e) { console.error('api/org POST', e); sendServerError(res, e); }
 });
 app.put('/api/org/:kind/:id', async (req, res, next) => {
   if (!ORG_TABLES[req.params.kind]) return next();
@@ -17690,7 +17690,7 @@ app.put('/api/org/:kind/:id', async (req, res, next) => {
     const upd = await q(`UPDATE ${cfg.table} SET ${sets}, updated_at=NOW() WHERE id=$1 AND is_deleted=FALSE RETURNING *`, [req.params.id, ...vals]);
     if (!upd.length) return res.json({ ok: false, error: 'Not found' });
     res.json({ ok: true, data: upd[0] });
-  } catch (e) { console.error('api/org PUT', e); res.status(500).json({ ok: false, error: String(e) }); }
+  } catch (e) { console.error('api/org PUT', e); sendServerError(res, e); }
 });
 app.delete('/api/org/:kind/:id', async (req, res, next) => {
   if (!ORG_TABLES[req.params.kind]) return next();
@@ -17700,7 +17700,7 @@ app.delete('/api/org/:kind/:id', async (req, res, next) => {
     const del = await q(`UPDATE ${cfg.table} SET is_deleted=TRUE, updated_at=NOW() WHERE id=$1 AND is_deleted=FALSE RETURNING id`, [req.params.id]);
     if (!del.length) return res.json({ ok: false, error: 'Not found' });
     res.json({ ok: true });
-  } catch (e) { console.error('api/org DELETE', e); res.status(500).json({ ok: false, error: String(e) }); }
+  } catch (e) { console.error('api/org DELETE', e); sendServerError(res, e); }
 });
 
 // ---- People ----
@@ -17731,7 +17731,7 @@ app.post('/api/org/people', async (req, res) => {
     const ph = keys.map((_, i) => `$${i + 1}`).join(',');
     const ins = await q(`INSERT INTO org_people (${keys.join(',')}) VALUES (${ph}) RETURNING *`, vals);
     res.json({ ok: true, data: ins[0] });
-  } catch (e) { console.error('api/org/people POST', e); res.status(500).json({ ok: false, error: String(e) }); }
+  } catch (e) { console.error('api/org/people POST', e); sendServerError(res, e); }
 });
 app.put('/api/org/people/:id', async (req, res) => {
   try {
@@ -17746,7 +17746,7 @@ app.put('/api/org/people/:id', async (req, res) => {
     const upd = await q(`UPDATE org_people SET ${sets}, updated_at=NOW() WHERE id=$1 AND is_deleted=FALSE RETURNING *`, [req.params.id, ...vals]);
     if (!upd.length) return res.json({ ok: false, error: 'Not found' });
     res.json({ ok: true, data: upd[0] });
-  } catch (e) { console.error('api/org/people PUT', e); res.status(500).json({ ok: false, error: String(e) }); }
+  } catch (e) { console.error('api/org/people PUT', e); sendServerError(res, e); }
 });
 app.delete('/api/org/people/:id', async (req, res) => {
   try {
@@ -17758,7 +17758,7 @@ app.delete('/api/org/people/:id', async (req, res) => {
     await q(`UPDATE org_people SET reports_to_id=$2, updated_at=NOW() WHERE reports_to_id=$1 AND is_deleted=FALSE`, [req.params.id, who[0].reports_to_id]);
     await q(`UPDATE org_people SET is_deleted=TRUE, updated_at=NOW() WHERE id=$1`, [req.params.id]);
     res.json({ ok: true });
-  } catch (e) { console.error('api/org/people DELETE', e); res.status(500).json({ ok: false, error: String(e) }); }
+  } catch (e) { console.error('api/org/people DELETE', e); sendServerError(res, e); }
 });
 
 // POST /api/org/people/insert-between — create a NEW person under `manager_id` and
@@ -17785,7 +17785,7 @@ app.post('/api/org/people/insert-between', async (req, res) => {
       );
     }
     res.json({ ok: true, data: ins[0], moved: moveIds.length });
-  } catch (e) { console.error('api/org/people/insert-between', e); res.status(500).json({ ok: false, error: String(e) }); }
+  } catch (e) { console.error('api/org/people/insert-between', e); sendServerError(res, e); }
 });
 
 // Shared builder for the Mould Wise Item QTY report. Used by the JSON endpoint
@@ -18438,7 +18438,7 @@ app.get('/api/reports/or-jr', async (req, res) => {
       GROUP BY p.plan_id, p.order_no, p.item_name, p.mould_name, p.plan_qty, p.status
     `);
     res.json({ ok: true, data: rows });
-  } catch (e) { res.status(500).json({ ok: false, error: String(e) }); }
+  } catch (e) { sendServerError(res, e); }
 });
 
 // GET /api/reports/erp-jr-status
@@ -19805,7 +19805,7 @@ app.get('/api/reports/moulding', async (req, res) => {
       [factoryId]
     );
     res.json({ ok: true, data: rows });
-  } catch (e) { res.status(500).json({ ok: false, error: String(e) }); }
+  } catch (e) { sendServerError(res, e); }
 });
 
 app.get('/api/machines/supervisor', async (req, res) => {
@@ -19852,7 +19852,7 @@ app.get('/api/machines/supervisor', async (req, res) => {
 
     res.json({ ok: true, data: rows, closed: closedRows });
   } catch (e) {
- res.status(500).json({ ok: false, error: String(e) }); }
+ sendServerError(res, e); }
 });
 
 
@@ -19872,7 +19872,7 @@ app.post('/api/dpr/hourly/clear', async (req, res) => {
     console.log(`[ADMIN] DPR hourly cleared by ${session.username}`);
     syncService.triggerSync(); // [Real-Time Sync]
     res.json({ ok: true });
-  } catch (e) { res.status(500).json({ ok: false, error: String(e) }); }
+  } catch (e) { sendServerError(res, e); }
 });
 
 // 5. CLEAR SETUP DATA (Admin Action)
@@ -19892,7 +19892,7 @@ app.post('/api/admin/clear-std-actual', async (req, res) => {
     console.log(`[ADMIN] std_actual cleared by ${username}`);
     syncService.triggerSync(); // [Real-Time Sync]
     res.json({ ok: true });
-  } catch (e) { res.status(500).json({ ok: false, error: String(e) }); }
+  } catch (e) { sendServerError(res, e); }
 });
 
 // 4. MACHINE MASTER
@@ -19982,7 +19982,7 @@ app.get('/api/masters/machines', async (req, res) => {
       : rows;
 
     res.json({ ok: true, data: await attachFactoryNames(deduped) });
-  } catch (e) { res.status(500).json({ ok: false, error: String(e) }); }
+  } catch (e) { sendServerError(res, e); }
 });
 
 app.get('/api/templates/:type', async (req, res) => {
@@ -20038,7 +20038,7 @@ app.get('/api/templates/:type', async (req, res) => {
     res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
     res.end(buffer);
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -20433,7 +20433,7 @@ app.post('/api/upload/or-jr-confirm', async (req, res) => {
     });
   } catch (e) {
     console.error('upload/or-jr-confirm', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -20639,7 +20639,7 @@ app.get('/api/reports/or-jr-full', async (req, res) => {
     const rows = await q(query, params);
     res.json({ ok: true, data: await attachFactoryNames(rows) });
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -20705,7 +20705,7 @@ app.get('/api/reports/orjr-wise-summary', async (req, res) => {
     const rows = await q(query, params);
     res.json({ ok: true, data: await attachFactoryNames(rows) });
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -20794,7 +20794,7 @@ app.get('/api/reports/orjr-wise-detail', async (req, res) => {
 
     res.json({ ok: true, data: await attachFactoryNames(rows) });
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -20858,7 +20858,7 @@ app.get('/api/reports/bo-planning-detail', async (req, res) => {
     const rows = await q(query, params);
     res.json({ ok: true, data: await attachFactoryNames(rows) });
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -20929,7 +20929,7 @@ app.get('/api/reports/wip', async (req, res) => {
     res.json({ ok: true, data: await attachFactoryNames(rows) });
   } catch (e) {
     console.error('reports/wip', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -20939,7 +20939,7 @@ app.get('/api/admin/users', async (req, res) => {
   try {
     const rows = await q(`SELECT username, line, role_code, is_active, permissions FROM users ORDER BY username`);
     res.json({ ok: true, data: rows });
-  } catch (e) { res.status(500).json({ ok: false, error: String(e) }); }
+  } catch (e) { sendServerError(res, e); }
 });
 
 
@@ -20978,7 +20978,7 @@ password = EXCLUDED.password,
 
     res.json({ ok: true });
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -21009,7 +21009,7 @@ app.post('/api/admin/users/update', async (req, res) => {
     authSessions.invalidateUserCache(username);
     res.json({ ok: true });
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -21036,7 +21036,7 @@ app.post('/api/admin/users/delete', async (req, res) => {
 
     res.json({ ok: true });
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -21064,7 +21064,7 @@ app.post('/api/admin/users/password', async (req, res) => {
     authSessions.invalidateUserCache(username);
     res.json({ ok: true });
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -21226,7 +21226,7 @@ or_jr_no, item_code, product_name, client_name, plan_qty, 'Normal', 'Completed',
 
     res.json({ ok: true, message: `Restored ${result.rowCount} closed orders.` });
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -21304,7 +21304,7 @@ app.post('/api/orders/confirm-completion', async (req, res) => {
   } catch (e) {
     try { await client.query('ROLLBACK'); } catch (_ignore) { }
     console.error('orders/confirm-completion', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   } finally {
     client.release();
   }
@@ -21355,7 +21355,7 @@ app.post('/api/orders/priority', async (req, res) => {
     });
   } catch (e) {
     console.error('orders/priority', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -21403,7 +21403,7 @@ app.get('/api/orders/completion-history', async (req, res) => {
     res.json({ ok: true, data: rows });
   } catch (e) {
     console.error('orders/completion-history', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -21550,7 +21550,7 @@ app.post('/api/orders/restore-completion', async (req, res) => {
   } catch (e) {
     try { await client.query('ROLLBACK'); } catch (_ignore) { }
     console.error('orders/restore-completion', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   } finally {
     client.release();
   }
@@ -21598,7 +21598,7 @@ app.post('/api/orjr/close', async (req, res) => {
     res.json({ ok: true });
   } catch (e) {
     console.error('orjr/close', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -21643,7 +21643,7 @@ app.post('/api/orjr/reopen', async (req, res) => {
     res.json({ ok: true });
   } catch (e) {
     console.error('orjr/reopen', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -22354,7 +22354,7 @@ app.get('/api/dashboard/kpis', async (req, res) => {
       pending_orders: Number(pend[0]?.c || 0),
       dpr_24h: Number(dpr[0]?.c || 0)
     });
-  } catch (e) { res.status(500).json({ ok: false, error: String(e) }); }
+  } catch (e) { sendServerError(res, e); }
 });
 
 // -------------------------------------------------------------
@@ -22368,7 +22368,7 @@ app.get('/api/dpr/setup', async (req, res) => {
     res.json({ ok: true, data: rows });
   } catch (e) {
     console.error('dpr setup error', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -22441,7 +22441,7 @@ app.get('/api/dpr/hourly', async (req, res) => {
     res.json({ ok: true, data: await attachFactoryNames(rows) });
   } catch (e) {
     console.error('dpr hourly error', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -22536,7 +22536,7 @@ app.post('/api/dpr/auto-fill-ongoing', async (req, res) => {
     res.json({ ok: true, filled, machines: lastEntries.length, date: dprDate, shift: currentShift });
   } catch (e) {
     console.error('dpr/auto-fill-ongoing', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -22969,7 +22969,7 @@ app.get('/api/dpr/summary-matrix', async (req, res) => {
     ttlCacheSet('dprSummaryMatrix', cacheKey, payload, isLiveRange ? 12000 : 300000);
     res.json(payload);
 
-  } catch (e) { res.status(500).json({ ok: false, error: String(e) }); }
+  } catch (e) { sendServerError(res, e); }
 });
 
 // POST /api/dpr/delete-entry (Soft-Delete — admin/superadmin + planner,
@@ -22991,7 +22991,7 @@ app.post('/api/dpr/delete-entry', async (req, res) => {
     res.json({ ok: true });
   } catch (e) {
     console.error('delete-entry error', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -23041,7 +23041,7 @@ app.post('/api/dpr/delete-quick', async (req, res) => {
     res.json({ ok: true, deleted: result.map(r => r.id), count: result.length });
   } catch (e) {
     console.error('delete-quick error', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -23064,7 +23064,7 @@ app.post('/api/dpr/delete-setup', async (req, res) => {
     res.json({ ok: true });
   } catch (e) {
     console.error('delete-setup error', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -23090,7 +23090,7 @@ app.post('/api/machine/maintenance/start', async (req, res) => {
     res.json({ ok: true });
   } catch (e) {
     console.error('maint/start', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -23100,7 +23100,7 @@ app.get('/api/machine/maintenance/active', async (req, res) => {
     const rows = await q('SELECT * FROM machine_status_logs WHERE machine=$1 AND is_active=true ORDER BY id DESC LIMIT 1', [machine]);
     res.json({ ok: true, data: rows[0] || null });
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -23118,7 +23118,7 @@ app.post('/api/dpr/setup/clear', async (req, res) => {
 
     await q('TRUNCATE std_actual');
     res.json({ ok: true });
-  } catch (e) { res.status(500).json({ ok: false, error: String(e) }); }
+  } catch (e) { sendServerError(res, e); }
 });
 
 // ------------------------------------
@@ -23152,7 +23152,7 @@ app.get('/api/supervisor/bootstrap', async (req, res) => {
     }
 
     res.json({ ok: true, settings: _settingsCache.data, reasons: _reasonsCache.data });
-  } catch (e) { res.status(500).json({ ok: false, error: String(e) }); }
+  } catch (e) { sendServerError(res, e); }
 });
 
 // GET /api/settings
@@ -23166,7 +23166,7 @@ app.get('/api/settings', async (req, res) => {
     rows.forEach(r => settings[r.key] = r.value);
     _settingsCache = { data: settings, exp: Date.now() + _CACHE_TTL };
     res.json({ ok: true, data: settings });
-  } catch (e) { res.status(500).json({ ok: false, error: String(e) }); }
+  } catch (e) { sendServerError(res, e); }
 });
 
 // POST /api/settings
@@ -23176,7 +23176,7 @@ app.post('/api/settings', async (req, res) => {
     await q(`INSERT INTO app_settings(key, value) VALUES($1, $2) ON CONFLICT(key) DO UPDATE SET value = $2`, [key, String(value)]);
     _settingsCache = null; // invalidate
     res.json({ ok: true });
-  } catch (e) { res.status(500).json({ ok: false, error: String(e) }); }
+  } catch (e) { sendServerError(res, e); }
 });
 
 // GET /api/dpr/reasons
@@ -23188,7 +23188,7 @@ app.get('/api/dpr/reasons', async (req, res) => {
     const rows = await q('SELECT * FROM dpr_reasons WHERE is_active=true ORDER BY type, reason');
     _reasonsCache = { data: rows, exp: Date.now() + _CACHE_TTL };
     res.json({ ok: true, data: rows });
-  } catch (e) { res.status(500).json({ ok: false, error: String(e) }); }
+  } catch (e) { sendServerError(res, e); }
 });
 
 // POST /api/dpr/reasons
@@ -23199,7 +23199,7 @@ app.post('/api/dpr/reasons', async (req, res) => {
     await q('INSERT INTO dpr_reasons (type, reason, code) VALUES ($1, $2, $3)', [type, reason, code || null]);
     _reasonsCache = null; // invalidate
     res.json({ ok: true });
-  } catch (e) { res.status(500).json({ ok: false, error: String(e) }); }
+  } catch (e) { sendServerError(res, e); }
 });
 
 // [DEBUG] Manual Endpoint to Fix Sync Schema (Remote VPS)
@@ -23243,7 +23243,7 @@ app.get('/api/admin/fix-sync-schema', async (req, res) => {
     }
     res.json({ ok: true, logs });
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -23253,7 +23253,7 @@ app.delete('/api/dpr/reasons/:id', async (req, res) => {
     await q('UPDATE dpr_reasons SET is_active=false WHERE id=$1', [req.params.id]);
     _reasonsCache = null; // invalidate
     res.json({ ok: true });
-  } catch (e) { res.status(500).json({ ok: false, error: String(e) }); }
+  } catch (e) { sendServerError(res, e); }
 });
 
 // GET /api/planning/kpis
@@ -23346,7 +23346,7 @@ app.get('/api/planning/kpis', async (req, res) => {
       upcoming_delta_pct: upcomingDelta,
       upcoming_trend: makeTrend(upcoming)
     });
-  } catch (e) { res.status(500).json({ ok: false, error: String(e) }); }
+  } catch (e) { sendServerError(res, e); }
 });
 
 // GET /api/machines/status
@@ -23505,7 +23505,7 @@ app.post('/api/planning/queue', async (req, res) => {
     // ...
 
     res.json({ ok: true, message: `Queued ${order_ids.length} orders` });
-  } catch (e) { res.status(500).json({ ok: false, error: String(e) }); }
+  } catch (e) { sendServerError(res, e); }
 });
 
 // POST /api/planning/balance
@@ -23711,7 +23711,7 @@ app.post('/api/upload/machines-preview', (req, res, next) => { upload.single('fi
 
   } catch (e) {
     console.error('upload/machines-preview', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   } finally {
     if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
   }
@@ -23854,7 +23854,7 @@ app.post('/api/upload/machines-confirm', async (req, res) => {
       client.release();
     }
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -24006,7 +24006,7 @@ app.post('/api/machines', async (req, res) => {
     if (e.code === '23505') {
       return res.status(400).json({ ok: false, error: 'Machine already exists for this factory' });
     }
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -24112,7 +24112,7 @@ app.put('/api/machines/:id', async (req, res) => { // ID is machine name
     if (e.code === '23505') {
       return res.status(400).json({ ok: false, error: 'Machine already exists for this factory' });
     }
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -24158,7 +24158,7 @@ app.delete('/api/machines/:id', async (req, res) => {
     } finally {
       client.release();
     }
-  } catch (e) { res.status(500).json({ ok: false, error: String(e) }); }
+  } catch (e) { sendServerError(res, e); }
 });
 
 app.get('/api/machines/history/:id', async (req, res) => {
@@ -24176,7 +24176,7 @@ app.get('/api/machines/history/:id', async (req, res) => {
     );
     res.json({ ok: true, data: rows });
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -24228,7 +24228,7 @@ app.post('/api/moulds', async (req, res) => {
     if (e.code === '23505') {
       return res.status(400).json({ ok: false, error: 'Mould Number already exists for this factory' });
     }
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -24317,7 +24317,7 @@ app.put('/api/moulds/:id', async (req, res) => {
     if (e.code === '23505') {
       return res.status(400).json({ ok: false, error: 'Mould Number already exists for this factory' });
     }
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -24326,7 +24326,7 @@ app.get('/api/moulds/history/:id', async (req, res) => {
   try {
     const rows = await q(`SELECT * FROM mould_audit_logs WHERE mould_id = $1 ORDER BY changed_at DESC LIMIT 50`, [req.params.id]);
     res.json({ ok: true, data: rows });
-  } catch (e) { res.status(500).json({ ok: false, error: String(e) }); }
+  } catch (e) { sendServerError(res, e); }
 });
 
 /* ============================================================
@@ -24468,7 +24468,7 @@ app.post('/api/moulds/:id/verify', async (req, res) => {
     res.json({ ok: true, message: `${step.label} completed.` });
   } catch (e) {
     console.error('mould verify error', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -24531,7 +24531,7 @@ app.post('/api/moulds/:id/verify/reset', async (req, res) => {
     res.json({ ok: true, message: 'Verification reset.' });
   } catch (e) {
     console.error('mould verify reset error', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -24559,7 +24559,7 @@ app.get('/api/moulds/:id/verify-detail', async (req, res) => {
     res.json({ ok: true, data: { mould, notes, steps } });
   } catch (e) {
     console.error('mould verify-detail error', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -24621,7 +24621,7 @@ app.post('/api/moulds/:id/verify-note', async (req, res) => {
     res.json({ ok: true, message: 'Detail added.' });
   } catch (e) {
     console.error('mould verify-note error', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -24733,7 +24733,7 @@ app.get('/api/moulds/:id/moulding-history', async (req, res) => {
     res.json({ ok: true, data: { lastRun, d7, d30 } });
   } catch (e) {
     console.error('mould moulding-history error', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -24896,7 +24896,7 @@ app.get('/api/moulds/:id/recent-jobs', async (req, res) => {
     res.json({ ok: true, data: { mould: { mould_number: mould.mould_number, mould_name: mould.mould_name }, jobs: out } });
   } catch (e) {
     console.error('mould recent-jobs error', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -24943,7 +24943,7 @@ app.get('/api/moulds/verification-summary', async (req, res) => {
     res.json({ ok: true, data: computeMouldVerifyStanding(rows), steps: MOULD_VERIFY_STEPS.map(s => ({ key: s.key, label: s.label })) });
   } catch (e) {
     console.error('mould verification-summary error', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -25096,7 +25096,7 @@ app.post('/api/masters/orjrwisedetail/delete-by-orjr', async (req, res) => {
     const deleted = result.length;
     res.json({ ok: true, deleted, message: `Deleted ${deleted} row(s) for OR/JR No: ${or_jr_no}` });
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -25141,7 +25141,7 @@ app.post('/api/masters/orjrwise/delete-row', async (req, res) => {
     }
     res.json({ ok: true, deleted, message: `Deleted row id ${id}` });
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -25215,7 +25215,7 @@ app.post('/api/admin/clear-data', async (req, res) => {
       client.release();
     }
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -25246,7 +25246,7 @@ app.get('/api/dpr/hourly/recent', async (req, res) => {
     sql += ` ORDER BY dpr_date DESC, created_at DESC LIMIT $${params.length}`;
     const rows = await q(sql, params);
     res.json({ ok: true, data: rows });
-  } catch (e) { res.status(500).json({ ok: false, error: String(e) }); }
+  } catch (e) { sendServerError(res, e); }
 });
 
 // Clear Hourly Data
@@ -25648,7 +25648,7 @@ WHEN(SELECT COUNT(DISTINCT pb.mould_name) FROM plan_board pb WHERE pb.order_no =
     res.json({ ok: true, data: rows });
 
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -25772,7 +25772,7 @@ app.get('/api/rm/plans', async (req, res) => {
     const rows = await q(sql, [factoryId]);
     res.json({ ok: true, data: rows });
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -25791,7 +25791,7 @@ app.post('/api/rm/issue', async (req, res) => {
     const result = await q(sql, [plan_id, order_no, item_code, line, shift, sender_name, bag_qty, weight_per_bag, total_weight, factoryId]);
     res.json({ ok: true, id: result[0].id });
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -25817,7 +25817,7 @@ app.get('/api/rm/pending', async (req, res) => {
     const rows = await q(sql, params);
     res.json({ ok: true, data: rows });
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -25832,7 +25832,7 @@ app.post('/api/rm/accept', async (req, res) => {
     await q(sql, [accepted_qty, accepted_weight, accepted_by, id]);
     res.json({ ok: true });
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -25988,7 +25988,7 @@ ORDER BY sort_order ASC, seq ASC, updated_at ASC
     res.json({ ok: true, data });
   } catch (e) {
     console.error('/api/queue error', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -26344,7 +26344,7 @@ AND
     res.json({ ok: true, data: result });
   } catch (e) {
     console.error('api/job/colors', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -26446,7 +26446,7 @@ app.post('/api/extra-qty/allow', async (req, res) => {
     res.json({ ok: true, id: ins[0].id, allowed_at: ins[0].allowed_at });
   } catch (e) {
     console.error('api/extra-qty/allow', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -26465,7 +26465,7 @@ app.get('/api/extra-qty', async (req, res) => {
     res.json({ ok: true, data: rows });
   } catch (e) {
     console.error('api/extra-qty', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -26505,7 +26505,7 @@ app.delete('/api/extra-qty/:id', async (req, res) => {
     res.json({ ok: true, deleted: r });
   } catch (e) {
     console.error('api/extra-qty delete', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -26645,7 +26645,7 @@ app.post('/api/maintenance/tickets', async (req, res) => {
     res.json({ ok: true, data: ticket });
   } catch (e) {
     console.error('api/maintenance/tickets POST', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -26674,7 +26674,7 @@ app.get('/api/maintenance/tickets', async (req, res) => {
     res.json({ ok: true, data: rows });
   } catch (e) {
     console.error('api/maintenance/tickets GET', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -26690,7 +26690,7 @@ app.get('/api/maintenance/tickets/:sync_id', async (req, res) => {
     res.json({ ok: true, data: { ...rows[0], worklogs: logs } });
   } catch (e) {
     console.error('api/maintenance/ticket GET', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -26725,7 +26725,7 @@ app.post('/api/maintenance/tickets/:sync_id/ack', async (req, res) => {
       })
     });
     if (t && t.sync_id) res.json({ ok: true, data: t });
-  } catch (e) { console.error('maintenance ack', e); res.status(500).json({ ok: false, error: String(e) }); }
+  } catch (e) { console.error('maintenance ack', e); sendServerError(res, e); }
 });
 
 // POST /api/maintenance/tickets/:sync_id/start — Start Job (stamp work_started_at).
@@ -26736,7 +26736,7 @@ app.post('/api/maintenance/tickets/:sync_id/start', async (req, res) => {
       build: () => ({ setSql: `status = 'in_progress', work_started_at = COALESCE(work_started_at, NOW())`, params: [] })
     });
     if (t && t.sync_id) res.json({ ok: true, data: t });
-  } catch (e) { console.error('maintenance start', e); res.status(500).json({ ok: false, error: String(e) }); }
+  } catch (e) { console.error('maintenance start', e); sendServerError(res, e); }
 });
 
 // POST /api/maintenance/tickets/:sync_id/eta — set/update expected ready (shown in Compliance Summary).
@@ -26750,7 +26750,7 @@ app.post('/api/maintenance/tickets/:sync_id/eta', async (req, res) => {
       })
     });
     if (t && t.sync_id) res.json({ ok: true, data: t });
-  } catch (e) { console.error('maintenance eta', e); res.status(500).json({ ok: false, error: String(e) }); }
+  } catch (e) { console.error('maintenance eta', e); sendServerError(res, e); }
 });
 
 // POST /api/maintenance/tickets/:sync_id/handover — Hand Back with fix description.
@@ -26771,7 +26771,7 @@ app.post('/api/maintenance/tickets/:sync_id/handover', async (req, res) => {
     }
   } catch (e) {
     if (String(e.message || '').includes('fix_desc')) return res.json({ ok: false, error: e.message });
-    console.error('maintenance handover', e); res.status(500).json({ ok: false, error: String(e) });
+    console.error('maintenance handover', e); sendServerError(res, e);
   }
 });
 
@@ -26798,7 +26798,7 @@ app.post('/api/maintenance/tickets/:sync_id/reject', async (req, res) => {
     }
   } catch (e) {
     if (String(e.message || '').includes('rejected_reason')) return res.json({ ok: false, error: e.message });
-    console.error('maintenance reject', e); res.status(500).json({ ok: false, error: String(e) });
+    console.error('maintenance reject', e); sendServerError(res, e);
   }
 });
 
@@ -26824,7 +26824,7 @@ app.post('/api/maintenance/tickets/:sync_id/worklog', async (req, res) => {
     await q(`UPDATE maintenance_tickets SET updated_at = NOW() WHERE sync_id = $1`, [req.params.sync_id]);
     res.json({ ok: true, data: ins[0] });
   } catch (e) {
-    console.error('maintenance worklog', e); res.status(500).json({ ok: false, error: String(e) });
+    console.error('maintenance worklog', e); sendServerError(res, e);
   }
 });
 
@@ -26857,7 +26857,7 @@ app.get('/api/maintenance/dashboard', async (req, res) => {
     );
     res.json({ ok: true, data: { counts: counts[0] || {}, open: openRows } });
   } catch (e) {
-    console.error('api/maintenance/dashboard', e); res.status(500).json({ ok: false, error: String(e) });
+    console.error('api/maintenance/dashboard', e); sendServerError(res, e);
   }
 });
 
@@ -26933,7 +26933,7 @@ app.get('/api/reports/machine-maintenance', async (req, res) => {
     });
   } catch (e) {
     console.error('api/reports/machine-maintenance', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -27141,7 +27141,7 @@ app.get('/api/reports/manpower', async (req, res) => {
     res.json({ ok: true, shift, data, summary });
   } catch (e) {
     console.error('api/reports/manpower', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -27260,7 +27260,7 @@ app.get('/api/reports/tonnage', async (req, res) => {
     });
   } catch (e) {
     console.error('api/reports/tonnage', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -27398,7 +27398,7 @@ app.get('/api/reports/dpr-daily', async (req, res) => {
     res.json({ ok: true, date, shift: shift || 'all', shift_hours: shiftHours, machines, total });
   } catch (e) {
     console.error('api/reports/dpr-daily', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -27448,7 +27448,7 @@ app.get('/api/reports/extra-qty-allowed', async (req, res) => {
     });
   } catch (e) {
     console.error('api/reports/extra-qty-allowed', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -27463,7 +27463,7 @@ app.get('/api/debug/jc-keys', async (req, res) => {
     const rows = await q('SELECT data FROM jc_details LIMIT 5');
     const keys = rows.map(r => Object.keys(r.data));
     res.json({ ok: true, keys, sample: rows[0] });
-  } catch (e) { res.json({ error: String(e) }); }
+  } catch (e) { res.json({ ok: false, error: safeError(e) }); }
 });
 /* ============================================================
    HR MODULE APIS
@@ -27482,7 +27482,7 @@ app.get('/api/hr/operators', async (req, res) => {
     sql += ` ORDER BY name`;
     const rows = await q(sql, params);
     res.json({ ok: true, data: rows });
-  } catch (e) { res.status(500).json({ ok: false, error: String(e) }); }
+  } catch (e) { sendServerError(res, e); }
 });
 
 // POST /api/hr/operators (Create/Update)
@@ -27527,7 +27527,7 @@ app.post('/api/hr/operators', async (req, res) => {
     }
     await client.query('COMMIT');
     res.json({ ok: true, operator_id: resolvedOperatorId });
-  } catch (e) { try { await client.query('ROLLBACK'); } catch (_err) { } console.error('HR /api/operators', e); res.status(500).json({ ok: false, error: String(e) }); } finally { client.release(); }
+  } catch (e) { try { await client.query('ROLLBACK'); } catch (_err) { } console.error('HR /api/operators', e); sendServerError(res, e); } finally { client.release(); }
 });
 
 // POST /api/hr/upload-operators
@@ -27572,12 +27572,12 @@ app.get('/api/hr/download-operators', async (req, res) => {
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', 'attachment; filename=operators_export.xlsx');
     res.send(buffer);
-  } catch (e) { res.status(500).json({ ok: false, error: String(e) }); }
+  } catch (e) { sendServerError(res, e); }
 });
 
 // POST /api/hr/operators/delete
 app.post('/api/hr/operators/delete', async (req, res) => {
-  try { await q('DELETE FROM machine_operators WHERE id=$1', [req.body.id]); res.json({ ok: true }); } catch (e) { res.status(500).json({ ok: false, error: String(e) }); }
+  try { await q('DELETE FROM machine_operators WHERE id=$1', [req.body.id]); res.json({ ok: true }); } catch (e) { sendServerError(res, e); }
 });
 
 // POST /api/hr/scan
@@ -27590,7 +27590,7 @@ app.post('/api/hr/scan', async (req, res) => {
     const operator = ops[0];
     const historyCols = await q(`INSERT INTO operator_history(operator_id, machine_at_time, scanned_by) VALUES($1, $2, $3) RETURNING id, scanned_at`, [operator.operator_id, operator.assigned_machine, scanned_by || 'Engineer']);
     res.json({ ok: true, operator, history: historyCols[0] });
-  } catch (e) { res.status(500).json({ ok: false, error: String(e) }); }
+  } catch (e) { sendServerError(res, e); }
 });
 
 // GET /api/hr/history
@@ -27608,7 +27608,7 @@ app.get('/api/hr/history', async (req, res) => {
     const sql = `SELECT h.id, h.scanned_at, h.machine_at_time, h.scanned_by, o.name as operator_name, o.operator_id, o.photo_path FROM operator_history h LEFT JOIN machine_operators o ON h.operator_id = o.operator_id WHERE h.scanned_at >= $1 AND h.scanned_at <= $2 ORDER BY h.scanned_at DESC`;
     const rows = await q(sql, [start, end]);
     res.json({ ok: true, data: rows });
-  } catch (e) { res.status(500).json({ ok: false, error: String(e) }); }
+  } catch (e) { sendServerError(res, e); }
 });
 
 /* ============================================================
@@ -27640,7 +27640,7 @@ sr.id, sr.plan_id, sr.quantity, sr.to_location, sr.shift_date, sr.shift_type, sr
     const rows = await q(sql, params);
     res.json({ ok: true, data: rows });
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -27714,7 +27714,7 @@ RETURNING *
       client.release();
     }
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -27750,7 +27750,7 @@ app.get('/api/wip/stock', async (req, res) => {
     const rows = await q(sql, params);
     res.json({ ok: true, data: rows });
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -27827,7 +27827,7 @@ VALUES($1, $2, $3, $4, $5, $6, NOW(), $7)
       client.release();
     }
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -27907,7 +27907,7 @@ app.post('/api/wip/adjust', async (req, res) => {
       client.release();
     }
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -27945,7 +27945,7 @@ l.*,
     const rows = await q(sql, params);
     res.json({ ok: true, data: rows });
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -27988,7 +27988,7 @@ app.post('/api/wip/reset', async (req, res) => {
       client.release();
     }
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -28027,7 +28027,7 @@ VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
     syncService.triggerSync();
     res.json({ ok: true });
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -28079,7 +28079,7 @@ app.get('/api/qc/fpa/status', async (req, res) => {
     }
     res.json({ ok: true, done: false, submitted: false, approval_status: null });
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -28105,7 +28105,7 @@ app.get('/api/qc/fpa/today', async (req, res) => {
     );
     res.json({ ok: true, data: rows || [] });
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -28208,7 +28208,7 @@ app.post('/api/qc/fpa', (req, res, next) => {
     syncService.triggerSync();
     res.json({ ok: true, id: fpaId, form_url: formUrl, product_images: productUrls, approval_status: 'Pending' });
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -28234,7 +28234,7 @@ app.get('/api/qc/job-checks', async (req, res) => {
     `, params);
     res.json({ ok: true, data: rows || [] });
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -28303,7 +28303,7 @@ app.post('/api/qc/fpa/delete-image', async (req, res) => {
     if (syncService && syncService.triggerSync) syncService.triggerSync();
     res.json({ ok: true, product_images: newProducts, fpa_form_image: newForm, cleared: nothingLeft });
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -28355,7 +28355,7 @@ app.get('/api/qc/fpa/list', async (req, res) => {
     );
     res.json({ ok: true, data: rows || [] });
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -28374,7 +28374,7 @@ app.get('/api/qc/fpa/pending-count', async (req, res) => {
     );
     res.json({ ok: true, count: (rows[0] && rows[0].n) || 0 });
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -28441,7 +28441,7 @@ app.get('/api/qc/fpa/mine', async (req, res) => {
     );
     res.json({ ok: true, data: rows || [] });
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -28481,7 +28481,7 @@ app.post('/api/qc/fpa/:id/approve', async (req, res) => {
     if (syncService && syncService.triggerSync) syncService.triggerSync();
     res.json({ ok: true, id, approval_status: 'Approved' });
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -28521,7 +28521,7 @@ app.post('/api/qc/fpa/:id/reject', async (req, res) => {
     if (syncService && syncService.triggerSync) syncService.triggerSync();
     res.json({ ok: true, id, approval_status: 'Rejected' });
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -28535,7 +28535,7 @@ VALUES($1, $2, $3, $4, $5, $6, $7, $8)`,
       [date, line, machine, issue_description, responsibility, status || 'Open', supervisor, factoryId]);
     res.json({ ok: true });
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -28549,7 +28549,7 @@ VALUES($1, $2, $3, $4, $5, $6, $7, $8)`,
       [date, trainee_name, trainer_name, topic, duration, score, remarks, factoryId]);
     res.json({ ok: true });
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -28563,7 +28563,7 @@ VALUES($1, $2, $3, $4, $5, $6, $7, $8)`,
       [date, part_name, machine, deviation_details, reason, approved_by, valid_upto, factoryId]);
     res.json({ ok: true });
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -28612,7 +28612,7 @@ app.get('/api/qc/verify/pending', async (req, res) => {
     res.json({ ok: true, data: rows });
   } catch (e) {
     console.error('/api/qc/verify/pending', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -28698,7 +28698,7 @@ app.post('/api/qc/verify/submit', async (req, res) => {
     res.json({ ok: true, status });
   } catch (e) {
     console.error('/api/qc/verify/submit', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -28725,7 +28725,7 @@ app.get('/api/qc/verify/summary', async (req, res) => {
     `, [d, machine || null, factoryId]);
     res.json({ ok: true, data: rows });
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -28741,7 +28741,7 @@ app.get('/api/qc/dashboard', async (req, res) => {
 
     res.json({ ok: true, data: { online, issues, training, deviations } });
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -28757,7 +28757,7 @@ SELECT * FROM qc_online_reports
   `, [machine || '', limit || 10]);
     res.json({ ok: true, data: rows });
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -28785,7 +28785,7 @@ app.get('/api/qc/recent-slots', async (req, res) => {
     );
     res.json({ ok: true, data: rows || [] });
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -28826,7 +28826,7 @@ app.get('/api/qc/online-report', async (req, res) => {
     } catch (_) { job = null; }
     res.json({ ok: true, data: rows || [], job });
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -28852,7 +28852,7 @@ app.get('/api/qc/online-report/list', async (req, res) => {
     );
     res.json({ ok: true, data: rows || [] });
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -28903,7 +28903,7 @@ app.post('/api/qc/online-report/slot', (req, res, next) => {
     syncService.triggerSync();
     res.json({ ok: true });
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -28953,7 +28953,7 @@ app.get('/api/qc/job-setup', async (req, res) => {
 
     res.json({ ok: true, setup: setup[0] || null, setups, std });
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -28989,7 +28989,7 @@ app.post('/api/qc/job-setup', async (req, res) => {
     syncService.triggerSync();
     res.json({ ok: true });
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -29006,7 +29006,7 @@ app.get('/api/qc/shift-team', async (req, res) => {
     );
     res.json({ ok: true, data: rows || [] });
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -29025,7 +29025,7 @@ app.post('/api/qc/shift-team', async (req, res) => {
     );
     res.json({ ok: true, id: r[0].id });
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -29037,7 +29037,7 @@ app.delete('/api/qc/shift-team/:id', async (req, res) => {
     await q(`DELETE FROM qc_shift_team WHERE id = $1 AND ($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL)`, [id, factoryId]);
     res.json({ ok: true });
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -29062,7 +29062,7 @@ app.post('/api/qc/hold', async (req, res) => {
     );
     res.json({ ok: true, id: r[0].id });
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -29082,7 +29082,7 @@ app.get('/api/qc/holds', async (req, res) => {
     );
     res.json({ ok: true, data: rows || [] });
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -29101,7 +29101,7 @@ app.post('/api/qc/holds/:id/release', async (req, res) => {
     );
     res.json({ ok: true });
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -29120,7 +29120,7 @@ app.get('/api/qc/hold/active', async (req, res) => {
     );
     res.json({ ok: true, active: rows.length > 0, hold: rows[0] || null });
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -29157,7 +29157,7 @@ app.post('/api/qc/material-issues', (req, res, next) => {
     }
     res.json({ ok: true, id: r[0].id });
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -29177,7 +29177,7 @@ app.get('/api/qc/material-issues', async (req, res) => {
     );
     res.json({ ok: true, data: rows || [] });
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -29197,7 +29197,7 @@ app.post('/api/qc/material-issues/:id/acknowledge', async (req, res) => {
     );
     res.json({ ok: true });
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -29218,7 +29218,7 @@ app.post('/api/qc/material-issues/:id/resolve', async (req, res) => {
     );
     res.json({ ok: true });
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -29326,7 +29326,7 @@ app.post('/api/qc/memos', (req, res, next) => {
     }
     res.json({ ok: true, id, memo_no: memoNo, media_urls: mediaUrls });
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -29351,7 +29351,7 @@ app.get('/api/qc/memos', async (req, res) => {
     );
     res.json({ ok: true, data: rows || [] });
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -29374,7 +29374,7 @@ app.get('/api/qc/memos/active-by-machine', async (req, res) => {
     );
     res.json({ ok: true, data: rows || [] });
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -29396,7 +29396,7 @@ app.post('/api/qc/memos/:id/accept', async (req, res) => {
     );
     res.json({ ok: true });
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -29419,7 +29419,7 @@ app.post('/api/qc/memos/:id/solve', async (req, res) => {
     );
     res.json({ ok: true });
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -29441,7 +29441,7 @@ app.post('/api/qc/memos/:id/deviation', async (req, res) => {
     );
     res.json({ ok: true });
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -29468,7 +29468,7 @@ app.post('/api/qc/memos/:id/reply', async (req, res) => {
     );
     res.json({ ok: true });
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -29501,7 +29501,7 @@ app.post('/api/qc/memos/:id/reraise', async (req, res) => {
     }
     res.json({ ok: true });
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -29521,7 +29521,7 @@ app.get('/api/qc/factory-people', async (req, res) => {
     );
     res.json({ ok: true, data: rows || [] });
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -29541,7 +29541,7 @@ app.get('/api/qc/notifications', async (req, res) => {
     const unreadCount = rows.filter(r => !r.is_read).length;
     res.json({ ok: true, data: rows || [], unread: unreadCount });
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -29557,7 +29557,7 @@ app.post('/api/qc/notifications/read', async (req, res) => {
     }
     res.json({ ok: true });
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -29727,7 +29727,7 @@ app.get('/api/qc/compliance', async (req, res) => {
     res.json({ ok: true, data: { lines, slots } });
 
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -29856,7 +29856,7 @@ SUM(qty_checked) as total_checked,
       }
     });
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -29939,7 +29939,7 @@ app.get('/api/qc/dashboard/analysis', async (req, res) => {
     }
     res.json({ ok: true, data });
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -30016,7 +30016,7 @@ app.get('/api/shift/team', async (req, res) => {
       res.json({ ok: true, data: rows }); // Return Array
     }
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -30044,7 +30044,7 @@ app.get('/api/shift/team-range', async (req, res) => {
 
     res.json({ ok: true, data: grouped });
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -30070,7 +30070,7 @@ entry_person = EXCLUDED.entry_person,
 
     res.json({ ok: true });
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -30102,7 +30102,7 @@ app.get('/api/labour-parties', async (req, res) => {
     res.json({ ok: true, data: rows });
   } catch (e) {
     console.error('/api/labour-parties GET', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -30125,7 +30125,7 @@ app.post('/api/labour-parties', async (req, res) => {
     res.json({ ok: true, data: row[0] });
   } catch (e) {
     console.error('/api/labour-parties POST', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -30148,7 +30148,7 @@ app.put('/api/labour-parties/:id', async (req, res) => {
     res.json({ ok: true });
   } catch (e) {
     console.error('/api/labour-parties PUT', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -30162,7 +30162,7 @@ app.delete('/api/labour-parties/:id', async (req, res) => {
     res.json({ ok: true });
   } catch (e) {
     console.error('/api/labour-parties DELETE', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -30183,7 +30183,7 @@ app.get('/api/labour-parties/:id/machines', async (req, res) => {
     res.json({ ok: true, data: rows });
   } catch (e) {
     console.error('/api/labour-parties/:id/machines GET', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -30251,7 +30251,7 @@ app.get('/api/dpr/labour/machine-plan', async (req, res) => {
     res.json({ ok: true, data: result });
   } catch (e) {
     console.error('/api/dpr/labour/machine-plan', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -30279,7 +30279,7 @@ app.get('/api/dpr/labour', async (req, res) => {
     res.json({ ok: true, data: rows });
   } catch (e) {
     console.error('/api/dpr/labour GET', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -30303,7 +30303,7 @@ app.post('/api/dpr/labour', async (req, res) => {
     res.json({ ok: true, id: row[0].id });
   } catch (e) {
     console.error('/api/dpr/labour POST', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -30320,7 +30320,7 @@ app.put('/api/dpr/labour/:id', async (req, res) => {
     res.json({ ok: true });
   } catch (e) {
     console.error('/api/dpr/labour PUT', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -30334,7 +30334,7 @@ app.delete('/api/dpr/labour/:id', async (req, res) => {
     res.json({ ok: true });
   } catch (e) {
     console.error('/api/dpr/labour DELETE', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -30371,7 +30371,7 @@ app.get('/api/dpr/labour/summary', async (req, res) => {
     res.json({ ok: true, data: rows });
   } catch (e) {
     console.error('/api/dpr/labour/summary GET', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -30431,7 +30431,7 @@ table_id = $1, item_name = $2, plan_qty = $3, machine = $4,
 
     res.json({ ok: true });
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -30445,7 +30445,7 @@ app.delete('/api/assembly/plan/:id', async (req, res) => {
     await q(`DELETE FROM assembly_plans WHERE id = $1`, [id]);
     res.json({ ok: true });
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -30463,7 +30463,7 @@ app.post('/api/assembly/activate', async (req, res) => {
     await q(`UPDATE assembly_plans SET status = 'RUNNING', updated_at = NOW() WHERE id = $1`, [plan_id]);
     res.json({ ok: true });
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -30524,7 +30524,7 @@ WHERE(UPPER(status) IN('PLANNED', 'RUNNING') OR start_time:: date >= CURRENT_DAT
     // console.log(`[DEBUG] / api / assembly / active found ${ rows.length } plans.`);
     res.json({ ok: true, data: rows });
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -30688,7 +30688,7 @@ app.post('/api/assembly/scan', async (req, res) => {
     res.json(result);
   } catch (e) {
     console.error('Scan Error:', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -30736,7 +30736,7 @@ app.post('/api/assembly/device-scan', async (req, res) => {
     res.json({ ...result, plan_id: plan.id, table_id });
   } catch (e) {
     console.error('Device Scan Error:', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -30863,7 +30863,7 @@ app.get('/api/analyze/mould/:mouldCode', async (req, res) => {
     });
   } catch (e) {
     console.error('analyze/mould', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -31833,7 +31833,7 @@ RETURNING *
     res.json({ ok: true, message: autoStartMessage });
   } catch (e) {
     console.error('/api/job/complete', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -31882,7 +31882,7 @@ pb.*,
     res.json({ ok: true, items });
   } catch (e) {
     console.error('/api/approvals/pending', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -31947,7 +31947,7 @@ COALESCE(data ->> 'mould_item_name', data ->> 'item_name') as name,
     });
 
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -31983,7 +31983,7 @@ app.post('/api/approvals/review', async (req, res) => {
     // ... [existing code] ...
   } catch (e) {
     console.error('/api/approvals/review', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -32025,7 +32025,7 @@ count(*) as total,
       shifts: s.map(x => x.shift)
     });
   } catch (e) {
-    res.json({ error: String(e), stack: e.stack });
+    res.json({ ok: false, error: safeError(e) });
   }
 });
 
@@ -32059,7 +32059,7 @@ app.post('/api/activity/heartbeat', async (req, res) => {
     }
     res.json({ ok: true, revoked });
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -32116,7 +32116,7 @@ app.get('/api/my-sessions', async (req, res) => {
     res.json({ ok: true, sessions });
   } catch (e) {
     console.error('my-sessions error', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -32153,7 +32153,7 @@ app.post('/api/logout-all', async (req, res) => {
     res.json({ ok: true, cutoff_ms: cutoffMs, keep_login_at: cutoffMs + 1000 });
   } catch (e) {
     console.error('logout-all error', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -32280,7 +32280,7 @@ app.get('/api/activity/monitor', async (req, res) => {
     res.json({ ok: true, users, recent_log: recentLog });
   } catch (e) {
     console.error('activity monitor error', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
