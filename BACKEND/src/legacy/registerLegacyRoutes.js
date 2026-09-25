@@ -6835,8 +6835,7 @@ app.get('/api/machines', async (req, res) => {
     res.json({ ok: true, data: list });
   } catch (e) {
     console.error('machines error', e);
-    fs.appendFileSync('debug_errors.log', `[MACHINES] ${e.message}\n`);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -7203,8 +7202,7 @@ app.get('/api/std-actual/status', async (req, res) => {
 
   } catch (e) {
     console.error('std-actual/status', e);
-    fs.appendFileSync('debug_errors.log', `[STD-STATUS] ${e.message}\n`);
-    res.status(500).json({ ok: false, error: String(e) });
+    sendServerError(res, e);
   }
 });
 
@@ -13373,15 +13371,13 @@ app.post('/api/planning/run', async (req, res) => {
 
     // Log Stops
     if (stopped.length > 0) {
-      fs.appendFileSync('debug_auto_stop.log', `[RUN] RowId: ${rowId} triggered stop of ${stopped.length} plans: ${JSON.stringify(stopped)}\n`);
+      console.log(`[auto-stop] Plan ${rowId} stopped ${stopped.length} conflicting plan(s):`, stopped.map((s) => s.id));
       for (const s of stopped) {
         await q(
           "INSERT INTO plan_audit_logs (plan_id, action, details, user_name) VALUES ($1, $2, $3, $4)",
           [s.id, 'SWAP_STOP', JSON.stringify({ reason: `Auto-stopped for Plan ${rowId}`, by_plan_id: rowId }), 'System']
         );
       }
-    } else {
-      fs.appendFileSync('debug_auto_stop.log', `[RUN] RowId: ${rowId}. No conflicting running plans found on '${machine}'.\n`);
     }
 
     // 4. Mark NEW plan as Running
@@ -23442,7 +23438,6 @@ app.get('/api/orders/pending', async (req, res) => {
       if (d !== 0) return d;
       return new Date(a.created_at || 0) - new Date(b.created_at || 0);
     });
-    fs.appendFileSync('debug.log', `[${new Date().toISOString()}]/api/orders / pending -> Found ${rows.length} rows\n`);
     res.json({ ok: true, data: rows });
   } catch (e) {
     console.error(e);
