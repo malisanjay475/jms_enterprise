@@ -62,7 +62,7 @@ jobs:
       # step dies with "stat .github/scripts/...: no such file or directory".
       - name: Check out the repo (needed for the SSH script)
         if: env.HAS_KEY == 'true'
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           # This job only needs the script file on disk — it never runs an
           # authenticated git command afterwards, so don't leave the workflow
