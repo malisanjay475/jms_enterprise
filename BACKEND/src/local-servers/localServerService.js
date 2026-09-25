@@ -1134,10 +1134,59 @@ router.get('/:id/file', fileSyncLimiter, async (req, res) => {
   }
 });
 
+// Heartbeats arrive every few minutes per node and only the newest 10 are ever
+// read, so keep 30 days. Without this the table grew to 725 MB / 694k rows.
+const HEARTBEAT_RETENTION_DAYS = 30;
+const HEARTBEAT_PRUNE_BATCH = 5000;
+const HEARTBEAT_PRUNE_INTERVAL_MS = 24 * 60 * 60 * 1000;
+
+async function pruneOldHeartbeats() {
+  // ids grow with created_at, so find the newest expired id once and then
+  // delete in small primary-key batches (no long lock, no repeated seq scans).
+  const cutoff = await q(
+    `SELECT MAX(id) AS max_id
+       FROM local_server_heartbeats
+      WHERE created_at < NOW() - INTERVAL '${HEARTBEAT_RETENTION_DAYS} days'`
+  );
+  const maxId = cutoff.rows[0].max_id;
+  if (!maxId) return 0;
+
+  let deleted = 0;
+  for (;;) {
+    const result = await q(
+      `DELETE FROM local_server_heartbeats
+        WHERE id IN (
+          SELECT id FROM local_server_heartbeats
+           WHERE id <= $1
+           ORDER BY id
+           LIMIT ${HEARTBEAT_PRUNE_BATCH}
+        )`,
+      [maxId]
+    );
+    deleted += result.rowCount;
+    if (result.rowCount < HEARTBEAT_PRUNE_BATCH) break;
+  }
+  return deleted;
+}
+
+function scheduleHeartbeatPrune() {
+  const run = () => {
+    pruneOldHeartbeats()
+      .then(deleted => {
+        if (deleted) console.log(`[Local Servers] Pruned ${deleted} heartbeats older than ${HEARTBEAT_RETENTION_DAYS} days`);
+      })
+      .catch(error => console.warn('[Local Servers] Heartbeat prune failed:', error.message));
+  };
+  // First run a minute after startup so it never slows the boot.
+  setTimeout(run, 60 * 1000).unref();
+  setInterval(run, HEARTBEAT_PRUNE_INTERVAL_MS).unref();
+}
+
 async function init(dbPool) {
   pool = dbPool;
   await ensureSchema();
   console.log('[Local Servers] Phase 1 schema ready');
+  scheduleHeartbeatPrune();
 }
 
 module.exports = {
