@@ -36,16 +36,8 @@ const JWT_SECRET = process.env.JWT_SECRET || (() => {
   return 'dev-insecure-jwt-secret-change-in-production';
 })();
 
-// Helper for DB queries (will be passed from server.js or we can require pool here)
-// Better to require pool here to keep it standalone
-const { Pool } = require('pg');
-const pool = new Pool({
-    host: process.env.DB_HOST || 'localhost',
-    port: process.env.DB_PORT || 5432,
-    user: process.env.DB_USER || 'postgres',
-    password: process.env.DB_PASSWORD || '',
-    database: process.env.DB_NAME || 'jpsms'
-});
+// Uses the app's shared connection pool (see src/db/sharedPool.js).
+const { pool } = require('../src/db/sharedPool');
 
 async function q(text, params) {
     const { rows } = await pool.query(text, params);

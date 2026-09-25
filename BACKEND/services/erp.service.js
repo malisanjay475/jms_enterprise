@@ -1,19 +1,11 @@
-const { Pool } = require('pg');
+const { pool } = require('../src/db/sharedPool');
 require('dotenv').config();
 const {
     getFinancialYearInfo,
     generateFinancialYearSequenceId
 } = require('../utils/financialYearId');
 
-// Re-use connection pool logic or import from server if possible, 
-// using generic pool for now to ensure standalone functionality
-const pool = new Pool({
-    host: process.env.DB_HOST || 'localhost',
-    port: process.env.DB_PORT || 5432,
-    user: process.env.DB_USER || 'postgres',
-    password: process.env.DB_PASSWORD || '',
-    database: process.env.DB_NAME || 'jpsms'
-});
+// Uses the app's shared connection pool (see src/db/sharedPool.js).
 
 const SERVICE_NAME = 'ERP_SERVICE';
 
