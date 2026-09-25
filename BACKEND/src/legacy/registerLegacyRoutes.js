@@ -31,6 +31,7 @@ const {
   recordLoginFailure: _recordLoginFailure,
   clearLoginFailures: _clearLoginFailures
 } = require('../app/loginLockout');
+const { sendServerError } = require('../app/httpErrors');
 const BACKEND_ROOT = path.resolve(__dirname, '..', '..');
 const STATIC_PUBLIC_DIR_NAME = fs.existsSync(path.join(BACKEND_ROOT, 'PUBLIC', 'index.html')) ? 'PUBLIC' : 'public';
 const STATIC_PUBLIC_DIR = path.join(BACKEND_ROOT, STATIC_PUBLIC_DIR_NAME);
@@ -159,7 +160,7 @@ module.exports = function registerLegacyRoutes({ app, pool, config, services }) 
       });
       res.json({ ok: true, data });
     } catch (e) {
-      res.status(500).json({ ok: false, error: String(e.message || e) });
+      sendServerError(res, e);
     }
   });
 
@@ -222,7 +223,7 @@ module.exports = function registerLegacyRoutes({ app, pool, config, services }) 
       fs.writeFileSync(path.join(_qcAppDir, 'version.json'), JSON.stringify(meta, null, 2));
       res.json({ ok: true, ...meta });
     } catch (e) {
-      res.status(500).json({ ok: false, error: String(e.message || e) });
+      sendServerError(res, e);
     } finally {
       if (tempPath && !published) fs.unlink(tempPath, () => { });
     }
@@ -9363,7 +9364,7 @@ app.get('/api/shifting/jobs/:id/details', async (req, res) => {
       }
     });
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e.message || e) });
+    sendServerError(res, e);
   }
 });
 
@@ -9658,7 +9659,7 @@ app.post('/api/dpr/edit', async (req, res) => {
     res.json({ ok: true, data: result.rows[0] });
   } catch (e) {
     console.error('dpr/edit error', e);
-    res.status(500).json({ error: e.message });
+    sendServerError(res, e);
   }
 });
 
@@ -10610,7 +10611,7 @@ app.get('/api/reports/machine-wise', async (req, res) => {
     res.json({ ok: true, view, count: rows.length, data: rows });
   } catch (e) {
     console.error('/api/reports/machine-wise', e);
-    res.status(500).json({ ok: false, error: String(e.message || e) });
+    sendServerError(res, e);
   }
 });
 
@@ -11720,7 +11721,7 @@ app.get('/api/analyze/orders', async (req, res) => {
     res.json({ ok: true, data, can_select_all_factories: canAll, factories: access.factories });
   } catch (e) {
     console.error('analyze/orders', e);
-    res.status(500).json({ ok: false, error: String(e.message || e) });
+    sendServerError(res, e);
   }
 });
 
@@ -12669,7 +12670,7 @@ app.get('/api/planning/orders/:orderNo/batches', async (req, res) => {
     res.json({ ok: true, data: { batches, jobs: batches, totalBatchQty, totalJobQty: totalBatchQty } });
   } catch (e) {
     console.error('/api/planning/orders/:orderNo/batches', e);
-    res.status(500).json({ ok: false, error: String(e.message || e) });
+    sendServerError(res, e);
   }
 });
 
@@ -12878,7 +12879,7 @@ app.get('/api/planning/orders/:orderNo/job-cards', async (req, res) => {
     });
   } catch (e) {
     console.error('/api/planning/orders/:orderNo/job-cards', e);
-    res.status(500).json({ ok: false, error: String(e.message || e) });
+    sendServerError(res, e);
   }
 });
 
@@ -13264,7 +13265,7 @@ app.post('/api/planning/superadmin-edit', async (req, res) => {
     res.json({ ok: true });
   } catch (e) {
     console.error('planning/superadmin-edit', e);
-    res.status(500).json({ ok: false, error: String(e.message || e) });
+    sendServerError(res, e);
   }
 });
 
@@ -15489,7 +15490,7 @@ app.get('/api/planning/cycle-prediction', async (req, res) => {
     res.json({ ok: true, days, byPair: pairs.map(shape), byMould: moulds.map(shape) });
   } catch (e) {
     console.error('cycle-prediction', e);
-    res.status(500).json({ ok: false, error: String(e.message || e) });
+    sendServerError(res, e);
   }
 });
 
@@ -17102,7 +17103,7 @@ app.get('/api/reports/jms-plan', async (req, res) => {
     res.json({ ok: true, data: rows });
   } catch (e) {
     console.error('/api/reports/jms-plan', e);
-    res.status(500).json({ ok: false, error: String(e.message || e) });
+    sendServerError(res, e);
   }
 });
 
@@ -17307,7 +17308,7 @@ app.get('/api/dpr/stopped-machines', async (req, res) => {
     res.json({ ok: true, data: out, stopMinutes: STOP_MIN, windowDays: WINDOW_DAYS });
   } catch (e) {
     console.error('/api/dpr/stopped-machines', e);
-    res.status(500).json({ ok: false, error: String(e.message || e) });
+    sendServerError(res, e);
   }
 });
 
@@ -17474,7 +17475,7 @@ app.get('/api/reports/machine-downtime.xlsx', async (req, res) => {
     res.send(Buffer.from(buf));
   } catch (e) {
     console.error('/api/reports/machine-downtime.xlsx', e);
-    res.status(500).json({ ok: false, error: String(e.message || e) });
+    sendServerError(res, e);
   }
 });
 
@@ -17643,7 +17644,7 @@ app.post('/api/reports/machine-timeline.xlsx', async (req, res) => {
     res.send(Buffer.from(buf));
   } catch (e) {
     console.error('/api/reports/machine-timeline.xlsx', e);
-    res.status(500).json({ ok: false, error: String(e.message || e) });
+    sendServerError(res, e);
   }
 });
 
@@ -18116,7 +18117,7 @@ app.get('/api/reports/mould-wise-qty', async (req, res) => {
     res.json({ ok: true, view: 'summary', fields: out.fields, data: out.data });
   } catch (e) {
     console.error('/api/reports/mould-wise-qty', e);
-    res.status(500).json({ ok: false, error: String(e.message || e) });
+    sendServerError(res, e);
   }
 });
 
@@ -18135,7 +18136,7 @@ app.get('/api/reports/machine-tonnages', async (req, res) => {
     res.json({ ok: true, data: rows.map(r => Number(r.tonnage)) });
   } catch (e) {
     console.error('/api/reports/machine-tonnages', e);
-    res.status(500).json({ ok: false, error: String(e.message || e) });
+    sendServerError(res, e);
   }
 });
 
@@ -18478,7 +18479,7 @@ app.get('/api/reports/mould-wise-qty.xlsx', async (req, res) => {
     res.end(Buffer.from(buf));
   } catch (e) {
     console.error('/api/reports/mould-wise-qty.xlsx', e);
-    res.status(500).json({ ok: false, error: String(e.message || e) });
+    sendServerError(res, e);
   }
 });
 
@@ -18769,7 +18770,7 @@ async function readErpReport(cfgKey, res) {
     res.json({ ok: true, data: rows, source: 'db', synced_at: meta.last_sync || null, count: meta.n || 0 });
   } catch (e) {
     console.error(`/api/reports/${table} read`, e.message);
-    res.status(500).json({ ok: false, error: String(e.message || e) });
+    sendServerError(res, e);
   }
 }
 
@@ -19160,7 +19161,7 @@ app.get('/api/reports/erp-autosync-history', async (req, res) => {
       data: rows
     });
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e.message || e) });
+    sendServerError(res, e);
   }
 });
 
@@ -21282,7 +21283,7 @@ app.post('/api/orders/fetch-from-orjr', async (req, res) => {
     }
   } catch (e) {
     console.error(e);
-    res.status(500).json({ ok: false, error: e.message });
+    sendServerError(res, e);
   }
 });
 
@@ -25333,7 +25334,7 @@ app.get('/api/moulds/verification-status.xlsx', async (req, res) => {
     res.send(Buffer.from(buf));
   } catch (e) {
     console.error('/api/moulds/verification-status.xlsx', e);
-    res.status(500).json({ ok: false, error: String(e.message || e) });
+    sendServerError(res, e);
   }
 });
 
@@ -26114,7 +26115,7 @@ app.post('/api/ai/plan', async (req, res) => {
     res.json({ ok: true, plan });
   } catch (e) {
     console.error('AI Plan Error:', e);
-    res.status(500).json({ ok: false, error: String(e.message) });
+    sendServerError(res, e);
   }
 });
 
@@ -26150,7 +26151,7 @@ app.post('/api/ai/ask', async (req, res) => {
 
   } catch (e) {
     console.error('AI Chat Error:', e);
-    res.status(500).json({ ok: false, error: String(e.message) });
+    sendServerError(res, e);
   }
 });
 
@@ -26186,7 +26187,7 @@ app.post('/api/ai/explain-suggestions', async (req, res) => {
     }
   } catch (e) {
     console.error('explain-suggestions', e);
-    res.status(500).json({ ok: false, error: String(e.message) });
+    sendServerError(res, e);
   }
 });
 
@@ -31800,7 +31801,7 @@ app.get('/api/analyze/supervisor', async (req, res) => {
     });
   } catch (e) {
     console.error('analyze/supervisor', e);
-    res.status(500).json({ ok: false, error: String(e.message || e) });
+    sendServerError(res, e);
   }
 });
 
@@ -31894,7 +31895,7 @@ app.get('/api/analyze/plant', async (req, res) => {
     res.json({ ok: true, data: { overall: oeeOf(overall), byLine: byLineArr, byDate: byDateArr, lossReasons: lossArr } });
   } catch (e) {
     console.error('analyze/plant', e);
-    res.status(500).json({ ok: false, error: String(e.message || e) });
+    sendServerError(res, e);
   }
 });
 
@@ -32003,7 +32004,7 @@ app.get('/api/analyze/machine', async (req, res) => {
     });
   } catch (e) {
     console.error('analyze/machine', e);
-    res.status(500).json({ ok: false, error: String(e.message || e) });
+    sendServerError(res, e);
   }
 });
 
@@ -32073,7 +32074,7 @@ app.get('/api/analyze/compare', async (req, res) => {
     res.json({ ok: true, data: { factories } });
   } catch (e) {
     console.error('analyze/compare', e);
-    res.status(500).json({ ok: false, error: String(e.message || e) });
+    sendServerError(res, e);
   }
 });
 
@@ -32241,7 +32242,7 @@ app.get('/api/analyze/downtime', async (req, res) => {
     });
   } catch (e) {
     console.error('analyze/downtime', e);
-    res.status(500).json({ ok: false, error: String(e.message || e) });
+    sendServerError(res, e);
   }
 });
 
@@ -32292,7 +32293,7 @@ app.get('/api/analyze/downtime/daily', async (req, res) => {
     res.json({ ok: true, data: { days, reasonKeys, worstDay: worstDay ? worstDay.date : null } });
   } catch (e) {
     console.error('analyze/downtime/daily', e);
-    res.status(500).json({ ok: false, error: String(e.message || e) });
+    sendServerError(res, e);
   }
 });
 
@@ -32348,7 +32349,7 @@ app.get('/api/analyze/downtime/detail', async (req, res) => {
     res.json({ ok: true, data: { rows, count: rows.length } });
   } catch (e) {
     console.error('analyze/downtime/detail', e);
-    res.status(500).json({ ok: false, error: String(e.message || e) });
+    sendServerError(res, e);
   }
 });
 
@@ -32414,7 +32415,7 @@ app.get('/api/analyze/downtime/plant', async (req, res) => {
     res.json({ ok: true, data: { factories, gated: false } });
   } catch (e) {
     console.error('analyze/downtime/plant', e);
-    res.status(500).json({ ok: false, error: String(e.message || e) });
+    sendServerError(res, e);
   }
 });
 
