@@ -65,6 +65,15 @@
             <button class="btn btn-primary small" onclick="loadFpa()">Apply</button>
         </div>
 
+        <div id="fpa-auto" style="display:none;align-items:center;gap:10px;flex-wrap:wrap;border:1px solid #e2e8f0;border-radius:10px;padding:10px 14px;background:#fff;margin-bottom:16px;font-size:13px;">
+            <i class="bi bi-lightning-charge-fill" style="color:#f59e0b;"></i>
+            <span id="fpa-auto-text" style="font-weight:600;"></span>
+            <span style="color:var(--text-muted);">Auto-approve FPA till</span>
+            <input type="date" id="fpa-auto-until" class="form-input" style="width:170px;">
+            <button class="btn btn-primary small" onclick="saveAutoApprove(document.getElementById('fpa-auto-until').value)">Save</button>
+            <button class="btn btn-outline small" id="fpa-auto-off" onclick="saveAutoApprove('')">Turn off</button>
+        </div>
+
         <div class="fpa-stats" id="fpa-stats"></div>
         <div id="fpa-list"><div class="empty">Loading…</div></div>
     </div>
@@ -256,6 +265,31 @@
             } catch (e) { JPSMS.toast('Reject failed', 'error'); }
         }
 
+        // Auto-approve window: while on, FPAs submitted from the QC app are Approved at once.
+        function renderAutoApprove(res) {
+            const box = document.getElementById('fpa-auto');
+            const txt = document.getElementById('fpa-auto-text');
+            const on = !!(res && res.active);
+            box.style.display = 'flex';
+            box.style.background = on ? '#fffbeb' : '#fff';
+            txt.textContent = on ? `Approval paused — FPAs are auto-approved till ${res.until}` : 'FPA approval is ON (normal)';
+            document.getElementById('fpa-auto-until').value = on ? res.until : '';
+            document.getElementById('fpa-auto-off').style.display = on ? '' : 'none';
+        }
+        async function loadAutoApprove() {
+            if (!canApprove) return;
+            try { renderAutoApprove(await JPSMS.api.get('/qc/fpa/auto-approve')); } catch (_) { /* non-fatal */ }
+        }
+        async function saveAutoApprove(until) {
+            if (until && until < new Date().toLocaleDateString('en-CA')) return JPSMS.toast('Pick today or a later date', 'error');
+            try {
+                const res = await JPSMS.api.post('/qc/fpa/auto-approve', { until });
+                if (res.ok) { renderAutoApprove(res); JPSMS.toast(res.active ? 'FPA auto-approve on' : 'FPA approval back to normal'); }
+                else JPSMS.toast(res.error || 'Save failed', 'error');
+            } catch (e) { JPSMS.toast('Save failed', 'error'); }
+        }
+
+        loadAutoApprove();
         loadFpa();
     </script>
 </body>
