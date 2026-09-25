@@ -13,7 +13,7 @@ describe('data retention', () => {
   afterEach(() => jest.restoreAllMocks());
 
   // Fake pool: every table exists; DELETE batches return `batchSizes` in order per table.
-  function makePool({ lock = true, batches = {} } = {}) {
+  function makePool({ lock = true, batches = {}, lastRunAt = null } = {}) {
     const calls = [];
     const remaining = Object.fromEntries(Object.entries(batches).map(([t, list]) => [t, [...list]]));
     const clientFactory = () => ({
@@ -21,6 +21,7 @@ describe('data retention', () => {
         const text = String(sql);
         calls.push({ text, params });
         if (text.includes('pg_try_advisory_lock')) return { rows: [{ ok: lock }] };
+        if (text.startsWith('SELECT value FROM server_config')) return { rows: lastRunAt ? [{ value: lastRunAt }] : [] };
         const m = text.match(/^DELETE FROM (\w+) WHERE ctid IN/);
         if (m) {
           const next = (remaining[m[1]] || []).shift() || 0;
@@ -102,6 +103,50 @@ describe('data retention', () => {
 
     expect(result.skipped).toBeDefined();
     expect(pool.calls.some((c) => c.text.startsWith('DELETE'))).toBe(false);
+  });
+
+  it('records the run in server_config once the rules are done', async () => {
+    const { runRetentionOnce } = require('../src/app/dataRetention');
+    const pool = makePool();
+
+    await runRetentionOnce(pool, { now: Date.parse('2026-09-25T13:00:00Z') });
+
+    const stamp = pool.calls.find((c) => c.text.includes('INSERT INTO server_config'));
+    expect(stamp.params).toEqual(['DATA_RETENTION_LAST_RUN_AT', '2026-09-25T13:00:00.000Z']);
+    const lastDeleteIdx = pool.calls.map((c) => c.text.startsWith('DELETE')).lastIndexOf(true);
+    expect(lastDeleteIdx).toBeGreaterThan(-1);
+    expect(pool.calls.indexOf(stamp)).toBeGreaterThan(lastDeleteIdx);
+  });
+
+  it('onlyIfDue skips when the last run is under 24 h old, and runs when it is older or missing', async () => {
+    const { runRetentionOnce } = require('../src/app/dataRetention');
+    const now = Date.parse('2026-09-25T13:00:00Z');
+
+    const recent = makePool({ lastRunAt: '2026-09-25T01:00:00.000Z' });
+    expect(await runRetentionOnce(recent, { now, onlyIfDue: true })).toMatchObject({ skipped: 'not due' });
+    expect(recent.calls.some((c) => c.text.startsWith('DELETE') || c.text.includes('INSERT INTO server_config'))).toBe(false);
+
+    const old = makePool({ lastRunAt: '2026-09-24T12:00:00.000Z' });
+    expect((await runRetentionOnce(old, { now, onlyIfDue: true })).skipped).toBeUndefined();
+    expect(old.calls.some((c) => c.text.includes('INSERT INTO server_config'))).toBe(true);
+
+    const never = makePool();
+    expect((await runRetentionOnce(never, { now, onlyIfDue: true })).skipped).toBeUndefined();
+  });
+
+  it('every worker schedules the check (not only worker 0)', () => {
+    jest.useFakeTimers();
+    const prev = process.env.NODE_APP_INSTANCE;
+    process.env.NODE_APP_INSTANCE = '3';
+    try {
+      const { startDataRetention } = require('../src/app/dataRetention');
+      const handle = startDataRetention(makePool());
+      expect(handle).not.toBeNull();
+      handle.stop();
+    } finally {
+      if (prev === undefined) delete process.env.NODE_APP_INSTANCE; else process.env.NODE_APP_INSTANCE = prev;
+      jest.useRealTimers();
+    }
   });
 
   it('a rule set to 0 days is never run', async () => {

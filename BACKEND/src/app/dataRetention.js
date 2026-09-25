@@ -9,16 +9,23 @@
 // overridden with an env var (days, 0 = never delete).
 //
 // Deletes run in small batches with a pause between them so they never hold long locks
-// or starve the app, on one PM2 worker only (advisory lock), 10 minutes after boot and
-// then once a day. Every server (MAIN and each LOCAL) trims its own copy by the same
-// rule, so nothing extra travels over sync.
+// or starve the app, once a day on one worker at a time (advisory lock). Every server
+// (MAIN and each LOCAL) trims its own copy by the same rule, so nothing extra travels
+// over sync.
+//
+// "Once a day" is tracked in server_config, not by a per-process timer: every worker
+// checks every 30 minutes and runs only if the last completed run is 24 h old. A timer
+// in one worker never fired on the VPS (25-Sep-2026) because PM2 restarted that worker
+// for memory every ~7 minutes, before its 10-minute first run.
 
 const RETENTION_LOCK_KEY = 918273647;
 const BATCH_SIZE = 5000;
 const BATCH_PAUSE_MS = 200;
 const MAX_RUN_MS_PER_RULE = 10 * 60 * 1000; // leftover backlog continues the next day
-const FIRST_RUN_DELAY_MS = 10 * 60 * 1000;
-const RUN_INTERVAL_MS = 24 * 60 * 60 * 1000;
+const FIRST_CHECK_DELAY_MS = 2 * 60 * 1000;
+const CHECK_INTERVAL_MS = 30 * 60 * 1000;
+const RUN_EVERY_MS = 24 * 60 * 60 * 1000;
+const LAST_RUN_KEY = 'DATA_RETENTION_LAST_RUN_AT';
 
 function readDaysEnv(name, fallback) {
   const raw = process.env[name];
@@ -163,7 +170,15 @@ const RULES = [
   }
 ];
 
-async function runRetentionOnce(pool, { now = Date.now() } = {}) {
+async function readLastRunAt(client) {
+  const r = await client.query('SELECT value FROM server_config WHERE key = $1', [LAST_RUN_KEY]);
+  const t = Date.parse(r.rows[0]?.value || '');
+  return Number.isFinite(t) ? t : null;
+}
+
+// onlyIfDue: skip unless the last completed run (any worker) is RUN_EVERY_MS old.
+// The check happens under the lock, so two workers can never both decide to run.
+async function runRetentionOnce(pool, { now = Date.now(), onlyIfDue = false } = {}) {
   const client = await pool.connect();
   let locked = false;
   const summary = [];
@@ -171,6 +186,11 @@ async function runRetentionOnce(pool, { now = Date.now() } = {}) {
     const lock = await client.query('SELECT pg_try_advisory_lock($1) AS ok', [RETENTION_LOCK_KEY]);
     locked = lock.rows[0]?.ok === true;
     if (!locked) return { skipped: 'another worker is running retention', summary };
+
+    if (onlyIfDue) {
+      const lastRunAt = await readLastRunAt(client);
+      if (lastRunAt !== null && now - lastRunAt < RUN_EVERY_MS) return { skipped: 'not due', summary };
+    }
 
     const days = retentionDays();
     for (const rule of RULES) {
@@ -185,6 +205,13 @@ async function runRetentionOnce(pool, { now = Date.now() } = {}) {
         summary.push({ rule: rule.name, error: err.message });
       }
     }
+    // Recorded only after the rules ran: a worker killed mid-run leaves it unset, so
+    // another worker picks the run up at its next check.
+    await client.query(
+      `INSERT INTO server_config (key, value) VALUES ($1, $2)
+       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
+      [LAST_RUN_KEY, new Date(now).toISOString()]
+    );
   } finally {
     if (locked) await client.query('SELECT pg_advisory_unlock($1)', [RETENTION_LOCK_KEY]).catch(() => {});
     client.release();
@@ -196,21 +223,17 @@ async function runRetentionOnce(pool, { now = Date.now() } = {}) {
   return { summary };
 }
 
-// Only the first PM2 worker schedules it (NODE_APP_INSTANCE '0', or unset for plain node),
-// matching the backup scheduler; the advisory lock covers anything else.
-function isPrimaryWorker() {
-  const inst = process.env.NODE_APP_INSTANCE;
-  return inst === undefined || inst === '' || inst === '0';
-}
-
+// Every worker checks; the advisory lock + server_config stamp make sure the rules run
+// once a day in total, whichever worker happens to be alive.
 function startDataRetention(pool) {
-  if (process.env.RETENTION_ENABLED === '0' || !isPrimaryWorker()) return null;
-  const tick = () => runRetentionOnce(pool).catch((err) => console.warn('[Retention] run failed:', err.message));
-  const first = setTimeout(tick, FIRST_RUN_DELAY_MS);
-  const daily = setInterval(tick, RUN_INTERVAL_MS);
+  if (process.env.RETENTION_ENABLED === '0') return null;
+  const tick = () => runRetentionOnce(pool, { onlyIfDue: true })
+    .catch((err) => console.warn('[Retention] run failed:', err.message));
+  const first = setTimeout(tick, FIRST_CHECK_DELAY_MS);
+  const check = setInterval(tick, CHECK_INTERVAL_MS);
   if (first.unref) first.unref();
-  if (daily.unref) daily.unref();
-  return { stop() { clearTimeout(first); clearInterval(daily); } };
+  if (check.unref) check.unref();
+  return { stop() { clearTimeout(first); clearInterval(check); } };
 }
 
 module.exports = { startDataRetention, runRetentionOnce, retentionDays, RULES };
