@@ -16,6 +16,7 @@
 
 const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
+const legacyAuthUsage = require('./legacyAuthUsage');
 
 const COOKIE_NAME = 'jms_session';
 const TOKEN_TYPE = 'session';
@@ -150,10 +151,15 @@ async function loadSessionUser(pool, username) {
 }
 
 function createAuthMiddleware(pool) {
+  legacyAuthUsage.setPool(pool);
   return async function authMiddleware(req, res, next) {
     req.auth = null;
     const found = readToken(req);
-    if (!found) return next();
+    if (!found) {
+      // Count (only count) requests that still rely on the legacy identity.
+      legacyAuthUsage.recordLegacyUse(req);
+      return next();
+    }
 
     try {
       const key = await getSigningKey(pool);
@@ -192,6 +198,7 @@ function createAuthMiddleware(pool) {
       // request continues as an unauthenticated (legacy) request.
       if (found.fromCookie) clearSession(req, res);
     }
+    legacyAuthUsage.recordLegacyUse(req);
     return next();
   };
 }

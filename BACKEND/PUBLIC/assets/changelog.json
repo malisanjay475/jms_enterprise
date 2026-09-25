@@ -11,8 +11,53 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.74.3",
+  "latest": "1.74.6",
   "versions": [
+    {
+      "version": "1.74.6",
+      "date": "2026-09-25",
+      "title": "Factory server updates restart only once",
+      "modules": [
+        {
+          "app": "all",
+          "label": "Platform",
+          "icon": "bi-arrow-repeat",
+          "changes": [
+            { "type": "improvement", "text": "When the factory server updates itself it now restarts once instead of twice, so it is briefly offline only one time per update." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.74.5",
+      "date": "2026-09-25",
+      "title": "Database restore upload hardened",
+      "modules": [
+        {
+          "app": "settings",
+          "label": "Settings",
+          "icon": "bi-database",
+          "changes": [
+            { "type": "security", "text": "Database restore only reads the file that was just uploaded, checked by name, before running the restore tool." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.74.4",
+      "date": "2026-09-25",
+      "title": "Preparing to require login everywhere",
+      "modules": [
+        {
+          "app": "all",
+          "label": "Platform",
+          "icon": "bi-shield-lock",
+          "changes": [
+            { "type": "security", "text": "The server now keeps a count of screens and devices that still work without a proper login, so admins can see who needs to log in again before login is required everywhere. Nothing changes for users yet." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.74.3",
       "date": "2026-09-25",
