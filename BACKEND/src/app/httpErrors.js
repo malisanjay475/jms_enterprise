@@ -23,4 +23,13 @@ function sendServerError(res, e, status = 500) {
   try { return res.status(status).json({ ok: false, error }); } catch (_) { return res; }
 }
 
-module.exports = { sendServerError, errorDetail, EXPOSE_ERRORS };
+// Sanitized error string for handlers that must keep their own status/shape
+// (e.g. legacy paths that answer 200 with { ok:false, error }). Logs the full
+// error server-side and returns a generic message in production. Use this instead
+// of String(e)/e.stack in a response body.
+function safeError(e) {
+  try { console.error('[api-error]', (e && e.stack) || e); } catch (_) { /* logging must never throw */ }
+  return EXPOSE_ERRORS ? errorDetail(e) : 'Internal server error';
+}
+
+module.exports = { sendServerError, safeError, errorDetail, EXPOSE_ERRORS };

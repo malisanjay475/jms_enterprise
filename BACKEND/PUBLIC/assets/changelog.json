@@ -11,8 +11,38 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.73.11",
+  "latest": "1.73.13",
   "versions": [
+    {
+      "version": "1.73.13",
+      "date": "2026-09-25",
+      "title": "Security round 7 — no raw error detail in responses",
+      "modules": [
+        {
+          "app": "all",
+          "label": "Platform",
+          "icon": "bi-shield-lock",
+          "changes": [
+            { "type": "security", "text": "Server errors across almost 300 more endpoints (and the sync service) now show a short general message instead of raw technical/database detail, and an error page no longer includes an internal stack trace." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.73.12",
+      "date": "2026-09-25",
+      "title": "Code scanning fix",
+      "modules": [
+        {
+          "app": "all",
+          "label": "Platform",
+          "icon": "bi-shield-check",
+          "changes": [
+            { "type": "security", "text": "Hardened an internal server log line so a user-supplied value can no longer affect how the log message is formatted." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.73.11",
       "date": "2026-09-25",

@@ -3,6 +3,7 @@ const express = require('express');
 const rateLimit = require('express-rate-limit');
 const { allowedExtension, PRIVATE_UPLOAD_DIRS } = require('../src/app/uploadSafety');
 const { ensureUniqueIndex } = require('../src/db/indexUtils');
+const { sendServerError } = require('../src/app/httpErrors');
 
 const router = express.Router();
 
@@ -775,7 +776,7 @@ router.post('/upload-asset', uploadAssetLimiter, async (req, res) => {
         res.json({ ok: true, path: `/uploads/${safeFolder}/${safeFilename}` });
     } catch (e) {
         console.error('[Sync] upload-asset failed:', e.message);
-        res.status(500).json({ error: e.message });
+        sendServerError(res, e);
     }
 });
 
@@ -837,7 +838,7 @@ router.post('/push-deletions', async (req, res) => {
         res.json({ ok: true, rows: normalized.length, stats });
     } catch (e) {
         console.error('[Sync] Push Deletions Error:', e);
-        res.status(500).json({ error: e.message });
+        sendServerError(res, e);
     }
 });
 
@@ -861,7 +862,7 @@ router.get('/pull', async (req, res) => {
         res.json({ ok: true, data: await coerceDateColumnsForWire(table, rows) });
     } catch (e) {
         console.error('[Sync] Pull Serve Error:', e);
-        res.status(500).json({ error: e.message });
+        sendServerError(res, e);
     }
 });
 
@@ -877,7 +878,7 @@ router.get('/pull-deletions', async (req, res) => {
         res.json({ ok: true, data: deletions });
     } catch (e) {
         console.error('[Sync] Pull Deletions Error:', e);
-        res.status(500).json({ error: e.message });
+        sendServerError(res, e);
     }
 });
 
@@ -929,7 +930,7 @@ router.get('/status', async (req, res) => {
             pending_push_count: pendingPushCount
         });
     } catch (e) {
-        res.status(500).json({ error: e.message });
+        sendServerError(res, e);
     }
 });
 
@@ -985,7 +986,7 @@ router.get('/health', async (req, res) => {
             timestamp: new Date().toISOString()
         });
     } catch (e) {
-        res.status(500).json({ ok: false, error: String(e) });
+        sendServerError(res, e);
     }
 });
 
@@ -1010,7 +1011,7 @@ router.get('/health', async (_req, res) => {
             threshold_minutes: Math.round(STALE_MS / 60000),
             reason: stale ? (newest === 0 ? 'no sync activity yet' : `last sync ${Math.round(ageMs / 60000)}m ago`) : 'healthy'
         });
-    } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+    } catch (e) { sendServerError(res, e); }
 });
 
 router.post('/admin/full-pull-reset', async (req, res) => {
@@ -1028,7 +1029,7 @@ router.post('/admin/full-pull-reset', async (req, res) => {
 
         res.json({ ok: true, message: 'LAST_PULL reset. Full re-pull starting in 1 second. Check supervisor window for progress.' });
     } catch (e) {
-        res.status(500).json({ error: e.message });
+        sendServerError(res, e);
     }
 });
 
@@ -1051,7 +1052,7 @@ router.post('/admin/full-push-reset', async (req, res) => {
 
         res.json({ ok: true, message: 'LAST_PUSH reset. Full re-push starting in 1 second. All local data will be sent to MAIN.' });
     } catch (e) {
-        res.status(500).json({ error: e.message });
+        sendServerError(res, e);
     }
 });
 
