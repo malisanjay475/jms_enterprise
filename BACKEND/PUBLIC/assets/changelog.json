@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.73.13",
+  "latest": "1.74.0",
   "versions": [
+    {
+      "version": "1.74.0",
+      "date": "2026-09-25",
+      "title": "FPA auto-approve for a few days",
+      "modules": [
+        {
+          "app": "quality",
+          "label": "Quality",
+          "icon": "bi-lightning-charge",
+          "changes": [
+            { "type": "feat", "text": "QC HOD / Quality can pause FPA approval till a chosen date from the FPA page; until then every FPA submitted from the QC app is approved at once so QC can continue entries, and approval switches back on by itself after that date." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.73.13",
       "date": "2026-09-25",

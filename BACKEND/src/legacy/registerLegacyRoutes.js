@@ -28109,6 +28109,53 @@ app.get('/api/qc/fpa/today', async (req, res) => {
   }
 });
 
+// FPA AUTO-APPROVE — lets Quality pause the approval step for a few days. app_settings key
+// 'qc_fpa_auto_approve_until' holds an inclusive IST date (YYYY-MM-DD); while today is on or
+// before it, a submitted FPA is stored as Approved straight away so QC can continue entries.
+// Empty or past date = normal Pending -> Approve/Reject workflow (it switches back by itself).
+const FPA_AUTO_APPROVE_KEY = 'qc_fpa_auto_approve_until';
+async function getFpaAutoApproveUntil() {
+  try {
+    const r = await q('SELECT value FROM app_settings WHERE key=$1 LIMIT 1', [FPA_AUTO_APPROVE_KEY]);
+    const v = String((r[0] && r[0].value) || '').trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) return null;
+    const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date());
+    return v >= today ? v : null;
+  } catch (_) { return null; }
+}
+
+// GET /api/qc/fpa/auto-approve — current auto-approve window ({ active, until }).
+app.get('/api/qc/fpa/auto-approve', async (req, res) => {
+  try {
+    const until = await getFpaAutoApproveUntil();
+    res.json({ ok: true, active: !!until, until });
+  } catch (e) {
+    sendServerError(res, e);
+  }
+});
+
+// POST /api/qc/fpa/auto-approve { until: 'YYYY-MM-DD' | '' } — FPA approvers only.
+app.post('/api/qc/fpa/auto-approve', async (req, res) => {
+  try {
+    const { role, username } = await resolveCallerRole(req);
+    if (!isFpaApprover(role, username)) {
+      return res.status(403).json({ ok: false, error: 'Only QC HOD / Quality / admin can change FPA auto-approve.' });
+    }
+    const until = String((req.body && req.body.until) || '').trim();
+    if (until && !/^\d{4}-\d{2}-\d{2}$/.test(until)) {
+      return res.status(400).json({ ok: false, error: 'until must be a date (YYYY-MM-DD) or empty' });
+    }
+    await q(`INSERT INTO app_settings(key, value) VALUES($1, $2) ON CONFLICT(key) DO UPDATE SET value = $2`,
+      [FPA_AUTO_APPROVE_KEY, until]);
+    _settingsCache = null;
+    syncService.triggerSync();
+    const active = await getFpaAutoApproveUntil();
+    res.json({ ok: true, active: !!active, until: active });
+  } catch (e) {
+    sendServerError(res, e);
+  }
+});
+
 // POST /api/qc/fpa — upload FPA form image + product reference images (multipart)
 app.post('/api/qc/fpa', (req, res, next) => {
   uploadQC.fields([
@@ -28142,6 +28189,13 @@ app.post('/api/qc/fpa', (req, res, next) => {
     const factoryId = getFactoryId(req);
     const entryDate = date || new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(now);
 
+    // While the auto-approve window is on, the FPA is Approved on submit (no QC HOD step).
+    const autoUntil = await getFpaAutoApproveUntil();
+    const approvalStatus = autoUntil ? 'Approved' : 'Pending';
+    const autoReviewer = autoUntil ? 'AUTO-APPROVED' : null;
+    const autoReviewedAt = autoUntil ? now : null;
+    const autoRemark = autoUntil ? `Auto-approved (FPA approval paused till ${autoUntil})` : null;
+
     // FPA is unique per job card + machine. A re-upload of a REJECTED (or any existing) FPA
     // updates that row and puts it back into Pending for re-approval, rather than inserting a
     // duplicate. Only when no prior FPA exists do we insert a fresh row.
@@ -28165,8 +28219,8 @@ app.post('/api/qc/fpa', (req, res, next) => {
           item_name=$7, mould_name=$8,
           fpa_status='Done', fpa_form_image=$9, fpa_form_url=$10, product_images=$11::jsonb,
           remarks=$12, supervisor=$13, fpa_done_at=$14, fpa_done_by=$15,
-          fpa_approval_status='Pending', fpa_reject_reason=NULL,
-          fpa_reviewed_by=NULL, fpa_reviewed_at=NULL, fpa_approve_remark=NULL,
+          fpa_approval_status=$17, fpa_reject_reason=NULL,
+          fpa_reviewed_by=$18, fpa_reviewed_at=$19, fpa_approve_remark=$20,
           fpa_resubmit_count=COALESCE(fpa_resubmit_count,0)+1,
           updated_at=NOW()
         WHERE id=$16
@@ -28174,28 +28228,32 @@ app.post('/api/qc/fpa', (req, res, next) => {
         entryDate, shift || '', hour_slot || '', plan_id || '', order_no || '', line || '',
         item_name || '', mould_name || '',
         formUrl, formUrl, JSON.stringify(productUrls),
-        remarks || '', supervisor, now, supervisor, fpaId
+        remarks || '', supervisor, now, supervisor, fpaId,
+        approvalStatus, autoReviewer, autoReviewedAt, autoRemark
       ]);
     } else {
       const ins = await q(`
         INSERT INTO qc_job_checks(
           date, shift, hour_slot, plan_id, job_card_no, order_no, line, machine, item_name, mould_name,
           fpa_status, fpa_form_image, fpa_form_url, product_images, remarks, supervisor,
-          fpa_done_at, fpa_done_by, factory_id, fpa_approval_status, updated_at
-        ) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'Done',$11,$12,$13::jsonb,$14,$15,$16,$17,$18,'Pending',NOW())
+          fpa_done_at, fpa_done_by, factory_id, fpa_approval_status,
+          fpa_reviewed_by, fpa_reviewed_at, fpa_approve_remark, updated_at
+        ) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'Done',$11,$12,$13::jsonb,$14,$15,$16,$17,$18,$19,$20,$21,$22,NOW())
         RETURNING id
       `, [
         entryDate, shift || '', hour_slot || '',
         plan_id || '', job_card_no || '', order_no || '',
         line || '', machine || '', item_name || '', mould_name || '',
         formUrl, formUrl, JSON.stringify(productUrls),
-        remarks || '', supervisor, now, supervisor, factoryId
+        remarks || '', supervisor, now, supervisor, factoryId,
+        approvalStatus, autoReviewer, autoReviewedAt, autoRemark
       ]);
       fpaId = ins && ins[0] && ins[0].id;
     }
 
-    // Notify the FPA approver roles of this factory that an FPA is awaiting approval.
-    try {
+    // Notify the FPA approver roles of this factory that an FPA is awaiting approval
+    // (skipped while auto-approve is on — there is nothing to approve).
+    if (!autoUntil) try {
       for (const role of FPA_APPROVER_ROLES) {
         await q(
           `INSERT INTO qc_notifications (factory_id, recipient_role, message, ref_type, ref_id)
@@ -28206,7 +28264,7 @@ app.post('/api/qc/fpa', (req, res, next) => {
     } catch (_) { /* notifications are best-effort */ }
 
     syncService.triggerSync();
-    res.json({ ok: true, id: fpaId, form_url: formUrl, product_images: productUrls, approval_status: 'Pending' });
+    res.json({ ok: true, id: fpaId, form_url: formUrl, product_images: productUrls, approval_status: approvalStatus });
   } catch (e) {
     sendServerError(res, e);
   }
