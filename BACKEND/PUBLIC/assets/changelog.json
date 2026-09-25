@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.74.12",
+  "latest": "1.74.13",
   "versions": [
+    {
+      "version": "1.74.13",
+      "date": "2026-09-25",
+      "title": "Daily database clean-up now runs reliably",
+      "modules": [
+        {
+          "app": "all",
+          "label": "Platform",
+          "icon": "bi-hdd",
+          "changes": [
+            { "type": "fix", "text": "The daily clean-up of old notifications, activity logs and status history now runs every day, even when the server restarts often, so the database stays small and fast." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.74.12",
       "date": "2026-09-25",

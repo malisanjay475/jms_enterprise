@@ -17,8 +17,10 @@ module.exports = {
       exec_mode: 'cluster',
 
       // --- Stability settings ---
-      // Restart a worker if it uses more than 512 MB RAM (guards against memory leaks).
-      max_memory_restart: '512M',
+      // Restart a worker if it uses more than 1 GB RAM (guards against memory leaks).
+      // Was 512 MB: on the VPS the first worker (which also runs ERP AutoSync) sits
+      // around 590-620 MB and was restarted every ~7 minutes (25-Sep-2026).
+      max_memory_restart: '1G',
 
       // Delay between restarts so a crash-looping worker doesn't hammer the system.
       restart_delay: 3000,
