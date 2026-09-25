@@ -663,7 +663,7 @@
                         html += `</tbody></table></div>`;
                         container.innerHTML = html;
                     }).catch(err => {
-                        container.innerHTML = `<div style="padding:20px; text-align:center; color:#ef4444">Error loading data: ${err.message}</div>`;
+                        container.innerHTML = `<div style="padding:20px; text-align:center; color:#ef4444">Error loading data: ${escHtml(err.message)}</div>`;
                     });
                 };
 
@@ -3469,7 +3469,7 @@
 
                     }).catch(err => {
                         console.error(err);
-                        container.innerHTML = `<div style="padding:20px; text-align:center; color:#ef4444">Error: ${err.message}</div>`;
+                        container.innerHTML = `<div style="padding:20px; text-align:center; color:#ef4444">Error: ${escHtml(err.message)}</div>`;
                     });
                 };
 
@@ -3607,7 +3607,7 @@
                         html += `</tbody></table></div > `;
                         container.innerHTML = html;
                     }).catch(err => {
-                        container.innerHTML = `< div style = "padding:20px; text-align:center; color:#ef4444" > Error loading data: ${err.message}</div > `;
+                        container.innerHTML = `<div style="padding:20px; text-align:center; color:#ef4444">Error loading data: ${escHtml(err.message)}</div>`;
                     });
                 };
 

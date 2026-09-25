@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.72.11",
+  "latest": "1.72.12",
   "versions": [
+    {
+      "version": "1.72.12",
+      "date": "2026-09-25",
+      "title": "Error messages on DPR and timeline shown safely",
+      "modules": [
+        {
+          "app": "all",
+          "label": "Platform",
+          "icon": "bi-shield-lock",
+          "changes": [
+            { "type": "security", "text": "Error messages on the DPR and planning timeline screens are shown as plain text, and a DPR loading error that showed broken text now displays properly." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.72.11",
       "date": "2026-09-25",
