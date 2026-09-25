@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.74.2",
+  "latest": "1.74.3",
   "versions": [
+    {
+      "version": "1.74.3",
+      "date": "2026-09-25",
+      "title": "Factory mould data syncs to head office again",
+      "modules": [
+        {
+          "app": "all",
+          "label": "Sync",
+          "icon": "bi-arrow-repeat",
+          "changes": [
+            { "type": "fix", "text": "Moulds and mould planning rows from factory servers that were rejected by head office since August now sync, instead of being retried forever." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.74.2",
       "date": "2026-09-25",

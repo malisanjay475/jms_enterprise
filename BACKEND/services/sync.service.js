@@ -804,6 +804,17 @@ router.post('/push', async (req, res) => {
             } else if (Object.prototype.hasOwnProperty.call(row, 'sync_id')) {
                 delete row.sync_id;
             }
+
+            // A factory row created before its table had a sync token arrives with
+            // global_id/sync_id = null. Sent explicitly, NULL overrides the column's
+            // uuid default and breaks NOT NULL (moulds / mould_planning_summary were
+            // rejected on every push since Aug-2026 and retried forever). Drop empty
+            // tokens so MAIN mints one; the next pull hands it back to the factory.
+            for (const col of DECONFLICT_TOKEN_COLUMNS) {
+                if (Object.prototype.hasOwnProperty.call(row, col) && (row[col] === null || row[col] === '')) {
+                    delete row[col];
+                }
+            }
         });
 
         const stats = await upsertData(table, normalized);
