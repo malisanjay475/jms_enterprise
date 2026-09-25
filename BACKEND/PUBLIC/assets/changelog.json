@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.73.2",
+  "latest": "1.73.3",
   "versions": [
+    {
+      "version": "1.73.3",
+      "date": "2026-09-25",
+      "title": "More stable database connections at busy times",
+      "modules": [
+        {
+          "app": "all",
+          "label": "Platform",
+          "icon": "bi-database-check",
+          "changes": [
+            { "type": "perf", "text": "The live server now shares its database connections fairly between its workers, so busy periods no longer risk \"too many connections\" errors." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.73.2",
       "date": "2026-09-25",
