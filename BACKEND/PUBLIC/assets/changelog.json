@@ -11,8 +11,32 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.74.9",
+  "latest": "1.74.10",
   "versions": [
+    {
+      "version": "1.74.10",
+      "date": "2026-09-25",
+      "title": "Safer OR-JR imports, plan delete guard, Manpower report order",
+      "modules": [
+        {
+          "app": "masters",
+          "label": "Masters",
+          "icon": "bi-cloud-upload",
+          "changes": [
+            { "type": "fix", "text": "OR-JR Status import (Excel and ERP) no longer moves an order that belongs to another factory into yours. Such rows are shown as already recorded under another factory and are not saved." }
+          ]
+        },
+        {
+          "app": "planning",
+          "label": "Planning",
+          "icon": "bi-calendar3",
+          "changes": [
+            { "type": "fix", "text": "A plan that already has DPR production entered can no longer be deleted, so its production does not disappear from plan balances. Complete the plan instead." },
+            { "type": "fix", "text": "The Running Plan Manpower report lists machines in proper Line then machine-number order for every line." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.74.9",
       "date": "2026-09-25",
