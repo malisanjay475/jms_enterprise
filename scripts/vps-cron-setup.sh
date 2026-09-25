@@ -13,7 +13,7 @@
 #
 # Schedule
 #   - DB dump every 30 min, keep 48 (= 24 h)           -> $BACKUP_DIR/dumps
-#   - Uploads archive every hour, keep 2 days           -> $BACKUP_DIR/uploads_*.tar.gz
+#   - Uploads archive daily at 02:05, keep 3            -> $BACKUP_DIR/uploads_*.tar.gz
 #     (taken from inside the app container: uploads live in the jms_v1_uploads
 #      volume, not in $DEPLOY_PATH/BACKEND/PUBLIC/uploads, which is empty — the
 #      old job archived that empty folder every 15 min)
@@ -55,8 +55,9 @@ cat >> "$NEW_CRON" <<CRON
 $BEGIN_MARK
 # 1. DB dump every 30 minutes (keeps last 48 = 24 hours)
 */30 * * * * DB_CONTAINER=$DB_CONTAINER APP_CONTAINER=$APP_CONTAINER BACKUP_DIR=$BACKUP_DIR MAX_BACKUPS=48 bash $DEPLOY_PATH/scripts/backup-db.sh >> $LOG_FILE 2>&1
-# 2. Uploads archive every hour from the app container's uploads volume; keep 2 days
-5 * * * * docker exec $APP_CONTAINER sh -c 'cd /app/PUBLIC && tar -czf - uploads' > $BACKUP_DIR/uploads_\$(date +\%Y-\%m-\%d_\%H).tar.gz 2>> $LOG_FILE; find $BACKUP_DIR -maxdepth 1 -name 'uploads_*.tar.gz' -mtime +2 -delete
+# 2. Uploads archive once a day (02:05) from the app container's uploads volume; keep 3.
+#    Uploads are ~1.4 GB, so the earlier hourly schedule would have held ~65 GB.
+5 2 * * * docker exec $APP_CONTAINER sh -c 'cd /app/PUBLIC && tar -czf - uploads' > $BACKUP_DIR/uploads_\$(date +\%Y-\%m-\%d).tar.gz 2>> $LOG_FILE; ls -1t $BACKUP_DIR/uploads_*.tar.gz 2>/dev/null | tail -n +4 | xargs -r rm -f
 # 3. Offsite sync to Google Drive every 30 minutes (10 min after the dump)
 10,40 * * * * rclone sync "$BACKUP_DIR" "gdrive:JMS-Backups" --copy-links --log-file=/var/log/rclone-sync.log 2>&1
 $END_MARK

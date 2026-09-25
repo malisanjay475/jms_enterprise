@@ -247,7 +247,9 @@ jobs:
             # the deployed branch and the deploy is idempotent.
             if [ -n "$(git status --porcelain)" ]; then
               echo "[deploy] Working tree dirty — stashing local changes before sync"
-              git stash push -u -m "auto-stash before deploy $(date -u +%FT%TZ)" || true
+              git stash push -m "auto-stash before deploy $(date -u +%FT%TZ)" || true
+              # Keep only the 5 newest auto-stashes (they used to pile up forever).
+              while [ "$(git stash list | wc -l)" -gt 5 ]; do git stash drop "stash@{5}" >/dev/null || break; done
             fi
             git reset --hard "origin/$DEPLOY_BRANCH"
             bash scripts/vps-safe-deploy.sh
@@ -305,7 +307,9 @@ jobs:
             # the deployed branch and the deploy is idempotent.
             if [ -n "$(git status --porcelain)" ]; then
               echo "[deploy] Working tree dirty — stashing local changes before sync"
-              git stash push -u -m "auto-stash before deploy $(date -u +%FT%TZ)" || true
+              git stash push -m "auto-stash before deploy $(date -u +%FT%TZ)" || true
+              # Keep only the 5 newest auto-stashes (they used to pile up forever).
+              while [ "$(git stash list | wc -l)" -gt 5 ]; do git stash drop "stash@{5}" >/dev/null || break; done
             fi
             git reset --hard "origin/$DEPLOY_BRANCH"
             bash scripts/vps-safe-deploy.sh
