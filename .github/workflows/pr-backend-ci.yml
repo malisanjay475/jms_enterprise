@@ -34,7 +34,7 @@ jobs:
 
       - uses: actions/setup-node@v6
         with:
-          node-version: "20"
+          node-version: "24"
           cache: "npm"
           cache-dependency-path: BACKEND/package-lock.json
 
@@ -95,3 +95,36 @@ jobs:
         with:
           name: pr-backend-logs
           path: BACKEND/server.log
+
+  # The production image was only built after a merge (staging/production deploy), so a
+  # broken Dockerfile or a dependency that fails to install on Alpine was found late.
+  # Build it here (no push) and check the runtime loads the app's native/critical modules.
+  pr_docker_image:
+    name: pr-docker-image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Build production image (not pushed)
+        uses: docker/build-push-action@v7
+        with:
+          context: ./BACKEND
+          file: ./BACKEND/Dockerfile
+          platforms: linux/amd64
+          push: false
+          load: true
+          tags: jms-v1-app:pr-check
+          cache-from: type=gha
+
+      - name: Smoke test the image
+        run: |
+          docker run --rm --entrypoint node jms-v1-app:pr-check -e "
+            const major = Number(process.versions.node.split('.')[0]);
+            if (major < 24) throw new Error('expected Node 24+, got ' + process.version);
+            require('sharp'); require('pg'); require('bcryptjs'); require('express');
+            require('./src/app/createApp');
+            console.log('image OK on', process.version);
+          "
+          docker run --rm --entrypoint sh jms-v1-app:pr-check -c "pm2 --version && pg_restore --version"

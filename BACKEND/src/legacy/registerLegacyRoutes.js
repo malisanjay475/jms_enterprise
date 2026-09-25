@@ -31,6 +31,7 @@ const {
   recordLoginFailure: _recordLoginFailure,
   clearLoginFailures: _clearLoginFailures
 } = require('../app/loginLockout');
+const { sendServerError } = require('../app/httpErrors');
 const BACKEND_ROOT = path.resolve(__dirname, '..', '..');
 const STATIC_PUBLIC_DIR_NAME = fs.existsSync(path.join(BACKEND_ROOT, 'PUBLIC', 'index.html')) ? 'PUBLIC' : 'public';
 const STATIC_PUBLIC_DIR = path.join(BACKEND_ROOT, STATIC_PUBLIC_DIR_NAME);
@@ -159,7 +160,7 @@ module.exports = function registerLegacyRoutes({ app, pool, config, services }) 
       });
       res.json({ ok: true, data });
     } catch (e) {
-      res.status(500).json({ ok: false, error: String(e.message || e) });
+      sendServerError(res, e);
     }
   });
 
@@ -222,7 +223,7 @@ module.exports = function registerLegacyRoutes({ app, pool, config, services }) 
       fs.writeFileSync(path.join(_qcAppDir, 'version.json'), JSON.stringify(meta, null, 2));
       res.json({ ok: true, ...meta });
     } catch (e) {
-      res.status(500).json({ ok: false, error: String(e.message || e) });
+      sendServerError(res, e);
     } finally {
       if (tempPath && !published) fs.unlink(tempPath, () => { });
     }
@@ -259,6 +260,35 @@ function naturalCompare(a, b) {
 
   // 3. Fallback to Full String
   return A.s.localeCompare(B.s, undefined, { numeric: true, sensitivity: 'base' });
+}
+
+/* ============================================================
+   HELPER: STANDARD MACHINE ORDER (DPR Compliance Summary style)
+   Line from the machine master (B -L1, B -L2 … C -L1 … F -L1), then the
+   machine number at the end of the name (1, 2 … 10), then the name.
+   Machines missing from the master go last. Build once per request with
+   makeMachineOrder(machineRows) and use it as a sort comparator on names.
+   ============================================================ */
+function makeMachineOrder(machineRows) {
+  const lineOf = new Map();
+  (machineRows || []).forEach(m => {
+    const name = String(m.machine || '').trim();
+    if (name) lineOf.set(name, String(m.line || m.building || '').trim());
+  });
+  const idx = s => { const x = String(s).match(/(\d+)\s*$/); return x ? parseInt(x[1], 10) : 999999; };
+  const opts = { numeric: true, sensitivity: 'base' };
+  return (a, b) => {
+    const A = String(a || '').trim(), B = String(b || '').trim();
+    const inA = lineOf.has(A), inB = lineOf.has(B);
+    if (inA !== inB) return inA ? -1 : 1;
+    const lA = lineOf.get(A) || '', lB = lineOf.get(B) || '';
+    if (!lA !== !lB) return lA ? -1 : 1; // machines without a line after the lined ones
+    const lineCmp = lA.localeCompare(lB, undefined, opts);
+    if (lineCmp !== 0) return lineCmp;
+    const idxCmp = idx(A) - idx(B);
+    if (idxCmp !== 0) return idxCmp;
+    return A.localeCompare(B, undefined, opts);
+  };
 }
 
 // Collapse a query result to one row per `id` in place (keeps a single occurrence).
@@ -9334,7 +9364,7 @@ app.get('/api/shifting/jobs/:id/details', async (req, res) => {
       }
     });
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e.message || e) });
+    sendServerError(res, e);
   }
 });
 
@@ -9629,7 +9659,7 @@ app.post('/api/dpr/edit', async (req, res) => {
     res.json({ ok: true, data: result.rows[0] });
   } catch (e) {
     console.error('dpr/edit error', e);
-    res.status(500).json({ error: e.message });
+    sendServerError(res, e);
   }
 });
 
@@ -10581,7 +10611,7 @@ app.get('/api/reports/machine-wise', async (req, res) => {
     res.json({ ok: true, view, count: rows.length, data: rows });
   } catch (e) {
     console.error('/api/reports/machine-wise', e);
-    res.status(500).json({ ok: false, error: String(e.message || e) });
+    sendServerError(res, e);
   }
 });
 
@@ -11691,7 +11721,7 @@ app.get('/api/analyze/orders', async (req, res) => {
     res.json({ ok: true, data, can_select_all_factories: canAll, factories: access.factories });
   } catch (e) {
     console.error('analyze/orders', e);
-    res.status(500).json({ ok: false, error: String(e.message || e) });
+    sendServerError(res, e);
   }
 });
 
@@ -12640,7 +12670,7 @@ app.get('/api/planning/orders/:orderNo/batches', async (req, res) => {
     res.json({ ok: true, data: { batches, jobs: batches, totalBatchQty, totalJobQty: totalBatchQty } });
   } catch (e) {
     console.error('/api/planning/orders/:orderNo/batches', e);
-    res.status(500).json({ ok: false, error: String(e.message || e) });
+    sendServerError(res, e);
   }
 });
 
@@ -12849,7 +12879,7 @@ app.get('/api/planning/orders/:orderNo/job-cards', async (req, res) => {
     });
   } catch (e) {
     console.error('/api/planning/orders/:orderNo/job-cards', e);
-    res.status(500).json({ ok: false, error: String(e.message || e) });
+    sendServerError(res, e);
   }
 });
 
@@ -13235,7 +13265,7 @@ app.post('/api/planning/superadmin-edit', async (req, res) => {
     res.json({ ok: true });
   } catch (e) {
     console.error('planning/superadmin-edit', e);
-    res.status(500).json({ ok: false, error: String(e.message || e) });
+    sendServerError(res, e);
   }
 });
 
@@ -15460,7 +15490,7 @@ app.get('/api/planning/cycle-prediction', async (req, res) => {
     res.json({ ok: true, days, byPair: pairs.map(shape), byMould: moulds.map(shape) });
   } catch (e) {
     console.error('cycle-prediction', e);
-    res.status(500).json({ ok: false, error: String(e.message || e) });
+    sendServerError(res, e);
   }
 });
 
@@ -17073,7 +17103,7 @@ app.get('/api/reports/jms-plan', async (req, res) => {
     res.json({ ok: true, data: rows });
   } catch (e) {
     console.error('/api/reports/jms-plan', e);
-    res.status(500).json({ ok: false, error: String(e.message || e) });
+    sendServerError(res, e);
   }
 });
 
@@ -17278,7 +17308,7 @@ app.get('/api/dpr/stopped-machines', async (req, res) => {
     res.json({ ok: true, data: out, stopMinutes: STOP_MIN, windowDays: WINDOW_DAYS });
   } catch (e) {
     console.error('/api/dpr/stopped-machines', e);
-    res.status(500).json({ ok: false, error: String(e.message || e) });
+    sendServerError(res, e);
   }
 });
 
@@ -17445,7 +17475,7 @@ app.get('/api/reports/machine-downtime.xlsx', async (req, res) => {
     res.send(Buffer.from(buf));
   } catch (e) {
     console.error('/api/reports/machine-downtime.xlsx', e);
-    res.status(500).json({ ok: false, error: String(e.message || e) });
+    sendServerError(res, e);
   }
 });
 
@@ -17614,7 +17644,7 @@ app.post('/api/reports/machine-timeline.xlsx', async (req, res) => {
     res.send(Buffer.from(buf));
   } catch (e) {
     console.error('/api/reports/machine-timeline.xlsx', e);
-    res.status(500).json({ ok: false, error: String(e.message || e) });
+    sendServerError(res, e);
   }
 });
 
@@ -18087,7 +18117,7 @@ app.get('/api/reports/mould-wise-qty', async (req, res) => {
     res.json({ ok: true, view: 'summary', fields: out.fields, data: out.data });
   } catch (e) {
     console.error('/api/reports/mould-wise-qty', e);
-    res.status(500).json({ ok: false, error: String(e.message || e) });
+    sendServerError(res, e);
   }
 });
 
@@ -18106,7 +18136,7 @@ app.get('/api/reports/machine-tonnages', async (req, res) => {
     res.json({ ok: true, data: rows.map(r => Number(r.tonnage)) });
   } catch (e) {
     console.error('/api/reports/machine-tonnages', e);
-    res.status(500).json({ ok: false, error: String(e.message || e) });
+    sendServerError(res, e);
   }
 });
 
@@ -18449,7 +18479,7 @@ app.get('/api/reports/mould-wise-qty.xlsx', async (req, res) => {
     res.end(Buffer.from(buf));
   } catch (e) {
     console.error('/api/reports/mould-wise-qty.xlsx', e);
-    res.status(500).json({ ok: false, error: String(e.message || e) });
+    sendServerError(res, e);
   }
 });
 
@@ -18740,7 +18770,7 @@ async function readErpReport(cfgKey, res) {
     res.json({ ok: true, data: rows, source: 'db', synced_at: meta.last_sync || null, count: meta.n || 0 });
   } catch (e) {
     console.error(`/api/reports/${table} read`, e.message);
-    res.status(500).json({ ok: false, error: String(e.message || e) });
+    sendServerError(res, e);
   }
 }
 
@@ -19131,7 +19161,7 @@ app.get('/api/reports/erp-autosync-history', async (req, res) => {
       data: rows
     });
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e.message || e) });
+    sendServerError(res, e);
   }
 });
 
@@ -21253,7 +21283,7 @@ app.post('/api/orders/fetch-from-orjr', async (req, res) => {
     }
   } catch (e) {
     console.error(e);
-    res.status(500).json({ ok: false, error: e.message });
+    sendServerError(res, e);
   }
 });
 
@@ -25304,7 +25334,7 @@ app.get('/api/moulds/verification-status.xlsx', async (req, res) => {
     res.send(Buffer.from(buf));
   } catch (e) {
     console.error('/api/moulds/verification-status.xlsx', e);
-    res.status(500).json({ ok: false, error: String(e.message || e) });
+    sendServerError(res, e);
   }
 });
 
@@ -26085,7 +26115,7 @@ app.post('/api/ai/plan', async (req, res) => {
     res.json({ ok: true, plan });
   } catch (e) {
     console.error('AI Plan Error:', e);
-    res.status(500).json({ ok: false, error: String(e.message) });
+    sendServerError(res, e);
   }
 });
 
@@ -26121,7 +26151,7 @@ app.post('/api/ai/ask', async (req, res) => {
 
   } catch (e) {
     console.error('AI Chat Error:', e);
-    res.status(500).json({ ok: false, error: String(e.message) });
+    sendServerError(res, e);
   }
 });
 
@@ -26157,7 +26187,7 @@ app.post('/api/ai/explain-suggestions', async (req, res) => {
     }
   } catch (e) {
     console.error('explain-suggestions', e);
-    res.status(500).json({ ok: false, error: String(e.message) });
+    sendServerError(res, e);
   }
 });
 
@@ -27322,6 +27352,13 @@ app.get('/api/reports/machine-maintenance', async (req, res) => {
       params
     );
 
+    // Standard machine order (Line, then machine number) within each period.
+    const machineOrder = makeMachineOrder(await q(
+      `SELECT TRIM(machine) AS machine, line, building FROM machines WHERE COALESCE(is_active, true) = true`));
+    rows.sort((a, b) => a.period_start === b.period_start
+      ? machineOrder(a.machine, b.machine)
+      : (a.period_start < b.period_start ? 1 : -1));
+
     // Per-machine totals for the summary strip
     const byMachine = {};
     rows.forEach(r => {
@@ -27346,39 +27383,67 @@ app.get('/api/reports/machine-maintenance', async (req, res) => {
 
 // GET /api/reports/manpower — Day / Night manpower per date + machine.
 //  - Std manpower = mould master manpower of the shift's latest setup
-//  - Act manpower = std_actual.man_act (entered by the supervisor at setup)
-//  - Maintenance  = same rule as /api/reports/machine-maintenance. A shift counts as
-//    FULL maintenance when it has maintenance downtime and no production; when both
-//    Day and Night are full maintenance the row is flagged "Full day maintenance".
-// shift: 'split' (default) | 'Day' | 'Night'. Only machines that had a setup or a
-// DPR entry in the range are listed (idle machines are left out).
+//  - Act manpower = std_actual.man_act (entered by the supervisor at setup). When a
+//    shift has several setups (mould change) the latest one with manpower entered wins;
+//    every mould run in the shift is still listed.
+//  - Maintenance  = same downtime rule as /api/reports/machine-maintenance, on DPR hourly
+//    rows de-duplicated the same way the DPR does (latest row per slot). A shift is FULL
+//    maintenance when maintenance covers at least 75% of the shift and nothing was
+//    produced; both shifts full = "Full day maintenance".
+//  - Idle         = every active moulding machine is listed for every date; a shift with
+//    no setup and no DPR entry is Idle with 0 manpower.
+// shift: 'split' (default) | 'Day' | 'Night'.
 app.get('/api/reports/manpower', async (req, res) => {
   try {
     const { from, to } = req.query;
     if (!from || !to) return res.json({ ok: false, error: 'from and to dates required' });
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to) || from > to) {
+      return res.json({ ok: false, error: 'Enter a valid From and To date range' });
+    }
+    const dayCount = Math.round((Date.parse(to) - Date.parse(from)) / 86400000) + 1;
+    if (dayCount > 92) return res.json({ ok: false, error: 'Pick a range of 92 days or less' });
     const shift = ['split', 'Day', 'Night'].includes(String(req.query.shift)) ? String(req.query.shift) : 'split';
     const factoryId = getFactoryId(req);
+    // 11.5 productive hours per shift (see SHIFT_HOURS); 75% of it counts as the whole shift.
+    const FULL_MAINT_MIN = Math.round(11.5 * 60 * 0.75);
 
     const params = [from, to];
     let sFactory = '', hFactory = '';
     if (factoryId) {
       params.push(factoryId);
       sFactory = ` AND (s.factory_id = $3 OR s.factory_id IS NULL)`;
-      hFactory = ` AND (h.factory_id = $3 OR h.factory_id IS NULL)`;
+      hFactory = ` AND (factory_id = $3 OR factory_id IS NULL)`;
     }
 
     const setups = await q(
-      `SELECT DISTINCT ON (s.dpr_date, TRIM(s.machine), s.shift)
-              to_char(s.dpr_date, 'YYYY-MM-DD') AS dpr_date,
-              TRIM(s.machine) AS machine, s.shift,
-              COALESCE(NULLIF(TRIM(s.mould_name), ''), pb.mould_name) AS mould_name,
-              s.man_act AS act_man,
+      `WITH s AS (
+         SELECT s.*, TRIM(s.machine) AS mc
+           FROM std_actual s
+          WHERE s.dpr_date BETWEEN $1::date AND $2::date
+            AND s.machine IS NOT NULL AND TRIM(s.machine) <> ''${sFactory}
+       ),
+       moulds_run AS (
+         SELECT dpr_date, mc, shift,
+                string_agg(DISTINCT NULLIF(TRIM(mould_name), ''), ' / ') AS moulds,
+                COUNT(DISTINCT NULLIF(TRIM(mould_name), '')) AS mould_count
+           FROM s GROUP BY dpr_date, mc, shift
+       ),
+       latest AS (
+         SELECT DISTINCT ON (s.dpr_date, s.mc, s.shift) s.*
+           FROM s
+          ORDER BY s.dpr_date, s.mc, s.shift, (s.man_act IS NULL), s.id DESC
+       )
+       SELECT to_char(l.dpr_date, 'YYYY-MM-DD') AS dpr_date, l.mc AS machine, l.shift,
+              COALESCE(mr.moulds, NULLIF(TRIM(l.mould_name), ''), pb.mould_name) AS moulds,
+              COALESCE(mr.mould_count, 0)::int AS mould_count,
+              l.man_act AS act_man,
               COALESCE(m.manpower, mn.manpower) AS std_man
-         FROM std_actual s
+         FROM latest l
+         LEFT JOIN moulds_run mr ON mr.dpr_date = l.dpr_date AND mr.mc = l.mc AND mr.shift = l.shift
          LEFT JOIN LATERAL (
            SELECT pb2.mould_code, pb2.mould_name FROM plan_board pb2
-            WHERE pb2.plan_id = s.plan_id
-              AND (pb2.factory_id = s.factory_id OR pb2.factory_id IS NULL OR s.factory_id IS NULL)
+            WHERE pb2.plan_id = l.plan_id
+              AND (pb2.factory_id = l.factory_id OR pb2.factory_id IS NULL OR l.factory_id IS NULL)
             ORDER BY pb2.id DESC LIMIT 1
          ) pb ON true
          LEFT JOIN LATERAL (
@@ -27389,12 +27454,9 @@ app.get('/api/reports/manpower', async (req, res) => {
          LEFT JOIN LATERAL (
            SELECT m2.manpower FROM moulds m2
             WHERE m.manpower IS NULL
-              AND TRIM(m2.mould_name) = TRIM(COALESCE(s.mould_name, pb.mould_name, ''))
+              AND TRIM(m2.mould_name) = TRIM(COALESCE(l.mould_name, pb.mould_name, ''))
             ORDER BY m2.id LIMIT 1
-         ) mn ON true
-        WHERE s.dpr_date BETWEEN $1::date AND $2::date
-          AND s.machine IS NOT NULL AND TRIM(s.machine) <> ''${sFactory}
-        ORDER BY s.dpr_date, TRIM(s.machine), s.shift, (s.man_act IS NULL), s.id DESC`,
+         ) mn ON true`,
       params
     );
 
@@ -27403,6 +27465,15 @@ app.get('/api/reports/manpower', async (req, res) => {
          SELECT DISTINCT code FROM dpr_reasons
           WHERE type = 'DOWNTIME' AND code IS NOT NULL AND is_active = true
             AND (reason ILIKE '%machine%maint%' OR TRIM(LOWER(reason)) = 'maintenance')
+       ),
+       h AS (
+         -- One row per slot (latest wins), exactly like the DPR summary.
+         SELECT DISTINCT ON (machine, hour_slot, plan_id, dpr_date, shift, COALESCE(colour, '')) *
+           FROM dpr_hourly
+          WHERE is_deleted = false
+            AND dpr_date BETWEEN $1::date AND $2::date
+            AND machine IS NOT NULL AND TRIM(machine) <> ''${hFactory}
+          ORDER BY machine, hour_slot, plan_id, dpr_date, shift, COALESCE(colour, ''), id DESC
        )
        SELECT to_char(h.dpr_date, 'YYYY-MM-DD') AS dpr_date,
               TRIM(h.machine) AS machine, h.shift,
@@ -27415,32 +27486,42 @@ app.get('/api/reports/manpower', async (req, res) => {
                     ), 0)
                   END)::int AS maint_min,
               SUM(COALESCE(h.good_qty, 0) + COALESCE(h.reject_qty, 0))::numeric AS prod_qty
-         FROM dpr_hourly h
-        WHERE h.is_deleted = false
-          AND h.dpr_date BETWEEN $1::date AND $2::date
-          AND h.machine IS NOT NULL AND TRIM(h.machine) <> ''${hFactory}
+         FROM h
         GROUP BY h.dpr_date, TRIM(h.machine), h.shift`,
       params
     );
 
+    const masterRows = await q(
+      `SELECT TRIM(machine) AS machine, line, building,
+              COALESCE(NULLIF(TRIM(machine_process), ''), 'Moulding') ILIKE 'moulding' AS is_moulding
+         FROM machines
+        WHERE COALESCE(is_active, true) = true
+          AND machine IS NOT NULL AND TRIM(machine) <> ''
+          ${factoryId ? 'AND (factory_id = $1 OR factory_id IS NULL)' : ''}`,
+      factoryId ? [factoryId] : []
+    );
+    const machineOrder = makeMachineOrder(masterRows);
+    const machineRows = [...new Set(masterRows.filter(m => m.is_moulding).map(m => m.machine))]
+      .map(machine => ({ machine }));
+
     const num = v => (v == null || v === '' || !Number.isFinite(Number(v))) ? null : Number(v);
+    const r1 = v => Math.round(v * 10) / 10;
     const rows = new Map();
+    const blankShift = () => ({
+      mould: null, mould_count: 0, std: null, act: null,
+      maint_min: 0, full_maint: false, idle: false, has_entry: false
+    });
     const rowFor = (date, machine) => {
       const k = `${date}|${machine}`;
-      if (!rows.has(k)) {
-        rows.set(k, {
-          dpr_date: date, machine,
-          day: { mould: null, std: null, act: null, maint_min: 0, full_maint: false, has_entry: false },
-          night: { mould: null, std: null, act: null, maint_min: 0, full_maint: false, has_entry: false }
-        });
-      }
+      if (!rows.has(k)) rows.set(k, { dpr_date: date, machine, day: blankShift(), night: blankShift() });
       return rows.get(k);
     };
     const shiftKey = s => String(s || '').toLowerCase() === 'night' ? 'night' : 'day';
 
     setups.forEach(r => {
       const sh = rowFor(r.dpr_date, r.machine)[shiftKey(r.shift)];
-      sh.mould = r.mould_name || null;
+      sh.mould = r.moulds || null;
+      sh.mould_count = Number(r.mould_count || 0);
       sh.std = num(r.std_man);
       sh.act = num(r.act_man);
       sh.has_entry = true;
@@ -27448,49 +27529,59 @@ app.get('/api/reports/manpower', async (req, res) => {
     hourly.forEach(r => {
       const sh = rowFor(r.dpr_date, r.machine)[shiftKey(r.shift)];
       sh.maint_min = Number(r.maint_min || 0);
-      sh.full_maint = sh.maint_min > 0 && Number(r.prod_qty || 0) === 0;
+      sh.full_maint = sh.maint_min >= FULL_MAINT_MIN && Number(r.prod_qty || 0) === 0;
       sh.has_entry = true;
     });
+    for (let i = 0; i < dayCount; i++) {
+      const date = new Date(Date.parse(`${from}T00:00:00Z`) + i * 86400000).toISOString().slice(0, 10);
+      machineRows.forEach(m => rowFor(date, m.machine));
+    }
 
     const summary = {
       day: { std: 0, act: 0 }, night: { std: 0, act: 0 },
-      shortage: 0, missing_act: 0, full_day_maint: 0, full_day_maint_machines: []
+      shortage: 0, excess: 0, missing_act: 0, missing_std: 0, idle: 0,
+      full_day_maint: 0, full_day_maint_machines: [], full_maint_min: FULL_MAINT_MIN
     };
+    const inc = shift === 'split' ? ['day', 'night'] : [shiftKey(shift)];
     const data = [];
-    [...rows.values()].forEach(r => {
-      // A shift in full maintenance needs no crew: its std/act count as 0.
+    rows.forEach(r => {
       ['day', 'night'].forEach(k => {
         const sh = r[k];
-        if (sh.full_maint) { sh.std = 0; sh.act = 0; }
-        sh.diff = (sh.std == null || sh.act == null) ? null : sh.act - sh.std;
+        // Idle and full-maintenance shifts need no crew: std/act count as 0.
+        if (!sh.has_entry) sh.idle = true;
+        if (sh.idle || sh.full_maint) { sh.std = 0; sh.act = 0; }
+        sh.diff = (sh.std == null || sh.act == null) ? null : r1(sh.act - sh.std);
       });
       r.full_day_maint = r.day.full_maint && r.night.full_maint;
-      if (shift === 'Day' && !r.day.has_entry) return;
-      if (shift === 'Night' && !r.night.has_entry) return;
-      const inc = shift === 'split' ? ['day', 'night'] : [shiftKey(shift)];
-      r.total_act = inc.reduce((s, k) => s + (r[k].act || 0), 0);
-      r.total_std = inc.reduce((s, k) => s + (r[k].std || 0), 0);
+      r.idle = inc.every(k => r[k].idle);
+      r.total_act = r1(inc.reduce((s, k) => s + (r[k].act || 0), 0));
+      r.total_std = r1(inc.reduce((s, k) => s + (r[k].std || 0), 0));
       inc.forEach(k => {
-        // Std is only totalled where Act was entered, so Std vs Act compare like for like.
-        if (r[k].act == null) { if (r[k].std != null) summary.missing_act += 1; return; }
-        summary[k].std += r[k].std || 0;
-        summary[k].act += r[k].act;
-        if (r[k].diff != null && r[k].diff < 0) summary.shortage += r[k].diff;
+        const sh = r[k];
+        // Totals only use shifts where both Std and Act are known, so they compare like for like.
+        if (sh.act == null) { summary.missing_act += 1; return; }
+        if (sh.std == null) { summary.missing_std += 1; return; }
+        summary[k].std += sh.std;
+        summary[k].act += sh.act;
+        if (sh.diff < 0) summary.shortage += sh.diff;
+        if (sh.diff > 0) summary.excess += sh.diff;
       });
+      if (r.idle) summary.idle += 1;
       if (r.full_day_maint) {
         summary.full_day_maint += 1;
         if (!summary.full_day_maint_machines.includes(r.machine)) summary.full_day_maint_machines.push(r.machine);
       }
       data.push(r);
     });
-
-    data.sort((a, b) => a.dpr_date === b.dpr_date
-      ? a.machine.localeCompare(b.machine, undefined, { numeric: true })
-      : (a.dpr_date < b.dpr_date ? 1 : -1));
-
-    const r1 = v => Math.round(v * 10) / 10;
     ['day', 'night'].forEach(k => { summary[k].std = r1(summary[k].std); summary[k].act = r1(summary[k].act); });
     summary.shortage = r1(summary.shortage);
+    summary.excess = r1(summary.excess);
+
+    data.sort((a, b) => a.dpr_date === b.dpr_date
+      ? machineOrder(a.machine, b.machine)
+      : (a.dpr_date < b.dpr_date ? 1 : -1));
+    summary.full_day_maint_machines.sort(machineOrder);
+
     res.json({ ok: true, shift, data, summary });
   } catch (e) {
     console.error('api/reports/manpower', e);
@@ -27579,6 +27670,17 @@ app.get('/api/reports/tonnage', async (req, res) => {
         ORDER BY period_start DESC${shiftOrd}`,
       params
     );
+
+    if (machineWise) {
+      // Standard machine order (Line, then machine number) within each period/shift.
+      const machineOrder = makeMachineOrder(await q(
+        `SELECT TRIM(machine) AS machine, line, building FROM machines WHERE COALESCE(is_active, true) = true`));
+      detail.sort((a, b) => {
+        if (a.period_start !== b.period_start) return a.period_start < b.period_start ? 1 : -1;
+        if (split && a.shift !== b.shift) return String(a.shift).localeCompare(String(b.shift));
+        return machineOrder(a.machine, b.machine);
+      });
+    }
 
     const num = v => Number(v || 0);
     const totalGood    = periods.reduce((s, r) => s + num(r.good_tonnage), 0);
@@ -31699,7 +31801,7 @@ app.get('/api/analyze/supervisor', async (req, res) => {
     });
   } catch (e) {
     console.error('analyze/supervisor', e);
-    res.status(500).json({ ok: false, error: String(e.message || e) });
+    sendServerError(res, e);
   }
 });
 
@@ -31793,7 +31895,7 @@ app.get('/api/analyze/plant', async (req, res) => {
     res.json({ ok: true, data: { overall: oeeOf(overall), byLine: byLineArr, byDate: byDateArr, lossReasons: lossArr } });
   } catch (e) {
     console.error('analyze/plant', e);
-    res.status(500).json({ ok: false, error: String(e.message || e) });
+    sendServerError(res, e);
   }
 });
 
@@ -31902,7 +32004,7 @@ app.get('/api/analyze/machine', async (req, res) => {
     });
   } catch (e) {
     console.error('analyze/machine', e);
-    res.status(500).json({ ok: false, error: String(e.message || e) });
+    sendServerError(res, e);
   }
 });
 
@@ -31972,7 +32074,7 @@ app.get('/api/analyze/compare', async (req, res) => {
     res.json({ ok: true, data: { factories } });
   } catch (e) {
     console.error('analyze/compare', e);
-    res.status(500).json({ ok: false, error: String(e.message || e) });
+    sendServerError(res, e);
   }
 });
 
@@ -32140,7 +32242,7 @@ app.get('/api/analyze/downtime', async (req, res) => {
     });
   } catch (e) {
     console.error('analyze/downtime', e);
-    res.status(500).json({ ok: false, error: String(e.message || e) });
+    sendServerError(res, e);
   }
 });
 
@@ -32191,7 +32293,7 @@ app.get('/api/analyze/downtime/daily', async (req, res) => {
     res.json({ ok: true, data: { days, reasonKeys, worstDay: worstDay ? worstDay.date : null } });
   } catch (e) {
     console.error('analyze/downtime/daily', e);
-    res.status(500).json({ ok: false, error: String(e.message || e) });
+    sendServerError(res, e);
   }
 });
 
@@ -32247,7 +32349,7 @@ app.get('/api/analyze/downtime/detail', async (req, res) => {
     res.json({ ok: true, data: { rows, count: rows.length } });
   } catch (e) {
     console.error('analyze/downtime/detail', e);
-    res.status(500).json({ ok: false, error: String(e.message || e) });
+    sendServerError(res, e);
   }
 });
 
@@ -32313,7 +32415,7 @@ app.get('/api/analyze/downtime/plant', async (req, res) => {
     res.json({ ok: true, data: { factories, gated: false } });
   } catch (e) {
     console.error('analyze/downtime/plant', e);
-    res.status(500).json({ ok: false, error: String(e.message || e) });
+    sendServerError(res, e);
   }
 });
 

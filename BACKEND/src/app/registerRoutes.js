@@ -8,6 +8,8 @@ const { createAuthMiddleware } = require('./auth');
 const { routeGuardMiddleware } = require('./routeGuards');
 const { createPrivateUploadGuard } = require('./uploadSafety');
 const { apiLimiter } = require('./registerCoreMiddleware');
+const { createReadinessCheck } = require('./healthCheck');
+const { sendServerError } = require('./httpErrors');
 
 // ---------------------------------------------------------------------------
 // SSE helpers
@@ -172,7 +174,7 @@ function registerJmsPlanReportRoute(app, pool) {
       res.json({ ok: true, data: rows });
     } catch (e) {
       console.error('/api/reports/jms-plan', e);
-      res.status(500).json({ ok: false, error: String(e.message || e) });
+      sendServerError(res, e);
     }
   });
 }
@@ -232,16 +234,16 @@ function registerRoutes(app, deps) {
     });
   });
 
-  app.get('/api/health', (req, res) => {
-    res.json({
-      ok: true,
-      db: {
-        host: config.db.host,
-        database: config.db.database,
-        port: config.db.port
-      }
-    });
-  });
+  // Readiness: 503 when the database can't be reached (see healthCheck.js). The DB
+  // host/name/port used to be returned here to anyone; they are no longer exposed.
+  const checkReadiness = createReadinessCheck(pool);
+  const readinessHandler = async (req, res) => {
+    const result = await checkReadiness();
+    res.setHeader('Cache-Control', 'no-store');
+    res.status(result.ok ? 200 : 503).json({ ...result, service: 'jms-backend', status: result.ok ? 'ready' : 'db_unavailable' });
+  };
+  app.get('/api/health', readinessHandler);
+  app.get('/health/ready', readinessHandler);
 
   app.use('/api/erp', services.erpRoutes);
   app.use('/api/local-servers', services.localServerService.router);

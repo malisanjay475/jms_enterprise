@@ -11,8 +11,146 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.73.0",
+  "latest": "1.73.9",
   "versions": [
+    {
+      "version": "1.73.9",
+      "date": "2026-09-25",
+      "title": "Security hardening round 4",
+      "modules": [
+        {
+          "app": "all",
+          "label": "Platform",
+          "icon": "bi-shield-lock",
+          "changes": [
+            { "type": "security", "text": "When something goes wrong, the app now shows a short general message instead of internal database details, so technical information can no longer leak to the browser." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.73.8",
+      "date": "2026-09-25",
+      "title": "Safer database health check and connection limits",
+      "modules": [
+        {
+          "app": "all",
+          "label": "Platform",
+          "icon": "bi-hdd-network",
+          "changes": [
+            { "type": "fix", "text": "If the database stops answering, the health check no longer keeps opening new connections, so it cannot make the outage worse." },
+            { "type": "fix", "text": "On servers with many worker processes, the total number of database connections now always stays within the safe limit." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.73.7",
+      "date": "2026-09-25",
+      "title": "Test server updates working again",
+      "modules": [
+        {
+          "app": "all",
+          "label": "Platform",
+          "icon": "bi-cloud-check",
+          "changes": [
+            { "type": "fix", "text": "Fixed automatic updates of the test (staging) server, so changes are tried there again before they reach the live server." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.73.6",
+      "date": "2026-09-25",
+      "title": "Machines in standard order in Reports",
+      "modules": [
+        {
+          "app": "reports",
+          "label": "Reports",
+          "icon": "bi-sort-numeric-down",
+          "changes": [
+            { "type": "improvement", "text": "Manpower, Machine Maintenance and machine-wise Tonnage reports now list machines line by line and then by machine number (1, 2, 3 … 10), the same way as the DPR Compliance Summary." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.73.5",
+      "date": "2026-09-25",
+      "title": "Live server moved to a supported Node.js version",
+      "modules": [
+        {
+          "app": "all",
+          "label": "Platform",
+          "icon": "bi-cpu",
+          "changes": [
+            { "type": "security", "text": "The live server now runs on Node.js 24, which still gets security updates (the old version 20 no longer does), the same version the factory server uses." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.73.4",
+      "date": "2026-09-25",
+      "title": "Manpower Report: idle machines and more accurate figures",
+      "modules": [
+        {
+          "app": "reports",
+          "label": "Reports",
+          "icon": "bi-people",
+          "changes": [
+            { "type": "improvement", "text": "Manpower Report now lists every active moulding machine; machines or shifts with no setup and no DPR entry show as Idle with 0 manpower." },
+            { "type": "fix", "text": "A shift now counts as full maintenance only when maintenance covers most of the shift and nothing was produced, and repeated DPR entries are no longer counted twice." },
+            { "type": "improvement", "text": "The report lists every mould run in a shift and shows excess manpower next to shortage." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.73.3",
+      "date": "2026-09-25",
+      "title": "More stable database connections at busy times",
+      "modules": [
+        {
+          "app": "all",
+          "label": "Platform",
+          "icon": "bi-database-check",
+          "changes": [
+            { "type": "perf", "text": "The live server now shares its database connections fairly between its workers, so busy periods no longer risk \"too many connections\" errors." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.73.2",
+      "date": "2026-09-25",
+      "title": "Better server health checks",
+      "modules": [
+        {
+          "app": "all",
+          "label": "Platform",
+          "icon": "bi-heart-pulse",
+          "changes": [
+            { "type": "improvement", "text": "The server health check now tests the database too, so a database problem is caught during updates and by monitoring before users notice it." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.73.1",
+      "date": "2026-09-25",
+      "title": "Packing scanner Wi-Fi details kept out of the code",
+      "modules": [
+        {
+          "app": "packing",
+          "label": "Packing",
+          "icon": "bi-upc-scan",
+          "changes": [
+            { "type": "security", "text": "The packing barcode scanner's Wi-Fi password is no longer stored in the app's code. Scanners already running are not affected." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.73.0",
       "date": "2026-09-25",
