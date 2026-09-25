@@ -425,13 +425,13 @@
                         </div>
                         <div style="display:flex; gap:5px">
                             <button class="btn-icon" onclick='printSingle(${JSON.stringify(op)})'><i class="bi bi-printer-fill"></i></button>
-                            <button class="btn-icon" onclick='editOp(${JSON.stringify(op)})'><i class="bi bi-pencil-fill"></i></button>
+                            <button class="btn-icon" onclick='editOp(${escHtml(JSON.stringify(op))})'><i class="bi bi-pencil-fill"></i></button>
                             <button class="btn-icon" onclick="deleteOp(${op.id})" style="color:#ef4444"><i class="bi bi-trash-fill"></i></button>
                         </div>
                     `;
                     list.appendChild(div);
                 });
-            } catch (e) { list.innerHTML = `<div style="color:red; text-align:center">${e.message}</div>`; }
+            } catch (e) { list.innerHTML = `<div style="color:red; text-align:center">${escHtml(e.message)}</div>`; }
         }
 
         window.openOpModal = () => {

@@ -229,6 +229,7 @@
 
             cardsContainer.innerHTML = tables.map(tid => {
                 const plans = TABLE_PLANS[tid];
+                const t = scanEsc(tid), tj = scanJsArg(tid);
                 const activePlan = plans[0];
 
                 let jobSelectHtml = '';
@@ -236,7 +237,7 @@
                     jobSelectHtml = `
                         <div class="form-group mb-2">
                             <label class="form-label text-xs">Select Job</label>
-                            <select class="form-select form-select-sm" onchange="switchPlan('${tid}', this.value)">
+                            <select class="form-select form-select-sm" onchange="switchPlan(${tj}, this.value)">
                                 ${plans.map(p => `
                                     <option value="${scanEsc(p.id)}" ${p.id === activePlan.id ? 'selected' : ''}>
                                         ${scanEsc(p.id)}: ${scanEsc(String(p.item_name || '').substring(0, 15))}...
@@ -251,11 +252,11 @@
 
                 // DIFFERENT HTML STRUCTURE FOR LIST VIEW
                 return `
-                <div class="scan-card" id="card-${tid}" data-plan-id="${scanEsc(activePlan.id)}">
+                <div class="scan-card" id="card-${t}" data-plan-id="${scanEsc(activePlan.id)}">
                     <!-- LEFT COLUMN: HEADER -->
                     <div class="scan-card-header">
                         <span>${scanEsc(tid)}</span>
-                        <span id="badge-${tid}" class="status-badge" style="background:${activePlan.status === 'RUNNING' ? '#dcfce7' : '#f1f5f9'}; color:${activePlan.status === 'RUNNING' ? '#166534' : '#475569'}">
+                        <span id="badge-${t}" class="status-badge" style="background:${activePlan.status === 'RUNNING' ? '#dcfce7' : '#f1f5f9'}; color:${activePlan.status === 'RUNNING' ? '#166534' : '#475569'}">
                             ${scanEsc(activePlan.status)}
                         </span>
                     </div>
@@ -264,7 +265,7 @@
                         <!-- COL 1: DETAILS -->
                         <div style="display:flex; flex-direction:column; gap:10px">
                              ${jobSelectHtml}
-                             <div id="details-${tid}">${getDetailsHtml(activePlan)}</div>
+                             <div id="details-${t}">${getDetailsHtml(activePlan)}</div>
                         </div>
 
                         <!-- COL 2: SCANNER SETUP -->
@@ -272,12 +273,12 @@
                              ${getScannerControlHtml(tid)}
                              
                              <div class="mt-3">
-                                <input class="form-control form-control-sm" placeholder="Manual Shim" onkeydown="handleManualScan(event, '${tid}')">
+                                <input class="form-control form-control-sm" placeholder="Manual Shim" onkeydown="handleManualScan(event, ${tj})">
                              </div>
                         </div>
 
                         <!-- COL 3: LOGS -->
-                        <div class="log-area" id="log-${tid}">
+                        <div class="log-area" id="log-${t}">
                             <div>Ready.</div>
                         </div>
                     </div>
