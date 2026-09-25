@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.74.8",
+  "latest": "1.74.9",
   "versions": [
+    {
+      "version": "1.74.9",
+      "date": "2026-09-25",
+      "title": "Machine pictures load faster on the factory server",
+      "modules": [
+        {
+          "app": "masters",
+          "label": "Masters",
+          "icon": "bi-image",
+          "changes": [
+            { "type": "perf", "text": "On the factory server, machine pictures added on the live server are now kept locally after the first view, so they load instantly instead of being fetched over the internet every time." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.74.8",
       "date": "2026-09-25",
