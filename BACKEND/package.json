@@ -1,6 +1,6 @@
 {
   "name": "backend",
-  "version": "1.73.13",
+  "version": "1.74.0",
   "description": "",
   "main": "index.js",
   "scripts": {
@@ -34,7 +34,7 @@
     "body-parser": "^2.2.1",
     "compression": "^1.8.1",
     "cors": "^2.8.5",
-    "dotenv": "^17.2.3",
+    "dotenv": "^18.0.2",
     "esbuild": "^0.28.1",
     "exceljs": "^4.4.0",
     "express": "^5.2.1",
