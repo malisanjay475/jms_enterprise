@@ -27350,8 +27350,8 @@ app.get('/api/reports/machine-maintenance', async (req, res) => {
 //  - Maintenance  = same rule as /api/reports/machine-maintenance. A shift counts as
 //    FULL maintenance when it has maintenance downtime and no production; when both
 //    Day and Night are full maintenance the row is flagged "Full day maintenance".
-// shift: 'split' (default) | 'Day' | 'Night'. Only machines that had a setup or a
-// DPR entry in the range are listed (idle machines are left out).
+// shift: 'split' (default) | 'Day' | 'Night'. Every active machine is listed for every
+// date; a shift with no setup and no DPR entry is shown as Idle with 0 manpower.
 app.get('/api/reports/manpower', async (req, res) => {
   try {
     const { from, to } = req.query;
@@ -27452,9 +27452,28 @@ app.get('/api/reports/manpower', async (req, res) => {
       sh.has_entry = true;
     });
 
+    // Idle machines: every active machine appears on every date in the range. A shift
+    // with no setup and no DPR entry is idle and needs 0 manpower.
+    const machineRows = await q(
+      `SELECT DISTINCT TRIM(machine) AS machine FROM machines
+        WHERE COALESCE(is_active, true) = true
+          AND machine IS NOT NULL AND TRIM(machine) <> ''
+          ${factoryId ? 'AND (factory_id = $1 OR factory_id IS NULL)' : ''}`,
+      factoryId ? [factoryId] : []
+    );
+    const dates = [];
+    for (let d = new Date(`${from}T00:00:00Z`), end = new Date(`${to}T00:00:00Z`); d <= end && dates.length < 400; d.setUTCDate(d.getUTCDate() + 1)) {
+      dates.push(d.toISOString().slice(0, 10));
+    }
+    dates.forEach(date => machineRows.forEach(m => rowFor(date, m.machine)));
+    rows.forEach(r => ['day', 'night'].forEach(k => {
+      const sh = r[k];
+      if (!sh.has_entry) { sh.idle = true; sh.std = 0; sh.act = 0; sh.has_entry = true; }
+    }));
+
     const summary = {
       day: { std: 0, act: 0 }, night: { std: 0, act: 0 },
-      shortage: 0, missing_act: 0, full_day_maint: 0, full_day_maint_machines: []
+      shortage: 0, missing_act: 0, idle: 0, full_day_maint: 0, full_day_maint_machines: []
     };
     const data = [];
     [...rows.values()].forEach(r => {
@@ -27465,8 +27484,7 @@ app.get('/api/reports/manpower', async (req, res) => {
         sh.diff = (sh.std == null || sh.act == null) ? null : sh.act - sh.std;
       });
       r.full_day_maint = r.day.full_maint && r.night.full_maint;
-      if (shift === 'Day' && !r.day.has_entry) return;
-      if (shift === 'Night' && !r.night.has_entry) return;
+      r.idle = !!(r.day.idle && r.night.idle);
       const inc = shift === 'split' ? ['day', 'night'] : [shiftKey(shift)];
       r.total_act = inc.reduce((s, k) => s + (r[k].act || 0), 0);
       r.total_std = inc.reduce((s, k) => s + (r[k].std || 0), 0);
@@ -27477,6 +27495,7 @@ app.get('/api/reports/manpower', async (req, res) => {
         summary[k].act += r[k].act;
         if (r[k].diff != null && r[k].diff < 0) summary.shortage += r[k].diff;
       });
+      if (inc.every(k => r[k].idle)) summary.idle += 1;
       if (r.full_day_maint) {
         summary.full_day_maint += 1;
         if (!summary.full_day_maint_machines.includes(r.machine)) summary.full_day_maint_machines.push(r.machine);
