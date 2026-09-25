@@ -1150,6 +1150,7 @@ app.get('/.well-known/assetlinks.json', (req, res) => {
 // Must run BEFORE express.static so it can intercept the asset request; falls
 // through cleanly when no fresh precompressed sibling exists.
 const createPrecompressedStatic = require('../app/precompressedStatic');
+const uploadsProxyCache = require('../app/uploadsProxyCache');
 const authSessions = require('../app/auth');
 const { ensureUniqueIndex } = require('../db/indexUtils');
 const { validateDprQuantities } = require('../app/dprValidation');
@@ -1199,6 +1200,15 @@ if (String(config.serverType || '').toUpperCase() === 'LOCAL' && config.mainServ
       const ct = upstream.headers.get('content-type') || 'application/octet-stream';
       res.setHeader('Content-Type', ct);
       res.setHeader('Cache-Control', 'public, max-age=3600');
+      // Public images are kept on disk so the next request is served locally
+      // (uploadsProxyCache.js); everything else is streamed through as before.
+      const cacheTarget = uploadsProxyCache.cacheTargetFor(PRIMARY_UPLOADS_DIR, req.path);
+      const declaredSize = Number(upstream.headers.get('content-length') || 0);
+      if (cacheTarget && declaredSize <= uploadsProxyCache.MAX_CACHE_BYTES) {
+        const buffer = Buffer.from(await upstream.arrayBuffer());
+        uploadsProxyCache.saveCopy(cacheTarget, buffer);
+        return res.end(buffer);
+      }
       const { Readable } = require('stream');
       const readable = Readable.fromWeb(upstream.body);
       // Must handle 'error' on the stream — an unhandled error event crashes Node

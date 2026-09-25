@@ -21,17 +21,8 @@ const RUNTIME_RELEASE_PATH = path.join(__dirname, '..', 'runtime-release.json');
 const BACKEND_DIR = path.resolve(PACKAGE_ROOT, 'BACKEND');
 const CLIENT_BRIDGE_DIR = path.resolve(PACKAGE_ROOT, 'CLIENT_BRIDGE');
 
-function getDependencySignature(rootDir) {
-  const hash = crypto.createHash('sha256');
-  for (const fileName of ['package.json', 'package-lock.json']) {
-    const filePath = path.join(rootDir, fileName);
-    if (fs.existsSync(filePath)) {
-      hash.update(fileName);
-      hash.update(fs.readFileSync(filePath));
-    }
-  }
-  return hash.digest('hex');
-}
+// Shared with LOCAL_SERVER_SUPERVISOR.js so both write the same deps marker.
+const { getDependencySignature } = require('./dependencySignature');
 
 function runProductionNpmInstall(label, cwd) {
   const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
@@ -575,4 +566,4 @@ async function downloadAndApply(mainUrl, remote) {
   process.exit(0);
 }
 
-module.exports = { init, router, __test: { applyReleaseZip } };
+module.exports = { init, router, __test: { applyReleaseZip, getDependencySignature } };

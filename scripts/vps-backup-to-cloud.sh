@@ -15,8 +15,8 @@ DB_CONTAINER="${DB_CONTAINER:-jms-enterprise-v1-db-1}"
 APP_CONTAINER="${APP_CONTAINER:-jms-enterprise-v1-app-1}"
 RCLONE_REMOTE="${RCLONE_REMOTE:-gdrive}"
 RCLONE_DEST="${RCLONE_DEST:-JMS-Backups}"
-KEEP_DB_DUMPS="${KEEP_DB_DUMPS:-120}"
-KEEP_UPLOAD_TARS="${KEEP_UPLOAD_TARS:-30}"
+KEEP_DB_DUMPS="${KEEP_DB_DUMPS:-28}"   # 7 days at 4/day (Drive keeps 35 days)
+KEEP_UPLOAD_TARS="${KEEP_UPLOAD_TARS:-4}"   # ~1.3 GB each; Drive keeps 35 days
 DISK_WARN_PCT="${DISK_WARN_PCT:-85}"
 
 # --- Throttling: keep the backup from starving the live site --------------

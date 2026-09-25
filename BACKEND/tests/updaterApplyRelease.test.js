@@ -67,3 +67,73 @@ describe('Updater: apply release zip', () => {
     expect(fs.existsSync(path.join(path.dirname(root), 'escape.js'))).toBe(false);
   });
 });
+
+describe('Updater: dependency signature', () => {
+  const { __test: { getDependencySignature } } = require('../services/updater.service');
+  let dir;
+  afterEach(() => dir && fs.rmSync(dir, { recursive: true, force: true }));
+
+  function write(pkgVersion, lockVersion, deps = { express: '^5.0.0' }) {
+    fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: 'jms', version: pkgVersion, dependencies: deps }, null, 2));
+    fs.writeFileSync(path.join(dir, 'package-lock.json'), JSON.stringify({
+      name: 'jms', version: lockVersion, lockfileVersion: 3,
+      packages: { '': { name: 'jms', version: lockVersion, dependencies: deps }, 'node_modules/express': { version: '5.1.0' } }
+    }, null, 2));
+  }
+
+  it('ignores a version-only bump (no npm install, no lockfile churn)', () => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'jms-deps-'));
+    write('1.74.0', '1.74.0');
+    const before = getDependencySignature(dir);
+    write('1.74.7', '1.74.0');
+    expect(getDependencySignature(dir)).toBe(before);
+  });
+
+  it('changes when a dependency changes', () => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'jms-deps-'));
+    write('1.74.0', '1.74.0');
+    const before = getDependencySignature(dir);
+    write('1.74.0', '1.74.0', { express: '^5.0.0', pg: '^8.0.0' });
+    expect(getDependencySignature(dir)).not.toBe(before);
+  });
+});
+
+describe('Dependency signature shared by updater and supervisor', () => {
+  const { getDependencySignature } = require('../services/dependencySignature');
+  let dir;
+  afterEach(() => dir && fs.rmSync(dir, { recursive: true, force: true }));
+
+  function write(pkg) {
+    fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify(pkg, null, 2));
+    fs.writeFileSync(path.join(dir, 'package-lock.json'), JSON.stringify({ name: 'jms', version: pkg.version, lockfileVersion: 3, packages: { '': { name: 'jms', version: pkg.version } } }, null, 2));
+  }
+
+  it('changes when package.json overrides change', () => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'jms-deps-'));
+    write({ name: 'jms', version: '1.0.0', dependencies: { a: '1' }, overrides: { b: '1.0.0' } });
+    const before = getDependencySignature(dir);
+    write({ name: 'jms', version: '1.0.0', dependencies: { a: '1' }, overrides: { b: '2.0.0' } });
+    expect(getDependencySignature(dir)).not.toBe(before);
+  });
+
+  it('the generated supervisor script is valid and computes the same marker as the updater', () => {
+    const vm = require('vm');
+    const { __test: { buildSupervisorScript } } = require('../services/release-package.service');
+    const script = buildSupervisorScript();
+    expect(() => new vm.Script(script)).not.toThrow();
+    expect(script).toContain("shell: process.platform === 'win32'");
+    expect(script).not.toMatch(/shell: false/);
+
+    // Run just the signature function from the generated script against a package root
+    // laid out like a LOCAL install (root/BACKEND/services/dependencySignature.js).
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'jms-sup-'));
+    const backendDir = path.join(dir, 'BACKEND');
+    fs.mkdirSync(path.join(backendDir, 'services'), { recursive: true });
+    fs.copyFileSync(require.resolve('../services/dependencySignature'), path.join(backendDir, 'services', 'dependencySignature.js'));
+    fs.writeFileSync(path.join(backendDir, 'package.json'), JSON.stringify({ name: 'jms', version: '9.9.9', dependencies: { a: '1' } }));
+    const fnSrc = script.slice(script.indexOf('function getDependencySignature'), script.indexOf('function ensureBackendDeps'));
+    const sandbox = { require, path, fs, crypto: require('crypto'), backendDir, out: null };
+    vm.runInNewContext(`${fnSrc}\nout = getDependencySignature(backendDir);`, sandbox);
+    expect(sandbox.out).toBe(getDependencySignature(backendDir));
+  });
+});

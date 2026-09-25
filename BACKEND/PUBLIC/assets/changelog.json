@@ -11,8 +11,53 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.74.6",
+  "latest": "1.74.9",
   "versions": [
+    {
+      "version": "1.74.9",
+      "date": "2026-09-25",
+      "title": "Machine pictures load faster on the factory server",
+      "modules": [
+        {
+          "app": "masters",
+          "label": "Masters",
+          "icon": "bi-image",
+          "changes": [
+            { "type": "perf", "text": "On the factory server, machine pictures added on the live server are now kept locally after the first view, so they load instantly instead of being fetched over the internet every time." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.74.8",
+      "date": "2026-09-25",
+      "title": "Reliable package installs on factory servers",
+      "modules": [
+        {
+          "app": "all",
+          "label": "Platform",
+          "icon": "bi-arrow-repeat",
+          "changes": [
+            { "type": "fix", "text": "Factory servers started by the local supervisor can install new packages again after an update, and no longer reinstall them on every start." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.74.7",
+      "date": "2026-09-25",
+      "title": "Fewer restarts when the factory server updates",
+      "modules": [
+        {
+          "app": "all",
+          "label": "Platform",
+          "icon": "bi-arrow-repeat",
+          "changes": [
+            { "type": "improvement", "text": "A new version number alone no longer makes the factory server reinstall its packages and restart an extra time during updates." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.74.6",
       "date": "2026-09-25",
