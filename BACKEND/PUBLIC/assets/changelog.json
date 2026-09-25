@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.74.11",
+  "latest": "1.74.12",
   "versions": [
+    {
+      "version": "1.74.12",
+      "date": "2026-09-25",
+      "title": "Heartbeat clean-up runs once, keeps the latest",
+      "modules": [
+        {
+          "app": "all",
+          "label": "Platform",
+          "icon": "bi-hdd",
+          "changes": [
+            { "type": "perf", "text": "The daily clean-up of old factory-server heartbeats now runs once on the server instead of once per worker, and always keeps the latest 10 for each factory server." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.74.11",
       "date": "2026-09-25",
