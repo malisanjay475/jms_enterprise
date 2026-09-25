@@ -13371,7 +13371,9 @@ app.post('/api/planning/run', async (req, res) => {
 
     // Log Stops
     if (stopped.length > 0) {
-      console.log(`[auto-stop] Plan ${rowId} stopped ${stopped.length} conflicting plan(s):`, stopped.map((s) => s.id));
+      // Literal format string (user-provided rowId passed as an argument, not
+      // interpolated into the format string) — avoids js/tainted-format-string.
+      console.log('[auto-stop] Plan %s stopped %d conflicting plan(s):', rowId, stopped.length, stopped.map((s) => s.id));
       for (const s of stopped) {
         await q(
           "INSERT INTO plan_audit_logs (plan_id, action, details, user_name) VALUES ($1, $2, $3, $4)",
