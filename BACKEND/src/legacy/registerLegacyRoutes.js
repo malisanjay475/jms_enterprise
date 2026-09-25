@@ -13448,6 +13448,37 @@ app.post('/api/planning/delete', async (req, res) => {
 
     // 1. Fetch before delete for logging
     const check = await q('SELECT * FROM plan_board WHERE id = $1', [rowId]);
+
+    // 1b. Refuse to hard-delete a plan that already has production logged.
+    // Deleting the plan_board row leaves its dpr_hourly rows orphaned (production
+    // with no plan): plan-joined balances silently drop that output while raw DPR
+    // reports still count it — the "have entries but plan not showing" bug. DPR
+    // stores plan_id as either the PLN code or the numeric board id, so match both.
+    if (check.length) {
+      const p = check[0];
+      const prod = await q(
+        `SELECT COUNT(*)::int AS rows,
+                COALESCE(SUM(good_qty), 0)::int AS good,
+                COALESCE(SUM(reject_qty), 0)::int AS reject
+           FROM dpr_hourly
+          WHERE (plan_id = $1 OR plan_id = $2)
+            AND COALESCE(is_deleted, false) = false`,
+        [String(p.plan_id || ''), String(rowId)]
+      );
+      const pr = prod[0] || {};
+      if (Number(pr.rows) > 0) {
+        return res.json({
+          ok: false,
+          code: 'PLAN_HAS_PRODUCTION',
+          error:
+            `Cannot delete this plan: it has ${pr.rows} DPR production ` +
+            `entr${Number(pr.rows) === 1 ? 'y' : 'ies'} logged ` +
+            `(${pr.good} good / ${pr.reject} reject). Deleting it would orphan ` +
+            `that production. Mark the plan COMPLETED, or remove its DPR entries first.`,
+        });
+      }
+    }
+
     if (check.length) {
       const p = check[0];
       // Log DELETE
@@ -20136,17 +20167,22 @@ const OR_JR_COMPARE_STR_FIELDS = [
 // the DO UPDATE clause in /api/upload/or-jr-confirm.
 const OR_JR_BLANK_PRESERVING_FIELDS = new Set(['remarks_all']);
 
-// Load the factory's existing or_jr_report rows once, keyed (or_jr_no|job_card_no).
+// Load the existing or_jr_report rows once, keyed (or_jr_no|job_card_no).
 // Split out of buildOrJrUploadPreview so the ERP import can build the map once and
 // then diff the snapshot in batches against it instead of holding both sides in memory.
-async function loadOrJrExistingMap(requestFactoryId) {
+async function loadOrJrExistingMap() {
   const selectCols = [
-    'or_jr_no', 'job_card_no',
+    'or_jr_no', 'job_card_no', 'factory_id',
     ...OR_JR_COMPARE_DATE_FIELDS, ...OR_JR_COMPARE_NUM_FIELDS, ...OR_JR_COMPARE_STR_FIELDS
   ].join(', ');
-  const existingRows = requestFactoryId
-    ? await q(`SELECT ${selectCols} FROM or_jr_report WHERE factory_id = $1`, [requestFactoryId])
-    : await q(`SELECT ${selectCols} FROM or_jr_report`);
+  // The lookup MUST use the same key the confirm UPSERT conflicts on —
+  // (or_jr_no, COALESCE(job_card_no, '')), which is GLOBAL (idx_or_jr_jc_unique has no
+  // factory_id). Scoping this query by factory_id showed another factory's row as NEW,
+  // and the save then hit the conflict and re-homed that row to the importing factory
+  // via `factory_id = EXCLUDED.factory_id`. Look up globally, then classify ownership.
+  // This is deliberately NOT factory-scoped, so it is the one part of the preview that
+  // still scales with the whole table — bounded by or_jr_report, not by the ERP snapshot.
+  const existingRows = await q(`SELECT ${selectCols} FROM or_jr_report`);
 
   const dbMap = new Map();
   existingRows.forEach(row => {
@@ -20159,9 +20195,9 @@ async function loadOrJrExistingMap(requestFactoryId) {
 }
 
 // Annotate ONE mapped row with _status (and _changedFields for UPDATE) against dbMap.
-// This is the single place that decides NEW/UPDATE/SKIP — both the Excel upload and the
-// ERP import go through it, so the two previews can never drift apart.
-function classifyOrJrPreviewRow(row, dbMap) {
+// This is the single place that decides NEW/UPDATE/SKIP/CONFLICT — both the Excel upload
+// and the ERP import go through it, so the two previews can never drift apart.
+function classifyOrJrPreviewRow(row, dbMap, requestFactoryId) {
   const normStr = v => String(v ?? '').trim().toUpperCase();
 
   const rowsDiffer = (incomingRow, dbRow) => {
@@ -20188,6 +20224,15 @@ function classifyOrJrPreviewRow(row, dbMap) {
   // No match → brand-new row
   if (!existing) return { ...row, _status: 'NEW' };
 
+  // Match on the conflict key, but the row belongs to a DIFFERENT factory.
+  // Never silently take it over: exclude and report it, the same policy the ERP
+  // factory split uses for rows it cannot resolve. A NULL factory_id is not another
+  // factory's row — it is unassigned, so the import may claim it.
+  const existingFactoryId = normalizeFactoryId(existing.factory_id);
+  if (requestFactoryId && existingFactoryId && existingFactoryId !== Number(requestFactoryId)) {
+    return { ...row, _status: 'CONFLICT', _existingFactoryId: existingFactoryId };
+  }
+
   // Match → only UPDATE when some detail actually changed; otherwise SKIP
   const changedFields = rowsDiffer(row, existing);
   if (changedFields.length === 0) return { ...row, _status: 'SKIP' };
@@ -20195,8 +20240,8 @@ function classifyOrJrPreviewRow(row, dbMap) {
 }
 
 async function buildOrJrUploadPreview(mapped, requestFactoryId) {
-  const dbMap = await loadOrJrExistingMap(requestFactoryId);
-  return mapped.map(row => classifyOrJrPreviewRow(row, dbMap));
+  const dbMap = await loadOrJrExistingMap();
+  return mapped.map(row => classifyOrJrPreviewRow(row, dbMap, requestFactoryId));
 }
 
 // 1. PREVIEW (Compare Excel vs DB)
@@ -20286,7 +20331,8 @@ async function saveOrJrRows(rows, { factoryId, user }) {
   // Defence in depth — the same guard the endpoint used before delegating here.
   assertUploadRowsMatchFactory(rows, factoryId, 'OR-JR Status upload');
 
-  // Process all NEW and UPDATE rows (no SKIP status exists anymore)
+  // Process all NEW and UPDATE rows. SKIP (no change) and CONFLICT (the OR+JC already
+  // exists under another factory) are both excluded — see classifyOrJrPreviewRow().
   const toProcess = rows.filter(r => r._status === 'NEW' || r._status === 'UPDATE');
   console.log(`[OR - JR Confirm] Processing ${toProcess.length} rows (Total sent: ${rows.length}, Skipped: ${rows.length - toProcess.length})`);
   if (!toProcess.length) {
@@ -20297,6 +20343,8 @@ async function saveOrJrRows(rows, { factoryId, user }) {
 
   {
     let upsertCount = 0;
+    // Rows the cross-factory guard on the UPSERT refused (rowCount 0).
+    let blockedCount = 0;
 
     for (const r of toProcess) {
       try { // ATOMIC ROW START
@@ -20310,7 +20358,7 @@ async function saveOrJrRows(rows, { factoryId, user }) {
         // Smart merge removed: it caused row loss when multiple JCs for the same OR
         // were present in the same upload batch.
         try {
-          await pool.query(`
+          const upsertResult = await pool.query(`
             INSERT INTO or_jr_report(
               or_jr_no, or_jr_date, or_qty, jr_qty, plan_qty, plan_date, job_card_no, job_card_date,
               item_code, product_name, client_name, prod_plan_qty, std_pack, uom,
@@ -20352,6 +20400,15 @@ async function saveOrJrRows(rows, { factoryId, user }) {
               created_by = EXCLUDED.created_by, created_date = EXCLUDED.created_date,
               edited_by = EXCLUDED.edited_by, edited_date = EXCLUDED.edited_date,
               factory_id = EXCLUDED.factory_id
+            -- The conflict key is global (or_jr_no + job_card_no); factory_id is not in it.
+            -- Without this guard, importing a row that already exists under ANOTHER factory
+            -- silently re-homes it here via factory_id = EXCLUDED.factory_id. Refuse that
+            -- write instead — the preview classifies these as CONFLICT and excludes them,
+            -- and this is the backstop for a stale or hand-rolled payload.
+            -- A NULL existing factory_id is unassigned, not owned, so it may be claimed.
+            WHERE or_jr_report.factory_id IS NULL
+               OR EXCLUDED.factory_id IS NULL
+               OR or_jr_report.factory_id = EXCLUDED.factory_id
           `, [
             (r.or_jr_no || '').trim(), r.or_jr_date, r.or_qty, r.jr_qty, r.plan_qty, r.plan_date,
             (r.job_card_no || '').trim(), r.job_card_date,
@@ -20369,7 +20426,13 @@ async function saveOrJrRows(rows, { factoryId, user }) {
             r.edited_date || null,      // $39 Excel Edited Date
             rowFactoryId                // $40
           ]);
-          upsertCount++;
+          if (upsertResult.rowCount === 0) {
+            // The cross-factory guard refused it — the OR+JC belongs to another factory.
+            blockedCount++;
+            console.warn('[OR-JR Upload] Row belongs to another factory, not overwritten:', r.or_jr_no, '/', r.job_card_no);
+          } else {
+            upsertCount++;
+          }
         } catch (upsertErr) {
           console.error('[OR-JR Upload] Row skipped for', r.or_jr_no, '/', r.job_card_no, ':', upsertErr.message);
         }
@@ -20429,8 +20492,8 @@ async function saveOrJrRows(rows, { factoryId, user }) {
       actorName: actor
     });
 
-    console.log(`[OR - JR Confirm] Committed ${upsertCount} upserts`);
-    return { count: toProcess.length, upsertCount, flagged: completionSync.flagged };
+    console.log(`[OR - JR Confirm] Committed ${upsertCount} upserts, ${blockedCount} blocked (other factory)`);
+    return { count: toProcess.length, upsertCount, blockedCount, flagged: completionSync.flagged };
   }
 }
 
@@ -20451,7 +20514,10 @@ app.post('/api/upload/or-jr-confirm', async (req, res) => {
     res.json({
       ok: true,
       count: result.count,
-      message: `Saved ${result.upsertCount} OR-JR rows. ${result.flagged} orders now need completion confirmation.`
+      blocked_other_factory: result.blockedCount || 0,
+      message: `Saved ${result.upsertCount} OR-JR rows.`
+        + (result.blockedCount ? ` ${result.blockedCount} row(s) skipped — already recorded under another factory.` : '')
+        + ` ${result.flagged} orders now need completion confirmation.`
     });
   } catch (e) {
     console.error('upload/or-jr-confirm', e);
@@ -20507,9 +20573,10 @@ async function buildErpOrJrActionableRows(factoryId, { cap = Infinity, factoryNa
   // in-memory map of this factory's existing rows. Only actionable (NEW/UPDATE) rows
   // are kept — SKIP rows are counted and dropped, since neither the modal nor
   // /api/upload/or-jr-confirm does anything with them.
-  const dbMap = await loadOrJrExistingMap(factoryId);
+  const dbMap = await loadOrJrExistingMap();
 
   let sourceRows = 0, otherFactory = 0, unresolved = 0, scopedRows = 0, skipped = 0, changedRows = 0;
+  let crossFactory = 0;  // OR+JC owned by another factory — never importable here
   const rows = [];
   let lastId = 0;
 
@@ -20537,8 +20604,12 @@ async function buildErpOrJrActionableRows(factoryId, { cap = Infinity, factoryNa
 
       assertUploadRowsMatchFactory([mappedRow], factoryId, 'OR-JR Status ERP import');
 
-      const classified = classifyOrJrPreviewRow(mappedRow, dbMap);
+      const classified = classifyOrJrPreviewRow(mappedRow, dbMap, factoryId);
       if (classified._status === 'SKIP') { skipped++; continue; }
+      // The OR+JC already exists under a different factory: excluded and counted, and
+      // kept out of the payload (a CONFLICT row can never be saved, so letting it fill
+      // the row cap would stall the import on the same unsaveable rows).
+      if (classified._status === 'CONFLICT') { crossFactory++; continue; }
 
       changedRows++;
       if (rows.length < cap) rows.push(classified);
@@ -20569,6 +20640,7 @@ async function buildErpOrJrActionableRows(factoryId, { cap = Infinity, factoryNa
       scoped_rows: scopedRows,
       other_factory: otherFactory,
       unresolved,
+      cross_factory: crossFactory,
       skipped_rows: skipped,
       changed_rows: changedRows,
       returned_rows: rows.length,
