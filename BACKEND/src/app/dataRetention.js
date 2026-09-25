@@ -30,7 +30,8 @@ function retentionDays() {
     notificationsRead: readDaysEnv('RETENTION_NOTIFICATIONS_READ_DAYS', 90),
     activityLog: readDaysEnv('RETENTION_ACTIVITY_LOG_DAYS', 180),
     syncDeletions: readDaysEnv('RETENTION_SYNC_DELETIONS_DAYS', 30),
-    machineReadings: readDaysEnv('RETENTION_MACHINE_READINGS_DAYS', 90)
+    machineReadings: readDaysEnv('RETENTION_MACHINE_READINGS_DAYS', 90),
+    legacyAuthUsage: readDaysEnv('RETENTION_LEGACY_AUTH_USAGE_DAYS', 30)
   };
 }
 
@@ -95,6 +96,14 @@ const RULES = [
     days: (d) => d.activityLog,
     run: (pool, cutoff, deadline) => deleteInBatches(pool, {
       table: 'user_activity_log', where: 'created_at < $1', params: [cutoff], deadline
+    })
+  },
+  {
+    name: 'legacy_auth_usage',
+    table: 'legacy_auth_usage',
+    days: (d) => d.legacyAuthUsage,
+    run: (pool, cutoff, deadline) => deleteInBatches(pool, {
+      table: 'legacy_auth_usage', where: 'day < $1::date', params: [cutoff], deadline
     })
   },
   {

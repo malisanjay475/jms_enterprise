@@ -26,6 +26,8 @@ const GUARDED_ROUTES = [
   // Whole-database download (includes password hashes) and restore (runs pg_restore
   // --clean / psql on an uploaded file).
   { method: 'GET', path: /^\/api\/admin\/backup\/?$/, need: 'admin' },
+  // Who still uses the legacy (unverified) identity — lists usernames and endpoints.
+  { method: 'GET', path: /^\/api\/admin\/legacy-auth-usage\/?$/, need: 'admin' },
   { method: 'POST', path: /^\/api\/admin\/restore\/?$/, need: 'superadmin' },
   // Bulk wipes.
   { method: 'POST', path: /^\/api\/admin\/clear-data\/?$/, need: 'dataWipe' },
