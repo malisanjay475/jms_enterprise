@@ -9,6 +9,13 @@ function scanEsc(value) {
     }[ch]));
 }
 
+// Value for a JS string argument inside an HTML attribute, e.g.
+// onclick="fn(${scanJsArg(id)})". JSON-quoting keeps it a string literal and
+// scanEsc keeps the quotes from ending the attribute.
+function scanJsArg(value) {
+    return scanEsc(JSON.stringify(String(value == null ? '' : value)));
+}
+
 // Global State
 let ALL_LINES = []; // Master Data from Settings
 let TABLE_PLANS = {};
@@ -294,17 +301,18 @@ function toggleMode(tid, mode) {
 function getScannerControlHtml(tid) {
     const isConnected = !!TABLE_SCANNERS[tid];
     const mode = TABLE_MODES[tid] || 'COM';
+    const t = scanEsc(tid), tj = scanJsArg(tid);
 
     // 1. Mode Toggles
     const toggleHtml = `
         <div class="btn-group w-100 mb-2" role="group">
-            <input type="radio" class="btn-check" name="mode-${tid}" id="mode-com-${tid}" autocomplete="off" 
-                ${mode === 'COM' ? 'checked' : ''} onclick="toggleMode('${tid}','COM')" ${isConnected ? 'disabled' : ''}>
-            <label class="btn btn-outline-secondary btn-sm" for="mode-com-${tid}">COM</label>
+            <input type="radio" class="btn-check" name="mode-${t}" id="mode-com-${t}" autocomplete="off"
+                ${mode === 'COM' ? 'checked' : ''} onclick="toggleMode(${tj},'COM')" ${isConnected ? 'disabled' : ''}>
+            <label class="btn btn-outline-secondary btn-sm" for="mode-com-${t}">COM</label>
 
-            <input type="radio" class="btn-check" name="mode-${tid}" id="mode-ip-${tid}" autocomplete="off" 
-                ${mode === 'IP' ? 'checked' : ''} onclick="toggleMode('${tid}','IP')" ${isConnected ? 'disabled' : ''}>
-            <label class="btn btn-outline-secondary btn-sm" for="mode-ip-${tid}">Network IP</label>
+            <input type="radio" class="btn-check" name="mode-${t}" id="mode-ip-${t}" autocomplete="off"
+                ${mode === 'IP' ? 'checked' : ''} onclick="toggleMode(${tj},'IP')" ${isConnected ? 'disabled' : ''}>
+            <label class="btn btn-outline-secondary btn-sm" for="mode-ip-${t}">Network IP</label>
         </div>
     `;
 
@@ -315,7 +323,7 @@ function getScannerControlHtml(tid) {
         let opts = '<option value="-1">-- Select Port --</option>';
         if (USING_BRIDGE && BRIDGE_PORTS.length) {
             opts += `<optgroup label="Local COM (Bridge)">`;
-            opts += BRIDGE_PORTS.map(p => `<option value="BRIDGE:${p.path}">${p.path}</option>`).join('');
+            opts += BRIDGE_PORTS.map(p => `<option value="BRIDGE:${scanEsc(p.path)}">${scanEsc(p.path)}</option>`).join('');
             opts += `</optgroup>`;
         }
         if (KNOWN_PORTS.length) {
@@ -325,15 +333,15 @@ function getScannerControlHtml(tid) {
         }
         if (true) opts += `<option value="NEW_SERIAL">+ Pair New (Web Serial)...</option>`;
 
-        inputHtml = `<select id="port-select-${tid}" class="form-select form-select-sm" ${isConnected ? 'disabled' : ''}>${opts}</select>`;
+        inputHtml = `<select id="port-select-${t}" class="form-select form-select-sm" ${isConnected ? 'disabled' : ''}>${opts}</select>`;
     } else {
         // IP Mode
         let opts = '<option value="-1">-- Select Saved IP --</option>';
-        opts += SAVED_IPS.map(ip => `<option value="IP:${ip}">${ip}</option>`).join('');
+        opts += SAVED_IPS.map(ip => `<option value="IP:${scanEsc(ip)}">${scanEsc(ip)}</option>`).join('');
         opts += `<option value="NEW_IP">+ Add New IP...</option>`;
         if (SAVED_IPS.length) opts += `<option value="CLEAR_IPS" style="color:red">-- Clear List --</option>`;
 
-        inputHtml = `<select id="port-select-${tid}" class="form-select form-select-sm" ${isConnected ? 'disabled' : ''}>${opts}</select>`;
+        inputHtml = `<select id="port-select-${t}" class="form-select form-select-sm" ${isConnected ? 'disabled' : ''}>${opts}</select>`;
     }
 
     return `
@@ -342,7 +350,7 @@ function getScannerControlHtml(tid) {
              ${toggleHtml}
              <div class="d-flex gap-2 mb-2">
                 ${inputHtml}
-                <select id="baud-select-${tid}" class="form-select form-select-sm" style="width:100px" ${isConnected ? 'disabled' : ''}>
+                <select id="baud-select-${t}" class="form-select form-select-sm" style="width:100px" ${isConnected ? 'disabled' : ''}>
                     <option value="9600" selected>9600</option>
                     <option value="115200">115200</option>
                     <option value="19200">19200</option>
@@ -353,15 +361,15 @@ function getScannerControlHtml(tid) {
 
              <div class="scanner-status justify-content-between">
                 <div class="d-flex align-items-center gap-2">
-                    <div class="dot ${isConnected ? 'connected' : ''}" id="dot-${tid}"></div>
-                    <span id="label-${tid}" class="text-xs font-mono">
+                    <div class="dot ${isConnected ? 'connected' : ''}" id="dot-${t}"></div>
+                    <span id="label-${t}" class="text-xs font-mono">
                         ${isConnected ? TABLE_SCANNERS[tid].port : 'Disconnected'}
                     </span>
                 </div>
                 <div>
                     ${isConnected ?
-            `<button class="btn btn-sm btn-outline-danger py-0 px-2" onclick="disconnectScanner('${tid}')">Disconnect</button>` :
-            `<button class="btn btn-sm btn-primary py-0 px-2" onclick="connectScanner('${tid}')">Connect</button>`
+            `<button class="btn btn-sm btn-outline-danger py-0 px-2" onclick="disconnectScanner(${tj})">Disconnect</button>` :
+            `<button class="btn btn-sm btn-primary py-0 px-2" onclick="connectScanner(${tj})">Connect</button>`
         }
                 </div>
              </div>
@@ -621,6 +629,7 @@ function lockTable(tid, msg) {
     if (!card) return;
 
     let overlay = document.getElementById(`lock-overlay-${tid}`);
+    const t = scanEsc(tid), tj = scanJsArg(tid);
     if (!overlay) {
         overlay = document.createElement('div');
         overlay.id = `lock-overlay-${tid}`;
@@ -642,8 +651,8 @@ function lockTable(tid, msg) {
         overlay.innerHTML = `
             <i class="bi bi-exclamation-triangle-fill" style="font-size:3rem; margin-bottom:10px"></i>
             <h3 style="font-weight:800; margin:0">STOP!</h3>
-            <div id="lock-msg-${tid}" style="font-size:1.2rem; margin:10px 0; font-weight:600"></div>
-            <button class="btn btn-light btn-lg mt-3" onclick="unlockTable('${tid}')" style="color:#dc2626; font-weight:800">
+            <div id="lock-msg-${t}" style="font-size:1.2rem; margin:10px 0; font-weight:600"></div>
+            <button class="btn btn-light btn-lg mt-3" onclick="unlockTable(${tj})" style="color:#dc2626; font-weight:800">
                 <i class="bi bi-unlock-fill"></i> RESUME
             </button>
         `;

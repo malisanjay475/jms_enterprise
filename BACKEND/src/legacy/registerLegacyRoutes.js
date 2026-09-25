@@ -14301,7 +14301,8 @@ app.get('/api/planning/moulds/alternatives', async (req, res) => {
   try {
     const requestFactoryId = getFactoryId(req);
     const { itemCode, orderNo, orDate, mouldNo } = req.query;
-    const selectedMouldNo = String(mouldNo || itemCode || '').trim();
+    // Capped: the /\s+\d+$/ family regex below is quadratic on long whitespace runs.
+    const selectedMouldNo = String(mouldNo || itemCode || '').slice(0, 200).trim();
     const selectedOrderNo = String(orderNo || '').trim();
     const selectedOrDate = String(orDate || '').trim();
     const selectedOrDateKey = (() => {

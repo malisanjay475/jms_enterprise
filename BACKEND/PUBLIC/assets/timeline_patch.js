@@ -2020,7 +2020,7 @@
         window.superRenderTimelineRows(filtered, cutoffTime);
 
         if (filtered.length === 0 && (b || l || f)) {
-            con.innerHTML += `<div style="padding:15px; color:#64748b; font-size:0.9rem">Filtered 0 machines (Debug v53).<br>B:${b}, L:${l}, Forecast:${f}</div>`;
+            con.innerHTML += `<div style="padding:15px; color:#64748b; font-size:0.9rem">Filtered 0 machines (Debug v53).<br>B:${escHtml(b)}, L:${escHtml(l)}, Forecast:${escHtml(f)}</div>`;
         }
         if (document.getElementById('filter-count')) document.getElementById('filter-count').textContent = filtered.length + ' machines';
     };

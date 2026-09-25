@@ -11,8 +11,24 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.72.10",
+  "latest": "1.72.11",
   "versions": [
+    {
+      "version": "1.72.11",
+      "date": "2026-09-25",
+      "title": "More security fixes for scanning, HR, labels and reports",
+      "modules": [
+        {
+          "app": "all",
+          "label": "Platform",
+          "icon": "bi-shield-lock",
+          "changes": [
+            { "type": "security", "text": "Scanner ports, saved scanner IPs, operator names, label text, error messages and report filters are now always shown as plain text, so unusual values can no longer run code in the browser." },
+            { "type": "security", "text": "The mobile app only opens server addresses that start with http:// or https://." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.72.10",
       "date": "2026-09-24",

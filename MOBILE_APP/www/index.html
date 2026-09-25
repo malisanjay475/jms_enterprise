@@ -194,6 +194,11 @@
     function connectToServer() {
       let url = document.getElementById('targetServerUrl').value.trim();
       if (!url) url = DEFAULT_SERVER;
+      // Only real web addresses: a typed or saved "javascript:" URL would run as script.
+      if (!/^https?:\/\//i.test(url)) {
+        document.getElementById('statusMsg').textContent = 'Server address must start with http:// or https://';
+        return;
+      }
       if (!url.endsWith('/')) url += '/';
       saveServer(url);
       document.getElementById('statusMsg').textContent = 'Connecting to ' + url + '…';
@@ -205,7 +210,7 @@
     document.getElementById('targetServerUrl').value = serverUrl;
 
     setTimeout(() => {
-      if (document.getElementById('serverConfigArea').style.display === 'none') {
+      if (document.getElementById('serverConfigArea').style.display === 'none' && /^https?:\/\//i.test(serverUrl)) {
         window.location.href = serverUrl;
       }
     }, 1200);
