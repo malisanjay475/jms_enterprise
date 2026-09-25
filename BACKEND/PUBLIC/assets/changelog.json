@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.73.0",
+  "latest": "1.73.1",
   "versions": [
+    {
+      "version": "1.73.1",
+      "date": "2026-09-25",
+      "title": "Packing scanner Wi-Fi details kept out of the code",
+      "modules": [
+        {
+          "app": "packing",
+          "label": "Packing",
+          "icon": "bi-upc-scan",
+          "changes": [
+            { "type": "security", "text": "The packing barcode scanner's Wi-Fi password is no longer stored in the app's code. Scanners already running are not affected." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.73.0",
       "date": "2026-09-25",
