@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.73.5",
+  "latest": "1.73.6",
   "versions": [
+    {
+      "version": "1.73.6",
+      "date": "2026-09-25",
+      "title": "Machines in standard order in Reports",
+      "modules": [
+        {
+          "app": "reports",
+          "label": "Reports",
+          "icon": "bi-sort-numeric-down",
+          "changes": [
+            { "type": "improvement", "text": "Manpower, Machine Maintenance and machine-wise Tonnage reports now list machines line by line and then by machine number (1, 2, 3 … 10), the same way as the DPR Compliance Summary." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.73.5",
       "date": "2026-09-25",

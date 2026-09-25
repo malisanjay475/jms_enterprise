@@ -1378,10 +1378,10 @@
         data: data,
         columns: columns,
         pageLength: 25,
-        // Machine-Wise report is already returned in natural machine order
-        // (…-6, -7, -8, -10, -11) with each machine's queue in sequence — keep
-        // that server order instead of letting DataTables re-sort Machine as text.
-        order: (type === 'machine-wise' || type === 'machine-date-history') ? [] : undefined,
+        // These reports come back from the server in the standard machine order
+        // (Line, then machine number: …-6, -7, -8, -10, -11) — keep that order
+        // instead of letting DataTables re-sort Machine as plain text.
+        order: (type === 'machine-wise' || type === 'machine-date-history' || type === 'manpower' || type === 'machine-maintenance' || type === 'tonnage') ? [] : [[0, 'desc']],
         createdRow: type === 'manpower' ? (row, r) => {
           if (r.full_day_maint) { row.style.background = '#fef3c7'; row.style.color = '#92400e'; row.style.fontWeight = '700'; }
           else if (r.idle) { row.style.background = '#f1f5f9'; row.style.color = '#64748b'; }
@@ -1399,7 +1399,6 @@
              className: 'btn-dt'
           }
         ],
-        order: [[0, 'desc']],
         responsive: true
       });
     }
