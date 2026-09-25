@@ -27346,39 +27346,67 @@ app.get('/api/reports/machine-maintenance', async (req, res) => {
 
 // GET /api/reports/manpower — Day / Night manpower per date + machine.
 //  - Std manpower = mould master manpower of the shift's latest setup
-//  - Act manpower = std_actual.man_act (entered by the supervisor at setup)
-//  - Maintenance  = same rule as /api/reports/machine-maintenance. A shift counts as
-//    FULL maintenance when it has maintenance downtime and no production; when both
-//    Day and Night are full maintenance the row is flagged "Full day maintenance".
-// shift: 'split' (default) | 'Day' | 'Night'. Only machines that had a setup or a
-// DPR entry in the range are listed (idle machines are left out).
+//  - Act manpower = std_actual.man_act (entered by the supervisor at setup). When a
+//    shift has several setups (mould change) the latest one with manpower entered wins;
+//    every mould run in the shift is still listed.
+//  - Maintenance  = same downtime rule as /api/reports/machine-maintenance, on DPR hourly
+//    rows de-duplicated the same way the DPR does (latest row per slot). A shift is FULL
+//    maintenance when maintenance covers at least 75% of the shift and nothing was
+//    produced; both shifts full = "Full day maintenance".
+//  - Idle         = every active moulding machine is listed for every date; a shift with
+//    no setup and no DPR entry is Idle with 0 manpower.
+// shift: 'split' (default) | 'Day' | 'Night'.
 app.get('/api/reports/manpower', async (req, res) => {
   try {
     const { from, to } = req.query;
     if (!from || !to) return res.json({ ok: false, error: 'from and to dates required' });
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to) || from > to) {
+      return res.json({ ok: false, error: 'Enter a valid From and To date range' });
+    }
+    const dayCount = Math.round((Date.parse(to) - Date.parse(from)) / 86400000) + 1;
+    if (dayCount > 92) return res.json({ ok: false, error: 'Pick a range of 92 days or less' });
     const shift = ['split', 'Day', 'Night'].includes(String(req.query.shift)) ? String(req.query.shift) : 'split';
     const factoryId = getFactoryId(req);
+    // 11.5 productive hours per shift (see SHIFT_HOURS); 75% of it counts as the whole shift.
+    const FULL_MAINT_MIN = Math.round(11.5 * 60 * 0.75);
 
     const params = [from, to];
     let sFactory = '', hFactory = '';
     if (factoryId) {
       params.push(factoryId);
       sFactory = ` AND (s.factory_id = $3 OR s.factory_id IS NULL)`;
-      hFactory = ` AND (h.factory_id = $3 OR h.factory_id IS NULL)`;
+      hFactory = ` AND (factory_id = $3 OR factory_id IS NULL)`;
     }
 
     const setups = await q(
-      `SELECT DISTINCT ON (s.dpr_date, TRIM(s.machine), s.shift)
-              to_char(s.dpr_date, 'YYYY-MM-DD') AS dpr_date,
-              TRIM(s.machine) AS machine, s.shift,
-              COALESCE(NULLIF(TRIM(s.mould_name), ''), pb.mould_name) AS mould_name,
-              s.man_act AS act_man,
+      `WITH s AS (
+         SELECT s.*, TRIM(s.machine) AS mc
+           FROM std_actual s
+          WHERE s.dpr_date BETWEEN $1::date AND $2::date
+            AND s.machine IS NOT NULL AND TRIM(s.machine) <> ''${sFactory}
+       ),
+       moulds_run AS (
+         SELECT dpr_date, mc, shift,
+                string_agg(DISTINCT NULLIF(TRIM(mould_name), ''), ' / ') AS moulds,
+                COUNT(DISTINCT NULLIF(TRIM(mould_name), '')) AS mould_count
+           FROM s GROUP BY dpr_date, mc, shift
+       ),
+       latest AS (
+         SELECT DISTINCT ON (s.dpr_date, s.mc, s.shift) s.*
+           FROM s
+          ORDER BY s.dpr_date, s.mc, s.shift, (s.man_act IS NULL), s.id DESC
+       )
+       SELECT to_char(l.dpr_date, 'YYYY-MM-DD') AS dpr_date, l.mc AS machine, l.shift,
+              COALESCE(mr.moulds, NULLIF(TRIM(l.mould_name), ''), pb.mould_name) AS moulds,
+              COALESCE(mr.mould_count, 0)::int AS mould_count,
+              l.man_act AS act_man,
               COALESCE(m.manpower, mn.manpower) AS std_man
-         FROM std_actual s
+         FROM latest l
+         LEFT JOIN moulds_run mr ON mr.dpr_date = l.dpr_date AND mr.mc = l.mc AND mr.shift = l.shift
          LEFT JOIN LATERAL (
            SELECT pb2.mould_code, pb2.mould_name FROM plan_board pb2
-            WHERE pb2.plan_id = s.plan_id
-              AND (pb2.factory_id = s.factory_id OR pb2.factory_id IS NULL OR s.factory_id IS NULL)
+            WHERE pb2.plan_id = l.plan_id
+              AND (pb2.factory_id = l.factory_id OR pb2.factory_id IS NULL OR l.factory_id IS NULL)
             ORDER BY pb2.id DESC LIMIT 1
          ) pb ON true
          LEFT JOIN LATERAL (
@@ -27389,12 +27417,9 @@ app.get('/api/reports/manpower', async (req, res) => {
          LEFT JOIN LATERAL (
            SELECT m2.manpower FROM moulds m2
             WHERE m.manpower IS NULL
-              AND TRIM(m2.mould_name) = TRIM(COALESCE(s.mould_name, pb.mould_name, ''))
+              AND TRIM(m2.mould_name) = TRIM(COALESCE(l.mould_name, pb.mould_name, ''))
             ORDER BY m2.id LIMIT 1
-         ) mn ON true
-        WHERE s.dpr_date BETWEEN $1::date AND $2::date
-          AND s.machine IS NOT NULL AND TRIM(s.machine) <> ''${sFactory}
-        ORDER BY s.dpr_date, TRIM(s.machine), s.shift, (s.man_act IS NULL), s.id DESC`,
+         ) mn ON true`,
       params
     );
 
@@ -27403,6 +27428,15 @@ app.get('/api/reports/manpower', async (req, res) => {
          SELECT DISTINCT code FROM dpr_reasons
           WHERE type = 'DOWNTIME' AND code IS NOT NULL AND is_active = true
             AND (reason ILIKE '%machine%maint%' OR TRIM(LOWER(reason)) = 'maintenance')
+       ),
+       h AS (
+         -- One row per slot (latest wins), exactly like the DPR summary.
+         SELECT DISTINCT ON (machine, hour_slot, plan_id, dpr_date, shift, COALESCE(colour, '')) *
+           FROM dpr_hourly
+          WHERE is_deleted = false
+            AND dpr_date BETWEEN $1::date AND $2::date
+            AND machine IS NOT NULL AND TRIM(machine) <> ''${hFactory}
+          ORDER BY machine, hour_slot, plan_id, dpr_date, shift, COALESCE(colour, ''), id DESC
        )
        SELECT to_char(h.dpr_date, 'YYYY-MM-DD') AS dpr_date,
               TRIM(h.machine) AS machine, h.shift,
@@ -27415,32 +27449,38 @@ app.get('/api/reports/manpower', async (req, res) => {
                     ), 0)
                   END)::int AS maint_min,
               SUM(COALESCE(h.good_qty, 0) + COALESCE(h.reject_qty, 0))::numeric AS prod_qty
-         FROM dpr_hourly h
-        WHERE h.is_deleted = false
-          AND h.dpr_date BETWEEN $1::date AND $2::date
-          AND h.machine IS NOT NULL AND TRIM(h.machine) <> ''${hFactory}
+         FROM h
         GROUP BY h.dpr_date, TRIM(h.machine), h.shift`,
       params
     );
 
+    const machineRows = await q(
+      `SELECT DISTINCT TRIM(machine) AS machine FROM machines
+        WHERE COALESCE(is_active, true) = true
+          AND COALESCE(NULLIF(TRIM(machine_process), ''), 'Moulding') ILIKE 'moulding'
+          AND machine IS NOT NULL AND TRIM(machine) <> ''
+          ${factoryId ? 'AND (factory_id = $1 OR factory_id IS NULL)' : ''}`,
+      factoryId ? [factoryId] : []
+    );
+
     const num = v => (v == null || v === '' || !Number.isFinite(Number(v))) ? null : Number(v);
+    const r1 = v => Math.round(v * 10) / 10;
     const rows = new Map();
+    const blankShift = () => ({
+      mould: null, mould_count: 0, std: null, act: null,
+      maint_min: 0, full_maint: false, idle: false, has_entry: false
+    });
     const rowFor = (date, machine) => {
       const k = `${date}|${machine}`;
-      if (!rows.has(k)) {
-        rows.set(k, {
-          dpr_date: date, machine,
-          day: { mould: null, std: null, act: null, maint_min: 0, full_maint: false, has_entry: false },
-          night: { mould: null, std: null, act: null, maint_min: 0, full_maint: false, has_entry: false }
-        });
-      }
+      if (!rows.has(k)) rows.set(k, { dpr_date: date, machine, day: blankShift(), night: blankShift() });
       return rows.get(k);
     };
     const shiftKey = s => String(s || '').toLowerCase() === 'night' ? 'night' : 'day';
 
     setups.forEach(r => {
       const sh = rowFor(r.dpr_date, r.machine)[shiftKey(r.shift)];
-      sh.mould = r.mould_name || null;
+      sh.mould = r.moulds || null;
+      sh.mould_count = Number(r.mould_count || 0);
       sh.std = num(r.std_man);
       sh.act = num(r.act_man);
       sh.has_entry = true;
@@ -27448,49 +27488,58 @@ app.get('/api/reports/manpower', async (req, res) => {
     hourly.forEach(r => {
       const sh = rowFor(r.dpr_date, r.machine)[shiftKey(r.shift)];
       sh.maint_min = Number(r.maint_min || 0);
-      sh.full_maint = sh.maint_min > 0 && Number(r.prod_qty || 0) === 0;
+      sh.full_maint = sh.maint_min >= FULL_MAINT_MIN && Number(r.prod_qty || 0) === 0;
       sh.has_entry = true;
     });
+    for (let i = 0; i < dayCount; i++) {
+      const date = new Date(Date.parse(`${from}T00:00:00Z`) + i * 86400000).toISOString().slice(0, 10);
+      machineRows.forEach(m => rowFor(date, m.machine));
+    }
 
     const summary = {
       day: { std: 0, act: 0 }, night: { std: 0, act: 0 },
-      shortage: 0, missing_act: 0, full_day_maint: 0, full_day_maint_machines: []
+      shortage: 0, excess: 0, missing_act: 0, missing_std: 0, idle: 0,
+      full_day_maint: 0, full_day_maint_machines: [], full_maint_min: FULL_MAINT_MIN
     };
+    const inc = shift === 'split' ? ['day', 'night'] : [shiftKey(shift)];
     const data = [];
-    [...rows.values()].forEach(r => {
-      // A shift in full maintenance needs no crew: its std/act count as 0.
+    rows.forEach(r => {
       ['day', 'night'].forEach(k => {
         const sh = r[k];
-        if (sh.full_maint) { sh.std = 0; sh.act = 0; }
-        sh.diff = (sh.std == null || sh.act == null) ? null : sh.act - sh.std;
+        // Idle and full-maintenance shifts need no crew: std/act count as 0.
+        if (!sh.has_entry) sh.idle = true;
+        if (sh.idle || sh.full_maint) { sh.std = 0; sh.act = 0; }
+        sh.diff = (sh.std == null || sh.act == null) ? null : r1(sh.act - sh.std);
       });
       r.full_day_maint = r.day.full_maint && r.night.full_maint;
-      if (shift === 'Day' && !r.day.has_entry) return;
-      if (shift === 'Night' && !r.night.has_entry) return;
-      const inc = shift === 'split' ? ['day', 'night'] : [shiftKey(shift)];
-      r.total_act = inc.reduce((s, k) => s + (r[k].act || 0), 0);
-      r.total_std = inc.reduce((s, k) => s + (r[k].std || 0), 0);
+      r.idle = inc.every(k => r[k].idle);
+      r.total_act = r1(inc.reduce((s, k) => s + (r[k].act || 0), 0));
+      r.total_std = r1(inc.reduce((s, k) => s + (r[k].std || 0), 0));
       inc.forEach(k => {
-        // Std is only totalled where Act was entered, so Std vs Act compare like for like.
-        if (r[k].act == null) { if (r[k].std != null) summary.missing_act += 1; return; }
-        summary[k].std += r[k].std || 0;
-        summary[k].act += r[k].act;
-        if (r[k].diff != null && r[k].diff < 0) summary.shortage += r[k].diff;
+        const sh = r[k];
+        // Totals only use shifts where both Std and Act are known, so they compare like for like.
+        if (sh.act == null) { summary.missing_act += 1; return; }
+        if (sh.std == null) { summary.missing_std += 1; return; }
+        summary[k].std += sh.std;
+        summary[k].act += sh.act;
+        if (sh.diff < 0) summary.shortage += sh.diff;
+        if (sh.diff > 0) summary.excess += sh.diff;
       });
+      if (r.idle) summary.idle += 1;
       if (r.full_day_maint) {
         summary.full_day_maint += 1;
         if (!summary.full_day_maint_machines.includes(r.machine)) summary.full_day_maint_machines.push(r.machine);
       }
       data.push(r);
     });
+    ['day', 'night'].forEach(k => { summary[k].std = r1(summary[k].std); summary[k].act = r1(summary[k].act); });
+    summary.shortage = r1(summary.shortage);
+    summary.excess = r1(summary.excess);
 
     data.sort((a, b) => a.dpr_date === b.dpr_date
       ? a.machine.localeCompare(b.machine, undefined, { numeric: true })
       : (a.dpr_date < b.dpr_date ? 1 : -1));
 
-    const r1 = v => Math.round(v * 10) / 10;
-    ['day', 'night'].forEach(k => { summary[k].std = r1(summary[k].std); summary[k].act = r1(summary[k].act); });
-    summary.shortage = r1(summary.shortage);
     res.json({ ok: true, shift, data, summary });
   } catch (e) {
     console.error('api/reports/manpower', e);
