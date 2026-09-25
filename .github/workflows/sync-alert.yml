@@ -62,7 +62,7 @@ jobs:
       # step dies with "stat .github/scripts/...: no such file or directory".
       - name: Check out the repo (needed for the SSH script)
         if: env.HAS_KEY == 'true'
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           # This job only needs the script file on disk — it never runs an
           # authenticated git command afterwards, so don't leave the workflow
@@ -84,7 +84,7 @@ jobs:
         id: query
         if: env.HAS_KEY == 'true'
         continue-on-error: true
-        uses: appleboy/ssh-action@v1.2.5
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
         env:
           SYNC_API_KEY: ${{ secrets.SYNC_API_KEY }}
         with:
@@ -106,7 +106,7 @@ jobs:
         id: query_retry
         if: env.HAS_KEY == 'true' && steps.query.outcome != 'success'
         continue-on-error: true
-        uses: appleboy/ssh-action@v1.2.5
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
         env:
           SYNC_API_KEY: ${{ secrets.SYNC_API_KEY }}
         with:
@@ -193,7 +193,7 @@ jobs:
 
       - name: Send alert email
         if: failure() && env.HAS_KEY == 'true' && env.HAS_MAIL == 'true'
-        uses: dawidd6/action-send-mail@v18
+        uses: dawidd6/action-send-mail@94de994a9f6fffee200243214e17002e2920bb59 # v18
         with:
           server_address: smtp.gmail.com
           server_port: 465
