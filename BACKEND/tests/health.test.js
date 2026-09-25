@@ -57,12 +57,52 @@ describe('Health endpoints', () => {
       expect(res.body.ok).toBe(true);
     });
 
-    it('returns db connection info', async () => {
+    it('checks the database and does not reveal where it is', async () => {
       const res = await request(app).get('/api/health');
-      expect(res.body.db).toBeDefined();
-      expect(res.body.db.host).toBeDefined();
-      expect(res.body.db.database).toBeDefined();
-      expect(res.body.db.port).toBeDefined();
+      expect(res.body.db.ok).toBe(true);
+      expect(res.body.db.host).toBeUndefined();
+      expect(res.body.db.database).toBeUndefined();
+      expect(res.body.db.port).toBeUndefined();
+      expect(res.headers['cache-control']).toBe('no-store');
     });
+
+    it('is also served at /health/ready', async () => {
+      const res = await request(app).get('/health/ready');
+      expect(res.status).toBe(200);
+      expect(res.body.status).toBe('ready');
+    });
+  });
+});
+
+describe('Readiness check', () => {
+  const { createReadinessCheck } = require('../src/app/healthCheck');
+  let warnSpy;
+  beforeEach(() => { warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {}); });
+  afterEach(() => warnSpy.mockRestore());
+
+  it('reports the database as unreachable without leaking the error text', async () => {
+    const pool = { query: jest.fn().mockRejectedValue(new Error('connect ECONNREFUSED 172.18.0.2:5432')) };
+    const result = await createReadinessCheck(pool, { cacheMs: 0 })();
+    expect(result.ok).toBe(false);
+    expect(result.db.error).toBe('unreachable');
+    expect(JSON.stringify(result)).not.toContain('172.18.0.2');
+    expect(warnSpy.mock.calls.join(' ')).toContain('ECONNREFUSED');
+  });
+
+  it('times out when the database hangs', async () => {
+    const pool = { query: jest.fn(() => new Promise(() => {})) };
+    const result = await createReadinessCheck(pool, { timeoutMs: 50, cacheMs: 0 })();
+    expect(result.ok).toBe(false);
+    expect(result.db.error).toBe('timeout');
+  });
+
+  it('caches the answer so frequent polling does not load the database', async () => {
+    const pool = { query: jest.fn().mockResolvedValue({ rows: [{ '?column?': 1 }] }), totalCount: 3, idleCount: 2, waitingCount: 0 };
+    const check = createReadinessCheck(pool, { cacheMs: 60000 });
+    const [a, b] = await Promise.all([check(), check()]);
+    await check();
+    expect(pool.query).toHaveBeenCalledTimes(1);
+    expect(a).toBe(b);
+    expect(a.pool).toEqual({ total: 3, idle: 2, waiting: 0 });
   });
 });
