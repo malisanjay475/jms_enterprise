@@ -261,6 +261,35 @@ function naturalCompare(a, b) {
   return A.s.localeCompare(B.s, undefined, { numeric: true, sensitivity: 'base' });
 }
 
+/* ============================================================
+   HELPER: STANDARD MACHINE ORDER (DPR Compliance Summary style)
+   Line from the machine master (B -L1, B -L2 … C -L1 … F -L1), then the
+   machine number at the end of the name (1, 2 … 10), then the name.
+   Machines missing from the master go last. Build once per request with
+   makeMachineOrder(machineRows) and use it as a sort comparator on names.
+   ============================================================ */
+function makeMachineOrder(machineRows) {
+  const lineOf = new Map();
+  (machineRows || []).forEach(m => {
+    const name = String(m.machine || '').trim();
+    if (name) lineOf.set(name, String(m.line || m.building || '').trim());
+  });
+  const idx = s => { const x = String(s).match(/(\d+)\s*$/); return x ? parseInt(x[1], 10) : 999999; };
+  const opts = { numeric: true, sensitivity: 'base' };
+  return (a, b) => {
+    const A = String(a || '').trim(), B = String(b || '').trim();
+    const inA = lineOf.has(A), inB = lineOf.has(B);
+    if (inA !== inB) return inA ? -1 : 1;
+    const lA = lineOf.get(A) || '', lB = lineOf.get(B) || '';
+    if (!lA !== !lB) return lA ? -1 : 1; // machines without a line after the lined ones
+    const lineCmp = lA.localeCompare(lB, undefined, opts);
+    if (lineCmp !== 0) return lineCmp;
+    const idxCmp = idx(A) - idx(B);
+    if (idxCmp !== 0) return idxCmp;
+    return A.localeCompare(B, undefined, opts);
+  };
+}
+
 // Collapse a query result to one row per `id` in place (keeps a single occurrence).
 // Guards against LEFT JOIN fan-out (e.g. a non-unique join key matching several rows)
 // silently duplicating primary-table rows. No-op when every id is already unique.
@@ -27322,6 +27351,13 @@ app.get('/api/reports/machine-maintenance', async (req, res) => {
       params
     );
 
+    // Standard machine order (Line, then machine number) within each period.
+    const machineOrder = makeMachineOrder(await q(
+      `SELECT TRIM(machine) AS machine, line, building FROM machines WHERE COALESCE(is_active, true) = true`));
+    rows.sort((a, b) => a.period_start === b.period_start
+      ? machineOrder(a.machine, b.machine)
+      : (a.period_start < b.period_start ? 1 : -1));
+
     // Per-machine totals for the summary strip
     const byMachine = {};
     rows.forEach(r => {
@@ -27454,14 +27490,18 @@ app.get('/api/reports/manpower', async (req, res) => {
       params
     );
 
-    const machineRows = await q(
-      `SELECT DISTINCT TRIM(machine) AS machine FROM machines
+    const masterRows = await q(
+      `SELECT TRIM(machine) AS machine, line, building,
+              COALESCE(NULLIF(TRIM(machine_process), ''), 'Moulding') ILIKE 'moulding' AS is_moulding
+         FROM machines
         WHERE COALESCE(is_active, true) = true
-          AND COALESCE(NULLIF(TRIM(machine_process), ''), 'Moulding') ILIKE 'moulding'
           AND machine IS NOT NULL AND TRIM(machine) <> ''
           ${factoryId ? 'AND (factory_id = $1 OR factory_id IS NULL)' : ''}`,
       factoryId ? [factoryId] : []
     );
+    const machineOrder = makeMachineOrder(masterRows);
+    const machineRows = [...new Set(masterRows.filter(m => m.is_moulding).map(m => m.machine))]
+      .map(machine => ({ machine }));
 
     const num = v => (v == null || v === '' || !Number.isFinite(Number(v))) ? null : Number(v);
     const r1 = v => Math.round(v * 10) / 10;
@@ -27537,8 +27577,9 @@ app.get('/api/reports/manpower', async (req, res) => {
     summary.excess = r1(summary.excess);
 
     data.sort((a, b) => a.dpr_date === b.dpr_date
-      ? a.machine.localeCompare(b.machine, undefined, { numeric: true })
+      ? machineOrder(a.machine, b.machine)
       : (a.dpr_date < b.dpr_date ? 1 : -1));
+    summary.full_day_maint_machines.sort(machineOrder);
 
     res.json({ ok: true, shift, data, summary });
   } catch (e) {
@@ -27628,6 +27669,17 @@ app.get('/api/reports/tonnage', async (req, res) => {
         ORDER BY period_start DESC${shiftOrd}`,
       params
     );
+
+    if (machineWise) {
+      // Standard machine order (Line, then machine number) within each period/shift.
+      const machineOrder = makeMachineOrder(await q(
+        `SELECT TRIM(machine) AS machine, line, building FROM machines WHERE COALESCE(is_active, true) = true`));
+      detail.sort((a, b) => {
+        if (a.period_start !== b.period_start) return a.period_start < b.period_start ? 1 : -1;
+        if (split && a.shift !== b.shift) return String(a.shift).localeCompare(String(b.shift));
+        return machineOrder(a.machine, b.machine);
+      });
+    }
 
     const num = v => Number(v || 0);
     const totalGood    = periods.reduce((s, r) => s + num(r.good_tonnage), 0);
