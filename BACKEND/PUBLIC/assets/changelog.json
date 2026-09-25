@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.73.6",
+  "latest": "1.73.7",
   "versions": [
+    {
+      "version": "1.73.7",
+      "date": "2026-09-25",
+      "title": "Test server updates working again",
+      "modules": [
+        {
+          "app": "all",
+          "label": "Platform",
+          "icon": "bi-cloud-check",
+          "changes": [
+            { "type": "fix", "text": "Fixed automatic updates of the test (staging) server, so changes are tried there again before they reach the live server." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.73.6",
       "date": "2026-09-25",
