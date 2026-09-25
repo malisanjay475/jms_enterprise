@@ -275,6 +275,7 @@
             <option value="extra-qty-allowed">Extra Allowed QTY By PPC</option>
             <option value="machine-maintenance">Machine Maintenance Report</option>
             <option value="tonnage">Tonnage Report</option>
+            <option value="manpower">Manpower Report</option>
             <option value="machine-wise">Machine-Wise Plan Report</option>
             <option value="machine-date-history">Machine Date-Wise History</option>
           </select>
@@ -341,6 +342,15 @@
           <select id="tonnageShift" class="form-input">
             <option value="all" selected>Day + Night (Combined)</option>
             <option value="split">Day &amp; Night (Split)</option>
+            <option value="Day">Day Only</option>
+            <option value="Night">Night Only</option>
+          </select>
+        </div>
+
+        <div class="control-group" id="manShiftGroup" style="display:none">
+          <label class="control-label">Shift</label>
+          <select id="manShift" class="form-input">
+            <option value="split" selected>Day &amp; Night (Split)</option>
             <option value="Day">Day Only</option>
             <option value="Night">Night Only</option>
           </select>
@@ -537,6 +547,7 @@
       document.getElementById('tonnagePeriodGroup').style.display = type === 'tonnage' ? 'flex' : 'none';
       document.getElementById('tonnageShiftGroup').style.display = type === 'tonnage' ? 'flex' : 'none';
       document.getElementById('tonnageMachineGroup').style.display = type === 'tonnage' ? 'flex' : 'none';
+      document.getElementById('manShiftGroup').style.display = type === 'manpower' ? 'flex' : 'none';
       const isMw = type === 'machine-wise';
       document.getElementById('mwMachineGroup').style.display = isMw ? 'flex' : 'none';
       document.getElementById('mwViewGroup').style.display = isMw ? 'flex' : 'none';
@@ -736,6 +747,9 @@
           const shift = document.getElementById('tonnageShift').value;
           const machine = document.getElementById('tonnageMachine').value;
           endpoint = `/reports/tonnage?factory_id=${factoryId}&from=${from}&to=${to}&group=${period}&shift=${shift}&machine=${machine}`;
+        } else if (type === 'manpower') {
+          const shift = document.getElementById('manShift').value;
+          endpoint = `/reports/manpower?factory_id=${factoryId}&from=${from}&to=${to}&shift=${shift}`;
         } else if (type === 'machine-wise') {
           const schedule = document.getElementById('mwSchedule').checked;
           // Finish-schedule mode forces ALL machines + summary view (one row per plan).
@@ -764,6 +778,9 @@
             window._tonnageShift = res.shift || 'all';
             window._tonnageMachineWise = !!res.machineWise;
             window._tonnagePeriods = res.periods || [];
+            renderReport(res.data, type, res.summary);
+          } else if (type === 'manpower') {
+            window._manShift = res.shift || 'split';
             renderReport(res.data, type, res.summary);
           } else if (type === 'machine-wise') {
             window._mwView = res.view || 'summary';
@@ -1035,6 +1052,28 @@
         </div>`;
     }
 
+    function renderManpowerSummary(summary, shift) {
+      const strip = document.getElementById('eqaSummaryStrip');
+      if (!summary) { strip.style.display = 'none'; strip.innerHTML = ''; return; }
+      const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c =>
+        ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+      const pill = (label, val, color) =>
+        `<span style="background:${color}12;color:${color};border:1px solid ${color}44;border-radius:8px;padding:4px 12px;font-weight:800;font-size:0.78rem;white-space:nowrap">${esc(label)}: ${esc(val)}</span>`;
+      const machines = (summary.full_day_maint_machines || []).map(m => pill(m, 'Full day', '#b45309')).join(' ');
+      strip.style.display = 'block';
+      strip.innerHTML = `
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px">
+          ${shift !== 'Night' ? pill('Day Std / Act', `${summary.day.std} / ${summary.day.act}`, '#2563eb') : ''}
+          ${shift !== 'Day' ? pill('Night Std / Act', `${summary.night.std} / ${summary.night.act}`, '#4f46e5') : ''}
+          ${pill('Shortage', summary.shortage, summary.shortage < 0 ? '#dc2626' : '#16a34a')}
+          ${pill('Shifts without Act manpower', summary.missing_act || 0, '#64748b')}
+          ${pill('Full Day Maintenance (machine-days)', summary.full_day_maint || 0, '#b45309')}
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+          <span class="control-label" style="align-self:center">Machines under full day maintenance:</span> ${machines || '<span style="color:var(--text-light)">–</span>'}
+        </div>`;
+    }
+
     function tonnagePeriodLabel(v, group) {
       if (!v) return '';
       if (group === 'daily') return fmtDate(v);
@@ -1148,6 +1187,7 @@
       document.getElementById('tableCard').style.display = 'block';
       if (type === 'extra-qty-allowed') renderEqaSummary(summary);
       else if (type === 'machine-maintenance') renderMaintSummary(summary);
+      else if (type === 'manpower') renderManpowerSummary(summary, window._manShift || 'split');
       else if (type === 'tonnage') renderTonnageSummary(summary, window._tonnagePeriods, window._tonnageGroup || 'monthly', window._tonnageShift || 'all');
       else renderEqaSummary(null);
 
@@ -1156,6 +1196,7 @@
         : type === 'extra-qty-allowed' ? 'Extra Allowed QTY By PPC'
         : type === 'machine-maintenance' ? `Machine Maintenance (${(window._maintGroup || 'daily')})`
         : type === 'tonnage' ? `Tonnage (${(window._tonnageGroup || 'monthly')}${(window._tonnageShift && window._tonnageShift !== 'all') ? ' · ' + (window._tonnageShift === 'split' ? 'Day+Night' : window._tonnageShift) : ''})`
+        : type === 'manpower' ? `Manpower (${window._manShift === 'split' ? 'Day + Night' : (window._manShift || 'Day + Night')})`
         : type === 'machine-wise' ? `Machine-Wise Plan (${window._mwView === 'detail' ? 'Detail · per colour' : 'Summary · per plan'})`
         : type === 'machine-date-history' ? `Machine Date-Wise History${window._mdhMachine ? ' · ' + window._mdhMachine : ''}${window._mdhSplitShift ? ' · Day/Night' : ''}`
         : (type === 'summary' ? 'Summary View' : 'Detailed View');
@@ -1235,6 +1276,35 @@
               return o > 0 ? (Number(row.reject_tonnage || 0) / o * 100).toFixed(2) + '%' : '0%';
             } }
         ];
+      } else if (type === 'manpower') {
+        const ms = window._manShift || 'split';
+        const txt = $.fn.dataTable.render.text();
+        const cell = v => v == null ? '—' : v;
+        const maintNote = (sh, label) => sh.full_maint ? `${label}: full shift maintenance`
+          : (sh.maint_min > 0 ? `${label}: maint. ${sh.maint_min} min` : '');
+        const shiftCols = (k, label) => [
+          { title: `${label} Mould`, data: k + '.mould', defaultContent: '',
+            render: (v, t, r) => r[k].full_maint ? 'MAINTENANCE' : txt.display(v || '') },
+          { title: `${label} Std`, data: k + '.std', defaultContent: '', render: cell },
+          { title: `${label} Act`, data: k + '.act', defaultContent: '', render: cell },
+          { title: `${label} Diff`, data: k + '.diff', defaultContent: '', render: (v, t) => {
+              if (v == null) return '—';
+              if (t !== 'display') return v;
+              return v < 0 ? `<span style="color:#dc2626;font-weight:800">${v}</span>` : (v > 0 ? '+' + v : '0');
+            } }
+        ];
+        columns = [
+          { title: 'Date', data: 'dpr_date', render: (v, t) => (t === 'display' || t === 'filter') ? fmtDate(v) : v },
+          { title: 'Machine', data: 'machine', render: txt },
+          ...(ms !== 'Night' ? shiftCols('day', 'Day') : []),
+          ...(ms !== 'Day' ? shiftCols('night', 'Night') : []),
+          { title: 'Total Act', data: 'total_act' },
+          { title: 'Status', data: null, render: (d, t, r) => {
+              if (r.full_day_maint) return 'Full Day Maintenance';
+              return [ms !== 'Night' ? maintNote(r.day, 'Day') : '', ms !== 'Day' ? maintNote(r.night, 'Night') : '']
+                .filter(Boolean).join(' / ') || 'Running';
+            } }
+        ];
       } else if (type === 'machine-wise') {
         const isDetail = (window._mwView === 'detail');
         const d = v => v ? fmtDate(v) : '';
@@ -1304,16 +1374,19 @@
         // (…-6, -7, -8, -10, -11) with each machine's queue in sequence — keep
         // that server order instead of letting DataTables re-sort Machine as text.
         order: (type === 'machine-wise' || type === 'machine-date-history') ? [] : undefined,
+        createdRow: type === 'manpower' ? (row, r) => {
+          if (r.full_day_maint) { row.style.background = '#fef3c7'; row.style.color = '#92400e'; row.style.fontWeight = '700'; }
+        } : undefined,
         dom: 'Bfrtip',
         buttons: [
           {
             extend: 'excelHtml5',
-            title: (type === 'jms-plan' ? 'JMS Plan Report' : type === 'extra-qty-allowed' ? 'Extra Allowed QTY By PPC' : type === 'machine-maintenance' ? 'Machine Maintenance Report' : type === 'tonnage' ? 'Tonnage Report' : type === 'machine-wise' ? ('Machine-Wise Plan Report (' + (window._mwView === 'detail' ? 'Detail' : 'Summary') + ')') : type === 'machine-date-history' ? ('Machine Date-Wise History' + (window._mdhMachine ? ' - ' + window._mdhMachine : '')) : 'WIP Report') + ' - ' + new Date().toLocaleString('en-IN'),
+            title: (type === 'jms-plan' ? 'JMS Plan Report' : type === 'extra-qty-allowed' ? 'Extra Allowed QTY By PPC' : type === 'machine-maintenance' ? 'Machine Maintenance Report' : type === 'tonnage' ? 'Tonnage Report' : type === 'manpower' ? 'Manpower Report' : type === 'machine-wise' ? ('Machine-Wise Plan Report (' + (window._mwView === 'detail' ? 'Detail' : 'Summary') + ')') : type === 'machine-date-history' ? ('Machine Date-Wise History' + (window._mdhMachine ? ' - ' + window._mdhMachine : '')) : 'WIP Report') + ' - ' + new Date().toLocaleString('en-IN'),
             className: 'btn-dt'
           },
           {
             extend: 'csvHtml5',
-            title: (type === 'jms-plan' ? 'JMS Plan Report' : type === 'extra-qty-allowed' ? 'Extra Allowed QTY By PPC' : type === 'machine-maintenance' ? 'Machine Maintenance Report' : type === 'tonnage' ? 'Tonnage Report' : type === 'machine-wise' ? ('Machine-Wise Plan Report (' + (window._mwView === 'detail' ? 'Detail' : 'Summary') + ')') : type === 'machine-date-history' ? ('Machine Date-Wise History' + (window._mdhMachine ? ' - ' + window._mdhMachine : '')) : 'WIP Report') + ' - ' + new Date().toLocaleString('en-IN'),
+            title: (type === 'jms-plan' ? 'JMS Plan Report' : type === 'extra-qty-allowed' ? 'Extra Allowed QTY By PPC' : type === 'machine-maintenance' ? 'Machine Maintenance Report' : type === 'tonnage' ? 'Tonnage Report' : type === 'manpower' ? 'Manpower Report' : type === 'machine-wise' ? ('Machine-Wise Plan Report (' + (window._mwView === 'detail' ? 'Detail' : 'Summary') + ')') : type === 'machine-date-history' ? ('Machine Date-Wise History' + (window._mdhMachine ? ' - ' + window._mdhMachine : '')) : 'WIP Report') + ' - ' + new Date().toLocaleString('en-IN'),
              className: 'btn-dt'
           }
         ],
