@@ -1461,7 +1461,20 @@
             if (change) items.push(rowFor(change, true));
           }
         });
-        items.sort((a, b) => window.etvMachineCompare(a.machine, b.machine) || (Number(a.upcoming) - Number(b.upcoming)));
+        // Sort with the same comparator the Excel & Machine timelines use
+        // (Building → Line → Machine Number). The old string-parse compare
+        // (etvMachineCompare) only worked when the machine code embedded "-L<n>",
+        // so lines without it (e.g. C line) sorted wrong. Resolve each plan's
+        // machine name to its loaded machine object (which carries the real
+        // _finalBuilding / _finalLine) so tlMachineSort can group it correctly.
+        const _mSimp = s => etvSimp(stripMachPfx(s));
+        const _machByCode = {};
+        (etvMachines || []).forEach(m => { if (m && m.code) _machByCode[_mSimp(m.code)] = m; });
+        const _machObj = name => _machByCode[_mSimp(name)] || { code: name };
+        const _machCmp = (typeof window.tlMachineSort === 'function')
+          ? (a, b) => window.tlMachineSort(_machObj(a), _machObj(b))
+          : (a, b) => window.etvMachineCompare(a, b);
+        items.sort((a, b) => _machCmp(a.machine, b.machine) || (Number(a.upcoming) - Number(b.upcoming)));
       } catch (e) {
         console.error('[Manpower Report] board fetch failed', e);
         alert('Could not load running plans: ' + (e && e.message ? e.message : e));
