@@ -737,7 +737,7 @@
             window._ddState.grants = await _eqaFetchGrants(planId || res.data?.planId);
             _ddRenderColours(res.data);
         } catch (e) {
-            body.innerHTML = `<div class="dd-empty">Error: ${e.message}</div>`;
+            body.innerHTML = `<div class="dd-empty">Error: ${escHtml(e.message)}</div>`;
         }
     };
 
@@ -1934,7 +1934,7 @@
                 if (document.getElementById('filter-count')) document.getElementById('filter-count').textContent = window.timelineMachines.length + ' machines';
             }
         } catch (e) {
-            console.error(e); con.innerHTML = '<div class="text-danger p-5">Error Loading: ' + e.message + '</div>';
+            console.error(e); con.innerHTML = '<div class="text-danger p-5">Error Loading: ' + escHtml(e.message) + '</div>';
         }
     };
 
