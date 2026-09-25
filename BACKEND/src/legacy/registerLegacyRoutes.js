@@ -27344,6 +27344,160 @@ app.get('/api/reports/machine-maintenance', async (req, res) => {
   }
 });
 
+// GET /api/reports/manpower — Day / Night manpower per date + machine.
+//  - Std manpower = mould master manpower of the shift's latest setup
+//  - Act manpower = std_actual.man_act (entered by the supervisor at setup)
+//  - Maintenance  = same rule as /api/reports/machine-maintenance. A shift counts as
+//    FULL maintenance when it has maintenance downtime and no production; when both
+//    Day and Night are full maintenance the row is flagged "Full day maintenance".
+// shift: 'split' (default) | 'Day' | 'Night'. Only machines that had a setup or a
+// DPR entry in the range are listed (idle machines are left out).
+app.get('/api/reports/manpower', async (req, res) => {
+  try {
+    const { from, to } = req.query;
+    if (!from || !to) return res.json({ ok: false, error: 'from and to dates required' });
+    const shift = ['split', 'Day', 'Night'].includes(String(req.query.shift)) ? String(req.query.shift) : 'split';
+    const factoryId = getFactoryId(req);
+
+    const params = [from, to];
+    let sFactory = '', hFactory = '';
+    if (factoryId) {
+      params.push(factoryId);
+      sFactory = ` AND (s.factory_id = $3 OR s.factory_id IS NULL)`;
+      hFactory = ` AND (h.factory_id = $3 OR h.factory_id IS NULL)`;
+    }
+
+    const setups = await q(
+      `SELECT DISTINCT ON (s.dpr_date, TRIM(s.machine), s.shift)
+              to_char(s.dpr_date, 'YYYY-MM-DD') AS dpr_date,
+              TRIM(s.machine) AS machine, s.shift,
+              COALESCE(NULLIF(TRIM(s.mould_name), ''), pb.mould_name) AS mould_name,
+              s.man_act AS act_man,
+              COALESCE(m.manpower, mn.manpower) AS std_man
+         FROM std_actual s
+         LEFT JOIN LATERAL (
+           SELECT pb2.mould_code, pb2.mould_name FROM plan_board pb2
+            WHERE pb2.plan_id = s.plan_id
+              AND (pb2.factory_id = s.factory_id OR pb2.factory_id IS NULL OR s.factory_id IS NULL)
+            ORDER BY pb2.id DESC LIMIT 1
+         ) pb ON true
+         LEFT JOIN LATERAL (
+           SELECT m1.manpower FROM moulds m1
+            WHERE TRIM(m1.mould_number) = TRIM(COALESCE(pb.mould_code, ''))
+            ORDER BY m1.id LIMIT 1
+         ) m ON true
+         LEFT JOIN LATERAL (
+           SELECT m2.manpower FROM moulds m2
+            WHERE m.manpower IS NULL
+              AND TRIM(m2.mould_name) = TRIM(COALESCE(s.mould_name, pb.mould_name, ''))
+            ORDER BY m2.id LIMIT 1
+         ) mn ON true
+        WHERE s.dpr_date BETWEEN $1::date AND $2::date
+          AND s.machine IS NOT NULL AND TRIM(s.machine) <> ''${sFactory}
+        ORDER BY s.dpr_date, TRIM(s.machine), s.shift, (s.man_act IS NULL), s.id DESC`,
+      params
+    );
+
+    const hourly = await q(
+      `WITH maint_codes AS (
+         SELECT DISTINCT code FROM dpr_reasons
+          WHERE type = 'DOWNTIME' AND code IS NOT NULL AND is_active = true
+            AND (reason ILIKE '%machine%maint%' OR TRIM(LOWER(reason)) = 'maintenance')
+       )
+       SELECT to_char(h.dpr_date, 'YYYY-MM-DD') AS dpr_date,
+              TRIM(h.machine) AS machine, h.shift,
+              SUM(CASE
+                    WHEN h.entry_type = 'Maintenance' THEN COALESCE(h.downtime_min, 60)
+                    ELSE COALESCE((
+                      SELECT SUM(COALESCE(NULLIF(h.downtime_breakup->>mc.code, '')::numeric, 0))
+                        FROM maint_codes mc
+                       WHERE h.downtime_breakup IS NOT NULL
+                    ), 0)
+                  END)::int AS maint_min,
+              SUM(COALESCE(h.good_qty, 0) + COALESCE(h.reject_qty, 0))::numeric AS prod_qty
+         FROM dpr_hourly h
+        WHERE h.is_deleted = false
+          AND h.dpr_date BETWEEN $1::date AND $2::date
+          AND h.machine IS NOT NULL AND TRIM(h.machine) <> ''${hFactory}
+        GROUP BY h.dpr_date, TRIM(h.machine), h.shift`,
+      params
+    );
+
+    const num = v => (v == null || v === '' || !Number.isFinite(Number(v))) ? null : Number(v);
+    const rows = new Map();
+    const rowFor = (date, machine) => {
+      const k = `${date}|${machine}`;
+      if (!rows.has(k)) {
+        rows.set(k, {
+          dpr_date: date, machine,
+          day: { mould: null, std: null, act: null, maint_min: 0, full_maint: false, has_entry: false },
+          night: { mould: null, std: null, act: null, maint_min: 0, full_maint: false, has_entry: false }
+        });
+      }
+      return rows.get(k);
+    };
+    const shiftKey = s => String(s || '').toLowerCase() === 'night' ? 'night' : 'day';
+
+    setups.forEach(r => {
+      const sh = rowFor(r.dpr_date, r.machine)[shiftKey(r.shift)];
+      sh.mould = r.mould_name || null;
+      sh.std = num(r.std_man);
+      sh.act = num(r.act_man);
+      sh.has_entry = true;
+    });
+    hourly.forEach(r => {
+      const sh = rowFor(r.dpr_date, r.machine)[shiftKey(r.shift)];
+      sh.maint_min = Number(r.maint_min || 0);
+      sh.full_maint = sh.maint_min > 0 && Number(r.prod_qty || 0) === 0;
+      sh.has_entry = true;
+    });
+
+    const summary = {
+      day: { std: 0, act: 0 }, night: { std: 0, act: 0 },
+      shortage: 0, missing_act: 0, full_day_maint: 0, full_day_maint_machines: []
+    };
+    const data = [];
+    [...rows.values()].forEach(r => {
+      // A shift in full maintenance needs no crew: its std/act count as 0.
+      ['day', 'night'].forEach(k => {
+        const sh = r[k];
+        if (sh.full_maint) { sh.std = 0; sh.act = 0; }
+        sh.diff = (sh.std == null || sh.act == null) ? null : sh.act - sh.std;
+      });
+      r.full_day_maint = r.day.full_maint && r.night.full_maint;
+      if (shift === 'Day' && !r.day.has_entry) return;
+      if (shift === 'Night' && !r.night.has_entry) return;
+      const inc = shift === 'split' ? ['day', 'night'] : [shiftKey(shift)];
+      r.total_act = inc.reduce((s, k) => s + (r[k].act || 0), 0);
+      r.total_std = inc.reduce((s, k) => s + (r[k].std || 0), 0);
+      inc.forEach(k => {
+        // Std is only totalled where Act was entered, so Std vs Act compare like for like.
+        if (r[k].act == null) { if (r[k].std != null) summary.missing_act += 1; return; }
+        summary[k].std += r[k].std || 0;
+        summary[k].act += r[k].act;
+        if (r[k].diff != null && r[k].diff < 0) summary.shortage += r[k].diff;
+      });
+      if (r.full_day_maint) {
+        summary.full_day_maint += 1;
+        if (!summary.full_day_maint_machines.includes(r.machine)) summary.full_day_maint_machines.push(r.machine);
+      }
+      data.push(r);
+    });
+
+    data.sort((a, b) => a.dpr_date === b.dpr_date
+      ? a.machine.localeCompare(b.machine, undefined, { numeric: true })
+      : (a.dpr_date < b.dpr_date ? 1 : -1));
+
+    const r1 = v => Math.round(v * 10) / 10;
+    ['day', 'night'].forEach(k => { summary[k].std = r1(summary[k].std); summary[k].act = r1(summary[k].act); });
+    summary.shortage = r1(summary.shortage);
+    res.json({ ok: true, shift, data, summary });
+  } catch (e) {
+    console.error('api/reports/manpower', e);
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
 // GET /api/reports/tonnage — Good / Reject / Overall tonnage produced,
 // grouped weekly / monthly / yearly. Tonnage = qty × mould STD weight (kg) ÷ 1000.
 //  - Good Tonnage    = SUM(good_qty   × std_wt_kg) / 1000

@@ -11,8 +11,24 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.72.13",
+  "latest": "1.73.0",
   "versions": [
+    {
+      "version": "1.73.0",
+      "date": "2026-09-25",
+      "title": "New Manpower Report",
+      "modules": [
+        {
+          "app": "reports",
+          "label": "Reports",
+          "icon": "bi-people",
+          "changes": [
+            { "type": "feat", "text": "New Manpower Report shows standard and actual manpower for every machine, split by Day and Night shift, with the shortage per shift." },
+            { "type": "feat", "text": "Machines under maintenance for the whole day (both shifts) are highlighted, and single-shift maintenance is shown in the Status column." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.72.13",
       "date": "2026-09-25",
