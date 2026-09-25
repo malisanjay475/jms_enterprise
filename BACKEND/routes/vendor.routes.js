@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcryptjs');
+const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
 const multer = require('multer');
 const { rateLimit, ipKeyGenerator } = require('express-rate-limit');
@@ -116,7 +117,8 @@ router.post('/auth/login', vendorLoginLimiter, async (req, res) => {
                 name: vendor.vendor_name
             },
             JWT_SECRET,
-            { expiresIn: '36500d' }
+            // Was 100 years, so a leaked vendor token never stopped working. Vendors log in again monthly.
+            { expiresIn: '30d' }
         );
 
         res.locals.vendorLoginOk = true;
@@ -298,6 +300,7 @@ router.post('/admin/save', async (req, res) => {
     try {
         const { id, vendor_name, gst_no, pan_no, address, contact_person, mobile, email, factory_access, is_active } = req.body;
         const factoriesApi = JSON.stringify(factory_access || []);
+        let newLogin = null;
 
         if (id) {
             await q(`
@@ -316,13 +319,18 @@ router.post('/admin/save', async (req, res) => {
             // Auto-create initial user: Code = V + ID
             const newId = resIns[0].id;
             const userCode = `V${String(newId).padStart(4, '0')}`;
-            const hash = await bcrypt.hash('123456', 10); // Default Password
+            // Random first password, shown once to the purchase user who created the vendor.
+            // It used to be '123456' for every vendor, and the codes are sequential (V0001,
+            // V0002, ...), so anyone could log in to any vendor portal.
+            const tempPassword = crypto.randomBytes(9).toString('base64url').slice(0, 10);
+            const hash = await bcrypt.hash(tempPassword, 10);
             await q(`INSERT INTO vendor_users (vendor_id, username, password) VALUES ($1, $2, $3)`, [newId, userCode, hash]);
+            newLogin = { username: userCode, password: tempPassword };
         }
         // [Real-Time Sync]
         syncService.triggerSync();
 
-        res.json({ ok: true });
+        res.json(newLogin ? { ok: true, login: newLogin } : { ok: true });
     } catch (e) {
         res.status(500).json({ ok: false, error: String(e) });
     }

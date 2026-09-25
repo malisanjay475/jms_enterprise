@@ -7,6 +7,7 @@ const sseManager = require('./sseManager');
 const { createAuthMiddleware } = require('./auth');
 const { routeGuardMiddleware } = require('./routeGuards');
 const { createPrivateUploadGuard } = require('./uploadSafety');
+const { apiLimiter } = require('./registerCoreMiddleware');
 
 // ---------------------------------------------------------------------------
 // SSE helpers
@@ -183,6 +184,8 @@ function registerRoutes(app, deps) {
   // client-sent X-User-Name with the verified user), then hard-lock the dangerous
   // endpoints. Both must run before any route below.
   app.use('/api', createAuthMiddleware(pool));
+  // General API rate limit, keyed on the verified user (or client IP) — needs req.auth.
+  app.use('/api/', apiLimiter);
   app.use(routeGuardMiddleware);
   // Private upload folders (resumes) need a session with the right role. Root-mounted
   // and registered before the legacy static handlers, which serve all of PUBLIC.
