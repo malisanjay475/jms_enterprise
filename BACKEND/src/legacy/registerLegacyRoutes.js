@@ -6247,17 +6247,14 @@ app.post('/api/login', async (req, res) => {
     let valid = false;
     let needsRehash = false;
 
-    if (u.password.startsWith('$2')) {
+    // Only bcrypt hashes are accepted. The old plain-text comparison is gone; any
+    // plain-text password left in the table is hashed at startup (passwordUpgrade.js).
+    if (String(u.password || '').startsWith('$2')) {
       valid = await bcrypt.compare(password, u.password);
       // Upgrade cost factor to 12 rounds for stronger password security
       if (valid) {
         const rounds = parseInt((u.password.split('$')[2] || '10'), 10);
         if (rounds < 12) needsRehash = true;
-      }
-    } else {
-      if (u.password === password) {
-        valid = true;
-        needsRehash = true; // Auto-migrate legacy plain text
       }
     }
 
@@ -7113,6 +7110,11 @@ app.post('/api/std-actual/save', async (req, res) => {
         geo?.lat || null, geo?.lng || null, geo?.accuracy || null, factoryId
       ]
     );
+
+    // Setup saved → refresh the DPR Compliance Summary now (it reads std_actual and is
+    // cached for up to 5 min). This line was only in a dead duplicate handler that the
+    // duplicate-route cleanup (#1551) removed, so it had never run.
+    ttlCacheClear('dprSummaryMatrix');
 
     if (typeof syncService.triggerSync === 'function') {
       syncService.triggerSync();

@@ -11,8 +11,46 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.74.0",
+  "latest": "1.74.2",
   "versions": [
+    {
+      "version": "1.74.2",
+      "date": "2026-09-25",
+      "title": "Safer automatic deployments",
+      "modules": [
+        {
+          "app": "all",
+          "label": "Platform",
+          "icon": "bi-shield-check",
+          "changes": [
+            { "type": "security", "text": "The automatic build and deploy steps now use fixed, verified versions of their tools, so an outside change cannot slip into the live server." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.74.1",
+      "date": "2026-09-25",
+      "title": "DPR Compliance Summary updates right after a setup is saved",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-check",
+          "changes": [
+            { "type": "fix", "text": "After you save a machine setup, the DPR Compliance Summary now shows it straight away instead of up to 5 minutes later." }
+          ]
+        },
+        {
+          "app": "all",
+          "label": "Platform",
+          "icon": "bi-shield-lock",
+          "changes": [
+            { "type": "security", "text": "Login now only accepts encrypted passwords; any old unencrypted password is encrypted automatically, so everyone logs in as before." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.74.0",
       "date": "2026-09-25",
