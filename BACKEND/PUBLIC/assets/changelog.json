@@ -11,8 +11,24 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.73.7",
+  "latest": "1.73.8",
   "versions": [
+    {
+      "version": "1.73.8",
+      "date": "2026-09-25",
+      "title": "Safer database health check and connection limits",
+      "modules": [
+        {
+          "app": "all",
+          "label": "Platform",
+          "icon": "bi-hdd-network",
+          "changes": [
+            { "type": "fix", "text": "If the database stops answering, the health check no longer keeps opening new connections, so it cannot make the outage worse." },
+            { "type": "fix", "text": "On servers with many worker processes, the total number of database connections now always stays within the safe limit." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.73.7",
       "date": "2026-09-25",

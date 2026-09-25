@@ -96,6 +96,27 @@ describe('Readiness check', () => {
     expect(result.db.error).toBe('timeout');
   });
 
+  it('does not pile up queries while the database stays hung', async () => {
+    let finish;
+    const pool = {
+      query: jest.fn()
+        .mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }))
+        .mockResolvedValue({ rows: [{ '?column?': 1 }] })
+    };
+    const check = createReadinessCheck(pool, { timeoutMs: 20, cacheMs: 0 });
+    for (let i = 0; i < 4; i++) {
+      const r = await check();
+      expect(r.db.error).toBe('timeout');
+    }
+    expect(pool.query).toHaveBeenCalledTimes(1);
+
+    finish({ rows: [{ '?column?': 1 }] });
+    await new Promise((resolve) => setImmediate(resolve));
+    const recovered = await check();
+    expect(recovered.ok).toBe(true);
+    expect(pool.query).toHaveBeenCalledTimes(2);
+  });
+
   it('caches the answer so frequent polling does not load the database', async () => {
     const pool = { query: jest.fn().mockResolvedValue({ rows: [{ '?column?': 1 }] }), totalCount: 3, idleCount: 2, waitingCount: 0 };
     const check = createReadinessCheck(pool, { cacheMs: 60000 });

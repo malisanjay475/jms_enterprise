@@ -41,7 +41,11 @@ function computePoolMax(env = process.env, cpuCount = os.cpus().length) {
   if (fixed) return { max: fixed, workers: detectWorkerCount(env, cpuCount), source: 'DB_POOL_MAX' };
   const workers = detectWorkerCount(env, cpuCount);
   const budget = positiveInt(env.DB_CONNECTION_BUDGET) || DEFAULT_BUDGET;
-  const max = Math.min(MAX_PER_PROCESS, Math.max(MIN_PER_PROCESS, Math.floor(budget / workers)));
+  const share = Math.floor(budget / workers);
+  // MIN_PER_PROCESS applies only while it still fits the budget; with more workers
+  // than budget / MIN, each gets its share (at least 1) so the total stays in budget.
+  const floor = MIN_PER_PROCESS * workers <= budget ? MIN_PER_PROCESS : 1;
+  const max = Math.min(MAX_PER_PROCESS, Math.max(floor, share));
   return { max, workers, budget, source: 'budget' };
 }
 

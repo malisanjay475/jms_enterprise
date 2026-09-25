@@ -21,9 +21,22 @@ describe('Database pool sizing', () => {
     expect(computePoolMax({ exec_mode: 'cluster_mode', instances: '2' }, 16).max).toBe(40);
   });
 
-  it('never exceeds 50 or drops below 5 per process', () => {
+  it('never exceeds 50 per process', () => {
     expect(computePoolMax({ DB_CONNECTION_BUDGET: '500' }, 1).max).toBe(50);
-    expect(computePoolMax({ exec_mode: 'cluster_mode', instances: '0' }, 64).max).toBe(5);
+  });
+
+  it('keeps the total within the budget even with many workers', () => {
+    // 64 workers x the old 5-connection floor = 320 connections against a budget of 80.
+    const many = computePoolMax({ exec_mode: 'cluster_mode', instances: '0' }, 64);
+    expect(many.max).toBe(1);
+    expect(many.max * many.workers).toBeLessThanOrEqual(80);
+    const sixteen = computePoolMax({ exec_mode: 'cluster_mode', instances: '0' }, 16);
+    expect(sixteen.max).toBe(5);
+    expect(sixteen.max * sixteen.workers).toBeLessThanOrEqual(80);
+    for (let w = 1; w <= 200; w++) {
+      const r = computePoolMax({ DB_POOL_WORKERS: String(w) }, 1);
+      expect(r.max * w).toBeLessThanOrEqual(Math.max(80, w));
+    }
   });
 
   it('honours DB_POOL_MAX, DB_CONNECTION_BUDGET and DB_POOL_WORKERS', () => {
