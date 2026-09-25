@@ -12,6 +12,10 @@ on:
         required: false
         default: main
 
+# Least privilege: this job only deploys over SSH and never uses GITHUB_TOKEN.
+permissions:
+  contents: read
+
 concurrency:
   # Shared with publish-v1-app.yml so the two production deploy workflows
   # never SSH into the VPS at the same time (prevents dial tcp :22 i/o timeout
