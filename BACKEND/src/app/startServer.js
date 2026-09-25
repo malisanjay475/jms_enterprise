@@ -12,6 +12,7 @@ const runMigrations = require('./runMigrations');
 const createServices = require('../services/createServices');
 const createApp = require('./createApp');
 const { startDataRetention } = require('./dataRetention');
+const { hashLegacyPlaintextPasswords } = require('./passwordUpgrade');
 
 function createHttpsServerIfConfigured(app, config) {
   if (!config.https?.enabled) return null;
@@ -53,6 +54,11 @@ async function startServer() {
   const legacyHooks = legacyRuntime && legacyRuntime.initializeLegacyRuntime
     ? await legacyRuntime.initializeLegacyRuntime()
     : {};
+
+  // Login only accepts bcrypt hashes; hash any plain-text password still stored.
+  hashLegacyPlaintextPasswords(pool).catch((err) => {
+    console.error('[Security] Plain-text password upgrade failed:', err.message);
+  });
 
   if (services.localServerService?.init) {
     await services.localServerService.init(pool);

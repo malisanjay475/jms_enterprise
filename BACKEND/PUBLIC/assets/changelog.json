@@ -11,8 +11,31 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.74.0",
+  "latest": "1.74.1",
   "versions": [
+    {
+      "version": "1.74.1",
+      "date": "2026-09-25",
+      "title": "DPR Compliance Summary updates right after a setup is saved",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-check",
+          "changes": [
+            { "type": "fix", "text": "After you save a machine setup, the DPR Compliance Summary now shows it straight away instead of up to 5 minutes later." }
+          ]
+        },
+        {
+          "app": "all",
+          "label": "Platform",
+          "icon": "bi-shield-lock",
+          "changes": [
+            { "type": "security", "text": "Login now only accepts encrypted passwords; any old unencrypted password is encrypted automatically, so everyone logs in as before." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.74.0",
       "date": "2026-09-25",
