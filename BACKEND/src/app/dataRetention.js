@@ -3,7 +3,9 @@
 // Daily clean-up of tables that only ever grew. Measured on factory-1 (24-Sep-2026):
 // notifications 225K rows (112K unread "approval" notices), user_activity_log 1.87M rows
 // (~18K heartbeats/day), sync_deletions 222K tombstones, machine_readings 1.5M rows
-// (1.8 GB). Retention periods agreed with the owner on 24-Sep-2026; each can be
+// (1.8 GB). On the VPS (25-Sep-2026) local_server_heartbeats was the biggest table:
+// 725 MB / 694K rows, never deleted. Retention periods agreed with the owner on
+// 24/25-Sep-2026; each can be
 // overridden with an env var (days, 0 = never delete).
 //
 // Deletes run in small batches with a pause between them so they never hold long locks
@@ -31,7 +33,8 @@ function retentionDays() {
     activityLog: readDaysEnv('RETENTION_ACTIVITY_LOG_DAYS', 180),
     syncDeletions: readDaysEnv('RETENTION_SYNC_DELETIONS_DAYS', 30),
     machineReadings: readDaysEnv('RETENTION_MACHINE_READINGS_DAYS', 90),
-    legacyAuthUsage: readDaysEnv('RETENTION_LEGACY_AUTH_USAGE_DAYS', 30)
+    legacyAuthUsage: readDaysEnv('RETENTION_LEGACY_AUTH_USAGE_DAYS', 30),
+    localServerHeartbeats: readDaysEnv('RETENTION_LOCAL_SERVER_HEARTBEATS_DAYS', 30)
   };
 }
 
@@ -126,6 +129,31 @@ const RULES = [
       for (const { id } of machines.rows) {
         const r = await deleteInBatches(pool, {
           table: 'machine_readings', where: 'machine_id = $1 AND recorded_at < $2', params: [id, cutoff], deadline
+        });
+        total += r.total;
+        if (!r.finished) return { total, finished: false };
+      }
+      return { total, finished: true };
+    }
+  },
+  {
+    name: 'local_server_heartbeats',
+    table: 'local_server_heartbeats',
+    days: (d) => d.localServerHeartbeats,
+    async run(pool, cutoff, deadline) {
+      // Only the newest 10 per server are ever read (GET /api/local-servers/:id), so
+      // those are always kept — even for a server that has been silent for longer than
+      // the retention period. One server at a time so each batch uses the
+      // (local_server_id, created_at DESC) index. Not a synced table: no tombstones.
+      const servers = await pool.query('SELECT id FROM local_servers');
+      let total = 0;
+      for (const { id } of servers.rows) {
+        const r = await deleteInBatches(pool, {
+          table: 'local_server_heartbeats',
+          where: `local_server_id = $1 AND created_at < $2 AND id NOT IN (
+            SELECT id FROM local_server_heartbeats WHERE local_server_id = $1 ORDER BY created_at DESC LIMIT 10)`,
+          params: [id, cutoff],
+          deadline
         });
         total += r.total;
         if (!r.finished) return { total, finished: false };
