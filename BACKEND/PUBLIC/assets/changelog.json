@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.74.6",
+  "latest": "1.74.7",
   "versions": [
+    {
+      "version": "1.74.7",
+      "date": "2026-09-25",
+      "title": "Fewer restarts when the factory server updates",
+      "modules": [
+        {
+          "app": "all",
+          "label": "Platform",
+          "icon": "bi-arrow-repeat",
+          "changes": [
+            { "type": "improvement", "text": "A new version number alone no longer makes the factory server reinstall its packages and restart an extra time during updates." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.74.6",
       "date": "2026-09-25",

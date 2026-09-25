@@ -67,3 +67,33 @@ describe('Updater: apply release zip', () => {
     expect(fs.existsSync(path.join(path.dirname(root), 'escape.js'))).toBe(false);
   });
 });
+
+describe('Updater: dependency signature', () => {
+  const { __test: { getDependencySignature } } = require('../services/updater.service');
+  let dir;
+  afterEach(() => dir && fs.rmSync(dir, { recursive: true, force: true }));
+
+  function write(pkgVersion, lockVersion, deps = { express: '^5.0.0' }) {
+    fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: 'jms', version: pkgVersion, dependencies: deps }, null, 2));
+    fs.writeFileSync(path.join(dir, 'package-lock.json'), JSON.stringify({
+      name: 'jms', version: lockVersion, lockfileVersion: 3,
+      packages: { '': { name: 'jms', version: lockVersion, dependencies: deps }, 'node_modules/express': { version: '5.1.0' } }
+    }, null, 2));
+  }
+
+  it('ignores a version-only bump (no npm install, no lockfile churn)', () => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'jms-deps-'));
+    write('1.74.0', '1.74.0');
+    const before = getDependencySignature(dir);
+    write('1.74.7', '1.74.0');
+    expect(getDependencySignature(dir)).toBe(before);
+  });
+
+  it('changes when a dependency changes', () => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'jms-deps-'));
+    write('1.74.0', '1.74.0');
+    const before = getDependencySignature(dir);
+    write('1.74.0', '1.74.0', { express: '^5.0.0', pg: '^8.0.0' });
+    expect(getDependencySignature(dir)).not.toBe(before);
+  });
+});

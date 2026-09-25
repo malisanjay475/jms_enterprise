@@ -21,13 +21,42 @@ const RUNTIME_RELEASE_PATH = path.join(__dirname, '..', 'runtime-release.json');
 const BACKEND_DIR = path.resolve(PACKAGE_ROOT, 'BACKEND');
 const CLIENT_BRIDGE_DIR = path.resolve(PACKAGE_ROOT, 'CLIENT_BRIDGE');
 
+// Only what decides which packages get installed. The app version in package.json and
+// package-lock.json changes with every release; hashing the raw files made every
+// version bump look like a dependency change, so each release ran `npm install`, which
+// rewrote package-lock.json locally, which the per-file updater then saw as different
+// from MAIN and re-downloaded — one extra restart per release.
+function dependencyContent(fileName, raw) {
+  try {
+    const json = JSON.parse(raw);
+    if (fileName === 'package.json') {
+      return JSON.stringify({
+        dependencies: json.dependencies || {},
+        optionalDependencies: json.optionalDependencies || {},
+        peerDependencies: json.peerDependencies || {}
+      });
+    }
+    const lock = { ...json };
+    delete lock.version;
+    delete lock.name;
+    if (lock.packages && lock.packages['']) {
+      lock.packages = { ...lock.packages, '': { ...lock.packages[''] } };
+      delete lock.packages[''].version;
+      delete lock.packages[''].name;
+    }
+    return JSON.stringify(lock);
+  } catch (_e) {
+    return raw.toString('utf8'); // unreadable JSON: fall back to the raw bytes
+  }
+}
+
 function getDependencySignature(rootDir) {
   const hash = crypto.createHash('sha256');
   for (const fileName of ['package.json', 'package-lock.json']) {
     const filePath = path.join(rootDir, fileName);
     if (fs.existsSync(filePath)) {
       hash.update(fileName);
-      hash.update(fs.readFileSync(filePath));
+      hash.update(dependencyContent(fileName, fs.readFileSync(filePath)));
     }
   }
   return hash.digest('hex');
@@ -575,4 +604,4 @@ async function downloadAndApply(mainUrl, remote) {
   process.exit(0);
 }
 
-module.exports = { init, router, __test: { applyReleaseZip } };
+module.exports = { init, router, __test: { applyReleaseZip, getDependencySignature } };
