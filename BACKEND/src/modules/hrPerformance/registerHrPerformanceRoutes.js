@@ -1,6 +1,7 @@
 'use strict';
 
 const bcrypt = require('bcryptjs');
+const { passwordLengthError } = require('../../app/passwordPolicy');
 const fs = require('fs');
 const path = require('path');
 const xlsx = require('xlsx');
@@ -1241,6 +1242,10 @@ module.exports = function registerHrPerformanceRoutes({ app, pool }) {
       if (!employeeCode) return res.status(400).json({ ok: false, error: 'Employee code is required' });
       if (!department) return res.status(400).json({ ok: false, error: 'Department is required' });
       if (!designation) return res.status(400).json({ ok: false, error: 'Designation is required' });
+      if (password) {
+        const pwError = passwordLengthError(password);
+        if (pwError) return res.status(400).json({ ok: false, error: pwError });
+      }
 
       await client.query('BEGIN');
 
