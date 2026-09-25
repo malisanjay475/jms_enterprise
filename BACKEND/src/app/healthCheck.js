@@ -15,13 +15,26 @@ const CACHE_MS = 5000;
 function createReadinessCheck(pool, { timeoutMs = DB_TIMEOUT_MS, cacheMs = CACHE_MS } = {}) {
   let cached = null;
   let inFlight = null;
+  // The SELECT 1 itself. A timeout ends the probe but not the query, so a hung
+  // database would otherwise collect one stuck query (and pool connection) per
+  // probe. While one is still running, later probes report a timeout instead of
+  // starting another.
+  let pendingQuery = null;
 
   async function probe() {
     const started = Date.now();
+    if (pendingQuery) {
+      console.warn('[Health] previous database check still running; reporting timeout');
+      return { ok: false, latencyMs: 0, error: 'timeout' };
+    }
+    pendingQuery = Promise.resolve()
+      .then(() => pool.query('SELECT 1'))
+      .finally(() => { pendingQuery = null; });
+    pendingQuery.catch(() => {}); // settled below or abandoned after a timeout
     let timer;
     try {
       await Promise.race([
-        pool.query('SELECT 1'),
+        pendingQuery,
         new Promise((_, reject) => {
           timer = setTimeout(() => {
             const timeout = new Error(`database did not answer within ${timeoutMs} ms`);
