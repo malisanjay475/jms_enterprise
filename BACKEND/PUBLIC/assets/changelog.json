@@ -11,8 +11,39 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.73.9",
+  "latest": "1.73.11",
   "versions": [
+    {
+      "version": "1.73.11",
+      "date": "2026-09-25",
+      "title": "Remove leftover debug logging",
+      "modules": [
+        {
+          "app": "all",
+          "label": "Platform",
+          "icon": "bi-hdd",
+          "changes": [
+            { "type": "improvement", "text": "Removed leftover debug files that were being written on the server (one on every order-list load), which slows disk and grows unbounded. Order and machine screens are unaffected." },
+            { "type": "security", "text": "The machine list and standard-vs-actual status screens now show a general message on server errors instead of raw technical detail." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.73.10",
+      "date": "2026-09-25",
+      "title": "Code cleanup — remove dead duplicate routes",
+      "modules": [
+        {
+          "app": "all",
+          "label": "Platform",
+          "icon": "bi-braces",
+          "changes": [
+            { "type": "improvement", "text": "Removed old duplicate copies of internal endpoints that were never used, making the server code cleaner and easier to maintain. No change to how any screen works." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.73.9",
       "date": "2026-09-25",
