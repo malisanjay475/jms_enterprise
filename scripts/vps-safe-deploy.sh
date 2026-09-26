@@ -9,6 +9,14 @@ require_var() {
   fi
 }
 
+# Only production may pull from the ERP. Its change feed hands each change out once,
+# to whichever server asks first, so a staging deploy that pulled too silently took
+# changes away from production (26-Sep-2026). Staging therefore defaults to 0 even
+# when a workflow forgets to pass ERP_PULL_ENABLED.
+default_erp_pull_enabled() {
+  if [[ "${DEPLOY_ENVIRONMENT:-production}" == "staging" ]]; then echo 0; else echo 1; fi
+}
+
 write_env_file() {
   local image_ref="$1"
 
@@ -23,6 +31,7 @@ GEMINI_API_KEY=${GEMINI_API_KEY:-}
 APP_GIT_SHA=${DEPLOY_GIT_SHA:-}
 APP_BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 SERVER_TYPE=${SERVER_TYPE:-MAIN}
+ERP_PULL_ENABLED=${ERP_PULL_ENABLED:-$(default_erp_pull_enabled)}
 MAIN_SERVER_URL=${MAIN_SERVER_URL:-}
 LOCAL_FACTORY_ID=${LOCAL_FACTORY_ID:-}
 SYNC_API_KEY=${SYNC_API_KEY:-}

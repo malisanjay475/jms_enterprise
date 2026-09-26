@@ -105,6 +105,8 @@ services:
       APP_GIT_SHA: ${APP_GIT_SHA:-}
       APP_BUILD_DATE: ${APP_BUILD_DATE:-}
       SERVER_TYPE: ${SERVER_TYPE:-MAIN}
+      # 0 on staging: only production pulls from the ERP (see scripts/vps-safe-deploy.sh).
+      ERP_PULL_ENABLED: ${ERP_PULL_ENABLED:-1}
       # In-app 5-minute pg_dump is off on the VPS: it wrote to /app/backups inside
       # the container (lost on every deploy) and doubled the host cron's dump load.
       # VPS backups = host cron (scripts/vps-cron-setup.sh) + scheduled-backup.yml.
