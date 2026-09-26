@@ -148,7 +148,7 @@ async function startServer() {
     await services.localNodeAgent.init({ pool, config });
   }
 
-  // Daily clean-up of ever-growing tables (first run 10 min after boot, one worker).
+  // Daily clean-up of ever-growing tables (every worker checks every 30 min; runs once a day in total).
   startDataRetention(pool);
 
   // Graceful, DETERMINISTIC shutdown. Give in-flight requests a short grace
