@@ -58,7 +58,18 @@ const GUARDED_ROUTES = [
   // Vendor master + purchase orders (list, create, delete vendors and their logins).
   // The handlers had no check at all ("TODO: Add Admin Check"). Purchase staff use
   // these pages, so a verified login is required rather than the Admin role.
-  { method: '*', path: /^\/api\/vendor\/admin(\/|$)/, need: 'session' }
+  { method: '*', path: /^\/api\/vendor\/admin(\/|$)/, need: 'session' },
+  // ERP reports and auto-sync. The superadmin check took the username from the query
+  // string or body, so anyone could read the sync history, pull the whole ERP feed or
+  // trigger a full ERP fetch + OR-JR import + Order Master rebuild. The report reads
+  // themselves had no check at all.
+  { method: 'GET', path: /^\/api\/reports\/erp-(jr-status|jr-summary|jr-details|bom|mould-item)\/?$/, need: 'session' },
+  { method: 'POST', path: /^\/api\/reports\/erp-(jr-status|jr-summary|jr-details|bom|mould-item)\/sync\/?$/, need: 'superadmin' },
+  { method: 'GET', path: /^\/api\/reports\/erp-autosync-history\/?$/, need: 'superadmin' },
+  { method: 'POST', path: /^\/api\/reports\/erp-autosync\/run-now\/?$/, need: 'superadmin' },
+  // "Import from ERP Data" preview: the handler checks Masters edit permission for
+  // the user named in the body; with a session it uses the verified user instead.
+  { method: 'POST', path: /^\/api\/upload\/or-jr-erp-preview\/?$/, need: 'session' }
 ];
 
 function findGuard(method, path) {

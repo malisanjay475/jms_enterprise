@@ -18733,20 +18733,16 @@ function erpRowKey(mapped, keyCols) {
   return 'json:' + JSON.stringify(mapped);
 }
 
-// Superadmin gate (role_code === 'superadmin' OR username === 'superadmin').
+// Superadmin gate for the ERP fetch/sync/history routes. Only the verified session
+// (req.auth, see src/app/auth.js) counts: the username in the body, query string or
+// X-User-Name header is client-controlled and was trivially spoofable. routeGuards.js
+// blocks these routes without a superadmin session first; this is the second layer.
 async function requireErpSuperadmin(req) {
-  // Accept the actor from the body (POST fetch/sync), the query string (GET
-  // history — a GET carries no body), or the standard request identity header.
-  const username = (req.body && req.body.username)
-    || (req.query && req.query.username)
-    || getRequestUsername(req);
-  if (!username) return { ok: false, status: 401, error: 'Authorization required (missing username)' };
-  const u = (await q('SELECT username, role_code FROM users WHERE username = $1 LIMIT 1', [username]))[0];
-  if (!u) return { ok: false, status: 401, error: 'Invalid user' };
-  const isSuper = String(u.role_code || '').toLowerCase() === 'superadmin'
-    || String(u.username || '').toLowerCase() === 'superadmin';
+  const a = req.auth;
+  if (!a) return { ok: false, status: 401, error: 'Please log in again to use this feature.' };
+  const isSuper = a.role === 'superadmin' || String(a.username || '').toLowerCase() === 'superadmin';
   if (!isSuper) return { ok: false, status: 403, error: 'Superadmin access required' };
-  return { ok: true, user: u };
+  return { ok: true, user: { username: a.username, role_code: a.role } };
 }
 
 // Paging bounds for the ERP report reads. The stores hold tens of thousands of
@@ -20719,8 +20715,9 @@ app.post('/api/upload/or-jr-erp-preview', async (req, res) => {
     const requestFactoryId = writeContext.factoryId;
 
     // Permission gate — the Excel upload relies on the client hiding the control;
-    // this path enforces it server-side as well.
-    const username = (req.body && req.body.username) || getRequestUsername(req);
+    // this path enforces it server-side as well. The verified session user wins over
+    // the client-supplied body username (routeGuards requires a session here).
+    const username = (req.auth && req.auth.username) || (req.body && req.body.username) || getRequestUsername(req);
     if (!username) {
       return res.status(401).json({ ok: false, error: 'Authorization required (missing username).' });
     }

@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.74.18",
+  "latest": "1.74.19",
   "versions": [
+    {
+      "version": "1.74.19",
+      "date": "2026-09-26",
+      "title": "ERP reports need a login",
+      "modules": [
+        {
+          "app": "all",
+          "label": "Platform",
+          "icon": "bi-shield-lock",
+          "changes": [
+            { "type": "security", "text": "The ERP reports now need a logged-in user, and only a Superadmin can fetch ERP data, run the ERP sync or see the sync history. If an ERP page asks you to log in again, log out and log back in once." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.74.18",
       "date": "2026-09-26",
