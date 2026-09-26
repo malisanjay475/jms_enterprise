@@ -1208,11 +1208,64 @@
       document.getElementById('erpPageInfo').textContent =
         `Rows ${from.toLocaleString()}–${to.toLocaleString()} of ${erpPage.total.toLocaleString()}`
         + (erpPage.search ? ` matching "${erpPage.search}"` : '')
-        + ' (Copy/Excel/Print export this page only)';
+        + ' (Copy/Excel/Print export this page; Export all exports every row)';
       document.getElementById('erpPagePrev').disabled = erpPage.offset <= 0;
       document.getElementById('erpPageNext').disabled = !res.has_more;
       pager.style.display = 'flex';
     }
+
+    // Export every row of the current ERP report (honouring the pager search) to
+    // one .xlsx. Pages are pulled at the server's max page size, one after another,
+    // and the columns/titles follow the table's visible columns.
+    const ERP_EXPORT_PAGE_SIZE = 5000;
+
+    async function erpExportAll() {
+      const endpoint = ERP_REPORT_ENDPOINTS[currentType];
+      if (!endpoint) return;
+      const btn = document.getElementById('erpExportAllBtn');
+      const original = btn ? btn.innerHTML : '';
+      const setBtn = (html) => { if (btn) btn.innerHTML = html; };
+      if (btn) btn.disabled = true;
+      try {
+        const rows = [];
+        let total = 0;
+        for (let offset = 0; ; offset += ERP_EXPORT_PAGE_SIZE) {
+          setBtn(`<i class="bi bi-hourglass-split"></i> ${rows.length.toLocaleString()} / ${total ? total.toLocaleString() : '…'}`);
+          const q = new URLSearchParams({ limit: ERP_EXPORT_PAGE_SIZE, offset, search: erpPage.search });
+          const res = await JPSMS.api.get(`${endpoint}?${q.toString()}`);
+          if (!res || !res.ok) throw new Error((res && res.error) || 'Failed to load report data');
+          total = Number(res.total) || 0;
+          rows.push(...(res.data || []));
+          if (!res.has_more || !(res.data || []).length) break;
+        }
+        if (!rows.length) { alert('No rows to export.'); return; }
+
+        let cols = [];
+        if (masterTable) {
+          masterTable.columns().indexes().toArray().forEach((i) => {
+            const col = masterTable.column(i);
+            const key = col.dataSrc();
+            if (typeof key === 'string' && col.visible()) cols.push({ key, title: $(col.header()).text() || key });
+          });
+        }
+        if (!cols.length) cols = Object.keys(rows[0]).map((key) => ({ key, title: key.replace(/_/g, ' ').toUpperCase() }));
+
+        setBtn('<i class="bi bi-hourglass-split"></i> Building file…');
+        await ensureXlsxLoaded();
+        const aoa = [cols.map((c) => c.title)];
+        for (const r of rows) aoa.push(cols.map((c) => (r[c.key] == null ? '' : r[c.key])));
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(aoa), getExportMasterLabel().slice(0, 31));
+        const stamp = new Date().toISOString().slice(0, 10);
+        const suffix = erpPage.search ? `-search-${erpPage.search.replace(/[^\w-]+/g, '_').slice(0, 30)}` : '';
+        XLSX.writeFile(wb, `${getExportMasterLabel()}-all${suffix}-${stamp}.xlsx`, { compression: true });
+      } catch (e) {
+        alert('Export failed: ' + (e.message || e));
+      } finally {
+        if (btn) { btn.disabled = false; btn.innerHTML = original; }
+      }
+    }
+    window.erpExportAll = erpExportAll;
 
     async function loadMasterData() {
       // Labour Parties has its own dedicated UI — bypass the generic DataTable rendering
