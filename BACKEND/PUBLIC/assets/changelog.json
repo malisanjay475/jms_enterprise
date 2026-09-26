@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.74.15",
+  "latest": "1.74.16",
   "versions": [
+    {
+      "version": "1.74.16",
+      "date": "2026-09-26",
+      "title": "Updates can reach the live server again",
+      "modules": [
+        {
+          "app": "all",
+          "label": "Platform",
+          "icon": "bi-cloud-upload",
+          "changes": [
+            { "type": "fix", "text": "New versions can be installed on the live and test servers again after the code repository was made private." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.74.15",
       "date": "2026-09-26",
