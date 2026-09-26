@@ -15,7 +15,7 @@
 
 const FLUSH_INTERVAL_MS = 60 * 1000;
 const MAX_KEYS = 5000; // per flush window; beyond this new keys are dropped (counted)
-const SKIP_PATHS = new Set(['/api/login', '/api/logout', '/api/logout-all', '/api/version', '/api/health']);
+const SKIP_PATHS = new Set(['/api/login', '/api/logout', '/api/logout-all', '/api/version', '/api/health', '/api/session']);
 
 let pool = null;
 let timer = null;
