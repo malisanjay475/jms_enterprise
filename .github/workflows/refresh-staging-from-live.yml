@@ -66,6 +66,7 @@ jobs:
           LIVE_DB_USER: ${{ github.event.inputs.live_db_user || 'jms_v1' }}
           LIVE_DB_NAME: ${{ github.event.inputs.live_db_name || 'jms_v1' }}
           GITHUB_REPOSITORY: ${{ github.repository }}
+          GIT_FETCH_TOKEN: ${{ github.token }}
         with:
           host: ${{ secrets.STAGING_HOSTINGER_SSH_HOST }}
           username: ${{ secrets.STAGING_HOSTINGER_SSH_USER }}
@@ -73,10 +74,18 @@ jobs:
           port: 22
           command_timeout: 60m
           script_stop: true
-          envs: DEPLOY_PATH,DEPLOY_BRANCH,DEPLOY_PROJECT,DEPLOY_COMPOSE_FILE,STAGING_HTTP_PORT,LIVE_DB_CONTAINER,LIVE_DB_USER,LIVE_DB_NAME,GITHUB_REPOSITORY
+          envs: DEPLOY_PATH,DEPLOY_BRANCH,DEPLOY_PROJECT,DEPLOY_COMPOSE_FILE,STAGING_HTTP_PORT,LIVE_DB_CONTAINER,LIVE_DB_USER,LIVE_DB_NAME,GITHUB_REPOSITORY,GIT_FETCH_TOKEN
           script: |
             set -eo pipefail
             mkdir -p "$DEPLOY_PATH"
+            # The repo is private, so git over HTTPS needs auth. Use this job's
+            # short-lived GITHUB_TOKEN (read-only, expires when the job ends). It is
+            # passed via GIT_CONFIG_* env, so it never lands in .git/config or argv.
+            if [ -n "$GIT_FETCH_TOKEN" ]; then
+              export GIT_CONFIG_COUNT=1
+              export GIT_CONFIG_KEY_0="http.https://github.com/.extraheader"
+              export GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GIT_FETCH_TOKEN" | base64 | tr -d '\n')"
+            fi
             if [ ! -d "$DEPLOY_PATH/.git" ]; then
               git clone "https://github.com/${GITHUB_REPOSITORY}.git" "$DEPLOY_PATH"
             fi
@@ -84,6 +93,7 @@ jobs:
             git fetch --prune origin
             git checkout "$DEPLOY_BRANCH"
             git pull --ff-only origin "$DEPLOY_BRANCH"
+            unset GIT_CONFIG_COUNT GIT_CONFIG_KEY_0 GIT_CONFIG_VALUE_0 GIT_FETCH_TOKEN
             bash scripts/vps-refresh-staging-from-live.sh
 
       - name: Refresh staging over SSH (key)
@@ -99,6 +109,7 @@ jobs:
           LIVE_DB_USER: ${{ github.event.inputs.live_db_user || 'jms_v1' }}
           LIVE_DB_NAME: ${{ github.event.inputs.live_db_name || 'jms_v1' }}
           GITHUB_REPOSITORY: ${{ github.repository }}
+          GIT_FETCH_TOKEN: ${{ github.token }}
         with:
           host: ${{ secrets.STAGING_HOSTINGER_SSH_HOST }}
           username: ${{ secrets.STAGING_HOSTINGER_SSH_USER }}
@@ -107,10 +118,18 @@ jobs:
           port: 22
           command_timeout: 60m
           script_stop: true
-          envs: DEPLOY_PATH,DEPLOY_BRANCH,DEPLOY_PROJECT,DEPLOY_COMPOSE_FILE,STAGING_HTTP_PORT,LIVE_DB_CONTAINER,LIVE_DB_USER,LIVE_DB_NAME,GITHUB_REPOSITORY
+          envs: DEPLOY_PATH,DEPLOY_BRANCH,DEPLOY_PROJECT,DEPLOY_COMPOSE_FILE,STAGING_HTTP_PORT,LIVE_DB_CONTAINER,LIVE_DB_USER,LIVE_DB_NAME,GITHUB_REPOSITORY,GIT_FETCH_TOKEN
           script: |
             set -eo pipefail
             mkdir -p "$DEPLOY_PATH"
+            # The repo is private, so git over HTTPS needs auth. Use this job's
+            # short-lived GITHUB_TOKEN (read-only, expires when the job ends). It is
+            # passed via GIT_CONFIG_* env, so it never lands in .git/config or argv.
+            if [ -n "$GIT_FETCH_TOKEN" ]; then
+              export GIT_CONFIG_COUNT=1
+              export GIT_CONFIG_KEY_0="http.https://github.com/.extraheader"
+              export GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GIT_FETCH_TOKEN" | base64 | tr -d '\n')"
+            fi
             if [ ! -d "$DEPLOY_PATH/.git" ]; then
               git clone "https://github.com/${GITHUB_REPOSITORY}.git" "$DEPLOY_PATH"
             fi
@@ -118,4 +137,5 @@ jobs:
             git fetch --prune origin
             git checkout "$DEPLOY_BRANCH"
             git pull --ff-only origin "$DEPLOY_BRANCH"
+            unset GIT_CONFIG_COUNT GIT_CONFIG_KEY_0 GIT_CONFIG_VALUE_0 GIT_FETCH_TOKEN
             bash scripts/vps-refresh-staging-from-live.sh
