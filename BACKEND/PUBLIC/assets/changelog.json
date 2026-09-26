@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.74.21",
+  "latest": "1.74.22",
   "versions": [
+    {
+      "version": "1.74.22",
+      "date": "2026-09-26",
+      "title": "ERP sync is lighter when nothing changed",
+      "modules": [
+        {
+          "app": "all",
+          "label": "Platform",
+          "icon": "bi-speedometer2",
+          "changes": [
+            { "type": "perf", "text": "When the ERP sends no changes and nothing was edited in JMS, the automatic ERP sync now finishes in seconds instead of re-importing every factory for about 7 minutes. A full import still runs at least once an hour." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.74.21",
       "date": "2026-09-26",

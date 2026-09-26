@@ -18687,9 +18687,13 @@ function mapErpMouldItemRow(r) {
    Data is stored in local tables and served from the DB. A superadmin
    presses "Fetch Latest Data" which pulls from the ERP and UPSERTS:
    new rows are inserted, changed rows are updated (matched by row_key),
-   and rows are never deleted. If the ERP returns an empty array (its
-   known intermittent-empty glitch), the fetch is skipped and existing
-   records are kept untouched.
+   and rows are never deleted. The ERP GetORJR* endpoints are a CHANGE
+   FEED: each call returns only the records added or edited since the
+   previous call (confirmed with the ERP owner, 26-Sep-2026), so an empty
+   array just means "nothing changed" and existing records are kept.
+   Each change is handed out once, to whichever server asks first — only
+   production may call these endpoints (see ERP_PULL_ENABLED), or the
+   other caller silently takes production's changes.
    ============================================================ */
 const ERP_REPORTS = {
   status:  { table: 'erp_jr_status',  url: ERP_JR_STATUS_URL,  mapRow: mapErpJrStatusRow,  keyCols: ['or_jr_no', 'job_card_no', 'item_code'] },
@@ -18884,7 +18888,7 @@ async function syncErpReport(cfgKey) {
   const cfg = ERP_REPORTS[cfgKey];
   const raw = await erpAuthedGet(cfg.url);
   if (!Array.isArray(raw)) throw new Error('Unexpected ERP response (not an array)');
-  // ERP intermittently returns []; do NOT wipe the store — keep what we have.
+  // [] = no ERP changes since the last call (change feed); keep the store as-is.
   if (raw.length === 0) return { skipped: true, inserted: 0, updated: 0, total: 0 };
 
   const { table, columns, keyCols, mapRow } = cfg;
@@ -19119,6 +19123,37 @@ async function recordErpAutoSyncHistory(status, trigger, summary, durationMs, hi
   }
 }
 
+// ---- Skip the per-factory import when none of its inputs changed ----
+// The ERP is a change feed, so most cycles fetch nothing, yet the per-factory
+// import (OR-JR Status, Order Master, ORJR Wise Summary/Detail) took ~7 min every
+// cycle. It is a diff-and-write projection whose output depends only on these
+// tables, so when none of them changed the import would write nothing.
+const ERP_IMPORT_INPUT_TABLES = [
+  'erp_jr_status', 'erp_jr_summary', 'erp_jr_details', 'factories',
+  'or_jr_report', 'orders', 'mould_planning_summary', 'mould_planning_report'
+];
+// Run the full import at least this often even when nothing seems to change.
+const ERP_AUTOSYNC_FULL_IMPORT_EVERY_MS = 60 * 60 * 1000;
+// Fingerprint taken at the START of the last full import that finished cleanly.
+let _erpLastFullImport = { fingerprint: null, at: 0 };
+
+// Row count + newest row version (xmin) per input table. Any insert, update or
+// delete changes it, including tables without an updated_at column. A change
+// that only moves it for another reason (VACUUM FREEZE, xid wraparound) just
+// causes one unneeded full import, never a missed one.
+async function erpImportInputsFingerprint() {
+  const present = await q(
+    `SELECT t FROM unnest($1::text[]) AS t WHERE to_regclass(t) IS NOT NULL ORDER BY t`,
+    [ERP_IMPORT_INPUT_TABLES]
+  );
+  if (!present.length) return null;
+  const sql = present
+    .map(({ t }) => `SELECT '${t}' AS t, count(*)::bigint AS n, COALESCE(max(xmin::text::bigint), 0) AS x FROM ${t}`)
+    .join(' UNION ALL ');
+  const rows = await q(sql);
+  return rows.map((r) => `${r.t}:${r.n}:${r.x}`).join('|');
+}
+
 // One full pipeline pass. trigger = 'auto' | 'manual'. Never throws — always
 // records a history row. Returns the summary object.
 async function runErpAutoSyncCycle(trigger = 'auto') {
@@ -19138,7 +19173,7 @@ async function runErpAutoSyncCycle(trigger = 'auto') {
 
   try {
     // 1. FETCH ERP (status, summary, details). syncErpReport keeps existing data
-    //    when the ERP returns [] (it is intermittently empty), so this never wipes.
+    //    when the ERP returns [] (no changes since the last call), so this never wipes.
     for (const key of ['status', 'summary', 'details']) {
       try {
         summary.fetch[key] = await syncErpReport(key);
@@ -19149,8 +19184,32 @@ async function runErpAutoSyncCycle(trigger = 'auto') {
       }
     }
 
+    // Skip the per-factory import if every input table is exactly as it was when
+    // the last clean full import STARTED: that import then wrote nothing (its own
+    // writes would have changed the fingerprint) and nobody changed anything since.
+    // Manual "Run now" always imports; so does the first cycle after a restart and
+    // any cycle an hour after the last full import.
+    const inputFingerprint = await erpImportInputsFingerprint().catch((e) => {
+      console.warn('[ERP AutoSync] input fingerprint failed:', e.message);
+      return null;
+    });
+    const sinceFullImportMs = Date.now() - _erpLastFullImport.at;
+    const skipImport = trigger === 'auto'
+      && inputFingerprint !== null
+      && inputFingerprint === _erpLastFullImport.fingerprint
+      && sinceFullImportMs < ERP_AUTOSYNC_FULL_IMPORT_EVERY_MS;
+    if (skipImport) {
+      summary.import = {
+        skipped: true,
+        reason: 'No ERP changes and no input table changed since the last full import.',
+        last_full_import_minutes_ago: Math.round(sinceFullImportMs / 60000)
+      };
+    }
+
     // 2 + 3. For every factory with ERP linkage: import OR-JR, then build orders.
-    const factories = await q(`SELECT id, name, erp_factory_id, plant_codes FROM factories ORDER BY id`);
+    const factories = skipImport
+      ? []
+      : await q(`SELECT id, name, erp_factory_id, plant_codes FROM factories ORDER BY id`);
     for (const f of factories) {
       const hasLinkage =
         (f.erp_factory_id !== null && f.erp_factory_id !== undefined) ||
@@ -19208,6 +19267,11 @@ async function runErpAutoSyncCycle(trigger = 'auto') {
         }
       }
       summary.factories.push(fs);
+    }
+
+    // Remember the START fingerprint of a full import that finished cleanly.
+    if (!skipImport && !hadError && inputFingerprint !== null) {
+      _erpLastFullImport = { fingerprint: inputFingerprint, at: startedAt };
     }
 
     const status = hadError ? 'partial' : 'ok';
