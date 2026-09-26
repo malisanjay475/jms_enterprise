@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.74.16",
+  "latest": "1.74.17",
   "versions": [
+    {
+      "version": "1.74.17",
+      "date": "2026-09-26",
+      "title": "Export a whole ERP report to Excel",
+      "modules": [
+        {
+          "app": "masters",
+          "label": "Masters",
+          "icon": "bi-file-earmark-excel",
+          "changes": [
+            { "type": "feat", "text": "The ERP reports in Masters have a new Export all button that downloads every row of the report (or every row matching your search) as one Excel file." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.74.16",
       "date": "2026-09-26",

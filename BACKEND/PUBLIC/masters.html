@@ -583,6 +583,9 @@
         <input type="text" id="erpPageSearch" class="form-input" placeholder="Search all rows..."
           style="margin-left:auto; max-width:240px; padding:4px 8px" onkeydown="if (event.key === 'Enter') loadMasterData()">
         <button class="btn-action" onclick="loadMasterData()" style="padding:4px 10px"><i class="bi bi-search"></i></button>
+        <button id="erpExportAllBtn" class="btn-action" onclick="erpExportAll()"
+          title="Download every row of this report (matching the search) as one Excel file"
+          style="padding:4px 10px; background:#0f766e"><i class="bi bi-file-earmark-excel"></i> Export all</button>
       </div>
 
       <!-- Data Table -->
@@ -987,7 +990,7 @@
     }
   </style>
 
-  <script src="/assets/masters-script-2.js?v=release102"></script>
+  <script src="/assets/masters-script-2.js?v=release103"></script>
 
   <!-- Machine CRUD Modal -->
   <div id="machineModal" class="modal"
