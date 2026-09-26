@@ -5,6 +5,9 @@ import com.jakewharton.retrofit2.converter.kotlinx.serialization.asConverterFact
 import kotlinx.serialization.json.Json
 import android.content.Context
 import android.content.SharedPreferences
+import android.security.keystore.KeyGenParameterSpec
+import android.security.keystore.KeyProperties
+import android.util.Base64
 import okhttp3.Cookie
 import okhttp3.CookieJar
 import okhttp3.HttpUrl
@@ -17,6 +20,11 @@ import retrofit2.Retrofit
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.security.KeyStore
+import javax.crypto.Cipher
+import javax.crypto.KeyGenerator
+import javax.crypto.SecretKey
+import javax.crypto.spec.GCMParameterSpec
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 
@@ -30,6 +38,11 @@ import java.util.concurrent.TimeUnit
  * The cookies are now also kept in the app's private SharedPreferences and
  * reloaded at start ([init], called from QcApp.onCreate), so the session
  * survives restarts. Expired cookies are dropped; logout clears everything.
+ *
+ * The saved data is encrypted with an AES key held in the Android Keystore
+ * ([CookieCrypto]) and the file is excluded from Android backups
+ * (res/xml/backup_rules.xml, data_extraction_rules.xml), so a copied prefs file
+ * or a restored backup cannot be used to replay the session.
  */
 class PersistentCookieJar : CookieJar {
     private val store = ConcurrentHashMap<String, MutableList<Cookie>>()
@@ -40,7 +53,14 @@ class PersistentCookieJar : CookieJar {
         val p = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         prefs = p
         store.clear()
-        val raw = p.getString(KEY, null) ?: return
+        val stored = p.getString(KEY, null) ?: return
+        // Undecryptable (key lost, file restored onto another phone, or an older
+        // plaintext build): drop it — the user simply logs in again.
+        val raw = CookieCrypto.decrypt(stored)
+        if (raw == null) {
+            p.edit().remove(KEY).apply()
+            return
+        }
         runCatching {
             val arr = JSONArray(raw)
             val now = System.currentTimeMillis()
@@ -112,7 +132,12 @@ class PersistentCookieJar : CookieJar {
                 )
             }
         }
-        p.edit().putString(KEY, arr.toString()).apply()
+        val encrypted = CookieCrypto.encrypt(arr.toString())
+        if (encrypted == null) {
+            p.edit().remove(KEY).apply() // never fall back to storing plaintext
+            return
+        }
+        p.edit().putString(KEY, encrypted).apply()
     }
 
     companion object {
@@ -120,6 +145,47 @@ class PersistentCookieJar : CookieJar {
         private const val KEY = "cookies"
         const val SESSION_COOKIE = "jms_session"
     }
+}
+
+/**
+ * AES-256-GCM with a non-exportable key in the Android Keystore. Output is
+ * "base64(iv):base64(ciphertext)". Returns null on any failure.
+ */
+object CookieCrypto {
+    private const val KEYSTORE = "AndroidKeyStore"
+    private const val ALIAS = "qc_session_cookie_key"
+    private const val TRANSFORM = "AES/GCM/NoPadding"
+
+    private fun key(): SecretKey {
+        val ks = KeyStore.getInstance(KEYSTORE).apply { load(null) }
+        (ks.getKey(ALIAS, null) as? SecretKey)?.let { return it }
+        val gen = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, KEYSTORE)
+        gen.init(
+            KeyGenParameterSpec.Builder(ALIAS, KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT)
+                .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+                .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+                .setKeySize(256)
+                .build()
+        )
+        return gen.generateKey()
+    }
+
+    fun encrypt(plain: String): String? = runCatching {
+        val cipher = Cipher.getInstance(TRANSFORM)
+        cipher.init(Cipher.ENCRYPT_MODE, key())
+        val ct = cipher.doFinal(plain.toByteArray(Charsets.UTF_8))
+        Base64.encodeToString(cipher.iv, Base64.NO_WRAP) + ":" + Base64.encodeToString(ct, Base64.NO_WRAP)
+    }.getOrNull()
+
+    fun decrypt(stored: String): String? = runCatching {
+        val parts = stored.split(":")
+        require(parts.size == 2) { "bad format" }
+        val iv = Base64.decode(parts[0], Base64.NO_WRAP)
+        val ct = Base64.decode(parts[1], Base64.NO_WRAP)
+        val cipher = Cipher.getInstance(TRANSFORM)
+        cipher.init(Cipher.DECRYPT_MODE, key(), GCMParameterSpec(128, iv))
+        String(cipher.doFinal(ct), Charsets.UTF_8)
+    }.getOrNull()
 }
 
 object Network {
