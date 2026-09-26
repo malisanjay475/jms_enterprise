@@ -18988,8 +18988,12 @@ app.post('/api/reports/erp-mould-item/sync', (req, res) => handleErpSync('mouldI
    result through normal LOCAL<-MAIN sync. LOCAL never runs this.
    Every run is written to erp_autosync_history so it can be reviewed.
    ============================================================ */
+// Idle gap between the END of one auto run and the START of the next. A cycle
+// takes ~7.5 min on the VPS (26-Sep-2026); the old fixed 3-min setInterval
+// therefore started a new cycle as soon as the previous one finished, keeping
+// the database at ~97% CPU around the clock.
 const ERP_AUTOSYNC_INTERVAL_MS = Math.max(
-  60000, Number(process.env.ERP_AUTOSYNC_INTERVAL_MS) || 3 * 60 * 1000
+  60000, Number(process.env.ERP_AUTOSYNC_INTERVAL_MS) || 15 * 60 * 1000
 );
 const ERP_AUTOSYNC_ENABLED = String(process.env.ERP_AUTOSYNC_ENABLED ?? '1') !== '0';
 let _erpAutoSyncRunning = false;
@@ -19156,11 +19160,23 @@ function startErpAutoSync() {
     console.log('[ERP AutoSync] disabled via ERP_AUTOSYNC_ENABLED=0.');
     return;
   }
-  console.log(`[ERP AutoSync] enabled — every ${Math.round(ERP_AUTOSYNC_INTERVAL_MS / 60000)} min on MAIN.`);
-  // First run shortly after boot, then on the interval. Errors are swallowed
-  // inside runErpAutoSyncCycle (always records history), so the timer is safe.
-  setTimeout(() => { runErpAutoSyncCycle('auto').catch(() => {}); }, 15000);
-  setInterval(() => { runErpAutoSyncCycle('auto').catch(() => {}); }, ERP_AUTOSYNC_INTERVAL_MS).unref();
+  console.log(`[ERP AutoSync] enabled — ${Math.round(ERP_AUTOSYNC_INTERVAL_MS / 60000)} min after each run finishes, on MAIN.`);
+  // First run shortly after boot; each later run is scheduled only once the
+  // previous one has finished, so there is always a full idle gap however long
+  // a cycle takes. Errors are swallowed inside runErpAutoSyncCycle (always
+  // records history), so the chain never breaks.
+  const scheduleNext = (delayMs) => {
+    setTimeout(async () => {
+      try {
+        await runErpAutoSyncCycle('auto');
+      } catch (_) {
+        // runErpAutoSyncCycle never throws; keep the chain alive regardless.
+      } finally {
+        scheduleNext(ERP_AUTOSYNC_INTERVAL_MS);
+      }
+    }, delayMs).unref();
+  };
+  scheduleNext(15000);
 }
 
 // History read — for the "check what auto-sync did" view. Superadmin only.
