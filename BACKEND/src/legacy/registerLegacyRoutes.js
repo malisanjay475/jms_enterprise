@@ -1731,6 +1731,7 @@ async function migrateMouldMasterSchema() {
   await q(`DROP INDEX IF EXISTS idx_moulds_erp_item_trim`);
   await qIdx(`CREATE INDEX IF NOT EXISTS idx_moulds_mould_name ON moulds(mould_name)`);
   await qIdx(`CREATE INDEX IF NOT EXISTS idx_moulds_mould_number_trim ON moulds(TRIM(mould_number))`);
+  await qIdx(`CREATE INDEX IF NOT EXISTS idx_moulds_mould_number_upper_trim ON moulds((UPPER(TRIM(mould_number))))`);
   await q(`CREATE UNIQUE INDEX IF NOT EXISTS idx_moulds_factory_mould_number_unique ON moulds ((LOWER(mould_number)), (COALESCE(factory_id, 0)))`)
     .catch(err => console.warn('[DB] idx_moulds_factory_mould_number_unique skipped (duplicate mould numbers in data):', err.message));
 
@@ -4982,6 +4983,7 @@ async function initializeLegacyRuntime() {
             -- TRIM(COALESCE(or_jr_no, '')), which the index above can't serve).
             CREATE INDEX IF NOT EXISTS idx_or_jr_report_trim_coalesce_no ON or_jr_report((TRIM(COALESCE(or_jr_no, ''))));
             CREATE INDEX IF NOT EXISTS idx_moulds_mould_number_trim ON moulds(TRIM(mould_number));
+            CREATE INDEX IF NOT EXISTS idx_moulds_mould_number_upper_trim ON moulds((UPPER(TRIM(mould_number))));
     `);
 
     await pool.query(`
@@ -7926,17 +7928,28 @@ app.get('/api/dpr/recent', async (req, res) => {
         order_no         AS "OrderNo",
         mould_no         AS "MouldNo",
         jobcard_no       AS "JobCardNo",
+        -- Per-row lookups below must stay index-friendly: this runs up to 50 times per
+        -- call. Wrapping the std_actual column in TRIM(COALESCE(...)) read all ~82k
+        -- rows per DPR row (1,355 ms per call on factory-1); comparing the column
+        -- directly uses idx_std_actual_plan_id (0.8 ms). Plan IDs are system codes
+        -- with no padding (0 padded rows on factory-1), and a NULL plan_id never
+        -- matched a real plan before either.
         (SELECT sa.article_act
            FROM std_actual sa
-          WHERE TRIM(COALESCE(sa.plan_id, '')) = TRIM(COALESCE(dpr_hourly.plan_id, ''))
+          WHERE sa.plan_id = TRIM(dpr_hourly.plan_id)
             AND COALESCE(sa.is_deleted, false) = false
           ORDER BY sa.updated_at DESC NULLS LAST, sa.created_at DESC NULLS LAST
           LIMIT 1) AS "ArticleACTWeight",
-        -- Robust Mould Lookup
+        -- Robust Mould Lookup (UPPER(TRIM(mould_number)) is indexed:
+        -- idx_moulds_mould_number_upper_trim)
         COALESCE(
           (SELECT COALESCE(NULLIF(mould_name, ''), mould_number) FROM moulds
             WHERE UPPER(TRIM(mould_number)) = UPPER(TRIM(dpr_hourly.mould_no)) LIMIT 1),
-          (SELECT mould_name FROM plan_board WHERE (plan_id = dpr_hourly.plan_id OR CAST(id AS TEXT) = dpr_hourly.plan_id) LIMIT 1),
+          -- Two separate lookups instead of "plan_id = x OR CAST(id AS TEXT) = x",
+          -- which could use neither index.
+          (SELECT mould_name FROM plan_board WHERE plan_id = dpr_hourly.plan_id LIMIT 1),
+          (SELECT mould_name FROM plan_board
+            WHERE dpr_hourly.plan_id ~ '^[0-9]{1,18}$' AND id = dpr_hourly.plan_id::bigint LIMIT 1),
           dpr_hourly.mould_no
         ) as "Mould",
         -- Client Lookup
@@ -14895,6 +14908,33 @@ app.get('/api/planning/completed', async (req, res) => {
     const cleanSearch = (search || '').trim().toLowerCase();
     const explicitPlant = (plant && String(plant).trim()) ? String(plant).trim() : null;
 
+    // fields=lookup: just the keys the Planning page uses to block re-planning a completed
+    // mould (id, planId, machine, orderNo, mouldName). The full view below joins orders,
+    // moulds, or_jr_report, a dpr_hourly SUM and two audit-log lookups per row (~200 ms,
+    // ~1 MB for 2,000 rows); the page loaded it on every machine-view refresh (~920/day on
+    // factory-1). Same filters, order and mouldName fallback (mould master by code).
+    if (String(req.query.fields || '') === 'lookup') {
+      const params = [];
+      let sql = `
+        SELECT pb.id, pb.plan_id AS "planId", pb.machine, pb.order_no AS "orderNo",
+               COALESCE(pb.mould_name,
+                        (SELECT m.mould_name FROM moulds m WHERE m.mould_number = pb.mould_code LIMIT 1),
+                        'Unknown') AS "mouldName"
+          FROM plan_board pb
+         WHERE pb.status = 'COMPLETED'`;
+      if (factoryId) {
+        params.push(factoryId);
+        sql += ` AND pb.factory_id = $${params.length}`;
+      }
+      if (explicitPlant) {
+        params.push(explicitPlant);
+        sql += ` AND UPPER(TRIM(pb.plant)) = UPPER(TRIM($${params.length}))`;
+      }
+      params.push(Math.min(Math.max(parseInt(limit, 10) || 500, 1), 5000));
+      sql += ` ORDER BY pb.completed_at DESC LIMIT $${params.length}`;
+      return res.json({ ok: true, data: await q(sql, params) });
+    }
+
     if (mode === 'hierarchical') {
       // (Keep hierarchical logic as is, or update if needed, but focus on flat view first for the report)
       let sql = `SELECT order_no, client_name, item_name, qty, created_at, updated_at as completed_at, status 
@@ -17195,6 +17235,12 @@ app.get('/api/dpr/stopped-machines', async (req, res) => {
     const factoryId = await resolveScopedReportFactoryId(req);
     const STOP_MIN = Math.max(15, Number(req.query.minutes) || 120);
     const WINDOW_DAYS = Math.max(1, Math.min(15, Number(req.query.days) || 5));
+    // Shared for 60 s: the answer only changes on a 15+ minute scale (a machine is
+    // "stopped" after STOP_MIN minutes), but every open DPR/Planning page asks for it
+    // and each call reads 5 days of dpr_hourly (~90 ms on factory-1, ~580 calls/day).
+    const stoppedCacheKey = `${factoryId ?? 'all'}|${STOP_MIN}|${WINDOW_DAYS}`;
+    const stoppedCached = ttlCacheGet('stoppedMachines', stoppedCacheKey);
+    if (stoppedCached) return res.json(stoppedCached);
     const now = Date.now();
     const normMach = s => String(s || '').toUpperCase().replace(/>/g, '-').replace(/\s+/g, ' ').trim();
 
@@ -17291,7 +17337,9 @@ app.get('/api/dpr/stopped-machines', async (req, res) => {
       });
     }
     out.sort((a, b) => b.silentMin - a.silentMin);
-    res.json({ ok: true, data: out, stopMinutes: STOP_MIN, windowDays: WINDOW_DAYS });
+    const stoppedBody = { ok: true, data: out, stopMinutes: STOP_MIN, windowDays: WINDOW_DAYS };
+    ttlCacheSet('stoppedMachines', stoppedCacheKey, stoppedBody, 60000);
+    res.json(stoppedBody);
   } catch (e) {
     console.error('/api/dpr/stopped-machines', e);
     sendServerError(res, e);
@@ -23583,6 +23631,11 @@ app.delete('/api/dpr/reasons/:id', async (req, res) => {
 app.get('/api/planning/kpis', async (req, res) => {
   try {
     const factoryId = getFactoryId(req);
+    // Shared for 30 s: header counts on the Planning page (~1,000 calls/day, 43 ms
+    // each, five COUNT queries). Planning pages re-fetch at most every 30 s anyway.
+    const kpiCacheKey = String(factoryId ?? 'all');
+    const kpiCached = ttlCacheGet('planningKpis', kpiCacheKey);
+    if (kpiCached) return res.json(kpiCached);
 
     const safeQ = async (sql, params) => {
       try { return await q(sql, params); } catch { return [{ c: 0 }]; }
@@ -23652,7 +23705,7 @@ app.get('/api/planning/kpis', async (req, res) => {
       value
     ];
 
-    res.json({
+    const kpiBody = {
       total_pending_orders: totalPending,
       pending_delta_pct: pendingDelta,
       pending_trend: makeTrend(totalPending),
@@ -23668,7 +23721,9 @@ app.get('/api/planning/kpis', async (req, res) => {
       total_upcoming_orders: upcoming,
       upcoming_delta_pct: upcomingDelta,
       upcoming_trend: makeTrend(upcoming)
-    });
+    };
+    ttlCacheSet('planningKpis', kpiCacheKey, kpiBody, 30000);
+    res.json(kpiBody);
   } catch (e) { sendServerError(res, e); }
 });
 

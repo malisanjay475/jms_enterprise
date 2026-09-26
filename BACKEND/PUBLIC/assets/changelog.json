@@ -11,8 +11,68 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.74.32",
+  "latest": "1.74.36",
   "versions": [
+    {
+      "version": "1.74.36",
+      "date": "2026-09-26",
+      "title": "Lighter factory backups",
+      "modules": [
+        {
+          "app": "all",
+          "label": "Platform",
+          "icon": "bi-hdd",
+          "changes": [
+            { "type": "perf", "text": "The factory server now takes its automatic backup every 30 minutes instead of every 5, which frees the database for your work. It keeps a full day of these backups instead of 4 hours." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.74.35",
+      "date": "2026-09-26",
+      "title": "Quicker Planning header and stopped-machine list",
+      "modules": [
+        {
+          "app": "planning",
+          "label": "Planning",
+          "icon": "bi-lightning-charge",
+          "changes": [
+            { "type": "perf", "text": "The Planning header numbers and the list of stopped machines load instantly when several people have the page open. They can be up to 30 to 60 seconds old." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.74.34",
+      "date": "2026-09-26",
+      "title": "Faster recent DPR entries",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-lightning-charge",
+          "changes": [
+            { "type": "perf", "text": "The list of recent DPR entries for a machine now loads in a moment instead of about 1.5 seconds, and puts much less load on the server." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.74.33",
+      "date": "2026-09-26",
+      "title": "Planning machine view loads lighter",
+      "modules": [
+        {
+          "app": "planning",
+          "label": "Planning",
+          "icon": "bi-lightning",
+          "changes": [
+            { "type": "perf", "text": "The Planning machine view no longer downloads the full completed-plans list every time it refreshes; it fetches a small list and reuses it for two minutes." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.74.32",
       "date": "2026-09-26",

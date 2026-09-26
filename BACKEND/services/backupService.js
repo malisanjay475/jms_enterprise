@@ -3,8 +3,14 @@
 /**
  * Automated PostgreSQL backup service — Linux/Docker compatible.
  *
- * Runs pg_dump every 5 minutes inside the container (pg_dump is available because
- * the Dockerfile installs postgresql-client). Keeps the last 48 dumps (~4 hours).
+ * Runs pg_dump every 30 minutes (pg_dump is available because the Dockerfile installs
+ * postgresql-client). Keeps the last 48 dumps (~24 hours).
+ *
+ * Was every 5 minutes (~4 hours kept). Each dump reads every table end to end: on
+ * factory-1 (26-Sep-2026) that was 288 full reads of the 4 GB database a day, which
+ * kept pushing useful data out of PostgreSQL's memory. The owner chose 30 minutes;
+ * factory-1 also takes a nightly verified dump to a second disk. Override with
+ * BACKUP_INTERVAL_MS / BACKUP_MAX_COUNT. The VPS sets BACKUP_ENABLED=0 (own backups).
  * Dumps are gzip-compressed (.sql.gz) and stored in /app/backups/ which should be
  * mapped to a persistent volume in docker-compose.
  *
@@ -17,8 +23,8 @@ const path = require('path');
 const zlib = require('zlib');
 
 const BACKUP_DIR   = process.env.BACKUP_DIR || path.join(process.cwd(), 'backups');
-const MAX_BACKUPS  = Number(process.env.BACKUP_MAX_COUNT || 48); // 48 × 5 min = 4 hours
-const INTERVAL_MS  = Number(process.env.BACKUP_INTERVAL_MS || 5 * 60 * 1000); // 5 minutes
+const MAX_BACKUPS  = Number(process.env.BACKUP_MAX_COUNT || 48); // 48 × 30 min = 24 hours
+const INTERVAL_MS  = Number(process.env.BACKUP_INTERVAL_MS || 30 * 60 * 1000); // 30 minutes
 
 // Resolve pg_dump across environments:
 //   - Docker/Linux: postgresql-client installs it on PATH (/usr/bin).

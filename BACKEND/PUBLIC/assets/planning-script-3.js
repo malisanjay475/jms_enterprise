@@ -2674,7 +2674,10 @@
             // Completed plans are excluded from the board, so load them separately into a
             // lookup keyed by order_no|mould_name. Create Plan uses this to block re-planning a
             // mould that is already Completed (until a Superadmin restores it).
-            api.get('/planning/completed?limit=2000').then(cRes => {
+            // fields=lookup returns only these keys (the full list was ~1 MB and ~200 ms), and
+            // the 2-minute plan cache (cleared on any plan change) avoids refetching it on
+            // every view switch.
+            window._planCache.get('completed-lookup', () => api.get('/planning/completed?limit=2000&fields=lookup')).then(cRes => {
               const norm = (s) => String(s || '').trim().replace(/\s+/g, ' ').toUpperCase();
               const map = {};
               ((cRes && cRes.data) ? cRes.data : []).forEach(c => {
