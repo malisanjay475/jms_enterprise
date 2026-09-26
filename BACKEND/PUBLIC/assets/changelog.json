@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.74.35",
+  "latest": "1.74.36",
   "versions": [
+    {
+      "version": "1.74.36",
+      "date": "2026-09-26",
+      "title": "Lighter factory backups",
+      "modules": [
+        {
+          "app": "all",
+          "label": "Platform",
+          "icon": "bi-hdd",
+          "changes": [
+            { "type": "perf", "text": "The factory server now takes its automatic backup every 30 minutes instead of every 5, which frees the database for your work. It keeps a full day of these backups instead of 4 hours." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.74.35",
       "date": "2026-09-26",
