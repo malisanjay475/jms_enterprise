@@ -17235,6 +17235,12 @@ app.get('/api/dpr/stopped-machines', async (req, res) => {
     const factoryId = await resolveScopedReportFactoryId(req);
     const STOP_MIN = Math.max(15, Number(req.query.minutes) || 120);
     const WINDOW_DAYS = Math.max(1, Math.min(15, Number(req.query.days) || 5));
+    // Shared for 60 s: the answer only changes on a 15+ minute scale (a machine is
+    // "stopped" after STOP_MIN minutes), but every open DPR/Planning page asks for it
+    // and each call reads 5 days of dpr_hourly (~90 ms on factory-1, ~580 calls/day).
+    const stoppedCacheKey = `${factoryId ?? 'all'}|${STOP_MIN}|${WINDOW_DAYS}`;
+    const stoppedCached = ttlCacheGet('stoppedMachines', stoppedCacheKey);
+    if (stoppedCached) return res.json(stoppedCached);
     const now = Date.now();
     const normMach = s => String(s || '').toUpperCase().replace(/>/g, '-').replace(/\s+/g, ' ').trim();
 
@@ -17331,7 +17337,9 @@ app.get('/api/dpr/stopped-machines', async (req, res) => {
       });
     }
     out.sort((a, b) => b.silentMin - a.silentMin);
-    res.json({ ok: true, data: out, stopMinutes: STOP_MIN, windowDays: WINDOW_DAYS });
+    const stoppedBody = { ok: true, data: out, stopMinutes: STOP_MIN, windowDays: WINDOW_DAYS };
+    ttlCacheSet('stoppedMachines', stoppedCacheKey, stoppedBody, 60000);
+    res.json(stoppedBody);
   } catch (e) {
     console.error('/api/dpr/stopped-machines', e);
     sendServerError(res, e);
@@ -23623,6 +23631,11 @@ app.delete('/api/dpr/reasons/:id', async (req, res) => {
 app.get('/api/planning/kpis', async (req, res) => {
   try {
     const factoryId = getFactoryId(req);
+    // Shared for 30 s: header counts on the Planning page (~1,000 calls/day, 43 ms
+    // each, five COUNT queries). Planning pages re-fetch at most every 30 s anyway.
+    const kpiCacheKey = String(factoryId ?? 'all');
+    const kpiCached = ttlCacheGet('planningKpis', kpiCacheKey);
+    if (kpiCached) return res.json(kpiCached);
 
     const safeQ = async (sql, params) => {
       try { return await q(sql, params); } catch { return [{ c: 0 }]; }
@@ -23692,7 +23705,7 @@ app.get('/api/planning/kpis', async (req, res) => {
       value
     ];
 
-    res.json({
+    const kpiBody = {
       total_pending_orders: totalPending,
       pending_delta_pct: pendingDelta,
       pending_trend: makeTrend(totalPending),
@@ -23708,7 +23721,9 @@ app.get('/api/planning/kpis', async (req, res) => {
       total_upcoming_orders: upcoming,
       upcoming_delta_pct: upcomingDelta,
       upcoming_trend: makeTrend(upcoming)
-    });
+    };
+    ttlCacheSet('planningKpis', kpiCacheKey, kpiBody, 30000);
+    res.json(kpiBody);
   } catch (e) { sendServerError(res, e); }
 });
 

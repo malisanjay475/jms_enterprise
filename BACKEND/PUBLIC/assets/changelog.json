@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.74.34",
+  "latest": "1.74.35",
   "versions": [
+    {
+      "version": "1.74.35",
+      "date": "2026-09-26",
+      "title": "Quicker Planning header and stopped-machine list",
+      "modules": [
+        {
+          "app": "planning",
+          "label": "Planning",
+          "icon": "bi-lightning-charge",
+          "changes": [
+            { "type": "perf", "text": "The Planning header numbers and the list of stopped machines load instantly when several people have the page open. They can be up to 30 to 60 seconds old." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.74.34",
       "date": "2026-09-26",
