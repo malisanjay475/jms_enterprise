@@ -11,8 +11,53 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.74.25",
+  "latest": "1.74.28",
   "versions": [
+    {
+      "version": "1.74.28",
+      "date": "2026-09-26",
+      "title": "QC app login stored securely",
+      "modules": [
+        {
+          "app": "quality",
+          "label": "QC App",
+          "icon": "bi-shield-lock",
+          "changes": [
+            { "type": "security", "text": "The QC app's saved login is now encrypted on the phone and never included in phone backups." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.74.27",
+      "date": "2026-09-26",
+      "title": "Clearer logs for slow device connections",
+      "modules": [
+        {
+          "app": "all",
+          "label": "Platform",
+          "icon": "bi-wifi",
+          "changes": [
+            { "type": "improvement", "text": "When a phone or tablet on a weak connection cannot finish sending a request, the server log now says which device it was, so Wi-Fi problems can be found." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.74.26",
+      "date": "2026-09-26",
+      "title": "QC app stays logged in properly",
+      "modules": [
+        {
+          "app": "quality",
+          "label": "QC App",
+          "icon": "bi-phone",
+          "changes": [
+            { "type": "security", "text": "The QC Android app now keeps its login when the phone closes the app. After this update each phone asks to log in once more; after that it stays logged in as before." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.74.25",
       "date": "2026-09-26",

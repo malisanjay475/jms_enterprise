@@ -13,6 +13,7 @@ const createServices = require('../services/createServices');
 const createApp = require('./createApp');
 const { startDataRetention } = require('./dataRetention');
 const { hashLegacyPlaintextPasswords } = require('./passwordUpgrade');
+const { createClientErrorHandler } = require('./clientErrorLog');
 
 function createHttpsServerIfConfigured(app, config) {
   if (!config.https?.enabled) return null;
@@ -89,34 +90,14 @@ async function startServer() {
     httpsRuntime.httpsServer.setTimeout(600000);
     httpsRuntime.httpsServer.keepAliveTimeout = 60000;
     httpsRuntime.httpsServer.headersTimeout = 61000;
-    httpsRuntime.httpsServer.on('clientError', (err, socket) => {
-      // ECONNRESET/EPIPE on a client socket = the peer dropped the connection
-      // (idle keep-alive timeout, tab close/refresh, flaky factory LAN, sync
-      // blip). These are expected background noise on any keep-alive server and
-      // do not affect other requests — don't log, and don't try to write a 400
-      // to an already-dead socket (per Node http docs).
-      if (err.code === 'ECONNRESET' || err.code === 'EPIPE' || !socket.writable) {
-        return;
-      }
-      console.error('[HTTPS CLIENT ERROR]', err.message, err.stack);
-      socket.end('HTTP/1.1 400 Bad Request\r\n\r\n');
-    });
+    // Timeouts are summarised per client address (clientErrorLog.js).
+    httpsRuntime.httpsServer.on('clientError', createClientErrorHandler('HTTPS CLIENT'));
     server.httpsServer = httpsRuntime.httpsServer;
     server.httpsPort = httpsRuntime.httpsPort;
   }
 
-  server.on('clientError', (err, socket) => {
-    // ECONNRESET/EPIPE on a client socket = the peer dropped the connection
-    // (idle keep-alive timeout, tab close/refresh, flaky factory LAN, sync
-    // blip). These are expected background noise on any keep-alive server and
-    // do not affect other requests — don't log, and don't try to write a 400
-    // to an already-dead socket (per Node http docs).
-    if (err.code === 'ECONNRESET' || err.code === 'EPIPE' || !socket.writable) {
-      return;
-    }
-    console.error('[HTTP CLIENT ERROR]', err.message, err.stack);
-    socket.end('HTTP/1.1 400 Bad Request\r\n\r\n');
-  });
+  // Timeouts are summarised per client address (clientErrorLog.js).
+  server.on('clientError', createClientErrorHandler('HTTP CLIENT'));
 
   if (legacyHooks.startupLog) legacyHooks.startupLog(server);
   if (legacyHooks.onServerStarted) legacyHooks.onServerStarted(server);

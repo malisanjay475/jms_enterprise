@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Android 11 and older (android:fullBackupContent): never back up the saved login
+  session cookie. It is also encrypted with a Keystore key that is not backed up,
+  so a copied file could not be used anyway.
+-->
+<full-backup-content>
+    <exclude domain="sharedpref" path="qc_cookies.xml" />
+</full-backup-content>

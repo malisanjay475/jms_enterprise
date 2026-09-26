@@ -5,6 +5,7 @@ import com.jmsocean.qc.data.OfflineQueue
 import com.jmsocean.qc.data.QcRepository
 import com.jmsocean.qc.data.SessionStore
 import com.jmsocean.qc.data.SyncManager
+import com.jmsocean.qc.data.remote.Network
 
 /**
  * App entry + tiny service locator. Hilt replaces this in a later phase;
@@ -19,6 +20,8 @@ class QcApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        // Reload the saved login session before anything talks to the server.
+        Network.cookieJar.init(this)
         session = SessionStore(this)
         repository = QcRepository(session)
         instance = this
