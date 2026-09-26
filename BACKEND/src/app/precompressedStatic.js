@@ -126,6 +126,16 @@ function createPrecompressedStatic(publicDir, cacheControlFor) {
       if (cc) res.setHeader('Cache-Control', cc);
     }
 
+    // Conditional GET: our JS/CSS are served "no-cache", so browsers revalidate on every
+    // page load — answer 304 when their copy is current instead of re-sending the file.
+    const ims = Date.parse(req.headers['if-modified-since'] || '');
+    if (!Number.isNaN(ims) && Date.parse(entry.lastModified) <= ims) {
+      res.removeHeader('Content-Length');
+      res.removeHeader('Content-Encoding');
+      res.statusCode = 304;
+      return res.end();
+    }
+
     if (req.method === 'HEAD') return res.end();
 
     // variant.file comes from readdir/statSync above — not from the request.

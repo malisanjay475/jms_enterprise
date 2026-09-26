@@ -2192,8 +2192,18 @@ function escHtml(value) {
         } catch (e) { console.error('Notif poll error', e); }
     }
 
-    // Start Polling Global
-    setInterval(checkUnread, 30000);
+    // Start Polling Global — only while the tab is visible (background tabs asked every
+    // 30 s each: ~16k calls/day on factory-1). Coming back into view refreshes the badge.
+    let _lastUnreadCheckAt = Date.now();
+    function checkUnreadIfVisible() {
+        if (document.hidden) return;
+        _lastUnreadCheckAt = Date.now();
+        checkUnread();
+    }
+    setInterval(checkUnreadIfVisible, 30000);
+    document.addEventListener('visibilitychange', () => {
+        if (!document.hidden && Date.now() - _lastUnreadCheckAt >= 30000) checkUnreadIfVisible();
+    });
 
     // Decorate RenderShell to add Bell
     const _originalRender = exports.renderShell;
@@ -2459,8 +2469,20 @@ function escHtml(value) {
     _sendHeartbeat('page_open');
   }
 
-  // Repeat every 60 seconds
-  setInterval(function () { _sendHeartbeat('heartbeat'); }, 60000);
+  // Repeat every 60 seconds — but only while the tab is visible. Shop-floor and office
+  // PCs keep tabs open all day; background tabs sent a heartbeat (a DB insert) every
+  // minute each (one office PC: 3,859/day). A tab coming back into view reports at
+  // once, so the Activity Monitor and the "log out all devices" signal still work.
+  var _lastHeartbeatAt = Date.now();
+  function _visibleHeartbeat() {
+    if (document.hidden) return;
+    _lastHeartbeatAt = Date.now();
+    _sendHeartbeat('heartbeat');
+  }
+  setInterval(_visibleHeartbeat, 60000);
+  document.addEventListener('visibilitychange', function () {
+    if (!document.hidden && Date.now() - _lastHeartbeatAt >= 60000) _visibleHeartbeat();
+  });
 
   // Best-effort page close
   window.addEventListener('beforeunload', function () { _sendHeartbeat('page_close'); });

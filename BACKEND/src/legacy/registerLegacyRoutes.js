@@ -1151,35 +1151,19 @@ app.get('/.well-known/assetlinks.json', (req, res) => {
 // Must run BEFORE express.static so it can intercept the asset request; falls
 // through cleanly when no fresh precompressed sibling exists.
 const createPrecompressedStatic = require('../app/precompressedStatic');
+const { cacheControlForAsset } = require('../app/staticCachePolicy');
 const uploadsProxyCache = require('../app/uploadsProxyCache');
 const authSessions = require('../app/auth');
 const { ensureUniqueIndex } = require('../db/indexUtils');
 const { validateDprQuantities } = require('../app/dprValidation');
-app.use(createPrecompressedStatic(PUBLIC_DIR, (req) => {
-  const p = req.path;
-  if (path.basename(p) === 'app.js') return 'no-cache';
-  if (p.includes('/assets/vendor/')) return 'public, max-age=31536000, immutable';
-  return 'public, max-age=604800';
-}));
+// Cache rules shared with express.static below (staticCachePolicy.js): our own JS/CSS
+// revalidate on every load (304 when unchanged); vendor libs are cached for a year.
+app.use(createPrecompressedStatic(PUBLIC_DIR, (req) => cacheControlForAsset(req.path)));
 
 app.use(express.static(PUBLIC_DIR, {
   setHeaders: (res, filePath) => {
-    const normalized = filePath.replace(/\\/g, '/');
-    if (filePath.endsWith('.html')) {
-      // Cache for 5 minutes with a 1-minute stale-while-revalidate background refresh
-      res.setHeader('Cache-Control', 'public, max-age=300, stale-while-revalidate=60');
-    } else if (path.basename(filePath) === 'app.js') {
-      // app.js carries the version badge — never serve stale
-      res.setHeader('Cache-Control', 'no-cache');
-    } else if (normalized.includes('/assets/vendor/')) {
-      // Third-party libs are pinned by version in their path (…/1.13.4/…) so the
-      // URL changes whenever the content does → cache for a year + immutable
-      // (browser never revalidates → instant repeat loads, fully offline-friendly).
-      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
-    } else {
-      // Versioned assets (app.css?v=N, etc.) and images are safe to cache for 7 days
-      res.setHeader('Cache-Control', 'public, max-age=604800');
-    }
+    // Same rules as the precompressed handler above (staticCachePolicy.js).
+    res.setHeader('Cache-Control', cacheControlForAsset(filePath));
   }
 }));
 app.use('/uploads', express.static(PRIMARY_UPLOADS_DIR));
@@ -4994,6 +4978,9 @@ async function initializeLegacyRuntime() {
             CREATE INDEX IF NOT EXISTS idx_or_jr_report_no ON or_jr_report(or_jr_no);
             CREATE INDEX IF NOT EXISTS idx_moulds_mould_name ON moulds(mould_name);
             CREATE INDEX IF NOT EXISTS idx_or_jr_report_no_trim ON or_jr_report(TRIM(or_jr_no));
+            -- Same as migration 015, for fresh databases (the planning code matches on
+            -- TRIM(COALESCE(or_jr_no, '')), which the index above can't serve).
+            CREATE INDEX IF NOT EXISTS idx_or_jr_report_trim_coalesce_no ON or_jr_report((TRIM(COALESCE(or_jr_no, ''))));
             CREATE INDEX IF NOT EXISTS idx_moulds_mould_number_trim ON moulds(TRIM(mould_number));
     `);
 
@@ -15414,6 +15401,12 @@ app.get('/api/planning/cycle-prediction', async (req, res) => {
   try {
     const days = Math.min(730, Math.max(7, parseInt(req.query.days, 10) || 120));
 
+    // The prediction aggregates up to `days` of dpr_hourly twice (~3.5 s on factory-1)
+    // and only moves as new hours are logged, so keep each answer for 10 minutes
+    // (per `days` value and per server). The first caller pays; the rest are instant.
+    const cached = ttlCacheGet('cyclePrediction', String(days));
+    if (cached) return res.json(cached);
+
     // Shared CTE: per-row actual cycle + recency weight, filtered to sane values.
     const baseCte = `
       WITH calc AS (
@@ -15478,7 +15471,9 @@ app.get('/api/planning/cycle-prediction', async (req, res) => {
       };
     };
 
-    res.json({ ok: true, days, byPair: pairs.map(shape), byMould: moulds.map(shape) });
+    const payload = { ok: true, days, byPair: pairs.map(shape), byMould: moulds.map(shape) };
+    ttlCacheSet('cyclePrediction', String(days), payload, 10 * 60 * 1000);
+    res.json(payload);
   } catch (e) {
     console.error('cycle-prediction', e);
     sendServerError(res, e);
