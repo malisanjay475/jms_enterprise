@@ -20,7 +20,7 @@ android {
         // versionCode is set by CI (APP_VERSION_CODE = 1000 + run number) so it
         // ALWAYS increases and phones auto-update. Local builds fall back to 100.
         versionCode = System.getenv("APP_VERSION_CODE")?.toIntOrNull() ?: 100
-        versionName = "1.1.0"
+        versionName = "1.1.1"
 
         // Base URL of the JMS API. Change here to point at LOCAL / staging / prod.
         //  - LOCAL factory server (no geofence, shop-floor): http://192.168.1.173:3001/  ← active
