@@ -226,6 +226,14 @@ function registerRoutes(app, deps) {
     });
   });
 
+  // Does this browser hold a valid login session (the HttpOnly cookie)? Pages that
+  // remember a user in localStorage but have no session send them to log in once,
+  // so every request carries a verified identity (step towards requiring login).
+  app.get('/api/session', (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({ ok: true, authenticated: Boolean(req.auth), username: req.auth ? req.auth.username : null });
+  });
+
   app.get('/api/version', (req, res) => {
     res.json({
       version: APP_VERSION,

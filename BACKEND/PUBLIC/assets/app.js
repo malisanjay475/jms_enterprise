@@ -2457,3 +2457,46 @@ function escHtml(value) {
   // Best-effort page close
   window.addEventListener('beforeunload', function () { _sendHeartbeat('page_close'); });
 }());
+
+// ── Login session check ──────────────────────────────────────────────────────
+// A page may remember a user in localStorage from before the login cookie existed
+// (or after the cookie expired). Such a browser works only through the legacy
+// X-User-Name header, which will stop working once login is required everywhere.
+// Ask the server once (then every 5 minutes at most) whether this browser holds a
+// valid session; if it definitely does not, clear the remembered user and go to the
+// login page once. Network errors or odd answers never log anyone out.
+(function () {
+  var path = (window.location.pathname || '').toLowerCase();
+  if (/login\.html$/.test(path) || path.indexOf('/vendor/') !== -1) return;
+  var user = {};
+  try { user = JSON.parse(localStorage.getItem('user') || '{}'); } catch (_e) { return; }
+  if (!user || !user.username) return;
+
+  var CHECK_KEY = 'jms_session_ok_at';
+  var FRESH_MS = 5 * 60 * 1000;
+  try {
+    var last = Number(sessionStorage.getItem(CHECK_KEY) || 0);
+    if (last && Date.now() - last < FRESH_MS) return;
+  } catch (_e) { /* sessionStorage unavailable: just check */ }
+
+  fetch('/api/session', { credentials: 'same-origin', cache: 'no-store' })
+    .then(function (r) { return r.ok ? r.json() : null; })
+    .then(function (d) {
+      if (!d || d.ok !== true || typeof d.authenticated !== 'boolean') return;
+      var sameUser = d.username && String(d.username).toLowerCase() === String(user.username).toLowerCase();
+      if (d.authenticated && sameUser) {
+        try { sessionStorage.setItem(CHECK_KEY, String(Date.now())); } catch (_e) { }
+        return;
+      }
+      try { sessionStorage.setItem('jms_login_reason', 'session'); } catch (_e) { }
+      // login.html auto-forwards a remembered jpsms_user, so clear it too.
+      try { localStorage.removeItem('jpsms_user'); } catch (_e) { }
+      if (window.JPSMS && window.JPSMS.auth && typeof window.JPSMS.auth.logout === 'function') {
+        window.JPSMS.auth.logout();
+      } else {
+        try { localStorage.removeItem('user'); localStorage.removeItem('token'); } catch (_e) { }
+        window.location.href = '/login.html';
+      }
+    })
+    .catch(function () { /* offline or server busy: try again on the next page */ });
+}());

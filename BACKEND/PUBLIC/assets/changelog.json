@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.74.28",
+  "latest": "1.74.29",
   "versions": [
+    {
+      "version": "1.74.29",
+      "date": "2026-09-26",
+      "title": "Secure login check on every screen",
+      "modules": [
+        {
+          "app": "all",
+          "label": "Platform",
+          "icon": "bi-shield-lock",
+          "changes": [
+            { "type": "security", "text": "If your browser's login has expired or was made before the secure login update, you are asked to log in once more. People who use the app at least once a week stay logged in as before." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.74.28",
       "date": "2026-09-26",
