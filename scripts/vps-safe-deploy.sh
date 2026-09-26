@@ -17,8 +17,29 @@ default_erp_pull_enabled() {
   if [[ "${DEPLOY_ENVIRONMENT:-production}" == "staging" ]]; then echo 0; else echo 1; fi
 }
 
+# Traefik routing. Production owns router `jms` + jmsocean.cloud. Staging must NEVER
+# register those names: two containers on one router make Traefik round-robin
+# jmsocean.cloud across prod+staging (live users on the staging database). So a
+# staging deploy always gets its own names, whatever the calling workflow passed.
+resolve_traefik_settings() {
+  if [[ "${DEPLOY_ENVIRONMENT:-production}" == "staging" ]]; then
+    TRAEFIK_ROUTER=jms-staging
+    TRAEFIK_HOST=staging.jmsocean.cloud
+    TRAEFIK_WWW_HOST=staging.jmsocean.cloud
+    TRAEFIK_WWW_PATH=/__no-www-on-staging__
+    TRAEFIK_PGADMIN_ENABLE=false
+  else
+    TRAEFIK_ROUTER=${TRAEFIK_ROUTER:-jms}
+    TRAEFIK_HOST=${TRAEFIK_HOST:-jmsocean.cloud}
+    TRAEFIK_WWW_HOST=${TRAEFIK_WWW_HOST:-www.jmsocean.cloud}
+    TRAEFIK_WWW_PATH=${TRAEFIK_WWW_PATH:-/}
+    TRAEFIK_PGADMIN_ENABLE=${TRAEFIK_PGADMIN_ENABLE:-${TRAEFIK_ENABLE:-true}}
+  fi
+}
+
 write_env_file() {
   local image_ref="$1"
+  resolve_traefik_settings
 
   cat > .env <<EOF
 APP_IMAGE=${image_ref}
@@ -44,6 +65,11 @@ LOCAL_SERVER_HEARTBEAT_INTERVAL_MS=${LOCAL_SERVER_HEARTBEAT_INTERVAL_MS:-}
 AUTO_IMPORT_DB_PATH=${AUTO_IMPORT_DB_PATH:-}
 AUTO_IMPORT_DB_FORCE=${AUTO_IMPORT_DB_FORCE:-0}
 TRAEFIK_ENABLE=${TRAEFIK_ENABLE:-true}
+TRAEFIK_ROUTER=${TRAEFIK_ROUTER}
+TRAEFIK_HOST=${TRAEFIK_HOST}
+TRAEFIK_WWW_HOST=${TRAEFIK_WWW_HOST}
+TRAEFIK_WWW_PATH=${TRAEFIK_WWW_PATH}
+TRAEFIK_PGADMIN_ENABLE=${TRAEFIK_PGADMIN_ENABLE}
 PGADMIN_DEFAULT_EMAIL=${PGADMIN_DEFAULT_EMAIL:-}
 PGADMIN_DEFAULT_PASSWORD=${PGADMIN_DEFAULT_PASSWORD:-}
 EOF

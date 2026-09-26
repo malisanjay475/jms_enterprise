@@ -77,10 +77,9 @@ services:
       db:
         condition: service_healthy
     ports:
-      # Loopback by default: the public entry point is Traefik (https://jmsocean.cloud),
-      # which reaches the container over the Docker network. Plain-HTTP access on the
-      # public IP (e.g. :9092) is closed; staging sets V1_HTTP_BIND=0.0.0.0 until it
-      # has its own domain. Probe on 25-Sep-2026: no local server used :9092.
+      # Loopback only: the public entry points are Traefik (https://jmsocean.cloud and
+      # https://staging.jmsocean.cloud), which reach the container over the Docker
+      # network. Plain-HTTP access on the public IP (:9092 / :9093) is closed.
       - "${V1_HTTP_BIND:-127.0.0.1}:${V1_HTTP_PORT:-9091}:3000"
     volumes:
       - ./seed:/seed:ro
@@ -145,25 +144,30 @@ services:
     # runs `git pull` + `docker compose up`, which recreates the container — any
     # labels added manually on the VPS are lost and the site 404s. Keep them in-repo.
     labels:
-      # Default true (production owns jmsocean.cloud). Staging sets TRAEFIK_ENABLE=false
-      # so it does NOT register the shared `jms` router/service — otherwise Traefik
-      # round-robins the domain across prod+staging and serves the wrong database.
+      # Default true (production owns jmsocean.cloud). Staging also routes through
+      # Traefik, but under its OWN router/service names and host (TRAEFIK_ROUTER /
+      # TRAEFIK_HOST, set by deploy-v1-staging.yml). Two containers must never share a
+      # router/service name, or Traefik round-robins the domain across prod+staging
+      # and serves the wrong database. Defaults below are production's exact values.
       - "traefik.enable=${TRAEFIK_ENABLE:-true}"
       # Apex router — serves the app.
-      - "traefik.http.routers.jms.rule=Host(`jmsocean.cloud`)"
-      - "traefik.http.routers.jms.entrypoints=websecure"
-      - "traefik.http.routers.jms.tls.certresolver=letsencrypt"
-      - "traefik.http.services.jms.loadbalancer.server.port=3000"
-      # www router — 301-redirects to the bare apex (canonical host).
+      - "traefik.http.routers.${TRAEFIK_ROUTER:-jms}.rule=Host(`${TRAEFIK_HOST:-jmsocean.cloud}`)"
+      - "traefik.http.routers.${TRAEFIK_ROUTER:-jms}.entrypoints=websecure"
+      - "traefik.http.routers.${TRAEFIK_ROUTER:-jms}.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.${TRAEFIK_ROUTER:-jms}.service=${TRAEFIK_ROUTER:-jms}"
+      - "traefik.http.services.${TRAEFIK_ROUTER:-jms}.loadbalancer.server.port=3000"
+      # www router — 301-redirects www.jmsocean.cloud to the bare apex (canonical host).
+      # Staging has no www name: it points this router at its own host plus a path no
+      # request uses (TRAEFIK_WWW_PATH), so it never matches and needs no extra cert.
       # $$ escapes docker-compose interpolation so Traefik receives a literal ${1}.
-      - "traefik.http.routers.jms-www.rule=Host(`www.jmsocean.cloud`)"
-      - "traefik.http.routers.jms-www.entrypoints=websecure"
-      - "traefik.http.routers.jms-www.tls.certresolver=letsencrypt"
-      - "traefik.http.routers.jms-www.service=jms"
-      - "traefik.http.routers.jms-www.middlewares=jms-wwwtoapex"
-      - "traefik.http.middlewares.jms-wwwtoapex.redirectregex.regex=^https?://www\\.jmsocean\\.cloud/(.*)"
-      - "traefik.http.middlewares.jms-wwwtoapex.redirectregex.replacement=https://jmsocean.cloud/$${1}"
-      - "traefik.http.middlewares.jms-wwwtoapex.redirectregex.permanent=true"
+      - "traefik.http.routers.${TRAEFIK_ROUTER:-jms}-www.rule=Host(`${TRAEFIK_WWW_HOST:-www.jmsocean.cloud}`) && PathPrefix(`${TRAEFIK_WWW_PATH:-/}`)"
+      - "traefik.http.routers.${TRAEFIK_ROUTER:-jms}-www.entrypoints=websecure"
+      - "traefik.http.routers.${TRAEFIK_ROUTER:-jms}-www.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.${TRAEFIK_ROUTER:-jms}-www.service=${TRAEFIK_ROUTER:-jms}"
+      - "traefik.http.routers.${TRAEFIK_ROUTER:-jms}-www.middlewares=${TRAEFIK_ROUTER:-jms}-wwwtoapex"
+      - "traefik.http.middlewares.${TRAEFIK_ROUTER:-jms}-wwwtoapex.redirectregex.regex=^https?://www\\.jmsocean\\.cloud/(.*)"
+      - "traefik.http.middlewares.${TRAEFIK_ROUTER:-jms}-wwwtoapex.redirectregex.replacement=https://jmsocean.cloud/$${1}"
+      - "traefik.http.middlewares.${TRAEFIK_ROUTER:-jms}-wwwtoapex.redirectregex.permanent=true"
 
   # Web pgAdmin — browse the MAIN database at https://pgadmin.jmsocean.cloud
   # Reaches Postgres over the internal docker network as host `db:5432`;
@@ -191,7 +195,9 @@ services:
       - jms_v1_pgadmin:/var/lib/pgadmin
     networks: [jms_v1_net]
     labels:
-      - "traefik.enable=${TRAEFIK_ENABLE:-true}"
+      # Separate switch: staging routes its app through Traefik but keeps its pgAdmin
+      # private (TRAEFIK_PGADMIN_ENABLE=false) — it has no domain of its own.
+      - "traefik.enable=${TRAEFIK_PGADMIN_ENABLE:-true}"
       - "traefik.http.routers.jms-pgadmin.rule=Host(`pgadmin.jmsocean.cloud`)"
       - "traefik.http.routers.jms-pgadmin.entrypoints=websecure"
       - "traefik.http.routers.jms-pgadmin.tls.certresolver=letsencrypt"
