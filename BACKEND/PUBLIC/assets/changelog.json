@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.74.24",
+  "latest": "1.74.25",
   "versions": [
+    {
+      "version": "1.74.25",
+      "date": "2026-09-26",
+      "title": "QC notifications work again",
+      "modules": [
+        {
+          "app": "quality",
+          "label": "Quality",
+          "icon": "bi-bell",
+          "changes": [
+            { "type": "fix", "text": "The QC Supervisor notifications bell and the Recent verification summary now load. They showed an error every time since the QC Supervisor v2 update." }
+          ]
+        }
+      ]
+    },
 {      "version": "1.74.24",      "date": "2026-09-26",      "title": "Monthly backup check now really runs",      "modules": [        {          "app": "all",          "label": "Platform",          "icon": "bi-shield-check",          "changes": [            { "type": "improvement", "text": "The monthly backup test now runs by itself and restores both kinds of database backup into a test database, checking that every table and all the data are there." }          ]        }      ]    },
     {
       "version": "1.74.23",

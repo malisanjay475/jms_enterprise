@@ -29104,7 +29104,7 @@ app.get('/api/qc/verify/summary', async (req, res) => {
         MAX(verified_at)                          AS last_verified_at
       FROM qc_verifications
       WHERE dpr_date = $1::date
-        AND ($2 IS NULL OR machine = $2)
+        AND ($2::text IS NULL OR machine = $2::text)
         AND ($3::int IS NULL OR factory_id = $3 OR factory_id IS NULL)
       GROUP BY machine
       ORDER BY machine
@@ -29918,7 +29918,9 @@ app.get('/api/qc/notifications', async (req, res) => {
     const factoryId = getFactoryId(req);
     const rows = await q(
       `SELECT * FROM qc_notifications
-       WHERE ($1 IS NULL OR recipient_role = $1 OR (recipient_name IS NOT NULL AND recipient_name = $2))
+       -- ::text casts: an untyped "$1 IS NULL" made Postgres reject the whole query
+       -- ("could not determine data type of parameter $1"), so this always 500'd.
+       WHERE ($1::text IS NULL OR recipient_role = $1::text OR (recipient_name IS NOT NULL AND recipient_name = $2::text))
          AND ($3::int IS NULL OR factory_id = $3 OR factory_id IS NULL)
        ORDER BY created_at DESC
        LIMIT $4`,
