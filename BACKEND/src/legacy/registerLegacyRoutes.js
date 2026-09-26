@@ -18840,7 +18840,22 @@ async function getErpToken(force = false) {
 }
 
 // GET an ERP endpoint with a Bearer token, retrying once on a 401 (expired token).
+// ERP_PULL_ENABLED=0 stops this server from calling the ERP at all (auto-sync,
+// manual Fetch, Run now). The ERP feed hands each change out ONCE, to whichever
+// server asks first, so staging pulling it silently took changes away from
+// production (26-Sep-2026). Only production should pull; staging sets this to 0.
+function isErpPullEnabled() {
+  return String(process.env.ERP_PULL_ENABLED ?? '1').trim() !== '0';
+}
+const ERP_PULL_DISABLED_MESSAGE =
+  'ERP pulling is disabled on this server (ERP_PULL_ENABLED=0). Only the production server pulls from the ERP.';
+
 async function erpAuthedGet(url) {
+  if (!isErpPullEnabled()) {
+    const e = new Error(ERP_PULL_DISABLED_MESSAGE);
+    e.statusCode = 403;
+    throw e;
+  }
   for (let attempt = 0; attempt < 2; attempt++) {
     const token = await getErpToken(attempt > 0); // force refresh on retry
     const controller = new AbortController();
@@ -18955,7 +18970,7 @@ async function handleErpSync(cfgKey, req, res) {
     res.json({ ok: true, ...result, message });
   } catch (e) {
     console.error(`/api/reports/${ERP_REPORTS[cfgKey].table} sync`, e.message);
-    res.status(502).json({ ok: false, error: String(e.message || e) });
+    res.status(e.statusCode === 403 ? 403 : 502).json({ ok: false, error: String(e.message || e) });
   }
 }
 
@@ -19157,6 +19172,10 @@ function startErpAutoSync() {
     console.log('[ERP AutoSync] disabled via ERP_AUTOSYNC_ENABLED=0.');
     return;
   }
+  if (!isErpPullEnabled()) {
+    console.log('[ERP AutoSync] disabled — ERP_PULL_ENABLED=0 (only production pulls from the ERP).');
+    return;
+  }
   console.log(`[ERP AutoSync] enabled — ${Math.round(ERP_AUTOSYNC_INTERVAL_MS / 60000)} min after each run finishes, on MAIN.`);
   // First run shortly after boot; each later run is scheduled only once the
   // previous one has finished, so there is always a full idle gap however long
@@ -19209,6 +19228,9 @@ app.post('/api/reports/erp-autosync/run-now', async (req, res) => {
   }
   const auth = await requireErpSuperadmin(req);
   if (!auth.ok) return res.status(auth.status).json({ ok: false, error: auth.error });
+  if (!isErpPullEnabled()) {
+    return res.status(403).json({ ok: false, error: ERP_PULL_DISABLED_MESSAGE });
+  }
   if (_erpAutoSyncRunning) {
     return res.json({ ok: true, message: 'A sync cycle is already running.', running: true });
   }
