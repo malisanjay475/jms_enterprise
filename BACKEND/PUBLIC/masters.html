@@ -575,6 +575,16 @@
       <!-- Mould Verification Status panel (moulds master only; populated by JS) -->
       <div id="mouldVerifyStatusPanel" style="display:none; margin:0 0 12px 0; padding:12px 14px; border:1px solid #e2e8f0; border-radius:10px; background:#f8fafc"></div>
 
+      <!-- ERP report pager (ERP report types only; the server returns one page at a time) -->
+      <div id="erpPager" style="display:none; align-items:center; gap:8px; margin:0 0 8px 0; font-size:0.78rem; color:#475569">
+        <button id="erpPagePrev" class="btn-action" onclick="erpGoToPage(-1)" style="padding:4px 10px"><i class="bi bi-chevron-left"></i> Prev</button>
+        <span id="erpPageInfo"></span>
+        <button id="erpPageNext" class="btn-action" onclick="erpGoToPage(1)" style="padding:4px 10px">Next <i class="bi bi-chevron-right"></i></button>
+        <input type="text" id="erpPageSearch" class="form-input" placeholder="Search all rows..."
+          style="margin-left:auto; max-width:240px; padding:4px 8px" onkeydown="if (event.key === 'Enter') loadMasterData()">
+        <button class="btn-action" onclick="loadMasterData()" style="padding:4px 10px"><i class="bi bi-search"></i></button>
+      </div>
+
       <!-- Data Table -->
       <div style="width:100%; overflow-x:auto;">
         <table id="masterTable" class="display nowrap compact">
@@ -977,7 +987,7 @@
     }
   </style>
 
-  <script src="/assets/masters-script-2.js?v=release101"></script>
+  <script src="/assets/masters-script-2.js?v=release102"></script>
 
   <!-- Machine CRUD Modal -->
   <div id="machineModal" class="modal"

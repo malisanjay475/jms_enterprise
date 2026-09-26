@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.74.13",
+  "latest": "1.74.14",
   "versions": [
+    {
+      "version": "1.74.14",
+      "date": "2026-09-26",
+      "title": "ERP reports open much faster",
+      "modules": [
+        {
+          "app": "masters",
+          "label": "Masters",
+          "icon": "bi-cloud-arrow-down",
+          "changes": [
+            { "type": "perf", "text": "The ERP reports in Masters (JR Status, JR Summary, OR JR Details, BOM and Mould Item Master) now load 500 rows at a time with Prev/Next buttons and a search box that searches every row, instead of downloading the whole report at once." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.74.13",
       "date": "2026-09-25",

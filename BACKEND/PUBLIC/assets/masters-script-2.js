@@ -956,6 +956,10 @@
         if (erpFetchBtn) erpFetchBtn.style.display = 'none';
         if (erpLastSync) erpLastSync.style.display = 'none';
       }
+      if (!erpTypes.includes(type)) {
+        const pager = document.getElementById('erpPager');
+        if (pager) pager.style.display = 'none';
+      }
 
       // OR-JR Status / ORJR Wise Summary / ORJR Wise Detail: offer the ERP import
       // alongside the existing Excel upload. The Excel path stays as-is so it can
@@ -1174,6 +1178,42 @@
     }
     window.fetchErpLatest = fetchErpLatest;
 
+    // ERP reports are paged on the server (erp_jr_status alone is 20+ MB unpaged).
+    // Offset resets whenever the report type or the search text changes.
+    const ERP_REPORT_ENDPOINTS = {
+      erpjrstatus: '/reports/erp-jr-status',
+      erpjrsummary: '/reports/erp-jr-summary',
+      erpjrdetails: '/reports/erp-jr-details',
+      erpbom: '/reports/erp-bom',
+      erpmoulditem: '/reports/erp-mould-item'
+    };
+    const ERP_PAGE_SIZE = 500;
+    const erpPage = { type: null, search: '', offset: 0, total: 0 };
+
+    function erpGoToPage(direction) {
+      if (masterDataLoading) return;
+      const next = erpPage.offset + direction * ERP_PAGE_SIZE;
+      if (next < 0 || next >= erpPage.total) return;
+      erpPage.offset = next;
+      loadMasterData();
+    }
+    window.erpGoToPage = erpGoToPage;
+
+    function updateErpPager(res, rowCount) {
+      const pager = document.getElementById('erpPager');
+      if (!pager) return;
+      erpPage.total = Number(res.total) || 0;
+      const from = rowCount ? erpPage.offset + 1 : 0;
+      const to = erpPage.offset + rowCount;
+      document.getElementById('erpPageInfo').textContent =
+        `Rows ${from.toLocaleString()}–${to.toLocaleString()} of ${erpPage.total.toLocaleString()}`
+        + (erpPage.search ? ` matching "${erpPage.search}"` : '')
+        + ' (Copy/Excel/Print export this page only)';
+      document.getElementById('erpPagePrev').disabled = erpPage.offset <= 0;
+      document.getElementById('erpPageNext').disabled = !res.has_more;
+      pager.style.display = 'flex';
+    }
+
     async function loadMasterData() {
       // Labour Parties has its own dedicated UI — bypass the generic DataTable rendering
       if (currentType === 'labour-parties') {
@@ -1215,16 +1255,18 @@
           endpoint = `/users`; // GET /api/users
         } else if (currentType === 'machines') {
           endpoint = `/masters/machines?${qParams}`;
-        } else if (currentType === 'erpjrstatus') {
-          endpoint = `/reports/erp-jr-status`;
-        } else if (currentType === 'erpjrsummary') {
-          endpoint = `/reports/erp-jr-summary`;
-        } else if (currentType === 'erpjrdetails') {
-          endpoint = `/reports/erp-jr-details`;
-        } else if (currentType === 'erpbom') {
-          endpoint = `/reports/erp-bom`;
-        } else if (currentType === 'erpmoulditem') {
-          endpoint = `/reports/erp-mould-item`;
+        } else if (ERP_REPORT_ENDPOINTS[currentType]) {
+          // The date/search filter section is hidden for ERP reports; the pager has its own search box.
+          const searchEl = document.getElementById('erpPageSearch');
+          if (erpPage.type !== currentType && searchEl) searchEl.value = '';
+          const erpSearch = searchEl ? searchEl.value.trim() : '';
+          if (erpPage.type !== currentType || erpPage.search !== erpSearch) {
+            erpPage.type = currentType;
+            erpPage.search = erpSearch;
+            erpPage.offset = 0;
+          }
+          const pageQuery = new URLSearchParams({ limit: ERP_PAGE_SIZE, offset: erpPage.offset, search: erpSearch });
+          endpoint = `${ERP_REPORT_ENDPOINTS[currentType]}?${pageQuery.toString()}`;
         }
 
         console.log('[Masters] Loading data for type:', currentType);
@@ -1253,9 +1295,10 @@
         }
 
         // ERP reports: reflect when the store was last refreshed.
-        if (['erpjrstatus', 'erpjrsummary', 'erpjrdetails', 'erpbom', 'erpmoulditem'].includes(currentType)) {
+        if (ERP_REPORT_ENDPOINTS[currentType]) {
           const el = document.getElementById('erpLastSync');
           if (el) el.textContent = res.synced_at ? `Last fetched: ${res.synced_at}` : 'Not fetched yet';
+          updateErpPager(res, rows.length);
         }
 
         // CLIENT-SIDE FILTERING for OR-JR View (Active vs Closed)
