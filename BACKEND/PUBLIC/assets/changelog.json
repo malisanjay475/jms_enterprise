@@ -11,8 +11,38 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.74.19",
+  "latest": "1.74.21",
   "versions": [
+    {
+      "version": "1.74.21",
+      "date": "2026-09-26",
+      "title": "ERP sync history shows every run",
+      "modules": [
+        {
+          "app": "all",
+          "label": "Platform",
+          "icon": "bi-clock-history",
+          "changes": [
+            { "type": "improvement", "text": "The ERP auto-sync history now records each run when it starts, so a run that was stopped part-way by a server restart shows up as Interrupted instead of leaving a gap." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.74.20",
+      "date": "2026-09-26",
+      "title": "Every ERP change now reaches the live server",
+      "modules": [
+        {
+          "app": "all",
+          "label": "Platform",
+          "icon": "bi-cloud-arrow-down",
+          "changes": [
+            { "type": "fix", "text": "The test server no longer pulls data from the ERP. The ERP sends each change only once, so the test server was taking some changes (JR status, dates, Job Cards) that then never reached the live server or the factories." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.74.19",
       "date": "2026-09-26",

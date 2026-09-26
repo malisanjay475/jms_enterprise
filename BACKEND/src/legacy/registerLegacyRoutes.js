@@ -18840,7 +18840,22 @@ async function getErpToken(force = false) {
 }
 
 // GET an ERP endpoint with a Bearer token, retrying once on a 401 (expired token).
+// ERP_PULL_ENABLED=0 stops this server from calling the ERP at all (auto-sync,
+// manual Fetch, Run now). The ERP feed hands each change out ONCE, to whichever
+// server asks first, so staging pulling it silently took changes away from
+// production (26-Sep-2026). Only production should pull; staging sets this to 0.
+function isErpPullEnabled() {
+  return String(process.env.ERP_PULL_ENABLED ?? '1').trim() !== '0';
+}
+const ERP_PULL_DISABLED_MESSAGE =
+  'ERP pulling is disabled on this server (ERP_PULL_ENABLED=0). Only the production server pulls from the ERP.';
+
 async function erpAuthedGet(url) {
+  if (!isErpPullEnabled()) {
+    const e = new Error(ERP_PULL_DISABLED_MESSAGE);
+    e.statusCode = 403;
+    throw e;
+  }
   for (let attempt = 0; attempt < 2; attempt++) {
     const token = await getErpToken(attempt > 0); // force refresh on retry
     const controller = new AbortController();
@@ -18955,7 +18970,7 @@ async function handleErpSync(cfgKey, req, res) {
     res.json({ ok: true, ...result, message });
   } catch (e) {
     console.error(`/api/reports/${ERP_REPORTS[cfgKey].table} sync`, e.message);
-    res.status(502).json({ ok: false, error: String(e.message || e) });
+    res.status(e.statusCode === 403 ? 403 : 502).json({ ok: false, error: String(e.message || e) });
   }
 }
 
@@ -19007,23 +19022,91 @@ async function ensureErpAutoSyncHistoryTable() {
       id BIGSERIAL PRIMARY KEY,
       ran_at TIMESTAMPTZ DEFAULT NOW(),
       duration_ms INTEGER,
-      status TEXT,          -- ok | partial | error | skipped
+      status TEXT,          -- running | ok | partial | error | skipped | interrupted
       trigger TEXT,         -- auto | manual
       summary JSONB
     )
   `).catch(e => console.warn('[ERP AutoSync] history table create skipped:', e.message));
+  // A row is now written when a cycle STARTS (status 'running', ran_at = start) and
+  // updated when it ends (finished_at). Rows written before this change have only
+  // ran_at, which was the END time. worker/boot_id identify the process that owns a
+  // 'running' row, so a cycle killed with its worker can be marked 'interrupted'.
+  for (const col of ['finished_at TIMESTAMPTZ', 'worker TEXT', 'boot_id TEXT']) {
+    await q(`ALTER TABLE erp_autosync_history ADD COLUMN IF NOT EXISTS ${col}`)
+      .catch(e => console.warn('[ERP AutoSync] history column add skipped:', e.message));
+  }
   await qIdx(`CREATE INDEX IF NOT EXISTS idx_erp_autosync_history_ran ON erp_autosync_history(ran_at DESC)`)
     .catch(() => {});
   _erpAutoSyncHistoryReady = true;
 }
 
-async function recordErpAutoSyncHistory(status, trigger, summary, durationMs) {
+// Identity of this process for 'running' rows. PM2 reuses worker numbers and PIDs
+// inside the container repeat across restarts, so a random id per boot is what tells
+// a dead cycle (older boot of the same worker) from a live one.
+const ERP_AUTOSYNC_WORKER = String(process.env.NODE_APP_INSTANCE || '0');
+const ERP_AUTOSYNC_BOOT_ID = require('crypto').randomUUID();
+// A 'running' row older than this is dead whatever worker owns it (a cycle takes
+// ~8 min; this also covers workers that never come back after a scale-down).
+const ERP_AUTOSYNC_STALE_RUNNING = '3 hours';
+
+// Mark cycles that were killed mid-run (worker restart, deploy, crash) as
+// 'interrupted'. Called at the start of every cycle and when history is read.
+async function markInterruptedErpAutoSyncRuns() {
+  await ensureErpAutoSyncHistoryTable();
+  const rows = await q(
+    `UPDATE erp_autosync_history
+        SET status = 'interrupted',
+            finished_at = NULL,
+            summary = COALESCE(summary, '{}'::jsonb) || jsonb_build_object(
+              'status', 'interrupted',
+              'note', 'The worker running this cycle stopped (restart, deploy or crash) before it finished.')
+      WHERE status = 'running'
+        AND ((worker = $1 AND boot_id IS DISTINCT FROM $2)
+             OR ran_at < NOW() - $3::interval)
+      RETURNING id`,
+    [ERP_AUTOSYNC_WORKER, ERP_AUTOSYNC_BOOT_ID, ERP_AUTOSYNC_STALE_RUNNING]
+  );
+  if (rows.length) console.warn(`[ERP AutoSync] marked ${rows.length} interrupted cycle(s): ${rows.map(r => r.id).join(', ')}`);
+  return rows.length;
+}
+
+// Write the 'running' row for a cycle that is starting. Returns its id, or null if
+// the write failed (the cycle then falls back to inserting a row when it ends).
+async function openErpAutoSyncHistoryRow(trigger) {
+  try {
+    await markInterruptedErpAutoSyncRuns().catch(e => console.warn('[ERP AutoSync] interrupted-mark failed:', e.message));
+    const r = await q(
+      `INSERT INTO erp_autosync_history (status, trigger, summary, worker, boot_id)
+       VALUES ('running', $1, $2, $3, $4) RETURNING id`,
+      [trigger, JSON.stringify({ trigger, status: 'running' }), ERP_AUTOSYNC_WORKER, ERP_AUTOSYNC_BOOT_ID]
+    );
+    return r[0] ? r[0].id : null;
+  } catch (e) {
+    console.warn('[ERP AutoSync] history start-row write failed:', e.message);
+    return null;
+  }
+}
+
+async function recordErpAutoSyncHistory(status, trigger, summary, durationMs, historyId = null) {
   try {
     await ensureErpAutoSyncHistoryTable();
-    await q(
-      `INSERT INTO erp_autosync_history (status, trigger, summary, duration_ms) VALUES ($1, $2, $3, $4)`,
-      [status, trigger, JSON.stringify(summary || {}), Math.round(durationMs || 0)]
-    );
+    const updated = historyId
+      ? await q(
+          `UPDATE erp_autosync_history
+              SET status = $2, summary = $3, duration_ms = $4, finished_at = NOW()
+            WHERE id = $1
+            RETURNING id`,
+          [historyId, status, JSON.stringify(summary || {}), Math.round(durationMs || 0)]
+        )
+      : [];
+    if (!updated.length) {
+      // No start row (its write failed, or it was pruned): record the run on its own.
+      await q(
+        `INSERT INTO erp_autosync_history (status, trigger, summary, duration_ms, finished_at, worker, boot_id)
+         VALUES ($1, $2, $3, $4, NOW(), $5, $6)`,
+        [status, trigger, JSON.stringify(summary || {}), Math.round(durationMs || 0), ERP_AUTOSYNC_WORKER, ERP_AUTOSYNC_BOOT_ID]
+      );
+    }
     // Retention: keep the most recent 2000 runs.
     await q(`
       DELETE FROM erp_autosync_history
@@ -19049,6 +19132,9 @@ async function runErpAutoSyncCycle(trigger = 'auto') {
   const startedAt = Date.now();
   const summary = { trigger, fetch: {}, factories: [] };
   let hadError = false;
+  // Written before any work, so a cycle killed mid-run still leaves a trace
+  // (it becomes 'interrupted' at the start of a later cycle).
+  const historyId = await openErpAutoSyncHistoryRow(trigger);
 
   try {
     // 1. FETCH ERP (status, summary, details). syncErpReport keeps existing data
@@ -19126,13 +19212,13 @@ async function runErpAutoSyncCycle(trigger = 'auto') {
 
     const status = hadError ? 'partial' : 'ok';
     summary.status = status;
-    await recordErpAutoSyncHistory(status, trigger, summary, Date.now() - startedAt);
+    await recordErpAutoSyncHistory(status, trigger, summary, Date.now() - startedAt, historyId);
     return summary;
   } catch (e) {
     summary.status = 'error';
     summary.error = String(e.message || e);
     console.error('[ERP AutoSync] cycle failed:', e.message);
-    await recordErpAutoSyncHistory('error', trigger, summary, Date.now() - startedAt);
+    await recordErpAutoSyncHistory('error', trigger, summary, Date.now() - startedAt, historyId);
     return summary;
   } finally {
     _erpAutoSyncRunning = false;
@@ -19155,6 +19241,10 @@ function startErpAutoSync() {
   }
   if (!ERP_AUTOSYNC_ENABLED) {
     console.log('[ERP AutoSync] disabled via ERP_AUTOSYNC_ENABLED=0.');
+    return;
+  }
+  if (!isErpPullEnabled()) {
+    console.log('[ERP AutoSync] disabled — ERP_PULL_ENABLED=0 (only production pulls from the ERP).');
     return;
   }
   console.log(`[ERP AutoSync] enabled — ${Math.round(ERP_AUTOSYNC_INTERVAL_MS / 60000)} min after each run finishes, on MAIN.`);
@@ -19181,10 +19271,10 @@ app.get('/api/reports/erp-autosync-history', async (req, res) => {
   try {
     const auth = await requireErpSuperadmin(req);
     if (!auth.ok) return res.status(auth.status).json({ ok: false, error: auth.error });
-    await ensureErpAutoSyncHistoryTable();
+    await markInterruptedErpAutoSyncRuns().catch(e => console.warn('[ERP AutoSync] interrupted-mark failed:', e.message));
     const limit = Math.min(500, Math.max(1, Number(req.query.limit) || 100));
     const rows = await q(
-      `SELECT id, ran_at, duration_ms, status, trigger, summary
+      `SELECT id, ran_at, finished_at, duration_ms, status, trigger, worker, summary
          FROM erp_autosync_history
         ORDER BY ran_at DESC
         LIMIT $1`, [limit]
@@ -19209,6 +19299,9 @@ app.post('/api/reports/erp-autosync/run-now', async (req, res) => {
   }
   const auth = await requireErpSuperadmin(req);
   if (!auth.ok) return res.status(auth.status).json({ ok: false, error: auth.error });
+  if (!isErpPullEnabled()) {
+    return res.status(403).json({ ok: false, error: ERP_PULL_DISABLED_MESSAGE });
+  }
   if (_erpAutoSyncRunning) {
     return res.json({ ok: true, message: 'A sync cycle is already running.', running: true });
   }
