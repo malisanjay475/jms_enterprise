@@ -11,8 +11,32 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.74.31",
+  "latest": "1.74.32",
   "versions": [
+    {
+      "version": "1.74.32",
+      "date": "2026-09-26",
+      "title": "Lighter server load and faster updates in your browser",
+      "modules": [
+        {
+          "app": "all",
+          "label": "Platform",
+          "icon": "bi-speedometer2",
+          "changes": [
+            { "type": "perf", "text": "Tabs left open in the background no longer keep asking the server for notifications and activity every minute." },
+            { "type": "fix", "text": "Screen updates now reach your browser as soon as they are released, instead of up to a week later." }
+          ]
+        },
+        {
+          "app": "planning",
+          "label": "Planning",
+          "icon": "bi-lightning",
+          "changes": [
+            { "type": "perf", "text": "Cycle-time predictions and job card approvals load much faster." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.74.31",
       "date": "2026-09-26",
