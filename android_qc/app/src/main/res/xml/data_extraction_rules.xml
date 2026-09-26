@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Android 12+ (android:dataExtractionRules): keep the saved login session cookie
+  out of cloud backups and device-to-device transfers.
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="sharedpref" path="qc_cookies.xml" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="sharedpref" path="qc_cookies.xml" />
+    </device-transfer>
+</data-extraction-rules>

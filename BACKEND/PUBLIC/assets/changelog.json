@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.74.27",
+  "latest": "1.74.28",
   "versions": [
+    {
+      "version": "1.74.28",
+      "date": "2026-09-26",
+      "title": "QC app login stored securely",
+      "modules": [
+        {
+          "app": "quality",
+          "label": "QC App",
+          "icon": "bi-shield-lock",
+          "changes": [
+            { "type": "security", "text": "The QC app's saved login is now encrypted on the phone and never included in phone backups." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.74.27",
       "date": "2026-09-26",
