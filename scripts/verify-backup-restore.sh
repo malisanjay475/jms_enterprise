@@ -38,7 +38,7 @@ FAILED=0
 log()  { echo "[verify-restore] $*"; }
 bad()  { echo "[verify-restore][ERROR] $*" >&2; FAILED=1; }
 
-cleanup() { docker ps -aq --filter "name=$TEST_PREFIX" | xargs -r docker rm -f >/dev/null 2>&1 || true; }
+cleanup() { docker ps -aq --filter "name=$TEST_PREFIX" | xargs -r docker rm -f -v >/dev/null 2>&1 || true; }
 trap cleanup EXIT
 
 command -v docker >/dev/null 2>&1 || { bad "docker not found."; exit 1; }
@@ -67,7 +67,7 @@ verify_dump() {
     docker exec "$c" pg_isready -U "$DB_USER" -d "$DB_NAME" >/dev/null 2>&1 && { ready=1; break; }
     sleep 2
   done
-  [ "$ready" = 1 ] || { bad "Throwaway postgres did not become ready."; docker rm -f "$c" >/dev/null 2>&1; return; }
+  [ "$ready" = 1 ] || { bad "Throwaway postgres did not become ready."; docker rm -f -v "$c" >/dev/null 2>&1; return; }
 
   local errfile; errfile="$(mktemp)"
   local t0; t0=$(date +%s)
@@ -99,7 +99,7 @@ verify_dump() {
         || bad "$t has $got rows in the backup vs $want in production (< ${MIN_ROW_RATIO} of production)."
     fi
   done
-  docker rm -f "$c" >/dev/null 2>&1
+  docker rm -f -v "$c" >/dev/null 2>&1
 }
 
 found=0
