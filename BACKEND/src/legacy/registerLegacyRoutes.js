@@ -14895,6 +14895,33 @@ app.get('/api/planning/completed', async (req, res) => {
     const cleanSearch = (search || '').trim().toLowerCase();
     const explicitPlant = (plant && String(plant).trim()) ? String(plant).trim() : null;
 
+    // fields=lookup: just the keys the Planning page uses to block re-planning a completed
+    // mould (id, planId, machine, orderNo, mouldName). The full view below joins orders,
+    // moulds, or_jr_report, a dpr_hourly SUM and two audit-log lookups per row (~200 ms,
+    // ~1 MB for 2,000 rows); the page loaded it on every machine-view refresh (~920/day on
+    // factory-1). Same filters, order and mouldName fallback (mould master by code).
+    if (String(req.query.fields || '') === 'lookup') {
+      const params = [];
+      let sql = `
+        SELECT pb.id, pb.plan_id AS "planId", pb.machine, pb.order_no AS "orderNo",
+               COALESCE(pb.mould_name,
+                        (SELECT m.mould_name FROM moulds m WHERE m.mould_number = pb.mould_code LIMIT 1),
+                        'Unknown') AS "mouldName"
+          FROM plan_board pb
+         WHERE pb.status = 'COMPLETED'`;
+      if (factoryId) {
+        params.push(factoryId);
+        sql += ` AND pb.factory_id = $${params.length}`;
+      }
+      if (explicitPlant) {
+        params.push(explicitPlant);
+        sql += ` AND UPPER(TRIM(pb.plant)) = UPPER(TRIM($${params.length}))`;
+      }
+      params.push(Math.min(Math.max(parseInt(limit, 10) || 500, 1), 5000));
+      sql += ` ORDER BY pb.completed_at DESC LIMIT $${params.length}`;
+      return res.json({ ok: true, data: await q(sql, params) });
+    }
+
     if (mode === 'hierarchical') {
       // (Keep hierarchical logic as is, or update if needed, but focus on flat view first for the report)
       let sql = `SELECT order_no, client_name, item_name, qty, created_at, updated_at as completed_at, status 

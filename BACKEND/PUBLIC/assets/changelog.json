@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.74.32",
+  "latest": "1.74.33",
   "versions": [
+    {
+      "version": "1.74.33",
+      "date": "2026-09-26",
+      "title": "Planning machine view loads lighter",
+      "modules": [
+        {
+          "app": "planning",
+          "label": "Planning",
+          "icon": "bi-lightning",
+          "changes": [
+            { "type": "perf", "text": "The Planning machine view no longer downloads the full completed-plans list every time it refreshes; it fetches a small list and reuses it for two minutes." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.74.32",
       "date": "2026-09-26",
