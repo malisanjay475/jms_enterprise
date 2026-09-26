@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.74.33",
+  "latest": "1.74.34",
   "versions": [
+    {
+      "version": "1.74.34",
+      "date": "2026-09-26",
+      "title": "Faster recent DPR entries",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-lightning-charge",
+          "changes": [
+            { "type": "perf", "text": "The list of recent DPR entries for a machine now loads in a moment instead of about 1.5 seconds, and puts much less load on the server." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.74.33",
       "date": "2026-09-26",

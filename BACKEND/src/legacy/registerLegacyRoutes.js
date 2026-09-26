@@ -1731,6 +1731,7 @@ async function migrateMouldMasterSchema() {
   await q(`DROP INDEX IF EXISTS idx_moulds_erp_item_trim`);
   await qIdx(`CREATE INDEX IF NOT EXISTS idx_moulds_mould_name ON moulds(mould_name)`);
   await qIdx(`CREATE INDEX IF NOT EXISTS idx_moulds_mould_number_trim ON moulds(TRIM(mould_number))`);
+  await qIdx(`CREATE INDEX IF NOT EXISTS idx_moulds_mould_number_upper_trim ON moulds((UPPER(TRIM(mould_number))))`);
   await q(`CREATE UNIQUE INDEX IF NOT EXISTS idx_moulds_factory_mould_number_unique ON moulds ((LOWER(mould_number)), (COALESCE(factory_id, 0)))`)
     .catch(err => console.warn('[DB] idx_moulds_factory_mould_number_unique skipped (duplicate mould numbers in data):', err.message));
 
@@ -4982,6 +4983,7 @@ async function initializeLegacyRuntime() {
             -- TRIM(COALESCE(or_jr_no, '')), which the index above can't serve).
             CREATE INDEX IF NOT EXISTS idx_or_jr_report_trim_coalesce_no ON or_jr_report((TRIM(COALESCE(or_jr_no, ''))));
             CREATE INDEX IF NOT EXISTS idx_moulds_mould_number_trim ON moulds(TRIM(mould_number));
+            CREATE INDEX IF NOT EXISTS idx_moulds_mould_number_upper_trim ON moulds((UPPER(TRIM(mould_number))));
     `);
 
     await pool.query(`
@@ -7926,17 +7928,28 @@ app.get('/api/dpr/recent', async (req, res) => {
         order_no         AS "OrderNo",
         mould_no         AS "MouldNo",
         jobcard_no       AS "JobCardNo",
+        -- Per-row lookups below must stay index-friendly: this runs up to 50 times per
+        -- call. Wrapping the std_actual column in TRIM(COALESCE(...)) read all ~82k
+        -- rows per DPR row (1,355 ms per call on factory-1); comparing the column
+        -- directly uses idx_std_actual_plan_id (0.8 ms). Plan IDs are system codes
+        -- with no padding (0 padded rows on factory-1), and a NULL plan_id never
+        -- matched a real plan before either.
         (SELECT sa.article_act
            FROM std_actual sa
-          WHERE TRIM(COALESCE(sa.plan_id, '')) = TRIM(COALESCE(dpr_hourly.plan_id, ''))
+          WHERE sa.plan_id = TRIM(dpr_hourly.plan_id)
             AND COALESCE(sa.is_deleted, false) = false
           ORDER BY sa.updated_at DESC NULLS LAST, sa.created_at DESC NULLS LAST
           LIMIT 1) AS "ArticleACTWeight",
-        -- Robust Mould Lookup
+        -- Robust Mould Lookup (UPPER(TRIM(mould_number)) is indexed:
+        -- idx_moulds_mould_number_upper_trim)
         COALESCE(
           (SELECT COALESCE(NULLIF(mould_name, ''), mould_number) FROM moulds
             WHERE UPPER(TRIM(mould_number)) = UPPER(TRIM(dpr_hourly.mould_no)) LIMIT 1),
-          (SELECT mould_name FROM plan_board WHERE (plan_id = dpr_hourly.plan_id OR CAST(id AS TEXT) = dpr_hourly.plan_id) LIMIT 1),
+          -- Two separate lookups instead of "plan_id = x OR CAST(id AS TEXT) = x",
+          -- which could use neither index.
+          (SELECT mould_name FROM plan_board WHERE plan_id = dpr_hourly.plan_id LIMIT 1),
+          (SELECT mould_name FROM plan_board
+            WHERE dpr_hourly.plan_id ~ '^[0-9]{1,18}$' AND id = dpr_hourly.plan_id::bigint LIMIT 1),
           dpr_hourly.mould_no
         ) as "Mould",
         -- Client Lookup
