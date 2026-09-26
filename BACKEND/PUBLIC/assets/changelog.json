@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.74.30",
+  "latest": "1.74.31",
   "versions": [
+    {
+      "version": "1.74.31",
+      "date": "2026-09-26",
+      "title": "Factory server stays in touch with the live server more reliably",
+      "modules": [
+        {
+          "app": "all",
+          "label": "Platform",
+          "icon": "bi-hdd-network",
+          "changes": [
+            { "type": "improvement", "text": "The factory server now retries its regular check-in with the live server after a short network blip, and logs the real reason when it cannot connect." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.74.30",
       "date": "2026-09-26",

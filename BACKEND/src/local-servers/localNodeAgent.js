@@ -47,13 +47,43 @@ function buildUrl(baseUrl, pathname) {
 
 // Bounded fetch — aborts if the remote (MAIN/VPS) never responds, so a
 // half-open socket can never park the event loop or leak a pending request.
-async function fetchWithTimeout(url, options = {}, timeoutMs = 20000) {
+async function fetchOnce(url, options, timeoutMs) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     return await fetch(url, { ...options, signal: controller.signal });
   } finally {
     clearTimeout(timer);
+  }
+}
+
+// "fetch failed" hides the real reason in error.cause (ECONNRESET, ETIMEDOUT,
+// ENOTFOUND, UND_ERR_SOCKET, ...). factory-1 logged 7-20 of these per hour
+// ("[Local Node Agent] Cycle failed: fetch failed") with no way to tell why.
+function networkErrorDetail(error) {
+  const cause = error && error.cause;
+  const code = cause && (cause.code || cause.name);
+  return code ? `${error.message} (${code})` : String((error && error.message) || error);
+}
+
+const NETWORK_RETRY_DELAY_MS = 2000;
+
+// One retry after a short pause when no response arrived at all (network-level
+// failure or timeout) — a transient blip then no longer fails the whole cycle.
+// HTTP error responses are returned as-is, never retried. The heartbeat, register
+// and sync-status calls only record state, so repeating one is harmless.
+async function fetchWithTimeout(url, options = {}, timeoutMs = 20000, { retryDelayMs = NETWORK_RETRY_DELAY_MS } = {}) {
+  try {
+    return await fetchOnce(url, options, timeoutMs);
+  } catch (firstError) {
+    await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+    try {
+      return await fetchOnce(url, options, timeoutMs);
+    } catch (secondError) {
+      const error = new Error(`${networkErrorDetail(secondError)} [first attempt: ${networkErrorDetail(firstError)}]`);
+      error.cause = secondError.cause || secondError;
+      throw error;
+    }
   }
 }
 
@@ -501,5 +531,6 @@ async function init({ pool, config }) {
 }
 
 module.exports = {
-  init
+  init,
+  __test: { fetchWithTimeout, networkErrorDetail }
 };
