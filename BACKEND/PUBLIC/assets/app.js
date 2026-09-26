@@ -389,6 +389,14 @@ function escHtml(value) {
             });
             clearTimeout(timeoutId);
             const data = await res.json();
+            // No valid login session (session expired, or login is required everywhere
+            // — sessionPolicy.js): go to the login page once instead of failing quietly.
+            if (res.status === 401 && data && data.code === 'AUTH_REQUIRED'
+                && !/login\.html$/i.test(window.location.pathname || '')) {
+                try { sessionStorage.setItem('jms_login_reason', 'session'); } catch (_e) { }
+                try { localStorage.removeItem('jpsms_user'); } catch (_e) { }
+                exports.auth.logout();
+            }
             if (!res.ok) throw new Error(data.error || 'Request failed');
             return data;
         } catch (err) {

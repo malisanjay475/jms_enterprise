@@ -13,9 +13,10 @@
 // per distinct key), so the cost per request is a Map update. Admins read the summary
 // at GET /api/admin/legacy-auth-usage.
 
+const { isPublicApi } = require('./sessionPolicy');
+
 const FLUSH_INTERVAL_MS = 60 * 1000;
 const MAX_KEYS = 5000; // per flush window; beyond this new keys are dropped (counted)
-const SKIP_PATHS = new Set(['/api/login', '/api/logout', '/api/logout-all', '/api/version', '/api/health', '/api/session']);
 
 let pool = null;
 let timer = null;
@@ -59,13 +60,17 @@ function istDay(date = new Date()) {
   return new Date(date.getTime() + 330 * 60 * 1000).toISOString().slice(0, 10);
 }
 
-/** Call after the session check. Counts the request only if it relies on the legacy identity. */
+/**
+ * Call after the session check. Counts every /api request that has no verified session
+ * and is not a public endpoint (sessionPolicy.js) — exactly what AUTH_REQUIRE_SESSION=1
+ * would refuse. Requests naming a user (header/body) are counted under that user;
+ * requests with no identity at all under "(none)".
+ */
 function recordLegacyUse(req) {
   if (req.auth) return;
   const fullPath = `${req.baseUrl || ''}${req.path || ''}`;
-  if (!fullPath.startsWith('/api') || SKIP_PATHS.has(fullPath)) return;
-  const username = claimedUsername(req);
-  if (!username) return;
+  if (!fullPath.startsWith('/api') || isPublicApi(fullPath)) return;
+  const username = claimedUsername(req) || '(none)';
 
   const entry = {
     day: istDay(),
