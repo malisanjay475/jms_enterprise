@@ -11,8 +11,38 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.74.14",
+  "latest": "1.74.16",
   "versions": [
+    {
+      "version": "1.74.16",
+      "date": "2026-09-26",
+      "title": "Updates can reach the live server again",
+      "modules": [
+        {
+          "app": "all",
+          "label": "Platform",
+          "icon": "bi-cloud-upload",
+          "changes": [
+            { "type": "fix", "text": "New versions can be installed on the live and test servers again after the code repository was made private." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.74.15",
+      "date": "2026-09-26",
+      "title": "ERP auto-sync paced to reduce server load",
+      "modules": [
+        {
+          "app": "all",
+          "label": "Platform",
+          "icon": "bi-cloud-arrow-down",
+          "changes": [
+            { "type": "perf", "text": "The automatic ERP sync now waits 15 minutes after each run finishes before starting the next one. Before, it ran back to back and kept the main server busy all the time. The manual Fetch, Import and Run now buttons still work immediately." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.74.14",
       "date": "2026-09-26",
