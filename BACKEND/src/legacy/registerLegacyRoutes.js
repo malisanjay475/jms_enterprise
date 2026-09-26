@@ -18748,16 +18748,49 @@ async function requireErpSuperadmin(req) {
   return { ok: true, user: u };
 }
 
+// Paging bounds for the ERP report reads. The stores hold tens of thousands of
+// wide rows (erp_jr_status alone is 20+ MB as JSON), so a single unpaged read is
+// too slow to download; callers pass ?limit=&offset= (and optional &search=).
+const ERP_REPORT_MAX_LIMIT = 5000;
+
 // Read a persisted ERP report from the DB.
-async function readErpReport(cfgKey, res) {
+// Without ?limit the whole table is returned (legacy shape, kept for scripts).
+// With ?limit the response is one page: data, total (rows matching search),
+// limit, offset, has_more. count stays the whole-table size either way.
+async function readErpReport(cfgKey, req, res) {
   const { table, columns } = ERP_REPORTS[cfgKey];
   try {
     const cols = columns.map((c) => `"${c}"`).join(', ');
-    const rows = await q(`SELECT ${cols} FROM ${table} ORDER BY id`);
     const meta = (await q(
       `SELECT to_char(max(synced_at), 'YYYY-MM-DD HH24:MI') AS last_sync, count(*)::int AS n FROM ${table}`
     ))[0] || {};
-    res.json({ ok: true, data: rows, source: 'db', synced_at: meta.last_sync || null, count: meta.n || 0 });
+    const base = { ok: true, source: 'db', synced_at: meta.last_sync || null, count: meta.n || 0 };
+
+    const rawLimit = req.query && req.query.limit;
+    if (rawLimit === undefined || rawLimit === '') {
+      const rows = await q(`SELECT ${cols} FROM ${table} ORDER BY id`);
+      return res.json({ ...base, data: rows });
+    }
+
+    const limit = Math.min(ERP_REPORT_MAX_LIMIT, Math.max(1, parseInt(rawLimit, 10) || 500));
+    const offset = Math.max(0, parseInt(req.query.offset, 10) || 0);
+    const search = String(req.query.search || '').trim();
+
+    // Search matches any column (all ERP report columns are TEXT).
+    const params = [];
+    let where = '';
+    if (search) {
+      params.push(`%${search}%`);
+      where = `WHERE concat_ws(' ', ${cols}) ILIKE $1`;
+    }
+    const total = search
+      ? ((await q(`SELECT count(*)::int AS n FROM ${table} ${where}`, params))[0] || {}).n || 0
+      : base.count;
+    const rows = await q(
+      `SELECT ${cols} FROM ${table} ${where} ORDER BY id LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+      [...params, limit, offset]
+    );
+    res.json({ ...base, data: rows, total, limit, offset, has_more: offset + rows.length < total });
   } catch (e) {
     console.error(`/api/reports/${table} read`, e.message);
     sendServerError(res, e);
@@ -18930,11 +18963,11 @@ async function handleErpSync(cfgKey, req, res) {
 }
 
 // Read routes (served from DB).
-app.get('/api/reports/erp-jr-status',  (req, res) => readErpReport('status', res));
-app.get('/api/reports/erp-jr-summary', (req, res) => readErpReport('summary', res));
-app.get('/api/reports/erp-jr-details', (req, res) => readErpReport('details', res));
-app.get('/api/reports/erp-bom',        (req, res) => readErpReport('bom', res));
-app.get('/api/reports/erp-mould-item', (req, res) => readErpReport('mouldItem', res));
+app.get('/api/reports/erp-jr-status',  (req, res) => readErpReport('status', req, res));
+app.get('/api/reports/erp-jr-summary', (req, res) => readErpReport('summary', req, res));
+app.get('/api/reports/erp-jr-details', (req, res) => readErpReport('details', req, res));
+app.get('/api/reports/erp-bom',        (req, res) => readErpReport('bom', req, res));
+app.get('/api/reports/erp-mould-item', (req, res) => readErpReport('mouldItem', req, res));
 
 // Sync routes (superadmin-only "Fetch Latest Data").
 app.post('/api/reports/erp-jr-status/sync',  (req, res) => handleErpSync('status', req, res));
