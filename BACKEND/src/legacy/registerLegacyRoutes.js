@@ -113,6 +113,7 @@ const {
   getWriteFactoryHeaderState,
   normalizeFactoryId
 } = require('../app/requestContext');
+const { createRealJcIndex, addRealJcRow, isSupersededBlankJc } = require('../utils/orJrBlankJc');
 const registerHrPerformanceRoutes = require('../modules/hrPerformance/registerHrPerformanceRoutes');
 const registerInterviewPanelRoutes = require('../modules/interviewPanel/registerInterviewPanelRoutes');
 
@@ -18732,20 +18733,16 @@ function erpRowKey(mapped, keyCols) {
   return 'json:' + JSON.stringify(mapped);
 }
 
-// Superadmin gate (role_code === 'superadmin' OR username === 'superadmin').
+// Superadmin gate for the ERP fetch/sync/history routes. Only the verified session
+// (req.auth, see src/app/auth.js) counts: the username in the body, query string or
+// X-User-Name header is client-controlled and was trivially spoofable. routeGuards.js
+// blocks these routes without a superadmin session first; this is the second layer.
 async function requireErpSuperadmin(req) {
-  // Accept the actor from the body (POST fetch/sync), the query string (GET
-  // history — a GET carries no body), or the standard request identity header.
-  const username = (req.body && req.body.username)
-    || (req.query && req.query.username)
-    || getRequestUsername(req);
-  if (!username) return { ok: false, status: 401, error: 'Authorization required (missing username)' };
-  const u = (await q('SELECT username, role_code FROM users WHERE username = $1 LIMIT 1', [username]))[0];
-  if (!u) return { ok: false, status: 401, error: 'Invalid user' };
-  const isSuper = String(u.role_code || '').toLowerCase() === 'superadmin'
-    || String(u.username || '').toLowerCase() === 'superadmin';
+  const a = req.auth;
+  if (!a) return { ok: false, status: 401, error: 'Please log in again to use this feature.' };
+  const isSuper = a.role === 'superadmin' || String(a.username || '').toLowerCase() === 'superadmin';
   if (!isSuper) return { ok: false, status: 403, error: 'Superadmin access required' };
-  return { ok: true, user: u };
+  return { ok: true, user: { username: a.username, role_code: a.role } };
 }
 
 // Paging bounds for the ERP report reads. The stores hold tens of thousands of
@@ -20234,12 +20231,16 @@ async function loadOrJrExistingMap() {
   const existingRows = await q(`SELECT ${selectCols} FROM or_jr_report`);
 
   const dbMap = new Map();
+  // Orders that already have a REAL Job Card, per factory (src/utils/orJrBlankJc.js).
+  const realJcIndex = createRealJcIndex();
   existingRows.forEach(row => {
     const o = (row.or_jr_no || '').trim();
     const j = (row.job_card_no || '').trim();
     // Key: OR No + JC No
     dbMap.set(`${o}|${j}`, row);
+    addRealJcRow(realJcIndex, row);
   });
+  dbMap.realJcIndex = realJcIndex;
   return dbMap;
 }
 
@@ -20270,8 +20271,14 @@ function classifyOrJrPreviewRow(row, dbMap, requestFactoryId) {
   const rj = (row.job_card_no || '').trim();
   const existing = dbMap.get(`${ro}|${rj}`);
 
-  // No match → brand-new row
-  if (!existing) return { ...row, _status: 'NEW' };
+  // No match → brand-new row, unless it is a blank-JC placeholder the save would
+  // delete again straight away (a real Job Card row already exists for it).
+  if (!existing) {
+    if (isSupersededBlankJc(row, dbMap.realJcIndex, requestFactoryId)) {
+      return { ...row, _status: 'SKIP', _supersededBlankJc: true };
+    }
+    return { ...row, _status: 'NEW' };
+  }
 
   // Match on the conflict key, but the row belongs to a DIFFERENT factory.
   // Never silently take it over: exclude and report it, the same policy the ERP
@@ -20708,8 +20715,9 @@ app.post('/api/upload/or-jr-erp-preview', async (req, res) => {
     const requestFactoryId = writeContext.factoryId;
 
     // Permission gate — the Excel upload relies on the client hiding the control;
-    // this path enforces it server-side as well.
-    const username = (req.body && req.body.username) || getRequestUsername(req);
+    // this path enforces it server-side as well. The verified session user wins over
+    // the client-supplied body username (routeGuards requires a session here).
+    const username = (req.auth && req.auth.username) || (req.body && req.body.username) || getRequestUsername(req);
     if (!username) {
       return res.status(401).json({ ok: false, error: 'Authorization required (missing username).' });
     }
@@ -21261,7 +21269,11 @@ WHERE
 
     if (existing.rows.length > 0) {
       const targetId = existing.rows[0].id;
-      await client.query(`
+      // Only write when something would actually change. The end state is identical
+      // to the old unconditional UPDATE, but an unchanged order no longer gets a new
+      // updated_at — which re-synced every open order (~3,700/run on the VPS,
+      // 26-Sep-2026) to every factory server on each ERP AutoSync cycle.
+      const upd = await client.query(`
                 UPDATE orders SET
 item_code = $2,
   item_name = $3,
@@ -21279,8 +21291,24 @@ item_code = $2,
   completion_confirmed_by = NULL,
   updated_at = NOW()
                 WHERE id = $1
+                  AND (
+                    item_code IS DISTINCT FROM $2
+                    OR item_name IS DISTINCT FROM $3
+                    OR client_name IS DISTINCT FROM $4
+                    OR qty IS DISTINCT FROM $5
+                    OR status IS DISTINCT FROM 'Pending'
+                    OR factory_id IS DISTINCT FROM $6
+                    OR completion_confirmation_required IS DISTINCT FROM FALSE
+                    OR completion_change_field IS NOT NULL
+                    OR completion_change_to IS NOT NULL
+                    OR completion_change_summary IS NOT NULL
+                    OR completion_detected_at IS NOT NULL
+                    OR completion_source_snapshot IS DISTINCT FROM '{}'::jsonb
+                    OR completion_confirmed_at IS NOT NULL
+                    OR completion_confirmed_by IS NOT NULL
+                  )
   `, [targetId, row.item_code, row.product_name, row.client_name, qty, rowFactoryId]);
-      updated++;
+      if (upd.rowCount > 0) updated++;
     } else {
       await client.query(`
                 INSERT INTO orders(

@@ -125,6 +125,54 @@ describe('New route guards', () => {
   });
 });
 
+describe('ERP endpoint guards', () => {
+  const { findGuard, routeGuardMiddleware } = require('../src/app/routeGuards');
+  const reports = ['erp-jr-status', 'erp-jr-summary', 'erp-jr-details', 'erp-bom', 'erp-mould-item'];
+
+  it('needs a login to read an ERP report', () => {
+    for (const r of reports) expect(findGuard('GET', `/api/reports/${r}`)).toMatchObject({ need: 'session' });
+  });
+
+  it('locks ERP fetch, auto-sync history and run-now to superadmins', () => {
+    for (const r of reports) expect(findGuard('POST', `/api/reports/${r}/sync`)).toMatchObject({ need: 'superadmin' });
+    expect(findGuard('GET', '/api/reports/erp-autosync-history')).toMatchObject({ need: 'superadmin' });
+    expect(findGuard('POST', '/api/reports/erp-autosync/run-now')).toMatchObject({ need: 'superadmin' });
+  });
+
+  it('needs a login for the OR-JR import-from-ERP preview', () => {
+    expect(findGuard('POST', '/api/upload/or-jr-erp-preview')).toMatchObject({ need: 'session' });
+  });
+
+  it('leaves unrelated report routes alone', () => {
+    expect(findGuard('GET', '/api/reports/or-jr-full')).toBeNull();
+  });
+
+  function appAs(auth) {
+    const app = express();
+    app.use((req, _res, next) => { req.auth = auth; next(); });
+    app.use(routeGuardMiddleware);
+    app.all(/.*/, (_req, res) => res.json({ ok: true }));
+    return app;
+  }
+
+  it('ignores a spoofed username and answers 401 without a session', async () => {
+    const res = await request(appAs(null))
+      .get('/api/reports/erp-autosync-history?username=superadmin')
+      .set('X-User-Name', 'superadmin');
+    expect(res.status).toBe(401);
+    const read = await request(appAs(null)).get('/api/reports/erp-jr-status');
+    expect(read.status).toBe(401);
+  });
+
+  it('refuses a non-superadmin session and lets a superadmin through', async () => {
+    const operator = { username: 'ravi', role: 'operator', permissions: {} };
+    expect((await request(appAs(operator)).post('/api/reports/erp-autosync/run-now')).status).toBe(403);
+    expect((await request(appAs(operator)).get('/api/reports/erp-bom')).status).toBe(200);
+    const boss = { username: 'boss', role: 'superadmin', permissions: {} };
+    expect((await request(appAs(boss)).post('/api/reports/erp-bom/sync')).status).toBe(200);
+  });
+});
+
 describe('Login lockout', () => {
   const lockout = require('../src/app/loginLockout');
   beforeEach(() => lockout._resetForTests());
