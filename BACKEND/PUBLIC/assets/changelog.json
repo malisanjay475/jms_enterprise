@@ -11,8 +11,24 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.74.17",
+  "latest": "1.74.18",
   "versions": [
+    {
+      "version": "1.74.18",
+      "date": "2026-09-26",
+      "title": "Lighter ERP auto-sync: only real changes are saved and synced",
+      "modules": [
+        {
+          "app": "all",
+          "label": "Platform",
+          "icon": "bi-cloud-arrow-down",
+          "changes": [
+            { "type": "perf", "text": "The automatic ERP sync no longer re-saves orders that have not changed, so the main server does much less work and factory servers only receive orders that really changed." },
+            { "type": "fix", "text": "OR-JR placeholder lines without a Job Card are no longer added and removed again on every ERP sync once the real Job Card exists." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.74.17",
       "date": "2026-09-26",
