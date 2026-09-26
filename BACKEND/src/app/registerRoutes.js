@@ -10,6 +10,7 @@ const { createPrivateUploadGuard } = require('./uploadSafety');
 const { apiLimiter } = require('./registerCoreMiddleware');
 const { createReadinessCheck } = require('./healthCheck');
 const legacyAuthUsage = require('./legacyAuthUsage');
+const { requireSessionMiddleware, sessionRequired } = require('./sessionPolicy');
 const { sendServerError } = require('./httpErrors');
 
 // ---------------------------------------------------------------------------
@@ -187,6 +188,8 @@ function registerRoutes(app, deps) {
   // client-sent X-User-Name with the verified user), then hard-lock the dangerous
   // endpoints. Both must run before any route below.
   app.use('/api', createAuthMiddleware(pool));
+  // Off unless AUTH_REQUIRE_SESSION=1 (sessionPolicy.js): then non-public API calls need a session.
+  app.use('/api', requireSessionMiddleware);
   // General API rate limit, keyed on the verified user (or client IP) — needs req.auth.
   app.use('/api/', apiLimiter);
   app.use(routeGuardMiddleware);
@@ -226,6 +229,14 @@ function registerRoutes(app, deps) {
     });
   });
 
+  // Does this browser hold a valid login session (the HttpOnly cookie)? Pages that
+  // remember a user in localStorage but have no session send them to log in once,
+  // so every request carries a verified identity (step towards requiring login).
+  app.get('/api/session', (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({ ok: true, authenticated: Boolean(req.auth), username: req.auth ? req.auth.username : null });
+  });
+
   app.get('/api/version', (req, res) => {
     res.json({
       version: APP_VERSION,
@@ -251,7 +262,7 @@ function registerRoutes(app, deps) {
   app.get('/api/admin/legacy-auth-usage', async (req, res) => {
     try {
       await legacyAuthUsage.flush();
-      res.json({ ok: true, ...(await legacyAuthUsage.getReport(pool, { days: req.query.days })) });
+      res.json({ ok: true, sessionRequired: sessionRequired(), ...(await legacyAuthUsage.getReport(pool, { days: req.query.days })) });
     } catch (e) {
       console.error('/api/admin/legacy-auth-usage', e);
       res.status(500).json({ ok: false, error: 'Could not load the report' });

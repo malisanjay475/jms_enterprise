@@ -809,8 +809,17 @@
             }
         }
 
+        // Sent here by the page session check (app.js) because this browser had no
+        // valid login session: explain why a login is needed.
+        function initSessionNotice() {
+            let reason = null;
+            try { reason = sessionStorage.getItem('jms_login_reason'); sessionStorage.removeItem('jms_login_reason'); } catch (_e) { }
+            if (reason === 'session') showErr('For security, please log in again.');
+        }
+
         document.addEventListener('DOMContentLoaded', () => {
             initRememberedUser();
+            initSessionNotice();
             initAutoRedirect();
         });
     </script>

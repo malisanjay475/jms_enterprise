@@ -82,14 +82,19 @@ describe('Legacy identity usage report', () => {
     expect(rows[0]).toMatchObject({ username: 'bob', client: 'android-app', hits: 3 });
   });
 
-  it('does not count logged-in requests, anonymous requests or the login call itself', async () => {
+  it('does not count logged-in requests or public endpoints; anonymous calls count as "(none)"', async () => {
     const { app, usage } = setup();
     const agent = request.agent(app);
     await agent.post('/api/login-as/alice');
-    await agent.get('/api/orders').set('X-User-Name', 'someone-else');
-    await request(app).get('/api/machines');
-    await request(app).post('/api/login').set('X-User-Name', 'alice').send({ username: 'alice' });
-    expect(usage._pendingForTests()).toEqual([]);
+    usage._resetForTests(); // the test-only login route itself is not under test
+    usage.setPool({ query: jest.fn() });
+    await agent.get('/api/orders').set('X-User-Name', 'someone-else'); // logged in
+    await request(app).post('/api/login').set('X-User-Name', 'alice').send({ username: 'alice' }); // public
+    await request(app).post('/api/sync/push').send({}); // public (own key)
+    await request(app).get('/api/machines'); // anonymous, protected
+    const rows = usage._pendingForTests();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ path: '/api/machines', username: '(none)' });
   });
 
   it('writes the counts in one upsert and the report is admin-only', async () => {
@@ -109,7 +114,9 @@ describe('Legacy identity usage report', () => {
     expect(res.body.totalHits).toBe(3);
     expect(res.body.byClient[0]).toEqual({ client: 'browser', hits: 3 });
     expect(pool.upserts).toHaveLength(1);
-    expect(pool.upserts[0][5]).toEqual([2]); // two alice requests → one row, hits 2
+    const [, , paths, users, , hits] = pool.upserts[0];
+    const aliceRow = users.findIndex((u, i) => u === 'alice' && paths[i] === '/api/orders');
+    expect(hits[aliceRow]).toBe(2); // two alice requests → one row, hits 2
   });
 
   it('never breaks a request when saving fails', async () => {
