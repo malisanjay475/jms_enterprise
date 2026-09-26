@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.74.26",
+  "latest": "1.74.27",
   "versions": [
+    {
+      "version": "1.74.27",
+      "date": "2026-09-26",
+      "title": "Clearer logs for slow device connections",
+      "modules": [
+        {
+          "app": "all",
+          "label": "Platform",
+          "icon": "bi-wifi",
+          "changes": [
+            { "type": "improvement", "text": "When a phone or tablet on a weak connection cannot finish sending a request, the server log now says which device it was, so Wi-Fi problems can be found." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.74.26",
       "date": "2026-09-26",
