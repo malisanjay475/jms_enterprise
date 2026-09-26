@@ -1,5 +1,6 @@
 package com.jmsocean.qc
 
+import com.jmsocean.qc.data.remote.Network
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -88,7 +89,10 @@ fun QcApp_Root() {
     val current = backStack?.destination?.route
     val topLevel = setOf(Routes.QUEUE, Routes.VERIFY, Routes.ISSUES, Routes.DASHBOARD, Routes.RECENT)
 
-    val start = if (app.session.isLoggedIn) Routes.QUEUE else Routes.LOGIN
+    // Logged in = a remembered user AND a live server session. Phones updated from an
+    // older build only have the username (the session cookie was kept in memory), so
+    // they log in once more and from then on every request carries the session.
+    val start = if (app.session.isLoggedIn && Network.cookieJar.hasSession(Network.apiHost)) Routes.QUEUE else Routes.LOGIN
     val openDrawer: () -> Unit = { scope.launch { drawerState.open() } }
 
     fun go(route: String) {

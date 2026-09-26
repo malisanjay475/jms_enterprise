@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.74.25",
+  "latest": "1.74.26",
   "versions": [
+    {
+      "version": "1.74.26",
+      "date": "2026-09-26",
+      "title": "QC app stays logged in properly",
+      "modules": [
+        {
+          "app": "quality",
+          "label": "QC App",
+          "icon": "bi-phone",
+          "changes": [
+            { "type": "security", "text": "The QC Android app now keeps its login when the phone closes the app. After this update each phone asks to log in once more; after that it stays logged in as before." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.74.25",
       "date": "2026-09-26",
