@@ -585,7 +585,7 @@
                 <button type="button" class="pb-chip st-running" data-state="running"><span class="pb-dot"></span>Running <b id="pbCountRunning">0</b></button>
                 <button type="button" class="pb-chip st-planned" data-state="planned"><span class="pb-dot"></span>Planned <b id="pbCountPlanned">0</b></button>
                 <button type="button" class="pb-chip st-idle" data-state="available"><span class="pb-dot"></span>No plan <b id="pbCountIdle">0</b></button>
-                <button type="button" class="pb-chip st-blocked" data-state="blocked"><span class="pb-dot"></span>Off / Maint <b id="pbCountBlocked">0</b></button>
+                <button type="button" class="pb-chip st-blocked" data-state="blocked"><span class="pb-dot"></span>Stopped / Off <b id="pbCountBlocked">0</b></button>
               </div>
               <div class="pb-updated" id="planningUpdatedAt"><i class="bi bi-arrow-repeat"></i> Loading…</div>
             </div>
@@ -613,12 +613,12 @@
               <button type="button" class="pb-kpi tone-accent" data-state="planned" title="Show planned machines">
                 <span class="pb-kpi-label"><i class="bi bi-calendar-check"></i> Planned</span>
                 <span class="pb-kpi-value" id="planningPlannedCount">0</span>
-                <span class="pb-kpi-sub">Waiting to start</span>
+                <span class="pb-kpi-sub">Not running, job queued</span>
               </button>
-              <button type="button" class="pb-kpi tone-warning" data-state="blocked" title="Show off and maintenance machines">
-                <span class="pb-kpi-label"><i class="bi bi-tools"></i> Off / Maint</span>
+              <button type="button" class="pb-kpi tone-warning" data-state="blocked" title="Show stopped, off and maintenance machines">
+                <span class="pb-kpi-label"><i class="bi bi-pause-circle"></i> Stopped / Off</span>
                 <span class="pb-kpi-value" id="planningBlockedCount">0</span>
-                <span class="pb-kpi-sub">Unavailable</span>
+                <span class="pb-kpi-sub">Stoppage, off or maintenance</span>
               </button>
               <div class="pb-kpi">
                 <span class="pb-kpi-label"><i class="bi bi-speedometer"></i> Machine load</span>
@@ -649,11 +649,6 @@
                 <div class="map-sub" id="planningMapSub">Loading machine availability for the planning department.</div>
               </div>
               <div class="map-actions">
-                <label class="small-muted">Horizon</label>
-                <div class="days-filter" id="horizonDays">
-                  <span class="chip select" data-day="0" role="button" tabindex="0" aria-pressed="false" style="color:var(--ok); border-color:var(--ok)">Running</span>
-                  ${[1, 2, 3, 4, 5].map(d => `<span class="chip select" data-day="${d}" role="button" tabindex="0" aria-pressed="false">#${d}</span>`).join("")}
-                </div>
                 <div style="width:8px"></div>
                 <label class="small-muted">Show Off / Maintenance</label>
                 <label class="chip select" id="toggleInactive" role="button" title="Include Off & Maintenance">
@@ -1259,34 +1254,37 @@
           dateChip.innerHTML = `<i class="bi bi-clock-history"></i><span>${fullDate} IST</span>`;
         }
 
-        function getPlanningMachineState(machine) {
-          const allPlans = window.allMasterPlans || [];
-          const horizonValue = window.horizon !== undefined ? window.horizon : 1;
+        // Machine code matching shared by the dashboard counts and the machine cards.
+        // Strips a legacy "BUILDING -L{n}>" prefix and ignores case and spaces.
+        function planMachineKey(value) {
+          const t = String(value || '').trim();
+          return (t.includes('>') ? t.split('>').pop() : t).replace(/\s+/g, '').toUpperCase();
+        }
 
-          const plans = allPlans.filter(plan => {
-            const machineCode = String(machine.code || '').trim().toUpperCase();
-            const planMachine = String(plan.machine || '').trim().toUpperCase();
-            const planStatus = String(plan.status || '').trim().toUpperCase();
-            return machineCode && machineCode === planMachine && !['COMPLETED', 'CANCELLED', 'ARCHIVED'].includes(planStatus);
+        // Open plans for a machine in queue order (completed/cancelled/archived excluded)
+        function getMachinePlans(machine) {
+          const key = planMachineKey(machine.code);
+          if (!key) return [];
+          return (window.allMasterPlans || []).filter(plan => {
+            const status = String(plan.status || '').trim().toUpperCase();
+            return planMachineKey(plan.machine) === key && !['COMPLETED', 'CANCELLED', 'ARCHIVED'].includes(status);
           }).sort((a, b) => ((a.seq || 0) - (b.seq || 0)) || ((a.id || 0) - (b.id || 0)));
+        }
 
-          let activePlan = null;
-          if (horizonValue === 0) {
-            activePlan = plans.find(plan => String(plan.status || '').trim().toUpperCase() === 'RUNNING') || null;
-          } else {
-            activePlan = plans[horizonValue - 1] || null;
-          }
-
+        // Single source of truth for a machine's state on the board:
+        //   running     - live DPR shows production, or a RUNNING plan with no live stoppage
+        //   blocked     - live DPR shows a stoppage (mould change, breakdown, ...) or machine is off
+        //   maintenance - machine flagged under maintenance
+        //   planned     - not running, but has a queued plan
+        //   available   - nothing running and nothing planned
+        function getPlanningMachineState(machine) {
           if (machine.is_maintenance) return 'maintenance';
-          if (activePlan) {
-            return String(activePlan.status || '').trim().toUpperCase() === 'RUNNING' ? 'running' : 'planned';
-          }
-
-          const raw = String(machine.status || '').trim().toLowerCase();
-          if (raw === 'running') return 'running';
-          if (raw === 'stopped' || raw === 'off') return 'blocked';
-          if (raw === 'maintenance') return 'maintenance';
-          return 'available';
+          if (machine.live_status === 'running') return 'running';
+          if (machine.live_status === 'stopped') return 'blocked';
+          const plans = getMachinePlans(machine);
+          if (plans.some(plan => String(plan.status || '').trim().toUpperCase() === 'RUNNING')) return 'running';
+          if (machine.is_active === false) return 'blocked';
+          return plans.length ? 'planned' : 'available';
         }
 
         function updatePlanningOverview(list) {
@@ -1309,7 +1307,7 @@
           const scopeText = building
             ? (process === 'Moulding' ? `Building ${building}` : building)
             : (process === 'Moulding' ? 'All Buildings' : `All ${process} Machines`);
-          const horizonText = horizon === 0 ? 'Running slot' : `Plan #${horizon} horizon`;
+          const horizonText = 'Running now';
 
           let running = 0;
           let planned = 0;
@@ -1437,7 +1435,10 @@
         let lastOrders = [];
         let lastPreviewAssignments = [];
         let previewMode = 'balance';
-        let horizon = 1; // Default to 1st Plan (Sequence #1)
+        // The board always shows what is running now (horizon picker removed);
+        // cards fall back to the next queued plan when nothing is running.
+        let horizon = 0;
+        window.horizon = 0;
         let showInactive = false;
         let selectedMachine = null;
         let dialogPinned = false;
@@ -2731,7 +2732,9 @@
                 tonnage: machine.tonnage,
                 machine_process: machineProcess,
                 machine_icon: machine.machine_icon || null,
-                status: planRunning ? 'Running' : 'Stopped',
+                // Only a RUNNING plan means running; everything else is idle, not stopped
+                // (live DPR status below still marks real stoppages).
+                status: planRunning ? 'Running' : 'Idle',
                 live_status: liveStatus,
                 live_problem: (live && live.problem_label) || null,
                 live_entry_type: (live && live.entry_type) || null,
@@ -2853,139 +2856,57 @@
         }
 
         function machineSeat(m) {
-          // 1. DATA LOOKUP from Master Plan (Priority over Machine Data)
-          // 1. DATA LOOKUP from Master Plan (Priority over Machine Data)
-          const allPlans = window.allMasterPlans || [];
-
-          // Normalized Match & Filter Valid Plans (No History)
-          // Strip legacy "BUILDING -L{LINE}>" prefix if present (e.g. "E -L1>HYD-350-1" → "HYD-350-1")
+          // Strip legacy "BUILDING -L{LINE}>" prefix for display (e.g. "E -L1>HYD-350-1" → "HYD-350-1")
           const stripMachPrefix = (s) => { const t = String(s || '').trim(); return t.includes('>') ? t.split('>').pop().trim() : t; };
-          // Fuzzy key: strip prefix + remove all whitespace, compare uppercase
-          const machKey = (s) => stripMachPrefix(s).replace(/\s+/g, '').toUpperCase();
-          const myPlans = allPlans.filter(p => {
-            const pMach = stripMachPrefix(p.machine);
-            const mCode = stripMachPrefix(m.code);
-            const mMatch = (p.machine === m.code) ||
-                           (p.machine && p.machine.trim().toUpperCase() === m.code.trim().toUpperCase()) ||
-                           (pMach && pMach.toUpperCase() === mCode.toUpperCase()) ||
-                           (pMach && mCode && machKey(p.machine) === machKey(m.code));
-            const pStatus = (p.status || '').toUpperCase();
-            return mMatch && !['COMPLETED', 'CANCELLED', 'ARCHIVED'].includes(pStatus);
-          });
 
-          // Sort myPlans: Strictly by Sequence
-          myPlans.sort((a, b) => {
-            // Strict Sequence Order
-            return (a.seq || 0) - (b.seq || 0) || (a.id || 0) - (b.id || 0);
-          });
+          // 1. Plans for this machine (same matching as the dashboard counts).
+          //    Show the RUNNING job; if nothing runs, show the next job in the queue.
+          const myPlans = getMachinePlans(m);
+          const runningPlan = myPlans.find(p => String(p.status || '').trim().toUpperCase() === 'RUNNING') || null;
+          const nextPlan = myPlans.find(p => p !== runningPlan) || null;
+          const activePlan = runningPlan || nextPlan;
+          const h = 0;
 
-          // HORIZON = SEQUENCE INDEX (1-based), 0 = Running Only
-          const h = window.horizon !== undefined ? window.horizon : 1;
-          let activePlan = null;
-
-          if (h === 0) {
-            // Running View: Find the actual running plan anywhere in the list
-            activePlan = myPlans.find(p => (p.status || '').toUpperCase() === 'RUNNING');
-          } else {
-            // Horizon View: Get by sequence index
-            const seqIndex = h - 1;
-            activePlan = myPlans[seqIndex];
-          }
-
-          // 2. Determine physical machine state — live DPR status takes priority.
-          const physicalStatus = (() => {
-            if (m.is_maintenance) return 'maintenance';
-            // Live DPR status: 'running' = pcs entry, 'stopped' = quick entry (problem)
-            if (m.live_status === 'running') return 'running';
-            if (m.live_status === 'stopped') return 'stopped';
-            // Fall back to plan-board status
-            const raw = String(m.status || '').toLowerCase();
-            if (raw === 'maintenance') return 'maintenance';
-            if (raw === 'running') return 'running';
-            if (raw === 'stopped' || raw === 'off') return 'stopped';
-            return 'available';
-          })();
-
-          let statusRaw = physicalStatus;
-          if (activePlan && physicalStatus === 'available') {
-            statusRaw = 'planned';
-          }
-
+          // 2. Machine state — one rule shared with the dashboard tiles and status chips
+          const statusRaw = getPlanningMachineState(m); // running | blocked | maintenance | planned | available
+          const physicalStatus = statusRaw === 'running' ? 'running'
+            : statusRaw === 'blocked' ? 'stopped'
+            : statusRaw === 'maintenance' ? 'maintenance'
+            : 'available';
 
           // 3. Visual Class
           let sClass = 's-unplanned';
-          if (m.is_maintenance || physicalStatus === 'maintenance') sClass = 's-maint';
-          else if (physicalStatus === 'running') sClass = 's-running';
-          else if (physicalStatus === 'stopped') sClass = 's-stopped';
+          if (statusRaw === 'maintenance') sClass = 's-maint';
+          else if (statusRaw === 'running') sClass = 's-running';
+          else if (statusRaw === 'blocked') sClass = 's-stopped';
+          else if (statusRaw === 'planned') sClass = 's-planned';
 
-          // 4. Display clean name: strip "BUILDING -L{n}>" prefix if present so cards always
-          //    show just the machine code (e.g. "AKAR-150-4" not "B -L1>AKAR-150-4").
-          //    m.code is still the raw DB value used for data matching; only display differs.
+          // 4. Display clean name: m.code is still the raw DB value used for data matching.
           const displayName = esc(stripMachPrefix(m.code));
           const detail = (value, fallback = '-') => esc(value == null || value === '' ? fallback : value);
 
-          // 5. Active Info Text
-          let activeText = prettyStatus(m); // Default
-          let subText = '';
-
-          if (activePlan) {
-            // ALWAYS show Plan Details if a plan exists for this Horizon
-            // Status color (Red/Green/White) will indicate machine state
-            activeText = `${esc(activePlan.orderNo)} • ${esc(activePlan.mouldName || activePlan.itemName)}`;
-            subText = `Bal: ${Number(activePlan.balQty || 0).toLocaleString()} • ${activePlan.clientName || ''}`;
-
-            // Optional: Add (Stopped) suffix if machine is actually stopped
-            if (physicalStatus === 'stopped') {
-              activeText += ' (Stopped)';
-            } else if (statusRaw === 'planned') {
-              activeText = `Planned: ${esc(activePlan.orderNo)}`;
-            }
-          } else {
-            // No Plan logic
-            const h = window.horizon !== undefined ? window.horizon : 1;
-            if (h > 1 || h === 0) {
-              activeText = 'No Plan';
-              subText = `No plan assigned`;
-            } else {
-              activeText = 'No Plan';
-              subText = physicalStatus === 'running'
-                ? (m.running_product || 'Running without plan')
-                : 'No plan assigned';
-            }
-          }
-
-          // Live DPR-aware status text for the card front face
+          // 5. Status text — live DPR problem label wins (e.g. "Mould Changeover")
           let frontStatusText;
-          if (m.live_status === 'stopped' && m.live_problem) {
-            frontStatusText = m.live_problem; // e.g. "Mould Changeover", "Maintenance"
-          } else if (m.live_status === 'running') {
-            frontStatusText = 'Running';
-          } else if (physicalStatus === 'maintenance') {
-            frontStatusText = 'Maintenance';
-          } else if (!activePlan) {
-            frontStatusText = 'No Plan';
-          } else if (statusRaw === 'planned') {
-            frontStatusText = 'Planned';
-          } else {
-            frontStatusText = prettyStatus(m);
-          }
+          if (statusRaw === 'blocked') frontStatusText = m.live_problem || (m.is_active === false ? 'Off' : 'Stopped');
+          else if (statusRaw === 'running') frontStatusText = 'Running';
+          else if (statusRaw === 'maintenance') frontStatusText = 'Maintenance';
+          else if (statusRaw === 'planned') frontStatusText = 'Planned';
+          else frontStatusText = 'No plan';
+          const subText = statusRaw === 'running' && !activePlan ? 'Running without a plan' : 'No plan assigned';
 
-          const detailOrder = activePlan ? activePlan.orderNo : (m.running_order || 'No active order');
+          const detailOrder = activePlan ? activePlan.orderNo : 'No active order';
           const detailJob = activePlan
             ? [activePlan.itemName, activePlan.mouldName].filter(Boolean).join(' / ')
-            : (m.running_product || 'No job assigned');
-          const detailClient = activePlan ? (activePlan.clientName || '-') : (m.running_client || '-');
+            : 'No job assigned';
+          const detailClient = activePlan ? (activePlan.clientName || '-') : '-';
           const detailBalance = activePlan
             ? Number(activePlan.balQty || activePlan.planQty || 0).toLocaleString('en-IN')
             : '-';
-          const detailStatus = activePlan
-            ? (statusRaw === 'planned' ? 'Planned' : frontStatusText)
-            : (physicalStatus === 'maintenance' ? 'Maintenance' : 'No Plan');
-          const detailSlot = activePlan
-            ? (h === 0 ? 'Running Slot' : `Queue ${h}`)
-            : (m.running_order ? 'Direct Run' : 'Open');
-          const planQtyNum = activePlan ? Number(activePlan.planQty || 0) : 0;
-          const balQtyNum = activePlan ? Number(activePlan.balQty || 0) : 0;
+          const detailStatus = frontStatusText;
+          const detailSlot = runningPlan ? 'Running now' : (nextPlan ? 'Next in queue' : 'Open');
+          // Progress only for the job actually running (a queued job has not started)
+          const planQtyNum = runningPlan ? Number(runningPlan.planQty || 0) : 0;
+          const balQtyNum = runningPlan ? Number(runningPlan.balQty || 0) : 0;
           const progressPct = planQtyNum > 0
             ? Math.max(0, Math.min(100, Math.round((planQtyNum - balQtyNum) / planQtyNum * 100)))
             : null;
@@ -3014,18 +2935,16 @@
           btn.innerHTML = `
         <div class="machine-flip">
           <div class="machine-face machine-front">
-            <div class="mc-head">
-              <div class="media ${safeIconSrc ? '' : 'fallback'}">
-                ${safeIconSrc ? `<img class="thumb" src="${safeIconSrc}" alt="${displayName}" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex'; this.parentElement.classList.add('fallback');">` : ''}
-                <div class="thumb-fallback" style="${safeIconSrc ? 'display:none' : 'display:flex'}"><i class="bi bi-hdd-rack"></i></div>
-              </div>
-              <div class="mc-title">
-                <div class="name">${displayName}</div>
-                <div class="mc-meta">${detail(detailLine)} · ${detail(detailTonnage)}</div>
-              </div>
+            <div class="media mc-hero ${safeIconSrc ? '' : 'fallback'}">
+              ${safeIconSrc ? `<img class="thumb" src="${safeIconSrc}" alt="${displayName}" loading="lazy" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex'; this.parentElement.classList.add('fallback');">` : ''}
+              <div class="thumb-fallback" style="${safeIconSrc ? 'display:none' : 'display:flex'}"><i class="bi bi-hdd-rack"></i></div>
+              <div class="status-text mc-status-badge"><span class="mc-dot"></span>${esc(frontStatusText)}</div>
             </div>
-            <div class="status-text"><span class="mc-dot"></span>${esc(frontStatusText)}</div>
-            <div class="mc-job">${activePlan ? `<strong>${esc(activePlan.orderNo || '')}</strong><span>${esc(activePlan.mouldName || activePlan.itemName || '')}</span>` : `<span class="mc-empty">${esc(subText || 'No plan assigned')}</span>`}</div>
+            <div class="mc-title">
+              <div class="name">${displayName}</div>
+              <div class="mc-meta">${detail(detailLine)} · ${detail(detailTonnage)}</div>
+            </div>
+            <div class="mc-job">${activePlan ? `${runningPlan ? '' : '<em class="mc-next">Next</em>'}<strong>${esc(activePlan.orderNo || '')}</strong><span>${esc(activePlan.mouldName || activePlan.itemName || '')}</span>` : `<span class="mc-empty">${esc(subText)}</span>`}</div>
             ${progressPct !== null ? `<div class="mc-progress" title="${progressPct}% done"><i style="width:${progressPct}%"></i></div><div class="mc-foot"><span>Bal ${detail(detailBalance)}</span><span>${progressPct}%</span></div>` : '<div class="mc-foot"><span>&nbsp;</span></div>'}
             <div class="flip-note">Click for details</div>
           </div>

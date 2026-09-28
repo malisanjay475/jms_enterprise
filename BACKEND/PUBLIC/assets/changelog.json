@@ -11,8 +11,26 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.75.1",
+  "latest": "1.75.2",
   "versions": [
+    {
+      "version": "1.75.2",
+      "date": "2026-09-28",
+      "title": "Planning Board shows running machines with photos",
+      "modules": [
+        {
+          "app": "planning",
+          "label": "Planning",
+          "icon": "bi-kanban",
+          "changes": [
+            { "type": "improvement", "text": "Machine cards show the full machine photo again, with the status on top of the photo." },
+            { "type": "improvement", "text": "The Planning Board always shows what is running now. The Horizon picker is removed, and a machine with nothing running shows its next queued job marked Next." },
+            { "type": "fix", "text": "Idle machines are no longer shown as Stopped. Only a real stoppage from DPR, such as a mould change, shows as Stopped." },
+            { "type": "fix", "text": "The dashboard counts and status chips now use the same machine status as the cards, so the numbers always match the grid." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.75.1",
       "date": "2026-09-28",
