@@ -11,8 +11,26 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.75.4",
+  "latest": "1.76.0",
   "versions": [
+    {
+      "version": "1.76.0",
+      "date": "2026-09-28",
+      "title": "Live machine cards with manpower",
+      "modules": [
+        {
+          "app": "planning",
+          "label": "Planning",
+          "icon": "bi-kanban",
+          "changes": [
+            { "type": "feat", "text": "Machine cards are smaller and come alive: a running machine shows a moving photo, a spinning gear, a moving conveyor and working operators. A stopped machine turns grey with a red STOPPED banner and the reason from DPR." },
+            { "type": "feat", "text": "Each machine card shows the actual manpower from the DPR setup against the STD manpower from the Mould Master. Short is shown in red and over in amber." },
+            { "type": "feat", "text": "A machine with 1.5 manpower is linked to the neighbouring machine that shares the operator, marked half shared." },
+            { "type": "feat", "text": "The dashboard and each line header show the total actual and STD manpower for the shift." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.75.4",
       "date": "2026-09-28",

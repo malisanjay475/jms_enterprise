@@ -625,6 +625,11 @@
                 <span class="pb-kpi-value" id="planningLoadPct">0%</span>
                 <div class="pb-kpi-bar"><i id="planningLoadBar"></i></div>
               </div>
+              <div class="pb-kpi" id="planningMpTile" title="Manpower this shift: actual from the DPR setup, STD from the mould master">
+                <span class="pb-kpi-label"><i class="bi bi-people"></i> Manpower</span>
+                <span class="pb-kpi-value"><span id="planningMpAct">—</span><small class="pb-kpi-of"> / <span id="planningMpStd">—</span> std</small></span>
+                <span class="pb-kpi-sub" id="planningMpDiff">Actual vs STD this shift</span>
+              </div>
               <div class="pb-kpi">
                 <span class="pb-kpi-label"><i class="bi bi-box-seam"></i> Pending orders</span>
                 <span class="pb-kpi-value" id="kpi_pending">—</span>
@@ -1350,6 +1355,16 @@
           setText('pbCountBlocked', blocked);
           setText('planningIdleCount', available);
           setText('planningLoadPct', `${loadPct}%`);
+          const mpSum = sumManpower(list);
+          setText('planningMpAct', mpSum.hasData ? fmtMp(mpSum.act) : '—');
+          setText('planningMpStd', mpSum.hasData ? fmtMp(mpSum.std) : '—');
+          const mpDiffEl = document.getElementById('planningMpDiff');
+          if (mpDiffEl) {
+            const diff = Math.round((mpSum.act - mpSum.std) * 10) / 10;
+            mpDiffEl.textContent = !mpSum.hasData ? 'No setups entered this shift'
+              : diff === 0 ? 'Matches STD' : diff < 0 ? `${fmtMp(-diff)} short of STD` : `${fmtMp(diff)} over STD`;
+            mpDiffEl.className = 'pb-kpi-sub' + (mpSum.hasData && diff < 0 ? ' is-low' : mpSum.hasData && diff > 0 ? ' is-high' : '');
+          }
           const loadBar = document.getElementById('planningLoadBar');
           if (loadBar) loadBar.style.width = `${loadPct}%`;
           const updatedAt = document.getElementById('planningUpdatedAt');
@@ -2738,6 +2753,9 @@
                 live_status: liveStatus,
                 live_problem: (live && live.problem_label) || null,
                 live_entry_type: (live && live.entry_type) || null,
+                // Actual (setup man_act) and STD (mould master) manpower for the current shift
+                act_manpower: live && live.act_manpower != null ? Number(live.act_manpower) : null,
+                std_manpower: live && live.std_manpower != null ? Number(live.std_manpower) : null,
                 is_active: machine.is_active !== false,
                 is_maintenance: false,
                 queue_preview: []
@@ -2822,6 +2840,11 @@
                 return compareMachineSeriesCodes(a.code, b.code);
               });
 
+              pairSharedManpower(sortedMachines);
+              const lineMp = sumManpower(sortedMachines);
+              if (lineMp.hasData) {
+                title.insertAdjacentHTML('beforeend', `<span class="pb-line-count pb-line-mp" title="Manpower this shift: actual (setup) / STD (mould master)"><i class="bi bi-people"></i> ${fmtMp(lineMp.act)} / ${fmtMp(lineMp.std)} std</span>`);
+              }
               sortedMachines.forEach(m => row.appendChild(machineSeat(m)));
               wrap.appendChild(title);
               wrap.appendChild(row);
@@ -2830,6 +2853,35 @@
 
             grid.appendChild(section);
           });
+        }
+
+        // Manpower helpers. A .5 value means one operator is shared with a neighbouring
+        // machine: pair it with the next machine on the line that is also .5, else the
+        // previous one. Machines must already be in line order.
+        function isHalfMp(v) { return v != null && Math.abs((v % 1) - 0.5) < 0.01; }
+        function pairSharedManpower(machines) {
+          machines.forEach(m => { m._sharedWith = null; });
+          for (let i = 0; i < machines.length; i++) {
+            const m = machines[i];
+            if (!isHalfMp(m.act_manpower) || m._sharedWith) continue;
+            const next = machines[i + 1];
+            const prev = machines[i - 1];
+            const partner = (next && isHalfMp(next.act_manpower) && !next._sharedWith) ? next
+              : (prev && isHalfMp(prev.act_manpower) && !prev._sharedWith) ? prev : null;
+            if (partner) { m._sharedWith = partner.code; partner._sharedWith = m.code; }
+          }
+        }
+        function sumManpower(machines) {
+          let act = 0, std = 0, hasData = false;
+          (machines || []).forEach(m => {
+            if (m.act_manpower != null) { act += m.act_manpower; hasData = true; }
+            if (m.std_manpower != null) { std += m.std_manpower; hasData = true; }
+          });
+          return { act, std, hasData };
+        }
+        function fmtMp(v) {
+          const n = Math.round(Number(v || 0) * 10) / 10;
+          return Number.isInteger(n) ? String(n) : n.toFixed(1);
         }
 
         function compareMachineSeriesCodes(codeA, codeB) {
@@ -2913,6 +2965,29 @@
           const detailLine = m.line || '-';
           const detailTonnage = m.tonnage ? `${m.tonnage}T` : '-';
 
+          // 6. Manpower (actual from today's setup vs STD from mould master)
+          const actMp = m.act_manpower;
+          const stdMp = m.std_manpower;
+          let manpowerHtml = '<div class="mc-mp mc-mp-none" title="No setup entered this shift">MP —</div>';
+          if (actMp != null || stdMp != null) {
+            const act = actMp != null ? actMp : 0;
+            const full = Math.min(Math.floor(act), 4);
+            const half = isHalfMp(act);
+            const icons = act <= 0
+              ? '<i class="bi bi-person-slash"></i>'
+              : '<i class="bi bi-person-fill"></i>'.repeat(full) + (half ? '<i class="bi bi-person-fill mc-mp-half"></i>' : '') + (Math.floor(act) > 4 ? '<span class="mc-mp-more">+</span>' : '');
+            let tone = '';
+            if (statusRaw === 'running' && act <= 0) tone = 'is-low';
+            else if (stdMp != null && actMp != null && act < stdMp) tone = 'is-low';
+            else if (stdMp != null && actMp != null && act > stdMp) tone = 'is-high';
+            const sharedName = m._sharedWith ? stripMachPrefix(m._sharedWith) : '';
+            const tip = `Actual ${actMp != null ? fmtMp(actMp) : '-'} / STD ${stdMp != null ? fmtMp(stdMp) : '-'}${sharedName ? ` · ½ operator shared with ${sharedName}` : ''}`;
+            manpowerHtml = `<div class="mc-mp ${tone} ${sharedName ? 'is-shared' : ''}" title="${esc(tip)}">
+              <div class="mc-mp-row"><span class="mc-mp-icons">${icons}</span><b>${actMp != null ? fmtMp(actMp) : '-'}</b><span class="mc-mp-std">/ ${stdMp != null ? fmtMp(stdMp) : '-'} std</span></div>
+              ${sharedName ? `<div class="mc-mp-shared"><i class="bi bi-arrow-left-right"></i> ½ shared · ${esc(sharedName)}</div>` : ''}
+            </div>`;
+          }
+
           const btn = document.createElement('div');
           btn.className = `machine ${sClass}`;
           btn.setAttribute('role', 'button');
@@ -2938,12 +3013,17 @@
             <div class="media mc-hero ${safeIconSrc ? '' : 'fallback'}">
               ${safeIconSrc ? `<img class="thumb" src="${safeIconSrc}" alt="${displayName}" loading="lazy" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex'; this.parentElement.classList.add('fallback');">` : ''}
               <div class="thumb-fallback" style="${safeIconSrc ? 'display:none' : 'display:flex'}"><i class="bi bi-hdd-rack"></i></div>
-              <div class="status-text mc-status-badge"><span class="mc-dot"></span>${esc(frontStatusText)}</div>
+              <div class="mc-fx-sweep" aria-hidden="true"></div>
+              <i class="bi bi-gear-fill mc-fx-gear" aria-hidden="true"></i>
+              <div class="mc-fx-belt" aria-hidden="true"></div>
+              ${statusRaw === 'blocked'
+                ? `<div class="mc-stop-banner"><i class="bi bi-stop-circle-fill"></i> STOPPED · ${esc(frontStatusText)}</div>`
+                : `<div class="status-text mc-status-badge"><span class="mc-dot"></span>${esc(frontStatusText)}</div>`}
             </div>
             <div class="mc-title">
               <div class="name">${displayName}</div>
             </div>
-            <div class="flip-note">Click for details</div>
+            ${manpowerHtml}
           </div>
           <div class="machine-face machine-back">
             <div class="back-head">
@@ -2956,6 +3036,7 @@
               <div class="job-row"><span>Client</span><strong>${detail(detailClient)}</strong></div>
               <div class="job-row"><span>Status</span><strong>${detail(detailStatus)}</strong></div>
               <div class="job-row"><span>Balance</span><strong>${detail(detailBalance)}</strong></div>
+              <div class="job-row"><span>MP</span><strong>${actMp != null ? fmtMp(actMp) : '-'} act / ${stdMp != null ? fmtMp(stdMp) : '-'} std${m._sharedWith ? ` · shared ${esc(stripMachPrefix(m._sharedWith))}` : ''}</strong></div>
             </div>
             ${progressPct !== null ? `<div class="mc-progress" title="${progressPct}% done"><i style="width:${progressPct}%"></i></div><div class="mc-foot"><span>Done ${progressPct}%</span><span>Bal ${detail(detailBalance)}</span></div>` : ''}
             <div class="job-meta">
