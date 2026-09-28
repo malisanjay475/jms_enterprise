@@ -41,7 +41,8 @@ function retentionDays() {
     syncDeletions: readDaysEnv('RETENTION_SYNC_DELETIONS_DAYS', 30),
     machineReadings: readDaysEnv('RETENTION_MACHINE_READINGS_DAYS', 90),
     legacyAuthUsage: readDaysEnv('RETENTION_LEGACY_AUTH_USAGE_DAYS', 30),
-    localServerHeartbeats: readDaysEnv('RETENTION_LOCAL_SERVER_HEARTBEATS_DAYS', 30)
+    localServerHeartbeats: readDaysEnv('RETENTION_LOCAL_SERVER_HEARTBEATS_DAYS', 30),
+    userPresence: readDaysEnv('RETENTION_USER_PRESENCE_DAYS', 30)
   };
 }
 
@@ -167,6 +168,16 @@ const RULES = [
       }
       return { total, finished: true };
     }
+  },
+  {
+    // One "last seen" row per user + device session (see /api/activity/heartbeat).
+    // Small table; drop sessions not seen for 30 days.
+    name: 'user_presence',
+    table: 'user_presence',
+    days: (d) => d.userPresence,
+    run: (pool, cutoff, deadline) => deleteInBatches(pool, {
+      table: 'user_presence', where: 'last_seen_at < $1', params: [cutoff], deadline
+    })
   }
 ];
 
