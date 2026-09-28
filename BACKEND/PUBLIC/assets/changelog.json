@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.75.0",
+  "latest": "1.75.1",
   "versions": [
+    {
+      "version": "1.75.1",
+      "date": "2026-09-28",
+      "title": "Lighter online status tracking",
+      "modules": [
+        {
+          "app": "all",
+          "label": "Platform",
+          "icon": "bi-activity",
+          "changes": [
+            { "type": "perf", "text": "Keeping track of who is online now takes far less work on the server. The Activity Monitor and My Sessions show the same online status as before." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.75.0",
       "date": "2026-09-28",
