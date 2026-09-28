@@ -25,7 +25,7 @@
           "changes": [
             { "type": "feat", "text": "The Planning Board has one toolbar with search, building, process and status filters, and all views and downloads are in a single Views and actions menu." },
             { "type": "feat", "text": "The dashboard tiles show machines with no plan, running, planned, off or maintenance, machine load and pending orders. Click a tile or status chip to show only those machines." },
-            { "type": "new", "text": "Machine cards are more compact and show the order, item and a progress bar with the balance quantity." },
+            { "type": "feat", "text": "Machine cards are more compact and show the order, item and a progress bar with the balance quantity." },
             { "type": "fix", "text": "The View full details button on a flipped machine card now always opens the job details." }
           ]
         }
