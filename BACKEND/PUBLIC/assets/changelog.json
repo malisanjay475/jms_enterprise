@@ -11,8 +11,21 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.76.3",
+  "latest": "1.76.4",
   "versions": [
+    {
+      "version": "1.76.4",
+      "date": "2026-09-28",
+      "title": "See which moulds have remarks",
+      "modules": [
+        {
+          "app": "masters",
+          "changes": [
+            { "type": "improvement", "text": "Moulds with remarks now show an orange remark badge with the count in the Mould Master list; hover to read the latest remark or click to open all remarks." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.76.3",
       "date": "2026-09-28",
