@@ -3151,6 +3151,16 @@
     #machineGrid .machine.s-stopped .media.mc-hero { background: #fdf4f4; border-color: #f7d8d8; }
     #machineGrid .machine.s-maint .media.mc-hero { background: #fdf8ee; border-color: #f5e3bd; }
     #machineGrid .machine.s-planned .media.mc-hero { background: #f1f8fd; border-color: #d2e8f7; }
+    /* Front face = photo + name only; the photo grows to fill the card
+       (the card's height is set by the taller details face on the back) */
+    #machineGrid .machine { display: flex; flex-direction: column; }
+    #machineGrid .machine .machine-flip { flex: 1 1 auto; grid-template-rows: 1fr; }
+    #machineGrid .machine .machine-front { justify-content: flex-start; }
+    #machineGrid .machine .machine-front .media.mc-hero { flex: 1 1 auto; height: auto; min-height: 150px; }
+    #machineGrid .machine .machine-front .mc-title { text-align: center; }
+    #machineGrid .machine .machine-front .name { font-size: 0.95rem; }
+    #machineGrid .machine .machine-front .flip-note { text-align: center; }
+    #machineGrid .machine .machine-back .mc-progress { margin-top: 2px; }
     #machineGrid .machine .mc-title { min-width: 0; }
     #machineGrid .machine .name { font-size: 0.92rem; font-weight: 800; color: #0f172a; min-height: 0; margin: 0; -webkit-line-clamp: 1; }
     #machineGrid .machine .mc-meta { font-size: 0.68rem; color: #94a3b8; font-weight: 600; }
