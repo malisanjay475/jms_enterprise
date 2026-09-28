@@ -6994,9 +6994,48 @@ app.get('/api/machines/live-status', async (req, res) => {
       [dprDate, currentShift, factoryId || null]
     );
 
+    // Manpower for the current shift, same rules as DPR Compliance Summary / Manpower report:
+    // actual = std_actual.man_act of the machine's latest setup this shift (a setup with
+    // manpower entered wins over a newer one without); std = mould master manpower of that
+    // setup's mould (by plan's mould code, then by mould name).
+    const mpRows = await q(
+      `WITH latest AS (
+         SELECT DISTINCT ON (TRIM(s.machine)) TRIM(s.machine) AS machine, s.man_act, s.plan_id, s.mould_name, s.factory_id
+           FROM std_actual s
+          WHERE s.dpr_date = $1 AND s.shift = $2 AND COALESCE(s.is_deleted, false) = false
+            AND s.machine IS NOT NULL AND TRIM(s.machine) <> ''
+            AND ($3::int IS NULL OR s.factory_id = $3 OR s.factory_id IS NULL)
+          ORDER BY TRIM(s.machine), (s.man_act IS NULL), s.id DESC
+       )
+       SELECT l.machine, l.man_act AS act_manpower, COALESCE(m.manpower, mn.manpower) AS std_manpower
+         FROM latest l
+         LEFT JOIN LATERAL (
+           SELECT pb.mould_code, pb.mould_name FROM plan_board pb
+            WHERE pb.plan_id = l.plan_id
+              AND (pb.factory_id = l.factory_id OR pb.factory_id IS NULL OR l.factory_id IS NULL)
+            ORDER BY pb.id DESC LIMIT 1
+         ) pb ON true
+         LEFT JOIN LATERAL (
+           SELECT m1.manpower FROM moulds m1
+            WHERE TRIM(m1.mould_number) = TRIM(COALESCE(pb.mould_code, ''))
+            ORDER BY m1.id LIMIT 1
+         ) m ON true
+         LEFT JOIN LATERAL (
+           SELECT m2.manpower FROM moulds m2
+            WHERE m.manpower IS NULL
+              AND TRIM(m2.mould_name) = TRIM(COALESCE(l.mould_name, pb.mould_name, ''))
+            ORDER BY m2.id LIMIT 1
+         ) mn ON true`,
+      [dprDate, currentShift, factoryId || null]
+    );
+    const toNum = (v) => (v === null || v === undefined || v === '' ? null : Number(v));
+    const mpByMachine = new Map(mpRows.map(r => [String(r.machine).toUpperCase(), r]));
+
     const data = rows.map(r => {
       const isQuick = QUICK_TYPES.includes(r.entry_type);
       const hasProduction = r.entry_type === 'MAIN' && Number(r.good_qty || 0) > 0;
+      const mp = mpByMachine.get(String(r.machine || '').trim().toUpperCase());
+      if (mp) mpByMachine.delete(String(r.machine || '').trim().toUpperCase());
       return {
         machine: r.machine,
         entry_type: r.entry_type,
@@ -7005,7 +7044,17 @@ app.get('/api/machines/live-status', async (req, res) => {
         remarks: r.remarks || null,
         good_qty: Number(r.good_qty || 0),
         hour_slot: r.hour_slot,
+        act_manpower: mp ? toNum(mp.act_manpower) : null,
+        std_manpower: mp ? toNum(mp.std_manpower) : null,
       };
+    });
+    // Machines with a setup this shift but no hourly entry yet still report their manpower
+    mpByMachine.forEach(mp => {
+      data.push({
+        machine: mp.machine, entry_type: null, live_status: 'idle', problem_label: null,
+        remarks: null, good_qty: 0, hour_slot: null,
+        act_manpower: toNum(mp.act_manpower), std_manpower: toNum(mp.std_manpower),
+      });
     });
 
     res.json({ ok: true, data, date: dprDate, shift: currentShift });
