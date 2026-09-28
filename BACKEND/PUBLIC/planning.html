@@ -3211,6 +3211,88 @@
       #machineGrid .machine { flex: 1 0 150px; max-width: none; }
     }
 
+    /* ===== Machine card v3: small photo card, live animation, manpower =====
+       Only the visible face is laid out, so a flipped card grows on its own
+       while the rest of the row stays small. */
+    #machineGrid .machine-row { gap: 10px; align-items: flex-start; }
+    #machineGrid .machine {
+      flex: 0 0 158px !important; max-width: 158px !important; min-height: 0 !important;
+      border-radius: 12px;
+    }
+    #machineGrid .machine .machine-face { padding: 7px 7px 8px 10px; gap: 5px; transition: none; }
+    #machineGrid .machine:not(.is-flipped) .machine-back,
+    #machineGrid .machine.is-flipped .machine-front { display: none; }
+    #machineGrid .machine.is-flipped .machine-back { animation: mcFadeIn .2s ease; }
+    @keyframes mcFadeIn { from { opacity: 0; transform: scale(.98); } to { opacity: 1; transform: none; } }
+    #machineGrid .machine .machine-front .media.mc-hero { flex: 0 0 auto; height: 96px; min-height: 0; padding: 4px; overflow: hidden; }
+    #machineGrid .machine .machine-front .name { font-size: 0.84rem; }
+    #machineGrid .machine .machine-back .back-name { font-size: 0.84rem; }
+    #machineGrid .machine .machine-back .job-row { grid-template-columns: 44px 1fr; font-size: 0.64rem; }
+
+    /* Live animation layered on the real machine photo */
+    #machineGrid .machine .mc-fx-sweep, #machineGrid .machine .mc-fx-gear, #machineGrid .machine .mc-fx-belt { display: none; }
+    #machineGrid .machine.s-running .mc-hero .thumb { animation: mcHum .22s linear infinite; }
+    #machineGrid .machine.s-running .mc-fx-sweep {
+      display: block; position: absolute; inset: 0; pointer-events: none;
+      background: linear-gradient(100deg, transparent 30%, rgba(255,255,255,.55) 50%, transparent 70%);
+      animation: mcSweep 2.8s ease-in-out infinite;
+    }
+    #machineGrid .machine.s-running .mc-fx-gear {
+      display: block; position: absolute; top: 5px; right: 6px; font-size: 0.9rem; color: #16a34a;
+      animation: mcSpin 1.8s linear infinite;
+    }
+    #machineGrid .machine .mc-fx-belt {
+      position: absolute; left: 6px; right: 6px; bottom: 4px; height: 4px; border-radius: 3px;
+      background: repeating-linear-gradient(90deg, #86efac 0 6px, #16a34a 6px 12px); background-size: 24px 4px;
+    }
+    #machineGrid .machine.s-running .mc-fx-belt { display: block; animation: mcBelt .6s linear infinite; }
+    #machineGrid .machine.s-stopped .mc-hero .thumb { filter: grayscale(1); opacity: .55; }
+    #machineGrid .machine.s-stopped .media.mc-hero::after {
+      content: ""; position: absolute; inset: 0; border: 2px solid #ef4444; border-radius: 10px;
+      animation: mcPulseBorder 1.6s ease-in-out infinite; pointer-events: none;
+    }
+    #machineGrid .machine .mc-stop-banner {
+      position: absolute; left: 0; right: 0; bottom: 0; padding: 3px 4px;
+      background: #dc2626; color: #fff; font-size: 0.6rem; font-weight: 800; letter-spacing: .02em;
+      text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    #machineGrid .machine.s-running .mc-mp-icons i { animation: mcWork .9s ease-in-out infinite; }
+    #machineGrid .machine.s-running .mc-mp-icons i:nth-child(2) { animation-delay: .3s; }
+    #machineGrid .machine.s-running .mc-mp-icons i:nth-child(3) { animation-delay: .6s; }
+    @keyframes mcHum { 0%,100% { transform: translate(0,0); } 25% { transform: translate(.4px,-.3px); } 75% { transform: translate(-.4px,.3px); } }
+    @keyframes mcSweep { 0% { transform: translateX(-120%); } 60%,100% { transform: translateX(120%); } }
+    @keyframes mcSpin { to { transform: rotate(360deg); } }
+    @keyframes mcBelt { to { background-position: 24px 0; } }
+    @keyframes mcWork { 50% { transform: translateY(-2px); } }
+    @keyframes mcPulseBorder { 50% { opacity: .2; } }
+
+    /* Manpower row */
+    #machineGrid .machine .mc-mp { font-size: 0.7rem; color: #64748b; font-weight: 600; min-height: 17px; }
+    #machineGrid .machine .mc-mp-row { display: flex; align-items: center; justify-content: center; gap: 4px; }
+    #machineGrid .machine .mc-mp-icons { display: inline-flex; gap: 1px; color: #334155; font-size: 0.78rem; }
+    #machineGrid .machine .mc-mp-icons i { display: inline-block; }
+    #machineGrid .machine .mc-mp-half { clip-path: inset(0 50% 0 0); color: #0284c7; }
+    #machineGrid .machine .mc-mp-more { font-weight: 800; color: #334155; }
+    #machineGrid .machine .mc-mp b { color: #0f172a; font-weight: 800; }
+    #machineGrid .machine .mc-mp-std { color: #94a3b8; }
+    #machineGrid .machine .mc-mp.is-low b, #machineGrid .machine .mc-mp.is-low .mc-mp-icons { color: #dc2626; }
+    #machineGrid .machine .mc-mp.is-high b { color: #d97706; }
+    #machineGrid .machine .mc-mp-none { text-align: center; color: #cbd5e1; }
+    #machineGrid .machine .mc-mp-shared {
+      margin-top: 3px; text-align: center; font-size: 0.6rem; font-weight: 700; color: #0369a1;
+      background: #e0f2fe; border-radius: 999px; padding: 1px 6px;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    #machineGrid .machine:has(.mc-mp.is-shared) { border-color: #7dd3fc; }
+    #machineGrid .pb-line-mp { color: #0369a1; background: #e0f2fe; }
+    #planningKpiDeck .pb-kpi-of { font-size: 0.8rem; font-weight: 700; color: #94a3b8; }
+    #planningKpiDeck .pb-kpi-sub.is-low { color: #dc2626; }
+    #planningKpiDeck .pb-kpi-sub.is-high { color: #d97706; }
+
+    @media (prefers-reduced-motion: reduce) {
+      #machineGrid .machine * { animation: none !important; }
+    }
+
     /* ===== Planning board v2: one sticky toolbar + actionable KPI tiles ===== */
     #dashboardToolbar.pb-toolbar {
       position: sticky; top: 8px; z-index: 40;
