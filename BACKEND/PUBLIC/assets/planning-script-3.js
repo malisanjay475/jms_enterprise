@@ -552,98 +552,83 @@
         root.innerHTML = `
         <!-- Header Removed as per user request (Now in Sidebar) -->
         <div id="view-main" class="planning-home">
-          <div class="toolbar planning-toolbar" id="dashboardToolbar">
-            <div class="planning-toolbar-grid">
-              <div class="planning-toolbar-panel">
-                <div class="planning-panel-kicker">
-                  <i class="bi bi-funnel"></i>
-                  <span>Machine Filters</span>
-                </div>
-                <div class="planning-filter-row">
-                  <div class="search">
-                    <i class="bi bi-search"></i>
-                    <input id="machineSearch" placeholder="Search machine code or machine name" aria-label="Search machines"/>
-                  </div>
-                  <div id="planningProcessFilter" style="min-width:340px" aria-label="Filter by process"></div>
-                  <select id="buildingFilter" class="input" style="width:180px" aria-label="Filter by building">
-                    <option value="">All Buildings</option>
-                    <option>B</option><option>C</option><option>E</option><option>F</option>
-                  </select>
-                </div>
-                <div class="legend mini">
-                  <span class="chip b">Unplanned</span>
-                  <span class="chip g">Running</span>
-                  <span class="chip r">Stopped/Off</span>
-                  <span class="chip y">Maintenance</span>
-                </div>
+          <div class="toolbar planning-toolbar pb-toolbar" id="dashboardToolbar">
+            <div class="pb-toolbar-row">
+              <div class="search pb-search">
+                <i class="bi bi-search"></i>
+                <input id="machineSearch" placeholder="Search machine" aria-label="Search machines"/>
               </div>
-
-              <div class="planning-toolbar-panel">
-                <div class="planning-panel-kicker">
-                  <i class="bi bi-lightning-charge"></i>
-                  <span>Planning Actions</span>
+              <select id="buildingFilter" class="input pb-building" aria-label="Filter by building">
+                <option value="">All Buildings</option>
+                <option>B</option><option>C</option><option>E</option><option>F</option>
+              </select>
+              <div id="planningProcessFilter" class="pb-process" aria-label="Filter by process"></div>
+              <div class="pb-spacer"></div>
+              <details class="pb-menu" id="planningActionsMenu">
+                <summary class="btn"><i class="bi bi-grid-3x3-gap"></i> Views and actions <i class="bi bi-chevron-down pb-caret"></i></summary>
+                <div class="pb-menu-list" role="menu">
+                  <button class="pb-menu-item" type="button" id="btnToggleMap"><i class="bi bi-eye-slash"></i> Hide Machine Grid</button>
+                  <button class="pb-menu-item" type="button" onclick="window.switchView('timeline')"><i class="bi bi-bar-chart-steps"></i> Machine Timeline</button>
+                  <button class="pb-menu-item" type="button" onclick="window.switchView('excel_timeline')"><i class="bi bi-grid-3x3-gap-fill"></i> Excel View Timeline</button>
+                  <button class="pb-menu-item" type="button" onclick="window.switchView('master')"><i class="bi bi-table"></i> Master Plan</button>
+                  <div class="pb-menu-sep"></div>
+                  <button class="pb-menu-item" type="button" onclick="window.openMachineWiseReport()"><i class="bi bi-file-earmark-spreadsheet"></i> Machine Report</button>
+                  <button class="pb-menu-item" type="button" onclick="window.downloadTimelineExcel()"><i class="bi bi-file-earmark-excel"></i> Download Excel</button>
                 </div>
-                <div class="planning-action-buttons">
-                    <button class="btn" id="btnToggleMap"><i class="bi bi-eye-slash"></i> Hide Machine Grid</button>
-                  <button class="btn" type="button" onclick="window.switchView('timeline')"><i class="bi bi-bar-chart-steps"></i> Machine Timeline</button>
-                  <button class="btn" type="button" onclick="window.openMachineWiseReport()" title="Machine-Wise Plan Report (Summary + colour Detail, downloadable)"><i class="bi bi-file-earmark-spreadsheet"></i> Machine Report</button>
-                  <button class="btn" type="button" onclick="window.switchView('excel_timeline')" style="background:linear-gradient(135deg,#eff6ff,#dbeafe); color:#1d4ed8; border-color:#bfdbfe; font-weight:700;"><i class="bi bi-grid-3x3-gap-fill"></i> Excel View Timeline</button>
-                  <button class="btn" type="button" onclick="window.downloadTimelineExcel()" title="Download the Machine Timeline as an Excel file — one row per plan, grouped per machine, with filter dropdowns"><i class="bi bi-file-earmark-excel"></i> Download Excel</button>
-                  <button class="btn" type="button" onclick="window.switchView('master')"><i class="bi bi-table"></i> Master Plan</button>
-                  <button class="btn" id="btnBalance" style="display:${canEdit ? 'inline-flex' : 'none'}"><i class="bi bi-shuffle"></i> Balance Load</button>
-                  <button class="btn primary" id="btnAutoP1" style="display:${canEdit ? 'inline-flex' : 'none'}"><i class="bi bi-lightning-charge"></i> Auto-Assign P1</button>
-                </div>
+              </details>
+              <button class="btn" id="btnBalance" style="display:${canEdit ? 'inline-flex' : 'none'}"><i class="bi bi-shuffle"></i> Balance Load</button>
+              <button class="btn primary" id="btnAutoP1" style="display:${canEdit ? 'inline-flex' : 'none'}"><i class="bi bi-lightning-charge"></i> Auto-Assign P1</button>
+            </div>
+            <div class="pb-toolbar-row pb-status-row">
+              <div class="pb-status" id="planningStatusFilter" role="group" aria-label="Filter machines by status">
+                <button type="button" class="pb-chip active" data-state="">All <b id="pbCountAll">0</b></button>
+                <button type="button" class="pb-chip st-running" data-state="running"><span class="pb-dot"></span>Running <b id="pbCountRunning">0</b></button>
+                <button type="button" class="pb-chip st-planned" data-state="planned"><span class="pb-dot"></span>Planned <b id="pbCountPlanned">0</b></button>
+                <button type="button" class="pb-chip st-idle" data-state="available"><span class="pb-dot"></span>No plan <b id="pbCountIdle">0</b></button>
+                <button type="button" class="pb-chip st-blocked" data-state="blocked"><span class="pb-dot"></span>Off / Maint <b id="pbCountBlocked">0</b></button>
               </div>
+              <div class="pb-updated" id="planningUpdatedAt"><i class="bi bi-arrow-repeat"></i> Loading…</div>
             </div>
           </div>
 
-          <section class="planning-overview-card">
-            <div class="planning-overview-header">
+          <section class="planning-overview-card pb-overview">
+            <div class="pb-overview-head">
               <div>
-                <div class="planning-panel-kicker">
-                  <i class="bi bi-speedometer2"></i>
-                  <span>Planning Dashboard</span>
-                </div>
-                <h3 id="planningScopeTitle" style="margin:6px 0 4px;">All Buildings</h3>
-                <p id="planningSummaryText" style="margin:0; color:#64748b;">Loading planning dashboard metrics...</p>
+                <h3 id="planningScopeTitle">All Buildings</h3>
+                <p id="planningSummaryText">Loading planning dashboard metrics...</p>
               </div>
-              <div style="display:flex; flex-wrap:wrap; gap:8px;">
-                <span class="chip" id="planningScopeChip"><i class="bi bi-building"></i><span>All Buildings</span></span>
-                <span class="chip" id="planningFilterChip"><i class="bi bi-funnel"></i><span>Filters loading...</span></span>
-              </div>
+              <span class="chip pb-filter-chip" id="planningFilterChip"><i class="bi bi-funnel"></i><span>Filters loading...</span></span>
             </div>
-
-            <div class="kpi-deck" id="planningKpiDeck">
-              ${kpiCard('bi-box-seam', 'All Pending Orders (Order Master)', 'pending')}
-              ${kpiCard('bi-check2-circle', 'Today Completed Orders', 'inprog')}
-              ${kpiCard('bi-exclamation-triangle', 'Delayed Pending Orders', 'variance')}
-              ${kpiCard('bi-calendar2-week', 'Upcoming Orders', 'upcoming')}
-            </div>
-
-            <div class="planning-focus-grid">
-              <div class="planning-focus-tile">
-                <div class="planning-focus-label">Pending Focus</div>
-                <div class="planning-focus-value" id="planningFocusPending">Loading pending order summary...</div>
+            <div class="kpi-deck pb-kpis" id="planningKpiDeck">
+              <button type="button" class="pb-kpi tone-danger" data-state="available" title="Show machines with no plan">
+                <span class="pb-kpi-label"><i class="bi bi-exclamation-octagon"></i> No plan</span>
+                <span class="pb-kpi-value" id="planningIdleCount">0</span>
+                <span class="pb-kpi-sub">Machines to load next</span>
+              </button>
+              <button type="button" class="pb-kpi tone-success" data-state="running" title="Show running machines">
+                <span class="pb-kpi-label"><i class="bi bi-play-circle"></i> Running</span>
+                <span class="pb-kpi-value" id="planningRunningCount">0</span>
+                <span class="pb-kpi-sub">of <span id="planningVisibleCount">0</span> visible</span>
+              </button>
+              <button type="button" class="pb-kpi tone-accent" data-state="planned" title="Show planned machines">
+                <span class="pb-kpi-label"><i class="bi bi-calendar-check"></i> Planned</span>
+                <span class="pb-kpi-value" id="planningPlannedCount">0</span>
+                <span class="pb-kpi-sub">Waiting to start</span>
+              </button>
+              <button type="button" class="pb-kpi tone-warning" data-state="blocked" title="Show off and maintenance machines">
+                <span class="pb-kpi-label"><i class="bi bi-tools"></i> Off / Maint</span>
+                <span class="pb-kpi-value" id="planningBlockedCount">0</span>
+                <span class="pb-kpi-sub">Unavailable</span>
+              </button>
+              <div class="pb-kpi">
+                <span class="pb-kpi-label"><i class="bi bi-speedometer"></i> Machine load</span>
+                <span class="pb-kpi-value" id="planningLoadPct">0%</span>
+                <div class="pb-kpi-bar"><i id="planningLoadBar"></i></div>
               </div>
-              <div class="planning-focus-tile">
-                <div class="planning-focus-label">Planning Flow</div>
-                <div class="planning-focus-value" id="planningFocusFlow">Reading live machine load...</div>
-              </div>
-              <div class="planning-focus-tile mini">
-                <div class="planning-focus-label">Visible Machines</div>
-                <div class="planning-focus-count" id="planningVisibleCount">0</div>
-              </div>
-              <div class="planning-focus-tile mini">
-                <div class="planning-focus-label">Running</div>
-                <div class="planning-focus-count" id="planningRunningCount">0</div>
-              </div>
-              <div class="planning-focus-tile mini">
-                <div class="planning-focus-label">Planned</div>
-                <div class="planning-focus-count" id="planningPlannedCount">0</div>
-              </div>
-              <div class="planning-focus-tile mini">
-                <div class="planning-focus-label">Off / Maintenance</div>
-                <div class="planning-focus-count" id="planningBlockedCount">0</div>
+              <div class="pb-kpi">
+                <span class="pb-kpi-label"><i class="bi bi-box-seam"></i> Pending orders</span>
+                <span class="pb-kpi-value" id="kpi_pending">—</span>
+                <span class="pb-kpi-sub">Completed today: <span id="kpi_inprog">—</span></span>
               </div>
             </div>
           </section>
@@ -662,7 +647,6 @@
                   <span class="demo-badge" id="demoBadge" style="display:none"><i class="bi bi-bug"></i> Demo data</span>
                 </div>
                 <div class="map-sub" id="planningMapSub">Loading machine availability for the planning department.</div>
-                <div class="muted mini" id="planningGridMeta" style="margin-top:6px;">Loading dashboard summary...</div>
               </div>
               <div class="map-actions">
                 <label class="small-muted">Horizon</label>
@@ -1355,7 +1339,26 @@
           if (blockedEl) blockedEl.textContent = blocked;
           if (focusFlow) focusFlow.textContent = visible ? 'Machine load is updating live' : 'Adjust filters or show inactive machines';
           if (gridMeta) gridMeta.textContent = summary;
-          if (mapSub) mapSub.textContent = summary;
+          if (mapSub) mapSub.textContent = 'Grouped by building and line, sorted by machine number. Click a card for job details.';
+
+          // Toolbar status chips, "No plan" tile, load % and last-updated stamp
+          const setText = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+          const usable = Math.max(visible - blocked, 0);
+          const loadPct = usable ? Math.round((running + planned) / usable * 100) : 0;
+          setText('pbCountAll', visible);
+          setText('pbCountRunning', running);
+          setText('pbCountPlanned', planned);
+          setText('pbCountIdle', available);
+          setText('pbCountBlocked', blocked);
+          setText('planningIdleCount', available);
+          setText('planningLoadPct', `${loadPct}%`);
+          const loadBar = document.getElementById('planningLoadBar');
+          if (loadBar) loadBar.style.width = `${loadPct}%`;
+          const updatedAt = document.getElementById('planningUpdatedAt');
+          if (updatedAt) {
+            const time = new Intl.DateTimeFormat('en-IN', { timeZone: PLANNING_TIMEZONE, hour: '2-digit', minute: '2-digit' }).format(new Date());
+            updatedAt.innerHTML = `<i class="bi bi-arrow-repeat"></i> Updated ${pEsc(time)}`;
+          }
           if (focusPending && /loading/i.test(focusPending.textContent || '')) {
             focusPending.textContent = 'Pending order summary is updating live';
           }
@@ -1660,6 +1663,15 @@
 
         const machineSearch = document.getElementById('machineSearch');
         if (machineSearch) machineSearch.addEventListener('input', renderFilteredGrid);
+
+        document.querySelectorAll('#planningStatusFilter .pb-chip, #planningKpiDeck .pb-kpi[data-state]').forEach(el => {
+          el.addEventListener('click', () => setPlanningStateFilter(el.dataset.state || ''));
+        });
+        const actionsMenu = document.getElementById('planningActionsMenu');
+        if (actionsMenu) {
+          actionsMenu.addEventListener('click', (ev) => { if (ev.target.closest('.pb-menu-item')) actionsMenu.open = false; });
+          document.addEventListener('click', (ev) => { if (!actionsMenu.contains(ev.target)) actionsMenu.open = false; });
+        }
 
         // Factory scope change → refresh map if open
         document.addEventListener('factory:change', () => {
@@ -2747,7 +2759,33 @@
           if (!showInactive) list = list.filter(x => !x.is_maintenance && (x.is_active !== false || (x.status || '').toLowerCase() !== 'off'));
 
           updatePlanningOverview(list);
+          if (planningStateFilter) {
+            list = list.filter(x => {
+              const st = getPlanningMachineState(x);
+              return planningStateFilter === 'blocked' ? (st === 'blocked' || st === 'maintenance') : st === planningStateFilter;
+            });
+          }
           renderMachineGrid(list);
+        }
+
+        // Status filter shared by the toolbar chips and the clickable KPI tiles
+        var planningStateFilter; // hoisted: renderFilteredGrid can run before this line
+        function setPlanningStateFilter(state) {
+          planningStateFilter = planningStateFilter === state ? '' : (state || '');
+          document.querySelectorAll('#planningStatusFilter .pb-chip').forEach(c => {
+            c.classList.toggle('active', (c.dataset.state || '') === planningStateFilter);
+          });
+          document.querySelectorAll('#planningKpiDeck .pb-kpi[data-state]').forEach(c => {
+            c.classList.toggle('active', !!planningStateFilter && c.dataset.state === planningStateFilter);
+          });
+          // Off / maintenance machines are hidden by default; include them when that filter is picked
+          if (planningStateFilter === 'blocked' && !showInactive) {
+            showInactive = true;
+            document.getElementById('toggleInactive')?.classList.add('active');
+          }
+          const wrap = document.getElementById('mapWrap');
+          if (wrap && wrap.style.display === 'none') document.getElementById('btnToggleMap')?.click();
+          renderFilteredGrid();
         }
 
         function renderMachineGrid(list) {
@@ -2773,7 +2811,7 @@
 
             Object.keys(lines).sort((a, b) => String(a).localeCompare(String(b), undefined, { numeric: true })).forEach(line => {
               const wrap = document.createElement('div'); wrap.style.marginBottom = '8px';
-              const title = document.createElement('div'); title.className = 'line-title'; title.textContent = line === 'Machines' ? 'Machines' : `Line ${line}`;
+              const title = document.createElement('div'); title.className = 'line-title'; title.innerHTML = `${pEsc(line === 'Machines' ? 'Machines' : `Line ${line}`)}<span class="pb-line-count">${lines[line].length} machine${lines[line].length === 1 ? '' : 's'}</span>`;
               const row = document.createElement('div'); row.className = 'machine-row';
 
               // Keep line machines in final machine-number order such as ...-1, ...-2, ...-3, ...-4.
@@ -2946,6 +2984,11 @@
           const detailSlot = activePlan
             ? (h === 0 ? 'Running Slot' : `Queue ${h}`)
             : (m.running_order ? 'Direct Run' : 'Open');
+          const planQtyNum = activePlan ? Number(activePlan.planQty || 0) : 0;
+          const balQtyNum = activePlan ? Number(activePlan.balQty || 0) : 0;
+          const progressPct = planQtyNum > 0
+            ? Math.max(0, Math.min(100, Math.round((planQtyNum - balQtyNum) / planQtyNum * 100)))
+            : null;
           const detailLine = m.line || '-';
           const detailTonnage = m.tonnage ? `${m.tonnage}T` : '-';
 
@@ -2971,13 +3014,20 @@
           btn.innerHTML = `
         <div class="machine-flip">
           <div class="machine-face machine-front">
-            <div class="media ${safeIconSrc ? '' : 'fallback'}">
-              ${safeIconSrc ? `<img class="thumb" src="${safeIconSrc}" alt="${displayName}" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex'; this.parentElement.classList.add('fallback');">` : ''}
-              <div class="thumb-fallback" style="${safeIconSrc ? 'display:none' : 'display:flex'}"><i class="bi bi-hdd-rack"></i></div>
+            <div class="mc-head">
+              <div class="media ${safeIconSrc ? '' : 'fallback'}">
+                ${safeIconSrc ? `<img class="thumb" src="${safeIconSrc}" alt="${displayName}" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex'; this.parentElement.classList.add('fallback');">` : ''}
+                <div class="thumb-fallback" style="${safeIconSrc ? 'display:none' : 'display:flex'}"><i class="bi bi-hdd-rack"></i></div>
+              </div>
+              <div class="mc-title">
+                <div class="name">${displayName}</div>
+                <div class="mc-meta">${detail(detailLine)} · ${detail(detailTonnage)}</div>
+              </div>
             </div>
-            <div class="name">${displayName}</div>
-            <div class="status-text">${esc(frontStatusText)}</div>
-            <div class="flip-note">Click for job details</div>
+            <div class="status-text"><span class="mc-dot"></span>${esc(frontStatusText)}</div>
+            <div class="mc-job">${activePlan ? `<strong>${esc(activePlan.orderNo || '')}</strong><span>${esc(activePlan.mouldName || activePlan.itemName || '')}</span>` : `<span class="mc-empty">${esc(subText || 'No plan assigned')}</span>`}</div>
+            ${progressPct !== null ? `<div class="mc-progress" title="${progressPct}% done"><i style="width:${progressPct}%"></i></div><div class="mc-foot"><span>Bal ${detail(detailBalance)}</span><span>${progressPct}%</span></div>` : '<div class="mc-foot"><span>&nbsp;</span></div>'}
+            <div class="flip-note">Click for details</div>
           </div>
           <div class="machine-face machine-back">
             <div class="back-head">
@@ -3004,10 +3054,8 @@
               data-planid="${esc(String(activePlan.id||''))}"
               data-item="${esc(activePlan.itemName||activePlan.mouldName||'')}"
               data-client="${esc(activePlan.clientName||'')}"
-              style="width:100%;padding:5px 0;background:linear-gradient(135deg,#0ea5e9,#0369a1);color:#fff;border:none;border-radius:7px;font-size:0.7rem;font-weight:800;cursor:pointer;letter-spacing:0.03em;flex-shrink:0"
-              onmouseover="this.style.opacity='0.82'" onmouseout="this.style.opacity='1'"
               onclick="event.stopPropagation(); window._pjdOpen(this);">
-              &#128269; View Full Details
+              <i class="bi bi-box-arrow-up-right"></i> View full details
             </button>
             <div class="flip-note" style="font-size:0.58rem;margin-top:1px">Tap card to flip back</div>`
             : '<div class="flip-note">Click to flip back</div>'}
