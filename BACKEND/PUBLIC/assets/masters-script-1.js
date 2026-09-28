@@ -433,8 +433,8 @@
       const wrap = document.getElementById('mvRemarks');
       const addBox = document.getElementById('mvRemarkAdd');
       if (wrap) wrap.innerHTML = '<span style="color:#94a3b8; font-size:0.78rem">Loading remarks…</span>';
-      // Show the add box to any user who belongs to a verification department.
-      if (addBox) addBox.style.display = mouldVerifyDeptForUser() ? 'block' : 'none';
+      // Any logged-in user (every department) can add a remark everyone sees.
+      if (addBox) addBox.style.display = (JPSMS.auth.getUser() || {}).username ? 'block' : 'none';
       try {
         const d = await JPSMS.api.get('/moulds/' + encodeURIComponent(mouldNumber) + '/verify-detail');
         if (mouldNumber !== _mvCurrentMouldNumber) return;
@@ -609,11 +609,13 @@
         wrap.innerHTML = '<span style="color:#94a3b8; font-size:0.76rem">No remarks added yet.</span>';
         return;
       }
-      const stepLabel = k => (MOULD_VERIFY_STEPS.find(s => s.key === k) || {}).label || k;
+      // Department name without the step verb: "Quality", "Moulding", "PPC", ...
+      const stepLabel = k => k === 'general' ? 'General'
+        : ((MOULD_VERIFY_STEPS.find(s => s.key === k) || {}).label || k).replace(/ (Check|Approve|Authorise)$/, '');
       wrap.innerHTML = notes.map(n => `
         <div style="border:1px solid #e2e8f0; border-radius:6px; padding:7px 10px; background:#f8fafc">
           <div style="font-size:0.82rem; color:#0f172a; white-space:pre-wrap">${mvEsc(n.note)}</div>
-          <div style="font-size:0.66rem; color:#94a3b8; margin-top:3px">${mvEsc(stepLabel(n.step))} · ${mvEsc(n.created_by || '')} · ${new Date(n.created_at).toLocaleString()}</div>
+          <div style="font-size:0.66rem; color:#94a3b8; margin-top:3px"><span style="background:#dbeafe; color:#1e40af; font-weight:700; padding:1px 6px; border-radius:4px">${mvEsc(stepLabel(n.step))}</span> · ${mvEsc(n.created_by || '')} · ${new Date(n.created_at).toLocaleString()}</div>
         </div>`).join('');
     }
 
