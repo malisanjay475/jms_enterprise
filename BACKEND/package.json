@@ -1,6 +1,6 @@
 {
   "name": "backend",
-  "version": "1.74.36",
+  "version": "1.74.37",
   "description": "",
   "main": "index.js",
   "scripts": {
@@ -28,7 +28,7 @@
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
-    "@sentry/node": "^10.51.0",
+    "@sentry/node": "^11.0.0",
     "adm-zip": "^0.6.1",
     "bcryptjs": "^3.0.3",
     "body-parser": "^2.2.1",
