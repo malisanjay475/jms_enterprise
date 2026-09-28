@@ -613,11 +613,42 @@
       // Department name without the step verb: "Quality", "Moulding", "PPC", ...
       const stepLabel = k => k === 'general' ? 'General'
         : ((MOULD_VERIFY_STEPS.find(s => s.key === k) || {}).label || k).replace(/ (Check|Approve|Authorise)$/, '');
+      const urole = String((JPSMS.auth.getUser() || {}).role_code || '').toLowerCase();
+      const canDelete = urole === 'admin' || urole === 'superadmin';
       wrap.innerHTML = notes.map(n => `
-        <div style="border:1px solid #e2e8f0; border-radius:6px; padding:7px 10px; background:#f8fafc">
-          <div style="font-size:0.82rem; color:#0f172a; white-space:pre-wrap">${mvEsc(n.note)}</div>
-          <div style="font-size:0.66rem; color:#94a3b8; margin-top:3px"><span style="background:#dbeafe; color:#1e40af; font-weight:700; padding:1px 6px; border-radius:4px">${mvEsc(stepLabel(n.step))}</span> · ${mvEsc(n.created_by || '')} · ${new Date(n.created_at).toLocaleString()}</div>
+        <div style="border:1px solid #e2e8f0; border-radius:6px; padding:7px 10px; background:#f8fafc; display:flex; gap:8px; align-items:flex-start">
+          <div style="flex:1; min-width:0">
+            <div style="font-size:0.82rem; color:#0f172a; white-space:pre-wrap">${mvEsc(n.note)}</div>
+            <div style="font-size:0.66rem; color:#94a3b8; margin-top:3px"><span style="background:#dbeafe; color:#1e40af; font-weight:700; padding:1px 6px; border-radius:4px">${mvEsc(stepLabel(n.step))}</span> · ${mvEsc(n.created_by || '')} · ${new Date(n.created_at).toLocaleString()}</div>
+          </div>
+          ${canDelete && n.sync_id ? `<button type="button" onclick="deleteMouldVerifyRemark('${mvEsc(n.sync_id)}')" title="Delete this remark (Admin)" style="border:none; background:none; color:#dc2626; cursor:pointer; padding:2px 4px; flex:0 0 auto"><i class="bi bi-trash"></i></button>` : ''}
         </div>`).join('');
+    }
+
+    // Admin/Superadmin: delete one remark (removed on every server via sync).
+    async function deleteMouldVerifyRemark(syncId) {
+      const mouldNumber = _mvCurrentMouldNumber;
+      if (!mouldNumber || !syncId) return;
+      if (!confirm(`Delete this remark from mould ${mouldNumber}? It will be removed for every department.`)) return;
+      try {
+        const res = await JPSMS.api.post(
+          '/moulds/' + encodeURIComponent(mouldNumber) + '/verify-note/delete',
+          { sync_id: syncId, session: JPSMS.auth.getUser() }
+        );
+        if (!res.ok) throw new Error(res.error);
+      } catch (e) {
+        alert('Error: ' + e.message);
+        return;
+      }
+      loadMouldVerifyRemarksInline();
+      const detail = document.getElementById('mouldVerifyDetailModal');
+      if (detail && detail.style.display === 'flex') {
+        try {
+          const d = await JPSMS.api.get('/moulds/' + encodeURIComponent(mouldNumber) + '/verify-detail');
+          if (d.ok) renderVerifyNotes(d.data.notes || []);
+        } catch (_) { /* inline list already refreshed */ }
+      }
+      if (typeof loadMouldVerifyStatus === 'function') loadMouldVerifyStatus();
     }
 
     // Last 2 jobs — each a clickable card showing the REAL average cycle time and
