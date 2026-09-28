@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.74.36",
+  "latest": "1.74.37",
   "versions": [
+    {
+      "version": "1.74.37",
+      "date": "2026-09-28",
+      "title": "Faster Create Plan order list",
+      "modules": [
+        {
+          "app": "planning",
+          "label": "Planning",
+          "icon": "bi-lightning-charge",
+          "changes": [
+            { "type": "perf", "text": "The pending orders list in Create Plan now opens several times faster when orders have not changed since it was last loaded. It always shows the latest data." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.74.36",
       "date": "2026-09-26",

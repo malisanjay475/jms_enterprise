@@ -2388,6 +2388,10 @@ function ttlCacheSet(ns, key, data, ttlMs = 30000) {
 }
 function ttlCacheClear(ns) { _ttlCaches.delete(ns); }
 
+// Change-aware response cache (src/app/changeAwareCache.js): reuses a finished
+// answer only while its source tables are unchanged. Used by /api/orders/pending.
+const changeAwareCache = require('../app/changeAwareCache').createChangeAwareCache((sql) => q(sql));
+
 // ── Boot schema-heal version ───────────────────────────────────────────────
 // Stamp recorded in server_config after a successful boot data-heal. The one-time
 // data-backfill UPDATEs (e.g. filling NULL sync_id / factory_id across every sync
@@ -23789,6 +23793,14 @@ app.get('/api/orders/pending', async (req, res) => {
 
     // [FIX] Factory Isolation
     const factoryId = getFactoryId(req);
+    // Reuse the finished answer while orders / or_jr_report are unchanged: building it
+    // took ~115 ms on factory-1 (3.4 MB, ~2,000 rows x all or_jr_report columns), of
+    // which only ~26 ms is the query. The signature is taken BEFORE the build, so a
+    // write landing mid-build only causes one extra rebuild, never a stale answer.
+    const pendingCacheKey = `ordersPending:${factoryId ?? 'all'}`;
+    const pendingSig = await changeAwareCache.signature(['orders', 'or_jr_report']);
+    const pendingCached = changeAwareCache.get(pendingCacheKey, pendingSig);
+    if (pendingCached) return res.type('application/json').send(pendingCached);
     const params = [];
     if (factoryId) {
       // 'o' is orders table. Check if 'o' has factory_id or 'r' has it.
@@ -23818,7 +23830,9 @@ app.get('/api/orders/pending', async (req, res) => {
       if (d !== 0) return d;
       return new Date(a.created_at || 0) - new Date(b.created_at || 0);
     });
-    res.json({ ok: true, data: rows });
+    const pendingText = JSON.stringify({ ok: true, data: rows });
+    changeAwareCache.set(pendingCacheKey, pendingSig, pendingText);
+    res.type('application/json').send(pendingText);
   } catch (e) {
     console.error(e);
     res.status(500).json({ ok: false, data: [] });
