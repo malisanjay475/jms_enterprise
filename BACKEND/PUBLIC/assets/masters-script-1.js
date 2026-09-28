@@ -462,6 +462,7 @@
         if (mouldNumber !== _mvCurrentMouldNumber) return;
         if (input) input.value = '';
         loadMouldVerifyRemarksInline();
+        if (typeof loadMouldVerifyStatus === 'function') loadMouldVerifyStatus();
       } catch (e) {
         if (mouldNumber !== _mvCurrentMouldNumber) return;
         alert('Error: ' + e.message);
@@ -725,6 +726,7 @@
         // Reload just the notes.
         const d = await JPSMS.api.get('/moulds/' + encodeURIComponent(_mvCurrentMouldNumber) + '/verify-detail');
         if (d.ok) renderVerifyNotes(d.data.notes || []);
+        if (typeof loadMouldVerifyStatus === 'function') loadMouldVerifyStatus();
       } catch (e) {
         alert('Error: ' + e.message);
       }
@@ -791,6 +793,14 @@
         if (!res.ok) throw new Error(res.error);
         _mvStatusData = res.data;
         renderMouldVerifyStatusPanel(res.data);
+        // Remark badges in the mould table come from this same summary; redraw the
+        // rows so each mould with remarks shows its badge without opening it.
+        window._mvRemarkSummary = res.data.remarks || {};
+        try {
+          if (window.$ && $.fn.dataTable && $.fn.dataTable.isDataTable('#masterTable')) {
+            $('#masterTable').DataTable().rows().invalidate('data').draw(false);
+          }
+        } catch (_) { /* table not ready yet; next render picks the badges up */ }
       } catch (e) {
         panel.innerHTML = '<span style="color:#dc2626; font-size:0.8rem">Could not load verification status.</span>';
       }

@@ -25441,12 +25441,52 @@ const MOULD_VERIFY_SELECT = `SELECT mould_number, mould_name, factory_id,
     verify_gm_by, verify_gm_at, verify_nkb_by, verify_nkb_at
   FROM moulds ORDER BY mould_number ASC`;
 
+// Per-mould remark count + latest remark, so the mould table can flag moulds that
+// have remarks without opening them. LOCAL merges MAIN's view (newest wins) so a
+// remark written in any department / on any server is flagged everywhere at once.
+async function mouldRemarkSummary() {
+  const rows = await q(
+    `SELECT DISTINCT ON (mould_number) mould_number, note, created_by, step, created_at,
+            COUNT(*) OVER (PARTITION BY mould_number) AS cnt
+       FROM mould_verify_notes
+      ORDER BY mould_number, created_at DESC`,
+    []
+  );
+  const out = {};
+  for (const r of rows) {
+    out[r.mould_number] = {
+      count: Number(r.cnt) || 0,
+      last: { note: r.note, by: r.created_by, step: r.step, at: r.created_at }
+    };
+  }
+  if (!isLocalServer()) return out;
+  const mainUrl = String(process.env.MAIN_SERVER_URL || '').trim().replace(/\/$/, '');
+  if (!mainUrl) return out;
+  try {
+    const r = await fetch(`${mainUrl}/api/moulds/verification-summary`, { signal: AbortSignal.timeout(5000) });
+    const j = r.ok ? await r.json() : null;
+    const main = j && j.ok && j.data && j.data.remarks;
+    if (main && typeof main === 'object') {
+      for (const [mn, v] of Object.entries(main)) {
+        const cur = out[mn];
+        if (!cur || (v.count || 0) > cur.count
+            || new Date(v.last && v.last.at) > new Date(cur.last && cur.last.at)) {
+          out[mn] = v;
+        }
+      }
+    }
+  } catch (_) { /* offline: local counts only */ }
+  return out;
+}
+
 // GET /api/moulds/verification-summary — counts + per-mould next-pending step.
 // Read-only; any logged-in user (drives the status panel + pending badges).
 app.get('/api/moulds/verification-summary', async (req, res) => {
   try {
     const rows = await q(MOULD_VERIFY_SELECT, []);
-    res.json({ ok: true, data: computeMouldVerifyStanding(rows), steps: MOULD_VERIFY_STEPS.map(s => ({ key: s.key, label: s.label })) });
+    const data = computeMouldVerifyStanding(rows);
+    data.remarks = await mouldRemarkSummary();
+    res.json({ ok: true, data, steps: MOULD_VERIFY_STEPS.map(s => ({ key: s.key, label: s.label })) });
   } catch (e) {
     console.error('mould verification-summary error', e);
     sendServerError(res, e);
