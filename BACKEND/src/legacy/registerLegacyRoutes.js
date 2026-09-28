@@ -4532,6 +4532,29 @@ async function bootstrapFreshCoreTables() {
   // Latest-event-per-user lookups in /api/activity/monitor. Existing databases get it
   // from migration 012 before the server starts; this covers a brand-new (empty) table.
   await q(`CREATE INDEX IF NOT EXISTS idx_ual_username_created_at ON user_activity_log(username, created_at DESC)`);
+  // "Last seen" per user + device session, updated in place by /api/activity/heartbeat.
+  // Pings used to INSERT a user_activity_log row every 60 s per open page (~27k rows/day
+  // on factory-1, a 942 MB table with 5 indexes). Online status and "my sessions" read
+  // last_seen_at here; the log keeps real actions plus one ping per session every
+  // 15 minutes (log_written_at). fillfactor 70 + no index on last_seen_at keeps the
+  // per-ping UPDATE a cheap in-place (HOT) update. Old rows: dataRetention (30 days).
+  await q(`
+    CREATE TABLE IF NOT EXISTS user_presence (
+      username       TEXT NOT NULL,
+      session_id     TEXT NOT NULL DEFAULT '',
+      role_code      TEXT,
+      app_id         TEXT,
+      page           TEXT,
+      device_type    TEXT,
+      ip_address     TEXT,
+      user_agent     TEXT,
+      factory_id     TEXT,
+      first_seen_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      last_seen_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      log_written_at TIMESTAMPTZ,
+      PRIMARY KEY (username, session_id)
+    ) WITH (fillfactor = 70)
+  `);
 
   await q(`
     CREATE TABLE IF NOT EXISTS machines (
@@ -32496,11 +32519,32 @@ app.post('/api/activity/heartbeat', async (req, res) => {
     const device = device_type || (/mobile|android|iphone|ipad/i.test(ua) ? 'mobile' : 'desktop');
     const actionStr = String(req.body?.action || 'heartbeat').slice(0, 30);
     const extraData  = req.body?.extra ? JSON.stringify(req.body.extra) : null;
-    await q(
-      `INSERT INTO user_activity_log (username, role_code, app_id, action, page, device_type, ip_address, user_agent, factory_id, session_id, extra, created_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,NOW())`,
-      [username, role_code || '', app_id || 'web', actionStr, page || '', device, ip, ua, String(factory_id || ''), String(session_id || ''), extraData]
+    const sessionStr = String(session_id || '');
+
+    // Always refresh "last seen" in place (user_presence). Returns whether this session
+    // is due a ping row in the history log (first ping, or 15+ min since the last one).
+    const presence = await q(
+      `INSERT INTO user_presence (username, session_id, role_code, app_id, page, device_type, ip_address, user_agent, factory_id, first_seen_at, last_seen_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,NOW(),NOW())
+       ON CONFLICT (username, session_id) DO UPDATE SET
+         role_code = EXCLUDED.role_code, app_id = EXCLUDED.app_id, page = EXCLUDED.page,
+         device_type = EXCLUDED.device_type, ip_address = EXCLUDED.ip_address,
+         user_agent = EXCLUDED.user_agent, factory_id = EXCLUDED.factory_id,
+         last_seen_at = NOW()
+       RETURNING (log_written_at IS NULL OR log_written_at < NOW() - INTERVAL '15 minutes') AS log_due`,
+      [username, sessionStr, role_code || '', app_id || 'web', page || '', device, ip, ua, String(factory_id || '')]
     );
+    const isPing = actionStr === 'heartbeat';
+    if (!isPing || (presence[0] && presence[0].log_due)) {
+      await q(
+        `INSERT INTO user_activity_log (username, role_code, app_id, action, page, device_type, ip_address, user_agent, factory_id, session_id, extra, created_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,NOW())`,
+        [username, role_code || '', app_id || 'web', actionStr, page || '', device, ip, ua, String(factory_id || ''), sessionStr, extraData]
+      );
+      if (isPing) {
+        await q(`UPDATE user_presence SET log_written_at = NOW() WHERE username = $1 AND session_id = $2`, [username, sessionStr]);
+      }
+    }
 
     // Remote-logout check: if this session logged in before logout_all_after, revoke it.
     let revoked = false;
@@ -32541,15 +32585,14 @@ app.get('/api/my-sessions', async (req, res) => {
     if (!username) return res.json({ ok: false, error: 'username required' });
     const current = String(req.query.session_id || '');
 
-    // One row per session_id seen in the last 15 minutes.
+    // One row per session_id seen in the last 15 minutes (user_presence holds each
+    // session's latest ping; the activity log keeps only one ping per 15 minutes).
     const rows = await q(
-      `SELECT DISTINCT ON (session_id)
-         session_id, device_type, ip_address, user_agent, app_id, page, created_at
-       FROM user_activity_log
+      `SELECT session_id, device_type, ip_address, user_agent, app_id, page, last_seen_at AS created_at
+       FROM user_presence
        WHERE username = $1
          AND session_id <> ''
-         AND created_at >= NOW() - INTERVAL '15 minutes'
-       ORDER BY session_id, created_at DESC`,
+         AND last_seen_at >= NOW() - INTERVAL '15 minutes'`,
       [username]
     );
 
@@ -32683,6 +32726,27 @@ app.get('/api/activity/monitor', async (req, res) => {
     for (const r of machineRows) machineMap[r.username] = { machine: r.machine, order_no: r.order_no, colour: r.colour };
     const loginMap = {};
     for (const r of loginRows) loginMap[r.username] = Number(r.logins_today);
+
+    // Pings refresh user_presence (the log keeps only one per 15 minutes), so the most
+    // recent sign of life per user is whichever is newer: the latest log event or the
+    // latest presence ping. A newer ping reads exactly as a ping row used to.
+    const presenceRows = await q(`
+      SELECT DISTINCT ON (username) username, role_code, app_id, page, device_type,
+             ip_address, factory_id, last_seen_at
+        FROM user_presence
+       ORDER BY username, last_seen_at DESC
+    `);
+    const presenceMap = {};
+    for (const p of presenceRows) presenceMap[p.username] = p;
+    for (const r of onlineRows) {
+      const p = presenceMap[r.username];
+      if (p && new Date(p.last_seen_at).getTime() > new Date(r.created_at).getTime()) {
+        Object.assign(r, {
+          role_code: p.role_code, app_id: p.app_id, page: p.page, device_type: p.device_type,
+          ip_address: p.ip_address, factory_id: p.factory_id, action: 'heartbeat', created_at: p.last_seen_at
+        });
+      }
+    }
 
     const now = Date.now();
     const users = onlineRows.map(r => {
