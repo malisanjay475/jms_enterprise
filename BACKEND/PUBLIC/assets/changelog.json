@@ -11,8 +11,22 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.76.4",
+  "latest": "1.76.5",
   "versions": [
+    {
+      "version": "1.76.5",
+      "date": "2026-09-28",
+      "title": "Remarks typed while approving a mould are saved",
+      "modules": [
+        {
+          "app": "masters",
+          "changes": [
+            { "type": "fix", "text": "A remark typed in the mould verification box is now saved when you click Confirm; before, it was lost unless you clicked Add Detail first, so Quality and Moulding remarks never showed." },
+            { "type": "improvement", "text": "Remarks from QC Supervisors and other department members are now tagged with their department (for example Quality) instead of General." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.76.4",
       "date": "2026-09-28",

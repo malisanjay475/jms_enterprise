@@ -24835,6 +24835,12 @@ function mouldVerifyDeptForRole(roleCode, roleLabel) {
   const step = MOULD_VERIFY_STEPS.find(s => s.roles.includes(role));
   if (step) return step.key;
   if (label.includes('general manager')) return 'gm';
+  // Remark tagging only (not approval rights): other members of a department,
+  // e.g. QC Supervisor / Quality Executive, are tagged with their department.
+  if (/^(qc|quality)/.test(role) || /quality|\bqc\b/.test(label)) return 'quality';
+  if (/^mould/.test(role) || label.includes('moulding')) return 'moulding';
+  if (/^ppc/.test(role) || label.includes('ppc')) return 'ppc';
+  if (/^tool/.test(role) || label.includes('toolroom') || label.includes('tool room')) return 'toolroom';
   return null;
 }
 
