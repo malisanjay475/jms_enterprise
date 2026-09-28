@@ -548,6 +548,15 @@
         const canEdit = auth.can('planning', 'edit');
         const isSupervisor = (me?.role_code === 'supervisor' || auth.can('dpr_entry'));
 
+        // renderShell() moves every <body> child into #pageContent, so the modals declared
+        // in planning.html (Plan Job Detail, Move Confirm, Alt Mould, Batch Plan) land inside
+        // root and the innerHTML below would destroy them — e.g. "View full details" then
+        // silently did nothing. Keep them on <body>, outside the content that gets replaced.
+        ['planJobDetailModal', 'moveConfirmModal', 'altMouldModal', 'batchPlanModal'].forEach(id => {
+          const modal = document.getElementById(id);
+          if (modal && root.contains(modal)) document.body.appendChild(modal);
+        });
+
         /* ----------------------------- UI ----------------------------- */
         root.innerHTML = `
         <!-- Header Removed as per user request (Now in Sidebar) -->

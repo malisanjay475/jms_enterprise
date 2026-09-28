@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.76.0",
+  "latest": "1.76.1",
   "versions": [
+    {
+      "version": "1.76.1",
+      "date": "2026-09-28",
+      "title": "View full details opens again",
+      "modules": [
+        {
+          "app": "planning",
+          "label": "Planning",
+          "icon": "bi-kanban",
+          "changes": [
+            { "type": "fix", "text": "View full details on a flipped machine card now opens the job details window. The same fix also covers the move confirmation, alternate mould and batch plan windows on the Planning Board." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.76.0",
       "date": "2026-09-28",
