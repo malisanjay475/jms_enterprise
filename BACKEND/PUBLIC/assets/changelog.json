@@ -11,8 +11,22 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.76.1",
+  "latest": "1.76.2",
   "versions": [
+    {
+      "version": "1.76.2",
+      "date": "2026-09-28",
+      "title": "Mould remarks visible to every department",
+      "modules": [
+        {
+          "app": "masters",
+          "changes": [
+            { "type": "fix", "text": "Mould verification remarks added by any department (Quality, Moulding, PPC and others) now show to everyone straight away, with the department name on each remark." },
+            { "type": "improvement", "text": "Every logged-in user can now add a remark on a mould, not only the verification departments." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.76.1",
       "date": "2026-09-28",
