@@ -800,9 +800,35 @@
       if (_mvPendingFilter) clearMouldPendingFilter();
     }
 
-    function renderMouldVerifyStatusPanel(data) {
+    // The summary endpoint is company-wide, but the mould table is narrowed to the
+    // active factory scope (masters-script-2.js). Apply the same scope here so the
+    // counts match the rows the table actually shows.
+    function mouldVerifyScopeFactoryId() {
+      if (typeof currentFactoryScope === 'undefined') return null;
+      if (currentFactoryScope && currentFactoryScope.isAll) return null;
+      return (currentFactoryScope && currentFactoryScope.id)
+        || (typeof currentWriteScope !== 'undefined' && currentWriteScope && currentWriteScope.id)
+        || null;
+    }
+
+    function scopedMouldVerifyData(data) {
+      const fid = mouldVerifyScopeFactoryId();
+      const all = data.moulds || [];
+      const moulds = fid ? all.filter(m => String(m.factory_id) === String(fid)) : all;
+      const pendingByStep = {}; MOULD_VERIFY_STEPS.forEach(s => { pendingByStep[s.key] = 0; });
+      let verified = 0, inProgress = 0, notStarted = 0;
+      moulds.forEach(m => {
+        if (m.verified) { verified++; return; }
+        if (m.nextStep) pendingByStep[m.nextStep] = (pendingByStep[m.nextStep] || 0) + 1;
+        if (m.done > 0) inProgress++; else notStarted++;
+      });
+      return { totals: { total: moulds.length, verified, inProgress, notStarted }, pendingByStep, moulds };
+    }
+
+    function renderMouldVerifyStatusPanel(rawData) {
       const panel = document.getElementById('mouldVerifyStatusPanel');
       if (!panel) return;
+      const data = scopedMouldVerifyData(rawData);
       const t = data.totals || {};
       const dept = mouldVerifyDeptForUser();
 
@@ -859,7 +885,7 @@
     function setMouldPendingFilter(stepKey) {
       if (!_mvStatusData) return;
       const set = new Set();
-      (_mvStatusData.moulds || []).forEach(m => {
+      scopedMouldVerifyData(_mvStatusData).moulds.forEach(m => {
         if (m.verified) return;
         if (stepKey === 'ALL' || m.nextStep === stepKey) set.add(String(m.mould_number));
       });

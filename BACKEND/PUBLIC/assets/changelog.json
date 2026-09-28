@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.75.2",
+  "latest": "1.75.3",
   "versions": [
+    {
+      "version": "1.75.3",
+      "date": "2026-09-28",
+      "title": "Mould verification counts match the selected factory",
+      "modules": [
+        {
+          "app": "masters",
+          "label": "Masters",
+          "icon": "bi-database",
+          "changes": [
+            { "type": "fix", "text": "The Mould Master verification counts and department chips now count only the selected factory, so each count matches the rows shown when you click it." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.75.2",
       "date": "2026-09-28",
