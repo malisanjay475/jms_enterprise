@@ -736,6 +736,23 @@
       if (!_mvCurrentMouldNumber || !_mvdStepKey) return;
       const step = MOULD_VERIFY_STEPS.find(s => s.key === _mvdStepKey);
       if (!confirm(`Confirm "${step ? step.label : 'this step'}" for mould ${_mvCurrentMouldNumber}? This cannot be undone (only Admin/Superadmin can reset).`)) return;
+      // A remark typed in the box but not yet added is saved first — before this,
+      // Confirm silently dropped it, so department remarks were lost.
+      const pendingInput = document.getElementById('mvdNoteInput');
+      const pendingNote = (pendingInput && pendingInput.value || '').trim();
+      if (pendingNote) {
+        try {
+          const nr = await JPSMS.api.post(
+            '/moulds/' + encodeURIComponent(_mvCurrentMouldNumber) + '/verify-note',
+            { step: _mvdStepKey, note: pendingNote, session: JPSMS.auth.getUser() }
+          );
+          if (!nr.ok) throw new Error(nr.error);
+          pendingInput.value = '';
+        } catch (e) {
+          alert('Your remark could not be saved, so the approval was not done: ' + e.message);
+          return;
+        }
+      }
       try {
         const res = await JPSMS.api.post(
           '/moulds/' + encodeURIComponent(_mvCurrentMouldNumber) + '/verify',
