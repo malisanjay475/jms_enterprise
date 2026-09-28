@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.75.3",
+  "latest": "1.75.4",
   "versions": [
+    {
+      "version": "1.75.4",
+      "date": "2026-09-28",
+      "title": "Machine cards show the photo first",
+      "modules": [
+        {
+          "app": "planning",
+          "label": "Planning",
+          "icon": "bi-kanban",
+          "changes": [
+            { "type": "improvement", "text": "Machine cards on the Planning Board show only the machine photo, name and status. Click a card to flip it and see the job details, progress and the View full details button." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.75.3",
       "date": "2026-09-28",

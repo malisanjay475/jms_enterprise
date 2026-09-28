@@ -2942,10 +2942,7 @@
             </div>
             <div class="mc-title">
               <div class="name">${displayName}</div>
-              <div class="mc-meta">${detail(detailLine)} · ${detail(detailTonnage)}</div>
             </div>
-            <div class="mc-job">${activePlan ? `${runningPlan ? '' : '<em class="mc-next">Next</em>'}<strong>${esc(activePlan.orderNo || '')}</strong><span>${esc(activePlan.mouldName || activePlan.itemName || '')}</span>` : `<span class="mc-empty">${esc(subText)}</span>`}</div>
-            ${progressPct !== null ? `<div class="mc-progress" title="${progressPct}% done"><i style="width:${progressPct}%"></i></div><div class="mc-foot"><span>Bal ${detail(detailBalance)}</span><span>${progressPct}%</span></div>` : '<div class="mc-foot"><span>&nbsp;</span></div>'}
             <div class="flip-note">Click for details</div>
           </div>
           <div class="machine-face machine-back">
@@ -2960,6 +2957,7 @@
               <div class="job-row"><span>Status</span><strong>${detail(detailStatus)}</strong></div>
               <div class="job-row"><span>Balance</span><strong>${detail(detailBalance)}</strong></div>
             </div>
+            ${progressPct !== null ? `<div class="mc-progress" title="${progressPct}% done"><i style="width:${progressPct}%"></i></div><div class="mc-foot"><span>Done ${progressPct}%</span><span>Bal ${detail(detailBalance)}</span></div>` : ''}
             <div class="job-meta">
               <div class="job-chip">${detail(detailSlot)}</div>
               <div class="job-chip">Line ${detail(detailLine)}</div>
