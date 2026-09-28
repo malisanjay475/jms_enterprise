@@ -25137,6 +25137,53 @@ app.post('/api/moulds/:id/verify-note', async (req, res) => {
   }
 });
 
+// POST /api/moulds/:id/verify-note/delete  { sync_id, session:{username} }
+// Admin/Superadmin only. Deletes one remark on MAIN; the sync delete trigger carries
+// the deletion to every factory server (mould_verify_notes deletions are global).
+app.post('/api/moulds/:id/verify-note/delete', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const syncId = String(req.body?.sync_id || '').trim();
+    if (!/^[0-9a-f-]{36}$/i.test(syncId)) return res.status(400).json({ ok: false, error: 'Invalid remark id' });
+    if (isLocalServer()) {
+      const fwd = await forwardMouldVerifyToMain(id, '/verify-note/delete', req.body);
+      if (fwd.ok) {
+        // Optimistic local delete so it disappears here at once; the pulled
+        // deletion from MAIN is then a no-op.
+        try {
+          await q(`DELETE FROM mould_verify_notes WHERE sync_id = $1::uuid AND mould_number = $2`, [syncId, id]);
+        } catch (applyErr) { console.warn('[verify-note/delete] optimistic local apply skipped:', applyErr.message); }
+        if (typeof syncService.triggerSync === 'function') syncService.triggerSync();
+      }
+      return res.status(fwd.ok ? 200 : fwd.status).json(fwd.json);
+    }
+    const username = req.body?.session?.username || req.body?._user || getRequestUsername(req);
+    if (!username) return res.status(401).json({ ok: false, error: 'Unauthorized' });
+    const urow = (await q('SELECT role_code FROM users WHERE username = $1 LIMIT 1', [username]))[0];
+    const role = String(urow?.role_code || '').toLowerCase();
+    if (role !== 'superadmin' && role !== 'admin') {
+      return res.status(403).json({ ok: false, error: 'Only Admin or Superadmin can delete remarks.' });
+    }
+    const del = await q(
+      `DELETE FROM mould_verify_notes WHERE sync_id = $1::uuid AND mould_number = $2
+       RETURNING step, note, created_by, factory_id`,
+      [syncId, id]
+    );
+    if (!del.length) return res.status(404).json({ ok: false, error: 'Remark not found (already deleted?)' });
+    const d = del[0];
+    await q(
+      `INSERT INTO mould_audit_logs(mould_id, action_type, changed_fields, changed_by, factory_id)
+       VALUES($1, 'VERIFY_NOTE_DELETE', $2, $3, $4)`,
+      [id, JSON.stringify({ message: 'Remark deleted', step: d.step, note: d.note, by: d.created_by }), username, d.factory_id || null]
+    );
+    if (typeof syncService.triggerSync === 'function') syncService.triggerSync();
+    res.json({ ok: true, message: 'Remark deleted.' });
+  } catch (e) {
+    console.error('mould verify-note delete error', e);
+    sendServerError(res, e);
+  }
+});
+
 // GET /api/moulds/:id/moulding-history?days=7  (defaults to both 7 & 30)
 // Aggregates this mould's production from dpr_hourly over the trailing window:
 // per-day totals + a period summary + a per-machine breakdown. Matches on
