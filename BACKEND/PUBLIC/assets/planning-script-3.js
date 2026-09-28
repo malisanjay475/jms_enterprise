@@ -1290,9 +1290,12 @@
         //   blocked     - live DPR shows a stoppage (mould change, breakdown, ...) or machine is off
         //   maintenance - machine flagged under maintenance
         //   planned     - not running, but has a queued plan
-        //   available   - nothing running and nothing planned
+        //   available   - nothing running and nothing planned, or DPR says No Plan
         function getPlanningMachineState(machine) {
           if (machine.is_maintenance) return 'maintenance';
+          // DPR 'No Plan' entry: the machine has no job, so it belongs under No plan,
+          // not under Stopped (live-status reports it as a stoppage).
+          if (machine.live_entry_type === 'NoPlan') return 'available';
           if (machine.live_status === 'running') return 'running';
           if (machine.live_status === 'stopped') return 'blocked';
           const plans = getMachinePlans(machine);
