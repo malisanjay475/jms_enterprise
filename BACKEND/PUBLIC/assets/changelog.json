@@ -11,10 +11,10 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.76.2",
+  "latest": "1.76.3",
   "versions": [
     {
-      "version": "1.76.2",
+      "version": "1.76.3",
       "date": "2026-09-28",
       "title": "No Plan machines show under No plan",
       "modules": [
@@ -24,6 +24,20 @@
           "icon": "bi-kanban",
           "changes": [
             { "type": "fix", "text": "A machine marked No Plan in DPR now shows as No plan on the Planning Board and is counted in the No plan tile, instead of as Stopped." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.76.2",
+      "date": "2026-09-28",
+      "title": "Mould remarks visible to every department",
+      "modules": [
+        {
+          "app": "masters",
+          "changes": [
+            { "type": "fix", "text": "Mould verification remarks added by any department (Quality, Moulding, PPC and others) now show to everyone straight away, with the department name on each remark." },
+            { "type": "improvement", "text": "Every logged-in user can now add a remark on a mould, not only the verification departments." }
           ]
         }
       ]

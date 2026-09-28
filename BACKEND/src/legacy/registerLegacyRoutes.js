@@ -24999,6 +24999,33 @@ app.post('/api/moulds/:id/verify/reset', async (req, res) => {
   }
 });
 
+async function mergeMainMouldVerifyNotes(id, localNotes) {
+  const mainUrl = String(process.env.MAIN_SERVER_URL || '').trim().replace(/\/$/, '');
+  if (!mainUrl) return localNotes;
+  try {
+    const r = await fetch(`${mainUrl}/api/moulds/${encodeURIComponent(id)}/verify-detail`, {
+      signal: AbortSignal.timeout(5000)
+    });
+    const j = r.ok ? await r.json() : null;
+    const mainNotes = (j && j.ok && j.data && Array.isArray(j.data.notes)) ? j.data.notes : null;
+    if (!mainNotes) return localNotes;
+    const seen = new Set();
+    const merged = [];
+    for (const n of [...mainNotes, ...localNotes]) {
+      const key = n.sync_id
+        ? String(n.sync_id)
+        : `${n.step}|${n.note}|${n.created_by}|${new Date(n.created_at).getTime()}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      merged.push(n);
+    }
+    merged.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    return merged.slice(0, 200);
+  } catch (_) {
+    return localNotes;
+  }
+}
+
 // GET /api/moulds/:id/verify-detail
 // Read-only detail for the verification Approve screen: full mould master row
 // (never edited from here), all added notes, and the computed step status.
@@ -25008,13 +25035,17 @@ app.get('/api/moulds/:id/verify-detail', async (req, res) => {
     const rows = await q(`SELECT * FROM moulds WHERE mould_number = $1 LIMIT 1`, [id]);
     if (!rows.length) return res.status(404).json({ ok: false, error: 'Mould not found' });
     const mould = rows[0];
-    const notes = await q(
-      `SELECT id, step, note, created_by, created_at
+    let notes = await q(
+      `SELECT id, sync_id, step, note, created_by, created_at
          FROM mould_verify_notes
         WHERE mould_number = $1
         ORDER BY created_at DESC LIMIT 200`,
       [id]
     );
+    // LOCAL only holds what the last sync pulled, so remarks just added by another
+    // department (on MAIN or another factory) would be missing. Merge MAIN's list in
+    // live so every department sees every remark at once; offline → local list only.
+    if (isLocalServer()) notes = await mergeMainMouldVerifyNotes(id, notes);
     const steps = MOULD_VERIFY_STEPS.map(s => ({
       key: s.key, label: s.label,
       by: mould[`verify_${s.col}_by`] || null,
@@ -25035,6 +25066,18 @@ app.post('/api/moulds/:id/verify-note', async (req, res) => {
     const { id } = req.params;
     if (isLocalServer()) {
       const fwd = await forwardMouldVerifyToMain(id, '/verify-note', req.body);
+      // OPTIMISTIC LOCAL APPLY with MAIN's sync_id, so the remark shows here at once
+      // and the next pull dedups onto the same row instead of duplicating it.
+      const saved = fwd.ok && fwd.json && fwd.json.note;
+      if (saved && saved.sync_id) {
+        try {
+          await q(
+            `INSERT INTO mould_verify_notes(mould_number, step, note, created_by, created_at, factory_id, sync_id)
+             VALUES($1, $2, $3, $4, $5, $6, $7) ON CONFLICT (sync_id) DO NOTHING`,
+            [id, saved.step, saved.note, saved.created_by, saved.created_at, saved.factory_id ?? null, saved.sync_id]
+          );
+        } catch (applyErr) { console.warn('[verify-note] optimistic local apply skipped:', applyErr.message); }
+      }
       if (fwd.ok && typeof syncService.triggerSync === 'function') syncService.triggerSync();
       return res.status(fwd.ok ? 200 : fwd.status).json(fwd.json);
     }
@@ -25052,29 +25095,28 @@ app.post('/api/moulds/:id/verify-note', async (req, res) => {
     ))[0];
     if (!urow) return res.status(403).json({ ok: false, error: 'User not found' });
 
-    // A remark may be left by ANY verification department at any time (not only the
-    // department whose step is currently pending) so every department stays in the
-    // loop. The remark is tagged with the AUTHOR's own department, so readers can see
-    // which department raised it. Admin/superadmin may target any step they pass.
+    // A remark may be left by ANY department at any time (not only the department
+    // whose step is currently pending) and every department sees it. It is tagged
+    // with the AUTHOR's own verification department; users outside the verification
+    // roles are tagged 'general'. Admin/superadmin may pick any step.
     const authorDept = mouldVerifyDeptForRole(urow.role_code, urow.role_label);
-    if (!authorDept) {
-      return res.status(403).json({ ok: false, error: 'Only mould-verification departments can add remarks.' });
-    }
-    const stepKey = authorDept === 'ALL'
-      ? (MOULD_VERIFY_STEPS.some(s => s.key === requestedStepKey) ? requestedStepKey : 'nkb')
-      : authorDept;
-    const step = MOULD_VERIFY_STEPS.find(s => s.key === stepKey);
-    if (!step) return res.status(400).json({ ok: false, error: 'Invalid verification step' });
+    const stepKey = !authorDept
+      ? 'general'
+      : authorDept === 'ALL'
+        ? (MOULD_VERIFY_STEPS.some(s => s.key === requestedStepKey) ? requestedStepKey : 'nkb')
+        : authorDept;
+    const step = MOULD_VERIFY_STEPS.find(s => s.key === stepKey) || { label: 'General' };
 
     const mrows = await q(`SELECT factory_id FROM moulds WHERE mould_number = $1 LIMIT 1`, [id]);
     if (!mrows.length) return res.status(404).json({ ok: false, error: 'Mould not found' });
     const factoryId = mrows[0].factory_id || null;
 
-    await q(
+    const saved = (await q(
       `INSERT INTO mould_verify_notes(mould_number, step, note, created_by, factory_id)
-       VALUES($1, $2, $3, $4, $5)`,
+       VALUES($1, $2, $3, $4, $5)
+       RETURNING sync_id, step, note, created_by, created_at, factory_id`,
       [id, stepKey, note, username, factoryId]
-    );
+    ))[0];
     await q(
       `INSERT INTO mould_audit_logs(mould_id, action_type, changed_fields, changed_by, factory_id)
        VALUES($1, 'VERIFY_NOTE', $2, $3, $4)`,
@@ -25082,7 +25124,7 @@ app.post('/api/moulds/:id/verify-note', async (req, res) => {
     );
 
     if (typeof syncService.triggerSync === 'function') syncService.triggerSync();
-    res.json({ ok: true, message: 'Detail added.' });
+    res.json({ ok: true, message: 'Detail added.', note: saved });
   } catch (e) {
     console.error('mould verify-note error', e);
     sendServerError(res, e);
