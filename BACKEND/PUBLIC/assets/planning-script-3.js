@@ -1835,6 +1835,103 @@
         };
 
         /* -------- Plan Job Detail Modal -------- */
+        /* -------- Job detail: OR / JC timeline (dates + gaps from OR-JR Status) -------- */
+        function pjdDate(v) {
+          if (!v) return null;
+          const s = String(v).slice(0, 10);
+          const d = new Date(`${s}T00:00:00`);
+          return isNaN(d) ? null : d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+        }
+        function pjdDays(n) {
+          if (n === null || n === undefined || Number.isNaN(Number(n))) return null;
+          const v = Number(n);
+          return v === 0 ? 'same day' : `${v} day${Math.abs(v) === 1 ? '' : 's'}`;
+        }
+        function pjdRenderLifecycle(lc, info) {
+          const box = document.getElementById('pjdLifecycleBox');
+          if (!box) return;
+          const g = lc.gaps || {};
+          const steps = [
+            { label: 'OR created', date: lc.or_date, icon: 'bi-file-earmark-text' },
+            { label: 'Job card created', date: lc.jc_date, icon: 'bi-card-checklist', gap: g.or_to_jc, gapLabel: 'OR → JC' },
+            { label: 'Plan created', date: lc.plan_created, icon: 'bi-calendar-plus', gap: g.jc_to_plan_created, gapLabel: 'JC → Plan' },
+            { label: 'Production started', date: lc.prod_start, icon: 'bi-play-circle', gap: g.plan_to_prod, gapLabel: 'Plan → Prod' },
+            { label: 'Last production', date: lc.prod_last, icon: 'bi-clock-history', gap: g.prod_span, gapLabel: 'Running' }
+          ];
+          const slow = (n) => n !== null && n !== undefined && Number(n) > 3;
+          const stepHtml = steps.map((s, i) => {
+            const d = pjdDate(s.date);
+            const gapTxt = i > 0 ? pjdDays(s.gap) : null;
+            return `<div style="flex:1 1 150px;min-width:140px;position:relative;padding:10px 12px;border-radius:10px;border:1px solid ${d ? '#bae6fd' : '#e2e8f0'};background:${d ? '#f0f9ff' : '#f8fafc'}">
+              <div style="font-size:0.66rem;color:#64748b;font-weight:800;text-transform:uppercase;display:flex;align-items:center;gap:5px"><i class="bi ${s.icon}"></i>${esc(s.label)}</div>
+              <div style="font-size:0.92rem;font-weight:900;color:${d ? '#0f172a' : '#94a3b8'};margin-top:2px">${d ? esc(d) : 'Not yet'}</div>
+              ${gapTxt ? `<div style="margin-top:4px;display:inline-block;font-size:0.66rem;font-weight:800;border-radius:999px;padding:1px 8px;background:${slow(s.gap) && i < 4 ? '#fee2e2' : '#e0f2fe'};color:${slow(s.gap) && i < 4 ? '#b91c1c' : '#0369a1'}">${esc(s.gapLabel)}: ${esc(gapTxt)}</div>` : ''}
+            </div>`;
+          }).join('<div style="align-self:center;color:#94a3b8;font-size:1rem"><i class="bi bi-chevron-right"></i></div>');
+          const fact = (label, value) => value ? `<span style="display:inline-flex;gap:5px;align-items:center;font-size:0.78rem;padding:3px 10px;border-radius:999px;background:#f1f5f9;color:#334155"><span style="color:#64748b;font-weight:600">${esc(label)}</span><b>${esc(String(value))}</b></span>` : '';
+          const orQty = lc.or_qty ? Number(lc.or_qty).toLocaleString('en-IN') : null;
+          const orToProd = pjdDays(g.or_to_prod);
+          box.innerHTML = `
+            <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:10px">
+              <h4 style="font-size:0.95rem;font-weight:900;color:#0f172a;margin:0">Order &amp; Job Card timeline</h4>
+              ${orToProd ? `<span style="font-size:0.75rem;font-weight:800;color:#0369a1;background:#e0f2fe;border-radius:999px;padding:3px 10px">OR to first production: ${esc(orToProd)}</span>` : ''}
+            </div>
+            <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:stretch">${stepHtml}</div>
+            <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px">
+              ${fact('OR qty', orQty)}${fact('JC no', lc.jc_no)}${fact('Plan status', lc.status)}${fact('JC approval', lc.jc_approval)}${fact('Priority', lc.priority)}${fact('Plan end', pjdDate(lc.plan_end))}
+            </div>
+            <div style="font-size:0.7rem;color:#94a3b8;margin-top:6px">Dates from OR-JR Status, the plan and DPR. Gaps over 3 days are shown in red.</div>`;
+        }
+
+        /* -------- Job detail: every mould of this order, with a View details button -------- */
+        function pjdRenderOrderMoulds(plans, ctx) {
+          const box = document.getElementById('pjdMouldsBox');
+          if (!box) return;
+          const list = (plans || []).filter(p => !['REJECTED', 'DROPPED'].includes(String(p.status || '').toUpperCase()));
+          if (!list.length) { box.innerHTML = '<h4 style="font-size:0.95rem;font-weight:900;color:#0f172a;margin:0 0 6px">Moulds in this order</h4><div style="color:#64748b;font-size:0.85rem">No other moulds planned for this order.</div>'; return; }
+          const isCurrent = (p) => ctx.planId && (String(p.plan_id || '') === String(ctx.planId) || String(p.id || '') === String(ctx.planId));
+          const totPlan = list.reduce((s, p) => s + Number(p.plan_qty || 0), 0);
+          const totGood = list.reduce((s, p) => s + Number(p.produced_good || 0), 0);
+          window._pjdOrderMoulds = list;
+          const rows = list.map((p, i) => {
+            const plan = Number(p.plan_qty || 0), good = Number(p.produced_good || 0), rej = Number(p.produced_rej || 0);
+            const bal = Math.max(0, plan - good);
+            const pct = plan > 0 ? Math.min(100, Math.round(good / plan * 100)) : 0;
+            const st = String(p.status || '-');
+            const stUp = st.toUpperCase();
+            const stColor = stUp === 'RUNNING' ? '#15803d' : stUp === 'COMPLETED' ? '#0369a1' : '#b45309';
+            const cur = isCurrent(p);
+            const machine = String(p.machine || '').includes('>') ? String(p.machine).split('>').pop().trim() : (p.machine || '-');
+            return `<tr style="border-bottom:1px solid #f1f5f9;${cur ? 'background:#f0f9ff' : ''}">
+              <td style="padding:8px"><div style="font-weight:800;color:#0f172a;font-size:0.82rem">${esc(p.mould_name || p.item_name || '-')}</div><div style="font-size:0.7rem;color:#94a3b8">${esc(p.mould_code || p.item_code || '')}</div></td>
+              <td style="padding:8px;font-size:0.8rem;color:#334155">${esc(machine)}</td>
+              <td style="padding:8px"><span style="font-size:0.7rem;font-weight:800;color:${stColor}">${esc(st)}</span></td>
+              <td style="padding:8px;text-align:right;font-weight:700">${plan.toLocaleString('en-IN')}</td>
+              <td style="padding:8px;text-align:right"><div style="font-weight:800;color:#15803d">${good.toLocaleString('en-IN')}</div><div style="background:#e2e8f0;border-radius:3px;height:4px;margin-top:3px"><div style="background:#22c55e;height:4px;border-radius:3px;width:${pct}%"></div></div></td>
+              <td style="padding:8px;text-align:right;color:#b91c1c;font-weight:700">${rej.toLocaleString('en-IN')}</td>
+              <td style="padding:8px;text-align:right;color:${bal > 0 ? '#d97706' : '#15803d'};font-weight:800">${bal.toLocaleString('en-IN')}</td>
+              <td style="padding:8px;text-align:right;font-weight:800;color:#0284c7">${pct}%</td>
+              <td style="padding:8px;text-align:right">${cur
+                ? '<span style="font-size:0.7rem;font-weight:800;color:#0369a1">Viewing</span>'
+                : `<button type="button" onclick="window.pjdOpenOrderMould(${i})" style="white-space:nowrap;border:none;border-radius:8px;background:#0369a1;color:#fff;font-weight:700;font-size:0.72rem;padding:5px 10px;cursor:pointer"><i class="bi bi-box-arrow-up-right"></i> View details</button>`}</td>
+            </tr>`;
+          }).join('');
+          box.innerHTML = `
+            <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:10px">
+              <h4 style="font-size:0.95rem;font-weight:900;color:#0f172a;margin:0">Moulds in this order <span style="font-size:0.75rem;color:#64748b;font-weight:700">(${list.length})</span></h4>
+              <span style="font-size:0.75rem;font-weight:800;color:#334155">Order total: ${totGood.toLocaleString('en-IN')} / ${totPlan.toLocaleString('en-IN')} produced</span>
+            </div>
+            <div style="overflow-x:auto"><table style="width:100%;min-width:760px;border-collapse:collapse">
+              <thead><tr style="background:#f1f5f9">${['Mould', 'Machine', 'Status', 'Plan', 'Produced', 'Rej', 'Balance', '%', ''].map((h, k) => `<th style="padding:7px 8px;font-size:0.7rem;color:#64748b;font-weight:700;text-transform:uppercase;text-align:${k > 2 ? 'right' : 'left'}">${h}</th>`).join('')}</tr></thead>
+              <tbody>${rows}</tbody>
+            </table></div>`;
+          window.pjdOpenOrderMould = function(i) {
+            const p = (window._pjdOrderMoulds || [])[i];
+            if (!p) return;
+            window.openPlanJobDetail(ctx.orderNo, p.machine || '', String(p.plan_id || p.id || ''), p.mould_name || p.item_name || '', ctx.clientName || '');
+          };
+        }
+
         window.openPlanJobDetail = async function(orderNo, machineName, planId, itemName, clientName) {
           if (!orderNo || orderNo === '-' || orderNo === 'No active order') return;
           const modal = document.getElementById('planJobDetailModal');
@@ -1847,6 +1944,12 @@
           _s('pjdOrder', orderNo);
           _s('pjdClient', clientName || '…');
           _s('pjdJC', '…'); _s('pjdPlanQty', '…'); _s('pjdProduced', '…'); _s('pjdRej', '…'); _s('pjdBalance', '…');
+          ['pjdLifecycleBox', 'pjdMouldsBox'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.innerHTML = '<div style="color:#64748b;font-size:0.85rem">Loading…</div>';
+          });
+          const pjdBody = document.querySelector('#planJobDetailModal .pjd-body');
+          if (pjdBody) pjdBody.scrollTop = 0; // opening another mould starts at the top
           document.getElementById('pjdColourTable').innerHTML = '<tr><td colspan="5" style="padding:12px;text-align:center;color:#64748b;font-size:0.85rem">Loading…</td></tr>';
           document.getElementById('pjdQCBox').innerHTML = '<div style="color:#64748b;font-size:0.85rem">Loading QC data…</div>';
           const pjdSetup = document.getElementById('pjdSetupBox'); if (pjdSetup) pjdSetup.innerHTML = '<div style="color:#64748b;font-size:0.85rem">Loading setup…</div>';
@@ -1900,6 +2003,14 @@
                   cell('Weight', info.std_weight, info.act_weight, '', true) +
                   `</div>`;
               }
+
+              // OR → JC → Plan → Production timeline, and every mould of this order
+              pjdRenderLifecycle(ans.data.lifecycle || {}, info);
+              pjdRenderOrderMoulds(ans.data.plans || [], {
+                orderNo: info.order_no || orderNo,
+                planId,
+                clientName: info.client_name || clientName
+              });
 
               // Colour table — filter out colours with zero plan AND zero production
               const DOT_COLOURS = ['#3b82f6','#ef4444','#f59e0b','#22c55e','#a855f7','#06b6d4','#f97316','#ec4899','#84cc16','#6366f1'];

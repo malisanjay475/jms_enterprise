@@ -16,7 +16,7 @@
     {
       "version": "1.77.1",
       "date": "2026-09-29",
-      "title": "Job details: colour breakdown and photo viewer",
+      "title": "Fuller job details: timeline, all moulds, photo viewer",
       "modules": [
         {
           "app": "planning",
@@ -24,7 +24,9 @@
           "icon": "bi-kanban",
           "changes": [
             { "type": "fix", "text": "The Colour-wise Breakdown in the job details window is shown in full again, including the total row. It was cut off when the window had a lot of content." },
-            { "type": "improvement", "text": "FPA photos open inside the page instead of a new tab. Scroll to zoom in and out, drag to move, rotate left or right, and go to the next or previous photo." }
+            { "type": "improvement", "text": "FPA photos open inside the page instead of a new tab. Scroll to zoom in and out, drag to move, rotate left or right, and go to the next or previous photo." },
+            { "type": "feat", "text": "The job details window shows the order and job card timeline from OR-JR Status: when the OR and the job card were created, when the plan was made and production started, and the number of days between each step." },
+            { "type": "feat", "text": "The job details window lists every mould of the same order with its machine, status, plan, produced, rejection and balance. Click View details on any mould to open its full details." }
           ]
         }
       ]

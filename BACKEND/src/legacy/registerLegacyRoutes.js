@@ -11400,6 +11400,7 @@ async function buildDprOrderAnalysis(req) {
       pb.line,
       pb.machine,
       pb.status,
+      pb.jc_approval_status,
       pb.plan_qty,
       pb.bal_qty,
       pb.batch_no,
@@ -11626,12 +11627,19 @@ async function buildDprOrderAnalysis(req) {
     or_date: info.or_jr_date || null,
     jc_date: info.job_card_date || null,
     plan_date: info.start_date || null,
+    plan_created: info.plan_created_at || null,
+    or_qty: info.or_qty != null ? toDprNumber(info.or_qty) : null,
+    jc_no: info.job_card_no || null,
+    priority: info.priority || null,
+    jc_approval: info.jc_approval_status || null,
     prod_start: firstProdRow ? firstProdRow.date : null,
     prod_last: lastProdRow ? lastProdRow.date : null,
     plan_end: info.end_date || null,
     status: info.status || null,
     gaps: {
       or_to_jc: dayDiff(info.or_jr_date, info.job_card_date),
+      jc_to_plan_created: dayDiff(info.job_card_date, info.plan_created_at),
+      or_to_prod: dayDiff(info.or_jr_date, firstProdRow ? firstProdRow.date : null),
       jc_to_plan: dayDiff(info.job_card_date, info.start_date),
       plan_to_prod: dayDiff(info.start_date, firstProdRow ? firstProdRow.date : null),
       prod_span: dayDiff(firstProdRow ? firstProdRow.date : null, lastProdRow ? lastProdRow.date : null)
@@ -11701,18 +11709,40 @@ async function buildDprOrderAnalysis(req) {
     `, [decodedOrder]);
   } catch (e) { console.error('order plans fetch', e.message); }
 
-  // Per-plan produced/reject from logs (match by plan_id)
+  // Per-plan produced/reject for EVERY plan of the order. `logs` is filtered to the
+  // requested plan/machine, so it cannot be used here: the other moulds would all show 0.
   const producedByPlan = {};
-  logs.forEach(l => {
-    const k = String(l.plan_id || '');
-    if (!producedByPlan[k]) producedByPlan[k] = { good: 0, rej: 0, dt: 0 };
-    producedByPlan[k].good += toDprNumber(l.good_qty);
-    producedByPlan[k].rej += toDprNumber(l.reject_qty);
-    producedByPlan[k].dt += toDprNumber(l.downtime_min);
-  });
+  try {
+    const perPlan = await q(`
+      SELECT CAST(dh.plan_id AS TEXT) AS pid,
+             COALESCE(SUM(dh.good_qty), 0) AS good,
+             COALESCE(SUM(dh.reject_qty), 0) AS rej,
+             COALESCE(SUM(dh.downtime_min), 0) AS dt,
+             MIN(dh.dpr_date)::text AS first_date,
+             MAX(dh.dpr_date)::text AS last_date
+        FROM dpr_hourly dh
+       WHERE TRIM(dh.order_no) = $1 AND COALESCE(dh.is_deleted, false) = false
+       GROUP BY CAST(dh.plan_id AS TEXT)
+    `, [decodedOrder]);
+    perPlan.forEach(r => {
+      producedByPlan[String(r.pid || '')] = {
+        good: toDprNumber(r.good), rej: toDprNumber(r.rej), dt: toDprNumber(r.dt),
+        first: r.first_date || null, last: r.last_date || null
+      };
+    });
+  } catch (e) { console.error('order plans produced fetch', e.message); }
   plans = plans.map(p => {
-    const pr = producedByPlan[String(p.plan_id || '')] || { good: 0, rej: 0, dt: 0 };
-    return { ...p, produced_good: pr.good, produced_rej: pr.rej, produced_dt: pr.dt };
+    // dpr_hourly.plan_id may hold the canonical plan_id or plan_board.id as text
+    const a = producedByPlan[String(p.plan_id || '')];
+    const b = producedByPlan[String(p.id || '')];
+    const pr = {
+      good: (a ? a.good : 0) + (b && b !== a ? b.good : 0),
+      rej: (a ? a.rej : 0) + (b && b !== a ? b.rej : 0),
+      dt: (a ? a.dt : 0) + (b && b !== a ? b.dt : 0),
+      first: [a && a.first, b && b.first].filter(Boolean).sort()[0] || null,
+      last: [a && a.last, b && b.last].filter(Boolean).sort().pop() || null
+    };
+    return { ...p, produced_good: pr.good, produced_rej: pr.rej, produced_dt: pr.dt, prod_first_date: pr.first, prod_last_date: pr.last };
   });
   const orderPlanTotal = plans.reduce((s, p) => s + toDprNumber(p.plan_qty), 0) || totalPlan;
 
