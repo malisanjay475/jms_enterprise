@@ -11,10 +11,10 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.76.8",
+  "latest": "1.76.10",
   "versions": [
     {
-      "version": "1.76.8",
+      "version": "1.76.10",
       "date": "2026-09-29",
       "title": "View mould details from verification",
       "modules": [
