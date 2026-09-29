@@ -95,6 +95,13 @@ interface ApiService {
         @Part media: List<@JvmSuppressWildcards MultipartBody.Part>
     ): ApiEnvelope
 
+    // Raised memos on a machine, newest first, with their action_history.
+    @GET("api/qc/memos")
+    suspend fun memos(
+        @Query("machine") machine: String,
+        @Query("limit") limit: Int = 200
+    ): ApiEnvelope
+
     // Moulding people of the caller's factory, for the @mention picker.
     @GET("api/qc/factory-people")
     suspend fun factoryPeople(): ApiEnvelope
