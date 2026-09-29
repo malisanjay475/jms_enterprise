@@ -11,8 +11,21 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.76.7",
+  "latest": "1.76.10",
   "versions": [
+    {
+      "version": "1.76.10",
+      "date": "2026-09-29",
+      "title": "View mould details from verification",
+      "modules": [
+        {
+          "app": "masters",
+          "changes": [
+            { "type": "feat", "text": "The Mould Verification window has a View Mould Details button that shows the full mould details, the last jobs and all remarks at any stage, even after your department has approved." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.76.7",
       "date": "2026-09-29",
