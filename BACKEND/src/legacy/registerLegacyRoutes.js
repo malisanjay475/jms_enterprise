@@ -13826,7 +13826,10 @@ app.get('/api/planning/orders/pending', async (req, res) => {
   try {
     const requestFactoryId = getFactoryId(req);
 
+    // Newest orders first, so the cap never hides fresh JRs (the old alphabetical
+    // order put JR/JG/... before JR/JGUI/... and cut new orders off at 500).
     const rows = await q(`
+      SELECT * FROM (
       SELECT DISTINCT ON (TRIM(s.or_jr_no))
         TRIM(s.or_jr_no) AS "orderNo",
         COALESCE(rpt.or_jr_date, s.or_jr_date) AS "orDate",
@@ -13892,7 +13895,9 @@ app.get('/api/planning/orders/pending', async (req, res) => {
             )
         )
       ORDER BY TRIM(s.or_jr_no), rpt.job_card_date DESC NULLS LAST, s.or_jr_date DESC NULLS LAST
-      LIMIT 500
+      ) pending
+      ORDER BY "orJrDate" DESC NULLS LAST, "orderNo" DESC
+      LIMIT 2000
     `, [requestFactoryId]);
     res.json({ ok: true, data: rows });
   } catch (e) {
