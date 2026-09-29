@@ -1,6 +1,6 @@
 {
   "name": "backend",
-  "version": "1.77.2",
+  "version": "1.78.0",
   "description": "",
   "main": "index.js",
   "scripts": {

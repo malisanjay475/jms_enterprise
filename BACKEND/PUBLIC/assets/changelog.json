@@ -11,8 +11,25 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.77.2",
+  "latest": "1.78.0",
   "versions": [
+    {
+      "version": "1.78.0",
+      "date": "2026-09-29",
+      "title": "Job details: approvals, completion and dropped moulds",
+      "modules": [
+        {
+          "app": "planning",
+          "label": "Planning",
+          "icon": "bi-kanban",
+          "changes": [
+            { "type": "feat", "text": "The job details window shows who checked and who approved the job card, and when. A rejected job card shows who rejected it, when and at which stage." },
+            { "type": "feat", "text": "For a completed job, the job details window shows who completed it, when, and the completion remarks." },
+            { "type": "feat", "text": "Moulds dropped from the order are listed with who dropped them, when, and the drop remarks. Each mould in the order also shows its approval and completion details." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.77.2",
       "date": "2026-09-29",
