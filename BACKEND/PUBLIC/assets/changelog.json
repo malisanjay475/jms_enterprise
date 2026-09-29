@@ -11,8 +11,21 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.76.6",
+  "latest": "1.76.7",
   "versions": [
+    {
+      "version": "1.76.7",
+      "date": "2026-09-29",
+      "title": "QC app machines in proper order",
+      "modules": [
+        {
+          "app": "quality",
+          "changes": [
+            { "type": "fix", "text": "The QC app now lists machines like the DPR Compliance Summary: B -L1 machines 1, 2, 3 first, then B -L2, B -L3, B -L4, then C plant." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.76.6",
       "date": "2026-09-28",

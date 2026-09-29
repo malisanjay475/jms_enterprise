@@ -6857,14 +6857,14 @@ app.get('/api/machines', async (req, res) => {
     }
 
     const rows = await q(
-      `SELECT machine, line, COALESCE(NULLIF(TRIM(machine_process), ''), 'Moulding') AS machine_process
+      `SELECT machine, line, building, COALESCE(NULLIF(TRIM(machine_process), ''), 'Moulding') AS machine_process
          FROM machines
         WHERE COALESCE(is_active, TRUE) = TRUE
           AND ${whereClause}`,
       params
     );
-    // Natural Sort in Application Layer
-    const list = rows.map(r => r.machine).sort(naturalCompare);
+    // Standard DPR Compliance order: Line (B -L1, B -L2 … C -L1), then machine number
+    const list = rows.map(r => r.machine).sort(makeMachineOrder(rows));
     ttlCacheSet('machines', cacheKey, list, 30000);
     res.json({ ok: true, data: list });
   } catch (e) {
