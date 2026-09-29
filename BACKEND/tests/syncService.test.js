@@ -46,6 +46,15 @@ describe('Sync service pull resilience', () => {
     expect(global.fetch).toHaveBeenCalledTimes(2);
   });
 
+  it('pulls from 20 minutes before the watermark so late-committed MAIN rows are not skipped', () => {
+    const syncService = require('../services/sync.service');
+    const { withPullOverlap } = syncService.__test;
+    expect(withPullOverlap('2026-09-28T06:00:00.000Z')).toBe('2026-09-28T05:40:00.000Z');
+    // Full re-pull sentinels and junk pass through unchanged.
+    expect(withPullOverlap('1970-01-01')).toBe('1970-01-01');
+    expect(withPullOverlap('not-a-date')).toBe('not-a-date');
+  });
+
   it('keeps LAST_PULL unchanged when any table pull fails', async () => {
     const syncService = require('../services/sync.service');
     const configWrites = [];
