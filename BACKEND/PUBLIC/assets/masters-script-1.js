@@ -407,9 +407,11 @@
     }
 
     let _mvCurrentMouldNumber = null;
+    let _mvCurrentFactoryId = null;
 
     function openMouldVerifyModal(row) {
       _mvCurrentMouldNumber = row.mould_number;
+      _mvCurrentFactoryId = row.factory_id != null ? row.factory_id : null;
       document.getElementById('mvMouldTitle').textContent =
         `${row.mould_number || ''}${row.mould_name ? ' — ' + row.mould_name : ''}`;
       renderMouldVerifySteps(row);
@@ -575,7 +577,10 @@
       document.getElementById('mouldVerifyDetailModal').style.display = 'flex';
 
       try {
-        const res = await JPSMS.api.get('/moulds/' + encodeURIComponent(_mvCurrentMouldNumber) + '/verify-detail');
+        // Pass the factory of the row that was clicked, so a same-numbered mould
+        // from another factory (often with empty machines) is not shown instead.
+        const fq = _mvCurrentFactoryId != null && _mvCurrentFactoryId !== '' ? '?factory_id=' + encodeURIComponent(_mvCurrentFactoryId) : '';
+        const res = await JPSMS.api.get('/moulds/' + encodeURIComponent(_mvCurrentMouldNumber) + '/verify-detail' + fq);
         if (!res.ok) throw new Error(res.error);
         renderVerifyDetail(res.data);
       } catch (e) {
