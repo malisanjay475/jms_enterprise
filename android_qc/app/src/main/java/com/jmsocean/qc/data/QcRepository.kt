@@ -109,8 +109,7 @@ class QcRepository(private val session: SessionStore) {
                 }
             }
         }.filter { it.isNotBlank() }
-            .distinct()
-            .sortedWith(naturalMachineComparator)
+            .distinct() // keep the server order: Line from the machine master, then machine number
     }
 
     suspend fun queue(machine: String): Result<List<QueueJob>> = runCatching {
@@ -555,7 +554,7 @@ class QcRepository(private val session: SessionStore) {
                 ComplianceRow(machineName, cells)
             } ?: emptyList()
             ComplianceLine(lineName, rows)
-        }.sortedBy { it.name }
+        }.sortedWith { a, b -> naturalMachineComparator.compare(a.name, b.name) }
         ComplianceGrid(slots, lines)
     }
 

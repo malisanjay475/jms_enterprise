@@ -433,8 +433,8 @@
       const wrap = document.getElementById('mvRemarks');
       const addBox = document.getElementById('mvRemarkAdd');
       if (wrap) wrap.innerHTML = '<span style="color:#94a3b8; font-size:0.78rem">Loading remarks…</span>';
-      // Show the add box to any user who belongs to a verification department.
-      if (addBox) addBox.style.display = mouldVerifyDeptForUser() ? 'block' : 'none';
+      // Any logged-in user (every department) can add a remark everyone sees.
+      if (addBox) addBox.style.display = (JPSMS.auth.getUser() || {}).username ? 'block' : 'none';
       try {
         const d = await JPSMS.api.get('/moulds/' + encodeURIComponent(mouldNumber) + '/verify-detail');
         if (mouldNumber !== _mvCurrentMouldNumber) return;
@@ -462,6 +462,7 @@
         if (mouldNumber !== _mvCurrentMouldNumber) return;
         if (input) input.value = '';
         loadMouldVerifyRemarksInline();
+        if (typeof loadMouldVerifyStatus === 'function') loadMouldVerifyStatus();
       } catch (e) {
         if (mouldNumber !== _mvCurrentMouldNumber) return;
         alert('Error: ' + e.message);
@@ -555,9 +556,16 @@
 
     async function openMouldVerifyDetail(stepKey) {
       if (!_mvCurrentMouldNumber) return;
-      _mvdStepKey = stepKey;
-      const step = MOULD_VERIFY_STEPS.find(s => s.key === stepKey);
-      document.getElementById('mvdTitle').textContent = 'Verification — ' + (step ? step.label : 'Review');
+      // stepKey null = view-only (from "View Mould Details"): same read-only master,
+      // recent jobs and remarks, but no approval and no step-bound note box.
+      _mvdStepKey = stepKey || null;
+      const step = stepKey ? MOULD_VERIFY_STEPS.find(s => s.key === stepKey) : null;
+      const viewOnly = !step;
+      document.getElementById('mvdTitle').textContent = viewOnly ? 'Mould Details' : 'Verification — ' + step.label;
+      const confirmBtn = document.getElementById('mvdConfirmBtn');
+      if (confirmBtn) confirmBtn.style.display = viewOnly ? 'none' : '';
+      const noteWrap = document.getElementById('mvdNoteAddWrap');
+      if (noteWrap) noteWrap.style.display = viewOnly ? 'none' : 'flex';
       document.getElementById('mvdMouldTitle').textContent = '';
       document.getElementById('mvdMasterGrid').innerHTML = '';
       document.getElementById('mvdNotes').innerHTML = '';
@@ -609,12 +617,45 @@
         wrap.innerHTML = '<span style="color:#94a3b8; font-size:0.76rem">No remarks added yet.</span>';
         return;
       }
-      const stepLabel = k => (MOULD_VERIFY_STEPS.find(s => s.key === k) || {}).label || k;
+      // Department name without the step verb: "Quality", "Moulding", "PPC", ...
+      const stepLabel = k => k === 'general' ? 'General'
+        : ((MOULD_VERIFY_STEPS.find(s => s.key === k) || {}).label || k).replace(/ (Check|Approve|Authorise)$/, '');
+      const urole = String((JPSMS.auth.getUser() || {}).role_code || '').toLowerCase();
+      const canDelete = urole === 'admin' || urole === 'superadmin';
       wrap.innerHTML = notes.map(n => `
-        <div style="border:1px solid #e2e8f0; border-radius:6px; padding:7px 10px; background:#f8fafc">
-          <div style="font-size:0.82rem; color:#0f172a; white-space:pre-wrap">${mvEsc(n.note)}</div>
-          <div style="font-size:0.66rem; color:#94a3b8; margin-top:3px">${mvEsc(stepLabel(n.step))} · ${mvEsc(n.created_by || '')} · ${new Date(n.created_at).toLocaleString()}</div>
+        <div style="border:1px solid #e2e8f0; border-radius:6px; padding:7px 10px; background:#f8fafc; display:flex; gap:8px; align-items:flex-start">
+          <div style="flex:1; min-width:0">
+            <div style="font-size:0.82rem; color:#0f172a; white-space:pre-wrap">${mvEsc(n.note)}</div>
+            <div style="font-size:0.66rem; color:#94a3b8; margin-top:3px"><span style="background:#dbeafe; color:#1e40af; font-weight:700; padding:1px 6px; border-radius:4px">${mvEsc(stepLabel(n.step))}</span> · ${mvEsc(n.created_by || '')} · ${new Date(n.created_at).toLocaleString()}</div>
+          </div>
+          ${canDelete && n.sync_id ? `<button type="button" onclick="deleteMouldVerifyRemark('${mvEsc(n.sync_id)}')" title="Delete this remark (Admin)" style="border:none; background:none; color:#dc2626; cursor:pointer; padding:2px 4px; flex:0 0 auto"><i class="bi bi-trash"></i></button>` : ''}
         </div>`).join('');
+    }
+
+    // Admin/Superadmin: delete one remark (removed on every server via sync).
+    async function deleteMouldVerifyRemark(syncId) {
+      const mouldNumber = _mvCurrentMouldNumber;
+      if (!mouldNumber || !syncId) return;
+      if (!confirm(`Delete this remark from mould ${mouldNumber}? It will be removed for every department.`)) return;
+      try {
+        const res = await JPSMS.api.post(
+          '/moulds/' + encodeURIComponent(mouldNumber) + '/verify-note/delete',
+          { sync_id: syncId, session: JPSMS.auth.getUser() }
+        );
+        if (!res.ok) throw new Error(res.error);
+      } catch (e) {
+        alert('Error: ' + e.message);
+        return;
+      }
+      loadMouldVerifyRemarksInline();
+      const detail = document.getElementById('mouldVerifyDetailModal');
+      if (detail && detail.style.display === 'flex') {
+        try {
+          const d = await JPSMS.api.get('/moulds/' + encodeURIComponent(mouldNumber) + '/verify-detail');
+          if (d.ok) renderVerifyNotes(d.data.notes || []);
+        } catch (_) { /* inline list already refreshed */ }
+      }
+      if (typeof loadMouldVerifyStatus === 'function') loadMouldVerifyStatus();
     }
 
     // Last 2 jobs — each a clickable card showing the REAL average cycle time and
@@ -723,6 +764,7 @@
         // Reload just the notes.
         const d = await JPSMS.api.get('/moulds/' + encodeURIComponent(_mvCurrentMouldNumber) + '/verify-detail');
         if (d.ok) renderVerifyNotes(d.data.notes || []);
+        if (typeof loadMouldVerifyStatus === 'function') loadMouldVerifyStatus();
       } catch (e) {
         alert('Error: ' + e.message);
       }
@@ -732,6 +774,23 @@
       if (!_mvCurrentMouldNumber || !_mvdStepKey) return;
       const step = MOULD_VERIFY_STEPS.find(s => s.key === _mvdStepKey);
       if (!confirm(`Confirm "${step ? step.label : 'this step'}" for mould ${_mvCurrentMouldNumber}? This cannot be undone (only Admin/Superadmin can reset).`)) return;
+      // A remark typed in the box but not yet added is saved first — before this,
+      // Confirm silently dropped it, so department remarks were lost.
+      const pendingInput = document.getElementById('mvdNoteInput');
+      const pendingNote = (pendingInput && pendingInput.value || '').trim();
+      if (pendingNote) {
+        try {
+          const nr = await JPSMS.api.post(
+            '/moulds/' + encodeURIComponent(_mvCurrentMouldNumber) + '/verify-note',
+            { step: _mvdStepKey, note: pendingNote, session: JPSMS.auth.getUser() }
+          );
+          if (!nr.ok) throw new Error(nr.error);
+          pendingInput.value = '';
+        } catch (e) {
+          alert('Your remark could not be saved, so the approval was not done: ' + e.message);
+          return;
+        }
+      }
       try {
         const res = await JPSMS.api.post(
           '/moulds/' + encodeURIComponent(_mvCurrentMouldNumber) + '/verify',
@@ -789,6 +848,14 @@
         if (!res.ok) throw new Error(res.error);
         _mvStatusData = res.data;
         renderMouldVerifyStatusPanel(res.data);
+        // Remark badges in the mould table come from this same summary; redraw the
+        // rows so each mould with remarks shows its badge without opening it.
+        window._mvRemarkSummary = res.data.remarks || {};
+        try {
+          if (window.$ && $.fn.dataTable && $.fn.dataTable.isDataTable('#masterTable')) {
+            $('#masterTable').DataTable().rows().invalidate('data').draw(false);
+          }
+        } catch (_) { /* table not ready yet; next render picks the badges up */ }
       } catch (e) {
         panel.innerHTML = '<span style="color:#dc2626; font-size:0.8rem">Could not load verification status.</span>';
       }

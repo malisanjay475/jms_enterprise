@@ -64,7 +64,73 @@
       ]
     },
     {
-      "version": "1.76.2",
+      "version": "1.76.10",
+      "date": "2026-09-29",
+      "title": "View mould details from verification",
+      "modules": [
+        {
+          "app": "masters",
+          "changes": [
+            { "type": "feat", "text": "The Mould Verification window has a View Mould Details button that shows the full mould details, the last jobs and all remarks at any stage, even after your department has approved." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.76.7",
+      "date": "2026-09-29",
+      "title": "QC app machines in proper order",
+      "modules": [
+        {
+          "app": "quality",
+          "changes": [
+            { "type": "fix", "text": "The QC app now lists machines like the DPR Compliance Summary: B -L1 machines 1, 2, 3 first, then B -L2, B -L3, B -L4, then C plant." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.76.6",
+      "date": "2026-09-28",
+      "title": "Admins can delete mould remarks",
+      "modules": [
+        {
+          "app": "masters",
+          "changes": [
+            { "type": "feat", "text": "Admin and Superadmin now see a delete button on each mould verification remark; a deleted remark is removed for every department and every factory." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.76.5",
+      "date": "2026-09-28",
+      "title": "Remarks typed while approving a mould are saved",
+      "modules": [
+        {
+          "app": "masters",
+          "changes": [
+            { "type": "fix", "text": "A remark typed in the mould verification box is now saved when you click Confirm; before, it was lost unless you clicked Add Detail first, so Quality and Moulding remarks never showed." },
+            { "type": "improvement", "text": "Remarks from QC Supervisors and other department members are now tagged with their department (for example Quality) instead of General." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.76.4",
+      "date": "2026-09-28",
+      "title": "See which moulds have remarks",
+      "modules": [
+        {
+          "app": "masters",
+          "changes": [
+            { "type": "improvement", "text": "Moulds with remarks now show an orange remark badge with the count in the Mould Master list; hover to read the latest remark or click to open all remarks." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.76.3",
       "date": "2026-09-28",
       "title": "No Plan machines show under No plan",
       "modules": [
@@ -74,6 +140,20 @@
           "icon": "bi-kanban",
           "changes": [
             { "type": "fix", "text": "A machine marked No Plan in DPR now shows as No plan on the Planning Board and is counted in the No plan tile, instead of as Stopped." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.76.2",
+      "date": "2026-09-28",
+      "title": "Mould remarks visible to every department",
+      "modules": [
+        {
+          "app": "masters",
+          "changes": [
+            { "type": "fix", "text": "Mould verification remarks added by any department (Quality, Moulding, PPC and others) now show to everyone straight away, with the department name on each remark." },
+            { "type": "improvement", "text": "Every logged-in user can now add a remark on a mould, not only the verification departments." }
           ]
         }
       ]
