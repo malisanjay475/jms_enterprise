@@ -6857,14 +6857,14 @@ app.get('/api/machines', async (req, res) => {
     }
 
     const rows = await q(
-      `SELECT machine, line, COALESCE(NULLIF(TRIM(machine_process), ''), 'Moulding') AS machine_process
+      `SELECT machine, line, building, COALESCE(NULLIF(TRIM(machine_process), ''), 'Moulding') AS machine_process
          FROM machines
         WHERE COALESCE(is_active, TRUE) = TRUE
           AND ${whereClause}`,
       params
     );
-    // Natural Sort in Application Layer
-    const list = rows.map(r => r.machine).sort(naturalCompare);
+    // Standard DPR Compliance order: Line (B -L1, B -L2 … C -L1), then machine number
+    const list = rows.map(r => r.machine).sort(makeMachineOrder(rows));
     ttlCacheSet('machines', cacheKey, list, 30000);
     res.json({ ok: true, data: list });
   } catch (e) {
@@ -13865,7 +13865,10 @@ app.get('/api/planning/orders/pending', async (req, res) => {
   try {
     const requestFactoryId = getFactoryId(req);
 
+    // Newest orders first, so the cap never hides fresh JRs (the old alphabetical
+    // order put JR/JG/... before JR/JGUI/... and cut new orders off at 500).
     const rows = await q(`
+      SELECT * FROM (
       SELECT DISTINCT ON (TRIM(s.or_jr_no))
         TRIM(s.or_jr_no) AS "orderNo",
         COALESCE(rpt.or_jr_date, s.or_jr_date) AS "orDate",
@@ -13931,7 +13934,9 @@ app.get('/api/planning/orders/pending', async (req, res) => {
             )
         )
       ORDER BY TRIM(s.or_jr_no), rpt.job_card_date DESC NULLS LAST, s.or_jr_date DESC NULLS LAST
-      LIMIT 500
+      ) pending
+      ORDER BY "orJrDate" DESC NULLS LAST, "orderNo" DESC
+      LIMIT 2000
     `, [requestFactoryId]);
     res.json({ ok: true, data: rows });
   } catch (e) {
@@ -24874,6 +24879,12 @@ function mouldVerifyDeptForRole(roleCode, roleLabel) {
   const step = MOULD_VERIFY_STEPS.find(s => s.roles.includes(role));
   if (step) return step.key;
   if (label.includes('general manager')) return 'gm';
+  // Remark tagging only (not approval rights): other members of a department,
+  // e.g. QC Supervisor / Quality Executive, are tagged with their department.
+  if (/^(qc|quality)/.test(role) || /quality|\bqc\b/.test(label)) return 'quality';
+  if (/^mould/.test(role) || label.includes('moulding')) return 'moulding';
+  if (/^ppc/.test(role) || label.includes('ppc')) return 'ppc';
+  if (/^tool/.test(role) || label.includes('toolroom') || label.includes('tool room')) return 'toolroom';
   return null;
 }
 
@@ -25038,6 +25049,33 @@ app.post('/api/moulds/:id/verify/reset', async (req, res) => {
   }
 });
 
+async function mergeMainMouldVerifyNotes(id, localNotes) {
+  const mainUrl = String(process.env.MAIN_SERVER_URL || '').trim().replace(/\/$/, '');
+  if (!mainUrl) return localNotes;
+  try {
+    const r = await fetch(`${mainUrl}/api/moulds/${encodeURIComponent(id)}/verify-detail`, {
+      signal: AbortSignal.timeout(5000)
+    });
+    const j = r.ok ? await r.json() : null;
+    const mainNotes = (j && j.ok && j.data && Array.isArray(j.data.notes)) ? j.data.notes : null;
+    if (!mainNotes) return localNotes;
+    const seen = new Set();
+    const merged = [];
+    for (const n of [...mainNotes, ...localNotes]) {
+      const key = n.sync_id
+        ? String(n.sync_id)
+        : `${n.step}|${n.note}|${n.created_by}|${new Date(n.created_at).getTime()}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      merged.push(n);
+    }
+    merged.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    return merged.slice(0, 200);
+  } catch (_) {
+    return localNotes;
+  }
+}
+
 // GET /api/moulds/:id/verify-detail
 // Read-only detail for the verification Approve screen: full mould master row
 // (never edited from here), all added notes, and the computed step status.
@@ -25047,13 +25085,17 @@ app.get('/api/moulds/:id/verify-detail', async (req, res) => {
     const rows = await q(`SELECT * FROM moulds WHERE mould_number = $1 LIMIT 1`, [id]);
     if (!rows.length) return res.status(404).json({ ok: false, error: 'Mould not found' });
     const mould = rows[0];
-    const notes = await q(
-      `SELECT id, step, note, created_by, created_at
+    let notes = await q(
+      `SELECT id, sync_id, step, note, created_by, created_at
          FROM mould_verify_notes
         WHERE mould_number = $1
         ORDER BY created_at DESC LIMIT 200`,
       [id]
     );
+    // LOCAL only holds what the last sync pulled, so remarks just added by another
+    // department (on MAIN or another factory) would be missing. Merge MAIN's list in
+    // live so every department sees every remark at once; offline → local list only.
+    if (isLocalServer()) notes = await mergeMainMouldVerifyNotes(id, notes);
     const steps = MOULD_VERIFY_STEPS.map(s => ({
       key: s.key, label: s.label,
       by: mould[`verify_${s.col}_by`] || null,
@@ -25074,6 +25116,18 @@ app.post('/api/moulds/:id/verify-note', async (req, res) => {
     const { id } = req.params;
     if (isLocalServer()) {
       const fwd = await forwardMouldVerifyToMain(id, '/verify-note', req.body);
+      // OPTIMISTIC LOCAL APPLY with MAIN's sync_id, so the remark shows here at once
+      // and the next pull dedups onto the same row instead of duplicating it.
+      const saved = fwd.ok && fwd.json && fwd.json.note;
+      if (saved && saved.sync_id) {
+        try {
+          await q(
+            `INSERT INTO mould_verify_notes(mould_number, step, note, created_by, created_at, factory_id, sync_id)
+             VALUES($1, $2, $3, $4, $5, $6, $7) ON CONFLICT (sync_id) DO NOTHING`,
+            [id, saved.step, saved.note, saved.created_by, saved.created_at, saved.factory_id ?? null, saved.sync_id]
+          );
+        } catch (applyErr) { console.warn('[verify-note] optimistic local apply skipped:', applyErr.message); }
+      }
       if (fwd.ok && typeof syncService.triggerSync === 'function') syncService.triggerSync();
       return res.status(fwd.ok ? 200 : fwd.status).json(fwd.json);
     }
@@ -25091,29 +25145,28 @@ app.post('/api/moulds/:id/verify-note', async (req, res) => {
     ))[0];
     if (!urow) return res.status(403).json({ ok: false, error: 'User not found' });
 
-    // A remark may be left by ANY verification department at any time (not only the
-    // department whose step is currently pending) so every department stays in the
-    // loop. The remark is tagged with the AUTHOR's own department, so readers can see
-    // which department raised it. Admin/superadmin may target any step they pass.
+    // A remark may be left by ANY department at any time (not only the department
+    // whose step is currently pending) and every department sees it. It is tagged
+    // with the AUTHOR's own verification department; users outside the verification
+    // roles are tagged 'general'. Admin/superadmin may pick any step.
     const authorDept = mouldVerifyDeptForRole(urow.role_code, urow.role_label);
-    if (!authorDept) {
-      return res.status(403).json({ ok: false, error: 'Only mould-verification departments can add remarks.' });
-    }
-    const stepKey = authorDept === 'ALL'
-      ? (MOULD_VERIFY_STEPS.some(s => s.key === requestedStepKey) ? requestedStepKey : 'nkb')
-      : authorDept;
-    const step = MOULD_VERIFY_STEPS.find(s => s.key === stepKey);
-    if (!step) return res.status(400).json({ ok: false, error: 'Invalid verification step' });
+    const stepKey = !authorDept
+      ? 'general'
+      : authorDept === 'ALL'
+        ? (MOULD_VERIFY_STEPS.some(s => s.key === requestedStepKey) ? requestedStepKey : 'nkb')
+        : authorDept;
+    const step = MOULD_VERIFY_STEPS.find(s => s.key === stepKey) || { label: 'General' };
 
     const mrows = await q(`SELECT factory_id FROM moulds WHERE mould_number = $1 LIMIT 1`, [id]);
     if (!mrows.length) return res.status(404).json({ ok: false, error: 'Mould not found' });
     const factoryId = mrows[0].factory_id || null;
 
-    await q(
+    const saved = (await q(
       `INSERT INTO mould_verify_notes(mould_number, step, note, created_by, factory_id)
-       VALUES($1, $2, $3, $4, $5)`,
+       VALUES($1, $2, $3, $4, $5)
+       RETURNING sync_id, step, note, created_by, created_at, factory_id`,
       [id, stepKey, note, username, factoryId]
-    );
+    ))[0];
     await q(
       `INSERT INTO mould_audit_logs(mould_id, action_type, changed_fields, changed_by, factory_id)
        VALUES($1, 'VERIFY_NOTE', $2, $3, $4)`,
@@ -25121,9 +25174,56 @@ app.post('/api/moulds/:id/verify-note', async (req, res) => {
     );
 
     if (typeof syncService.triggerSync === 'function') syncService.triggerSync();
-    res.json({ ok: true, message: 'Detail added.' });
+    res.json({ ok: true, message: 'Detail added.', note: saved });
   } catch (e) {
     console.error('mould verify-note error', e);
+    sendServerError(res, e);
+  }
+});
+
+// POST /api/moulds/:id/verify-note/delete  { sync_id, session:{username} }
+// Admin/Superadmin only. Deletes one remark on MAIN; the sync delete trigger carries
+// the deletion to every factory server (mould_verify_notes deletions are global).
+app.post('/api/moulds/:id/verify-note/delete', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const syncId = String(req.body?.sync_id || '').trim();
+    if (!/^[0-9a-f-]{36}$/i.test(syncId)) return res.status(400).json({ ok: false, error: 'Invalid remark id' });
+    if (isLocalServer()) {
+      const fwd = await forwardMouldVerifyToMain(id, '/verify-note/delete', req.body);
+      if (fwd.ok) {
+        // Optimistic local delete so it disappears here at once; the pulled
+        // deletion from MAIN is then a no-op.
+        try {
+          await q(`DELETE FROM mould_verify_notes WHERE sync_id = $1::uuid AND mould_number = $2`, [syncId, id]);
+        } catch (applyErr) { console.warn('[verify-note/delete] optimistic local apply skipped:', applyErr.message); }
+        if (typeof syncService.triggerSync === 'function') syncService.triggerSync();
+      }
+      return res.status(fwd.ok ? 200 : fwd.status).json(fwd.json);
+    }
+    const username = req.body?.session?.username || req.body?._user || getRequestUsername(req);
+    if (!username) return res.status(401).json({ ok: false, error: 'Unauthorized' });
+    const urow = (await q('SELECT role_code FROM users WHERE username = $1 LIMIT 1', [username]))[0];
+    const role = String(urow?.role_code || '').toLowerCase();
+    if (role !== 'superadmin' && role !== 'admin') {
+      return res.status(403).json({ ok: false, error: 'Only Admin or Superadmin can delete remarks.' });
+    }
+    const del = await q(
+      `DELETE FROM mould_verify_notes WHERE sync_id = $1::uuid AND mould_number = $2
+       RETURNING step, note, created_by, factory_id`,
+      [syncId, id]
+    );
+    if (!del.length) return res.status(404).json({ ok: false, error: 'Remark not found (already deleted?)' });
+    const d = del[0];
+    await q(
+      `INSERT INTO mould_audit_logs(mould_id, action_type, changed_fields, changed_by, factory_id)
+       VALUES($1, 'VERIFY_NOTE_DELETE', $2, $3, $4)`,
+      [id, JSON.stringify({ message: 'Remark deleted', step: d.step, note: d.note, by: d.created_by }), username, d.factory_id || null]
+    );
+    if (typeof syncService.triggerSync === 'function') syncService.triggerSync();
+    res.json({ ok: true, message: 'Remark deleted.' });
+  } catch (e) {
+    console.error('mould verify-note delete error', e);
     sendServerError(res, e);
   }
 });
@@ -25438,12 +25538,52 @@ const MOULD_VERIFY_SELECT = `SELECT mould_number, mould_name, factory_id,
     verify_gm_by, verify_gm_at, verify_nkb_by, verify_nkb_at
   FROM moulds ORDER BY mould_number ASC`;
 
+// Per-mould remark count + latest remark, so the mould table can flag moulds that
+// have remarks without opening them. LOCAL merges MAIN's view (newest wins) so a
+// remark written in any department / on any server is flagged everywhere at once.
+async function mouldRemarkSummary() {
+  const rows = await q(
+    `SELECT DISTINCT ON (mould_number) mould_number, note, created_by, step, created_at,
+            COUNT(*) OVER (PARTITION BY mould_number) AS cnt
+       FROM mould_verify_notes
+      ORDER BY mould_number, created_at DESC`,
+    []
+  );
+  const out = {};
+  for (const r of rows) {
+    out[r.mould_number] = {
+      count: Number(r.cnt) || 0,
+      last: { note: r.note, by: r.created_by, step: r.step, at: r.created_at }
+    };
+  }
+  if (!isLocalServer()) return out;
+  const mainUrl = String(process.env.MAIN_SERVER_URL || '').trim().replace(/\/$/, '');
+  if (!mainUrl) return out;
+  try {
+    const r = await fetch(`${mainUrl}/api/moulds/verification-summary`, { signal: AbortSignal.timeout(5000) });
+    const j = r.ok ? await r.json() : null;
+    const main = j && j.ok && j.data && j.data.remarks;
+    if (main && typeof main === 'object') {
+      for (const [mn, v] of Object.entries(main)) {
+        const cur = out[mn];
+        if (!cur || (v.count || 0) > cur.count
+            || new Date(v.last && v.last.at) > new Date(cur.last && cur.last.at)) {
+          out[mn] = v;
+        }
+      }
+    }
+  } catch (_) { /* offline: local counts only */ }
+  return out;
+}
+
 // GET /api/moulds/verification-summary — counts + per-mould next-pending step.
 // Read-only; any logged-in user (drives the status panel + pending badges).
 app.get('/api/moulds/verification-summary', async (req, res) => {
   try {
     const rows = await q(MOULD_VERIFY_SELECT, []);
-    res.json({ ok: true, data: computeMouldVerifyStanding(rows), steps: MOULD_VERIFY_STEPS.map(s => ({ key: s.key, label: s.label })) });
+    const data = computeMouldVerifyStanding(rows);
+    data.remarks = await mouldRemarkSummary();
+    res.json({ ok: true, data, steps: MOULD_VERIFY_STEPS.map(s => ({ key: s.key, label: s.label })) });
   } catch (e) {
     console.error('mould verification-summary error', e);
     sendServerError(res, e);

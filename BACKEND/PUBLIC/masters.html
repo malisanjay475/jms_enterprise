@@ -732,8 +732,13 @@
           <h3 style="margin:0 0 2px 0">Mould Verification</h3>
           <div id="mvMouldTitle" style="font-size:0.82rem; color:#64748b"></div>
         </div>
-        <button onclick="document.getElementById('mouldVerifyModal').style.display='none'"
-          style="border:none; background:none; font-size:1.6rem; line-height:1; cursor:pointer">&times;</button>
+        <div style="display:flex; align-items:center; gap:8px">
+          <!-- Read-only mould details + last jobs, for everyone at any stage -->
+          <button type="button" onclick="openMouldVerifyDetail(null)" class="btn-action"
+            style="padding:6px 12px; font-size:0.78rem; background:#0f766e; white-space:nowrap"><i class="bi bi-eye"></i> View Mould Details</button>
+          <button onclick="document.getElementById('mouldVerifyModal').style.display='none'"
+            style="border:none; background:none; font-size:1.6rem; line-height:1; cursor:pointer">&times;</button>
+        </div>
       </div>
 
       <div id="mvBadgeBanner" style="display:none; margin:14px 0; padding:12px 14px; border-radius:8px; background:#dcfce7; border:1px solid #86efac; color:#166534; font-weight:700; align-items:center; gap:8px">
@@ -803,7 +808,7 @@
         <h4 style="margin:0 0 8px 0; font-size:0.9rem; color:#0f172a">Added Details</h4>
         <div id="mvdNotes" style="display:flex; flex-direction:column; gap:6px; margin-bottom:8px"></div>
         <div id="mvdNoteAddWrap" style="display:flex; gap:8px; align-items:flex-start">
-          <textarea id="mvdNoteInput" rows="2" placeholder="Add any detail / observation for this step…"
+          <textarea id="mvdNoteInput" rows="2" placeholder="Remark for all departments (saved when you Add Detail or Confirm)…"
             style="flex:1; padding:8px; border:1px solid #cbd5e1; border-radius:6px; font-size:0.82rem; resize:vertical"></textarea>
           <button type="button" onclick="addMouldVerifyNote()" class="btn-action" style="padding:8px 14px; font-size:0.8rem; background:#475569">Add Detail</button>
         </div>
