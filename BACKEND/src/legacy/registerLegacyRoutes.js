@@ -11617,11 +11617,19 @@ async function buildDprOrderAnalysis(req) {
   // --- Lifecycle timeline (OR Date -> JC convert -> Plan -> Production -> Complete) ---
   const firstProdRow = logs.length ? logs[0] : null;          // logs are ASC by date
   const lastProdRow = logs.length ? logs[logs.length - 1] : null;
+  // Whole calendar days between two dates, compared as IST calendar dates so a timestamp
+  // (e.g. plan created 18-Sep 23:30 IST) and a DPR date ('2026-09-21') count consistently.
+  const istDay = (v) => {
+    if (!v) return null;
+    if (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v)) return v;
+    const d = new Date(v);
+    if (isNaN(d)) return null;
+    return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' }).format(d);
+  };
   const dayDiff = (a, b) => {
-    if (!a || !b) return null;
-    const d1 = new Date(a), d2 = new Date(b);
-    if (isNaN(d1) || isNaN(d2)) return null;
-    return Math.round((d2 - d1) / 86400000);
+    const d1 = istDay(a), d2 = istDay(b);
+    if (!d1 || !d2) return null;
+    return Math.round((Date.parse(`${d2}T00:00:00Z`) - Date.parse(`${d1}T00:00:00Z`)) / 86400000);
   };
   const lifecycle = {
     or_date: info.or_jr_date || null,
@@ -11641,7 +11649,9 @@ async function buildDprOrderAnalysis(req) {
       jc_to_plan_created: dayDiff(info.job_card_date, info.plan_created_at),
       or_to_prod: dayDiff(info.or_jr_date, firstProdRow ? firstProdRow.date : null),
       jc_to_plan: dayDiff(info.job_card_date, info.start_date),
-      plan_to_prod: dayDiff(info.start_date, firstProdRow ? firstProdRow.date : null),
+      // Measured from when the plan was created (the date the timeline shows). start_date
+      // can hold a stale/default value, which produced gaps like "Plan → Prod: 937 days".
+      plan_to_prod: dayDiff(info.plan_created_at || info.start_date, firstProdRow ? firstProdRow.date : null),
       prod_span: dayDiff(firstProdRow ? firstProdRow.date : null, lastProdRow ? lastProdRow.date : null)
     }
   };
