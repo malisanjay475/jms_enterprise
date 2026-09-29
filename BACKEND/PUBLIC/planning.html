@@ -3293,6 +3293,26 @@
       #machineGrid .machine * { animation: none !important; }
     }
 
+    /* Line shift team (responsible people from the saved shift team) */
+    #machineGrid .pb-line-team {
+      display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
+      margin: -4px 0 10px; font-size: 0.72rem;
+    }
+    #machineGrid .pb-team-when {
+      font-size: 0.66rem; font-weight: 800; color: #0369a1; background: #e0f2fe;
+      border-radius: 999px; padding: 2px 8px;
+    }
+    #machineGrid .pb-team-person {
+      display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px;
+      border: 1px solid #e2e8f0; border-radius: 999px; background: #fff; color: #475569;
+    }
+    #machineGrid .pb-team-person i { color: #64748b; }
+    #machineGrid .pb-team-role { color: #94a3b8; font-weight: 600; }
+    #machineGrid .pb-team-person b { color: #0f172a; font-weight: 800; }
+    #machineGrid .pb-team-person.is-empty { border-style: dashed; }
+    #machineGrid .pb-team-person.is-empty b { color: #dc2626; font-weight: 700; }
+    #machineGrid .pb-line-team.is-missing { color: #b45309; font-weight: 700; }
+
     /* ===== Planning board v2: one sticky toolbar + actionable KPI tiles ===== */
     #dashboardToolbar.pb-toolbar {
       position: sticky; top: 8px; z-index: 40;
@@ -3690,6 +3710,7 @@
       </div>
 
       <!-- QC Evidence -->
+      <div id="pjdSetupBox" style="background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:16px"></div>
       <div id="pjdQCBox" style="background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:16px"></div>
 
       <!-- Colour-wise Breakdown -->
