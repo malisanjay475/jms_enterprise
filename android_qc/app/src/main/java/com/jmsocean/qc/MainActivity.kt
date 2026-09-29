@@ -5,6 +5,8 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -78,6 +80,7 @@ private object Routes {
     const val RECENT = "recent"
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun QcApp_Root() {
     val nav = rememberNavController()
@@ -204,7 +207,9 @@ fun QcApp_Root() {
         NavHost(
             navController = nav,
             startDestination = start,
-            modifier = Modifier.padding(scaffoldPad)
+            // consume the insets already applied here, so each screen's own top bar
+            // doesn't add the status-bar gap a second time
+            modifier = Modifier.padding(scaffoldPad).consumeWindowInsets(scaffoldPad)
         ) {
             composable(Routes.LOGIN) {
                 LoginScreen(onLoggedIn = {

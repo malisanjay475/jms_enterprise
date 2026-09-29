@@ -1631,7 +1631,17 @@
                     ? `<button onclick="openMouldModal('edit', JSON.parse(decodeURIComponent('${safeData}')))" class="btn-action-icon" title="Edit"><i class="bi bi-pencil-square text-blue-600"></i></button>
                        <button onclick="viewMouldHistory('${row.mould_number}')" class="btn-action-icon" title="History"><i class="bi bi-clock-history text-gray-600"></i></button>`
                     : '';
-                  return `<div style="white-space:nowrap; display:inline-flex; align-items:center; gap:2px">${editBtns}${verifyBtn}</div>`;
+                  // Remark badge: shows at a glance that some department left remarks on
+                  // this mould (count + latest remark on hover); click opens them.
+                  const rem = (window._mvRemarkSummary || {})[row.mould_number];
+                  let remarkBtn = '';
+                  if (rem && rem.count > 0) {
+                    const l = rem.last || {};
+                    const esc = v => String(v == null ? '' : v).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+                    const tip = esc(`${rem.count} remark${rem.count > 1 ? 's' : ''} — latest by ${l.by || '?'}: ${String(l.note || '').slice(0, 120)}`);
+                    remarkBtn = `<button onclick="openMouldVerifyModal(JSON.parse(decodeURIComponent('${safeData}')))" class="btn-action-icon" title="${tip}" style="position:relative"><i class="bi bi-chat-left-text-fill" style="color:#ea580c"></i><span style="position:absolute; top:-4px; right:-6px; background:#dc2626; color:#fff; font-size:0.6rem; font-weight:700; line-height:1; padding:2px 4px; border-radius:8px">${rem.count}</span></button>`;
+                  }
+                  return `<div style="white-space:nowrap; display:inline-flex; align-items:center; gap:2px">${editBtns}${verifyBtn}${remarkBtn}</div>`;
               } else if (currentType === 'users') {
                 const perms = row.permissions || {};
                 const permBadges = Object.keys(perms).map(k => perms[k] ? `<span style="background:#e0e7ff; color:#3730a3; padding:2px 6px; border-radius:4px; font-size:0.7rem; margin-right:4px">${k}</span>` : '').join('');

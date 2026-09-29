@@ -663,6 +663,21 @@ async function setSyncAuditState(stats = {}) {
     await setServerConfigValue('LAST_SYNC_CYCLE_AT', new Date().toISOString());
 }
 
+// Pulls ask MAIN for rows newer than the saved watermark MINUS this overlap.
+// updated_at is stamped when a transaction starts (NOW()), but the row only becomes
+// visible when it commits. A long MAIN transaction (e.g. an ERP import) can commit
+// minutes after the watermark already moved past its timestamp, and those rows
+// were then never pulled (JR/JGUI/2627/3898-3900 on 28-Sep-2026). The watermark is
+// also LOCAL's clock, not MAIN's. Re-pulling the overlap is safe: the upsert only
+// applies a row when it is newer than the local copy.
+const SYNC_PULL_OVERLAP_MS = Math.max(0, Number(process.env.SYNC_PULL_OVERLAP_MINUTES ?? 20)) * 60 * 1000;
+
+function withPullOverlap(watermark) {
+    const t = Date.parse(watermark);
+    if (!Number.isFinite(t) || t <= 0) return watermark;
+    return new Date(Math.max(0, t - SYNC_PULL_OVERLAP_MS)).toISOString();
+}
+
 async function getDatabaseNowIso() {
     const result = await pool.query('SELECT NOW() AS ts');
     return new Date(result.rows[0].ts).toISOString();
@@ -1777,7 +1792,7 @@ async function pullChanges() {
             }
 
             let pulled = 0;
-            await pullTableAllPages(table, lastPull, async (rows) => {
+            await pullTableAllPages(table, withPullOverlap(lastPull), async (rows) => {
                 pulled += rows.length;
                 const pageStats = await upsertData(table, rows);
                 stats.created += pageStats.created;
@@ -2453,7 +2468,9 @@ async function getDeletionChanges(since, targetFactoryId, afterId = null) {
 
     if (targetFactoryId) {
         params.push(targetFactoryId);
-        where.push(`(factory_id = $${params.length} OR factory_id IS NULL)`);
+        // Mould verification remarks are pulled company-wide (GLOBAL_MASTER_TABLES), so
+        // their deletions must reach every factory too, not only the owning factory.
+        where.push(`(factory_id = $${params.length} OR factory_id IS NULL OR table_name = 'mould_verify_notes')`);
     }
 
     let sql = `
@@ -3361,6 +3378,7 @@ module.exports = {
         fetchWithSyncRetry,
         pullChanges,
         pullTableAllPages,
+        withPullOverlap,
         pushTableAllBatches,
         drainOutbox,
         recordFailedRows,
