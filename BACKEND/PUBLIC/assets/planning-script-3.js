@@ -1845,7 +1845,10 @@
         function pjdDays(n) {
           if (n === null || n === undefined || Number.isNaN(Number(n))) return null;
           const v = Number(n);
-          return v === 0 ? 'same day' : `${v} day${Math.abs(v) === 1 ? '' : 's'}`;
+          if (v === 0) return 'same day';
+          const days = `${Math.abs(v)} day${Math.abs(v) === 1 ? '' : 's'}`;
+          // Dates entered out of order (e.g. JC dated before the OR) read as "before", not "-2 days"
+          return v < 0 ? `${days} before` : days;
         }
         function pjdRenderLifecycle(lc, info) {
           const box = document.getElementById('pjdLifecycleBox');
