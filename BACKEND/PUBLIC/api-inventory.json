@@ -281,10 +281,10 @@
     {
       "kind": "backend_route",
       "method": "GET",
-      "path": "/api/dpr/dashboard-matrix",
+      "path": "/api/dpr/moulding-dashboard",
       "source_file": "BACKEND/server.js",
       "source_location": "L926",
-      "raw": "app.get('/api/dpr/dashboard-matrix', async (req, res) => {"
+      "raw": "app.get('/api/dpr/moulding-dashboard', async (req, res) => {"
     },
     {
       "kind": "backend_route",

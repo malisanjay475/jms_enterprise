@@ -11,8 +11,26 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.78.0",
+  "latest": "1.79.0",
   "versions": [
+    {
+      "version": "1.79.0",
+      "date": "2026-09-29",
+      "title": "New Moulding dashboard: machine-wise OEE and live status",
+      "modules": [
+        {
+          "app": "dashboard",
+          "label": "Dashboard",
+          "icon": "bi-speedometer2",
+          "changes": [
+            { "type": "feat", "text": "The Moulding dashboard is rebuilt: OEE (availability, performance, quality), a live status board for every machine, hour-by-hour charts, downtime and rejection Paretos, line and machine tables and a 7-day trend." },
+            { "type": "feat", "text": "Click any machine to see its current job, standard vs actual cycle time, cavities, hour-by-hour output and its top downtime and rejection reasons." },
+            { "type": "feat", "text": "A Needs attention list flags machines that are down, missing DPR entries, running slower than standard, rejecting too much or close to finishing their plan." },
+            { "type": "fix", "text": "Moulding dashboard hours now follow the real shifts (07:00-19:00 and 19:00-07:00) and no longer count deleted or duplicate DPR entries." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.78.0",
       "date": "2026-09-29",

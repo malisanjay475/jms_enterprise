@@ -4,903 +4,1124 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>JMS OCEAN - Production Dashboard</title>
+    <title>JMS OCEAN - Moulding Dashboard</title>
     <link rel="stylesheet" href="/assets/app.css?v=12">
     <link rel="stylesheet" href="/assets/bootstrap-icons.min.css">
     <script src="/assets/vendor/jsdelivr/chart.js"></script>
 
     <style>
         :root {
-            /* Dark Theme Overrides */
-            --bg-dark: #0f172a;
-            /* Deep Slate */
-            --bg-card: #1e293b;
-            /* Lighter Slate */
-            --text-primary: #f8fafc;
-            --text-secondary: #94a3b8;
-            --accent-blue: #3b82f6;
-            --accent-green: #10b981;
-            --accent-red: #ef4444;
-            --accent-yellow: #f59e0b;
-            --glass-bg: rgba(30, 41, 59, 0.7);
-            --glass-border: rgba(255, 255, 255, 0.1);
+            --md-bg: #0b1220;
+            --md-panel: #111a2e;
+            --md-panel-2: #16213a;
+            --md-border: rgba(148, 163, 184, 0.16);
+            --md-border-strong: rgba(148, 163, 184, 0.3);
+            --md-text: #e8eef8;
+            --md-muted: #94a3b8;
+            --md-dim: #64748b;
+            --md-accent: #3b82f6;
+            --md-good: #22c55e;
+            --md-warn: #f59e0b;
+            --md-bad: #ef4444;
+            --md-maint: #a78bfa;
+            --md-idle: #475569;
+            --md-good-bg: rgba(34, 197, 94, 0.14);
+            --md-warn-bg: rgba(245, 158, 11, 0.14);
+            --md-bad-bg: rgba(239, 68, 68, 0.14);
+            --md-maint-bg: rgba(167, 139, 250, 0.16);
+            --md-idle-bg: rgba(100, 116, 139, 0.16);
         }
 
-        /* Essential for Sidebar Integration: Override body bg but keep flex layout from app.css */
-        body {
-            background-color: var(--bg-dark);
-            color: var(--text-primary);
-        }
+        body { background: var(--md-bg); color: var(--md-text); }
+        .main-content.md-root { padding: 0; background: var(--md-bg); }
+        .md-scroll { height: 100%; overflow-y: auto; }
+        .md-wrap { max-width: 1920px; margin: 0 auto; padding: 0 20px 48px; }
+        .md-root *, .md-drawer * { box-sizing: border-box; }
+        .num { font-variant-numeric: tabular-nums; }
 
-        /* The Main Scrollable Area */
-        .dashboard-scroll-area {
-            height: 100%;
-            overflow-y: auto;
-            padding: 24px;
-            scroll-behavior: smooth;
+        /* ── Header ── */
+        .md-head {
+            position: sticky; top: 0; z-index: 30;
+            background: rgba(11, 18, 32, 0.92); backdrop-filter: blur(10px);
+            border-bottom: 1px solid var(--md-border);
+            margin: 0 -20px 16px; padding: 12px 20px 10px;
         }
+        .md-head-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+        .md-title { display: flex; align-items: center; gap: 10px; min-width: 0; }
+        .md-title h1 { margin: 0; font-size: 1.25rem; font-weight: 800; letter-spacing: -0.3px; color: var(--md-text); }
+        .md-title .sub { font-size: 0.78rem; color: var(--md-muted); }
+        .live-pill { display: none; align-items: center; gap: 6px; font-size: 0.7rem; font-weight: 800; letter-spacing: 0.6px; color: #fecaca; background: rgba(239, 68, 68, 0.18); border: 1px solid rgba(239, 68, 68, 0.4); padding: 2px 8px; border-radius: 999px; }
+        .live-pill.on { display: inline-flex; }
+        .live-pill i { width: 7px; height: 7px; border-radius: 50%; background: var(--md-bad); animation: md-blink 1.4s infinite; }
+        @keyframes md-blink { 50% { opacity: 0.25; } }
 
-        .dashboard-container {
-            max-width: 1800px;
-            margin: 0 auto;
-            padding-bottom: 50px;
+        .md-controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+        .md-field { display: flex; align-items: center; gap: 6px; background: var(--md-panel); border: 1px solid var(--md-border); border-radius: 8px; padding: 0 10px; height: 36px; color: var(--md-muted); }
+        .md-field input, .md-field select { background: transparent; border: 0; color: var(--md-text); outline: none; font: inherit; font-size: 0.85rem; height: 34px; }
+        .md-field select option { background: var(--md-panel); color: var(--md-text); }
+        .md-field input[type="date"] { color-scheme: dark; }
+        .seg { display: inline-flex; background: var(--md-panel); border: 1px solid var(--md-border); border-radius: 8px; padding: 3px; height: 36px; }
+        .seg button { border: 0; background: transparent; color: var(--md-muted); font: inherit; font-size: 0.8rem; font-weight: 600; padding: 0 12px; border-radius: 6px; cursor: pointer; }
+        .seg button.active { background: var(--md-accent); color: #fff; }
+        .md-btn { height: 36px; min-width: 36px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 0 10px; background: var(--md-panel); border: 1px solid var(--md-border); border-radius: 8px; color: var(--md-text); font: inherit; font-size: 0.8rem; font-weight: 600; cursor: pointer; }
+        .md-btn:hover { border-color: var(--md-border-strong); background: var(--md-panel-2); }
+        .md-btn.on { border-color: rgba(34, 197, 94, 0.5); color: #86efac; }
+        .md-btn:focus-visible, .seg button:focus-visible, .mtile:focus-visible { outline: 2px solid var(--md-accent); outline-offset: 2px; }
+
+        .shift-bar { display: flex; align-items: center; gap: 10px; margin-top: 10px; font-size: 0.75rem; color: var(--md-muted); }
+        .shift-track { flex: 1; height: 6px; background: var(--md-panel-2); border-radius: 999px; overflow: hidden; }
+        .shift-fill { height: 100%; background: linear-gradient(90deg, #2563eb, #38bdf8); border-radius: 999px; transition: width 0.4s; }
+
+        /* ── Panels ── */
+        .mdp { background: var(--md-panel); border: 1px solid var(--md-border); border-radius: 12px; padding: 16px; min-width: 0; }
+        .panel-h { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
+        .panel-h h2 { margin: 0; font-size: 0.95rem; font-weight: 700; color: var(--md-text); display: flex; align-items: center; gap: 8px; }
+        .panel-h h2 i { color: var(--md-muted); }
+        .panel-h .hint { font-size: 0.72rem; color: var(--md-dim); }
+        .grid { display: grid; gap: 16px; margin-bottom: 16px; }
+        .g-kpi { grid-template-columns: repeat(7, minmax(0, 1fr)); }
+        .g-2-1 { grid-template-columns: minmax(0, 1.05fr) minmax(0, 1.4fr) minmax(0, 1fr); }
+        .g-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        @media (max-width: 1500px) { .g-kpi { grid-template-columns: repeat(4, minmax(0, 1fr)); } .g-2-1 { grid-template-columns: repeat(2, minmax(0, 1fr)); } .g-2-1 > :last-child { grid-column: span 2; } }
+        @media (max-width: 900px) { .g-kpi { grid-template-columns: repeat(2, minmax(0, 1fr)); } .g-2-1, .g-2 { grid-template-columns: minmax(0, 1fr); } .g-2-1 > :last-child { grid-column: auto; } .md-wrap { padding: 0 12px 40px; } .md-head { margin: 0 -12px 12px; padding: 10px 12px; } .md-wrap { padding-bottom: 96px; } }
+
+        /* ── KPI tiles ── */
+        .kpi { position: relative; overflow: hidden; }
+        .kpi::before { content: ''; position: absolute; inset: 0 auto 0 0; width: 3px; background: var(--kc, var(--md-accent)); }
+        .kpi-l { font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; color: var(--md-muted); display: flex; justify-content: space-between; align-items: center; gap: 6px; }
+        .kpi-v { font-size: 1.9rem; font-weight: 800; line-height: 1.15; margin: 6px 0 2px; color: var(--md-text); white-space: nowrap; }
+        .kpi-v small { font-size: 0.85rem; font-weight: 600; color: var(--md-muted); margin-left: 3px; }
+        .kpi-s { font-size: 0.75rem; color: var(--md-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .delta { font-size: 0.7rem; font-weight: 700; padding: 1px 6px; border-radius: 999px; background: var(--md-idle-bg); color: var(--md-muted); white-space: nowrap; }
+        .delta.up { background: var(--md-good-bg); color: #86efac; }
+        .delta.down { background: var(--md-bad-bg); color: #fca5a5; }
+        .apq { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 8px; }
+        .apq div { font-size: 0.68rem; color: var(--md-muted); }
+        .apq b { display: block; font-size: 0.85rem; color: var(--md-text); }
+        .mini-track { height: 4px; background: var(--md-panel-2); border-radius: 999px; margin-top: 3px; overflow: hidden; }
+        .mini-track span { display: block; height: 100%; border-radius: 999px; }
+
+        /* ── OEE loss tree ── */
+        .loss-row { display: grid; grid-template-columns: 130px minmax(0, 1fr) 64px; align-items: center; gap: 10px; margin: 9px 0; font-size: 0.8rem; }
+        .loss-row .lbl { color: var(--md-muted); }
+        .loss-row .lbl b { color: var(--md-text); font-weight: 600; }
+        .loss-track { height: 20px; background: var(--md-panel-2); border-radius: 5px; position: relative; overflow: hidden; }
+        .loss-track span { position: absolute; top: 0; bottom: 0; border-radius: 5px; }
+        .loss-row .v { text-align: right; font-weight: 700; }
+        .oee-gauge { display: flex; align-items: center; gap: 14px; margin-bottom: 6px; }
+        .oee-gauge svg { flex: 0 0 auto; }
+        .oee-band { font-size: 0.75rem; color: var(--md-muted); line-height: 1.5; }
+
+        /* ── Status board ── */
+        .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+        .chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--md-border); background: var(--md-panel-2); color: var(--md-text); font: inherit; font-size: 0.75rem; font-weight: 600; cursor: pointer; }
+        .chip i { width: 8px; height: 8px; border-radius: 50%; }
+        .chip.active { border-color: var(--md-text); }
+        .line-group { margin-top: 14px; }
+        .line-group h3 { margin: 0 0 8px; font-size: 0.78rem; font-weight: 700; color: var(--md-muted); text-transform: uppercase; letter-spacing: 0.6px; display: flex; gap: 10px; align-items: baseline; }
+        .line-group h3 span { font-weight: 600; text-transform: none; letter-spacing: 0; color: var(--md-dim); }
+        .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(215px, 1fr)); gap: 10px; }
+        .mtile { background: var(--md-panel-2); border: 1px solid var(--md-border); border-top: 3px solid var(--sc); border-radius: 10px; padding: 10px 11px 9px; cursor: pointer; text-align: left; color: inherit; font: inherit; width: 100%; display: flex; flex-direction: column; gap: 6px; transition: border-color 0.15s, transform 0.15s; }
+        .mtile:hover { transform: translateY(-1px); border-color: var(--md-border-strong); border-top-color: var(--sc); }
+        .tile-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 6px; }
+        .tile-name { font-weight: 800; font-size: 0.86rem; line-height: 1.2; word-break: break-word; }
+        .tile-meta { font-size: 0.68rem; color: var(--md-dim); }
+        .st { display: inline-flex; align-items: center; gap: 4px; font-size: 0.64rem; font-weight: 800; letter-spacing: 0.4px; padding: 2px 7px; border-radius: 999px; background: var(--sbg); color: var(--sc); white-space: nowrap; }
+        .tile-mould { font-size: 0.72rem; color: var(--md-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .tile-stats { display: grid; grid-template-columns: 1.1fr 1fr 1fr; gap: 4px; align-items: end; }
+        .tile-stats div { font-size: 0.64rem; color: var(--md-dim); }
+        .tile-stats b { display: block; font-size: 0.9rem; color: var(--md-text); font-weight: 700; }
+        .tile-stats .big b { font-size: 1.25rem; font-weight: 800; }
+        .tile-note { font-size: 0.68rem; color: var(--sc); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-height: 0.9rem; }
+        .strip { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 2px; height: 9px; }
+        .strip i { border-radius: 2px; background: transparent; border: 1px solid rgba(148, 163, 184, 0.14); }
+        .s-run { background: var(--md-good) !important; border-color: transparent !important; }
+        .s-partial { background: var(--md-warn) !important; border-color: transparent !important; }
+        .s-down { background: var(--md-bad) !important; border-color: transparent !important; }
+        .s-missing { background: repeating-linear-gradient(135deg, rgba(245, 158, 11, 0.55) 0 2px, transparent 2px 4px) !important; border-color: rgba(245, 158, 11, 0.5) !important; }
+        .s-idle { background: rgba(100, 116, 139, 0.25) !important; border-color: transparent !important; }
+        .s-current { border-color: #93c5fd !important; animation: md-blink 1.6s infinite; }
+        .tiles.compact { grid-template-columns: repeat(auto-fill, minmax(138px, 1fr)); gap: 6px; }
+        .mtile.c { padding: 6px 8px 7px; gap: 5px; border-top-width: 3px; }
+        .mtile.c .tile-name { font-size: 0.74rem; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .mtile.c .tile-top { align-items: center; }
+        .mtile.c .oee-mini { font-size: 0.95rem; font-weight: 800; }
+        .mtile.c .tile-sub { display: flex; justify-content: space-between; gap: 6px; font-size: 0.64rem; color: var(--md-dim); white-space: nowrap; }
+        .mtile.c .strip { height: 7px; }
+        .progress { height: 5px; background: rgba(148, 163, 184, 0.14); border-radius: 999px; overflow: hidden; }
+        .progress span { display: block; height: 100%; border-radius: 999px; }
+
+        /* ── Alerts ── */
+        .alerts { display: flex; flex-direction: column; gap: 6px; max-height: 330px; overflow-y: auto; padding-right: 2px; }
+        .alert { display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 8px; padding: 8px 10px; border-radius: 8px; background: var(--md-panel-2); border-left: 3px solid var(--ac); cursor: pointer; }
+        .alert i { color: var(--ac); font-size: 0.95rem; }
+        .alert b { font-size: 0.8rem; display: block; }
+        .alert span { font-size: 0.72rem; color: var(--md-muted); }
+        .empty { color: var(--md-dim); font-size: 0.82rem; text-align: center; padding: 22px 8px; }
+
+        /* ── Charts ── */
+        .chart-box { position: relative; height: 290px; }
+        .chart-box.sm { height: 240px; }
+        .tabs { display: inline-flex; background: var(--md-panel-2); border-radius: 7px; padding: 3px; }
+        .tabs button { border: 0; background: transparent; color: var(--md-muted); font: inherit; font-size: 0.75rem; font-weight: 600; padding: 4px 10px; border-radius: 5px; cursor: pointer; }
+        .tabs button.active { background: var(--md-accent); color: #fff; }
+
+        /* ── Tables ── */
+        .tbl-wrap { overflow-x: auto; border: 1px solid var(--md-border); border-radius: 10px; }
+        table.md { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
+        table.md th { position: sticky; top: 0; background: var(--md-panel-2); color: var(--md-muted); font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 700; text-align: right; padding: 9px 10px; white-space: nowrap; border-bottom: 1px solid var(--md-border); cursor: pointer; user-select: none; }
+        table.md th.l, table.md td.l { text-align: left; }
+        table.md th .arr { opacity: 0.5; margin-left: 3px; }
+        table.md td { padding: 8px 10px; text-align: right; border-bottom: 1px solid rgba(148, 163, 184, 0.08); white-space: nowrap; color: var(--md-text); font-variant-numeric: tabular-nums; }
+        table.md tbody tr { cursor: pointer; }
+        table.md tbody tr:hover td { background: rgba(59, 130, 246, 0.07); }
+        table.md tfoot td { font-weight: 800; background: var(--md-panel-2); border-top: 1px solid var(--md-border-strong); }
+        .tbl-scroll { max-height: 620px; overflow: auto; }
+        .c-good { color: #4ade80 !important; }
+        .c-warn { color: #fbbf24 !important; }
+        .c-bad { color: #f87171 !important; }
+        .c-dim { color: var(--md-dim) !important; }
+        .search { display: flex; align-items: center; gap: 6px; background: var(--md-panel-2); border: 1px solid var(--md-border); border-radius: 8px; padding: 0 10px; height: 32px; }
+        .search input { background: transparent; border: 0; outline: none; color: var(--md-text); font: inherit; font-size: 0.8rem; width: 190px; }
+
+        /* ── Drawer ── */
+        .md-overlay { position: fixed; inset: 0; background: rgba(2, 6, 23, 0.6); z-index: 1000; opacity: 0; pointer-events: none; transition: opacity 0.2s; }
+        .md-overlay.open { opacity: 1; pointer-events: auto; }
+        .md-drawer { position: fixed; top: 0; right: 0; bottom: 0; width: min(640px, 100vw); background: var(--md-bg); border-left: 1px solid var(--md-border); z-index: 1001; transform: translateX(100%); transition: transform 0.25s ease; display: flex; flex-direction: column; color: var(--md-text); }
+        .md-drawer.open { transform: translateX(0); }
+        .dr-head { padding: 16px 18px; border-bottom: 1px solid var(--md-border); display: flex; justify-content: space-between; gap: 10px; align-items: flex-start; }
+        .dr-head h2 { margin: 0 0 4px; font-size: 1.1rem; }
+        .dr-body { padding: 16px 18px 40px; overflow-y: auto; flex: 1; display: flex; flex-direction: column; gap: 14px; }
+        .dr-body > * { flex-shrink: 0; }
+        .kv { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+        .kv div { background: var(--md-panel); border: 1px solid var(--md-border); border-radius: 8px; padding: 8px 10px; font-size: 0.68rem; color: var(--md-muted); min-width: 0; }
+        .kv b { display: block; font-size: 0.95rem; color: var(--md-text); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .kv .wide { grid-column: span 3; }
+        .kv .wide b { white-space: normal; font-size: 0.85rem; }
+        .dr-sec { font-size: 0.72rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.6px; color: var(--md-muted); margin: 4px 0 -4px; }
+        .bars { display: flex; flex-direction: column; gap: 6px; }
+        .bar-row { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 2fr) 60px; gap: 8px; align-items: center; font-size: 0.75rem; }
+        .bar-row .n { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--md-muted); }
+        .bar-row .v { text-align: right; font-weight: 700; }
+        @media (max-width: 600px) { .kv { grid-template-columns: repeat(2, minmax(0, 1fr)); } .kv .wide { grid-column: span 2; } .loss-row { grid-template-columns: 100px minmax(0, 1fr) 54px; } .search input { width: 130px; } .kpi-v { font-size: 1.5rem; } }
+
+        /* ── Tablets/phones: app.css (≤1024px) shows a floating menu button top-left and, at
+              ≤768px, forces light inputs and dark headings with !important — undo that here ── */
+        @media (max-width: 1024px) {
+            .md-head { position: static; }
+            .md-title { padding-left: 64px; min-height: 52px; }
         }
-
-        /* Header */
-        .dashboard-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 32px;
-            position: sticky;
-            top: 0;
-            z-index: 20;
-            background: rgba(15, 23, 42, 0.85);
-            /* Matches bg-dark with opacity */
-            backdrop-filter: blur(12px);
-            padding: 10px 0;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-        }
-
-        .header-title {
-            font-size: 1.8rem;
-            font-weight: 700;
-            background: linear-gradient(90deg, #fff, #94a3b8);
-            -webkit-background-clip: text;
-            background-clip: text;
-            -webkit-text-fill-color: transparent;
-        }
-
-        .header-controls {
-            display: flex;
-            gap: 16px;
-            align-items: center;
-        }
-
-        .date-picker-translucent {
-            background: var(--glass-bg);
-            border: 1px solid var(--glass-border);
-            color: var(--text-primary);
-            padding: 8px 16px;
-            border-radius: 8px;
-            backdrop-filter: blur(10px);
-            font-family: inherit;
-        }
-
-        .icon-btn {
-            width: 40px;
-            height: 40px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            border-radius: 50%;
-            background: var(--glass-bg);
-            border: 1px solid var(--glass-border);
-            color: var(--text-secondary);
-            cursor: pointer;
-            transition: all 0.2s;
-        }
-
-        .icon-btn:hover {
-            color: #fff;
-            background: rgba(255, 255, 255, 0.1);
-        }
-
-        /* KPI Grid */
-        .kpi-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-            gap: 20px;
-            margin-bottom: 32px;
-        }
-
-        .glass-card {
-            background: var(--glass-bg);
-            border: 1px solid var(--glass-border);
-            border-radius: 16px;
-            padding: 24px;
-            backdrop-filter: blur(12px);
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
-            transition: transform 0.2s;
-            display: flex;
-            flex-direction: column;
-        }
-
-        .glass-card:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3);
-        }
-
-        .kpi-title {
-            font-size: 0.9rem;
-            color: var(--text-secondary);
-            font-weight: 500;
-            margin-bottom: 8px;
-            display: flex;
-            justify-content: space-between;
-        }
-
-        .kpi-value {
-            font-size: 2rem;
-            font-weight: 700;
-            color: #fff;
-            margin-bottom: 4px;
-        }
-
-        .kpi-sub {
-            font-size: 0.8rem;
-            color: var(--text-secondary);
-        }
-
-        .trend-badge {
-            font-size: 0.75rem;
-            padding: 2px 8px;
-            border-radius: 12px;
-            font-weight: 600;
-        }
-
-        .trend-up {
-            background: rgba(16, 185, 129, 0.2);
-            color: #34d399;
-        }
-
-        .trend-down {
-            background: rgba(239, 68, 68, 0.2);
-            color: #f87171;
-        }
-
-        .trend-neutral {
-            background: rgba(148, 163, 184, 0.2);
-            color: #cbd5e1;
-        }
-
-        /* Main Content Grid */
-        .main-grid {
-            display: grid;
-            grid-template-columns: repeat(12, 1fr);
-            gap: 24px;
-            margin-bottom: 32px;
-        }
-
-        /* Chart Sections */
-        .col-span-4 {
-            grid-column: span 4;
-        }
-
-        .col-span-6 {
-            grid-column: span 6;
-        }
-
-        .col-span-8 {
-            grid-column: span 8;
-        }
-
-        .col-span-12 {
-            grid-column: span 12;
-        }
-
-        @media (max-width: 1400px) {
-            .col-span-4 {
-                grid-column: span 6;
+        @media (max-width: 768px) {
+            .md-root h1, .md-root h2, .md-root h3, .md-drawer h2 { color: var(--md-text) !important; }
+            .md-root h1 { font-size: 1.15rem !important; }
+            .md-root h2, .md-drawer h2 { font-size: 0.95rem !important; }
+            .md-root h3 { font-size: 0.78rem !important; color: var(--md-muted) !important; }
+            .md-root .md-field input, .md-root .md-field select, .md-root .search input {
+                background: transparent !important; border: 0 !important; color: var(--md-text) !important;
+                height: 34px !important; border-radius: 0 !important; font-size: 16px !important;
             }
-
-            .col-span-8 {
-                grid-column: span 12;
-            }
+            .kpi-l { flex-wrap: wrap; }
         }
 
-        @media (max-width: 900px) {
-            .col-span-4 {
-                grid-column: span 12;
-            }
-
-            .col-span-6 {
-                grid-column: span 12;
-            }
-        }
-
-        /* Table */
-        .dark-table {
-            width: 100%;
-            border-collapse: separate;
-            border-spacing: 0;
-            color: var(--text-secondary);
-        }
-
-        .dark-table th {
-            text-align: left;
-            padding: 16px;
-            font-weight: 600;
-            color: var(--text-secondary);
-            border-bottom: 1px solid var(--glass-border);
-            font-size: 0.85rem;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-        }
-
-        .dark-table td {
-            padding: 16px;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-            color: #fff;
-            vertical-align: middle;
-            font-size: 0.9rem;
-        }
-
-        .dark-table tr:hover td {
-            background: rgba(255, 255, 255, 0.02);
-        }
-
-        .status-pill {
-            padding: 4px 12px;
-            border-radius: 20px;
-            font-size: 0.75rem;
-            font-weight: 600;
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-        }
-
-        .status-completed {
-            background: rgba(16, 185, 129, 0.15);
-            color: #34d399;
-            border: 1px solid rgba(16, 185, 129, 0.2);
-        }
-
-        .status-normal {
-            background: rgba(59, 130, 246, 0.15);
-            color: #60a5fa;
-            border: 1px solid rgba(59, 130, 246, 0.2);
-        }
-
-        .status-alert {
-            background: rgba(239, 68, 68, 0.15);
-            color: #f87171;
-            border: 1px solid rgba(239, 68, 68, 0.2);
-        }
-
-        .status-warning {
-            background: rgba(245, 158, 11, 0.15);
-            color: #fbbf24;
-            border: 1px solid rgba(245, 158, 11, 0.2);
-        }
-
-        /* Neon Glows for Specific Cards */
-        .glow-blue {
-            box-shadow: 0 0 20px -5px rgba(59, 130, 246, 0.15);
-            border-color: rgba(59, 130, 246, 0.3);
-        }
-
-        .glow-green {
-            box-shadow: 0 0 20px -5px rgba(16, 185, 129, 0.15);
-            border-color: rgba(16, 185, 129, 0.3);
-        }
-
-        .glow-red {
-            box-shadow: 0 0 20px -5px rgba(239, 68, 68, 0.15);
-            border-color: rgba(239, 68, 68, 0.3);
-        }
-
-        /* Alerts List */
-        .alert-item {
-            display: flex;
-            gap: 12px;
-            padding: 12px;
-            margin-bottom: 12px;
-            border-radius: 8px;
-            background: rgba(255, 255, 255, 0.03);
-            border-left: 3px solid transparent;
-        }
-
-        /* Spinner */
-        .spinner-grid {
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            height: 100%;
-            color: var(--text-secondary);
-        }
-
-        .pulse-animation {
-            animation: pulse-red 2s infinite;
-        }
-
-        /* Tabs */
-        .tab-btn {
-            background: transparent;
-            border: none;
-            color: var(--text-secondary);
-            padding: 4px 12px;
-            font-size: 0.8rem;
-            cursor: pointer;
-            border-radius: 4px;
-            transition: all 0.2s;
-        }
-
-        .tab-btn.active {
-            background: var(--primary-color);
-            color: white;
-            font-weight: 600;
-        }
-
-        .tab-btn:hover:not(.active) {
-            background: rgba(255, 255, 255, 0.1);
-        }
-
-        /* Mini Stats */
-        .mini-stat {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            font-size: 0.8rem;
-        }
-
-        .mini-stat .label {
-            color: var(--text-secondary);
-            margin-bottom: 2px;
-        }
-
-        .mini-stat .val {
-            font-weight: 700;
-            color: var(--text-primary);
-        }
-
-        @keyframes pulse-red {
-            0% {
-                transform: scale(0.95);
-                box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7);
-            }
-
-            70% {
-                transform: scale(1);
-                box-shadow: 0 0 0 6px rgba(239, 68, 68, 0);
-            }
-
-            100% {
-                transform: scale(0.95);
-                box-shadow: 0 0 0 0 rgba(239, 68, 68, 0);
-            }
-        }
+        /* ── TV mode (fullscreen) ── */
+        .md-root:fullscreen { overflow: auto; }
+        .md-root:fullscreen .md-scroll { height: 100vh; }
     </style>
 </head>
 
 <body>
-    <!-- App Shell Sidebar injected by app.js -->
-
-    <!-- Main Content Wrapper (matches app.js expectation) -->
-    <div class="main-content" style="padding:0; background: var(--bg-dark);">
-        <div class="dashboard-scroll-area">
-            <div class="dashboard-container">
+    <div class="main-content md-root" id="mdRoot">
+        <div class="md-scroll">
+            <div class="md-wrap">
                 <!-- Header -->
-                <div class="dashboard-header">
-
-                    <div style="display:flex; align-items:center; gap:16px;">
-                        <!-- Hamburger will be injected here by app.js for mobile, 
-                             but we ensure space is handled -->
-                        <div style="font-weight:800; font-size:1.5rem; color:#3b82f6; letter-spacing:-1px">JMS OCEAN</div>
-                        <div class="header-title"
-                            style="margin-left: 20px; font-size: 1.2rem; display:flex; align-items:center; gap:10px">
-                            Production Dashboard
-                            <span id="live-indicator"
-                                style="width:10px; height:10px; background:#ef4444; border-radius:50%; display:none;"></span>
-                        </div>
-                    </div>
-
-                    <div class="header-controls">
-                        <div id="last-updated" style="font-size:0.8rem; color:var(--text-secondary); margin-right:10px">
-                        </div>
-                        <div
-                            style="display:flex; align-items:center; gap:8px; background:var(--glass-bg); padding:4px 12px; border-radius:8px; border:1px solid var(--glass-border)">
-                            <i class="bi bi-calendar4" style="color:var(--text-secondary)"></i>
-                            <input type="date" id="dateSelect" class="date-picker-translucent"
-                                style="border:none; background:transparent">
-                        </div>
-
-                        <!-- Shift Selector -->
-                        <div
-                            style="display:flex; align-items:center; gap:8px; background:var(--glass-bg); padding:4px 12px; border-radius:8px; border:1px solid var(--glass-border)">
-                            <i class="bi bi-moon-stars" style="color:var(--text-secondary)"></i>
-                            <select id="shiftSelect"
-                                style="background:transparent; border:none; color:var(--text-primary); outline:none;">
-                                <option value="Day">Day Shift</option>
-                                <option value="Night">Night Shift</option>
-                            </select>
-                        </div>
-
-                        <button class="icon-btn" onclick="fetchData()"><i class="bi bi-arrow-clockwise"></i></button>
-                        <button class="icon-btn" style="position:relative">
-                            <i class="bi bi-bell"></i>
-                            <span id="notif-dot"
-                                style="position:absolute; top:8px; right:10px; width:8px; height:8px; background:#ef4444; border-radius:50%; display:none"></span>
-                        </button>
-                    </div>
-                </div>
-
-                <!-- KPI Cards -->
-                <div class="kpi-grid">
-                    <!-- Card 1: Total Production -->
-                    <div class="glass-card glow-blue">
-                        <div class="kpi-title">
-                            Total Production
-                            <span class="trend-badge trend-neutral" id="trend-prod">-</span>
-                        </div>
-                        <div class="kpi-value">
-                            <span id="kpi-prod">0</span>
-                            <span style="font-size:1rem; color:var(--text-secondary); font-weight:400">Pcs</span>
-                        </div>
-                        <div class="kpi-sub" id="sub-prod">Loading...</div>
-                    </div>
-
-                    <!-- Card 2: Rejection -->
-                    <div class="glass-card" style="border-color: rgba(239, 68, 68, 0.3);">
-                        <div class="kpi-title">
-                            Rejection Rate
-                            <span class="trend-badge trend-neutral" id="trend-rej">-</span>
-                        </div>
-                        <div class="kpi-value" id="kpi-rej">0%</div>
-                        <div class="kpi-sub" id="sub-rej">0 Rejected Pcs</div>
-                    </div>
-
-                    <!-- Card 3: Downtime -->
-                    <div class="glass-card" style="border-color: rgba(245, 158, 11, 0.3);">
-                        <div class="kpi-title">
-                            Total Downtime
-                            <span class="trend-badge trend-neutral">-</span>
-                        </div>
-                        <div class="kpi-value" id="kpi-dt">0</div>
-                        <div class="kpi-sub">Hours Lost</div>
-                    </div>
-
-                    <!-- Card 4: Efficiency -->
-                    <div class="glass-card glow-green">
-                        <div class="kpi-title">
-                            Plant Efficiency
-                            <span class="trend-badge trend-up"><i class="bi bi-lightning-charge"></i> Live</span>
-                        </div>
-                        <div class="kpi-value" id="kpi-eff">0%</div>
-                        <div class="kpi-sub" id="sub-eff">Based on Plan</div>
-                    </div>
-                </div>
-
-                <!-- Charts Area -->
-                <div class="main-grid">
-
-                    <!-- Hourly Trends -->
-                    <div class="glass-card col-span-12" style="display:flex; flex-direction:column; min-height:350px;">
-
-                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px">
-                            <div style="font-weight:700; color:var(--text-primary)">Hourly Trends</div>
-
-                            <!-- Chart Tabs -->
-                            <div class="chart-tabs"
-                                style="display:flex; gap:5px; background:rgba(0,0,0,0.2); padding:4px; border-radius:6px;">
-                                <button class="tab-btn active" onclick="switchChart('tonnage', this)">Tonnage</button>
-                                <button class="tab-btn" onclick="switchChart('output', this)">Output</button>
-                                <button class="tab-btn" onclick="switchChart('efficiency', this)">Eff & DT</button>
+                <header class="md-head">
+                    <div class="md-head-row">
+                        <div class="md-title">
+                            <div>
+                                <div style="display:flex; align-items:center; gap:10px">
+                                    <h1>Moulding Dashboard</h1>
+                                    <span class="live-pill" id="livePill"><i></i>LIVE</span>
+                                </div>
+                                <div class="sub" id="subTitle">Loading…</div>
                             </div>
                         </div>
-
-                        <div style="flex:1; position:relative; min-height:250px;">
-                            <canvas id="trendChart"></canvas>
+                        <div class="md-controls">
+                            <label class="md-field" title="Production date">
+                                <i class="bi bi-calendar4"></i>
+                                <input type="date" id="dateSelect" aria-label="Production date">
+                            </label>
+                            <div class="seg" id="shiftSeg" role="group" aria-label="Shift">
+                                <button data-shift="Day">Day</button>
+                                <button data-shift="Night">Night</button>
+                                <button data-shift="All">Full day</button>
+                            </div>
+                            <label class="md-field" title="Line">
+                                <i class="bi bi-diagram-3"></i>
+                                <select id="lineSelect" aria-label="Line"><option value="">All lines</option></select>
+                            </label>
+                            <button class="md-btn" id="autoBtn" title="Refresh every minute"><i class="bi bi-arrow-repeat"></i><span>Auto</span></button>
+                            <button class="md-btn" id="refreshBtn" title="Refresh now" aria-label="Refresh now"><i class="bi bi-arrow-clockwise"></i></button>
+                            <button class="md-btn" id="csvBtn" title="Export machine table (CSV)" aria-label="Export CSV"><i class="bi bi-download"></i></button>
+                            <button class="md-btn" id="tvBtn" title="Full screen (TV mode)" aria-label="Full screen"><i class="bi bi-arrows-fullscreen"></i></button>
                         </div>
+                    </div>
+                    <div class="shift-bar">
+                        <span id="shiftText">—</span>
+                        <div class="shift-track"><div class="shift-fill" id="shiftFill" style="width:0"></div></div>
+                        <span id="updatedText" class="num"></span>
+                    </div>
+                </header>
 
-                        <!-- Comparison Widgets (Bottom of Chart) -->
-                        <div id="comparison-widgets"
-                            style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:10px; margin-top:10px; border-top:1px solid var(--glass-border); padding-top:10px;">
-                            <!-- Injected via JS -->
-                            <div class="mini-stat">
-                                <span class="label">vs Yesterday (Good)</span>
-                                <span class="val" id="comp-good">--</span>
-                            </div>
-                            <div class="mini-stat">
-                                <span class="label">vs Yesterday (Rej)</span>
-                                <span class="val" id="comp-rej">--</span>
-                            </div>
-                            <div class="mini-stat">
-                                <span class="label">vs Yesterday (DT)</span>
-                                <span class="val" id="comp-dt">--</span>
+                <!-- KPI strip -->
+                <section class="grid g-kpi" id="kpis"></section>
+
+                <!-- OEE losses · 7-day trend · alerts -->
+                <section class="grid g-2-1">
+                    <div class="mdp">
+                        <div class="panel-h">
+                            <h2><i class="bi bi-speedometer2"></i>OEE loss breakdown</h2>
+                            <span class="hint">A × P × Q</span>
+                        </div>
+                        <div id="lossTree"></div>
+                    </div>
+                    <div class="mdp">
+                        <div class="panel-h">
+                            <h2><i class="bi bi-graph-up"></i>7-day trend</h2>
+                            <span class="hint" id="trendHint">Same shift, last 7 days</span>
+                        </div>
+                        <div class="chart-box sm"><canvas id="trendChart"></canvas></div>
+                    </div>
+                    <div class="mdp">
+                        <div class="panel-h">
+                            <h2><i class="bi bi-exclamation-triangle"></i>Needs attention</h2>
+                            <span class="hint" id="alertCount"></span>
+                        </div>
+                        <div class="alerts" id="alerts"></div>
+                    </div>
+                </section>
+
+                <!-- Machine status board -->
+                <section class="mdp" style="margin-bottom:16px">
+                    <div class="panel-h">
+                        <h2><i class="bi bi-grid-3x3-gap"></i>Machine status board</h2>
+                        <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center">
+                            <div class="chips" id="statusChips"></div>
+                            <div class="tabs" id="densityTabs" role="group" aria-label="Tile size">
+                                <button data-d="compact">Compact</button>
+                                <button data-d="detail">Detailed</button>
                             </div>
                         </div>
                     </div>
-                    <!-- Production Table -->
-                    <div class="glass-card col-span-12" style="min-height:400px; padding:0; overflow:hidden">
-                        <div
-                            style="padding:20px; border-bottom:1px solid var(--glass-border); display:flex; justify-content:space-between; align-items:center">
-                            <h3 style="margin:0; font-size:1rem; font-weight:600">Active Production Details</h3>
-                            <div style="position:relative">
-                                <i class="bi bi-search"
-                                    style="position:absolute; left:10px; top:8px; color:var(--text-secondary)"></i>
-                                <input type="text" id="tableSearch" onkeyup="filterTable()"
-                                    placeholder="Search Machine / Mould..."
-                                    style="background:rgba(0,0,0,0.2); border:1px solid var(--glass-border); border-radius:8px; padding:6px 10px 6px 32px; color:#fff; outline:none; font-size:0.85rem">
-                            </div>
-                        </div>
-                        <div style="overflow-x:auto;">
-                            <table class="dark-table">
-                                <thead>
-                                    <tr>
-                                        <th style="padding:12px; text-align:left">Machine / Mould</th>
-                                        <th style="padding:12px; text-align:left">Plan vs Actual</th>
-                                        <th style="padding:12px; text-align:center">Last Hour</th>
-                                        <th style="padding:12px; text-align:center">Rejection</th>
-                                        <th style="padding:12px; text-align:center">Status</th>
-                                        <th style="padding:12px; text-align:center">Downtime</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="tableBody">
-                                    <tr>
-                                        <td colspan="6" style="text-align:center; padding:30px">Loading real data...</td>
-                                    </tr>
-                                </tbody>
-                            </table>
+                    <div id="board"></div>
+                </section>
+
+                <!-- Hourly -->
+                <section class="mdp" style="margin-bottom:16px">
+                    <div class="panel-h">
+                        <h2><i class="bi bi-bar-chart"></i>Hour by hour</h2>
+                        <div class="tabs" id="hourTabs">
+                            <button data-v="output" class="active">Output vs target</button>
+                            <button data-v="oee">OEE</button>
+                            <button data-v="downtime">Downtime</button>
                         </div>
                     </div>
-                </div>
+                    <div class="chart-box"><canvas id="hourChart"></canvas></div>
+                </section>
 
+                <!-- Paretos -->
+                <section class="grid g-2">
+                    <div class="mdp">
+                        <div class="panel-h">
+                            <h2><i class="bi bi-hourglass-split"></i>Downtime reasons</h2>
+                            <span class="hint" id="dtHint"></span>
+                        </div>
+                        <div class="chart-box"><canvas id="dtPareto"></canvas></div>
+                    </div>
+                    <div class="mdp">
+                        <div class="panel-h">
+                            <h2><i class="bi bi-x-octagon"></i>Rejection reasons</h2>
+                            <span class="hint" id="rejHint"></span>
+                        </div>
+                        <div class="chart-box"><canvas id="rejPareto"></canvas></div>
+                    </div>
+                </section>
+
+                <!-- Line table -->
+                <section class="mdp" style="margin-bottom:16px">
+                    <div class="panel-h">
+                        <h2><i class="bi bi-diagram-3"></i>Line performance</h2>
+                        <span class="hint">Click a line to filter</span>
+                    </div>
+                    <div class="tbl-wrap"><table class="md" id="lineTable"></table></div>
+                </section>
+
+                <!-- Machine table -->
+                <section class="mdp">
+                    <div class="panel-h">
+                        <h2><i class="bi bi-table"></i>Machine performance</h2>
+                        <label class="search"><i class="bi bi-search" style="color:var(--md-dim)"></i><input id="tableSearch" type="search" placeholder="Machine, mould, order…" aria-label="Search machines"></label>
+                    </div>
+                    <div class="tbl-wrap tbl-scroll"><table class="md" id="machineTable"></table></div>
+                </section>
             </div>
         </div>
     </div>
-    </div>
 
-    <!-- Scripts -->
+    <!-- Machine drawer -->
+    <div class="md-overlay" id="drOverlay"></div>
+    <aside class="md-drawer" id="drawer" aria-hidden="true">
+        <div class="dr-head">
+            <div style="min-width:0">
+                <h2 id="drTitle">Machine</h2>
+                <div id="drSub" style="font-size:0.78rem; color:var(--md-muted)"></div>
+            </div>
+            <button class="md-btn" id="drClose" aria-label="Close"><i class="bi bi-x-lg"></i></button>
+        </div>
+        <div class="dr-body" id="drBody"></div>
+    </aside>
+
     <script src="/assets/app.min.js?v=1576"></script>
     <script>
-        // --- GLOBAL STATE ---
-        let trendChartInstance = null;
-        let currentChartType = 'tonnage'; // tonnage, output, efficiency
-        let globalChartData = {};
+    (function () {
+        'use strict';
 
+        // ── Thresholds (industry bands) ──
+        const OEE_WORLD_CLASS = 0.85, OEE_TYPICAL = 0.60;
+        const REJ_WARN = 0.02, REJ_BAD = 0.05;
+        const CYCLE_DEV_WARN = 0.10;
+        const AUTO_REFRESH_MS = 60000;
+        const STATUS = {
+            RUNNING: { label: 'Running', c: 'var(--md-good)', bg: 'var(--md-good-bg)', icon: 'bi-play-fill' },
+            DOWN: { label: 'Down', c: 'var(--md-bad)', bg: 'var(--md-bad-bg)', icon: 'bi-stop-fill' },
+            NO_ENTRY: { label: 'No DPR', c: 'var(--md-warn)', bg: 'var(--md-warn-bg)', icon: 'bi-question-lg' },
+            MAINT: { label: 'Maintenance', c: 'var(--md-maint)', bg: 'var(--md-maint-bg)', icon: 'bi-wrench' },
+            IDLE: { label: 'Idle', c: 'var(--md-dim)', bg: 'var(--md-idle-bg)', icon: 'bi-pause-fill' }
+        };
+        const STATUS_ORDER = ['RUNNING', 'DOWN', 'NO_ENTRY', 'MAINT', 'IDLE'];
+
+        const state = {
+            data: null, shift: 'Day', line: '', statusFilter: '', search: '',
+            hourView: 'output', density: 'compact', sort: { key: null, dir: 1 }, auto: false, timer: null, charts: {}, openMachine: null
+        };
+
+        // ── Storage (per-viewer conveniences only) ──
+        const store = {
+            get(k, d) { try { const v = localStorage.getItem('jms_mdash_' + k); return v === null ? d : v; } catch (_) { return d; } },
+            set(k, v) { try { localStorage.setItem('jms_mdash_' + k, v); } catch (_) { } }
+        };
+
+        // ── Formatting ──
+        const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+        const nf = (v, d = 0) => (v == null || !isFinite(v)) ? '—' : Number(v).toLocaleString('en-IN', { maximumFractionDigits: d, minimumFractionDigits: d });
+        const pct = (v, d = 1) => (v == null || !isFinite(v)) ? '—' : (v * 100).toFixed(d) + '%';
+        const hrs = min => (min / 60).toFixed(1);
+        const localDate = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        const shortDate = s => { const [y, m, d] = s.split('-').map(Number); return new Date(y, m - 1, d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }); };
+        const oeeClass = v => v == null ? 'c-dim' : v >= OEE_WORLD_CLASS ? 'c-good' : v >= OEE_TYPICAL ? 'c-warn' : 'c-bad';
+        const oeeColor = v => v == null ? 'var(--md-dim)' : v >= OEE_WORLD_CLASS ? 'var(--md-good)' : v >= OEE_TYPICAL ? 'var(--md-warn)' : 'var(--md-bad)';
+        const rejClass = v => v == null ? 'c-dim' : v <= REJ_WARN ? 'c-good' : v <= REJ_BAD ? 'c-warn' : 'c-bad';
+        const attClass = v => v == null ? 'c-dim' : v >= 0.95 ? 'c-good' : v >= 0.8 ? 'c-warn' : 'c-bad';
+
+        // ── Metrics: the one OEE definition every view uses ──
+        const emptySums = () => ({ planned: 0, run: 0, dt: 0, noPlan: 0, good: 0, rej: 0, idealSec: 0, perfRunSec: 0, target: 0, goodKg: 0, rejKg: 0 });
+        const addSums = (a, b) => { if (b) for (const k in a) a[k] += b[k] || 0; return a; };
+        function metrics(s) {
+            const output = s.good + s.rej;
+            const A = s.planned > 0 ? s.run / s.planned : null;
+            const P = s.perfRunSec > 0 ? s.idealSec / s.perfRunSec : null;
+            const Q = output > 0 ? s.good / output : null;
+            const OEE = A != null && P != null && Q != null ? A * Math.min(1, P) * Q : null;
+            return {
+                A, P, Q, OEE, output,
+                rejRate: output > 0 ? s.rej / output : null,
+                attain: s.target > 0 ? s.good / s.target : null
+            };
+        }
+
+        // ── Default date/shift from the factory clock (Day 07–19, Night 19–07) ──
+        function defaultDateShift() {
+            const now = new Date();
+            const h = now.getHours();
+            if (h < 7) { const y = new Date(now); y.setDate(y.getDate() - 1); return { date: localDate(y), shift: 'Night' }; }
+            return { date: localDate(now), shift: h >= 19 ? 'Night' : 'Day' };
+        }
+
+        // ── Init ──
         document.addEventListener('DOMContentLoaded', () => {
-            // 1. Initialize App Shell
-            if (window.JPSMS && window.JPSMS.renderShell) {
-                JPSMS.renderShell('dash_moulding');
-                JPSMS.auth.requireAuth();
-            }
-
-            // 2. Set Date & Shift
-            const today = new Date().toISOString().split('T')[0];
-            const dateInput = document.getElementById('dateSelect');
-            if (dateInput) dateInput.value = today;
-
-            // Auto-Detect Shift
-            const h = new Date().getHours();
-            const shift = (h >= 8 && h < 20) ? 'Day' : 'Night';
-            const shiftSelect = document.getElementById('shiftSelect');
-            if (shiftSelect) shiftSelect.value = shift;
-
-            // 3. Init Charts
-            initCharts();
-
-            // 4. Bind Listeners
-            if (dateInput) dateInput.addEventListener('change', fetchData);
-            if (shiftSelect) shiftSelect.addEventListener('change', fetchData);
-
-            // 5. Fetch Data
-            fetchData();
-            startAutoRefresh();
+            if (window.JPSMS && JPSMS.renderShell) { JPSMS.renderShell('dash_moulding'); JPSMS.auth.requireAuth(); }
+            const def = defaultDateShift();
+            document.getElementById('dateSelect').value = def.date;
+            state.shift = def.shift;
+            state.line = store.get('line', '');
+            state.auto = store.get('auto', '0') === '1';
+            state.density = store.get('density', 'compact') === 'detail' ? 'detail' : 'compact';
+            bindUi();
+            load();
         });
 
-        // --- CHART TABS ---
-        window.switchChart = (type, btn) => {
-            // Update Active State
-            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
-
-            currentChartType = type;
-            renderTrendChart();
+        function bindUi() {
+            document.getElementById('dateSelect').addEventListener('change', () => load());
+            document.querySelectorAll('#shiftSeg button').forEach(b => b.addEventListener('click', () => { state.shift = b.dataset.shift; load(); }));
+            document.getElementById('lineSelect').addEventListener('change', e => { state.line = e.target.value; store.set('line', state.line); render(); });
+            document.getElementById('refreshBtn').addEventListener('click', () => load());
+            document.getElementById('autoBtn').addEventListener('click', () => { state.auto = !state.auto; store.set('auto', state.auto ? '1' : '0'); scheduleAuto(); paintControls(); });
+            document.getElementById('csvBtn').addEventListener('click', exportCsv);
+            document.getElementById('tvBtn').addEventListener('click', toggleTv);
+            document.getElementById('tableSearch').addEventListener('input', e => { state.search = e.target.value.trim().toLowerCase(); renderMachineTable(); });
+            document.querySelectorAll('#hourTabs button').forEach(b => b.addEventListener('click', () => {
+                state.hourView = b.dataset.v;
+                document.querySelectorAll('#hourTabs button').forEach(x => x.classList.toggle('active', x === b));
+                renderHourChart();
+            }));
+            document.querySelectorAll('#densityTabs button').forEach(b => b.addEventListener('click', () => {
+                state.density = b.dataset.d; store.set('density', state.density);
+                if (state.data) renderBoard(scopeMachines());
+            }));
+            document.getElementById('drOverlay').addEventListener('click', closeDrawer);
+            document.getElementById('drClose').addEventListener('click', closeDrawer);
+            document.addEventListener('keydown', e => { if (e.key === 'Escape') closeDrawer(); });
+            document.addEventListener('visibilitychange', () => { if (!document.hidden && state.auto && state.data && state.data.meta.live) load(true); });
+            paintControls();
         }
 
-        // --- DATA FETCHING ---
-        async function fetchData() {
+        function paintControls() {
+            document.querySelectorAll('#shiftSeg button').forEach(b => b.classList.toggle('active', b.dataset.shift === state.shift));
+            const ab = document.getElementById('autoBtn');
+            ab.classList.toggle('on', state.auto);
+            ab.setAttribute('aria-pressed', state.auto ? 'true' : 'false');
+        }
+
+        function scheduleAuto() {
+            clearInterval(state.timer);
+            state.timer = null;
+            if (state.auto) state.timer = setInterval(() => { if (!document.hidden && state.data && state.data.meta.live) load(true); }, AUTO_REFRESH_MS);
+        }
+
+        // ── Load ──
+        let loadSeq = 0;
+        async function load(silent) {
+            paintControls();
             const date = document.getElementById('dateSelect').value;
-            const shift = document.getElementById('shiftSelect').value;
-            const liveDot = document.getElementById('live-indicator');
-
+            if (!date) return;
+            const seq = ++loadSeq;
             try {
-                // Fetch Summary Matrix (Dashboard Specific)
-                const res = await JPSMS.api.get(`/dpr/dashboard-matrix?date=${date}&shift=${shift}`);
-
-                if (res.ok) {
-                    globalChartData = res.chart || {};
-                    const comparison = res.comparison || {};
-                    const activeMachines = res.active_machines || [];
-                    const stats = res.stats || {};
-                    const dbg = res.debug ? `(H:${res.debug.counts.hourly}|A:${res.debug.counts.active})` : '';
-
-                    // Debug Toast
-                    if (activeMachines.length === 0) {
-                        JPSMS.toast(`No Data Found ${dbg}`, 'warning');
-                    } else {
-                        JPSMS.toast(`Loaded ${activeMachines.length} Machines ${dbg}`, 'success');
-                    }
-
-                    // Update UI Comp Widgets
-                    updateComparison(comparison);
-
-                    // Render Chart
-                    renderTrendChart();
-
-                    // Render Table
-                    renderTable(activeMachines);
-
-                    // Update KPIs (Optional: calculate totals from activeMachines if stats missing)
-                    updateKPIs(activeMachines);
-                }
-
-                // Live Indicator
-                if (liveDot) {
-                    const now = new Date();
-                    const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-                    document.getElementById('last-updated').textContent = `Last Updated: ${timeStr}`;
-
-                    const isToday = (date === new Date().toISOString().split('T')[0]);
-                    if (isToday) {
-                        liveDot.style.display = 'inline-block';
-                        liveDot.classList.add('pulse-animation');
-                    } else {
-                        liveDot.style.display = 'none';
-                        liveDot.classList.remove('pulse-animation');
-                    }
-                }
-
+                const url = `/dpr/moulding-dashboard?date=${encodeURIComponent(date)}&shift=${encodeURIComponent(state.shift)}`;
+                const res = silent ? await JPSMS.api.request(url, { skipLoader: true }) : await JPSMS.api.get(url);
+                if (seq !== loadSeq) return;
+                if (!res || !res.ok) { if (!silent && window.JPSMS && JPSMS.toast) JPSMS.toast((res && res.error) || 'Could not load the dashboard', 'error'); return; }
+                state.data = res;
+                fillLines();
+                render();
+                scheduleAuto();
             } catch (e) {
-                console.error(e);
-                JPSMS.toast('Error fetching data', 'error');
+                console.error(e); // request() already showed the error toast
             }
         }
 
-        function updateKPIs(rows) {
-            let totalProd = 0;
-            let totalRej = 0;
-            let totalDt = 0;
-            let activeCount = 0;
-
-            rows.forEach(r => {
-                totalProd += Number(r.total_good || 0);
-                totalRej += Number(r.total_rej || 0);
-                totalDt += Number(r.total_dt || 0);
-                if (Number(r.total_good) > 0 || Number(r.total_dt) > 0) activeCount++;
-            });
-
-            animateValue('kpi-prod', 0, totalProd, 1000); // Simple animate
-            document.getElementById('sub-prod').textContent = `${activeCount} Active Machines`;
-
-            const rejRate = totalProd > 0 ? ((totalRej / totalProd) * 100).toFixed(1) : 0;
-            document.getElementById('kpi-rej').textContent = `${rejRate}%`;
-            document.getElementById('sub-rej').textContent = `${totalRej} Rejected`;
-
-            const dtHrs = (totalDt / 60).toFixed(1);
-            document.getElementById('kpi-dt').textContent = dtHrs;
-
-            // Efficiency stub
-            document.getElementById('kpi-eff').textContent = '89%';
+        function fillLines() {
+            const sel = document.getElementById('lineSelect');
+            const lines = [...new Set(state.data.machines.map(m => m.line))];
+            if (state.line && !lines.includes(state.line)) state.line = '';
+            sel.innerHTML = '<option value="">All lines</option>' + lines.map(l => `<option value="${esc(l)}"${l === state.line ? ' selected' : ''}>${esc(l)}</option>`).join('');
         }
 
-        function updateComparison(comp) {
-            const c = comp.current || { sum_good: 0, sum_rej: 0, sum_dt: 0 };
-            const p = comp.prev || { sum_good: 0, sum_rej: 0, sum_dt: 0 };
+        const inLine = m => !state.line || m.line === state.line;
+        const scopeMachines = () => state.data.machines.filter(inLine);
 
-            setComp('comp-good', c.sum_good, p.sum_good, '', true);
-            setComp('comp-rej', c.sum_rej, p.sum_rej, '', false);
-            setComp('comp-dt', c.sum_dt, p.sum_dt, 'm', false);
+        // ── Render everything from the loaded payload ──
+        function render() {
+            if (!state.data) return;
+            const machines = scopeMachines();
+            const total = emptySums();
+            machines.forEach(m => addSums(total, m.sums));
+            const M = metrics(total);
+            const prev = prevSums();
+            renderHeader(machines);
+            renderKpis(machines, total, M, prev);
+            renderLossTree(total, M);
+            renderTrend();
+            renderAlerts(machines);
+            renderBoard(machines);
+            renderHourChart();
+            renderParetos(machines);
+            renderLineTable();
+            renderMachineTable();
+            if (state.openMachine) openDrawer(state.openMachine, true);
         }
 
-        function setComp(id, curr, prev, suffix, higherIsBetter) {
-            const el = document.getElementById(id);
-            if (!el) return;
+        function prevSums() {
+            const { trend, meta } = state.data;
+            const row = trend.find(t => t.date === meta.prevDate);
+            if (!row) return null;
+            const s = emptySums();
+            Object.entries(row.byLine).forEach(([l, v]) => { if (!state.line || l === state.line) addSums(s, v); });
+            return s.planned > 0 ? s : null;
+        }
 
-            curr = Number(curr || 0);
-            prev = Number(prev || 0);
-            const diff = curr - prev;
-            const sign = diff > 0 ? '+' : '';
+        function renderHeader(machines) {
+            const { meta } = state.data;
+            const shiftName = meta.shift === 'All' ? 'Full day' : `${meta.shift} shift`;
+            const span = meta.shift === 'Day' ? '07:00–19:00' : meta.shift === 'Night' ? '19:00–07:00' : '07:00–07:00';
+            let factory = '';
+            try { factory = localStorage.getItem('jpsms_factory_name') || ''; } catch (_) { }
+            document.getElementById('subTitle').textContent = [factory, `${shortDate(meta.date)} · ${shiftName}`, state.line ? `Line ${state.line}` : `${machines.length} machines`].filter(Boolean).join(' · ');
+            document.getElementById('livePill').classList.toggle('on', !!meta.live);
+            const total = meta.slots.length;
+            document.getElementById('shiftText').textContent = meta.live
+                ? `${shiftName} ${span} · ${meta.elapsed} of ${total} h complete`
+                : meta.elapsed === 0 ? `${shiftName} ${span} · not started` : `${shiftName} ${span} · complete`;
+            document.getElementById('shiftFill').style.width = `${Math.round(((meta.elapsed + (meta.live ? 0.5 : 0)) / total) * 100)}%`;
+            const t = new Date(meta.generatedAt);
+            document.getElementById('updatedText').textContent = `Updated ${t.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}${state.auto ? ' · auto' : ''}`;
+        }
 
-            // Color Logic
-            let color = '#94a3b8'; // Neutral
-            if (diff !== 0) {
-                if (higherIsBetter) {
-                    color = diff > 0 ? '#4ade80' : '#ef4444';
-                } else {
-                    color = diff > 0 ? '#ef4444' : '#4ade80';
-                }
-            }
+        function deltaBadge(cur, prev, higherBetter, asPts) {
+            if (cur == null || prev == null) return '';
+            const diff = cur - prev;
+            if (Math.abs(diff) < 0.0005) return '<span class="delta">= yday</span>';
+            const good = higherBetter ? diff > 0 : diff < 0;
+            const txt = asPts ? `${diff > 0 ? '+' : ''}${(diff * 100).toFixed(1)} pts` : `${diff > 0 ? '+' : ''}${nf(diff)}`;
+            return `<span class="delta ${good ? 'up' : 'down'}" title="vs previous day, same shift">${txt}</span>`;
+        }
 
+        function kpiTile(color, label, badge, value, sub, extra) {
+            return `<div class="mdp kpi" style="--kc:${color}">
+                <div class="kpi-l"><span>${label}</span>${badge || ''}</div>
+                <div class="kpi-v num">${value}</div>
+                <div class="kpi-s">${sub}</div>${extra || ''}</div>`;
+        }
+
+        function renderKpis(machines, s, M, prev) {
+            const P = prev ? metrics(prev) : null;
+            const counts = countStatus(machines);
+            const live = state.data.meta.live;
+            const withEntries = machines.filter(m => m.sums.good + m.sums.rej > 0).length;
+            const required = machines.reduce((a, m) => a + m.required, 0);
+            const entered = machines.reduce((a, m) => a + Math.min(m.entered, m.required || m.entered), 0);
+            const topDt = topReasons(machines, 'dtReasons')[0];
+            const apqBar = (lbl, v) => `<div>${lbl}<b class="num">${pct(v, 0)}</b><div class="mini-track"><span style="width:${Math.min(100, (v || 0) * 100)}%; background:${oeeColor(v)}"></span></div></div>`;
+            const runningNow = live ? counts.RUNNING : withEntries;
+            document.getElementById('kpis').innerHTML = [
+                kpiTile(oeeColor(M.OEE), 'OEE', deltaBadge(M.OEE, P && P.OEE, true, true),
+                    `<span class="${oeeClass(M.OEE)}">${pct(M.OEE)}</span>`,
+                    M.OEE == null ? 'No standards to compare' : M.OEE >= OEE_WORLD_CLASS ? 'World class (≥85%)' : M.OEE >= OEE_TYPICAL ? 'Typical (60–85%)' : 'Below 60% — act now',
+                    `<div class="apq">${apqBar('Avail.', M.A)}${apqBar('Perf.', M.P)}${apqBar('Quality', M.Q)}</div>`),
+                kpiTile('var(--md-accent)', 'Good output', '',
+                    `${nf(s.good)}<small>pcs</small>`,
+                    `${nf(s.goodKg / 1000, 2)} t good · ${prev ? 'yday ' + nf(prev.good) : 'no yday data'}`),
+                kpiTile(M.attain == null ? 'var(--md-dim)' : M.attain >= 0.95 ? 'var(--md-good)' : M.attain >= 0.8 ? 'var(--md-warn)' : 'var(--md-bad)', 'Plan attainment', deltaBadge(M.attain, P && P.attain, true, true),
+                    `<span class="${attClass(M.attain)}">${pct(M.attain)}</span>`,
+                    `Good ${nf(s.good)} of ${nf(s.target)} std target`),
+                kpiTile(M.rejRate == null ? 'var(--md-dim)' : M.rejRate <= REJ_WARN ? 'var(--md-good)' : M.rejRate <= REJ_BAD ? 'var(--md-warn)' : 'var(--md-bad)', 'Rejection', deltaBadge(M.rejRate, P && P.rejRate, false, true),
+                    `<span class="${rejClass(M.rejRate)}">${pct(M.rejRate, 2)}</span>`,
+                    `${nf(s.rej)} pcs · ${nf(s.rejKg, 1)} kg · ${M.rejRate == null ? '—' : nf(M.rejRate * 1e6)} PPM`),
+                kpiTile('var(--md-warn)', 'Downtime', deltaBadge(s.planned ? s.dt / s.planned : null, prev && prev.planned ? prev.dt / prev.planned : null, false, true),
+                    `${hrs(s.dt)}<small>h</small>`,
+                    topDt ? `Machine-hours · top: ${esc(topDt[0])} (${hrs(topDt[1])} h)` : 'No unplanned stops'),
+                kpiTile('var(--md-good)', live ? 'Running now' : 'Machines run', '',
+                    `${runningNow}<small>/ ${machines.length}</small>`,
+                    `${counts.DOWN} down · ${counts.NO_ENTRY} no DPR · ${counts.MAINT} maint · ${counts.IDLE} idle`),
+                kpiTile(required && entered / required < 0.9 ? 'var(--md-warn)' : 'var(--md-accent)', 'DPR compliance', '',
+                    required ? pct(entered / required, 0) : '—',
+                    required ? `${nf(entered)} of ${nf(required)} machine-hours entered` : 'No hours due yet')
+            ].join('');
+        }
+
+        function countStatus(machines) {
+            const c = { RUNNING: 0, DOWN: 0, NO_ENTRY: 0, MAINT: 0, IDLE: 0 };
+            machines.forEach(m => { c[m.status] = (c[m.status] || 0) + 1; });
+            return c;
+        }
+
+        // Free-text reasons that differ only in case/spacing are the same reason: merge them.
+        function topReasons(machines, field) {
+            const agg = new Map();
+            machines.forEach(m => Object.entries(m[field] || {}).forEach(([k, v]) => {
+                const key = k.toLowerCase().replace(/\s+/g, ' ').trim();
+                const cur = agg.get(key) || [k, 0];
+                cur[1] += v;
+                agg.set(key, cur);
+            }));
+            return [...agg.values()].sort((a, b) => b[1] - a[1]);
+        }
+
+        // ── OEE loss tree (time view: planned → run → net → fully productive) ──
+        function renderLossTree(s, M) {
+            const el = document.getElementById('lossTree');
+            if (!s.planned) { el.innerHTML = '<div class="empty">No production hours recorded for this selection.</div>'; return; }
+            const A = M.A || 0, P = Math.min(1, M.P || 0), Q = M.Q || 0;
+            const pRun = A, pNet = A * P, pFull = A * P * Q;
+            const r = 36, circ = 2 * Math.PI * r, oee = M.OEE || 0;
+            const row = (lbl, from, to, color, val, sub) => `
+                <div class="loss-row">
+                    <div class="lbl"><b>${lbl}</b>${sub ? `<div style="font-size:0.68rem">${sub}</div>` : ''}</div>
+                    <div class="loss-track"><span style="left:0; width:${(to * 100).toFixed(1)}%; background:${color}"></span>${from > to ? `<span style="left:${(to * 100).toFixed(1)}%; width:${((from - to) * 100).toFixed(1)}%; background:repeating-linear-gradient(135deg, rgba(239,68,68,0.45) 0 4px, rgba(239,68,68,0.15) 4px 8px)"></span>` : ''}</div>
+                    <div class="v num">${val}</div>
+                </div>`;
             el.innerHTML = `
-                <div style="font-size:1.1rem">${curr}${suffix}</div>
-                <div style="font-size:0.75rem; color:${color}">${sign}${diff}${suffix}</div>
-            `;
+                <div class="oee-gauge">
+                    <svg width="92" height="92" viewBox="0 0 92 92" role="img" aria-label="OEE ${pct(M.OEE)}">
+                        <circle cx="46" cy="46" r="${r}" fill="none" stroke="rgba(148,163,184,0.15)" stroke-width="9"/>
+                        <circle cx="46" cy="46" r="${r}" fill="none" stroke="${oeeColor(M.OEE)}" stroke-width="9" stroke-linecap="round"
+                            stroke-dasharray="${(circ * Math.min(1, oee)).toFixed(1)} ${circ.toFixed(1)}" transform="rotate(-90 46 46)"/>
+                        <text x="46" y="51" text-anchor="middle" fill="var(--md-text)" font-size="17" font-weight="800">${M.OEE == null ? '—' : Math.round(oee * 100) + '%'}</text>
+                    </svg>
+                    <div class="oee-band">
+                        Planned time <b style="color:var(--md-text)">${hrs(s.planned)} h</b>${s.noPlan ? ` <span style="color:var(--md-dim)">(excl. ${hrs(s.noPlan)} h no-plan)</span>` : ''}<br>
+                        Losses shown hatched. World class ≥ 85%.<br>
+                        Speed ${M.P == null ? '—' : pct(M.P, 0)} of std cycle${M.P > 1 ? ' <span class="c-warn">(faster than std — check masters)</span>' : ''}
+                    </div>
+                </div>
+                ${row('Availability', 1, pRun, 'var(--md-accent)', pct(A), `Downtime ${hrs(s.dt)} h`)}
+                ${row('Performance', pRun, pNet, '#38bdf8', pct(Math.min(1, M.P || 0)), 'Speed / minor stops')}
+                ${row('Quality', pNet, pFull, 'var(--md-good)', pct(Q), `${nf(s.rej)} rejects`)}
+                ${row('OEE', pFull, pFull, oeeColor(M.OEE), pct(M.OEE), 'Fully productive time')}`;
         }
 
-        function renderTrendChart() {
-            if (!trendChartInstance) return;
-
-            const data = globalChartData;
-            if (!data.labels) return;
-
-            let datasets = [];
-
-            if (currentChartType === 'tonnage') {
-                datasets = [
-                    {
-                        label: 'Planned',
-                        data: data.tonnage_plan,
-                        borderColor: '#64748b',
-                        borderDash: [5, 5],
-                        borderWidth: 2,
-                        tension: 0.4,
-                        fill: false,
-                        pointRadius: 0
-                    },
-                    {
-                        label: 'Actual',
-                        data: data.tonnage_act,
-                        borderColor: '#3b82f6',
-                        backgroundColor: 'rgba(59, 130, 246, 0.2)',
-                        borderWidth: 2,
-                        tension: 0.4,
-                        fill: true
-                    }
-                ];
-            } else if (currentChartType === 'output') {
-                datasets = [
-                    {
-                        label: 'Rejection %',
-                        data: data.rejection,
-                        borderColor: '#ef4444',
-                        backgroundColor: 'rgba(239, 68, 68, 0.2)',
-                        borderWidth: 2,
-                        tension: 0.4,
-                        fill: true
-                    }
-                ];
-            } else if (currentChartType === 'efficiency') {
-                datasets = [
-                    {
-                        label: 'Downtime (min)',
-                        data: data.downtime,
-                        borderColor: '#f59e0b',
-                        backgroundColor: 'rgba(245, 158, 11, 0.2)',
-                        borderWidth: 2,
-                        tension: 0.4,
-                        fill: true
-                    },
-                    {
-                        label: 'Efficiency %',
-                        data: data.efficiency,
-                        borderColor: '#10b981',
-                        borderWidth: 2,
-                        tension: 0.4,
-                        yAxisID: 'y1'
-                    }
-                ];
-            }
-
-            trendChartInstance.data.labels = data.labels;
-            trendChartInstance.data.datasets = datasets;
-            trendChartInstance.update();
+        // ── 7-day trend ──
+        function renderTrend() {
+            const { trend, meta } = state.data;
+            const labels = trend.map(t => shortDate(t.date));
+            const rows = trend.map(t => {
+                const s = emptySums();
+                Object.entries(t.byLine).forEach(([l, v]) => { if (!state.line || l === state.line) addSums(s, v); });
+                return metrics(s);
+            });
+            const toPct = v => v == null ? null : +(v * 100).toFixed(1);
+            document.getElementById('trendHint').textContent = `${meta.shift === 'All' ? 'Full day' : meta.shift + ' shift'}, ${shortDate(meta.trendFrom)} – ${shortDate(meta.date)}`;
+            drawChart('trendChart', {
+                type: 'bar',
+                data: {
+                    labels,
+                    datasets: [
+                        { type: 'bar', label: 'OEE', data: rows.map(r => toPct(r.OEE)), backgroundColor: rows.map(r => r.OEE == null ? 'rgba(100,116,139,0.3)' : r.OEE >= OEE_WORLD_CLASS ? 'rgba(34,197,94,0.7)' : r.OEE >= OEE_TYPICAL ? 'rgba(245,158,11,0.7)' : 'rgba(239,68,68,0.7)'), borderRadius: 4, order: 2 },
+                        { type: 'line', label: 'Availability', data: rows.map(r => toPct(r.A)), borderColor: '#3b82f6', backgroundColor: '#3b82f6', tension: 0.3, pointRadius: 2, order: 1 },
+                        { type: 'line', label: 'Performance', data: rows.map(r => toPct(r.P == null ? null : Math.min(1, r.P))), borderColor: '#38bdf8', backgroundColor: '#38bdf8', borderDash: [4, 3], tension: 0.3, pointRadius: 2, order: 1 },
+                        { type: 'line', label: 'Quality', data: rows.map(r => toPct(r.Q)), borderColor: '#22c55e', backgroundColor: '#22c55e', tension: 0.3, pointRadius: 2, order: 1 },
+                        { type: 'line', label: 'World class', data: labels.map(() => 85), borderColor: 'rgba(148,163,184,0.5)', borderWidth: 1, borderDash: [2, 4], pointRadius: 0, order: 0 }
+                    ]
+                },
+                options: baseOptions({ y: { min: 0, max: 100, ticks: { callback: v => v + '%' } } }, v => v == null ? 'no data' : v + '%')
+            });
         }
 
-        function initCharts() {
-            const ctx = document.getElementById('trendChart');
-            if (!ctx) return;
-
-            trendChartInstance = new Chart(ctx.getContext('2d'), {
-                type: 'line',
-                data: { labels: [], datasets: [] },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    interaction: { mode: 'index', intersect: false },
-                    plugins: {
-                        legend: { position: 'top', labels: { color: '#94a3b8', font: { size: 11 } } }
-                    },
-                    scales: {
-                        x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#94a3b8' } },
-                        y: {
-                            grid: { color: 'rgba(255,255,255,0.05)' },
-                            ticks: { color: '#94a3b8' },
-                            beginAtZero: true
-                        },
-                        y1: {
-                            position: 'right',
-                            display: false, // Enable if needed (e.g. for Eff tab)
-                            grid: { drawOnChartArea: false },
-                            ticks: { color: '#10b981' }
-                        }
-                    }
+        // ── Alerts: the machines a shift-in-charge should walk to first ──
+        function renderAlerts(machines) {
+            const list = [];
+            const live = state.data.meta.live;
+            machines.forEach(m => {
+                const M = metrics(m.sums);
+                const push = (sev, icon, title, text) => list.push({ sev, icon, title, text, machine: m.machine });
+                if (m.status === 'DOWN') push(0, 'bi-stop-circle', `${m.machine} is down`, m.statusNote);
+                if (m.status === 'NO_ENTRY') push(1, 'bi-clipboard-x', `${m.machine}: DPR not entered`, m.statusNote);
+                if (m.status === 'MAINT') push(3, 'bi-wrench', `${m.machine} under maintenance`, m.statusNote);
+                if (M.rejRate != null && M.rejRate > REJ_BAD && M.output >= 50) push(1, 'bi-x-octagon', `${m.machine}: rejection ${pct(M.rejRate)}`, `${nf(m.sums.rej)} pcs · top: ${Object.entries(m.rejReasons).sort((a, b) => b[1] - a[1]).map(x => x[0])[0] || '—'}`);
+                if (M.OEE != null && M.OEE < 0.5 && m.sums.planned >= 120) push(2, 'bi-speedometer', `${m.machine}: OEE ${pct(M.OEE, 0)}`, `A ${pct(M.A, 0)} · P ${pct(M.P, 0)} · Q ${pct(M.Q, 0)}`);
+                if (m.std && m.std.cycle && m.actCycle && (m.actCycle - m.std.cycle) / m.std.cycle > CYCLE_DEV_WARN && m.sums.run >= 60) push(2, 'bi-stopwatch', `${m.machine}: cycle ${nf(m.actCycle, 1)}s vs std ${nf(m.std.cycle, 1)}s`, `${pct((m.actCycle - m.std.cycle) / m.std.cycle, 0)} slower than standard`);
+                if (m.std && m.std.cavity && m.std.actCavity && m.std.actCavity < m.std.cavity) push(2, 'bi-grid', `${m.machine}: ${m.std.cavity - m.std.actCavity} cavity blocked`, `Running ${m.std.actCavity} of ${m.std.cavity} cavities`);
+                if (live && m.job && m.job.balance != null && m.status === 'RUNNING') {
+                    const rate = recentRate(m);
+                    if (m.job.balance <= 0) push(1, 'bi-flag', `${m.machine}: plan quantity reached`, `${nf(m.job.produced)} of ${nf(m.job.plan_qty)} — plan the next mould`);
+                    else if (rate > 0 && m.job.balance / rate <= 2) push(3, 'bi-arrow-left-right', `${m.machine}: mould change in ~${nf(m.job.balance / rate, 1)} h`, `${nf(m.job.balance)} pcs left at ${nf(rate)} pcs/h`);
                 }
             });
-
-            // Enable y1 for Efficiency Chart
-            // We can dynamically update scales in renderTrendChart but simple is ok.
+            list.sort((a, b) => a.sev - b.sev);
+            const colors = ['var(--md-bad)', 'var(--md-warn)', '#fb923c', 'var(--md-maint)'];
+            document.getElementById('alertCount').textContent = list.length ? `${list.length} items` : '';
+            const el = document.getElementById('alerts');
+            el.innerHTML = list.length ? list.slice(0, 60).map(a => `
+                <div class="alert" style="--ac:${colors[a.sev]}" data-m="${esc(a.machine)}" role="button" tabindex="0">
+                    <i class="bi ${a.icon}"></i><div><b>${esc(a.title)}</b><span>${esc(a.text || '')}</span></div>
+                </div>`).join('') : '<div class="empty"><i class="bi bi-check2-circle" style="font-size:1.4rem; color:var(--md-good)"></i><br>Nothing needs attention.</div>';
+            el.querySelectorAll('[data-m]').forEach(n => {
+                n.addEventListener('click', () => openDrawer(n.dataset.m));
+                n.addEventListener('keydown', e => { if (e.key === 'Enter') openDrawer(n.dataset.m); });
+            });
         }
 
-        let refreshTimer;
-        function startAutoRefresh() {
-            // Auto-refresh disabled by request — data loads on page load / manual refresh only.
-            if (refreshTimer) clearInterval(refreshTimer);
+        // Average good pcs/h over the last 3 entered hours.
+        function recentRate(m) {
+            const hs = m.hourly.filter(h => h.planned != null).slice(-3);
+            const good = hs.reduce((a, h) => a + h.good, 0);
+            const runH = hs.reduce((a, h) => a + h.planned, 0) / 60;
+            return runH > 0 ? good / runH : 0;
         }
 
-        function renderTable(rows) {
-            const tbody = document.getElementById('tableBody');
-            if (!tbody) return;
+        // ── Status board ──
+        function renderBoard(machines) {
+            const counts = countStatus(machines);
+            const chips = document.getElementById('statusChips');
+            chips.innerHTML = `<button class="chip${state.statusFilter ? '' : ' active'}" data-s="">All ${machines.length}</button>` +
+                STATUS_ORDER.map(k => `<button class="chip${state.statusFilter === k ? ' active' : ''}" data-s="${k}"><i style="background:${STATUS[k].c}"></i>${STATUS[k].label} ${counts[k] || 0}</button>`).join('');
+            document.querySelectorAll('#densityTabs button').forEach(b => b.classList.toggle('active', b.dataset.d === state.density));
+            chips.querySelectorAll('.chip').forEach(c => c.addEventListener('click', () => { state.statusFilter = c.dataset.s; renderBoard(scopeMachines()); }));
 
-            tbody.innerHTML = '';
+            const shown = machines.filter(m => !state.statusFilter || m.status === state.statusFilter);
+            const groups = new Map();
+            shown.forEach(m => { if (!groups.has(m.line)) groups.set(m.line, []); groups.get(m.line).push(m); });
+            const slots = state.data.meta.slots;
+            const board = document.getElementById('board');
+            if (!shown.length) { board.innerHTML = '<div class="empty">No machines match this filter.</div>'; return; }
+            board.innerHTML = [...groups.entries()].map(([line, list]) => {
+                const s = emptySums(); list.forEach(m => addSums(s, m.sums));
+                const M = metrics(s);
+                return `<div class="line-group">
+                    <h3>${esc(line)} <span>${list.length} machines · OEE <b class="${oeeClass(M.OEE)}">${pct(M.OEE, 0)}</b> · ${nf(s.good)} good · rej ${pct(M.rejRate, 1)}</span></h3>
+                    <div class="tiles${state.density === 'compact' ? ' compact' : ''}">${list.map(m => state.density === 'compact' ? compactTileHtml(m, slots) : tileHtml(m, slots)).join('')}</div>
+                </div>`;
+            }).join('');
+            board.querySelectorAll('.mtile').forEach(t => t.addEventListener('click', () => openDrawer(t.dataset.m)));
+        }
 
-                if (!rows || rows.length === 0) {
-                    tbody.innerHTML = '<tr><td colspan="6" class="text-center" style="padding:20px; color:var(--text-secondary)">No active plans found</td></tr>';
-                return;
+        function shortName(m) {
+            const n = m.machine, l = m.line || '';
+            return l && n.toLowerCase().startsWith(l.toLowerCase()) ? (n.slice(l.length).replace(/^[\s\-_>]+/, '') || n) : n;
+        }
+
+        function stripHtml(m, slots) {
+            return m.hourly.map((h, i) => {
+                const tip = h.planned != null
+                    ? `${slots[i].label} · good ${h.good}${h.target ? ' / ' + Math.round(h.target) : ''} · rej ${h.rej} · DT ${Math.round(h.dt)}m${h.reason ? ' · ' + h.reason : ''}`
+                    : `${slots[i].label} · ${{ missing: 'DPR missing', idle: 'not planned', current: 'in progress', future: 'upcoming' }[h.state] || ''}`;
+                return `<i class="s-${h.state}" title="${esc(tip)}"></i>`;
+            }).join('');
+        }
+
+        function compactTileHtml(m, slots) {
+            const st = STATUS[m.status] || STATUS.IDLE;
+            const M = metrics(m.sums);
+            const mould = m.job && (m.job.mould_name || m.job.mould_no);
+            const tip = [m.machine, st.label + (m.statusNote ? ': ' + m.statusNote : ''), mould].filter(Boolean).join(' · ');
+            return `<button class="mtile c" data-m="${esc(m.machine)}" style="--sc:${st.c}; --sbg:${st.bg}" title="${esc(tip)}">
+                <div class="tile-top"><span class="tile-name">${esc(shortName(m))}</span><span class="oee-mini num ${oeeClass(M.OEE)}">${M.OEE == null ? '—' : Math.round(M.OEE * 100) + '%'}</span></div>
+                <div class="tile-sub"><span style="color:${st.c}; font-weight:700">${st.label}</span><span class="num">${nf(m.sums.good)} · ${M.rejRate == null ? '—' : (M.rejRate * 100).toFixed(1) + '%'}</span></div>
+                <div class="strip">${stripHtml(m, slots)}</div>
+            </button>`;
+        }
+
+        function tileHtml(m, slots) {
+            const st = STATUS[m.status] || STATUS.IDLE;
+            const M = metrics(m.sums);
+            const att = M.attain;
+            const strip = stripHtml(m, slots);
+            const mould = m.job && (m.job.mould_name || m.job.mould_no);
+            return `<button class="mtile" data-m="${esc(m.machine)}" style="--sc:${st.c}; --sbg:${st.bg}">
+                <div class="tile-top">
+                    <div style="min-width:0"><div class="tile-name" title="${esc(m.machine)}">${esc(shortName(m))}</div>
+                    <div class="tile-meta">${m.tonnage ? nf(m.tonnage) + ' T' : ''}${m.std && m.std.cycle ? ` · std ${nf(m.std.cycle, 1)}s × ${m.std.actCavity || m.std.cavity || 1}` : ''}</div></div>
+                    <span class="st"><i class="bi ${st.icon}"></i>${st.label}</span>
+                </div>
+                <div class="tile-mould" title="${esc(mould || '')}">${mould ? esc(mould) : '<span style="color:var(--md-dim)">No mould loaded</span>'}</div>
+                <div class="tile-stats">
+                    <div class="big">OEE<b class="${oeeClass(M.OEE)} num">${M.OEE == null ? '—' : Math.round(M.OEE * 100) + '%'}</b></div>
+                    <div>Good<b class="num">${nf(m.sums.good)}</b></div>
+                    <div>Rej / DT<b class="num"><span class="${rejClass(M.rejRate)}">${M.rejRate == null ? '—' : (M.rejRate * 100).toFixed(1) + '%'}</span> · ${Math.round(m.sums.dt)}m</b></div>
+                </div>
+                <div class="progress" title="Attainment ${pct(att, 0)} of std target"><span style="width:${Math.min(100, (att || 0) * 100)}%; background:${att == null ? 'transparent' : att >= 0.95 ? 'var(--md-good)' : att >= 0.8 ? 'var(--md-warn)' : 'var(--md-bad)'}"></span></div>
+                <div class="strip">${strip}</div>
+                <div class="tile-note">${esc(m.statusNote || '')}</div>
+            </button>`;
+        }
+
+        // ── Hour-by-hour chart ──
+        function hourlySums() {
+            const slots = state.data.meta.slots;
+            const per = slots.map(() => emptySums());
+            const running = slots.map(() => 0);
+            scopeMachines().forEach(m => m.hourly.forEach((h, i) => {
+                if (h.planned == null) return;
+                addSums(per[i], h);
+                if (h.good + h.rej > 0) running[i]++;
+            }));
+            return { slots, per, running };
+        }
+
+        function renderHourChart() {
+            if (!state.data) return;
+            const { slots, per, running } = hourlySums();
+            const labels = slots.map(s => (state.data.meta.shift === 'All' ? s.shift[0] + ' ' : '') + s.label);
+            const upto = i => slots[i].elapsed || (slots[i].current && per[i].planned > 0);
+            let datasets, scales, fmt;
+            if (state.hourView === 'output') {
+                datasets = [
+                    { type: 'bar', label: 'Good', data: per.map((s, i) => upto(i) ? s.good : null), backgroundColor: 'rgba(59,130,246,0.75)', stack: 'o', borderRadius: 3, order: 2 },
+                    { type: 'bar', label: 'Reject', data: per.map((s, i) => upto(i) ? s.rej : null), backgroundColor: 'rgba(239,68,68,0.75)', stack: 'o', borderRadius: 3, order: 2 },
+                    { type: 'line', label: 'Std target', data: per.map((s, i) => upto(i) ? Math.round(s.target) : null), borderColor: '#e2e8f0', borderDash: [5, 4], borderWidth: 1.5, pointRadius: 0, order: 1 },
+                    { type: 'line', label: 'Machines producing', data: running.map((r, i) => upto(i) ? r : null), borderColor: '#a78bfa', backgroundColor: '#a78bfa', yAxisID: 'y1', tension: 0.3, pointRadius: 2, order: 0 }
+                ];
+                scales = { x: { stacked: true }, y: { stacked: true, beginAtZero: true, title: { display: true, text: 'pcs', color: '#64748b' } }, y1: { position: 'right', beginAtZero: true, grid: { drawOnChartArea: false }, title: { display: true, text: 'machines', color: '#64748b' } } };
+                fmt = v => nf(v);
+            } else if (state.hourView === 'oee') {
+                const m = per.map(metrics);
+                const toP = v => v == null ? null : +(Math.min(1, v) * 100).toFixed(1);
+                datasets = [
+                    { type: 'bar', label: 'OEE', data: m.map(x => toP(x.OEE)), backgroundColor: m.map(x => x.OEE == null ? 'rgba(100,116,139,0.3)' : x.OEE >= OEE_WORLD_CLASS ? 'rgba(34,197,94,0.7)' : x.OEE >= OEE_TYPICAL ? 'rgba(245,158,11,0.7)' : 'rgba(239,68,68,0.7)'), borderRadius: 3, order: 2 },
+                    { type: 'line', label: 'Availability', data: m.map(x => toP(x.A)), borderColor: '#3b82f6', backgroundColor: '#3b82f6', tension: 0.3, pointRadius: 2, order: 1 },
+                    { type: 'line', label: 'Performance', data: m.map(x => toP(x.P)), borderColor: '#38bdf8', backgroundColor: '#38bdf8', borderDash: [4, 3], tension: 0.3, pointRadius: 2, order: 1 },
+                    { type: 'line', label: 'Quality', data: m.map(x => toP(x.Q)), borderColor: '#22c55e', backgroundColor: '#22c55e', tension: 0.3, pointRadius: 2, order: 1 }
+                ];
+                scales = { y: { min: 0, max: 100, ticks: { callback: v => v + '%' } } };
+                fmt = v => v == null ? '—' : v + '%';
+            } else {
+                datasets = [
+                    { type: 'bar', label: 'Unplanned downtime (min)', data: per.map((s, i) => upto(i) ? Math.round(s.dt) : null), backgroundColor: 'rgba(245,158,11,0.75)', borderRadius: 3, order: 2 },
+                    { type: 'bar', label: 'No plan (min)', data: per.map((s, i) => upto(i) ? Math.round(s.noPlan) : null), backgroundColor: 'rgba(100,116,139,0.6)', borderRadius: 3, order: 2 },
+                    { type: 'line', label: 'Availability %', data: per.map((s, i) => upto(i) && s.planned ? +(s.run / s.planned * 100).toFixed(1) : null), borderColor: '#3b82f6', backgroundColor: '#3b82f6', yAxisID: 'y1', tension: 0.3, pointRadius: 2, order: 1 }
+                ];
+                scales = { y: { beginAtZero: true, title: { display: true, text: 'minutes', color: '#64748b' } }, y1: { position: 'right', min: 0, max: 100, grid: { drawOnChartArea: false }, ticks: { callback: v => v + '%' } } };
+                fmt = v => nf(v);
             }
+            drawChart('hourChart', { type: 'bar', data: { labels, datasets }, options: baseOptions(scales, fmt) });
+        }
 
-            rows.sort((a, b) => (b.total_dt || 0) - (a.total_dt || 0)); // Sort by DT
+        // ── Paretos (bars + cumulative %) ──
+        function renderParetos(machines) {
+            pareto('dtPareto', 'dtHint', topReasons(machines, 'dtReasons'), 'min', 'rgba(245,158,11,0.8)', v => `${nf(v)} min (${hrs(v)} h)`);
+            pareto('rejPareto', 'rejHint', topReasons(machines, 'rejReasons'), 'pcs', 'rgba(239,68,68,0.8)', v => `${nf(v)} pcs`);
+        }
 
-            rows.forEach(r => {
-                // r = { machine, plan_id, mould_no, total_good, total_rej, total_dt, last_good, last_time }
-                const lastHrText = r.last_good ? `<div style="font-size:0.75rem; color:#4ade80">+${r.last_good} pcs</div><div style="font-size:0.7rem; color:#64748b">${r.last_time}</div>` : '<div style="color:#64748b">-</div>';
-
-                const tr = document.createElement('tr');
-                tr.style.borderBottom = '1px solid var(--glass-border)';
-
-                tr.innerHTML = `
-                    <td style="padding:12px; font-weight:600; color:var(--text-primary)">
-                        ${r.machine}
-                        <div style="font-size:0.75rem; color:var(--text-secondary); font-weight:400">${r.mould_no || '-'}</div>
-                    </td>
-                    <td style="padding:12px;">
-                        <div style="font-family:monospace">
-                            <span style="color:var(--text-secondary)">${r.plan_id || '-'}</span> / 
-                            <span style="color:#fff; font-weight:700">${r.total_good || 0}</span>
-                        </div>
-                    </td>
-                    <td style="padding:12px; text-align:center;">
-                        ${lastHrText}
-                    </td>
-                    <td style="padding:12px; text-align:center; color:${r.total_rej > 0 ? '#ef4444' : 'inherit'}">${r.total_rej || 0}</td>
-                    <td style="padding:12px; text-align:center">
-                        <span style="background:rgba(22, 163, 74, 0.2); color:#4ade80; padding:2px 8px; border-radius:4px; font-size:0.75rem">Running</span>
-                    </td>
-                    <td style="padding:12px; text-align:center;">
-                         ${r.total_dt > 0 ? `<span style="color:#f59e0b">${(r.total_dt / 60).toFixed(1)}h</span>` : '-'}
-                    </td>
-                `;
-                tbody.appendChild(tr);
+        function pareto(canvasId, hintId, entries, unit, color, fmt) {
+            const total = entries.reduce((a, e) => a + e[1], 0);
+            const top = entries.slice(0, 10);
+            if (entries.length > 10) top.push([`Others (${entries.length - 10})`, entries.slice(10).reduce((a, e) => a + e[1], 0)]);
+            let run = 0;
+            const cum = top.map(e => { run += e[1]; return total ? +(run / total * 100).toFixed(1) : 0; });
+            document.getElementById(hintId).textContent = total ? `${nf(total)} ${unit} total` : 'None recorded';
+            drawChart(canvasId, {
+                type: 'bar',
+                data: {
+                    labels: top.map(e => e[0].length > 22 ? e[0].slice(0, 21) + '…' : e[0]),
+                    datasets: [
+                        { type: 'bar', label: unit, data: top.map(e => Math.round(e[1])), backgroundColor: color, borderRadius: 4, order: 2 },
+                        { type: 'line', label: 'Cumulative %', data: cum, borderColor: '#e2e8f0', backgroundColor: '#e2e8f0', yAxisID: 'y1', pointRadius: 2, tension: 0.2, order: 1 }
+                    ]
+                },
+                options: baseOptions({
+                    x: { ticks: { maxRotation: 45, minRotation: 30, autoSkip: false, font: { size: 10 } } },
+                    y: { beginAtZero: true },
+                    y1: { position: 'right', min: 0, max: 100, grid: { drawOnChartArea: false }, ticks: { callback: v => v + '%' } }
+                }, (v, ctx) => ctx.dataset.yAxisID === 'y1' ? v + '%' : fmt(v), items => top[items[0].dataIndex] ? top[items[0].dataIndex][0] : '')
             });
         }
 
-        function animateValue(id, start, end, duration) {
-            const obj = document.getElementById(id);
-            if (!obj) return;
-            obj.textContent = end.toLocaleString();
-            // Simplified for now to avoid complexity in replacement
+        // ── Chart plumbing ──
+        function baseOptions(scales, fmt, titleFn) {
+            const axis = { grid: { color: 'rgba(148,163,184,0.08)' }, ticks: { color: '#94a3b8', font: { size: 11 } }, border: { color: 'rgba(148,163,184,0.2)' } };
+            const merged = {};
+            Object.entries(Object.assign({ x: {}, y: {} }, scales)).forEach(([k, v]) => {
+                merged[k] = Object.assign({}, axis, v, { ticks: Object.assign({}, axis.ticks, v.ticks || {}), grid: Object.assign({}, axis.grid, v.grid || {}) });
+            });
+            return {
+                responsive: true, maintainAspectRatio: false, animation: { duration: 250 },
+                interaction: { mode: 'index', intersect: false },
+                plugins: {
+                    legend: { position: 'top', align: 'end', labels: { color: '#cbd5e1', boxWidth: 10, boxHeight: 10, font: { size: 11 } } },
+                    tooltip: {
+                        backgroundColor: '#0f172a', borderColor: 'rgba(148,163,184,0.3)', borderWidth: 1, titleColor: '#f8fafc', bodyColor: '#cbd5e1',
+                        callbacks: Object.assign({ label: ctx => `${ctx.dataset.label}: ${fmt ? fmt(ctx.parsed.y, ctx) : ctx.parsed.y}` }, titleFn ? { title: titleFn } : {})
+                    }
+                },
+                scales: merged
+            };
         }
 
-        function filterTable() {
-            const term = document.getElementById('tableSearch').value.toLowerCase();
-            const rows = document.querySelectorAll('#tableBody tr');
-            rows.forEach(r => {
-                const txt = r.textContent.toLowerCase();
-                r.style.display = txt.includes(term) ? '' : 'none';
+        function drawChart(id, config) {
+            if (typeof Chart === 'undefined') return;
+            if (state.charts[id]) state.charts[id].destroy();
+            state.charts[id] = new Chart(document.getElementById(id), config);
+        }
+
+        // ── Line table ──
+        function renderLineTable() {
+            const groups = new Map();
+            state.data.machines.forEach(m => { if (!groups.has(m.line)) groups.set(m.line, []); groups.get(m.line).push(m); });
+            const rows = [...groups.entries()].map(([line, list]) => {
+                const s = emptySums(); list.forEach(m => addSums(s, m.sums));
+                return { line, list, s, M: metrics(s), c: countStatus(list) };
+            });
+            const tot = emptySums(); rows.forEach(r => addSums(tot, r.s));
+            const T = metrics(tot);
+            const live = state.data.meta.live;
+            const cells = (s, M, run, n) => `
+                <td class="num">${run} / ${n}</td><td>${nf(s.good)}</td><td>${nf(s.target)}</td>
+                <td class="${attClass(M.attain)}">${pct(M.attain, 0)}</td><td>${nf(s.rej)}</td>
+                <td class="${rejClass(M.rejRate)}">${pct(M.rejRate, 2)}</td><td>${hrs(s.dt)}</td>
+                <td>${pct(M.A, 0)}</td><td>${pct(M.P == null ? null : Math.min(1, M.P), 0)}</td><td>${pct(M.Q, 1)}</td>
+                <td class="${oeeClass(M.OEE)}" style="font-weight:800">${pct(M.OEE, 1)}</td><td>${nf(s.goodKg, 0)}</td>`;
+            const runOf = r => live ? r.c.RUNNING : r.list.filter(m => m.sums.good + m.sums.rej > 0).length;
+            const t = document.getElementById('lineTable');
+            t.innerHTML = `<thead><tr><th class="l">Line</th><th>${live ? 'Running' : 'Ran'}</th><th>Good</th><th>Target</th><th>Attain.</th><th>Reject</th><th>Rej %</th><th>DT h</th><th>Avail.</th><th>Perf.</th><th>Quality</th><th>OEE</th><th>Good kg</th></tr></thead>
+                <tbody>${rows.map(r => `<tr data-line="${esc(r.line)}" style="${state.line === r.line ? 'outline:1px solid var(--md-accent)' : ''}"><td class="l" style="font-weight:700">${esc(r.line)}</td>${cells(r.s, r.M, runOf(r), r.list.length)}</tr>`).join('')}</tbody>
+                <tfoot><tr><td class="l">Plant</td>${cells(tot, T, rows.reduce((a, r) => a + runOf(r), 0), state.data.machines.length)}</tr></tfoot>`;
+            t.querySelectorAll('tbody tr').forEach(tr => tr.addEventListener('click', () => {
+                state.line = state.line === tr.dataset.line ? '' : tr.dataset.line;
+                store.set('line', state.line);
+                document.getElementById('lineSelect').value = state.line;
+                render();
+            }));
+            t.querySelectorAll('th').forEach(th => { th.style.cursor = 'default'; });
+        }
+
+        // ── Machine table ──
+        const COLS = [
+            { k: 'machine', t: 'Machine', l: true, v: r => r.m.machine, f: r => `<b>${esc(r.m.machine)}</b>` },
+            { k: 'line', t: 'Line', l: true, v: r => r.m.line },
+            { k: 'status', t: 'Status', l: true, v: r => STATUS_ORDER.indexOf(r.m.status), f: r => { const s = STATUS[r.m.status] || STATUS.IDLE; return `<span class="st" style="--sc:${s.c}; --sbg:${s.bg}">${s.label}</span>`; } },
+            { k: 'mould', t: 'Mould / job', l: true, v: r => (r.m.job && (r.m.job.mould_name || r.m.job.mould_no)) || '', f: r => `<span title="${esc(r.m.job && r.m.job.order_no || '')}" style="display:inline-block; max-width:240px; overflow:hidden; text-overflow:ellipsis; vertical-align:bottom">${esc((r.m.job && (r.m.job.mould_name || r.m.job.mould_no)) || '—')}</span>` },
+            { k: 'std', t: 'Std CT', v: r => r.m.std && r.m.std.cycle, f: r => r.m.std && r.m.std.cycle ? nf(r.m.std.cycle, 1) : '—' },
+            { k: 'act', t: 'Act CT', v: r => r.m.actCycle, f: r => { const d = r.dev; return r.m.actCycle ? `<span class="${d == null ? '' : d > CYCLE_DEV_WARN ? 'c-bad' : d > 0.03 ? 'c-warn' : 'c-good'}">${nf(r.m.actCycle, 1)}</span>` : '—'; } },
+            { k: 'cav', t: 'Cav', v: r => r.m.std && r.m.std.actCavity, f: r => r.m.std ? `<span class="${r.m.std.actCavity < r.m.std.cavity ? 'c-bad' : ''}">${r.m.std.actCavity || '—'}/${r.m.std.cavity || '—'}</span>` : '—' },
+            { k: 'good', t: 'Good', v: r => r.m.sums.good, f: r => nf(r.m.sums.good) },
+            { k: 'target', t: 'Target', v: r => r.m.sums.target, f: r => nf(r.m.sums.target) },
+            { k: 'attain', t: 'Attain.', v: r => r.M.attain, f: r => `<span class="${attClass(r.M.attain)}">${pct(r.M.attain, 0)}</span>` },
+            { k: 'rej', t: 'Rej', v: r => r.m.sums.rej, f: r => nf(r.m.sums.rej) },
+            { k: 'rejRate', t: 'Rej %', v: r => r.M.rejRate, f: r => `<span class="${rejClass(r.M.rejRate)}">${pct(r.M.rejRate, 2)}</span>` },
+            { k: 'dt', t: 'DT min', v: r => r.m.sums.dt, f: r => r.m.sums.dt ? `<span class="${r.m.sums.dt >= 60 ? 'c-bad' : 'c-warn'}">${nf(r.m.sums.dt)}</span>` : '0' },
+            { k: 'A', t: 'Avail.', v: r => r.M.A, f: r => pct(r.M.A, 0) },
+            { k: 'P', t: 'Perf.', v: r => r.M.P, f: r => r.M.P == null ? '—' : `<span class="${r.M.P > 1.05 ? 'c-warn' : ''}" title="${r.M.P > 1.05 ? 'Faster than std cycle — check the mould master' : ''}">${pct(r.M.P, 0)}</span>` },
+            { k: 'Q', t: 'Quality', v: r => r.M.Q, f: r => pct(r.M.Q, 1) },
+            { k: 'oee', t: 'OEE', v: r => r.M.OEE, f: r => `<b class="${oeeClass(r.M.OEE)}">${pct(r.M.OEE, 1)}</b>` },
+            { k: 'missing', t: 'DPR miss', v: r => r.m.missing, f: r => r.m.missing ? `<span class="c-warn">${r.m.missing} h</span>` : '<span class="c-dim">0</span>' }
+        ];
+
+        function machineRows() {
+            return scopeMachines().map(m => {
+                const M = metrics(m.sums);
+                const dev = m.std && m.std.cycle && m.actCycle ? (m.actCycle - m.std.cycle) / m.std.cycle : null;
+                return { m, M, dev };
+            }).filter(r => {
+                if (!state.search) return true;
+                const j = r.m.job || {};
+                return [r.m.machine, r.m.line, j.mould_name, j.mould_no, j.order_no, j.item_name, r.m.statusNote].join(' ').toLowerCase().includes(state.search);
             });
         }
 
+        function renderMachineTable() {
+            if (!state.data) return;
+            const rows = machineRows();
+            const { key, dir } = state.sort;
+            if (key) {
+                const col = COLS.find(c => c.k === key);
+                rows.sort((a, b) => {
+                    const x = col.v(a), y = col.v(b);
+                    if (x == null && y == null) return 0; if (x == null) return 1; if (y == null) return -1;
+                    return (typeof x === 'string' ? x.localeCompare(y, undefined, { numeric: true }) : x - y) * dir;
+                });
+            }
+            const t = document.getElementById('machineTable');
+            t.innerHTML = `<thead><tr>${COLS.map(c => `<th class="${c.l ? 'l' : ''}" data-k="${c.k}">${c.t}${state.sort.key === c.k ? `<span class="arr">${state.sort.dir > 0 ? '▲' : '▼'}</span>` : ''}</th>`).join('')}</tr></thead>
+                <tbody>${rows.length ? rows.map(r => `<tr data-m="${esc(r.m.machine)}">${COLS.map(c => `<td class="${c.l ? 'l' : ''}">${c.f ? c.f(r) : esc(c.v(r))}</td>`).join('')}</tr>`).join('') : `<tr><td colspan="${COLS.length}" class="l"><div class="empty">No machines match.</div></td></tr>`}</tbody>`;
+            t.querySelectorAll('th').forEach(th => th.addEventListener('click', () => {
+                const k = th.dataset.k;
+                state.sort = state.sort.key === k ? (state.sort.dir > 0 ? { key: k, dir: -1 } : { key: null, dir: 1 }) : { key: k, dir: ['machine', 'line', 'mould', 'status'].includes(k) ? 1 : -1 };
+                renderMachineTable();
+            }));
+            t.querySelectorAll('tbody tr[data-m]').forEach(tr => tr.addEventListener('click', () => openDrawer(tr.dataset.m)));
+        }
+
+        function exportCsv() {
+            if (!state.data) return;
+            const { meta } = state.data;
+            const head = ['Machine', 'Line', 'Status', 'Status note', 'Order', 'Mould', 'Std cycle s', 'Actual cycle s', 'Cavities running', 'Cavities std', 'Good pcs', 'Target pcs', 'Attainment %', 'Reject pcs', 'Rejection %', 'Downtime min', 'No-plan min', 'Availability %', 'Performance %', 'Quality %', 'OEE %', 'Good kg', 'DPR hours missing'];
+            const p = v => v == null ? '' : (v * 100).toFixed(1);
+            const lines = [head].concat(machineRows().map(({ m, M }) => [
+                m.machine, m.line, (STATUS[m.status] || {}).label || m.status, m.statusNote, m.job && m.job.order_no, m.job && (m.job.mould_name || m.job.mould_no),
+                m.std && m.std.cycle, m.actCycle, m.std && m.std.actCavity, m.std && m.std.cavity,
+                m.sums.good, Math.round(m.sums.target), p(M.attain), m.sums.rej, p(M.rejRate), Math.round(m.sums.dt), Math.round(m.sums.noPlan),
+                p(M.A), p(M.P), p(M.Q), p(M.OEE), Math.round(m.sums.goodKg), m.missing
+            ]));
+            const csv = lines.map(r => r.map(v => { const s = v == null ? '' : String(v); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; }).join(',')).join('\n');
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' }));
+            a.download = `moulding-dashboard_${meta.date}_${meta.shift}${state.line ? '_' + state.line.replace(/\W+/g, '') : ''}.csv`;
+            document.body.appendChild(a); a.click(); a.remove();
+            setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+        }
+
+        function toggleTv() {
+            const root = document.getElementById('mdRoot');
+            if (document.fullscreenElement) { document.exitFullscreen().catch(() => { }); return; }
+            if (root.requestFullscreen) root.requestFullscreen().catch(() => { });
+            if (!state.auto) { state.auto = true; store.set('auto', '1'); scheduleAuto(); paintControls(); }
+        }
+
+        // ── Machine drawer ──
+        function openDrawer(name, keepScroll) {
+            const m = state.data && state.data.machines.find(x => x.machine === name);
+            if (!m) return;
+            state.openMachine = name;
+            const st = STATUS[m.status] || STATUS.IDLE;
+            const M = metrics(m.sums);
+            const j = m.job || {};
+            const std = m.std || {};
+            const slots = state.data.meta.slots;
+            const rate = recentRate(m);
+            const eta = j.balance != null && j.balance > 0 && rate > 0 ? j.balance / rate : null;
+            document.getElementById('drTitle').innerHTML = `${esc(m.machine)} <span class="st" style="--sc:${st.c}; --sbg:${st.bg}; vertical-align:middle"><i class="bi ${st.icon}"></i>${st.label}</span>`;
+            document.getElementById('drSub').textContent = [m.line, m.tonnage ? m.tonnage + ' T' : '', m.model, m.statusNote].filter(Boolean).join(' · ');
+            const bars = (obj, unit, color) => {
+                const e = Object.entries(obj || {}).sort((a, b) => b[1] - a[1]);
+                if (!e.length) return '<div class="empty" style="padding:10px">None recorded</div>';
+                const max = e[0][1];
+                return `<div class="bars">${e.map(([k, v]) => `<div class="bar-row"><span class="n" title="${esc(k)}">${esc(k)}</span><div class="progress" style="height:8px"><span style="width:${(v / max * 100).toFixed(1)}%; background:${color}"></span></div><span class="v num">${nf(v)} ${unit}</span></div>`).join('')}</div>`;
+            };
+            const hourRows = m.hourly.map((h, i) => {
+                if (h.planned == null) return `<tr><td class="l">${slots[i].label}</td><td colspan="6" class="l c-dim">${{ missing: 'DPR not entered', idle: 'Not planned', current: 'In progress', future: '—' }[h.state] || ''}</td></tr>`;
+                const hm = metrics(h);
+                return `<tr><td class="l">${slots[i].label}</td><td>${nf(h.good)}</td><td>${nf(h.target)}</td><td class="${attClass(hm.attain)}">${pct(hm.attain, 0)}</td><td class="${h.rej ? 'c-bad' : ''}">${nf(h.rej)}</td><td class="${h.dt >= 45 ? 'c-bad' : h.dt >= 15 ? 'c-warn' : ''}">${Math.round(h.dt)}${h.noPlan ? ` <span class="c-dim">+${Math.round(h.noPlan)} NP</span>` : ''}</td><td class="l" style="max-width:170px; overflow:hidden; text-overflow:ellipsis" title="${esc(h.reason || '')}">${esc(h.reason || h.colour || '')}</td></tr>`;
+            }).join('');
+            const devTxt = std.cycle && m.actCycle ? ` (${m.actCycle >= std.cycle ? '+' : ''}${pct((m.actCycle - std.cycle) / std.cycle, 0)})` : '';
+            document.getElementById('drBody').innerHTML = `
+                <div class="kv">
+                    <div>OEE<b class="${oeeClass(M.OEE)}">${pct(M.OEE, 1)}</b></div>
+                    <div>Good / target<b class="num">${nf(m.sums.good)} / ${nf(m.sums.target)}</b></div>
+                    <div>Rejection<b class="${rejClass(M.rejRate)}">${pct(M.rejRate, 2)}</b></div>
+                    <div>Availability<b>${pct(M.A, 1)}</b></div>
+                    <div>Performance<b>${pct(M.P, 1)}</b></div>
+                    <div>Quality<b>${pct(M.Q, 1)}</b></div>
+                </div>
+                <div class="dr-sec">Current job</div>
+                <div class="kv">
+                    <div class="wide">Mould<b>${esc(j.mould_name || j.mould_no || '—')}${j.mould_no && j.mould_name ? ` <span style="color:var(--md-dim); font-weight:500">(${esc(j.mould_no)})</span>` : ''}</b></div>
+                    <div class="wide">Item<b>${esc(j.item_name || '—')}</b></div>
+                    <div>Order<b title="${esc(j.order_no || '')}">${esc(j.order_no || '—')}</b></div>
+                    <div>Plan<b title="${esc(j.plan_id || '')}">${esc(j.plan_id || '—')}</b></div>
+                    <div>Colour<b title="${esc(j.colour || '')}">${esc(j.colour || '—')}</b></div>
+                    <div>Plan qty<b class="num">${nf(j.plan_qty)}</b></div>
+                    <div>Produced (plan)<b class="num">${nf(j.produced)}</b></div>
+                    <div>Balance · ETA<b class="num">${j.balance == null ? '—' : nf(j.balance)}${eta != null ? ` · ${nf(eta, 1)} h` : ''}</b></div>
+                </div>
+                <div class="dr-sec">Standard vs actual</div>
+                <div class="kv">
+                    <div>Cycle std<b>${std.cycle ? nf(std.cycle, 1) + ' s' : '—'}</b></div>
+                    <div>Cycle actual<b class="${devTxt && (m.actCycle - std.cycle) / std.cycle > CYCLE_DEV_WARN ? 'c-bad' : ''}">${m.actCycle ? nf(m.actCycle, 1) + ' s' + devTxt : '—'}</b></div>
+                    <div>Cycle (setup)<b>${std.setupCycle ? nf(std.setupCycle, 1) + ' s' : '—'}</b></div>
+                    <div>Cavities<b class="${std.actCavity < std.cavity ? 'c-bad' : ''}">${std.actCavity || '—'} of ${std.cavity || '—'}</b></div>
+                    <div>Std rate<b>${std.pph ? nf(std.pph) + ' pcs/h' : '—'}</b></div>
+                    <div>Recent rate<b>${rate ? nf(rate) + ' pcs/h' : '—'}</b></div>
+                    <div>Part weight<b>${std.wtKg ? nf(std.wtKg * 1000, 1) + ' g' : '—'}</b></div>
+                    <div>Manpower<b>${std.manpower ? nf(std.manpower) : '—'}</b></div>
+                    <div>DPR hours<b>${m.entered} of ${m.required || m.entered}${m.missing ? ` <span class="c-warn">(${m.missing} missing)</span>` : ''}</b></div>
+                </div>
+                <div class="dr-sec">Hour by hour</div>
+                <div class="tbl-wrap"><table class="md"><thead><tr><th class="l">Hour</th><th>Good</th><th>Target</th><th>Att.</th><th>Rej</th><th>DT min</th><th class="l">Reason / colour</th></tr></thead><tbody>${hourRows}</tbody></table></div>
+                <div class="dr-sec">Downtime reasons</div>
+                ${bars(m.dtReasons, 'min', 'var(--md-warn)')}
+                <div class="dr-sec">Rejection reasons</div>
+                ${bars(m.rejReasons, 'pcs', 'var(--md-bad)')}`;
+            if (!keepScroll) document.getElementById('drBody').scrollTop = 0;
+            document.getElementById('drawer').classList.add('open');
+            document.getElementById('drawer').setAttribute('aria-hidden', 'false');
+            document.getElementById('drOverlay').classList.add('open');
+        }
+
+        function closeDrawer() {
+            state.openMachine = null;
+            document.getElementById('drawer').classList.remove('open');
+            document.getElementById('drawer').setAttribute('aria-hidden', 'true');
+            document.getElementById('drOverlay').classList.remove('open');
+        }
+    })();
     </script>
 </body>
 
