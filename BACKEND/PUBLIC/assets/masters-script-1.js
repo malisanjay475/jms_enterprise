@@ -556,9 +556,16 @@
 
     async function openMouldVerifyDetail(stepKey) {
       if (!_mvCurrentMouldNumber) return;
-      _mvdStepKey = stepKey;
-      const step = MOULD_VERIFY_STEPS.find(s => s.key === stepKey);
-      document.getElementById('mvdTitle').textContent = 'Verification — ' + (step ? step.label : 'Review');
+      // stepKey null = view-only (from "View Mould Details"): same read-only master,
+      // recent jobs and remarks, but no approval and no step-bound note box.
+      _mvdStepKey = stepKey || null;
+      const step = stepKey ? MOULD_VERIFY_STEPS.find(s => s.key === stepKey) : null;
+      const viewOnly = !step;
+      document.getElementById('mvdTitle').textContent = viewOnly ? 'Mould Details' : 'Verification — ' + step.label;
+      const confirmBtn = document.getElementById('mvdConfirmBtn');
+      if (confirmBtn) confirmBtn.style.display = viewOnly ? 'none' : '';
+      const noteWrap = document.getElementById('mvdNoteAddWrap');
+      if (noteWrap) noteWrap.style.display = viewOnly ? 'none' : 'flex';
       document.getElementById('mvdMouldTitle').textContent = '';
       document.getElementById('mvdMasterGrid').innerHTML = '';
       document.getElementById('mvdNotes').innerHTML = '';

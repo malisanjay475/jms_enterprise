@@ -732,8 +732,13 @@
           <h3 style="margin:0 0 2px 0">Mould Verification</h3>
           <div id="mvMouldTitle" style="font-size:0.82rem; color:#64748b"></div>
         </div>
-        <button onclick="document.getElementById('mouldVerifyModal').style.display='none'"
-          style="border:none; background:none; font-size:1.6rem; line-height:1; cursor:pointer">&times;</button>
+        <div style="display:flex; align-items:center; gap:8px">
+          <!-- Read-only mould details + last jobs, for everyone at any stage -->
+          <button type="button" onclick="openMouldVerifyDetail(null)" class="btn-action"
+            style="padding:6px 12px; font-size:0.78rem; background:#0f766e; white-space:nowrap"><i class="bi bi-eye"></i> View Mould Details</button>
+          <button onclick="document.getElementById('mouldVerifyModal').style.display='none'"
+            style="border:none; background:none; font-size:1.6rem; line-height:1; cursor:pointer">&times;</button>
+        </div>
       </div>
 
       <div id="mvBadgeBanner" style="display:none; margin:14px 0; padding:12px 14px; border-radius:8px; background:#dcfce7; border:1px solid #86efac; color:#166534; font-weight:700; align-items:center; gap:8px">
