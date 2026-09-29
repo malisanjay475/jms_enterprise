@@ -11401,6 +11401,7 @@ async function buildDprOrderAnalysis(req) {
       pb.machine,
       pb.status,
       pb.jc_approval_status,
+      pb.jc_checked_by, pb.jc_checked_at, pb.jc_approved_by, pb.jc_approved_at, pb.jc_rejected_by, pb.jc_rejected_at, pb.jc_rejection_stage, pb.completed_by, pb.completed_at, pb.remarks AS plan_remarks,
       pb.plan_qty,
       pb.bal_qty,
       pb.batch_no,
@@ -11706,6 +11707,7 @@ async function buildDprOrderAnalysis(req) {
       SELECT
         pb.id, pb.plan_id, pb.plant, pb.line, pb.machine, pb.status,
         pb.jc_approval_status, pb.plan_qty, pb.bal_qty, pb.batch_no, pb.batch_qty,
+        pb.jc_checked_by, pb.jc_checked_at, pb.jc_approved_by, pb.jc_approved_at, pb.jc_rejected_by, pb.jc_rejected_at, pb.jc_rejection_stage, pb.completed_by, pb.completed_at, pb.remarks AS plan_remarks,
         pb.mould_item_qty, pb.item_code, pb.item_name, pb.mould_name, pb.mould_code,
         pb.start_date, pb.end_date, pb.created_at,
         COALESCE(m.std_wt_kg, m2.std_wt_kg) as std_weight,
@@ -11756,9 +11758,21 @@ async function buildDprOrderAnalysis(req) {
   });
   const orderPlanTotal = plans.reduce((s, p) => s + toDprNumber(p.plan_qty), 0) || totalPlan;
 
+  // Moulds dropped from this order (Create Plan → Drop), with the reason, who and when
+  let droppedMoulds = [];
+  try {
+    droppedMoulds = await q(`
+      SELECT id, mould_name, mould_no, item_code, remarks, dropped_by, created_at AS dropped_at
+        FROM planning_drops
+       WHERE TRIM(COALESCE(order_no, '')) = TRIM($1)
+       ORDER BY created_at DESC NULLS LAST, id DESC
+    `, [decodedOrder]);
+  } catch (e) { console.error('order dropped moulds fetch', e.message); }
+
   return {
     info,
     plans,
+    dropped_moulds: droppedMoulds,
     logs,
     history,
     lifecycle,

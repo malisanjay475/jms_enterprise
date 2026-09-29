@@ -1850,6 +1850,46 @@
           // Dates entered out of order (e.g. JC dated before the OR) read as "before", not "-2 days"
           return v < 0 ? `${days} before` : days;
         }
+        function pjdDateTime(v) {
+          if (!v) return null;
+          const d = new Date(v);
+          if (isNaN(d)) return null;
+          return d.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+        }
+        function pjdWhoWhen(by, at) {
+          const who = String(by || '').trim();
+          const when = pjdDateTime(at);
+          if (!who && !when) return '';
+          return [who ? `<b>${esc(who)}</b>` : '', when ? esc(when) : ''].filter(Boolean).join(' · ');
+        }
+        // JC check / approval / rejection and completion of one plan: who, when and remarks
+        function pjdApprovalItems(p) {
+          const items = [];
+          const jcStatus = String(p.jc_approval_status || '').toUpperCase();
+          const checked = pjdWhoWhen(p.jc_checked_by, p.jc_checked_at);
+          const approved = pjdWhoWhen(p.jc_approved_by, p.jc_approved_at);
+          const rejected = pjdWhoWhen(p.jc_rejected_by, p.jc_rejected_at);
+          if (checked) items.push({ tone: 'info', icon: 'bi-check2-square', label: 'JC checked', text: checked });
+          if (approved) items.push({ tone: 'ok', icon: 'bi-patch-check', label: 'JC approved', text: approved });
+          if (rejected || jcStatus === 'REJECTED') items.push({ tone: 'bad', icon: 'bi-x-octagon', label: `JC rejected${p.jc_rejection_stage ? ` (${esc(p.jc_rejection_stage)})` : ''}`, text: rejected || 'Rejected' });
+          if (!approved && !rejected && jcStatus && jcStatus !== 'APPROVED' && jcStatus !== 'REJECTED') items.push({ tone: 'warn', icon: 'bi-hourglass-split', label: 'JC approval', text: esc(p.jc_approval_status) });
+          const completedWho = pjdWhoWhen(p.completed_by, p.completed_at);
+          if (String(p.status || '').toUpperCase() === 'COMPLETED' || completedWho) {
+            items.push({ tone: 'ok', icon: 'bi-flag', label: 'Completed', text: completedWho || 'Completed', remark: String(p.plan_remarks || '').trim() });
+          }
+          return items;
+        }
+        function pjdApprovalChips(items) {
+          const tones = { ok: ['#dcfce7', '#15803d'], info: ['#e0f2fe', '#0369a1'], warn: ['#fef3c7', '#b45309'], bad: ['#fee2e2', '#b91c1c'] };
+          return items.map(it => {
+            const [bg, fg] = tones[it.tone] || tones.info;
+            return `<div style="display:flex;flex-direction:column;gap:2px;padding:7px 10px;border-radius:10px;background:${bg};min-width:170px;flex:1 1 170px">` +
+              `<div style="font-size:0.66rem;font-weight:800;text-transform:uppercase;color:${fg};display:flex;align-items:center;gap:5px"><i class="bi ${it.icon}"></i>${it.label}</div>` +
+              `<div style="font-size:0.8rem;color:#0f172a">${it.text}</div>` +
+              (it.remark ? `<div style="font-size:0.75rem;color:#334155;font-style:italic">&ldquo;${esc(it.remark)}&rdquo;</div>` : '') +
+              `</div>`;
+          }).join('');
+        }
         function pjdRenderLifecycle(lc, info) {
           const box = document.getElementById('pjdLifecycleBox');
           if (!box) return;
@@ -1883,6 +1923,7 @@
             <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px">
               ${fact('OR qty', orQty)}${fact('JC no', lc.jc_no)}${fact('Plan status', lc.status)}${fact('JC approval', lc.jc_approval)}${fact('Priority', lc.priority)}${fact('Plan end', pjdDate(lc.plan_end))}
             </div>
+            ${(() => { const items = pjdApprovalItems(info || {}); return items.length ? `<div style="font-size:0.72rem;font-weight:800;color:#475569;text-transform:uppercase;margin-top:12px;margin-bottom:6px">Approval &amp; completion</div><div style="display:flex;flex-wrap:wrap;gap:6px">${pjdApprovalChips(items)}</div>` : ''; })()}
             <div style="font-size:0.7rem;color:#94a3b8;margin-top:6px">Dates from OR-JR Status, the plan and DPR. Gaps over 3 days are shown in red.</div>`;
         }
 
@@ -1891,7 +1932,18 @@
           const box = document.getElementById('pjdMouldsBox');
           if (!box) return;
           const list = (plans || []).filter(p => !['REJECTED', 'DROPPED'].includes(String(p.status || '').toUpperCase()));
-          if (!list.length) { box.innerHTML = '<h4 style="font-size:0.95rem;font-weight:900;color:#0f172a;margin:0 0 6px">Moulds in this order</h4><div style="color:#64748b;font-size:0.85rem">No other moulds planned for this order.</div>'; return; }
+          const dropped = Array.isArray(ctx.dropped) ? ctx.dropped : [];
+          const droppedHtml = dropped.length ? `
+            <div style="margin-top:14px;border-top:1px dashed #fecaca;padding-top:10px">
+              <div style="font-size:0.85rem;font-weight:900;color:#b91c1c;margin-bottom:6px"><i class="bi bi-slash-circle"></i> Dropped moulds (${dropped.length})</div>
+              ${dropped.map(d => `<div style="display:flex;flex-wrap:wrap;gap:4px 12px;align-items:baseline;padding:7px 10px;border-radius:8px;background:#fff1f2;margin-bottom:6px">
+                <b style="color:#0f172a;font-size:0.82rem">${esc(d.mould_name || d.mould_no || d.item_code || '-')}</b>
+                <span style="font-size:0.72rem;color:#64748b">${esc(d.mould_no || '')}</span>
+                <span style="font-size:0.72rem;color:#64748b">Dropped by ${pjdWhoWhen(d.dropped_by, d.dropped_at) || '-'}</span>
+                <div style="flex-basis:100%;font-size:0.78rem;color:#7f1d1d">${d.remarks ? `Remarks: <i>&ldquo;${esc(d.remarks)}&rdquo;</i>` : '<span style="color:#94a3b8">No remarks entered</span>'}</div>
+              </div>`).join('')}
+            </div>` : '';
+          if (!list.length) { box.innerHTML = '<h4 style="font-size:0.95rem;font-weight:900;color:#0f172a;margin:0 0 6px">Moulds in this order</h4><div style="color:#64748b;font-size:0.85rem">No other moulds planned for this order.</div>' + droppedHtml; return; }
           const isCurrent = (p) => ctx.planId && (String(p.plan_id || '') === String(ctx.planId) || String(p.id || '') === String(ctx.planId));
           const totPlan = list.reduce((s, p) => s + Number(p.plan_qty || 0), 0);
           const totGood = list.reduce((s, p) => s + Number(p.produced_good || 0), 0);
@@ -1908,7 +1960,7 @@
             return `<tr style="border-bottom:1px solid #f1f5f9;${cur ? 'background:#f0f9ff' : ''}">
               <td style="padding:8px"><div style="font-weight:800;color:#0f172a;font-size:0.82rem">${esc(p.mould_name || p.item_name || '-')}</div><div style="font-size:0.7rem;color:#94a3b8">${esc(p.mould_code || p.item_code || '')}</div></td>
               <td style="padding:8px;font-size:0.8rem;color:#334155">${esc(machine)}</td>
-              <td style="padding:8px"><span style="font-size:0.7rem;font-weight:800;color:${stColor}">${esc(st)}</span></td>
+              <td style="padding:8px"><span style="font-size:0.7rem;font-weight:800;color:${stColor}">${esc(st)}</span>${pjdApprovalItems(p).map(it => `<div style="font-size:0.66rem;color:#64748b;margin-top:2px"><i class="bi ${it.icon}"></i> ${it.label}: ${it.text}${it.remark ? ` &mdash; <i>&ldquo;${esc(it.remark)}&rdquo;</i>` : ''}</div>`).join('')}</td>
               <td style="padding:8px;text-align:right;font-weight:700">${plan.toLocaleString('en-IN')}</td>
               <td style="padding:8px;text-align:right"><div style="font-weight:800;color:#15803d">${good.toLocaleString('en-IN')}</div><div style="background:#e2e8f0;border-radius:3px;height:4px;margin-top:3px"><div style="background:#22c55e;height:4px;border-radius:3px;width:${pct}%"></div></div></td>
               <td style="padding:8px;text-align:right;color:#b91c1c;font-weight:700">${rej.toLocaleString('en-IN')}</td>
@@ -1927,7 +1979,7 @@
             <div style="overflow-x:auto"><table style="width:100%;min-width:760px;border-collapse:collapse">
               <thead><tr style="background:#f1f5f9">${['Mould', 'Machine', 'Status', 'Plan', 'Produced', 'Rej', 'Balance', '%', ''].map((h, k) => `<th style="padding:7px 8px;font-size:0.7rem;color:#64748b;font-weight:700;text-transform:uppercase;text-align:${k > 2 ? 'right' : 'left'}">${h}</th>`).join('')}</tr></thead>
               <tbody>${rows}</tbody>
-            </table></div>`;
+            </table></div>${droppedHtml}`;
           window.pjdOpenOrderMould = function(i) {
             const p = (window._pjdOrderMoulds || [])[i];
             if (!p) return;
@@ -2012,7 +2064,8 @@
               pjdRenderOrderMoulds(ans.data.plans || [], {
                 orderNo: info.order_no || orderNo,
                 planId,
-                clientName: info.client_name || clientName
+                clientName: info.client_name || clientName,
+                dropped: ans.data.dropped_moulds || []
               });
 
               // Colour table — filter out colours with zero plan AND zero production
