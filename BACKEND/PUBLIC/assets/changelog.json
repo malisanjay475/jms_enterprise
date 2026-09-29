@@ -23,7 +23,7 @@
           "label": "Planning",
           "icon": "bi-kanban",
           "changes": [
-            { "type": "fix", "text": "The Plan to Prod gap in the job details timeline is counted from the date the plan was created, so it no longer shows wrong values like 937 days. All timeline gaps now count whole calendar days in India time." }
+            { "type": "fix", "text": "The Plan to Prod gap in the job details timeline is counted from the date the plan was created, so it no longer shows wrong values like 937 days. All timeline gaps now count whole calendar days in India time, and dates entered out of order show as days before instead of a minus number." }
           ]
         }
       ]
