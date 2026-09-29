@@ -11,8 +11,24 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.77.0",
+  "latest": "1.77.1",
   "versions": [
+    {
+      "version": "1.77.1",
+      "date": "2026-09-29",
+      "title": "Job details: colour breakdown and photo viewer",
+      "modules": [
+        {
+          "app": "planning",
+          "label": "Planning",
+          "icon": "bi-kanban",
+          "changes": [
+            { "type": "fix", "text": "The Colour-wise Breakdown in the job details window is shown in full again, including the total row. It was cut off when the window had a lot of content." },
+            { "type": "improvement", "text": "FPA photos open inside the page instead of a new tab. Scroll to zoom in and out, drag to move, rotate left or right, and go to the next or previous photo." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.77.0",
       "date": "2026-09-29",

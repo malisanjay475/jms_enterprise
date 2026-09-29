@@ -1982,6 +1982,7 @@
             const weights = rows.flatMap(r=>[r.qc_weight_1,r.qc_weight_2,r.qc_weight_3]).filter(v=>v!=null&&String(v)!=='').slice(0,3);
             const fpaSrc = rows.find(r=>r.fpa_form_image||(Array.isArray(r.product_images)&&r.product_images.length));
             const fpaImgs = fpaSrc ? [fpaSrc.fpa_form_image,...(Array.isArray(fpaSrc.product_images)?fpaSrc.product_images:[])].filter(Boolean) : [];
+            window._pjdImages = fpaImgs; // opened in the in-page viewer, not a new tab
             const supW = rows.find(r=>r.supervisor_weight)?.supervisor_weight || rows.find(r=>r.act_weight)?.act_weight || '-';
             const stdW = rows.find(r=>r.std_weight)?.std_weight || '-';
             document.getElementById('pjdQCBox').innerHTML = `
@@ -2003,7 +2004,7 @@
               ${fpaImgs.length ? `
                 <div style="font-size:0.85rem;color:#334155;font-weight:800;margin-bottom:8px">FPA Images</div>
                 <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">
-                  ${fpaImgs.map((src,i)=>`<button type="button" onclick="window.open(decodeURIComponent('${encodeURIComponent(src)}'),'_blank')"
+                  ${fpaImgs.map((src,i)=>`<button type="button" onclick="window.pjdOpenImageViewer(${i})"
                     style="display:block;padding:0;border:2px solid #e2e8f0;background:#f8fafc;cursor:zoom-in;border-radius:10px;overflow:hidden;width:100%;transition:border-color 0.2s,transform 0.2s"
                     onmouseover="this.style.borderColor='#93c5fd';this.style.transform='scale(1.02)'"
                     onmouseout="this.style.borderColor='#e2e8f0';this.style.transform='scale(1)'">
@@ -2013,6 +2014,118 @@
           } catch(e) {
             document.getElementById('pjdQCBox').innerHTML = `<div style="color:#b91c1c;font-size:0.82rem">QC data unavailable</div>`;
           }
+        };
+
+        /* -------- In-page photo viewer (FPA images): scroll to zoom, drag, rotate -------- */
+        window.pjdOpenImageViewer = function(index) {
+          const images = Array.isArray(window._pjdImages) ? window._pjdImages : [];
+          if (!images.length) return;
+          let viewer = document.getElementById('pjdImageViewer');
+          if (!viewer) {
+            viewer = document.createElement('div');
+            viewer.id = 'pjdImageViewer';
+            viewer.className = 'pjd-viewer';
+            viewer.setAttribute('role', 'dialog');
+            viewer.setAttribute('aria-modal', 'true');
+            viewer.innerHTML = `
+              <div class="pjd-viewer-bar">
+                <span class="pjd-v-title" id="pjdViewerTitle">Photo</span>
+                <button type="button" data-act="prev" title="Previous photo (←)"><i class="bi bi-chevron-left"></i></button>
+                <button type="button" data-act="next" title="Next photo (→)"><i class="bi bi-chevron-right"></i></button>
+                <button type="button" data-act="out" title="Zoom out"><i class="bi bi-zoom-out"></i></button>
+                <span class="pjd-v-zoom" id="pjdViewerZoom">100%</span>
+                <button type="button" data-act="in" title="Zoom in"><i class="bi bi-zoom-in"></i></button>
+                <button type="button" data-act="rotl" title="Rotate left"><i class="bi bi-arrow-counterclockwise"></i></button>
+                <button type="button" data-act="rotr" title="Rotate right"><i class="bi bi-arrow-clockwise"></i></button>
+                <button type="button" data-act="reset" title="Reset"><i class="bi bi-arrows-angle-contract"></i> Reset</button>
+                <button type="button" data-act="close" title="Close (Esc)"><i class="bi bi-x-lg"></i> Close</button>
+              </div>
+              <div class="pjd-viewer-stage" id="pjdViewerStage"><img id="pjdViewerImg" alt="" draggable="false"></div>
+              <div class="pjd-viewer-hint">Scroll to zoom in or out · drag to move · double-click to zoom</div>`;
+            document.body.appendChild(viewer);
+
+            const st = { i: 0, scale: 1, rot: 0, x: 0, y: 0, drag: null };
+            viewer._state = st;
+            const img = viewer.querySelector('#pjdViewerImg');
+            const stage = viewer.querySelector('#pjdViewerStage');
+            const MIN = 0.5, MAX = 8;
+            const apply = () => {
+              img.style.transform = `translate(${st.x}px, ${st.y}px) scale(${st.scale}) rotate(${st.rot}deg)`;
+              viewer.querySelector('#pjdViewerZoom').textContent = `${Math.round(st.scale * 100)}%`;
+            };
+            const reset = () => { st.scale = 1; st.rot = 0; st.x = 0; st.y = 0; apply(); };
+            // Zoom towards a point on screen (the cursor), keeping that point still
+            const zoomAt = (factor, cx, cy) => {
+              const next = Math.min(MAX, Math.max(MIN, st.scale * factor));
+              if (next === st.scale) return;
+              const r = stage.getBoundingClientRect();
+              const px = (cx ?? r.left + r.width / 2) - (r.left + r.width / 2);
+              const py = (cy ?? r.top + r.height / 2) - (r.top + r.height / 2);
+              const k = next / st.scale;
+              st.x = px - (px - st.x) * k;
+              st.y = py - (py - st.y) * k;
+              st.scale = next;
+              if (st.scale <= 1) { st.x = 0; st.y = 0; }
+              apply();
+            };
+            const show = (i) => {
+              const list = Array.isArray(window._pjdImages) ? window._pjdImages : [];
+              if (!list.length) return;
+              st.i = (i + list.length) % list.length;
+              img.src = list[st.i];
+              viewer.querySelector('#pjdViewerTitle').textContent = `Photo ${st.i + 1} of ${list.length}`;
+              viewer.querySelectorAll('[data-act="prev"],[data-act="next"]').forEach(b => { b.style.display = list.length > 1 ? '' : 'none'; });
+              reset();
+            };
+            const close = () => { viewer.classList.remove('is-open'); img.removeAttribute('src'); };
+            viewer._show = show;
+
+            viewer.querySelector('.pjd-viewer-bar').addEventListener('click', (ev) => {
+              const act = ev.target.closest('[data-act]')?.dataset.act;
+              if (act === 'in') zoomAt(1.25);
+              else if (act === 'out') zoomAt(1 / 1.25);
+              else if (act === 'rotl') { st.rot -= 90; apply(); }
+              else if (act === 'rotr') { st.rot += 90; apply(); }
+              else if (act === 'reset') reset();
+              else if (act === 'prev') show(st.i - 1);
+              else if (act === 'next') show(st.i + 1);
+              else if (act === 'close') close();
+            });
+            stage.addEventListener('wheel', (ev) => {
+              ev.preventDefault();
+              zoomAt(ev.deltaY < 0 ? 1.15 : 1 / 1.15, ev.clientX, ev.clientY);
+            }, { passive: false });
+            stage.addEventListener('dblclick', (ev) => {
+              if (st.scale > 1) reset(); else zoomAt(2.5, ev.clientX, ev.clientY);
+            });
+            stage.addEventListener('pointerdown', (ev) => {
+              if (ev.button !== 0) return;
+              st.drag = { px: ev.clientX, py: ev.clientY, x: st.x, y: st.y };
+              stage.classList.add('is-dragging');
+              stage.setPointerCapture(ev.pointerId);
+            });
+            stage.addEventListener('pointermove', (ev) => {
+              if (!st.drag) return;
+              st.x = st.drag.x + (ev.clientX - st.drag.px);
+              st.y = st.drag.y + (ev.clientY - st.drag.py);
+              apply();
+            });
+            const endDrag = () => { st.drag = null; stage.classList.remove('is-dragging'); };
+            stage.addEventListener('pointerup', endDrag);
+            stage.addEventListener('pointercancel', endDrag);
+            // Click on the dark background (not the photo) closes the viewer
+            stage.addEventListener('click', (ev) => { if (ev.target === stage && st.scale <= 1) close(); });
+            document.addEventListener('keydown', (ev) => {
+              if (!viewer.classList.contains('is-open')) return;
+              if (ev.key === 'Escape') { ev.stopPropagation(); close(); }
+              else if (ev.key === 'ArrowLeft') show(st.i - 1);
+              else if (ev.key === 'ArrowRight') show(st.i + 1);
+              else if (ev.key === '+' || ev.key === '=') zoomAt(1.25);
+              else if (ev.key === '-') zoomAt(1 / 1.25);
+            }, true);
+          }
+          viewer.classList.add('is-open');
+          viewer._show(Number(index) || 0);
         };
 
         window.closePlanJobDetail = function() {
