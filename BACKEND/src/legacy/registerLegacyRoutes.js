@@ -25356,7 +25356,18 @@ async function mergeMainMouldVerifyNotes(id, localNotes) {
 app.get('/api/moulds/:id/verify-detail', async (req, res) => {
   try {
     const { id } = req.params;
-    const rows = await q(`SELECT * FROM moulds WHERE mould_number = $1 LIMIT 1`, [id]);
+    // One mould number can exist once per factory (separate master rows). Show the
+    // row of the factory the user opened it from; otherwise the most complete row,
+    // so an empty duplicate never hides the real machines/details.
+    const factoryId = parseInt(req.query.factory_id, 10);
+    const rows = await q(
+      `SELECT * FROM moulds WHERE mould_number = $1
+        ORDER BY (factory_id = $2) DESC NULLS LAST,
+                 (NULLIF(TRIM(COALESCE(primary_machine, '')), '') IS NOT NULL) DESC,
+                 updated_at DESC NULLS LAST
+        LIMIT 1`,
+      [id, Number.isFinite(factoryId) ? factoryId : null]
+    );
     if (!rows.length) return res.status(404).json({ ok: false, error: 'Mould not found' });
     const mould = rows[0];
     let notes = await q(
@@ -25632,9 +25643,15 @@ app.get('/api/moulds/:id/recent-jobs', async (req, res) => {
 
     // The mould master baselines to compare the real run against.
     const mrows = await q(
+      // Same row choice as /verify-detail: this factory's row first, then the most
+      // complete, so a duplicate from another factory never supplies the baselines.
       `SELECT mould_number, mould_name, cycle_time, std_wt_kg, no_of_cav
-         FROM moulds WHERE mould_number = $1 LIMIT 1`,
-      [id]
+         FROM moulds WHERE mould_number = $1
+        ORDER BY (factory_id = $2) DESC NULLS LAST,
+                 (NULLIF(TRIM(COALESCE(primary_machine, '')), '') IS NOT NULL) DESC,
+                 updated_at DESC NULLS LAST
+        LIMIT 1`,
+      [id, Number.isFinite(Number(factoryId)) && factoryId !== null && factoryId !== '' ? Number(factoryId) : null]
     );
     const mould = mrows[0] || { mould_number: id };
 

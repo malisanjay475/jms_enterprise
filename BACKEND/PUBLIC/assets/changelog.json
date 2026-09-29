@@ -11,8 +11,21 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.79.0",
+  "latest": "1.79.1",
   "versions": [
+    {
+      "version": "1.79.1",
+      "date": "2026-09-29",
+      "title": "Verification shows the right mould details",
+      "modules": [
+        {
+          "app": "masters",
+          "changes": [
+            { "type": "fix", "text": "The mould verification details screen now shows the same factory mould you opened, so primary and secondary machines and other details no longer show as empty when the mould number exists in more than one factory." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.79.0",
       "date": "2026-09-29",
