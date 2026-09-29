@@ -11,8 +11,25 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.76.10",
+  "latest": "1.77.0",
   "versions": [
+    {
+      "version": "1.77.0",
+      "date": "2026-09-29",
+      "title": "Line shift team and full job details",
+      "modules": [
+        {
+          "app": "planning",
+          "label": "Planning",
+          "icon": "bi-kanban",
+          "changes": [
+            { "type": "feat", "text": "Each line on the Planning Board shows its shift team for the current shift: JMS entry person, QC, moulding supervisor, moulding engineer and die setter, as saved by the supervisor. Lines without a saved team are marked." },
+            { "type": "fix", "text": "View full details now shows the real produced, rejection, balance, colour-wise and QC data for the job, the same as DPR Compliance Summary. It showed 0 before." },
+            { "type": "feat", "text": "The job details window shows the setup, STD against actual cycle time, cavity and weight." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.76.10",
       "date": "2026-09-29",

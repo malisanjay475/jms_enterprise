@@ -11484,7 +11484,16 @@ async function buildDprOrderAnalysis(req) {
     // Match the plan robustly: dpr_hourly.plan_id may hold the canonical string
     // plan_id OR the numeric plan_board.id (as text). The old subquery was reversed
     // (looked plan_board up by id = the string) and never matched.
-    where.push(`(CAST(dh.plan_id AS TEXT) = $${logParams.length} OR dh.plan_id = (SELECT CAST(pb.id AS TEXT) FROM plan_board pb WHERE pb.plan_id = $${logParams.length} ORDER BY pb.id DESC LIMIT 1))`);
+    // planId can arrive as either form (the Planning Board card used to send plan_board.id),
+    // so resolve it to BOTH forms of the plan and match dpr_hourly.plan_id against either.
+    // Before, a numeric plan_board.id never matched the canonical plan_id that DPR saves,
+    // so the job detail showed 0 produced / 0 rejection for a running job.
+    where.push(`(CAST(dh.plan_id AS TEXT) = $${logParams.length} OR CAST(dh.plan_id AS TEXT) IN (
+      SELECT ids.v FROM plan_board pbx
+        CROSS JOIN LATERAL (VALUES (pbx.plan_id), (CAST(pbx.id AS TEXT))) AS ids(v)
+       WHERE (pbx.plan_id = $${logParams.length} OR CAST(pbx.id AS TEXT) = $${logParams.length})
+         AND ids.v IS NOT NULL
+    ))`);
   }
   // When no explicit plan is requested, include EVERY log for the order (all plans/moulds)
   // so totals and breakdowns reflect the whole order, not just one plan.

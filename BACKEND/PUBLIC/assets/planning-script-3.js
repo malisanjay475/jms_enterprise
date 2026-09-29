@@ -1560,6 +1560,35 @@
           return String(machine?.building || machine?.machine_process || 'General').trim();
         }
 
+        function planLineKey(value) {
+          return String(value || '').replace(/\s+/g, '').toUpperCase();
+        }
+
+        // Responsible people for a line this shift, from the shift team the supervisor saves.
+        function renderLineShiftTeam(line) {
+          const LINE_TEAM_ROLES = [
+            { key: 'entry_person', label: 'JMS entry', icon: 'bi-keyboard' },
+            { key: 'qc_supervisor', label: 'QC', icon: 'bi-clipboard-check' },
+            { key: 'prod_supervisor', label: 'Moulding supervisor', icon: 'bi-person-badge' },
+            { key: 'engineer', label: 'Moulding engineer', icon: 'bi-tools' },
+            { key: 'die_setter', label: 'Die setter', icon: 'bi-wrench-adjustable' }
+          ];
+          if (line === 'Machines') return '';
+          const info = window._planningShiftTeamInfo;
+          if (!info) return '';
+          const team = (window._planningShiftTeams || {})[planLineKey(line)];
+          const when = `${pEsc(info.shift)} shift`;
+          if (!team) {
+            return `<div class="pb-line-team is-missing"><i class="bi bi-people"></i> Shift team not saved for ${when}</div>`;
+          }
+          const people = LINE_TEAM_ROLES.map(r => {
+            const name = String(team[r.key] || '').trim();
+            return `<span class="pb-team-person${name ? '' : ' is-empty'}" title="${pEsc(r.label)}">
+              <i class="bi ${r.icon}"></i><span class="pb-team-role">${pEsc(r.label)}</span><b>${name ? pEsc(name) : 'Not set'}</b></span>`;
+          }).join('');
+          return `<div class="pb-line-team"><span class="pb-team-when">${when}</span>${people}</div>`;
+        }
+
         function getMachineLineValue(machine) {
           return String(machine?.line || (machine?.machine_process ? 'Machines' : '1')).trim();
         }
@@ -1820,6 +1849,7 @@
           _s('pjdJC', '…'); _s('pjdPlanQty', '…'); _s('pjdProduced', '…'); _s('pjdRej', '…'); _s('pjdBalance', '…');
           document.getElementById('pjdColourTable').innerHTML = '<tr><td colspan="5" style="padding:12px;text-align:center;color:#64748b;font-size:0.85rem">Loading…</td></tr>';
           document.getElementById('pjdQCBox').innerHTML = '<div style="color:#64748b;font-size:0.85rem">Loading QC data…</div>';
+          const pjdSetup = document.getElementById('pjdSetupBox'); if (pjdSetup) pjdSetup.innerHTML = '<div style="color:#64748b;font-size:0.85rem">Loading setup…</div>';
           document.getElementById('pjdDTBox').innerHTML = '';
           document.getElementById('pjdRejBox').innerHTML = '';
           modal.style.display = 'flex';
@@ -1850,6 +1880,26 @@
               _s('pjdProduced', produced.toLocaleString('en-IN'));
               _s('pjdRej', rej.toLocaleString('en-IN'));
               _s('pjdBalance', bal.toLocaleString('en-IN'));
+
+              // Setup: STD (mould master) vs Actual (supervisor's setup), like DPR Compliance Summary
+              const setupBox = document.getElementById('pjdSetupBox');
+              if (setupBox) {
+                const fmtV = (v, unit = '') => (v === null || v === undefined || v === '' || Number(v) === 0) ? '-' : `${Number(v).toLocaleString('en-IN', { maximumFractionDigits: 3 })}${unit}`;
+                const cell = (label, std, act, unit, lowerIsBetter) => {
+                  const s = Number(std || 0), a = Number(act || 0);
+                  const off = s > 0 && a > 0 && Math.abs(a - s) / s > 0.02;
+                  const bad = off && (lowerIsBetter ? a > s : a < s);
+                  return `<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:8px 10px">` +
+                    `<div style="font-size:0.65rem;color:#64748b;font-weight:800;text-transform:uppercase">${label}</div>` +
+                    `<div style="font-size:0.82rem;color:#475569;font-weight:700">STD ${fmtV(std, unit)} &#8594; <span style="color:${!off ? '#0f172a' : bad ? '#dc2626' : '#15803d'};font-weight:900">${fmtV(act, unit)}</span></div></div>`;
+                };
+                setupBox.innerHTML = `<h4 style="font-size:0.95rem;font-weight:900;color:#0f172a;margin:0 0 10px">Setup &middot; STD vs Actual</h4>` +
+                  `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px">` +
+                  cell('Cycle time', info.std_cycle, info.act_cycle, ' s', true) +
+                  cell('Cavity', info.std_cavity, info.act_cavity, '', false) +
+                  cell('Weight', info.std_weight, info.act_weight, '', true) +
+                  `</div>`;
+              }
 
               // Colour table — filter out colours with zero plan AND zero production
               const DOT_COLOURS = ['#3b82f6','#ef4444','#f59e0b','#22c55e','#a855f7','#06b6d4','#f97316','#ec4899','#84cc16','#6366f1'];
@@ -2739,6 +2789,20 @@
               liveRes.data.forEach(r => { liveMap[String(r.machine || '').trim().toUpperCase()] = r; });
             }
 
+            // Shift team saved by the supervisor for the same DPR date/shift as live-status.
+            // Keyed by line with spaces removed ("B -L1" and "B-L1" match).
+            window._planningShiftTeams = {};
+            window._planningShiftTeamInfo = null;
+            if (liveRes && liveRes.date && liveRes.shift) {
+              window._planningShiftTeamInfo = { date: liveRes.date, shift: liveRes.shift };
+              try {
+                const teamRes = await api.get(`/shift/team?date=${encodeURIComponent(liveRes.date)}&shift=${encodeURIComponent(liveRes.shift)}`);
+                (teamRes && Array.isArray(teamRes.data) ? teamRes.data : []).forEach(t => {
+                  window._planningShiftTeams[planLineKey(t.line)] = t;
+                });
+              } catch (_) { /* team is optional: lines show "not saved" */ }
+            }
+
             const scopedMachines = (mList && mList.data ? mList.data : mList || []);
             lastMachines = scopedMachines.map(machine => {
               const machineCode = String(machine.machine || machine.code || machine.name || '').trim();
@@ -2859,6 +2923,7 @@
               }
               sortedMachines.forEach(m => row.appendChild(machineSeat(m)));
               wrap.appendChild(title);
+              wrap.insertAdjacentHTML('beforeend', renderLineShiftTeam(line));
               wrap.appendChild(row);
               section.appendChild(wrap);
             });
@@ -3061,7 +3126,7 @@
               class="pjd-open-btn"
               data-order="${esc(activePlan.orderNo||'')}"
               data-machine="${esc(m.code||m.name||'')}"
-              data-planid="${esc(String(activePlan.id||''))}"
+              data-planid="${esc(String(activePlan.planId||activePlan.id||''))}"
               data-item="${esc(activePlan.itemName||activePlan.mouldName||'')}"
               data-client="${esc(activePlan.clientName||'')}"
               onclick="event.stopPropagation(); window._pjdOpen(this);">
