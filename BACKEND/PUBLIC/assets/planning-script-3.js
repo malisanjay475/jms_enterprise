@@ -1835,6 +1835,103 @@
         };
 
         /* -------- Plan Job Detail Modal -------- */
+        /* -------- Job detail: OR / JC timeline (dates + gaps from OR-JR Status) -------- */
+        function pjdDate(v) {
+          if (!v) return null;
+          const s = String(v).slice(0, 10);
+          const d = new Date(`${s}T00:00:00`);
+          return isNaN(d) ? null : d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+        }
+        function pjdDays(n) {
+          if (n === null || n === undefined || Number.isNaN(Number(n))) return null;
+          const v = Number(n);
+          return v === 0 ? 'same day' : `${v} day${Math.abs(v) === 1 ? '' : 's'}`;
+        }
+        function pjdRenderLifecycle(lc, info) {
+          const box = document.getElementById('pjdLifecycleBox');
+          if (!box) return;
+          const g = lc.gaps || {};
+          const steps = [
+            { label: 'OR created', date: lc.or_date, icon: 'bi-file-earmark-text' },
+            { label: 'Job card created', date: lc.jc_date, icon: 'bi-card-checklist', gap: g.or_to_jc, gapLabel: 'OR → JC' },
+            { label: 'Plan created', date: lc.plan_created, icon: 'bi-calendar-plus', gap: g.jc_to_plan_created, gapLabel: 'JC → Plan' },
+            { label: 'Production started', date: lc.prod_start, icon: 'bi-play-circle', gap: g.plan_to_prod, gapLabel: 'Plan → Prod' },
+            { label: 'Last production', date: lc.prod_last, icon: 'bi-clock-history', gap: g.prod_span, gapLabel: 'Running' }
+          ];
+          const slow = (n) => n !== null && n !== undefined && Number(n) > 3;
+          const stepHtml = steps.map((s, i) => {
+            const d = pjdDate(s.date);
+            const gapTxt = i > 0 ? pjdDays(s.gap) : null;
+            return `<div style="flex:1 1 150px;min-width:140px;position:relative;padding:10px 12px;border-radius:10px;border:1px solid ${d ? '#bae6fd' : '#e2e8f0'};background:${d ? '#f0f9ff' : '#f8fafc'}">
+              <div style="font-size:0.66rem;color:#64748b;font-weight:800;text-transform:uppercase;display:flex;align-items:center;gap:5px"><i class="bi ${s.icon}"></i>${esc(s.label)}</div>
+              <div style="font-size:0.92rem;font-weight:900;color:${d ? '#0f172a' : '#94a3b8'};margin-top:2px">${d ? esc(d) : 'Not yet'}</div>
+              ${gapTxt ? `<div style="margin-top:4px;display:inline-block;font-size:0.66rem;font-weight:800;border-radius:999px;padding:1px 8px;background:${slow(s.gap) && i < 4 ? '#fee2e2' : '#e0f2fe'};color:${slow(s.gap) && i < 4 ? '#b91c1c' : '#0369a1'}">${esc(s.gapLabel)}: ${esc(gapTxt)}</div>` : ''}
+            </div>`;
+          }).join('<div style="align-self:center;color:#94a3b8;font-size:1rem"><i class="bi bi-chevron-right"></i></div>');
+          const fact = (label, value) => value ? `<span style="display:inline-flex;gap:5px;align-items:center;font-size:0.78rem;padding:3px 10px;border-radius:999px;background:#f1f5f9;color:#334155"><span style="color:#64748b;font-weight:600">${esc(label)}</span><b>${esc(String(value))}</b></span>` : '';
+          const orQty = lc.or_qty ? Number(lc.or_qty).toLocaleString('en-IN') : null;
+          const orToProd = pjdDays(g.or_to_prod);
+          box.innerHTML = `
+            <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:10px">
+              <h4 style="font-size:0.95rem;font-weight:900;color:#0f172a;margin:0">Order &amp; Job Card timeline</h4>
+              ${orToProd ? `<span style="font-size:0.75rem;font-weight:800;color:#0369a1;background:#e0f2fe;border-radius:999px;padding:3px 10px">OR to first production: ${esc(orToProd)}</span>` : ''}
+            </div>
+            <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:stretch">${stepHtml}</div>
+            <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px">
+              ${fact('OR qty', orQty)}${fact('JC no', lc.jc_no)}${fact('Plan status', lc.status)}${fact('JC approval', lc.jc_approval)}${fact('Priority', lc.priority)}${fact('Plan end', pjdDate(lc.plan_end))}
+            </div>
+            <div style="font-size:0.7rem;color:#94a3b8;margin-top:6px">Dates from OR-JR Status, the plan and DPR. Gaps over 3 days are shown in red.</div>`;
+        }
+
+        /* -------- Job detail: every mould of this order, with a View details button -------- */
+        function pjdRenderOrderMoulds(plans, ctx) {
+          const box = document.getElementById('pjdMouldsBox');
+          if (!box) return;
+          const list = (plans || []).filter(p => !['REJECTED', 'DROPPED'].includes(String(p.status || '').toUpperCase()));
+          if (!list.length) { box.innerHTML = '<h4 style="font-size:0.95rem;font-weight:900;color:#0f172a;margin:0 0 6px">Moulds in this order</h4><div style="color:#64748b;font-size:0.85rem">No other moulds planned for this order.</div>'; return; }
+          const isCurrent = (p) => ctx.planId && (String(p.plan_id || '') === String(ctx.planId) || String(p.id || '') === String(ctx.planId));
+          const totPlan = list.reduce((s, p) => s + Number(p.plan_qty || 0), 0);
+          const totGood = list.reduce((s, p) => s + Number(p.produced_good || 0), 0);
+          window._pjdOrderMoulds = list;
+          const rows = list.map((p, i) => {
+            const plan = Number(p.plan_qty || 0), good = Number(p.produced_good || 0), rej = Number(p.produced_rej || 0);
+            const bal = Math.max(0, plan - good);
+            const pct = plan > 0 ? Math.min(100, Math.round(good / plan * 100)) : 0;
+            const st = String(p.status || '-');
+            const stUp = st.toUpperCase();
+            const stColor = stUp === 'RUNNING' ? '#15803d' : stUp === 'COMPLETED' ? '#0369a1' : '#b45309';
+            const cur = isCurrent(p);
+            const machine = String(p.machine || '').includes('>') ? String(p.machine).split('>').pop().trim() : (p.machine || '-');
+            return `<tr style="border-bottom:1px solid #f1f5f9;${cur ? 'background:#f0f9ff' : ''}">
+              <td style="padding:8px"><div style="font-weight:800;color:#0f172a;font-size:0.82rem">${esc(p.mould_name || p.item_name || '-')}</div><div style="font-size:0.7rem;color:#94a3b8">${esc(p.mould_code || p.item_code || '')}</div></td>
+              <td style="padding:8px;font-size:0.8rem;color:#334155">${esc(machine)}</td>
+              <td style="padding:8px"><span style="font-size:0.7rem;font-weight:800;color:${stColor}">${esc(st)}</span></td>
+              <td style="padding:8px;text-align:right;font-weight:700">${plan.toLocaleString('en-IN')}</td>
+              <td style="padding:8px;text-align:right"><div style="font-weight:800;color:#15803d">${good.toLocaleString('en-IN')}</div><div style="background:#e2e8f0;border-radius:3px;height:4px;margin-top:3px"><div style="background:#22c55e;height:4px;border-radius:3px;width:${pct}%"></div></div></td>
+              <td style="padding:8px;text-align:right;color:#b91c1c;font-weight:700">${rej.toLocaleString('en-IN')}</td>
+              <td style="padding:8px;text-align:right;color:${bal > 0 ? '#d97706' : '#15803d'};font-weight:800">${bal.toLocaleString('en-IN')}</td>
+              <td style="padding:8px;text-align:right;font-weight:800;color:#0284c7">${pct}%</td>
+              <td style="padding:8px;text-align:right">${cur
+                ? '<span style="font-size:0.7rem;font-weight:800;color:#0369a1">Viewing</span>'
+                : `<button type="button" onclick="window.pjdOpenOrderMould(${i})" style="white-space:nowrap;border:none;border-radius:8px;background:#0369a1;color:#fff;font-weight:700;font-size:0.72rem;padding:5px 10px;cursor:pointer"><i class="bi bi-box-arrow-up-right"></i> View details</button>`}</td>
+            </tr>`;
+          }).join('');
+          box.innerHTML = `
+            <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:10px">
+              <h4 style="font-size:0.95rem;font-weight:900;color:#0f172a;margin:0">Moulds in this order <span style="font-size:0.75rem;color:#64748b;font-weight:700">(${list.length})</span></h4>
+              <span style="font-size:0.75rem;font-weight:800;color:#334155">Order total: ${totGood.toLocaleString('en-IN')} / ${totPlan.toLocaleString('en-IN')} produced</span>
+            </div>
+            <div style="overflow-x:auto"><table style="width:100%;min-width:760px;border-collapse:collapse">
+              <thead><tr style="background:#f1f5f9">${['Mould', 'Machine', 'Status', 'Plan', 'Produced', 'Rej', 'Balance', '%', ''].map((h, k) => `<th style="padding:7px 8px;font-size:0.7rem;color:#64748b;font-weight:700;text-transform:uppercase;text-align:${k > 2 ? 'right' : 'left'}">${h}</th>`).join('')}</tr></thead>
+              <tbody>${rows}</tbody>
+            </table></div>`;
+          window.pjdOpenOrderMould = function(i) {
+            const p = (window._pjdOrderMoulds || [])[i];
+            if (!p) return;
+            window.openPlanJobDetail(ctx.orderNo, p.machine || '', String(p.plan_id || p.id || ''), p.mould_name || p.item_name || '', ctx.clientName || '');
+          };
+        }
+
         window.openPlanJobDetail = async function(orderNo, machineName, planId, itemName, clientName) {
           if (!orderNo || orderNo === '-' || orderNo === 'No active order') return;
           const modal = document.getElementById('planJobDetailModal');
@@ -1847,6 +1944,12 @@
           _s('pjdOrder', orderNo);
           _s('pjdClient', clientName || '…');
           _s('pjdJC', '…'); _s('pjdPlanQty', '…'); _s('pjdProduced', '…'); _s('pjdRej', '…'); _s('pjdBalance', '…');
+          ['pjdLifecycleBox', 'pjdMouldsBox'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.innerHTML = '<div style="color:#64748b;font-size:0.85rem">Loading…</div>';
+          });
+          const pjdBody = document.querySelector('#planJobDetailModal .pjd-body');
+          if (pjdBody) pjdBody.scrollTop = 0; // opening another mould starts at the top
           document.getElementById('pjdColourTable').innerHTML = '<tr><td colspan="5" style="padding:12px;text-align:center;color:#64748b;font-size:0.85rem">Loading…</td></tr>';
           document.getElementById('pjdQCBox').innerHTML = '<div style="color:#64748b;font-size:0.85rem">Loading QC data…</div>';
           const pjdSetup = document.getElementById('pjdSetupBox'); if (pjdSetup) pjdSetup.innerHTML = '<div style="color:#64748b;font-size:0.85rem">Loading setup…</div>';
@@ -1900,6 +2003,14 @@
                   cell('Weight', info.std_weight, info.act_weight, '', true) +
                   `</div>`;
               }
+
+              // OR → JC → Plan → Production timeline, and every mould of this order
+              pjdRenderLifecycle(ans.data.lifecycle || {}, info);
+              pjdRenderOrderMoulds(ans.data.plans || [], {
+                orderNo: info.order_no || orderNo,
+                planId,
+                clientName: info.client_name || clientName
+              });
 
               // Colour table — filter out colours with zero plan AND zero production
               const DOT_COLOURS = ['#3b82f6','#ef4444','#f59e0b','#22c55e','#a855f7','#06b6d4','#f97316','#ec4899','#84cc16','#6366f1'];
@@ -1982,6 +2093,7 @@
             const weights = rows.flatMap(r=>[r.qc_weight_1,r.qc_weight_2,r.qc_weight_3]).filter(v=>v!=null&&String(v)!=='').slice(0,3);
             const fpaSrc = rows.find(r=>r.fpa_form_image||(Array.isArray(r.product_images)&&r.product_images.length));
             const fpaImgs = fpaSrc ? [fpaSrc.fpa_form_image,...(Array.isArray(fpaSrc.product_images)?fpaSrc.product_images:[])].filter(Boolean) : [];
+            window._pjdImages = fpaImgs; // opened in the in-page viewer, not a new tab
             const supW = rows.find(r=>r.supervisor_weight)?.supervisor_weight || rows.find(r=>r.act_weight)?.act_weight || '-';
             const stdW = rows.find(r=>r.std_weight)?.std_weight || '-';
             document.getElementById('pjdQCBox').innerHTML = `
@@ -2003,7 +2115,7 @@
               ${fpaImgs.length ? `
                 <div style="font-size:0.85rem;color:#334155;font-weight:800;margin-bottom:8px">FPA Images</div>
                 <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">
-                  ${fpaImgs.map((src,i)=>`<button type="button" onclick="window.open(decodeURIComponent('${encodeURIComponent(src)}'),'_blank')"
+                  ${fpaImgs.map((src,i)=>`<button type="button" onclick="window.pjdOpenImageViewer(${i})"
                     style="display:block;padding:0;border:2px solid #e2e8f0;background:#f8fafc;cursor:zoom-in;border-radius:10px;overflow:hidden;width:100%;transition:border-color 0.2s,transform 0.2s"
                     onmouseover="this.style.borderColor='#93c5fd';this.style.transform='scale(1.02)'"
                     onmouseout="this.style.borderColor='#e2e8f0';this.style.transform='scale(1)'">
@@ -2013,6 +2125,118 @@
           } catch(e) {
             document.getElementById('pjdQCBox').innerHTML = `<div style="color:#b91c1c;font-size:0.82rem">QC data unavailable</div>`;
           }
+        };
+
+        /* -------- In-page photo viewer (FPA images): scroll to zoom, drag, rotate -------- */
+        window.pjdOpenImageViewer = function(index) {
+          const images = Array.isArray(window._pjdImages) ? window._pjdImages : [];
+          if (!images.length) return;
+          let viewer = document.getElementById('pjdImageViewer');
+          if (!viewer) {
+            viewer = document.createElement('div');
+            viewer.id = 'pjdImageViewer';
+            viewer.className = 'pjd-viewer';
+            viewer.setAttribute('role', 'dialog');
+            viewer.setAttribute('aria-modal', 'true');
+            viewer.innerHTML = `
+              <div class="pjd-viewer-bar">
+                <span class="pjd-v-title" id="pjdViewerTitle">Photo</span>
+                <button type="button" data-act="prev" title="Previous photo (←)"><i class="bi bi-chevron-left"></i></button>
+                <button type="button" data-act="next" title="Next photo (→)"><i class="bi bi-chevron-right"></i></button>
+                <button type="button" data-act="out" title="Zoom out"><i class="bi bi-zoom-out"></i></button>
+                <span class="pjd-v-zoom" id="pjdViewerZoom">100%</span>
+                <button type="button" data-act="in" title="Zoom in"><i class="bi bi-zoom-in"></i></button>
+                <button type="button" data-act="rotl" title="Rotate left"><i class="bi bi-arrow-counterclockwise"></i></button>
+                <button type="button" data-act="rotr" title="Rotate right"><i class="bi bi-arrow-clockwise"></i></button>
+                <button type="button" data-act="reset" title="Reset"><i class="bi bi-arrows-angle-contract"></i> Reset</button>
+                <button type="button" data-act="close" title="Close (Esc)"><i class="bi bi-x-lg"></i> Close</button>
+              </div>
+              <div class="pjd-viewer-stage" id="pjdViewerStage"><img id="pjdViewerImg" alt="" draggable="false"></div>
+              <div class="pjd-viewer-hint">Scroll to zoom in or out · drag to move · double-click to zoom</div>`;
+            document.body.appendChild(viewer);
+
+            const st = { i: 0, scale: 1, rot: 0, x: 0, y: 0, drag: null };
+            viewer._state = st;
+            const img = viewer.querySelector('#pjdViewerImg');
+            const stage = viewer.querySelector('#pjdViewerStage');
+            const MIN = 0.5, MAX = 8;
+            const apply = () => {
+              img.style.transform = `translate(${st.x}px, ${st.y}px) scale(${st.scale}) rotate(${st.rot}deg)`;
+              viewer.querySelector('#pjdViewerZoom').textContent = `${Math.round(st.scale * 100)}%`;
+            };
+            const reset = () => { st.scale = 1; st.rot = 0; st.x = 0; st.y = 0; apply(); };
+            // Zoom towards a point on screen (the cursor), keeping that point still
+            const zoomAt = (factor, cx, cy) => {
+              const next = Math.min(MAX, Math.max(MIN, st.scale * factor));
+              if (next === st.scale) return;
+              const r = stage.getBoundingClientRect();
+              const px = (cx ?? r.left + r.width / 2) - (r.left + r.width / 2);
+              const py = (cy ?? r.top + r.height / 2) - (r.top + r.height / 2);
+              const k = next / st.scale;
+              st.x = px - (px - st.x) * k;
+              st.y = py - (py - st.y) * k;
+              st.scale = next;
+              if (st.scale <= 1) { st.x = 0; st.y = 0; }
+              apply();
+            };
+            const show = (i) => {
+              const list = Array.isArray(window._pjdImages) ? window._pjdImages : [];
+              if (!list.length) return;
+              st.i = (i + list.length) % list.length;
+              img.src = list[st.i];
+              viewer.querySelector('#pjdViewerTitle').textContent = `Photo ${st.i + 1} of ${list.length}`;
+              viewer.querySelectorAll('[data-act="prev"],[data-act="next"]').forEach(b => { b.style.display = list.length > 1 ? '' : 'none'; });
+              reset();
+            };
+            const close = () => { viewer.classList.remove('is-open'); img.removeAttribute('src'); };
+            viewer._show = show;
+
+            viewer.querySelector('.pjd-viewer-bar').addEventListener('click', (ev) => {
+              const act = ev.target.closest('[data-act]')?.dataset.act;
+              if (act === 'in') zoomAt(1.25);
+              else if (act === 'out') zoomAt(1 / 1.25);
+              else if (act === 'rotl') { st.rot -= 90; apply(); }
+              else if (act === 'rotr') { st.rot += 90; apply(); }
+              else if (act === 'reset') reset();
+              else if (act === 'prev') show(st.i - 1);
+              else if (act === 'next') show(st.i + 1);
+              else if (act === 'close') close();
+            });
+            stage.addEventListener('wheel', (ev) => {
+              ev.preventDefault();
+              zoomAt(ev.deltaY < 0 ? 1.15 : 1 / 1.15, ev.clientX, ev.clientY);
+            }, { passive: false });
+            stage.addEventListener('dblclick', (ev) => {
+              if (st.scale > 1) reset(); else zoomAt(2.5, ev.clientX, ev.clientY);
+            });
+            stage.addEventListener('pointerdown', (ev) => {
+              if (ev.button !== 0) return;
+              st.drag = { px: ev.clientX, py: ev.clientY, x: st.x, y: st.y };
+              stage.classList.add('is-dragging');
+              stage.setPointerCapture(ev.pointerId);
+            });
+            stage.addEventListener('pointermove', (ev) => {
+              if (!st.drag) return;
+              st.x = st.drag.x + (ev.clientX - st.drag.px);
+              st.y = st.drag.y + (ev.clientY - st.drag.py);
+              apply();
+            });
+            const endDrag = () => { st.drag = null; stage.classList.remove('is-dragging'); };
+            stage.addEventListener('pointerup', endDrag);
+            stage.addEventListener('pointercancel', endDrag);
+            // Click on the dark background (not the photo) closes the viewer
+            stage.addEventListener('click', (ev) => { if (ev.target === stage && st.scale <= 1) close(); });
+            document.addEventListener('keydown', (ev) => {
+              if (!viewer.classList.contains('is-open')) return;
+              if (ev.key === 'Escape') { ev.stopPropagation(); close(); }
+              else if (ev.key === 'ArrowLeft') show(st.i - 1);
+              else if (ev.key === 'ArrowRight') show(st.i + 1);
+              else if (ev.key === '+' || ev.key === '=') zoomAt(1.25);
+              else if (ev.key === '-') zoomAt(1 / 1.25);
+            }, true);
+          }
+          viewer.classList.add('is-open');
+          viewer._show(Number(index) || 0);
         };
 
         window.closePlanJobDetail = function() {
