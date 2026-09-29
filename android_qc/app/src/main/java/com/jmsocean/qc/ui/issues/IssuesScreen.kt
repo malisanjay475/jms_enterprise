@@ -5,7 +5,19 @@ import android.net.Uri
 import android.speech.RecognizerIntent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.TextButton
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.style.TextOverflow
+import com.jmsocean.qc.data.remote.RaisedMemo
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -125,17 +137,13 @@ fun IssuesScreen(
         Column(
             Modifier.fillMaxSize().padding(pad).verticalScroll(rememberScrollState()).padding(16.dp)
         ) {
-            // 1 — Machine
+            // 1 — Machine (dropdown, DPR Compliance order from the server)
             MemoCard {
                 Label("1 · Machine")
                 if (s.machines.isEmpty()) {
                     Text("Loading machines…", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 } else {
-                    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        s.machines.forEach { m ->
-                            FilterChip(selected = s.machine == m, onClick = { vm.setMachine(m) }, label = { Text(m) })
-                        }
-                    }
+                    MachineDropdown(s.machines, s.machine, vm::setMachine)
                 }
             }
 
@@ -150,7 +158,13 @@ fun IssuesScreen(
                         }
                         s.jobs.isEmpty() -> Text("No active plans on ${s.machine}.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         else -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            s.jobs.forEach { job -> JobRow(job, selected = s.job === job) { vm.selectJob(job) } }
+                            s.jobs.forEach { job ->
+                                JobRow(
+                                    job, selected = s.job === job,
+                                    memos = s.memosFor(job.PlanID),
+                                    onView = { vm.viewMemos(job.PlanID) }
+                                ) { vm.selectJob(job) }
+                            }
                         }
                     }
                 }
@@ -287,10 +301,171 @@ fun IssuesScreen(
             Spacer(Modifier.size(24.dp))
         }
     }
+
+    s.viewingPlanId?.let { planId ->
+        val job = s.jobs.firstOrNull { it.PlanID == planId }
+        MemoListDialog(
+            title = job?.productName ?: "Plan $planId",
+            memos = s.memosFor(planId),
+            onClose = { vm.viewMemos(null) }
+        )
+    }
 }
 
 @Composable
-private fun JobRow(job: QueueJob, selected: Boolean, onClick: () -> Unit) {
+private fun MachineDropdown(machines: List<String>, selected: String, onSelect: (String) -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    Box(Modifier.fillMaxWidth()) {
+        OutlinedButton(
+            onClick = { open = true },
+            shape = RoundedCornerShape(10.dp),
+            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+            modifier = Modifier.fillMaxWidth().height(40.dp)
+        ) {
+            Text(
+                selected.ifBlank { "Select machine" },
+                fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
+                maxLines = 1, overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f)
+            )
+            Icon(Icons.Default.ArrowDropDown, contentDescription = null)
+        }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }, modifier = Modifier.heightIn(max = 420.dp)) {
+            machines.forEach { m ->
+                val sel = m == selected
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            m, fontSize = 14.sp, maxLines = 1,
+                            fontWeight = if (sel) FontWeight.Bold else FontWeight.Normal,
+                            color = if (sel) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                        )
+                    },
+                    contentPadding = PaddingValues(horizontal = 12.dp),
+                    modifier = Modifier.height(38.dp),
+                    onClick = { open = false; onSelect(m) }
+                )
+            }
+        }
+    }
+}
+
+/** Status → colour for memo chips and timeline dots. */
+@Composable
+private fun memoStatusColor(status: String): androidx.compose.ui.graphics.Color = when (status.uppercase()) {
+    "SOLVED", "RESOLVED" -> Good
+    "ACCEPTED", "REPLY" -> MaterialTheme.colorScheme.primary
+    "DEVIATION" -> Warn
+    else -> MaterialTheme.colorScheme.error // RAISED / RERAISED
+}
+
+private fun memoStatusLabel(status: String): String = when (status.uppercase()) {
+    "RAISED" -> "Raised"
+    "ACCEPTED" -> "Accepted"
+    "DEVIATION" -> "Under deviation"
+    "SOLVED" -> "Solved"
+    else -> status.ifBlank { "—" }
+}
+
+private fun memoStepLabel(action: String): String = when (action.uppercase()) {
+    "RAISED" -> "Raised"
+    "ACCEPTED" -> "Accepted"
+    "REPLY" -> "Reply"
+    "DEVIATION" -> "Running under deviation"
+    "SOLVED" -> "Solved"
+    "RERAISED" -> "Re-raised"
+    "RESOLVED" -> "Resolved"
+    else -> action
+}
+
+/** ISO timestamp → "29 Sep, 11:34" in IST. */
+private fun istTime(iso: String): String = try {
+    java.time.OffsetDateTime.parse(iso)
+        .atZoneSameInstant(java.time.ZoneId.of("Asia/Kolkata"))
+        .format(java.time.format.DateTimeFormatter.ofPattern("dd MMM, HH:mm", java.util.Locale.ENGLISH))
+} catch (_: Exception) {
+    iso.take(16).replace('T', ' ')
+}
+
+@Composable
+private fun MemoListDialog(title: String, memos: List<RaisedMemo>, onClose: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onClose,
+        confirmButton = { TextButton(onClick = onClose) { Text("Close") } },
+        title = {
+            Column {
+                Text("Raised memos (${memos.size})", fontWeight = FontWeight.Bold, fontSize = 17.sp)
+                Text(title, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2)
+            }
+        },
+        text = {
+            if (memos.isEmpty()) {
+                Text("No memos for this plan.", fontSize = 13.sp)
+            } else {
+                Column(
+                    Modifier.heightIn(max = 480.dp).verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    memos.forEach { MemoItem(it) }
+                }
+            }
+        }
+    )
+}
+
+@Composable
+private fun MemoItem(m: RaisedMemo) {
+    val c = memoStatusColor(m.status)
+    Card(
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+        shape = RoundedCornerShape(10.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(Modifier.padding(10.dp)) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text(m.memoNo, fontWeight = FontWeight.Bold, fontSize = 13.sp, modifier = Modifier.weight(1f))
+                Box(
+                    Modifier.clip(RoundedCornerShape(999.dp)).background(c.copy(alpha = 0.15f))
+                        .padding(horizontal = 8.dp, vertical = 2.dp)
+                ) {
+                    Text(memoStatusLabel(m.status), color = c, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                }
+            }
+            Text(m.description, fontSize = 13.sp, modifier = Modifier.padding(top = 4.dp))
+            Text(
+                buildString {
+                    append(m.severity.ifBlank { "—" })
+                    if (m.mentioned.isNotBlank()) append("  ·  to ${m.mentioned}")
+                    if (m.mediaCount > 0) append("  ·  📷 ${m.mediaCount}")
+                },
+                fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            // Progress timeline: every action from action_history, oldest first
+            Spacer(Modifier.size(6.dp))
+            m.steps.forEach { st ->
+                Row(Modifier.padding(top = 3.dp), verticalAlignment = Alignment.Top) {
+                    Box(
+                        Modifier.padding(top = 5.dp).size(7.dp).clip(RoundedCornerShape(999.dp))
+                            .background(memoStatusColor(st.action))
+                    )
+                    Spacer(Modifier.size(8.dp))
+                    Column {
+                        Text(
+                            "${memoStepLabel(st.action)} · ${st.by.ifBlank { "—" }} · ${istTime(st.at)}",
+                            fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold
+                        )
+                        if (st.notes.isNotBlank() && st.action.uppercase() != "RAISED") {
+                            Text(st.notes, fontSize = 11.5.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun JobRow(job: QueueJob, selected: Boolean, memos: List<RaisedMemo>, onView: () -> Unit, onClick: () -> Unit) {
     val running = job.Status?.contains("run", ignoreCase = true) == true
     Card(
         colors = CardDefaults.cardColors(
@@ -313,6 +488,23 @@ private fun JobRow(job: QueueJob, selected: Boolean, onClick: () -> Unit) {
                 },
                 fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+            if (memos.isNotEmpty()) {
+                val open = memos.count { it.status.uppercase() != "SOLVED" }
+                val total = "${memos.size} memo${if (memos.size == 1) "" else "s"}"
+                Row(Modifier.fillMaxWidth().padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        if (open > 0) "$open open · $total" else "$total · all solved",
+                        fontSize = 11.sp, fontWeight = FontWeight.SemiBold,
+                        color = if (open > 0) MaterialTheme.colorScheme.error else Good,
+                        modifier = Modifier.weight(1f)
+                    )
+                    OutlinedButton(
+                        onClick = onView,
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+                        modifier = Modifier.height(30.dp)
+                    ) { Text("View memos", fontSize = 12.sp) }
+                }
+            }
         }
     }
 }
