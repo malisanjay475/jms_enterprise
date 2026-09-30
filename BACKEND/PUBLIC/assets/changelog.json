@@ -11,8 +11,21 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.81.0",
+  "latest": "1.81.1",
   "versions": [
+    {
+      "version": "1.81.1",
+      "date": "2026-09-30",
+      "title": "Quality Check records average readings",
+      "modules": [
+        {
+          "app": "masters",
+          "changes": [
+            { "type": "feat", "text": "When Quality approves a mould, they now fill Average Details (pcs weight in gms, runner weight in gms, cycle time in sec) and remarks; these are saved as a remark that every department can see." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.81.0",
       "date": "2026-09-30",
