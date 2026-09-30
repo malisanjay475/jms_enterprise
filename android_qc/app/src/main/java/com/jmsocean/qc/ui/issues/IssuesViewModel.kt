@@ -6,6 +6,7 @@ import com.jmsocean.qc.QcApp
 import com.jmsocean.qc.data.remote.ColourBalance
 import com.jmsocean.qc.data.remote.FactoryPerson
 import com.jmsocean.qc.data.remote.QueueJob
+import com.jmsocean.qc.data.remote.RaisedMemo
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -23,6 +24,9 @@ data class MemoUiState(
     val machine: String = "",
     val jobs: List<QueueJob> = emptyList(),
     val loadingJobs: Boolean = false,
+    // memos already raised on this machine (all statuses) — shown per plan
+    val memos: List<RaisedMemo> = emptyList(),
+    val viewingPlanId: String? = null,
     // step 2: chosen job + its colour balance
     val job: QueueJob? = null,
     val balances: List<ColourBalance> = emptyList(),
@@ -42,6 +46,10 @@ data class MemoUiState(
 ) {
     val canSubmit: Boolean
         get() = !submitting && machine.isNotBlank() && description.isNotBlank()
+
+    /** Memos raised against one plan. Completed plans leave the queue, so theirs drop off too. */
+    fun memosFor(planId: String?): List<RaisedMemo> =
+        if (planId.isNullOrBlank()) emptyList() else memos.filter { it.planId == planId }
 }
 
 class IssuesViewModel : ViewModel() {
@@ -66,13 +74,22 @@ class IssuesViewModel : ViewModel() {
     }
 
     fun setMachine(m: String) {
-        _state.update { it.copy(machine = m, job = null, balances = emptyList(), jobs = emptyList()) }
+        _state.update { it.copy(machine = m, job = null, balances = emptyList(), jobs = emptyList(), memos = emptyList()) }
         loadJobs(m)
     }
+
+    private fun loadMemos(machine: String) = viewModelScope.launch {
+        repo.memos(machine).onSuccess { list ->
+            if (_state.value.machine == machine) _state.update { it.copy(memos = list) }
+        }
+    }
+
+    fun viewMemos(planId: String?) = _state.update { it.copy(viewingPlanId = planId) }
 
     private fun loadJobs(machine: String) {
         if (machine.isBlank()) return
         _state.update { it.copy(loadingJobs = true, error = null) }
+        loadMemos(machine)
         viewModelScope.launch {
             repo.queue(machine)
                 .onSuccess { list -> _state.update { it.copy(loadingJobs = false, jobs = list) } }
@@ -130,10 +147,12 @@ class IssuesViewModel : ViewModel() {
                         machines = it.machines,
                         machine = it.machine,
                         jobs = it.jobs,
+                        memos = it.memos,
                         people = it.people,
                         message = if (memoNo.isNotBlank()) "Memo $memoNo raised." else "Memo raised."
                     )
                 }
+                loadMemos(s.machine)
                 onDone(memoNo)
             }.onFailure { e ->
                 _state.update { it.copy(submitting = false, error = e.message ?: "Could not raise memo") }

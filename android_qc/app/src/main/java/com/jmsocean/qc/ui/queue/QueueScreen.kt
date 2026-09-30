@@ -5,6 +5,8 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -17,6 +19,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Button
@@ -45,6 +48,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -78,12 +82,13 @@ fun QueueScreen(
                     titleContentColor = MaterialTheme.colorScheme.onSurface
                 ),
                 title = {
-                    Column {
-                        Text("Job Queue", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Job Queue", fontWeight = FontWeight.Bold, fontSize = 17.sp)
                         Text(
-                            "Line · ${s.line.ifBlank { "—" }}",
-                            fontSize = 12.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            "  ·  ${s.line.ifBlank { "—" }}",
+                            fontSize = 13.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1
                         )
                     }
                 },
@@ -104,9 +109,9 @@ fun QueueScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(pad)
-                .padding(horizontal = 16.dp)
+                .padding(horizontal = 12.dp)
         ) {
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(8.dp))
 
             // Offline backlog banner
             if (pendingSync > 0) {
@@ -173,25 +178,49 @@ fun QueueScreen(
                 }
             }
 
-            // Machine picker
-            Box {
-                OutlinedButton(onClick = { menuOpen = true }) {
-                    Text(s.selectedMachine ?: "Select machine ▾")
+            // Machine picker — compact full-width row; list keeps the server order
+            Box(Modifier.fillMaxWidth()) {
+                OutlinedButton(
+                    onClick = { menuOpen = true },
+                    shape = RoundedCornerShape(10.dp),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+                    modifier = Modifier.fillMaxWidth().height(40.dp)
+                ) {
+                    Text(
+                        s.selectedMachine ?: "Select machine",
+                        fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Icon(Icons.Default.ArrowDropDown, contentDescription = null)
                 }
-                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                DropdownMenu(
+                    expanded = menuOpen,
+                    onDismissRequest = { menuOpen = false },
+                    modifier = Modifier.heightIn(max = 420.dp)
+                ) {
                     if (s.machines.isEmpty()) {
                         DropdownMenuItem(text = { Text("No machines") }, onClick = {})
                     }
                     s.machines.forEach { m ->
+                        val selected = m == s.selectedMachine
                         DropdownMenuItem(
-                            text = { Text(m) },
+                            text = {
+                                Text(
+                                    m, fontSize = 14.sp, maxLines = 1,
+                                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                                    color = if (selected) Accent else MaterialTheme.colorScheme.onSurface
+                                )
+                            },
+                            contentPadding = PaddingValues(horizontal = 12.dp),
+                            modifier = Modifier.height(38.dp),
                             onClick = { menuOpen = false; vm.selectMachine(m) }
                         )
                     }
                 }
             }
 
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(8.dp))
 
             when {
                 s.loadingJobs || s.loadingMachines -> CenterLoader()
