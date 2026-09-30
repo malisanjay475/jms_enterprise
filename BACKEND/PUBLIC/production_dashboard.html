@@ -143,6 +143,7 @@
         .s-current { border-color: #93c5fd !important; animation: md-blink 1.6s infinite; }
         .tiles.compact { grid-template-columns: repeat(auto-fill, minmax(138px, 1fr)); gap: 6px; }
         .mtile.c { padding: 6px 8px 7px; gap: 5px; border-top-width: 3px; }
+        .tiles.compact.dn { grid-template-columns: repeat(auto-fill, minmax(172px, 1fr)); }
         .mtile.c .tile-name { font-size: 0.74rem; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .mtile.c .tile-top { align-items: center; }
         .mtile.c .oee-mini { font-size: 0.95rem; font-weight: 800; }
@@ -150,6 +151,21 @@
         .mtile.c .strip { height: 7px; }
         .progress { height: 5px; background: rgba(148, 163, 184, 0.14); border-radius: 999px; overflow: hidden; }
         .progress span { display: block; height: 100%; border-radius: 999px; }
+
+        /* ── Day vs Night ── */
+        .sh-day { color: #fbbf24; }
+        .sh-night { color: #a5b4fc; }
+        .cmp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; }
+        .cmp-card { background: var(--md-panel-2); border: 1px solid var(--md-border); border-radius: 10px; padding: 10px 12px; min-width: 0; }
+        .cmp-card .t { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: var(--md-muted); margin-bottom: 6px; }
+        .cmp-row { display: grid; grid-template-columns: 62px minmax(0, 1fr) auto; gap: 8px; align-items: center; font-size: 0.75rem; margin: 5px 0; }
+        .cmp-row .sh { display: flex; align-items: center; gap: 5px; font-weight: 700; }
+        .cmp-row b { font-size: 0.95rem; font-variant-numeric: tabular-nums; }
+        .cmp-foot { font-size: 0.7rem; margin-top: 6px; color: var(--md-dim); }
+        .dn-oee { font-size: 0.72rem; font-weight: 800; white-space: nowrap; font-variant-numeric: tabular-nums; }
+        .strip2 { display: grid; grid-template-columns: 9px minmax(0, 1fr); gap: 4px; align-items: center; font-size: 0.55rem; font-weight: 800; line-height: 1; }
+        th.dn-d { color: #fbbf24 !important; }
+        th.dn-n { color: #a5b4fc !important; }
 
         /* ── Alerts ── */
         .alerts { display: flex; flex-direction: column; gap: 6px; max-height: 330px; overflow-y: auto; padding-right: 2px; }
@@ -221,6 +237,12 @@
                 height: 34px !important; border-radius: 0 !important; font-size: 16px !important;
             }
             .kpi-l { flex-wrap: wrap; }
+            .cmp-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+            .cmp-card { padding: 8px 9px; }
+            .cmp-row { grid-template-columns: 22px minmax(0, 1fr) auto; gap: 5px; }
+            .cmp-row .sh span, .cmp-row .sh { font-size: 0; }
+            .cmp-row .sh i { font-size: 0.8rem; }
+            .cmp-row b { font-size: 0.8rem; }
         }
 
         /* ── TV mode (fullscreen) ── */
@@ -254,6 +276,7 @@
                                 <button data-shift="Day">Day</button>
                                 <button data-shift="Night">Night</button>
                                 <button data-shift="All">Full day</button>
+                                <button data-shift="Both" title="Day and Night side by side">Day vs Night</button>
                             </div>
                             <label class="md-field" title="Line">
                                 <i class="bi bi-diagram-3"></i>
@@ -274,6 +297,15 @@
 
                 <!-- KPI strip -->
                 <section class="grid g-kpi" id="kpis"></section>
+
+                <!-- Day vs Night comparison (Day vs Night mode only) -->
+                <section class="mdp" id="cmpPanel" style="margin-bottom:16px" hidden>
+                    <div class="panel-h">
+                        <h2><i class="bi bi-circle-half"></i>Day vs Night</h2>
+                        <span class="hint" id="cmpHint"></span>
+                    </div>
+                    <div class="cmp-grid" id="cmpGrid"></div>
+                </section>
 
                 <!-- OEE losses · 7-day trend · alerts -->
                 <section class="grid g-2-1">
@@ -438,6 +470,24 @@
             };
         }
 
+        // ── Day vs Night mode: the API is asked for the full day, the page splits it by shift ──
+        const SHIFTS = ['Day', 'Night'];
+        const SH = { Day: { cls: 'sh-day', icon: 'bi-sun', c: '#fbbf24', bar: 'rgba(251,191,36,0.8)', short: 'D' }, Night: { cls: 'sh-night', icon: 'bi-moon-stars', c: '#a5b4fc', bar: 'rgba(129,140,248,0.8)', short: 'N' } };
+        const isCmp = () => !!(state.data && state.data.compare);
+        const apiShift = sh => sh === 'Both' ? 'All' : sh;
+        function shiftSums(m, sh) {
+            const s = emptySums(), slots = state.data.meta.slots;
+            m.hourly.forEach((h, i) => { if (h.planned != null && slots[i].shift === sh) addSums(s, h); });
+            return s;
+        }
+        function shiftDpr(m, sh) {
+            const slots = state.data.meta.slots;
+            let entered = 0, missing = 0;
+            m.hourly.forEach((h, i) => { if (slots[i].shift !== sh) return; if (h.planned != null) entered++; else if (h.state === 'missing') missing++; });
+            return { entered, required: entered + missing };
+        }
+        const shiftTag = sh => `<span class="${SH[sh].cls}"><i class="bi ${SH[sh].icon}"></i></span>`;
+
         // ── Default date/shift from the factory clock (Day 07–19, Night 19–07) ──
         function defaultDateShift() {
             const now = new Date();
@@ -451,7 +501,7 @@
             if (window.JPSMS && JPSMS.renderShell) { JPSMS.renderShell('dash_moulding'); JPSMS.auth.requireAuth(); }
             const def = defaultDateShift();
             document.getElementById('dateSelect').value = def.date;
-            state.shift = def.shift;
+            state.shift = store.get('shiftMode', '') === 'Both' ? 'Both' : def.shift;
             state.line = store.get('line', '');
             state.auto = store.get('auto', '0') === '1';
             state.density = store.get('density', 'compact') === 'detail' ? 'detail' : 'compact';
@@ -461,7 +511,7 @@
 
         function bindUi() {
             document.getElementById('dateSelect').addEventListener('change', () => load());
-            document.querySelectorAll('#shiftSeg button').forEach(b => b.addEventListener('click', () => { state.shift = b.dataset.shift; load(); }));
+            document.querySelectorAll('#shiftSeg button').forEach(b => b.addEventListener('click', () => { state.shift = b.dataset.shift; store.set('shiftMode', state.shift === 'Both' ? 'Both' : ''); load(); }));
             document.getElementById('lineSelect').addEventListener('change', e => { state.line = e.target.value; store.set('line', state.line); render(); });
             document.getElementById('refreshBtn').addEventListener('click', () => load());
             document.getElementById('autoBtn').addEventListener('click', () => { state.auto = !state.auto; store.set('auto', state.auto ? '1' : '0'); scheduleAuto(); paintControls(); });
@@ -505,10 +555,11 @@
             if (!date) return;
             const seq = ++loadSeq;
             try {
-                const url = `/dpr/moulding-dashboard?date=${encodeURIComponent(date)}&shift=${encodeURIComponent(state.shift)}`;
+                const url = `/dpr/moulding-dashboard?date=${encodeURIComponent(date)}&shift=${encodeURIComponent(apiShift(state.shift))}`;
                 const res = silent ? await JPSMS.api.request(url, { skipLoader: true }) : await JPSMS.api.get(url);
                 if (seq !== loadSeq) return;
                 if (!res || !res.ok) { if (!silent && window.JPSMS && JPSMS.toast) JPSMS.toast((res && res.error) || 'Could not load the dashboard', 'error'); return; }
+                res.compare = state.shift === 'Both';
                 state.data = res;
                 fillLines();
                 render();
@@ -538,6 +589,7 @@
             const prev = prevSums();
             renderHeader(machines);
             renderKpis(machines, total, M, prev);
+            renderCompare(machines);
             renderLossTree(total, M);
             renderTrend();
             renderAlerts(machines);
@@ -560,7 +612,7 @@
 
         function renderHeader(machines) {
             const { meta } = state.data;
-            const shiftName = meta.shift === 'All' ? 'Full day' : `${meta.shift} shift`;
+            const shiftName = isCmp() ? 'Day vs Night' : meta.shift === 'All' ? 'Full day' : `${meta.shift} shift`;
             const span = meta.shift === 'Day' ? '07:00–19:00' : meta.shift === 'Night' ? '19:00–07:00' : '07:00–07:00';
             let factory = '';
             try { factory = localStorage.getItem('jpsms_factory_name') || ''; } catch (_) { }
@@ -627,6 +679,56 @@
             ].join('');
         }
 
+        function renderCompare(machines) {
+            const panel = document.getElementById('cmpPanel');
+            panel.hidden = !isCmp();
+            if (!isCmp()) return;
+            const per = {};
+            SHIFTS.forEach(sh => {
+                const s = emptySums();
+                let ran = 0, entered = 0, required = 0;
+                machines.forEach(m => {
+                    const ms = shiftSums(m, sh);
+                    addSums(s, ms);
+                    if (ms.good + ms.rej > 0) ran++;
+                    const d = shiftDpr(m, sh); entered += d.entered; required += d.required;
+                });
+                per[sh] = { s, M: metrics(s), ran, dpr: required ? entered / required : null };
+            });
+            const cards = [
+                { t: 'OEE', v: x => x.M.OEE, f: v => pct(v), hb: true, pts: true, max: () => 1, cls: oeeClass },
+                { t: 'Availability', v: x => x.M.A, f: v => pct(v), hb: true, pts: true, max: () => 1 },
+                { t: 'Performance', v: x => x.M.P == null ? null : Math.min(1, x.M.P), f: v => pct(v), hb: true, pts: true, max: () => 1 },
+                { t: 'Quality', v: x => x.M.Q, f: v => pct(v), hb: true, pts: true, max: () => 1 },
+                { t: 'Good output', v: x => x.s.planned ? x.s.good : null, f: v => nf(v) + ' pcs', hb: true },
+                { t: 'Plan attainment', v: x => x.M.attain, f: v => pct(v), hb: true, pts: true, max: () => 1, cls: attClass },
+                { t: 'Rejection', v: x => x.M.rejRate, f: v => pct(v, 2), hb: false, pts: true, cls: rejClass },
+                { t: 'Downtime', v: x => x.s.planned ? x.s.dt / 60 : null, f: v => nf(v, 1) + ' h', hb: false },
+                { t: 'Machines run', v: x => x.s.planned ? x.ran : null, f: v => nf(v), hb: true },
+                { t: 'DPR compliance', v: x => x.dpr, f: v => pct(v, 0), hb: true, pts: true, max: () => 1 }
+            ];
+            document.getElementById('cmpGrid').innerHTML = cards.map(c => {
+                const d = c.v(per.Day), n = c.v(per.Night);
+                const max = c.max ? c.max() : Math.max(d || 0, n || 0) || 1;
+                const row = (sh, v) => `<div class="cmp-row"><span class="sh ${SH[sh].cls}"><i class="bi ${SH[sh].icon}"></i>${sh}</span>
+                    <div class="progress" style="height:6px"><span style="width:${v == null ? 0 : Math.min(100, v / max * 100)}%; background:${SH[sh].c}"></span></div>
+                    <b class="${c.cls && v != null ? c.cls(v) : ''}">${v == null ? '—' : c.f(v)}</b></div>`;
+                let foot = 'Night not recorded yet';
+                if (d != null && n != null) {
+                    const diff = n - d;
+                    if (Math.abs(diff) < (c.pts ? 0.0005 : 0.5)) foot = 'Level';
+                    else {
+                        const nightBetter = c.hb ? diff > 0 : diff < 0;
+                        const txt = c.pts ? `${Math.abs(diff * 100).toFixed(1)} pts` : (c.t === 'Downtime' ? nf(Math.abs(diff), 1) + ' h' : nf(Math.abs(diff)));
+                        foot = `<span class="${nightBetter ? 'sh-night' : 'sh-day'}" style="font-weight:700">${nightBetter ? 'Night' : 'Day'} better</span> by ${txt}`;
+                    }
+                } else if (d == null) foot = 'Day not recorded';
+                return `<div class="cmp-card"><div class="t">${c.t}</div>${row('Day', d)}${row('Night', n)}<div class="cmp-foot">${foot}</div></div>`;
+            }).join('');
+            const m = state.data.meta;
+            document.getElementById('cmpHint').textContent = `${shortDate(m.date)} · Day 07:00–19:00 vs Night 19:00–07:00${state.line ? ' · Line ' + state.line : ''}`;
+        }
+
         function countStatus(machines) {
             const c = { RUNNING: 0, DOWN: 0, NO_ENTRY: 0, MAINT: 0, IDLE: 0 };
             machines.forEach(m => { c[m.status] = (c[m.status] || 0) + 1; });
@@ -634,9 +736,9 @@
         }
 
         // Free-text reasons that differ only in case/spacing are the same reason: merge them.
-        function topReasons(machines, field) {
+        function topReasons(machines, field, sh) {
             const agg = new Map();
-            machines.forEach(m => Object.entries(m[field] || {}).forEach(([k, v]) => {
+            machines.forEach(m => Object.entries((sh ? (m[field] || {})[sh] : m[field]) || {}).forEach(([k, v]) => {
                 const key = k.toLowerCase().replace(/\s+/g, ' ').trim();
                 const cur = agg.get(key) || [k, 0];
                 cur[1] += v;
@@ -682,6 +784,27 @@
         function renderTrend() {
             const { trend, meta } = state.data;
             const labels = trend.map(t => shortDate(t.date));
+            if (isCmp()) {
+                const byShift = sh => trend.map(t => {
+                    const s = emptySums();
+                    Object.entries((t.byShift || {})[sh] || {}).forEach(([l, v]) => { if (!state.line || l === state.line) addSums(s, v); });
+                    return metrics(s);
+                });
+                const toPct = v => v == null ? null : +(v * 100).toFixed(1);
+                document.getElementById('trendHint').textContent = `Day vs Night OEE, ${shortDate(meta.trendFrom)} – ${shortDate(meta.date)}`;
+                drawChart('trendChart', {
+                    type: 'bar',
+                    data: {
+                        labels,
+                        datasets: [
+                            ...SHIFTS.map(sh => ({ type: 'bar', label: `${sh} OEE`, data: byShift(sh).map(r => toPct(r.OEE)), backgroundColor: SH[sh].bar, borderRadius: 4, order: 2 })),
+                            { type: 'line', label: 'World class', data: labels.map(() => 85), borderColor: 'rgba(148,163,184,0.5)', borderWidth: 1, borderDash: [2, 4], pointRadius: 0, order: 0 }
+                        ]
+                    },
+                    options: baseOptions({ y: { min: 0, max: 100, ticks: { callback: v => v + '%' } } }, v => v == null ? 'no data' : v + '%')
+                });
+                return;
+            }
             const rows = trend.map(t => {
                 const s = emptySums();
                 Object.entries(t.byLine).forEach(([l, v]) => { if (!state.line || l === state.line) addSums(s, v); });
@@ -765,9 +888,10 @@
             board.innerHTML = [...groups.entries()].map(([line, list]) => {
                 const s = emptySums(); list.forEach(m => addSums(s, m.sums));
                 const M = metrics(s);
+                const dn = isCmp() ? SHIFTS.map(sh => { const x = emptySums(); list.forEach(m => addSums(x, shiftSums(m, sh))); const xm = metrics(x); return `<span class="${SH[sh].cls}">${sh}</span> <b class="${oeeClass(xm.OEE)}">${pct(xm.OEE, 0)}</b>`; }).join(' · ') : '';
                 return `<div class="line-group">
-                    <h3>${esc(line)} <span>${list.length} machines · OEE <b class="${oeeClass(M.OEE)}">${pct(M.OEE, 0)}</b> · ${nf(s.good)} good · rej ${pct(M.rejRate, 1)}</span></h3>
-                    <div class="tiles${state.density === 'compact' ? ' compact' : ''}">${list.map(m => state.density === 'compact' ? compactTileHtml(m, slots) : tileHtml(m, slots)).join('')}</div>
+                    <h3>${esc(line)} <span>${list.length} machines · OEE <b class="${oeeClass(M.OEE)}">${pct(M.OEE, 0)}</b>${dn ? ' (' + dn + ')' : ''} · ${nf(s.good)} good · rej ${pct(M.rejRate, 1)}</span></h3>
+                    <div class="tiles${state.density === 'compact' ? ' compact' : ''}${isCmp() ? ' dn' : ''}">${list.map(m => state.density === 'compact' ? compactTileHtml(m, slots) : tileHtml(m, slots)).join('')}</div>
                 </div>`;
             }).join('');
             board.querySelectorAll('.mtile').forEach(t => t.addEventListener('click', () => openDrawer(t.dataset.m)));
@@ -778,8 +902,18 @@
             return l && n.toLowerCase().startsWith(l.toLowerCase()) ? (n.slice(l.length).replace(/^[\s\-_>]+/, '') || n) : n;
         }
 
-        function stripHtml(m, slots) {
+        // Day vs Night mode draws one strip per shift, each labelled D / N.
+        function stripsHtml(m, slots) {
+            if (!isCmp()) return `<div class="strip">${stripHtml(m, slots)}</div>`;
+            return SHIFTS.map(sh => `<div class="strip2"><span class="${SH[sh].cls}">${SH[sh].short}</span><div class="strip">${stripHtml(m, slots, sh)}</div></div>`).join('');
+        }
+        function dnOee(m) {
+            return SHIFTS.map(sh => { const x = metrics(shiftSums(m, sh)).OEE; return `<span class="${SH[sh].cls}">${SH[sh].short}</span> <span class="${oeeClass(x)}">${x == null ? '—' : Math.round(x * 100)}</span>`; }).join(' ');
+        }
+
+        function stripHtml(m, slots, onlyShift) {
             return m.hourly.map((h, i) => {
+                if (onlyShift && slots[i].shift !== onlyShift) return '';
                 const tip = h.planned != null
                     ? `${slots[i].label} · good ${h.good}${h.target ? ' / ' + Math.round(h.target) : ''} · rej ${h.rej} · DT ${Math.round(h.dt)}m${h.reason ? ' · ' + h.reason : ''}`
                     : `${slots[i].label} · ${{ missing: 'DPR missing', idle: 'not planned', current: 'in progress', future: 'upcoming' }[h.state] || ''}`;
@@ -793,9 +927,9 @@
             const mould = m.job && (m.job.mould_name || m.job.mould_no);
             const tip = [m.machine, st.label + (m.statusNote ? ': ' + m.statusNote : ''), mould].filter(Boolean).join(' · ');
             return `<button class="mtile c" data-m="${esc(m.machine)}" style="--sc:${st.c}; --sbg:${st.bg}" title="${esc(tip)}">
-                <div class="tile-top"><span class="tile-name">${esc(shortName(m))}</span><span class="oee-mini num ${oeeClass(M.OEE)}">${M.OEE == null ? '—' : Math.round(M.OEE * 100) + '%'}</span></div>
+                <div class="tile-top"><span class="tile-name">${esc(shortName(m))}</span>${isCmp() ? `<span class="dn-oee">${dnOee(m)}</span>` : `<span class="oee-mini num ${oeeClass(M.OEE)}">${M.OEE == null ? '—' : Math.round(M.OEE * 100) + '%'}</span>`}</div>
                 <div class="tile-sub"><span style="color:${st.c}; font-weight:700">${st.label}</span><span class="num">${nf(m.sums.good)} · ${M.rejRate == null ? '—' : (M.rejRate * 100).toFixed(1) + '%'}</span></div>
-                <div class="strip">${stripHtml(m, slots)}</div>
+                ${stripsHtml(m, slots)}
             </button>`;
         }
 
@@ -803,7 +937,7 @@
             const st = STATUS[m.status] || STATUS.IDLE;
             const M = metrics(m.sums);
             const att = M.attain;
-            const strip = stripHtml(m, slots);
+            const strip = stripsHtml(m, slots);
             const mould = m.job && (m.job.mould_name || m.job.mould_no);
             return `<button class="mtile" data-m="${esc(m.machine)}" style="--sc:${st.c}; --sbg:${st.bg}">
                 <div class="tile-top">
@@ -818,7 +952,8 @@
                     <div>Rej / DT<b class="num"><span class="${rejClass(M.rejRate)}">${M.rejRate == null ? '—' : (M.rejRate * 100).toFixed(1) + '%'}</span> · ${Math.round(m.sums.dt)}m</b></div>
                 </div>
                 <div class="progress" title="Attainment ${pct(att, 0)} of std target"><span style="width:${Math.min(100, (att || 0) * 100)}%; background:${att == null ? 'transparent' : att >= 0.95 ? 'var(--md-good)' : att >= 0.8 ? 'var(--md-warn)' : 'var(--md-bad)'}"></span></div>
-                <div class="strip">${strip}</div>
+                ${strip}
+                ${isCmp() ? `<div class="dn-oee">OEE ${dnOee(m)}</div>` : ''}
                 <div class="tile-note">${esc(m.statusNote || '')}</div>
             </button>`;
         }
@@ -838,6 +973,7 @@
 
         function renderHourChart() {
             if (!state.data) return;
+            if (isCmp()) return renderHourCompare();
             const { slots, per, running } = hourlySums();
             const labels = slots.map(s => (state.data.meta.shift === 'All' ? s.shift[0] + ' ' : '') + s.label);
             const upto = i => slots[i].elapsed || (slots[i].current && per[i].planned > 0);
@@ -874,13 +1010,42 @@
             drawChart('hourChart', { type: 'bar', data: { labels, datasets }, options: baseOptions(scales, fmt) });
         }
 
-        // ── Paretos (bars + cumulative %) ──
-        function renderParetos(machines) {
-            pareto('dtPareto', 'dtHint', topReasons(machines, 'dtReasons'), 'min', 'rgba(245,158,11,0.8)', v => `${nf(v)} min (${hrs(v)} h)`);
-            pareto('rejPareto', 'rejHint', topReasons(machines, 'rejReasons'), 'pcs', 'rgba(239,68,68,0.8)', v => `${nf(v)} pcs`);
+        function renderHourCompare() {
+            const { slots, per } = hourlySums();
+            const idx = sh => slots.map((s, i) => s.shift === sh ? i : -1).filter(i => i >= 0);
+            const I = { Day: idx('Day'), Night: idx('Night') };
+            const labels = I.Day.map((di, k) => `${slots[di].label} / ${slots[I.Night[k]] ? slots[I.Night[k]].label : ''}`);
+            const upto = i => slots[i].elapsed || (slots[i].current && per[i].planned > 0);
+            const col = (sh, fn) => I[sh].map(i => upto(i) ? fn(per[i]) : null);
+            let datasets, scales, fmt;
+            if (state.hourView === 'output') {
+                datasets = [
+                    ...SHIFTS.map(sh => ({ type: 'bar', label: `${sh} good`, data: col(sh, s => s.good), backgroundColor: SH[sh].bar, borderRadius: 3, order: 2 })),
+                    ...SHIFTS.map(sh => ({ type: 'line', label: `${sh} target`, data: col(sh, s => Math.round(s.target)), borderColor: SH[sh].c, borderDash: [5, 4], borderWidth: 1.5, pointRadius: 0, order: 1 }))
+                ];
+                scales = { y: { beginAtZero: true, title: { display: true, text: 'good pcs', color: '#64748b' } } };
+                fmt = v => nf(v);
+            } else if (state.hourView === 'oee') {
+                const toP = v => v == null ? null : +(Math.min(1, v) * 100).toFixed(1);
+                datasets = SHIFTS.map(sh => ({ type: 'bar', label: `${sh} OEE`, data: col(sh, s => toP(metrics(s).OEE)), backgroundColor: SH[sh].bar, borderRadius: 3 }));
+                scales = { y: { min: 0, max: 100, ticks: { callback: v => v + '%' } } };
+                fmt = v => v == null ? '—' : v + '%';
+            } else {
+                datasets = SHIFTS.map(sh => ({ type: 'bar', label: `${sh} downtime (min)`, data: col(sh, s => Math.round(s.dt)), backgroundColor: SH[sh].bar, borderRadius: 3 }));
+                scales = { y: { beginAtZero: true, title: { display: true, text: 'minutes', color: '#64748b' } } };
+                fmt = v => nf(v);
+            }
+            drawChart('hourChart', { type: 'bar', data: { labels, datasets }, options: baseOptions(scales, fmt, items => `Hour ${items[0].dataIndex + 1} of shift · ${labels[items[0].dataIndex]}`) });
         }
 
-        function pareto(canvasId, hintId, entries, unit, color, fmt) {
+        // ── Paretos (bars + cumulative %) ──
+        function renderParetos(machines) {
+            const split = field => isCmp() ? Object.fromEntries(SHIFTS.map(sh => [sh, new Map(topReasons(machines, field, sh).map(([k, v]) => [k.toLowerCase().replace(/\s+/g, ' ').trim(), v]))])) : null;
+            pareto('dtPareto', 'dtHint', topReasons(machines, 'dtReasons'), 'min', 'rgba(245,158,11,0.8)', v => `${nf(v)} min (${hrs(v)} h)`, split('dtByShift'));
+            pareto('rejPareto', 'rejHint', topReasons(machines, 'rejReasons'), 'pcs', 'rgba(239,68,68,0.8)', v => `${nf(v)} pcs`, split('rejByShift'));
+        }
+
+        function pareto(canvasId, hintId, entries, unit, color, fmt, byShift) {
             const total = entries.reduce((a, e) => a + e[1], 0);
             const top = entries.slice(0, 10);
             if (entries.length > 10) top.push([`Others (${entries.length - 10})`, entries.slice(10).reduce((a, e) => a + e[1], 0)]);
@@ -892,13 +1057,21 @@
                 data: {
                     labels: top.map(e => e[0].length > 22 ? e[0].slice(0, 21) + '…' : e[0]),
                     datasets: [
-                        { type: 'bar', label: unit, data: top.map(e => Math.round(e[1])), backgroundColor: color, borderRadius: 4, order: 2 },
+                        ...(byShift ? SHIFTS.map(sh => {
+                            const key = k => k.toLowerCase().replace(/\s+/g, ' ').trim();
+                            const inTop = new Set(top.slice(0, 10).map(e => key(e[0])));
+                            const data = top.map((e, i) => {
+                                if (i < 10 || entries.length <= 10) return Math.round(byShift[sh].get(key(e[0])) || 0);
+                                let o = 0; byShift[sh].forEach((v, k) => { if (!inTop.has(k)) o += v; }); return Math.round(o);
+                            });
+                            return { type: 'bar', label: `${sh} (${unit})`, data, backgroundColor: SH[sh].bar, stack: 'r', borderRadius: 3, order: 2 };
+                        }) : [{ type: 'bar', label: unit, data: top.map(e => Math.round(e[1])), backgroundColor: color, borderRadius: 4, order: 2 }]),
                         { type: 'line', label: 'Cumulative %', data: cum, borderColor: '#e2e8f0', backgroundColor: '#e2e8f0', yAxisID: 'y1', pointRadius: 2, tension: 0.2, order: 1 }
                     ]
                 },
                 options: baseOptions({
-                    x: { ticks: { maxRotation: 45, minRotation: 30, autoSkip: false, font: { size: 10 } } },
-                    y: { beginAtZero: true },
+                    x: { stacked: !!byShift, ticks: { maxRotation: 45, minRotation: 30, autoSkip: false, font: { size: 10 } } },
+                    y: { beginAtZero: true, stacked: !!byShift },
                     y1: { position: 'right', min: 0, max: 100, grid: { drawOnChartArea: false }, ticks: { callback: v => v + '%' } }
                 }, (v, ctx) => ctx.dataset.yAxisID === 'y1' ? v + '%' : fmt(v), items => top[items[0].dataIndex] ? top[items[0].dataIndex][0] : '')
             });
@@ -950,6 +1123,24 @@
                 <td class="${oeeClass(M.OEE)}" style="font-weight:800">${pct(M.OEE, 1)}</td><td>${nf(s.goodKg, 0)}</td>`;
             const runOf = r => live ? r.c.RUNNING : r.list.filter(m => m.sums.good + m.sums.rej > 0).length;
             const t = document.getElementById('lineTable');
+            if (isCmp()) {
+                const shOf = list => Object.fromEntries(SHIFTS.map(sh => { const x = emptySums(); let ran = 0; list.forEach(m => { const ms = shiftSums(m, sh); addSums(x, ms); if (ms.good + ms.rej > 0) ran++; }); return [sh, { s: x, M: metrics(x), ran }]; }));
+                const dnCells = (list, s, M) => {
+                    const p = shOf(list), D = p.Day, N = p.Night;
+                    const d = D.M.OEE != null && N.M.OEE != null ? N.M.OEE - D.M.OEE : null;
+                    return `<td>${D.ran}</td><td>${N.ran}</td><td>${nf(D.s.good)}</td><td>${nf(N.s.good)}</td>
+                        <td class="${rejClass(D.M.rejRate)}">${pct(D.M.rejRate, 2)}</td><td class="${rejClass(N.M.rejRate)}">${pct(N.M.rejRate, 2)}</td>
+                        <td>${hrs(D.s.dt)}</td><td>${hrs(N.s.dt)}</td>
+                        <td class="${oeeClass(D.M.OEE)}" style="font-weight:800">${pct(D.M.OEE, 1)}</td><td class="${oeeClass(N.M.OEE)}" style="font-weight:800">${pct(N.M.OEE, 1)}</td>
+                        <td class="${d == null ? 'c-dim' : d >= 0 ? 'c-good' : 'c-bad'}">${d == null ? '—' : (d > 0 ? '+' : '') + (d * 100).toFixed(1)}</td>
+                        <td class="${oeeClass(M.OEE)}">${pct(M.OEE, 1)}</td>`;
+                };
+                const D = '<th class="dn-d">Day</th>', Nn = '<th class="dn-n">Night</th>';
+                t.innerHTML = `<thead><tr><th class="l" rowspan="2">Line</th><th colspan="2">Ran</th><th colspan="2">Good</th><th colspan="2">Rej %</th><th colspan="2">DT h</th><th colspan="2">OEE</th><th rowspan="2" title="Night OEE minus Day OEE">Δ pts</th><th rowspan="2">Full day</th></tr>
+                    <tr>${(D + Nn).repeat(5)}</tr></thead>
+                    <tbody>${rows.map(r => `<tr data-line="${esc(r.line)}" style="${state.line === r.line ? 'outline:1px solid var(--md-accent)' : ''}"><td class="l" style="font-weight:700">${esc(r.line)}</td>${dnCells(r.list, r.s, r.M)}</tr>`).join('')}</tbody>
+                    <tfoot><tr><td class="l">Plant</td>${dnCells(state.data.machines, tot, T)}</tr></tfoot>`;
+            } else
             t.innerHTML = `<thead><tr><th class="l">Line</th><th>${live ? 'Running' : 'Ran'}</th><th>Good</th><th>Target</th><th>Attain.</th><th>Reject</th><th>Rej %</th><th>DT h</th><th>Avail.</th><th>Perf.</th><th>Quality</th><th>OEE</th><th>Good kg</th></tr></thead>
                 <tbody>${rows.map(r => `<tr data-line="${esc(r.line)}" style="${state.line === r.line ? 'outline:1px solid var(--md-accent)' : ''}"><td class="l" style="font-weight:700">${esc(r.line)}</td>${cells(r.s, r.M, runOf(r), r.list.length)}</tr>`).join('')}</tbody>
                 <tfoot><tr><td class="l">Plant</td>${cells(tot, T, rows.reduce((a, r) => a + runOf(r), 0), state.data.machines.length)}</tr></tfoot>`;
@@ -984,10 +1175,34 @@
             { k: 'missing', t: 'DPR miss', v: r => r.m.missing, f: r => r.m.missing ? `<span class="c-warn">${r.m.missing} h</span>` : '<span class="c-dim">0</span>' }
         ];
 
+        // Day vs Night mode swaps the per-hour detail columns for side-by-side shift columns.
+        const dnDelta = r => r.D.OEE != null && r.N.OEE != null ? r.N.OEE - r.D.OEE : null;
+        const COLS_CMP = [
+            COLS[0], COLS[1], COLS[2], COLS[3],
+            { k: 'goodD', t: 'Good', sh: 'Day', v: r => r.ds.good, f: r => nf(r.ds.good) },
+            { k: 'goodN', t: 'Good', sh: 'Night', v: r => r.ns.good, f: r => nf(r.ns.good) },
+            { k: 'rejD', t: 'Rej %', sh: 'Day', v: r => r.D.rejRate, f: r => `<span class="${rejClass(r.D.rejRate)}">${pct(r.D.rejRate, 2)}</span>` },
+            { k: 'rejN', t: 'Rej %', sh: 'Night', v: r => r.N.rejRate, f: r => `<span class="${rejClass(r.N.rejRate)}">${pct(r.N.rejRate, 2)}</span>` },
+            { k: 'dtD', t: 'DT min', sh: 'Day', v: r => r.ds.dt, f: r => nf(r.ds.dt) },
+            { k: 'dtN', t: 'DT min', sh: 'Night', v: r => r.ns.dt, f: r => nf(r.ns.dt) },
+            { k: 'attD', t: 'Attain.', sh: 'Day', v: r => r.D.attain, f: r => `<span class="${attClass(r.D.attain)}">${pct(r.D.attain, 0)}</span>` },
+            { k: 'attN', t: 'Attain.', sh: 'Night', v: r => r.N.attain, f: r => `<span class="${attClass(r.N.attain)}">${pct(r.N.attain, 0)}</span>` },
+            { k: 'oeeD', t: 'OEE', sh: 'Day', v: r => r.D.OEE, f: r => `<b class="${oeeClass(r.D.OEE)}">${pct(r.D.OEE, 1)}</b>` },
+            { k: 'oeeN', t: 'OEE', sh: 'Night', v: r => r.N.OEE, f: r => `<b class="${oeeClass(r.N.OEE)}">${pct(r.N.OEE, 1)}</b>` },
+            { k: 'dOee', t: 'Δ pts', v: dnDelta, f: r => { const d = dnDelta(r); return d == null ? '<span class="c-dim">—</span>' : `<span class="${d >= 0 ? 'c-good' : 'c-bad'}">${d > 0 ? '+' : ''}${(d * 100).toFixed(1)}</span>`; } },
+            { k: 'oee', t: 'Full day', v: r => r.M.OEE, f: r => `<span class="${oeeClass(r.M.OEE)}">${pct(r.M.OEE, 1)}</span>` },
+            COLS[COLS.length - 1]
+        ];
+        const activeCols = () => isCmp() ? COLS_CMP : COLS;
+
         function machineRows() {
             return scopeMachines().map(m => {
                 const M = metrics(m.sums);
                 const dev = m.std && m.std.cycle && m.actCycle ? (m.actCycle - m.std.cycle) / m.std.cycle : null;
+                if (isCmp()) {
+                    const ds = shiftSums(m, 'Day'), ns = shiftSums(m, 'Night');
+                    return { m, M, dev, ds, ns, D: metrics(ds), N: metrics(ns) };
+                }
                 return { m, M, dev };
             }).filter(r => {
                 if (!state.search) return true;
@@ -999,8 +1214,9 @@
         function renderMachineTable() {
             if (!state.data) return;
             const rows = machineRows();
+            const COLS = activeCols();
             const { key, dir } = state.sort;
-            if (key) {
+            if (key && COLS.some(c => c.k === key)) {
                 const col = COLS.find(c => c.k === key);
                 rows.sort((a, b) => {
                     const x = col.v(a), y = col.v(b);
@@ -1009,7 +1225,7 @@
                 });
             }
             const t = document.getElementById('machineTable');
-            t.innerHTML = `<thead><tr>${COLS.map(c => `<th class="${c.l ? 'l' : ''}" data-k="${c.k}">${c.t}${state.sort.key === c.k ? `<span class="arr">${state.sort.dir > 0 ? '▲' : '▼'}</span>` : ''}</th>`).join('')}</tr></thead>
+            t.innerHTML = `<thead><tr>${COLS.map(c => `<th class="${c.l ? 'l' : ''}${c.sh ? (c.sh === 'Day' ? ' dn-d' : ' dn-n') : ''}" data-k="${c.k}">${c.sh ? `<i class="bi ${SH[c.sh].icon}"></i> ` : ''}${c.t}${state.sort.key === c.k ? `<span class="arr">${state.sort.dir > 0 ? '▲' : '▼'}</span>` : ''}</th>`).join('')}</tr></thead>
                 <tbody>${rows.length ? rows.map(r => `<tr data-m="${esc(r.m.machine)}">${COLS.map(c => `<td class="${c.l ? 'l' : ''}">${c.f ? c.f(r) : esc(c.v(r))}</td>`).join('')}</tr>`).join('') : `<tr><td colspan="${COLS.length}" class="l"><div class="empty">No machines match.</div></td></tr>`}</tbody>`;
             t.querySelectorAll('th').forEach(th => th.addEventListener('click', () => {
                 const k = th.dataset.k;
@@ -1024,16 +1240,18 @@
             const { meta } = state.data;
             const head = ['Machine', 'Line', 'Status', 'Status note', 'Order', 'Mould', 'Std cycle s', 'Actual cycle s', 'Cavities running', 'Cavities std', 'Good pcs', 'Target pcs', 'Attainment %', 'Reject pcs', 'Rejection %', 'Downtime min', 'No-plan min', 'Availability %', 'Performance %', 'Quality %', 'OEE %', 'Good kg', 'DPR hours missing'];
             const p = v => v == null ? '' : (v * 100).toFixed(1);
-            const lines = [head].concat(machineRows().map(({ m, M }) => [
+            const cmp = isCmp();
+            if (cmp) head.push('Day good', 'Night good', 'Day rejection %', 'Night rejection %', 'Day downtime min', 'Night downtime min', 'Day OEE %', 'Night OEE %');
+            const lines = [head].concat(machineRows().map(({ m, M, ds, ns, D, N }) => [
                 m.machine, m.line, (STATUS[m.status] || {}).label || m.status, m.statusNote, m.job && m.job.order_no, m.job && (m.job.mould_name || m.job.mould_no),
                 m.std && m.std.cycle, m.actCycle, m.std && m.std.actCavity, m.std && m.std.cavity,
                 m.sums.good, Math.round(m.sums.target), p(M.attain), m.sums.rej, p(M.rejRate), Math.round(m.sums.dt), Math.round(m.sums.noPlan),
                 p(M.A), p(M.P), p(M.Q), p(M.OEE), Math.round(m.sums.goodKg), m.missing
-            ]));
+            ].concat(cmp ? [ds.good, ns.good, p(D.rejRate), p(N.rejRate), Math.round(ds.dt), Math.round(ns.dt), p(D.OEE), p(N.OEE)] : [])));
             const csv = lines.map(r => r.map(v => { const s = v == null ? '' : String(v); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; }).join(',')).join('\n');
             const a = document.createElement('a');
             a.href = URL.createObjectURL(new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' }));
-            a.download = `moulding-dashboard_${meta.date}_${meta.shift}${state.line ? '_' + state.line.replace(/\W+/g, '') : ''}.csv`;
+            a.download = `moulding-dashboard_${meta.date}_${cmp ? 'DayVsNight' : meta.shift}${state.line ? '_' + state.line.replace(/\W+/g, '') : ''}.csv`;
             document.body.appendChild(a); a.click(); a.remove();
             setTimeout(() => URL.revokeObjectURL(a.href), 1000);
         }
@@ -1066,9 +1284,10 @@
                 return `<div class="bars">${e.map(([k, v]) => `<div class="bar-row"><span class="n" title="${esc(k)}">${esc(k)}</span><div class="progress" style="height:8px"><span style="width:${(v / max * 100).toFixed(1)}%; background:${color}"></span></div><span class="v num">${nf(v)} ${unit}</span></div>`).join('')}</div>`;
             };
             const hourRows = m.hourly.map((h, i) => {
-                if (h.planned == null) return `<tr><td class="l">${slots[i].label}</td><td colspan="6" class="l c-dim">${{ missing: 'DPR not entered', idle: 'Not planned', current: 'In progress', future: '—' }[h.state] || ''}</td></tr>`;
+                const hl = (isCmp() ? `<span class="${SH[slots[i].shift].cls}">${SH[slots[i].shift].short}</span> ` : '') + slots[i].label;
+                if (h.planned == null) return `<tr><td class="l">${hl}</td><td colspan="6" class="l c-dim">${{ missing: 'DPR not entered', idle: 'Not planned', current: 'In progress', future: '—' }[h.state] || ''}</td></tr>`;
                 const hm = metrics(h);
-                return `<tr><td class="l">${slots[i].label}</td><td>${nf(h.good)}</td><td>${nf(h.target)}</td><td class="${attClass(hm.attain)}">${pct(hm.attain, 0)}</td><td class="${h.rej ? 'c-bad' : ''}">${nf(h.rej)}</td><td class="${h.dt >= 45 ? 'c-bad' : h.dt >= 15 ? 'c-warn' : ''}">${Math.round(h.dt)}${h.noPlan ? ` <span class="c-dim">+${Math.round(h.noPlan)} NP</span>` : ''}</td><td class="l" style="max-width:170px; overflow:hidden; text-overflow:ellipsis" title="${esc(h.reason || '')}">${esc(h.reason || h.colour || '')}</td></tr>`;
+                return `<tr><td class="l">${hl}</td><td>${nf(h.good)}</td><td>${nf(h.target)}</td><td class="${attClass(hm.attain)}">${pct(hm.attain, 0)}</td><td class="${h.rej ? 'c-bad' : ''}">${nf(h.rej)}</td><td class="${h.dt >= 45 ? 'c-bad' : h.dt >= 15 ? 'c-warn' : ''}">${Math.round(h.dt)}${h.noPlan ? ` <span class="c-dim">+${Math.round(h.noPlan)} NP</span>` : ''}</td><td class="l" style="max-width:170px; overflow:hidden; text-overflow:ellipsis" title="${esc(h.reason || '')}">${esc(h.reason || h.colour || '')}</td></tr>`;
             }).join('');
             const devTxt = std.cycle && m.actCycle ? ` (${m.actCycle >= std.cycle ? '+' : ''}${pct((m.actCycle - std.cycle) / std.cycle, 0)})` : '';
             document.getElementById('drBody').innerHTML = `
@@ -1080,6 +1299,14 @@
                     <div>Performance<b>${pct(M.P, 1)}</b></div>
                     <div>Quality<b>${pct(M.Q, 1)}</b></div>
                 </div>
+${isCmp() ? (() => {
+                    const D = shiftSums(m, 'Day'), N = shiftSums(m, 'Night'), dm = metrics(D), nm = metrics(N);
+                    const cell = (t, a, b) => `<div>${t}<b><span class="sh-day">${a}</span> <span style="color:var(--md-dim)">/</span> <span class="sh-night">${b}</span></b></div>`;
+                    return `<div class="dr-sec">Day vs Night</div><div class="kv">
+                        ${cell('OEE', pct(dm.OEE, 1), pct(nm.OEE, 1))}${cell('Good', nf(D.good), nf(N.good))}${cell('Rejection', pct(dm.rejRate, 2), pct(nm.rejRate, 2))}
+                        ${cell('Availability', pct(dm.A, 0), pct(nm.A, 0))}${cell('Downtime', Math.round(D.dt) + 'm', Math.round(N.dt) + 'm')}${cell('Attainment', pct(dm.attain, 0), pct(nm.attain, 0))}
+                    </div>`;
+                })() : ''}
                 <div class="dr-sec">Current job</div>
                 <div class="kv">
                     <div class="wide">Mould<b>${esc(j.mould_name || j.mould_no || '—')}${j.mould_no && j.mould_name ? ` <span style="color:var(--md-dim); font-weight:500">(${esc(j.mould_no)})</span>` : ''}</b></div>

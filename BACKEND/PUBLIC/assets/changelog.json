@@ -11,8 +11,24 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.79.1",
+  "latest": "1.80.0",
   "versions": [
+    {
+      "version": "1.80.0",
+      "date": "2026-09-30",
+      "title": "Moulding dashboard: Day vs Night view",
+      "modules": [
+        {
+          "app": "dashboard",
+          "label": "Dashboard",
+          "icon": "bi-speedometer2",
+          "changes": [
+            { "type": "feat", "text": "New Day vs Night view on the Moulding dashboard shows both shifts side by side: OEE, output, rejection, downtime and DPR compliance, with which shift did better." },
+            { "type": "feat", "text": "In Day vs Night view every machine shows a Day and a Night hour strip and OEE, and the tables, hour-by-hour chart, reason charts and 7-day trend are split by shift." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.79.1",
       "date": "2026-09-29",

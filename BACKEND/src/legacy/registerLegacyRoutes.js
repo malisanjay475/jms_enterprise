@@ -1459,17 +1459,27 @@ app.get('/api/dpr/moulding-dashboard', async (req, res) => {
     // ── 7-day trend by line (the page sums the lines in view) ──
     const lineOf = new Map(machineRows.map(m => [String(m.machine || '').trim(), String(m.line || m.building || '').trim() || 'Unassigned']));
     const lineFor = (machine, fallback) => lineOf.get(machine) || String(fallback || '').trim() || 'Unassigned';
-    const trendMap = {};
-    for (let i = 0; i < 7; i++) trendMap[mdShiftDate(trendFrom, i)] = {};
+    const trendMap = {}, trendShiftMap = {};
+    for (let i = 0; i < 7; i++) {
+      const d = mdShiftDate(trendFrom, i);
+      trendMap[d] = {};
+      trendShiftMap[d] = Object.fromEntries(shifts.map(sh => [sh, {}]));
+    }
     cells.forEach(c => {
       if (!trendMap[c.date]) return;
       const line = lineFor(c.machine, c.rows[0] && c.rows[0].r.line);
       if (!trendMap[c.date][line]) trendMap[c.date][line] = mdEmptySums();
       mdAddSums(trendMap[c.date][line], c.sums);
+      const byShift = trendShiftMap[c.date][c.shift];
+      if (!byShift) return;
+      if (!byShift[line]) byShift[line] = mdEmptySums();
+      mdAddSums(byShift[line], c.sums);
     });
+    const roundLines = obj => Object.fromEntries(Object.entries(obj).map(([l, v]) => [l, mdRoundSums(v)]));
     const trend = Object.keys(trendMap).sort().map(d => ({
       date: d,
-      byLine: Object.fromEntries(Object.entries(trendMap[d]).map(([l, s]) => [l, mdRoundSums(s)]))
+      byLine: roundLines(trendMap[d]),
+      byShift: Object.fromEntries(Object.entries(trendShiftMap[d]).map(([sh, lines]) => [sh, roundLines(lines)]))
     }));
 
     // ── Per-machine detail for the selected date ──
@@ -1492,11 +1502,16 @@ app.get('/api/dpr/moulding-dashboard', async (req, res) => {
       const mCells = (byMachine.get(name) || []).slice().sort((a, b) => (slotIndex.get(`${a.shift}|${a.slot}`) ?? 0) - (slotIndex.get(`${b.shift}|${b.slot}`) ?? 0));
       const sums = mdEmptySums();
       const dtReasons = {}, rejReasons = {};
+      const dtByShift = {}, rejByShift = {};
       const hourly = slots.map(() => null);
       mCells.forEach(c => {
         mdAddSums(sums, c.sums);
         Object.entries(c.dtReasons).forEach(([k, v]) => { dtReasons[k] = (dtReasons[k] || 0) + v; });
         Object.entries(c.rejReasons).forEach(([k, v]) => { rejReasons[k] = (rejReasons[k] || 0) + v; });
+        const dS = dtByShift[c.shift] || (dtByShift[c.shift] = {});
+        const rS = rejByShift[c.shift] || (rejByShift[c.shift] = {});
+        Object.entries(c.dtReasons).forEach(([k, v]) => { dS[k] = (dS[k] || 0) + v; });
+        Object.entries(c.rejReasons).forEach(([k, v]) => { rS[k] = (rS[k] || 0) + v; });
         const idx = slotIndex.get(`${c.shift}|${c.slot}`);
         if (idx === undefined) return;
         const topDt = Object.entries(c.dtReasons).sort((a, b) => b[1] - a[1])[0];
@@ -1596,7 +1611,9 @@ app.get('/api/dpr/moulding-dashboard', async (req, res) => {
         entered, required, missing: Math.max(0, required - entered),
         hourly: hourlyOut,
         dtReasons: Object.fromEntries(Object.entries(dtReasons).map(([k, v]) => [k, Math.round(v)]).filter(([, v]) => v > 0)),
-        rejReasons: Object.fromEntries(Object.entries(rejReasons).filter(([, v]) => v > 0))
+        rejReasons: Object.fromEntries(Object.entries(rejReasons).filter(([, v]) => v > 0)),
+        dtByShift: Object.fromEntries(Object.entries(dtByShift).map(([sh, o]) => [sh, Object.fromEntries(Object.entries(o).map(([k, v]) => [k, Math.round(v)]).filter(([, v]) => v > 0))])),
+        rejByShift: Object.fromEntries(Object.entries(rejByShift).map(([sh, o]) => [sh, Object.fromEntries(Object.entries(o).filter(([, v]) => v > 0))]))
       };
     });
 
