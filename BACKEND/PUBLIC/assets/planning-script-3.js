@@ -1862,6 +1862,9 @@
           if (!who && !when) return '';
           return [who ? `<b>${esc(who)}</b>` : '', when ? esc(when) : ''].filter(Boolean).join(' · ');
         }
+        function pjdWhoWhenText(by, at) {
+          return [String(by || '').trim(), pjdDateTime(at) || ''].filter(Boolean).join(' · ');
+        }
         // JC check / approval / rejection and completion of one plan: who, when and remarks
         function pjdApprovalItems(p) {
           const items = [];
@@ -1869,13 +1872,14 @@
           const checked = pjdWhoWhen(p.jc_checked_by, p.jc_checked_at);
           const approved = pjdWhoWhen(p.jc_approved_by, p.jc_approved_at);
           const rejected = pjdWhoWhen(p.jc_rejected_by, p.jc_rejected_at);
-          if (checked) items.push({ tone: 'info', icon: 'bi-check2-square', label: 'JC checked', text: checked });
-          if (approved) items.push({ tone: 'ok', icon: 'bi-patch-check', label: 'JC approved', text: approved });
-          if (rejected || jcStatus === 'REJECTED') items.push({ tone: 'bad', icon: 'bi-x-octagon', label: `JC rejected${p.jc_rejection_stage ? ` (${esc(p.jc_rejection_stage)})` : ''}`, text: rejected || 'Rejected' });
-          if (!approved && !rejected && jcStatus && jcStatus !== 'APPROVED' && jcStatus !== 'REJECTED') items.push({ tone: 'warn', icon: 'bi-hourglass-split', label: 'JC approval', text: esc(p.jc_approval_status) });
+          if (checked) items.push({ tone: 'info', icon: 'bi-check2-square', label: 'JC checked', text: checked, tip: `JC checked: ${pjdWhoWhenText(p.jc_checked_by, p.jc_checked_at)}` });
+          if (approved) items.push({ tone: 'ok', icon: 'bi-patch-check', label: 'JC approved', text: approved, tip: `JC approved: ${pjdWhoWhenText(p.jc_approved_by, p.jc_approved_at)}` });
+          if (rejected || jcStatus === 'REJECTED') items.push({ tone: 'bad', icon: 'bi-x-octagon', label: `JC rejected${p.jc_rejection_stage ? ` (${esc(p.jc_rejection_stage)})` : ''}`, text: rejected || 'Rejected', tip: `JC rejected${p.jc_rejection_stage ? ` (${p.jc_rejection_stage})` : ''}: ${pjdWhoWhenText(p.jc_rejected_by, p.jc_rejected_at) || 'Rejected'}` });
+          if (!approved && !rejected && jcStatus && jcStatus !== 'APPROVED' && jcStatus !== 'REJECTED') items.push({ tone: 'warn', icon: 'bi-hourglass-split', label: 'JC approval', text: esc(p.jc_approval_status), tip: `JC approval: ${p.jc_approval_status}` });
           const completedWho = pjdWhoWhen(p.completed_by, p.completed_at);
           if (String(p.status || '').toUpperCase() === 'COMPLETED' || completedWho) {
-            items.push({ tone: 'ok', icon: 'bi-flag', label: 'Completed', text: completedWho || 'Completed', remark: String(p.plan_remarks || '').trim() });
+            const remark = String(p.plan_remarks || '').trim();
+            items.push({ tone: 'ok', icon: 'bi-flag', label: 'Completed', text: completedWho || 'Completed', remark, tip: `Completed: ${pjdWhoWhenText(p.completed_by, p.completed_at) || 'Completed'}${remark ? ` - "${remark}"` : ''}` });
           }
           return items;
         }
@@ -1931,7 +1935,14 @@
         function pjdRenderOrderMoulds(plans, ctx) {
           const box = document.getElementById('pjdMouldsBox');
           if (!box) return;
-          const list = (plans || []).filter(p => !['REJECTED', 'DROPPED'].includes(String(p.status || '').toUpperCase()));
+          const seenPlans = new Set();
+          const list = (plans || []).filter(p => {
+            if (['REJECTED', 'DROPPED'].includes(String(p.status || '').toUpperCase())) return false;
+            const key = String(p.id || p.plan_id || '');
+            if (key && seenPlans.has(key)) return false;
+            seenPlans.add(key);
+            return true;
+          });
           const dropped = Array.isArray(ctx.dropped) ? ctx.dropped : [];
           const droppedHtml = dropped.length ? `
             <div style="margin-top:14px;border-top:1px dashed #fecaca;padding-top:10px">
@@ -1960,7 +1971,14 @@
             return `<tr style="border-bottom:1px solid #f1f5f9;${cur ? 'background:#f0f9ff' : ''}">
               <td style="padding:8px"><div style="font-weight:800;color:#0f172a;font-size:0.82rem">${esc(p.mould_name || p.item_name || '-')}</div><div style="font-size:0.7rem;color:#94a3b8">${esc(p.mould_code || p.item_code || '')}</div></td>
               <td style="padding:8px;font-size:0.8rem;color:#334155">${esc(machine)}</td>
-              <td style="padding:8px"><span style="font-size:0.7rem;font-weight:800;color:${stColor}">${esc(st)}</span>${pjdApprovalItems(p).map(it => `<div style="font-size:0.66rem;color:#64748b;margin-top:2px"><i class="bi ${it.icon}"></i> ${it.label}: ${it.text}${it.remark ? ` &mdash; <i>&ldquo;${esc(it.remark)}&rdquo;</i>` : ''}</div>`).join('')}</td>
+              <td style="padding:8px">${(() => {
+                const items = pjdApprovalItems(p);
+                const last = items[items.length - 1];
+                const tip = items.map(it => it.tip).join('\n');
+                return `<span style="font-size:0.7rem;font-weight:800;color:${stColor}">${esc(st)}</span>` +
+                  (last ? `<div title="${esc(tip)}" style="font-size:0.66rem;color:#64748b;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:220px;cursor:help"><i class="bi ${last.icon}"></i> ${last.text}</div>` : '') +
+                  (last && last.remark ? `<div title="${esc(last.remark)}" style="font-size:0.66rem;color:#475569;font-style:italic;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:220px">&ldquo;${esc(last.remark)}&rdquo;</div>` : '');
+              })()}</td>
               <td style="padding:8px;text-align:right;font-weight:700">${plan.toLocaleString('en-IN')}</td>
               <td style="padding:8px;text-align:right"><div style="font-weight:800;color:#15803d">${good.toLocaleString('en-IN')}</div><div style="background:#e2e8f0;border-radius:3px;height:4px;margin-top:3px"><div style="background:#22c55e;height:4px;border-radius:3px;width:${pct}%"></div></div></td>
               <td style="padding:8px;text-align:right;color:#b91c1c;font-weight:700">${rej.toLocaleString('en-IN')}</td>

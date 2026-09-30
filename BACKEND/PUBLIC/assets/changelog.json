@@ -11,8 +11,25 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.82.2",
+  "latest": "1.82.3",
   "versions": [
+    {
+      "version": "1.82.3",
+      "date": "2026-09-30",
+      "title": "Each mould listed once in job details",
+      "modules": [
+        {
+          "app": "planning",
+          "label": "Planning",
+          "icon": "bi-kanban",
+          "changes": [
+            { "type": "fix", "text": "Moulds in this order lists each mould only once, and the order total is correct. A mould could appear two to four times before." },
+            { "type": "improvement", "text": "Each mould row is compact, showing the latest step (completed, approved or rejected) and its remark. Hover over it to see the full approval and completion history." },
+            { "type": "security", "text": "The approval and completion tooltips in the job details window are built from plain text, so remarks can never be shown as page content." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.82.2",
       "date": "2026-09-30",

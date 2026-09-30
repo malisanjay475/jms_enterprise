@@ -12088,8 +12088,18 @@ async function buildDprOrderAnalysis(req) {
         COALESCE(m.cycle_time, m2.cycle_time) as std_cycle,
         COALESCE(m.no_of_cav, m2.no_of_cav) as std_cavity
       FROM plan_board pb
-      LEFT JOIN moulds m ON TRIM(m.mould_name) = TRIM(pb.mould_name)
-      LEFT JOIN moulds m2 ON TRIM(m2.mould_number) = TRIM(COALESCE(pb.mould_code, pb.item_code))
+      -- LATERAL LIMIT 1: the mould master can hold several rows with the same name or
+      -- number; plain joins repeated every plan once per match (a mould listed 2-4 times).
+      LEFT JOIN LATERAL (
+        SELECT mm.std_wt_kg, mm.cycle_time, mm.no_of_cav FROM moulds mm
+         WHERE TRIM(mm.mould_name) = TRIM(pb.mould_name)
+         ORDER BY mm.id LIMIT 1
+      ) m ON true
+      LEFT JOIN LATERAL (
+        SELECT mm.std_wt_kg, mm.cycle_time, mm.no_of_cav FROM moulds mm
+         WHERE TRIM(mm.mould_number) = TRIM(COALESCE(pb.mould_code, pb.item_code))
+         ORDER BY mm.id LIMIT 1
+      ) m2 ON true
       WHERE TRIM(pb.order_no) = $1
       ORDER BY pb.created_at ASC NULLS LAST, pb.id ASC
     `, [decodedOrder]);
