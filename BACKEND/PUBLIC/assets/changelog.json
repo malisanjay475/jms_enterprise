@@ -11,8 +11,24 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.80.1",
+  "latest": "1.81.0",
   "versions": [
+    {
+      "version": "1.81.0",
+      "date": "2026-09-30",
+      "title": "Moulding dashboard: Day and Night themes",
+      "modules": [
+        {
+          "app": "dashboard",
+          "label": "Dashboard",
+          "icon": "bi-speedometer2",
+          "changes": [
+            { "type": "feat", "text": "The Moulding dashboard now has a Day theme (light) and a Night theme (dark); switch with the new button in the header." },
+            { "type": "feat", "text": "Auto theme uses Day from 07:00 to 19:00 and Night the rest of the time, and your choice is remembered on this device." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.80.1",
       "date": "2026-09-30",

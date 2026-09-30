@@ -8,6 +8,16 @@
     <link rel="stylesheet" href="/assets/app.css?v=12">
     <link rel="stylesheet" href="/assets/bootstrap-icons.min.css">
     <script src="/assets/vendor/jsdelivr/chart.js"></script>
+    <script>
+        // Night (dark) / Day (light) / Auto (Day 07:00–19:00, else Night). Per-viewer choice.
+        (function () {
+            var mode = 'night';
+            try { mode = localStorage.getItem('jms_mdash_theme') || 'night'; } catch (e) { }
+            var h = new Date().getHours();
+            var theme = mode === 'auto' ? (h >= 7 && h < 19 ? 'day' : 'night') : mode;
+            document.documentElement.setAttribute('data-md-theme', theme === 'day' ? 'day' : 'night');
+        })();
+    </script>
 
     <style>
         :root {
@@ -30,7 +40,73 @@
             --md-bad-bg: rgba(239, 68, 68, 0.14);
             --md-maint-bg: rgba(167, 139, 250, 0.16);
             --md-idle-bg: rgba(100, 116, 139, 0.16);
+            --md-good-t: #4ade80;
+            --md-warn-t: #fbbf24;
+            --md-bad-t: #f87171;
+            --md-head-bg: rgba(11, 18, 32, 0.92);
+            --md-track: rgba(148, 163, 184, 0.14);
+            --md-row-line: rgba(148, 163, 184, 0.08);
+            --md-overlay: rgba(2, 6, 23, 0.6);
+            --md-live-t: #fecaca;
+            --md-current: #93c5fd;
+            --md-day: #fbbf24;
+            --md-night: #a5b4fc;
+            --md-chart-grid: rgba(148, 163, 184, 0.08);
+            --md-chart-axis: rgba(148, 163, 184, 0.2);
+            --md-chart-tick: #94a3b8;
+            --md-chart-legend: #cbd5e1;
+            --md-chart-ref: #e2e8f0;
+            --md-tip-bg: #0f172a;
+            --md-tip-border: rgba(148, 163, 184, 0.3);
+            --md-tip-title: #f8fafc;
+            --md-tip-body: #cbd5e1;
+            --md-scheme: dark;
         }
+
+        /* Day theme (light) */
+        html[data-md-theme="day"] {
+            --md-bg: #eef2f7;
+            --md-panel: #ffffff;
+            --md-panel-2: #f6f8fb;
+            --md-border: rgba(15, 23, 42, 0.1);
+            --md-border-strong: rgba(15, 23, 42, 0.24);
+            --md-text: #0f172a;
+            --md-muted: #475569;
+            --md-dim: #64748b;
+            --md-accent: #2563eb;
+            --md-good: #16a34a;
+            --md-warn: #d97706;
+            --md-bad: #dc2626;
+            --md-maint: #7c3aed;
+            --md-idle: #94a3b8;
+            --md-good-bg: rgba(22, 163, 74, 0.12);
+            --md-warn-bg: rgba(217, 119, 6, 0.12);
+            --md-bad-bg: rgba(220, 38, 38, 0.1);
+            --md-maint-bg: rgba(124, 58, 237, 0.1);
+            --md-idle-bg: rgba(100, 116, 139, 0.12);
+            --md-good-t: #15803d;
+            --md-warn-t: #b45309;
+            --md-bad-t: #b91c1c;
+            --md-head-bg: rgba(238, 242, 247, 0.94);
+            --md-track: rgba(15, 23, 42, 0.08);
+            --md-row-line: rgba(15, 23, 42, 0.06);
+            --md-overlay: rgba(15, 23, 42, 0.35);
+            --md-live-t: #b91c1c;
+            --md-current: #2563eb;
+            --md-day: #b45309;
+            --md-night: #4f46e5;
+            --md-chart-grid: rgba(15, 23, 42, 0.07);
+            --md-chart-axis: rgba(15, 23, 42, 0.18);
+            --md-chart-tick: #475569;
+            --md-chart-legend: #334155;
+            --md-chart-ref: #334155;
+            --md-tip-bg: #ffffff;
+            --md-tip-border: rgba(15, 23, 42, 0.15);
+            --md-tip-title: #0f172a;
+            --md-tip-body: #334155;
+            --md-scheme: light;
+        }
+        html[data-md-theme="day"] .mdp, html[data-md-theme="day"] .mtile { box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05); }
 
         body { background: var(--md-bg); color: var(--md-text); }
         .main-content.md-root { padding: 0; background: var(--md-bg); }
@@ -42,7 +118,7 @@
         /* ── Header ── */
         .md-head {
             position: sticky; top: 0; z-index: 30;
-            background: rgba(11, 18, 32, 0.92); backdrop-filter: blur(10px);
+            background: var(--md-head-bg); backdrop-filter: blur(10px);
             border-bottom: 1px solid var(--md-border);
             margin: 0 -20px 16px; padding: 12px 20px 10px;
         }
@@ -50,7 +126,7 @@
         .md-title { display: flex; align-items: center; gap: 10px; min-width: 0; }
         .md-title h1 { margin: 0; font-size: 1.25rem; font-weight: 800; letter-spacing: -0.3px; color: var(--md-text); }
         .md-title .sub { font-size: 0.78rem; color: var(--md-muted); }
-        .live-pill { display: none; align-items: center; gap: 6px; font-size: 0.7rem; font-weight: 800; letter-spacing: 0.6px; color: #fecaca; background: rgba(239, 68, 68, 0.18); border: 1px solid rgba(239, 68, 68, 0.4); padding: 2px 8px; border-radius: 999px; }
+        .live-pill { display: none; align-items: center; gap: 6px; font-size: 0.7rem; font-weight: 800; letter-spacing: 0.6px; color: var(--md-live-t); background: rgba(239, 68, 68, 0.18); border: 1px solid rgba(239, 68, 68, 0.4); padding: 2px 8px; border-radius: 999px; }
         .live-pill.on { display: inline-flex; }
         .live-pill i { width: 7px; height: 7px; border-radius: 50%; background: var(--md-bad); animation: md-blink 1.4s infinite; }
         @keyframes md-blink { 50% { opacity: 0.25; } }
@@ -59,13 +135,13 @@
         .md-field { display: flex; align-items: center; gap: 6px; background: var(--md-panel); border: 1px solid var(--md-border); border-radius: 8px; padding: 0 10px; height: 36px; color: var(--md-muted); }
         .md-field input, .md-field select { background: transparent; border: 0; color: var(--md-text); outline: none; font: inherit; font-size: 0.85rem; height: 34px; }
         .md-field select option { background: var(--md-panel); color: var(--md-text); }
-        .md-field input[type="date"] { color-scheme: dark; }
+        .md-field input[type="date"] { color-scheme: var(--md-scheme); }
         .seg { display: inline-flex; background: var(--md-panel); border: 1px solid var(--md-border); border-radius: 8px; padding: 3px; height: 36px; }
         .seg button { border: 0; background: transparent; color: var(--md-muted); font: inherit; font-size: 0.8rem; font-weight: 600; padding: 0 12px; border-radius: 6px; cursor: pointer; }
         .seg button.active { background: var(--md-accent); color: #fff; }
         .md-btn { height: 36px; min-width: 36px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 0 10px; background: var(--md-panel); border: 1px solid var(--md-border); border-radius: 8px; color: var(--md-text); font: inherit; font-size: 0.8rem; font-weight: 600; cursor: pointer; }
         .md-btn:hover { border-color: var(--md-border-strong); background: var(--md-panel-2); }
-        .md-btn.on { border-color: rgba(34, 197, 94, 0.5); color: #86efac; }
+        .md-btn.on { border-color: rgba(34, 197, 94, 0.5); color: var(--md-good-t); }
         .md-btn:focus-visible, .seg button:focus-visible, .mtile:focus-visible { outline: 2px solid var(--md-accent); outline-offset: 2px; }
 
         .shift-bar { display: flex; align-items: center; gap: 10px; margin-top: 10px; font-size: 0.75rem; color: var(--md-muted); }
@@ -93,8 +169,8 @@
         .kpi-v small { font-size: 0.85rem; font-weight: 600; color: var(--md-muted); margin-left: 3px; }
         .kpi-s { font-size: 0.75rem; color: var(--md-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .delta { font-size: 0.7rem; font-weight: 700; padding: 1px 6px; border-radius: 999px; background: var(--md-idle-bg); color: var(--md-muted); white-space: nowrap; }
-        .delta.up { background: var(--md-good-bg); color: #86efac; }
-        .delta.down { background: var(--md-bad-bg); color: #fca5a5; }
+        .delta.up { background: var(--md-good-bg); color: var(--md-good-t); }
+        .delta.down { background: var(--md-bad-bg); color: var(--md-bad-t); }
         .apq { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 8px; }
         .apq div { font-size: 0.68rem; color: var(--md-muted); }
         .apq b { display: block; font-size: 0.85rem; color: var(--md-text); }
@@ -134,13 +210,13 @@
         .tile-stats .big b { font-size: 1.25rem; font-weight: 800; }
         .tile-note { font-size: 0.68rem; color: var(--sc); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-height: 0.9rem; }
         .strip { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 2px; height: 9px; }
-        .strip i { border-radius: 2px; background: transparent; border: 1px solid rgba(148, 163, 184, 0.14); }
+        .strip i { border-radius: 2px; background: transparent; border: 1px solid var(--md-track); }
         .s-run { background: var(--md-good) !important; border-color: transparent !important; }
         .s-partial { background: var(--md-warn) !important; border-color: transparent !important; }
         .s-down { background: var(--md-bad) !important; border-color: transparent !important; }
         .s-missing { background: repeating-linear-gradient(135deg, rgba(245, 158, 11, 0.55) 0 2px, transparent 2px 4px) !important; border-color: rgba(245, 158, 11, 0.5) !important; }
         .s-idle { background: rgba(100, 116, 139, 0.25) !important; border-color: transparent !important; }
-        .s-current { border-color: #93c5fd !important; animation: md-blink 1.6s infinite; }
+        .s-current { border-color: var(--md-current) !important; animation: md-blink 1.6s infinite; }
         .tiles.compact { grid-template-columns: repeat(auto-fill, minmax(138px, 1fr)); gap: 6px; }
         .mtile.c { padding: 6px 8px 7px; gap: 5px; border-top-width: 3px; }
         .tiles.compact.dn { grid-template-columns: repeat(auto-fill, minmax(172px, 1fr)); }
@@ -149,12 +225,12 @@
         .mtile.c .oee-mini { font-size: 0.95rem; font-weight: 800; }
         .mtile.c .tile-sub { display: flex; justify-content: space-between; gap: 6px; font-size: 0.64rem; color: var(--md-dim); white-space: nowrap; }
         .mtile.c .strip { height: 7px; }
-        .progress { height: 5px; background: rgba(148, 163, 184, 0.14); border-radius: 999px; overflow: hidden; }
+        .progress { height: 5px; background: var(--md-track); border-radius: 999px; overflow: hidden; }
         .progress span { display: block; height: 100%; border-radius: 999px; }
 
         /* ── Day vs Night ── */
-        .sh-day { color: #fbbf24; }
-        .sh-night { color: #a5b4fc; }
+        .sh-day { color: var(--md-day); }
+        .sh-night { color: var(--md-night); }
         .cmp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; }
         .cmp-card { background: var(--md-panel-2); border: 1px solid var(--md-border); border-radius: 10px; padding: 10px 12px; min-width: 0; }
         .cmp-card .t { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: var(--md-muted); margin-bottom: 6px; }
@@ -164,8 +240,8 @@
         .cmp-foot { font-size: 0.7rem; margin-top: 6px; color: var(--md-dim); }
         .dn-oee { font-size: 0.72rem; font-weight: 800; white-space: nowrap; font-variant-numeric: tabular-nums; }
         .strip2 { display: grid; grid-template-columns: 9px minmax(0, 1fr); gap: 4px; align-items: center; font-size: 0.55rem; font-weight: 800; line-height: 1; }
-        th.dn-d { color: #fbbf24 !important; }
-        th.dn-n { color: #a5b4fc !important; }
+        th.dn-d { color: var(--md-day) !important; }
+        th.dn-n { color: var(--md-night) !important; }
 
         /* ── Alerts ── */
         .alerts { display: flex; flex-direction: column; gap: 6px; max-height: 330px; overflow-y: auto; padding-right: 2px; }
@@ -188,20 +264,20 @@
         table.md th { position: sticky; top: 0; background: var(--md-panel-2); color: var(--md-muted); font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 700; text-align: right; padding: 9px 10px; white-space: nowrap; border-bottom: 1px solid var(--md-border); cursor: pointer; user-select: none; }
         table.md th.l, table.md td.l { text-align: left; }
         table.md th .arr { opacity: 0.5; margin-left: 3px; }
-        table.md td { padding: 8px 10px; text-align: right; border-bottom: 1px solid rgba(148, 163, 184, 0.08); white-space: nowrap; color: var(--md-text); font-variant-numeric: tabular-nums; }
+        table.md td { padding: 8px 10px; text-align: right; border-bottom: 1px solid var(--md-row-line); white-space: nowrap; color: var(--md-text); font-variant-numeric: tabular-nums; }
         table.md tbody tr { cursor: pointer; }
         table.md tbody tr:hover td { background: rgba(59, 130, 246, 0.07); }
         table.md tfoot td { font-weight: 800; background: var(--md-panel-2); border-top: 1px solid var(--md-border-strong); }
         .tbl-scroll { max-height: 620px; overflow: auto; }
-        .c-good { color: #4ade80 !important; }
-        .c-warn { color: #fbbf24 !important; }
-        .c-bad { color: #f87171 !important; }
+        .c-good { color: var(--md-good-t) !important; }
+        .c-warn { color: var(--md-warn-t) !important; }
+        .c-bad { color: var(--md-bad-t) !important; }
         .c-dim { color: var(--md-dim) !important; }
         .search { display: flex; align-items: center; gap: 6px; background: var(--md-panel-2); border: 1px solid var(--md-border); border-radius: 8px; padding: 0 10px; height: 32px; }
         .search input { background: transparent; border: 0; outline: none; color: var(--md-text); font: inherit; font-size: 0.8rem; width: 190px; }
 
         /* ── Drawer ── */
-        .md-overlay { position: fixed; inset: 0; background: rgba(2, 6, 23, 0.6); z-index: 1000; opacity: 0; pointer-events: none; transition: opacity 0.2s; }
+        .md-overlay { position: fixed; inset: 0; background: var(--md-overlay); z-index: 1000; opacity: 0; pointer-events: none; transition: opacity 0.2s; }
         .md-overlay.open { opacity: 1; pointer-events: auto; }
         .md-drawer { position: fixed; top: 0; right: 0; bottom: 0; width: min(640px, 100vw); background: var(--md-bg); border-left: 1px solid var(--md-border); z-index: 1001; transform: translateX(100%); transition: transform 0.25s ease; display: flex; flex-direction: column; color: var(--md-text); }
         .md-drawer.open { transform: translateX(0); }
@@ -282,6 +358,7 @@
                                 <i class="bi bi-diagram-3"></i>
                                 <select id="lineSelect" aria-label="Line"><option value="">All lines</option></select>
                             </label>
+                            <button class="md-btn" id="themeBtn" title="Theme"><i class="bi bi-moon-stars"></i><span>Night</span></button>
                             <button class="md-btn" id="autoBtn" title="Refresh every minute"><i class="bi bi-arrow-repeat"></i><span>Auto</span></button>
                             <button class="md-btn" id="refreshBtn" title="Refresh now" aria-label="Refresh now"><i class="bi bi-arrow-clockwise"></i></button>
                             <button class="md-btn" id="csvBtn" title="Export machine table (CSV)" aria-label="Export CSV"><i class="bi bi-download"></i></button>
@@ -433,7 +510,7 @@
 
         const state = {
             data: null, shift: 'Day', line: '', statusFilter: '', search: '',
-            hourView: 'output', density: 'compact', sort: { key: null, dir: 1 }, auto: false, timer: null, charts: {}, openMachine: null
+            hourView: 'output', density: 'compact', themeMode: 'night', sort: { key: null, dir: 1 }, auto: false, timer: null, charts: {}, openMachine: null
         };
 
         // ── Storage (per-viewer conveniences only) ──
@@ -470,9 +547,23 @@
             };
         }
 
+        // ── Theme: Night (dark) / Day (light) / Auto (Day 07:00–19:00) ──
+        const cssVar = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+        const THEMES = { night: { icon: 'bi-moon-stars', label: 'Night' }, day: { icon: 'bi-sun', label: 'Day' }, auto: { icon: 'bi-circle-half', label: 'Auto' } };
+        const themeFor = mode => mode === 'auto' ? ((h => h >= 7 && h < 19)(new Date().getHours()) ? 'day' : 'night') : mode;
+        function applyTheme(redraw) {
+            const theme = themeFor(state.themeMode);
+            const changed = document.documentElement.getAttribute('data-md-theme') !== theme;
+            document.documentElement.setAttribute('data-md-theme', theme);
+            const b = document.getElementById('themeBtn'), t = THEMES[state.themeMode];
+            b.innerHTML = `<i class="bi ${t.icon}"></i><span>${t.label}</span>`;
+            b.title = state.themeMode === 'auto' ? `Theme: Auto (now ${theme === 'day' ? 'Day' : 'Night'}) — click for Night` : `Theme: ${t.label} — click for ${state.themeMode === 'night' ? 'Day' : 'Auto'}`;
+            if (redraw && changed && state.data) render();
+        }
+
         // ── Day vs Night mode: the API is asked for the full day, the page splits it by shift ──
         const SHIFTS = ['Day', 'Night'];
-        const SH = { Day: { cls: 'sh-day', icon: 'bi-sun', c: '#fbbf24', bar: 'rgba(251,191,36,0.8)', short: 'D' }, Night: { cls: 'sh-night', icon: 'bi-moon-stars', c: '#a5b4fc', bar: 'rgba(129,140,248,0.8)', short: 'N' } };
+        const SH = { Day: { cls: 'sh-day', icon: 'bi-sun', get c() { return cssVar('--md-day'); }, bar: 'rgba(251,191,36,0.8)', short: 'D' }, Night: { cls: 'sh-night', icon: 'bi-moon-stars', get c() { return cssVar('--md-night'); }, bar: 'rgba(129,140,248,0.8)', short: 'N' } };
         const isCmp = () => !!(state.data && state.data.compare);
         const apiShift = sh => sh === 'Both' ? 'All' : sh;
         function shiftSums(m, sh) {
@@ -505,6 +596,10 @@
             state.line = store.get('line', '');
             state.auto = store.get('auto', '0') === '1';
             state.density = store.get('density', 'compact') === 'detail' ? 'detail' : 'compact';
+            state.themeMode = THEMES[store.get('theme', 'night')] ? store.get('theme', 'night') : 'night';
+            applyTheme(false);
+            // Auto theme flips at 07:00 / 19:00 even when nobody touches the page.
+            setInterval(() => { if (state.themeMode === 'auto') applyTheme(true); }, 60000);
             bindUi();
             load();
         });
@@ -516,6 +611,12 @@
             document.getElementById('refreshBtn').addEventListener('click', () => load());
             document.getElementById('autoBtn').addEventListener('click', () => { state.auto = !state.auto; store.set('auto', state.auto ? '1' : '0'); scheduleAuto(); paintControls(); });
             document.getElementById('csvBtn').addEventListener('click', exportCsv);
+            document.getElementById('themeBtn').addEventListener('click', () => {
+                state.themeMode = { night: 'day', day: 'auto', auto: 'night' }[state.themeMode];
+                store.set('theme', state.themeMode);
+                applyTheme(false);
+                if (state.data) render(); // charts read their colours from the theme tokens
+            });
             document.getElementById('tvBtn').addEventListener('click', toggleTv);
             document.getElementById('tableSearch').addEventListener('input', e => { state.search = e.target.value.trim().toLowerCase(); renderMachineTable(); });
             document.querySelectorAll('#hourTabs button').forEach(b => b.addEventListener('click', () => {
@@ -763,7 +864,7 @@
             el.innerHTML = `
                 <div class="oee-gauge">
                     <svg width="92" height="92" viewBox="0 0 92 92" role="img" aria-label="OEE ${pct(M.OEE)}">
-                        <circle cx="46" cy="46" r="${r}" fill="none" stroke="rgba(148,163,184,0.15)" stroke-width="9"/>
+                        <circle cx="46" cy="46" r="${r}" fill="none" style="stroke:var(--md-track)" stroke-width="9"/>
                         <circle cx="46" cy="46" r="${r}" fill="none" stroke="${oeeColor(M.OEE)}" stroke-width="9" stroke-linecap="round"
                             stroke-dasharray="${(circ * Math.min(1, oee)).toFixed(1)} ${circ.toFixed(1)}" transform="rotate(-90 46 46)"/>
                         <text x="46" y="51" text-anchor="middle" fill="var(--md-text)" font-size="17" font-weight="800">${M.OEE == null ? '—' : Math.round(oee * 100) + '%'}</text>
@@ -982,7 +1083,7 @@
                 datasets = [
                     { type: 'bar', label: 'Good', data: per.map((s, i) => upto(i) ? s.good : null), backgroundColor: 'rgba(59,130,246,0.75)', stack: 'o', borderRadius: 3, order: 2 },
                     { type: 'bar', label: 'Reject', data: per.map((s, i) => upto(i) ? s.rej : null), backgroundColor: 'rgba(239,68,68,0.75)', stack: 'o', borderRadius: 3, order: 2 },
-                    { type: 'line', label: 'Std target', data: per.map((s, i) => upto(i) ? Math.round(s.target) : null), borderColor: '#e2e8f0', borderDash: [5, 4], borderWidth: 1.5, pointRadius: 0, order: 1 },
+                    { type: 'line', label: 'Std target', data: per.map((s, i) => upto(i) ? Math.round(s.target) : null), borderColor: cssVar('--md-chart-ref'), borderDash: [5, 4], borderWidth: 1.5, pointRadius: 0, order: 1 },
                     { type: 'line', label: 'Machines producing', data: running.map((r, i) => upto(i) ? r : null), borderColor: '#a78bfa', backgroundColor: '#a78bfa', yAxisID: 'y1', tension: 0.3, pointRadius: 2, order: 0 }
                 ];
                 scales = { x: { stacked: true }, y: { stacked: true, beginAtZero: true, title: { display: true, text: 'pcs', color: '#64748b' } }, y1: { position: 'right', beginAtZero: true, grid: { drawOnChartArea: false }, title: { display: true, text: 'machines', color: '#64748b' } } };
@@ -1066,7 +1167,7 @@
                             });
                             return { type: 'bar', label: `${sh} (${unit})`, data, backgroundColor: SH[sh].bar, stack: 'r', borderRadius: 3, order: 2 };
                         }) : [{ type: 'bar', label: unit, data: top.map(e => Math.round(e[1])), backgroundColor: color, borderRadius: 4, order: 2 }]),
-                        { type: 'line', label: 'Cumulative %', data: cum, borderColor: '#e2e8f0', backgroundColor: '#e2e8f0', yAxisID: 'y1', pointRadius: 2, tension: 0.2, order: 1 }
+                        { type: 'line', label: 'Cumulative %', data: cum, borderColor: cssVar('--md-chart-ref'), backgroundColor: cssVar('--md-chart-ref'), yAxisID: 'y1', pointRadius: 2, tension: 0.2, order: 1 }
                     ]
                 },
                 options: baseOptions({
@@ -1079,7 +1180,7 @@
 
         // ── Chart plumbing ──
         function baseOptions(scales, fmt, titleFn) {
-            const axis = { grid: { color: 'rgba(148,163,184,0.08)' }, ticks: { color: '#94a3b8', font: { size: 11 } }, border: { color: 'rgba(148,163,184,0.2)' } };
+            const axis = { grid: { color: cssVar('--md-chart-grid') }, ticks: { color: cssVar('--md-chart-tick'), font: { size: 11 } }, border: { color: cssVar('--md-chart-axis') } };
             const merged = {};
             Object.entries(Object.assign({ x: {}, y: {} }, scales)).forEach(([k, v]) => {
                 merged[k] = Object.assign({}, axis, v, { ticks: Object.assign({}, axis.ticks, v.ticks || {}), grid: Object.assign({}, axis.grid, v.grid || {}) });
@@ -1088,9 +1189,9 @@
                 responsive: true, maintainAspectRatio: false, animation: { duration: 250 },
                 interaction: { mode: 'index', intersect: false },
                 plugins: {
-                    legend: { position: 'top', align: 'end', labels: { color: '#cbd5e1', boxWidth: 10, boxHeight: 10, font: { size: 11 } } },
+                    legend: { position: 'top', align: 'end', labels: { color: cssVar('--md-chart-legend'), boxWidth: 10, boxHeight: 10, font: { size: 11 } } },
                     tooltip: {
-                        backgroundColor: '#0f172a', borderColor: 'rgba(148,163,184,0.3)', borderWidth: 1, titleColor: '#f8fafc', bodyColor: '#cbd5e1',
+                        backgroundColor: cssVar('--md-tip-bg'), borderColor: cssVar('--md-tip-border'), borderWidth: 1, titleColor: cssVar('--md-tip-title'), bodyColor: cssVar('--md-tip-body'),
                         callbacks: Object.assign({ label: ctx => `${ctx.dataset.label}: ${fmt ? fmt(ctx.parsed.y, ctx) : ctx.parsed.y}` }, titleFn ? { title: titleFn } : {})
                     }
                 },
