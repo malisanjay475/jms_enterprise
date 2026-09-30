@@ -11,8 +11,22 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.80.0",
+  "latest": "1.80.1",
   "versions": [
+    {
+      "version": "1.80.1",
+      "date": "2026-09-30",
+      "title": "Correct plan hours on the Planning Board",
+      "modules": [
+        {
+          "app": "planning",
+          "changes": [
+            { "type": "fix", "text": "Plan cards on the Machine Timeline now show the correct STD total and balance hours. Earlier some cards used a default 120-second cycle and 1 cavity (for example 14h 6m instead of about 5h for 423 pieces) when the mould number case did not match or when another factory's mould row was picked." },
+            { "type": "improvement", "text": "If a mould has no cycle time or cavity in the Mould Master, the plan card now shows a red 'STD cycle time missing' tag instead of made-up hours." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.80.0",
       "date": "2026-09-30",

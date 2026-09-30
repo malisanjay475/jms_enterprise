@@ -10534,10 +10534,14 @@ app.get('/api/planning/board', async (req, res) => {
         pb.order_no     AS "orderNo",
         COALESCE(pb.mould_name, m.mould_name, 'Unknown') AS "mouldName",
         o.client_name    AS "clientName",
-        mMaster.cycle_time AS "cycleTime",
+        -- STD cycle time / cavity drive the card's STD Total | STD Balance and the
+        -- End/Exp dates. Mould master (by mould no, then by name) wins; the planning
+        -- summary is only a fallback. NULL when no source has it — never a made-up
+        -- default, so the board can flag the missing STD instead of showing fake hours.
+        COALESCE(NULLIF(mMaster.cycle_time, 0), NULLIF(m.cycle_time, 0), NULLIF(mps.cycle_time, 0)) AS "cycleTime",
         -- Fetch Mould No from Master (Strict => Fallback to Mould Master)
         COALESCE(mps.mould_no, m.mould_number, '-') AS "mouldNo",
-        mps.cavity       AS "cavity",
+        COALESCE(NULLIF(mMaster.no_of_cav, 0), NULLIF(m.no_of_cav, 0), NULLIF(mps.cavity, 0)) AS "cavity",
         COALESCE(NULLIF(TRIM(pb.job_card_no), ''), ojr.job_card_no) AS "jcNo",
         -- OR Date + JC Date sourced from OR-JR Status. OR Date is OR-level (any
         -- OR-JR row for this OR, even without a JC); JC Date comes from the row
@@ -10576,12 +10580,34 @@ app.get('/api/planning/board', async (req, res) => {
        AND (planMachine.factory_id = pb.factory_id OR planMachine.factory_id IS NULL OR pb.factory_id IS NULL)
       -- Labour Job party name via machine's assigned party
       LEFT JOIN labour_parties lp ON lp.id = planMachine.labour_party_id
-      -- Optimized Mould Join: Match by Mould Name
-      LEFT JOIN moulds m ON m.mould_name = pb.mould_name
+      -- Mould master rows repeat per factory (unique on mould_number + factory_id), so a
+      -- plain join fans out and DISTINCT ON could keep another factory's row — one with
+      -- no cycle time — and the card then showed default 120s/1-cav hours. Pick ONE row:
+      -- this plan's factory first, then a row that actually has a cycle time.
+      LEFT JOIN LATERAL (
+         SELECT mn.mould_number, mn.mould_name, mn.cycle_time, mn.no_of_cav, mn.primary_machine,
+                mn.secondary_machine, mn.std_wt_kg, mn.pcs_per_hour
+         FROM moulds mn
+         WHERE mn.mould_name = pb.mould_name
+         ORDER BY (mn.factory_id = pb.factory_id) DESC NULLS LAST,
+                  (COALESCE(mn.cycle_time, 0) > 0) DESC,
+                  mn.updated_at DESC NULLS LAST, mn.id DESC
+         LIMIT 1
+      ) m ON true
       -- Join Planning Summary for fallback Mould No
       LEFT JOIN mould_planning_summary mps ON (mps.or_jr_no = pb.order_no AND mps.mould_name = pb.mould_name)
-      -- Fetch Master CT using Mould No from Summary
-      LEFT JOIN moulds mMaster ON TRIM(mMaster.mould_number) = TRIM(mps.mould_no)
+      -- Master CT by Mould No (summary's mould no, else the plan's own mould code)
+      LEFT JOIN LATERAL (
+         SELECT mn.cycle_time, mn.no_of_cav, mn.primary_machine, mn.secondary_machine,
+                mn.std_wt_kg, mn.pcs_per_hour
+         FROM moulds mn
+         -- Case-insensitive: the master can hold "9999-Flap" while the summary says "9999-FLAP".
+         WHERE UPPER(TRIM(mn.mould_number)) = UPPER(TRIM(COALESCE(NULLIF(TRIM(mps.mould_no), ''), NULLIF(TRIM(pb.mould_code), ''))))
+         ORDER BY (mn.factory_id = pb.factory_id) DESC NULLS LAST,
+                  (COALESCE(mn.cycle_time, 0) > 0) DESC,
+                  mn.updated_at DESC NULLS LAST, mn.id DESC
+         LIMIT 1
+      ) mMaster ON true
 
       -- Fetch JC No from OR-JR Report. An OR can carry several job cards (one per
       -- job plan), so a blind LIMIT 1 would show an arbitrary — often wrong — JC on
@@ -10638,6 +10664,7 @@ app.get('/api/planning/board', async (req, res) => {
       ORDER BY pb.id ASC,
                CASE WHEN planMachine.machine IS NULL THEN 1 ELSE 0 END ASC,
                planMachine.machine ASC,
+               (mps.factory_id = pb.factory_id) DESC NULLS LAST,
                mps.plan_date DESC NULLS LAST,
                mps.id DESC NULLS LAST
       ) t
@@ -10657,8 +10684,10 @@ app.get('/api/planning/board', async (req, res) => {
     const normalized = dedupedRows.map(r => ({
       ...r,
       machineProcess: r.machineProcess || 'Moulding',
-      // Priority: Master CT > Report CT
-      cycleTime: r.cycleTime || 120, // default if missing
+      // Priority: Master CT > Report CT. Left NULL when unknown — the board shows
+      // "STD missing" rather than hours computed from an invented 120s cycle.
+      cycleTime: Number(r.cycleTime) > 0 ? Number(r.cycleTime) : null,
+      cavity: Number(r.cavity) > 0 ? Number(r.cavity) : null,
       // Calculations? Backend or Frontend?
       // Frontend calculates expected dates.
       // We pass producedQty from DPR
