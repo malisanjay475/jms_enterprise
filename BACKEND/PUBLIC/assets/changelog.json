@@ -11,8 +11,21 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.82.3",
+  "latest": "1.82.4",
   "versions": [
+    {
+      "version": "1.82.4",
+      "date": "2026-09-30",
+      "title": "QC app inspection: auto shift and 2-hour slots",
+      "modules": [
+        {
+          "app": "quality",
+          "changes": [
+            { "type": "feat", "text": "QC app inspection picks the date and shift automatically like the Supervisor page, shows 2-hour slots in a dropdown, hides slots already filled, and asks for the colour every time." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.82.3",
       "date": "2026-09-30",

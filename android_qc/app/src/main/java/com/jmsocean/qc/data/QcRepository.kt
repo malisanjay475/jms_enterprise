@@ -629,7 +629,7 @@ class QcRepository(private val session: SessionStore) {
 
     suspend fun submitSlotCheck(
         machine: String, date: String, shift: String, slot: String,
-        job: com.jmsocean.qc.data.remote.QueueJob,
+        job: com.jmsocean.qc.data.remote.QueueJob, colour: String? = null,
         visualStatus: String?, visualProblem: String?, visualRemarks: String?,
         colourStatus: String?, colourProblem: String?, colourRemarks: String?,
         ffStatus: String?, ffProblem: String?, ffPhoto: File?
@@ -648,6 +648,7 @@ class QcRepository(private val session: SessionStore) {
             put("order_no", text(job.orderNumber))
             put("item_name", text(job.productName))
             put("mould_name", text(job.Mould ?: ""))
+            colour?.let { put("colour", text(it)) }
             visualStatus?.let { put("visual_status", text(it)) }
             visualProblem?.let { put("visual_problem", text(it)) }
             visualRemarks?.let { put("visual_remarks", text(it)) }
