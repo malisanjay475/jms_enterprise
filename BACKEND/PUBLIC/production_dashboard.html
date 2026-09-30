@@ -165,7 +165,7 @@
         .kpi { position: relative; overflow: hidden; }
         .kpi::before { content: ''; position: absolute; inset: 0 auto 0 0; width: 3px; background: var(--kc, var(--md-accent)); }
         .kpi-l { font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; color: var(--md-muted); display: flex; justify-content: space-between; align-items: center; gap: 6px; }
-        .kpi-v { font-size: 1.9rem; font-weight: 800; line-height: 1.15; margin: 6px 0 2px; color: var(--md-text); white-space: nowrap; }
+        .kpi-v { font-size: clamp(1.35rem, 1.55vw, 1.9rem); font-weight: 800; line-height: 1.15; margin: 6px 0 2px; color: var(--md-text); white-space: nowrap; }
         .kpi-v small { font-size: 0.85rem; font-weight: 600; color: var(--md-muted); margin-left: 3px; }
         .kpi-s { font-size: 0.75rem; color: var(--md-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .delta { font-size: 0.7rem; font-weight: 700; padding: 1px 6px; border-radius: 999px; background: var(--md-idle-bg); color: var(--md-muted); white-space: nowrap; }
@@ -176,6 +176,23 @@
         .apq b { display: block; font-size: 0.85rem; color: var(--md-text); }
         .mini-track { height: 4px; background: var(--md-panel-2); border-radius: 999px; margin-top: 3px; overflow: hidden; }
         .mini-track span { display: block; height: 100%; border-radius: 999px; }
+
+        /* ── Production in Kg (Daily Report basis) ── */
+        .kg-panel { margin-bottom: 16px; }
+        .kg-flow { display: flex; height: 30px; border-radius: 8px; overflow: hidden; background: var(--md-track); margin: 2px 0 8px; }
+        .kg-flow span { display: flex; align-items: center; justify-content: center; font-size: 0.7rem; font-weight: 800; color: #fff; white-space: nowrap; overflow: hidden; min-width: 0; text-shadow: 0 1px 1px rgba(0, 0, 0, 0.25); }
+        .kg-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 0.72rem; color: var(--md-muted); margin-bottom: 12px; }
+        .kg-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; }
+        .kg-legend b { color: var(--md-text); font-variant-numeric: tabular-nums; }
+        .kg-grid { display: grid; grid-template-columns: repeat(9, minmax(0, 1fr)); gap: 10px; }
+        .kg-card { background: var(--md-panel-2); border: 1px solid var(--md-border); border-radius: 10px; padding: 10px 12px; min-width: 0; position: relative; overflow: hidden; }
+        .kg-card::before { content: ''; position: absolute; inset: 0 auto 0 0; width: 3px; background: var(--kc, var(--md-accent)); }
+        .kg-card .l { font-size: 0.66rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px; color: var(--md-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .kg-card .v { font-size: clamp(1.05rem, 1.15vw, 1.35rem); font-weight: 800; margin: 4px 0 2px; white-space: nowrap; font-variant-numeric: tabular-nums; color: var(--md-text); }
+        .kg-card .v small { font-size: 0.72rem; font-weight: 600; color: var(--md-muted); margin-left: 2px; }
+        .kg-card .s { font-size: 0.7rem; color: var(--md-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        @media (max-width: 1500px) { .kg-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); } }
+        @media (max-width: 900px) { .kg-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .kg-flow span { font-size: 0; } }
 
         /* ── OEE loss tree ── */
         .loss-row { display: grid; grid-template-columns: 130px minmax(0, 1fr) 64px; align-items: center; gap: 10px; margin: 9px 0; font-size: 0.8rem; }
@@ -371,6 +388,17 @@
                         <span id="updatedText" class="num"></span>
                     </div>
                 </header>
+
+                <!-- Production in Kg: same basis as Daily Report (NEW) -->
+                <section class="mdp kg-panel" id="kgPanel">
+                    <div class="panel-h">
+                        <h2><i class="bi bi-box-seam"></i>Production (Kg)</h2>
+                        <span class="hint" id="kgHint">Same basis as Daily Report (NEW)</span>
+                    </div>
+                    <div class="kg-flow" id="kgFlow" role="img" aria-label="Target split into good output and losses"></div>
+                    <div class="kg-legend" id="kgLegend"></div>
+                    <div class="kg-grid" id="kgGrid"></div>
+                </section>
 
                 <!-- KPI strip -->
                 <section class="grid g-kpi" id="kpis"></section>
@@ -579,6 +607,29 @@
         }
         const shiftTag = sh => `<span class="${SH[sh].cls}"><i class="bi ${SH[sh].icon}"></i></span>`;
 
+        // ── Kg tiers (Daily Report basis): Target → Planned → Net achievable → Gross → Good ──
+        const emptyKg = () => ({ target: 0, planned: 0, netAch: 0, gross: 0, good: 0, rej: 0, dtHr: 0, coHr: 0, stdCoHr: 0, overrunHr: 0, excessKg: 0, mc: 0, cc: 0, jc: 0 });
+        function sumKg(machines, sh) {
+            const k = emptyKg();
+            machines.forEach(m => { const src = sh ? (m.kgByShift || {})[sh] : m.kg; if (src) for (const x in k) k[x] += src[x] || 0; });
+            return k;
+        }
+        function kgDerive(k) {
+            return {
+                ...k,
+                changeoverLoss: Math.max(0, k.target - k.planned),
+                downtimeLoss: Math.max(0, k.planned - k.netAch),
+                speedLoss: k.netAch - k.gross,
+                qualityLoss: k.rej,
+                totalLoss: k.target - k.good,
+                eff: k.target > 0 ? k.good / k.target : null,
+                rejPct: k.gross > 0 ? k.rej / k.gross : null
+            };
+        }
+        const effClass = v => v == null ? 'c-dim' : v >= 0.85 ? 'c-good' : v >= 0.65 ? 'c-warn' : 'c-bad';
+        const effColor = v => v == null ? 'var(--md-dim)' : v >= 0.85 ? 'var(--md-good)' : v >= 0.65 ? 'var(--md-warn)' : 'var(--md-bad)';
+        const kgf = (v, d = 0) => nf(v, d);
+
         // ── Default date/shift from the factory clock (Day 07–19, Night 19–07) ──
         function defaultDateShift() {
             const now = new Date();
@@ -689,6 +740,7 @@
             const M = metrics(total);
             const prev = prevSums();
             renderHeader(machines);
+            renderKg(machines);
             renderKpis(machines, total, M, prev);
             renderCompare(machines);
             renderLossTree(total, M);
@@ -760,8 +812,8 @@
                     M.OEE == null ? 'No standards to compare' : M.OEE >= OEE_WORLD_CLASS ? 'World class (≥85%)' : M.OEE >= OEE_TYPICAL ? 'Typical (60–85%)' : 'Below 60% — act now',
                     `<div class="apq">${apqBar('Avail.', M.A)}${apqBar('Perf.', M.P)}${apqBar('Quality', M.Q)}</div>`),
                 kpiTile('var(--md-accent)', 'Good output', '',
-                    `${nf(s.good)}<small>pcs</small>`,
-                    `${nf(s.goodKg / 1000, 2)} t good · ${prev ? 'yday ' + nf(prev.good) : 'no yday data'}`),
+                    `${nf(s.good)}`,
+                    `pcs · ${nf(s.goodKg / 1000, 2)} t · ${prev ? 'yday ' + nf(prev.good) : 'no yday data'}`),
                 kpiTile(M.attain == null ? 'var(--md-dim)' : M.attain >= 0.95 ? 'var(--md-good)' : M.attain >= 0.8 ? 'var(--md-warn)' : 'var(--md-bad)', 'Plan attainment', deltaBadge(M.attain, P && P.attain, true, true),
                     `<span class="${attClass(M.attain)}">${pct(M.attain)}</span>`,
                     `Good ${nf(s.good)} of ${nf(s.target)} std target`),
@@ -780,6 +832,43 @@
             ].join('');
         }
 
+        function renderKg(machines) {
+            const K = kgDerive(sumKg(machines));
+            const meta = state.data.meta;
+            const shiftsRun = machines.reduce((a, m) => a + Object.keys(m.kgByShift || {}).length, 0);
+            document.getElementById('kgHint').textContent = (meta.live ? 'Target so far (hours elapsed) · ' : '') + 'Std weight × std rate · same basis as Daily Report (NEW)';
+            // Target split: Good + quality + speed + downtime + change-over losses (speed can be negative = ran above rate).
+            const parts = [
+                ['Good', K.good, 'var(--md-good)'],
+                ['Quality loss', K.qualityLoss, 'var(--md-bad)'],
+                ['Speed loss', Math.max(0, K.speedLoss), '#38bdf8'],
+                ['Downtime loss', K.downtimeLoss, 'var(--md-warn)'],
+                ['Change-over loss', K.changeoverLoss, 'var(--md-maint)']
+            ];
+            const base = Math.max(K.target, parts.reduce((a, p) => a + p[1], 0)) || 1;
+            document.getElementById('kgFlow').innerHTML = K.target > 0 ? parts.map(([l, v, c]) => {
+                const w = v / base * 100;
+                return w > 0 ? `<span style="width:${w.toFixed(2)}%; background:${c}" title="${l}: ${kgf(v)} kg (${(v / (K.target || 1) * 100).toFixed(1)}% of target)">${w > 7 ? l.replace(' loss', '') + ' ' + Math.round(v / (K.target || 1) * 100) + '%' : ''}</span>` : '';
+            }).join('') : '';
+            document.getElementById('kgLegend').innerHTML = K.target > 0
+                ? parts.map(([l, v, c]) => `<span><i style="background:${c}"></i>${l} <b>${kgf(v)} kg</b></span>`).join('') + (K.speedLoss < 0 ? `<span>Ran above std rate by <b>${kgf(-K.speedLoss)} kg</b></span>` : '')
+                : '<span>No production with a standard weight and rate yet.</span>';
+            const card = (color, label, value, sub, title) => `<div class="kg-card" style="--kc:${color}" title="${esc(title || '')}"><div class="l">${label}</div><div class="v">${value}</div><div class="s">${sub}</div></div>`;
+            const kgv = v => `${kgf(v)}<small>kg</small>`;
+            const diff = K.good - K.target;
+            document.getElementById('kgGrid').innerHTML = [
+                card('var(--md-accent)', meta.live ? 'Target (so far)' : 'Target', kgv(K.target), `Std rate · ${shiftsRun} machine-shifts`, 'Nameplate: std part weight × std pcs/hr × shift hours'),
+                card('#6366f1', 'Planned', kgv(K.planned), `After ${nf(K.coHr, 1)} h mould change`, 'Target minus actual mould-change time'),
+                card('#0ea5e9', 'Net achievable', kgv(K.netAch), `After ${nf(K.dtHr, 1)} h downtime`, 'Target minus all downtime'),
+                card('#64748b', 'Gross', kgv(K.gross), 'Good + reject', 'Everything moulded, at std weight'),
+                card('var(--md-good)', 'Actual (good)', kgv(K.good), K.target > 0 ? `<span class="${diff >= 0 ? 'c-good' : 'c-bad'}">${diff >= 0 ? '+' : '−'}${kgf(Math.abs(diff))} kg vs target</span>` : '—'),
+                card('var(--md-bad)', 'Reject', kgv(K.rej), K.rejPct == null ? '—' : `<span class="${rejClass(K.rejPct)}">${pct(K.rejPct, 2)}</span> of gross`),
+                card(effColor(K.eff), 'Efficiency', `<span class="${effClass(K.eff)}">${pct(K.eff)}</span>`, K.eff == null ? '—' : K.eff >= 0.85 ? 'On target' : K.eff >= 0.65 ? 'Below target' : 'Critical', 'Good ÷ Target (Daily Report efficiency)'),
+                card('var(--md-bad)', 'Total loss', kgv(K.totalLoss), 'Target − good', `Change-over ${kgf(K.changeoverLoss)} · Downtime ${kgf(K.downtimeLoss)} · Speed ${kgf(K.speedLoss)} · Quality ${kgf(K.qualityLoss)} kg`),
+                card('var(--md-warn)', 'Change-overs', `<span style="font-size:0.85em">${K.mc} / ${K.cc} / ${K.jc}</span>`, K.overrunHr > 0 ? `Mould / Colour / Job · <span class="c-bad">+${nf(K.overrunHr, 1)} h</span> over STD` : 'Mould / Colour / Job', `STD ${nf(K.stdCoHr, 1)} h · actual ${nf(K.coHr, 1)} h · excess ${kgf(K.excessKg)} kg`)
+            ].join('');
+        }
+
         function renderCompare(machines) {
             const panel = document.getElementById('cmpPanel');
             panel.hidden = !isCmp();
@@ -794,9 +883,12 @@
                     if (ms.good + ms.rej > 0) ran++;
                     const d = shiftDpr(m, sh); entered += d.entered; required += d.required;
                 });
-                per[sh] = { s, M: metrics(s), ran, dpr: required ? entered / required : null };
+                const kgS = kgDerive(sumKg(machines, sh));
+                per[sh] = { s, M: metrics(s), ran, dpr: required ? entered / required : null, kg: kgS };
             });
             const cards = [
+                { t: 'Efficiency (Kg)', v: x => x.kg.eff, f: v => pct(v), hb: true, pts: true, max: () => 1, cls: effClass },
+                { t: 'Good Kg', v: x => x.kg.target > 0 ? x.kg.good : null, f: v => kgf(v) + ' kg', hb: true },
                 { t: 'OEE', v: x => x.M.OEE, f: v => pct(v), hb: true, pts: true, max: () => 1, cls: oeeClass },
                 { t: 'Availability', v: x => x.M.A, f: v => pct(v), hb: true, pts: true, max: () => 1 },
                 { t: 'Performance', v: x => x.M.P == null ? null : Math.min(1, x.M.P), f: v => pct(v), hb: true, pts: true, max: () => 1 },
@@ -1211,17 +1303,19 @@
             state.data.machines.forEach(m => { if (!groups.has(m.line)) groups.set(m.line, []); groups.get(m.line).push(m); });
             const rows = [...groups.entries()].map(([line, list]) => {
                 const s = emptySums(); list.forEach(m => addSums(s, m.sums));
-                return { line, list, s, M: metrics(s), c: countStatus(list) };
+                return { line, list, s, M: metrics(s), c: countStatus(list), K: kgDerive(sumKg(list)) };
             });
             const tot = emptySums(); rows.forEach(r => addSums(tot, r.s));
             const T = metrics(tot);
+            const TK = kgDerive(sumKg(state.data.machines));
             const live = state.data.meta.live;
-            const cells = (s, M, run, n) => `
+            const cells = (s, M, run, n, K) => `
                 <td class="num">${run} / ${n}</td><td>${nf(s.good)}</td><td>${nf(s.target)}</td>
                 <td class="${attClass(M.attain)}">${pct(M.attain, 0)}</td><td>${nf(s.rej)}</td>
                 <td class="${rejClass(M.rejRate)}">${pct(M.rejRate, 2)}</td><td>${hrs(s.dt)}</td>
                 <td>${pct(M.A, 0)}</td><td>${pct(M.P == null ? null : Math.min(1, M.P), 0)}</td><td>${pct(M.Q, 1)}</td>
-                <td class="${oeeClass(M.OEE)}" style="font-weight:800">${pct(M.OEE, 1)}</td><td>${nf(s.goodKg, 0)}</td>`;
+                <td class="${oeeClass(M.OEE)}" style="font-weight:800">${pct(M.OEE, 1)}</td>
+                <td>${kgf(K.target)}</td><td>${kgf(K.good)}</td><td class="${effClass(K.eff)}" style="font-weight:700">${pct(K.eff, 1)}</td>`;
             const runOf = r => live ? r.c.RUNNING : r.list.filter(m => m.sums.good + m.sums.rej > 0).length;
             const t = document.getElementById('lineTable');
             if (isCmp()) {
@@ -1242,9 +1336,9 @@
                     <tbody>${rows.map(r => `<tr data-line="${esc(r.line)}" style="${state.line === r.line ? 'outline:1px solid var(--md-accent)' : ''}"><td class="l" style="font-weight:700">${esc(r.line)}</td>${dnCells(r.list, r.s, r.M)}</tr>`).join('')}</tbody>
                     <tfoot><tr><td class="l">Plant</td>${dnCells(state.data.machines, tot, T)}</tr></tfoot>`;
             } else
-            t.innerHTML = `<thead><tr><th class="l">Line</th><th>${live ? 'Running' : 'Ran'}</th><th>Good</th><th>Target</th><th>Attain.</th><th>Reject</th><th>Rej %</th><th>DT h</th><th>Avail.</th><th>Perf.</th><th>Quality</th><th>OEE</th><th>Good kg</th></tr></thead>
-                <tbody>${rows.map(r => `<tr data-line="${esc(r.line)}" style="${state.line === r.line ? 'outline:1px solid var(--md-accent)' : ''}"><td class="l" style="font-weight:700">${esc(r.line)}</td>${cells(r.s, r.M, runOf(r), r.list.length)}</tr>`).join('')}</tbody>
-                <tfoot><tr><td class="l">Plant</td>${cells(tot, T, rows.reduce((a, r) => a + runOf(r), 0), state.data.machines.length)}</tr></tfoot>`;
+            t.innerHTML = `<thead><tr><th class="l">Line</th><th>${live ? 'Running' : 'Ran'}</th><th>Good</th><th>Target</th><th>Attain.</th><th>Reject</th><th>Rej %</th><th>DT h</th><th>Avail.</th><th>Perf.</th><th>Quality</th><th>OEE</th><th>Target kg</th><th>Good kg</th><th>Eff.</th></tr></thead>
+                <tbody>${rows.map(r => `<tr data-line="${esc(r.line)}" style="${state.line === r.line ? 'outline:1px solid var(--md-accent)' : ''}"><td class="l" style="font-weight:700">${esc(r.line)}</td>${cells(r.s, r.M, runOf(r), r.list.length, r.K)}</tr>`).join('')}</tbody>
+                <tfoot><tr><td class="l">Plant</td>${cells(tot, T, rows.reduce((a, r) => a + runOf(r), 0), state.data.machines.length, TK)}</tr></tfoot>`;
             t.querySelectorAll('tbody tr').forEach(tr => tr.addEventListener('click', () => {
                 state.line = state.line === tr.dataset.line ? '' : tr.dataset.line;
                 store.set('line', state.line);
@@ -1266,6 +1360,9 @@
             { k: 'good', t: 'Good', v: r => r.m.sums.good, f: r => nf(r.m.sums.good) },
             { k: 'target', t: 'Target', v: r => r.m.sums.target, f: r => nf(r.m.sums.target) },
             { k: 'attain', t: 'Attain.', v: r => r.M.attain, f: r => `<span class="${attClass(r.M.attain)}">${pct(r.M.attain, 0)}</span>` },
+            { k: 'tkg', t: 'Target kg', v: r => r.K.target, f: r => kgf(r.K.target) },
+            { k: 'gkg', t: 'Good kg', v: r => r.K.good, f: r => kgf(r.K.good) },
+            { k: 'eff', t: 'Eff.', v: r => r.K.eff, f: r => `<b class="${effClass(r.K.eff)}">${pct(r.K.eff, 0)}</b>` },
             { k: 'rej', t: 'Rej', v: r => r.m.sums.rej, f: r => nf(r.m.sums.rej) },
             { k: 'rejRate', t: 'Rej %', v: r => r.M.rejRate, f: r => `<span class="${rejClass(r.M.rejRate)}">${pct(r.M.rejRate, 2)}</span>` },
             { k: 'dt', t: 'DT min', v: r => r.m.sums.dt, f: r => r.m.sums.dt ? `<span class="${r.m.sums.dt >= 60 ? 'c-bad' : 'c-warn'}">${nf(r.m.sums.dt)}</span>` : '0' },
@@ -1288,6 +1385,8 @@
             { k: 'dtN', t: 'DT min', sh: 'Night', v: r => r.ns.dt, f: r => nf(r.ns.dt) },
             { k: 'attD', t: 'Attain.', sh: 'Day', v: r => r.D.attain, f: r => `<span class="${attClass(r.D.attain)}">${pct(r.D.attain, 0)}</span>` },
             { k: 'attN', t: 'Attain.', sh: 'Night', v: r => r.N.attain, f: r => `<span class="${attClass(r.N.attain)}">${pct(r.N.attain, 0)}</span>` },
+            { k: 'effD', t: 'Eff.', sh: 'Day', v: r => kgDerive(sumKg([r.m], 'Day')).eff, f: r => { const e = kgDerive(sumKg([r.m], 'Day')).eff; return `<span class="${effClass(e)}">${pct(e, 0)}</span>`; } },
+            { k: 'effN', t: 'Eff.', sh: 'Night', v: r => kgDerive(sumKg([r.m], 'Night')).eff, f: r => { const e = kgDerive(sumKg([r.m], 'Night')).eff; return `<span class="${effClass(e)}">${pct(e, 0)}</span>`; } },
             { k: 'oeeD', t: 'OEE', sh: 'Day', v: r => r.D.OEE, f: r => `<b class="${oeeClass(r.D.OEE)}">${pct(r.D.OEE, 1)}</b>` },
             { k: 'oeeN', t: 'OEE', sh: 'Night', v: r => r.N.OEE, f: r => `<b class="${oeeClass(r.N.OEE)}">${pct(r.N.OEE, 1)}</b>` },
             { k: 'dOee', t: 'Δ pts', v: dnDelta, f: r => { const d = dnDelta(r); return d == null ? '<span class="c-dim">—</span>' : `<span class="${d >= 0 ? 'c-good' : 'c-bad'}">${d > 0 ? '+' : ''}${(d * 100).toFixed(1)}</span>`; } },
@@ -1299,12 +1398,13 @@
         function machineRows() {
             return scopeMachines().map(m => {
                 const M = metrics(m.sums);
+                const K = kgDerive(sumKg([m]));
                 const dev = m.std && m.std.cycle && m.actCycle ? (m.actCycle - m.std.cycle) / m.std.cycle : null;
                 if (isCmp()) {
                     const ds = shiftSums(m, 'Day'), ns = shiftSums(m, 'Night');
-                    return { m, M, dev, ds, ns, D: metrics(ds), N: metrics(ns) };
+                    return { m, M, K, dev, ds, ns, D: metrics(ds), N: metrics(ns) };
                 }
-                return { m, M, dev };
+                return { m, M, K, dev };
             }).filter(r => {
                 if (!state.search) return true;
                 const j = r.m.job || {};
@@ -1342,13 +1442,14 @@
             const head = ['Machine', 'Line', 'Status', 'Status note', 'Order', 'Mould', 'Std cycle s', 'Actual cycle s', 'Cavities running', 'Cavities std', 'Good pcs', 'Target pcs', 'Attainment %', 'Reject pcs', 'Rejection %', 'Downtime min', 'No-plan min', 'Availability %', 'Performance %', 'Quality %', 'OEE %', 'Good kg', 'DPR hours missing'];
             const p = v => v == null ? '' : (v * 100).toFixed(1);
             const cmp = isCmp();
+            head.push('Target kg', 'Planned kg', 'Net achievable kg', 'Gross kg', 'Good kg (std wt)', 'Reject kg', 'Efficiency %', 'Total loss kg', 'Mould changes', 'Colour changes', 'Job changes');
             if (cmp) head.push('Day good', 'Night good', 'Day rejection %', 'Night rejection %', 'Day downtime min', 'Night downtime min', 'Day OEE %', 'Night OEE %');
-            const lines = [head].concat(machineRows().map(({ m, M, ds, ns, D, N }) => [
+            const lines = [head].concat(machineRows().map(({ m, M, K, ds, ns, D, N }) => [
                 m.machine, m.line, (STATUS[m.status] || {}).label || m.status, m.statusNote, m.job && m.job.order_no, m.job && (m.job.mould_name || m.job.mould_no),
                 m.std && m.std.cycle, m.actCycle, m.std && m.std.actCavity, m.std && m.std.cavity,
                 m.sums.good, Math.round(m.sums.target), p(M.attain), m.sums.rej, p(M.rejRate), Math.round(m.sums.dt), Math.round(m.sums.noPlan),
                 p(M.A), p(M.P), p(M.Q), p(M.OEE), Math.round(m.sums.goodKg), m.missing
-            ].concat(cmp ? [ds.good, ns.good, p(D.rejRate), p(N.rejRate), Math.round(ds.dt), Math.round(ns.dt), p(D.OEE), p(N.OEE)] : [])));
+            ].concat([Math.round(K.target), Math.round(K.planned), Math.round(K.netAch), Math.round(K.gross), Math.round(K.good), Math.round(K.rej), p(K.eff), Math.round(K.totalLoss), K.mc, K.cc, K.jc]).concat(cmp ? [ds.good, ns.good, p(D.rejRate), p(N.rejRate), Math.round(ds.dt), Math.round(ns.dt), p(D.OEE), p(N.OEE)] : [])));
             const csv = lines.map(r => r.map(v => { const s = v == null ? '' : String(v); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; }).join(',')).join('\n');
             const a = document.createElement('a');
             a.href = URL.createObjectURL(new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' }));
@@ -1408,6 +1509,21 @@ ${isCmp() ? (() => {
                         ${cell('Availability', pct(dm.A, 0), pct(nm.A, 0))}${cell('Downtime', Math.round(D.dt) + 'm', Math.round(N.dt) + 'm')}${cell('Attainment', pct(dm.attain, 0), pct(nm.attain, 0))}
                     </div>`;
                 })() : ''}
+${(() => {
+                    const K = kgDerive(sumKg([m]));
+                    if (!K.target && !K.gross) return '';
+                    return `<div class="dr-sec">Production (Kg) · Daily Report basis</div><div class="kv">
+                        <div>Target<b class="num">${kgf(K.target)} kg</b></div>
+                        <div>Planned<b class="num">${kgf(K.planned)} kg</b></div>
+                        <div>Net achievable<b class="num">${kgf(K.netAch)} kg</b></div>
+                        <div>Gross<b class="num">${kgf(K.gross)} kg</b></div>
+                        <div>Good<b class="num">${kgf(K.good)} kg</b></div>
+                        <div>Reject<b class="num">${kgf(K.rej)} kg</b></div>
+                        <div>Efficiency<b class="${effClass(K.eff)}">${pct(K.eff, 1)}</b></div>
+                        <div>Total loss<b class="num">${kgf(K.totalLoss)} kg</b></div>
+                        <div>Change-overs<b>${K.mc} / ${K.cc} / ${K.jc}</b></div>
+                    </div>`;
+                })()}
                 <div class="dr-sec">Current job</div>
                 <div class="kv">
                     <div class="wide">Mould<b>${esc(j.mould_name || j.mould_no || '—')}${j.mould_no && j.mould_name ? ` <span style="color:var(--md-dim); font-weight:500">(${esc(j.mould_no)})</span>` : ''}</b></div>

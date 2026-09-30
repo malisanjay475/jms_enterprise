@@ -11,8 +11,32 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.81.1",
+  "latest": "1.82.0",
   "versions": [
+    {
+      "version": "1.82.0",
+      "date": "2026-09-30",
+      "title": "Moulding dashboard: production in Kg like the Daily Report",
+      "modules": [
+        {
+          "app": "dashboard",
+          "label": "Dashboard",
+          "icon": "bi-speedometer2",
+          "changes": [
+            { "type": "feat", "text": "The Moulding dashboard now opens with Production in Kg: Target, Planned, Net achievable, Gross, Actual good, Reject, Efficiency, Total loss and Change-overs, worked out the same way as the Daily Report (NEW), with a bar showing where the target was lost." },
+            { "type": "feat", "text": "Line and machine tables, the machine details panel, the Day vs Night view and the CSV export now include Target Kg, Good Kg and Efficiency." }
+          ]
+        },
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-pencil-square",
+          "changes": [
+            { "type": "fix", "text": "Daily Report (NEW) counted too many colour changes because it read the hours out of order (01:00 before 07:00); hours are now taken in shift order." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.81.1",
       "date": "2026-09-30",

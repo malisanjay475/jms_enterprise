@@ -1228,6 +1228,15 @@ if (String(config.serverType || '').toUpperCase() === 'LOCAL' && config.mainServ
      Performance  = Σ(output × ideal s/pc) ÷ Σ run seconds (slots with a std only)
      Quality      = good ÷ (good + reject)
      OEE          = A × P × Q  (P capped at 100%)
+
+   Weight (Kg) figures mirror the Daily Report (NEW) (dpr_daily_report.html), per
+   machine-shift: R = std part weight × std pcs/hr (first entry of the shift);
+     Target  = R × shift hours (12, or hours elapsed while the shift is live)
+     Planned = R × (hours − actual mould-change time)
+     Net achievable = R × (hours − all downtime, incl. No Plan)
+     Gross = (good + reject) × weight, Good, Reject; Efficiency = Good ÷ Target
+     Change-overs: distinct moulds − 1, distinct jobs − 1, colour transitions;
+     STD change-over = mould changes × machine load + unload time.
    ============================================================ */
 const MD_SLOTS = ['07-08', '08-09', '09-10', '10-11', '11-12', '12-01', '01-02', '02-03', '03-04', '04-05', '05-06', '06-07'];
 const MD_SHIFT_START_HOUR = { Day: 7, Night: 19 };
@@ -1294,7 +1303,8 @@ app.get('/api/dpr/moulding-dashboard', async (req, res) => {
         slots.push({
           key: `${sh}|${slot}`, shift: sh, slot, label: mdSlotLabel(sh, i),
           elapsed: now.getTime() >= slotStart + 3600000,
-          current: now.getTime() >= slotStart && now.getTime() < slotStart + 3600000
+          current: now.getTime() >= slotStart && now.getTime() < slotStart + 3600000,
+          frac: Math.max(0, Math.min(1, (now.getTime() - slotStart) / 3600000))
         });
       });
     });
@@ -1305,7 +1315,7 @@ app.get('/api/dpr/moulding-dashboard', async (req, res) => {
     // ── Masters + raw data (independent queries in parallel) ──
     const DPR_HOURLY_KEY = `machine, hour_slot, plan_id, dpr_date, shift, COALESCE(colour, '')`;
     const [machineRows, rows, setupRows, maintRows, runningPlans] = await Promise.all([
-      q(`SELECT machine, line, building, tonnage, model_no, machine_type
+      q(`SELECT machine, line, building, tonnage, model_no, machine_type, mould_load_time, mould_unload_time
            FROM machines
           WHERE is_active = true
             AND ($1::int IS NULL OR factory_id = $1)
@@ -1376,27 +1386,38 @@ app.get('/api/dpr/moulding-dashboard', async (req, res) => {
         .concat(runningPlans.map(p => p.mould_code))
         .filter(Boolean).map(s => String(s).trim())
     )];
-    const mouldRows = mouldCodes.length
-      ? await q(`SELECT DISTINCT ON (TRIM(mould_number))
-                        TRIM(mould_number) AS code, mould_name, cycle_time, no_of_cav, std_wt_kg, pcs_per_hour
+    const mouldNames = [...new Set(planRows.map(p => p.mould_name).concat(runningPlans.map(p => p.mould_name)).filter(Boolean).map(x => String(x).trim()))];
+    const mouldRows = mouldCodes.length || mouldNames.length
+      ? await q(`SELECT id, TRIM(mould_number) AS code, TRIM(mould_name) AS name, mould_name, cycle_time, no_of_cav, std_wt_kg, pcs_per_hour,
+                        (factory_id IS NOT DISTINCT FROM $3::int) AS own_factory
                    FROM moulds
-                  WHERE TRIM(mould_number) = ANY($1::text[])
-                  ORDER BY TRIM(mould_number), (factory_id IS NOT DISTINCT FROM $2::int) DESC, id`, [mouldCodes, factoryId])
+                  WHERE TRIM(mould_number) = ANY($1::text[]) OR TRIM(mould_name) = ANY($2::text[])
+                  ORDER BY (factory_id IS NOT DISTINCT FROM $3::int) DESC, id`, [mouldCodes, mouldNames, factoryId])
       : [];
-    const mouldByCode = new Map(mouldRows.map(m => [m.code, m]));
+    // First row per key wins: own factory first, then lowest id.
+    const mouldByCode = new Map(), mouldByName = new Map();
+    mouldRows.forEach(m => {
+      if (m.code && !mouldByCode.has(m.code)) mouldByCode.set(m.code, m);
+      if (m.name && !mouldByName.has(m.name)) mouldByName.set(m.name, m);
+    });
     const setupByKey = new Map(setupRows.map(s => [`${s.plan_id}|${s.date}|${s.shift}`, s]));
     const producedByPlan = new Map(producedRows.map(p => [String(p.plan_id), toNum(p.produced)]));
 
     // Std for one entry: mould master first, the supervisor's setup as fallback.
     const stdFor = (r) => {
       const plan = r.plan_id ? planById.get(String(r.plan_id)) : null;
-      const mould = mouldByCode.get(String(r.mould_no || '').trim()) || (plan && mouldByCode.get(String(plan.mould_code || '').trim())) || null;
+      const mould = mouldByCode.get(String(r.mould_no || '').trim())
+        || (plan && mouldByCode.get(String(plan.mould_code || '').trim()))
+        || (plan && mouldByName.get(String(plan.mould_name || '').trim()))
+        || null;
       const setup = r.plan_id ? setupByKey.get(`${r.plan_id}|${r.date}|${r.shift}`) : null;
       const stdCycle = toNum(mould && mould.cycle_time) || toNum(setup && setup.cycle_act);
       const stdCav = toNum(mould && mould.no_of_cav) || toNum(setup && setup.cavity_act) || 1;
       const actCav = toNum(setup && setup.cavity_act) || stdCav;
       const pph = stdCycle > 0 ? (3600 / stdCycle) * actCav : (toNum(mould && mould.pcs_per_hour) || toNum(setup && setup.pcshr_act));
-      let wt = toNum(setup && setup.article_act) || toNum(mould && mould.std_wt_kg);
+      // Kg are valued at the standard part weight (Mould Master), the setup's article weight only
+      // when the master has none -- the same basis as the Daily Report (NEW).
+      let wt = toNum(mould && mould.std_wt_kg) || toNum(setup && setup.article_act);
       if (wt >= 10) wt /= 1000; // entered in grams
       return { plan, mould, setup, stdCycle, stdCav, actCav, pph, wt };
     };
@@ -1408,7 +1429,7 @@ app.get('/api/dpr/moulding-dashboard', async (req, res) => {
       const key = `${r.date}|${r.shift}|${r.hour_slot}|${machine}`;
       let c = cells.get(key);
       if (!c) {
-        c = { date: r.date, shift: r.shift, slot: r.hour_slot, machine, rows: [], good: 0, rej: 0, dtRaw: 0, noPlanRaw: 0, idealSec: 0, targetPph: 0, goodKg: 0, rejKg: 0, dtReasons: {}, rejReasons: {} };
+        c = { date: r.date, shift: r.shift, slot: r.hour_slot, machine, rows: [], good: 0, rej: 0, dtRaw: 0, noPlanRaw: 0, coRaw: 0, idealSec: 0, targetPph: 0, goodKg: 0, rejKg: 0, dtReasons: {}, rejReasons: {} };
         cells.set(key, c);
       }
       const std = stdFor(r);
@@ -1423,6 +1444,7 @@ app.get('/api/dpr/moulding-dashboard', async (req, res) => {
       Object.entries(dtParsed).forEach(([raw, min]) => {
         const label = mdReasonLabel(raw);
         dtBrk += min;
+        if (label === 'Mould Change') c.coRaw += min;
         if (MD_PLANNED_STOP_LABELS.has(label)) c.noPlanRaw += min;
         else c.dtReasons[label] = (c.dtReasons[label] || 0) + min;
       });
@@ -1436,6 +1458,23 @@ app.get('/api/dpr/moulding-dashboard', async (req, res) => {
         rejBrk += n; c.rejReasons[label] = (c.rejReasons[label] || 0) + n;
       });
       if (rej - rejBrk > 0) c.rejReasons.Unspecified = (c.rejReasons.Unspecified || 0) + (rej - rejBrk);
+    });
+
+    // Entries with no weight of their own take the first weight seen on that machine-shift,
+    // as the Daily Report does, so good/reject Kg are not lost for them.
+    const shiftWt = new Map();
+    cells.forEach(c => c.rows.forEach(({ std }) => {
+      const k = `${c.date}|${c.shift}|${c.machine}`;
+      if (std.wt > 0 && !shiftWt.has(k)) shiftWt.set(k, std.wt);
+    }));
+    cells.forEach(c => {
+      const wt = shiftWt.get(`${c.date}|${c.shift}|${c.machine}`) || 0;
+      if (!wt) return;
+      c.rows.forEach(({ r, std }) => {
+        if (std.wt > 0) return;
+        c.goodKg += (toNum(r.good_qty) || 0) * wt;
+        c.rejKg += (toNum(r.reject_qty) || 0) * wt;
+      });
     });
 
     // Finalise each cell into the uniform sums shape.
@@ -1574,6 +1613,44 @@ app.get('/api/dpr/moulding-dashboard', async (req, res) => {
         statusNote = status === 'RUNNING' ? 'Produced this shift' : 'No output this shift';
       }
 
+      // ── Daily Report (NEW) weight tiers, one machine-shift at a time ──
+      const loadUnloadMin = (toNum(master.mould_load_time) || 0) + (toNum(master.mould_unload_time) || 0);
+      const kgByShift = {};
+      shifts.forEach(sh => {
+        const sc = mCells.filter(c => c.shift === sh);
+        if (!sc.length) return;
+        const stdWt = st => { let w = toNum(st.mould && st.mould.std_wt_kg) || toNum(st.setup && st.setup.article_act) || 0; return w >= 10 ? w / 1000 : w; };
+        const first = (sc.flatMap(c => c.rows).find(x => x.std.pph > 0 && stdWt(x.std) > 0) || sc[0].rows[0]).std;
+        const wtStd = stdWt(first);
+        const R = wtStd > 0 && first.pph > 0 ? wtStd * first.pph : 0;
+        const hours = slots.filter(x => x.shift === sh).reduce((a, x) => a + x.frac, 0);
+        const moulds = new Set(), jobs = new Set();
+        let prevCol = null, cc = 0, dtHr = 0, coHr = 0, good = 0, rej = 0;
+        sc.forEach(c => {
+          good += c.goodKg; rej += c.rejKg;
+          dtHr += Math.min(60, c.dtRaw) / 60;
+          coHr += c.coRaw / 60;
+          const ordered = c.rows.slice().sort((a, b) => String(a.r.created_at).localeCompare(String(b.r.created_at)) || a.r.id - b.r.id);
+          ordered.forEach(({ r, std: st }) => {
+            const mk = r.mould_no || (st.plan && st.plan.mould_name);
+            if (mk) moulds.add(String(mk).trim().toLowerCase());
+            const jk = r.order_no || mk;
+            if (jk) jobs.add(String(jk).trim().toLowerCase());
+          });
+          const col = (ordered.find(x => x.r.colour) || {}).r;
+          if (col) { const v = String(col.colour).trim().toLowerCase(); if (prevCol !== null && v !== prevCol) cc++; prevCol = v; }
+        });
+        const mc = Math.max(0, moulds.size - 1), jc = Math.max(0, jobs.size - 1);
+        const stdCoHr = mc * loadUnloadMin / 60;
+        const overrunHr = Math.max(0, coHr - stdCoHr);
+        kgByShift[sh] = mdRoundSums({
+          target: R * hours, planned: R * Math.max(0, hours - coHr), netAch: R * Math.max(0, hours - dtHr),
+          gross: good + rej, good, rej, dtHr, coHr, stdCoHr, overrunHr, excessKg: R * overrunHr, mc, cc, jc
+        });
+      });
+      const kg = {};
+      Object.values(kgByShift).forEach(k => Object.entries(k).forEach(([key, v]) => { kg[key] = Math.round(((kg[key] || 0) + v) * 100) / 100; }));
+
       const lastR = lastRow ? lastRow.r : null;
       const plan = lastRow && lastRow.std.plan;
       return {
@@ -1613,7 +1690,8 @@ app.get('/api/dpr/moulding-dashboard', async (req, res) => {
         dtReasons: Object.fromEntries(Object.entries(dtReasons).map(([k, v]) => [k, Math.round(v)]).filter(([, v]) => v > 0)),
         rejReasons: Object.fromEntries(Object.entries(rejReasons).filter(([, v]) => v > 0)),
         dtByShift: Object.fromEntries(Object.entries(dtByShift).map(([sh, o]) => [sh, Object.fromEntries(Object.entries(o).map(([k, v]) => [k, Math.round(v)]).filter(([, v]) => v > 0))])),
-        rejByShift: Object.fromEntries(Object.entries(rejByShift).map(([sh, o]) => [sh, Object.fromEntries(Object.entries(o).filter(([, v]) => v > 0))]))
+        rejByShift: Object.fromEntries(Object.entries(rejByShift).map(([sh, o]) => [sh, Object.fromEntries(Object.entries(o).filter(([, v]) => v > 0))])),
+        kg, kgByShift
       };
     });
 
