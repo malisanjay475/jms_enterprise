@@ -11,8 +11,21 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.81.1",
+  "latest": "1.81.2",
   "versions": [
+    {
+      "version": "1.81.2",
+      "date": "2026-09-30",
+      "title": "Backups reach Google Drive again",
+      "modules": [
+        {
+          "app": "all",
+          "changes": [
+            { "type": "fix", "text": "The automatic backup no longer fails when Google Drive is slow: the database copy goes up first, and photo uploads continue on the next run if time runs out." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.81.1",
       "date": "2026-09-30",
