@@ -1862,6 +1862,9 @@
           if (!who && !when) return '';
           return [who ? `<b>${esc(who)}</b>` : '', when ? esc(when) : ''].filter(Boolean).join(' · ');
         }
+        function pjdWhoWhenText(by, at) {
+          return [String(by || '').trim(), pjdDateTime(at) || ''].filter(Boolean).join(' · ');
+        }
         // JC check / approval / rejection and completion of one plan: who, when and remarks
         function pjdApprovalItems(p) {
           const items = [];
@@ -1869,13 +1872,14 @@
           const checked = pjdWhoWhen(p.jc_checked_by, p.jc_checked_at);
           const approved = pjdWhoWhen(p.jc_approved_by, p.jc_approved_at);
           const rejected = pjdWhoWhen(p.jc_rejected_by, p.jc_rejected_at);
-          if (checked) items.push({ tone: 'info', icon: 'bi-check2-square', label: 'JC checked', text: checked });
-          if (approved) items.push({ tone: 'ok', icon: 'bi-patch-check', label: 'JC approved', text: approved });
-          if (rejected || jcStatus === 'REJECTED') items.push({ tone: 'bad', icon: 'bi-x-octagon', label: `JC rejected${p.jc_rejection_stage ? ` (${esc(p.jc_rejection_stage)})` : ''}`, text: rejected || 'Rejected' });
-          if (!approved && !rejected && jcStatus && jcStatus !== 'APPROVED' && jcStatus !== 'REJECTED') items.push({ tone: 'warn', icon: 'bi-hourglass-split', label: 'JC approval', text: esc(p.jc_approval_status) });
+          if (checked) items.push({ tone: 'info', icon: 'bi-check2-square', label: 'JC checked', text: checked, tip: `JC checked: ${pjdWhoWhenText(p.jc_checked_by, p.jc_checked_at)}` });
+          if (approved) items.push({ tone: 'ok', icon: 'bi-patch-check', label: 'JC approved', text: approved, tip: `JC approved: ${pjdWhoWhenText(p.jc_approved_by, p.jc_approved_at)}` });
+          if (rejected || jcStatus === 'REJECTED') items.push({ tone: 'bad', icon: 'bi-x-octagon', label: `JC rejected${p.jc_rejection_stage ? ` (${esc(p.jc_rejection_stage)})` : ''}`, text: rejected || 'Rejected', tip: `JC rejected${p.jc_rejection_stage ? ` (${p.jc_rejection_stage})` : ''}: ${pjdWhoWhenText(p.jc_rejected_by, p.jc_rejected_at) || 'Rejected'}` });
+          if (!approved && !rejected && jcStatus && jcStatus !== 'APPROVED' && jcStatus !== 'REJECTED') items.push({ tone: 'warn', icon: 'bi-hourglass-split', label: 'JC approval', text: esc(p.jc_approval_status), tip: `JC approval: ${p.jc_approval_status}` });
           const completedWho = pjdWhoWhen(p.completed_by, p.completed_at);
           if (String(p.status || '').toUpperCase() === 'COMPLETED' || completedWho) {
-            items.push({ tone: 'ok', icon: 'bi-flag', label: 'Completed', text: completedWho || 'Completed', remark: String(p.plan_remarks || '').trim() });
+            const remark = String(p.plan_remarks || '').trim();
+            items.push({ tone: 'ok', icon: 'bi-flag', label: 'Completed', text: completedWho || 'Completed', remark, tip: `Completed: ${pjdWhoWhenText(p.completed_by, p.completed_at) || 'Completed'}${remark ? ` - "${remark}"` : ''}` });
           }
           return items;
         }
@@ -1970,8 +1974,7 @@
               <td style="padding:8px">${(() => {
                 const items = pjdApprovalItems(p);
                 const last = items[items.length - 1];
-                const plain = (h) => String(h).replace(/<[^>]+>/g, '').replace(/&ldquo;|&rdquo;/g, '"').replace(/&amp;/g, '&');
-                const tip = items.map(it => `${plain(it.label)}: ${plain(it.text)}${it.remark ? ` - "${it.remark}"` : ''}`).join('\n');
+                const tip = items.map(it => it.tip).join('\n');
                 return `<span style="font-size:0.7rem;font-weight:800;color:${stColor}">${esc(st)}</span>` +
                   (last ? `<div title="${esc(tip)}" style="font-size:0.66rem;color:#64748b;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:220px;cursor:help"><i class="bi ${last.icon}"></i> ${last.text}</div>` : '') +
                   (last && last.remark ? `<div title="${esc(last.remark)}" style="font-size:0.66rem;color:#475569;font-style:italic;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:220px">&ldquo;${esc(last.remark)}&rdquo;</div>` : '');

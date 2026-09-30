@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.78.1",
+  "latest": "1.78.2",
   "versions": [
+    {
+      "version": "1.78.2",
+      "date": "2026-09-30",
+      "title": "Safer job detail tooltips",
+      "modules": [
+        {
+          "app": "planning",
+          "label": "Planning",
+          "icon": "bi-kanban",
+          "changes": [
+            { "type": "security", "text": "The approval and completion tooltips in the job details window are built from plain text, so remarks can never be shown as page content." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.78.1",
       "date": "2026-09-30",
