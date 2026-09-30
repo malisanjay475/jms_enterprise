@@ -11,8 +11,24 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.82.0",
+  "latest": "1.82.1",
   "versions": [
+    {
+      "version": "1.82.1",
+      "date": "2026-09-30",
+      "title": "Mould Change Report shows machines with no plan",
+      "modules": [
+        {
+          "app": "planning",
+          "label": "Planning",
+          "icon": "bi-calendar3",
+          "changes": [
+            { "type": "improvement", "text": "The Daily Mould Change Report now lists every machine that has no plan as a NO PLAN row in its line section, so each machine on the line is accounted for on the printed sheet and in Excel." },
+            { "type": "fix", "text": "The Mould Change Report now loads machines and plans correctly even when it is opened directly, without visiting the Machine Timeline first." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.82.0",
       "date": "2026-09-30",

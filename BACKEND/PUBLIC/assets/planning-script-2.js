@@ -943,13 +943,22 @@
 
       list.innerHTML = '<div style="padding:20px; text-align:center">Analyzing Master Plan...</div>';
 
+      // getPlanningProcessQuerySuffix() lives inside planning-script-3's DOMContentLoaded
+      // closure, so it is not always reachable here — fall back to the saved process.
+      const procQuery = () => {
+        if (typeof getPlanningProcessQuerySuffix === 'function') return getPlanningProcessQuerySuffix();
+        let proc = 'Moulding';
+        try { proc = localStorage.getItem('jpsms_planning_process') || proc; } catch (_) { }
+        return `process=${encodeURIComponent(proc)}`;
+      };
+
       // 1. Get Data
       let plans = window.allMasterPlans || [];
       if (!plans.length) {
         // Try fetching if empty
         try {
           const api = (window.JPSMS && window.JPSMS.api) ? window.JPSMS.api : window.api;
-          const res = await api.get(`/planning/board?${getPlanningProcessQuerySuffix()}`);
+          const res = await api.get(`/planning/board?${procQuery()}`);
           if (res && res.data && res.data.plans) {
             plans = res.data.plans;
             // Filter Unassigned
@@ -981,7 +990,20 @@
         return isRun || qty > 0;
       });
 
-      if (!plans.length) {
+      // Machine master — needed to list machines that have no plan at all. The timeline
+      // normally fills window.allMachines; fetch it if the report was opened directly.
+      let machineList = window.allMachines || window.timelineMachines || [];
+      if (!machineList.length) {
+        try {
+          const api = (window.JPSMS && window.JPSMS.api) ? window.JPSMS.api : window.api;
+          const mRes = await api.get(`/masters/machines?${procQuery()}`);
+          machineList = ((mRes && mRes.data) ? mRes.data : []).map(m => ({
+            code: m.machine, name: m.machine, is_active: m.is_active !== false
+          }));
+        } catch (e) { console.error(e); }
+      }
+
+      if (!plans.length && !machineList.length) {
         list.innerHTML = '<div class="muted" style="padding:20px; text-align:center">No planning data available.</div>';
         return;
       }
@@ -1178,8 +1200,16 @@
         }
       });
 
+      // Machines with no plan at all (active in Machine Master, nothing queued/running).
+      // Shown as "NO PLAN" rows inside their line section so every machine is accounted for.
+      const activeMachCodes = new Set(Object.keys(byMach));
+      const noPlanMachines = [...new Set(machineList
+        .filter(m => m && m.is_active !== false)
+        .map(m => String(m.code || m.name || '').trim())
+        .filter(code => code && !activeMachCodes.has(code)))];
+
       // Render
-      if (!changes.length) {
+      if (!changes.length && !noPlanMachines.length) {
         const scope = isAllDates ? 'in the plan' : (isNext24 ? 'in the next 24 hours' : `on ${escH(selectedDateStr)}`);
         list.innerHTML = `<div class="muted" style="padding:40px; text-align:center; background:#f8fafc; border:1px dashed #cbd5e1; border-radius:8px">No mould changes found ${scope} (${escH(selectedShift)}).</div>`;
         return;
@@ -1193,7 +1223,8 @@
       // Key is "<building> <line>" so every physical line is its own section:
       // B Line 1..4, C Line 1..4, E Line 1..2, F Line 1, ordered by building letter then line no.
       const byLine = {};
-      changes.forEach(c => {
+      const noPlanRows = noPlanMachines.map(code => ({ machine: code, line: lineOf(code), building: buildingOf(code), noPlan: true }));
+      changes.concat(noPlanRows).forEach(c => {
         const key = `${c.building} ${c.line}`;
         (byLine[key] = byLine[key] || []).push(c);
       });
@@ -1206,7 +1237,12 @@
         if (isNaN(na)) return 1; if (isNaN(nb)) return -1;
         return na - nb;
       });
-      lineKeys.forEach(k => byLine[k].sort((a, b) => a.time - b.time));
+      // Mould changes first (by time), then NO PLAN machines (by machine name).
+      lineKeys.forEach(k => byLine[k].sort((a, b) => {
+        if (!!a.noPlan !== !!b.noPlan) return a.noPlan ? 1 : -1;
+        if (a.noPlan) return a.machine.localeCompare(b.machine, undefined, { numeric: true });
+        return a.time - b.time;
+      }));
 
       const fmtNum = (v) => (v === null || v === undefined || v === '' || isNaN(v)) ? '-' : Number(v).toLocaleString('en-IN');
       const fmtWt = (v) => (v === null || v === undefined || v === '' || isNaN(v)) ? '-' : Number(v).toLocaleString('en-IN', { maximumFractionDigits: 3 });
@@ -1245,7 +1281,7 @@
           ? `Next 24 Hours`
           : (selectedDateStr ? new Date(selectedDateStr + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }) : ''));
       const subDate = isAllDates
-        ? `${changes.length} change${changes.length > 1 ? 's' : ''} total`
+        ? `${changes.length} change${changes.length !== 1 ? 's' : ''} total`
         : (isNext24 ? `${fmtTime(now)} → ${horizon.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} ${fmtTime(horizon)}` : '');
 
       const generatedAt = `${now.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })} ${fmtTime(now)}`;
@@ -1285,6 +1321,16 @@
         html += headRow(`${escH(g.building)} LINE ${escH(g.line)}`);
         byLine[k].forEach(c => {
           serialNo += 1;
+          if (c.noPlan) {
+            html += `
+            <tr>
+              <td style="${tdBase} text-align:center; font-weight:700; color:#94a3b8; background:#f8fafc">${serialNo}</td>
+              <td style="${tdBase} font-weight:700; color:#64748b; white-space:nowrap; background:#f8fafc">${escH(c.machine)}</td>
+              <td colspan="${cols.length - 2}" style="${tdBase} text-align:center; font-weight:800; letter-spacing:.12em; color:#94a3b8; background:#f8fafc">NO PLAN</td>
+            </tr>
+          `;
+            return;
+          }
           const shiftBg = c.shift === 'Day' ? '#fff7ed' : '#eff6ff';
           html += `
             <tr>
@@ -1315,29 +1361,6 @@
               </div>`).join('')}
           </div>
         </div>`;
-
-      // P3-Fix3: Show idle machines (machines in Machine Master with no active plans)
-      const activeMachCodes = new Set(Object.keys(byMach));
-      const idleMachines = (window.allMachines || window.timelineMachines || [])
-        .filter(m => {
-          const code = m.code || m.name || '';
-          return code && !activeMachCodes.has(code);
-        })
-        .map(m => m.code || m.name || '')
-        .filter(Boolean)
-        .sort();
-
-      if (idleMachines.length) {
-        html += `
-          <div style="margin-top:18px; padding:12px 16px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; font-family:'Segoe UI',Arial,sans-serif">
-            <div style="font-weight:800; font-size:0.85rem; color:#64748b; margin-bottom:8px; text-transform:uppercase; letter-spacing:0.05em;">
-              <i class="bi bi-pause-circle" style="color:#94a3b8"></i> Idle Machines (No Active Plans)
-            </div>
-            <div style="display:flex; flex-wrap:wrap; gap:6px;">
-              ${idleMachines.map(c => `<span style="font-size:0.78rem; font-weight:700; background:#f1f5f9; color:#475569; border:1px solid #cbd5e1; padding:3px 8px; border-radius:5px;">${escH(c)}</span>`).join('')}
-            </div>
-          </div>`;
-      }
 
       list.innerHTML = html;
     };
