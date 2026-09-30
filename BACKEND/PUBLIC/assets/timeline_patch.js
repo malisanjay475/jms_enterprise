@@ -1443,11 +1443,15 @@
                            <div style="color:#94a3b8; text-align:right">End Date:</div> <div style="font-weight:600; color:#334155">${endStr}</div>
                            <div style="color:#2563eb; text-align:right; font-weight:700">Exp. Date:</div> <div style="font-weight:700; color:#2563eb">${expStr}</div>
                        </div>
-                       <div title="STD Total (purple) | STD Balance (green) — qty ÷ (3600/cycle × cavity)" style="display:flex; align-items:center; justify-content:center; gap:8px; font-size:0.92rem; font-weight:800; margin-top:auto; padding-top:4px; border-top:1px dashed #e2e8f0;">
+                       ${p._stdMissing
+                         ? `<div title="Cycle time${Number(p.cavity) > 0 ? '' : ' / cavity'} not set in the Mould Master for ${esc(p.mouldNo)} — dates use a 120s × 1 cav placeholder" style="display:flex; align-items:center; justify-content:center; gap:5px; font-size:0.75rem; font-weight:800; margin-top:auto; padding:3px 6px; border-radius:5px; background:#fee2e2; border:1px solid #fca5a5; color:#b91c1c;">
+                           <i class="bi bi-exclamation-triangle-fill"></i> STD ${Number(p.cycleTime) > 0 ? 'cavity' : 'cycle time'} missing
+                         </div>`
+                         : `<div title="STD Total (purple) | STD Balance (green) — qty ÷ (3600/${Number(p.cycleTime)}s × ${Number(p.cavity)} cav = ${Math.round(p._stdPcsHr)} pcs/hr)" style="display:flex; align-items:center; justify-content:center; gap:8px; font-size:0.92rem; font-weight:800; margin-top:auto; padding-top:4px; border-top:1px dashed #e2e8f0;">
                            <span style="color:#7c3aed">${formatLoadDuration(p._stdTotalMs)}</span>
                            <span style="color:#cbd5e1; font-weight:700">|</span>
                            <span style="color:#16a34a">${formatLoadDuration(p._stdBalMs)}</span>
-                       </div>
+                         </div>`}
 
                        <!-- ACTIONS FOOTER -->
                        <div style="margin-top:auto; padding-top:6px; border-top:1px dashed #e2e8f0; display:flex; justify-content:space-between; align-items:center">
@@ -1809,7 +1813,13 @@
                 let cursor = Date.now();
                 byMach[m].forEach((p, i) => {
                     const st = (p.status || '').toUpperCase(); const isRun = st === 'RUNNING';
-                    const ct = Number(p.cycleTime || 120); const cav = Number(p.cavity || 1); const pcsHr = (ct > 0) ? (3600 / ct) * cav : 30;
+                    // No STD cycle time / cavity in the mould master → the queue still needs a
+                    // duration to chain the next plan, so 120s × 1 cav is used for the dates,
+                    // but the card flags it as "STD missing" instead of showing those hours.
+                    const hasCt = Number(p.cycleTime) > 0, hasCav = Number(p.cavity) > 0;
+                    p._stdMissing = !hasCt || !hasCav;
+                    const ct = hasCt ? Number(p.cycleTime) : 120; const cav = hasCav ? Number(p.cavity) : 1; const pcsHr = (3600 / ct) * cav;
+                    p._stdPcsHr = pcsHr;
                     const qty = Number(p.planQty || 0); const bal = qty - Number(p.producedQty || 0);
                     p.balQty = bal; // P2: allow negative (over-produced)
                     // End Date = start + full planQty time (constant, never changes)
