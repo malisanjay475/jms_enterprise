@@ -11,8 +11,24 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.82.1",
+  "latest": "1.82.2",
   "versions": [
+    {
+      "version": "1.82.2",
+      "date": "2026-09-30",
+      "title": "Mould Change Report accounts for every machine",
+      "modules": [
+        {
+          "app": "planning",
+          "label": "Planning",
+          "icon": "bi-calendar3",
+          "changes": [
+            { "type": "improvement", "text": "The Daily Mould Change Report now shows every machine for the selected day (8:00 AM to 8:00 AM next morning): coming mould changes, PLAN ENDS → NO PLAN with the time a machine's last plan finishes, NO CHANGE when the same mould runs all day, and NO PLAN when there is nothing planned." },
+            { "type": "improvement", "text": "The report header shows the exact time window, and changes after midnight show their date so it is clear they fall on the next morning." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.82.1",
       "date": "2026-09-30",

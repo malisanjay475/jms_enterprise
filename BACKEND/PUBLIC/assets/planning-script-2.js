@@ -1081,6 +1081,15 @@
         return da - db;
       });
 
+      // Report window. All Dates = unbounded; Next 24h = now → now+24h; otherwise the
+      // selected PRODUCTION DAY = selected date 08:00 → next day 08:00 (the factory day
+      // runs 8 AM to 8 AM, so a change at 03:00 on the 18th belongs to the 17th's report).
+      const winStart = isAllDates ? null : (isNext24 ? now : new Date(selectedDateStr + 'T08:00:00'));
+      const winEnd = isAllDates ? null : (isNext24 ? horizon : new Date(winStart.getTime() + 24 * 60 * 60 * 1000));
+      const inWindow = (t) => (!winStart || t >= winStart) && (!winEnd || t < winEnd);
+      // Day: 08:00 - 20:00, Night: 20:00 - 08:00 (next day)
+      const shiftOf = (t) => { const h = t.getHours(); return (h >= 20 || h < 8) ? 'Night' : 'Day'; };
+
       const changes = [];
       // Group by Machine
       const byMach = {};
@@ -1142,12 +1151,8 @@
           // Filter by Selected Date (LOCAL date, not UTC)
           const chDateStr = localDateStr(changeTime);
 
-          // Shift Logic
-          // Day: 08:00 - 20:00
-          // Night: 20:00 - 08:00 (Next Day)
-          let shift = 'Day';
+          const shift = shiftOf(changeTime);
           const hr = changeTime.getHours();
-          if (hr >= 20 || hr < 8) shift = 'Night';
 
           // Night shift after midnight (00:00-08:00) belongs to the previous production date.
           let productionDateStr = chDateStr;
@@ -1157,20 +1162,7 @@
             productionDateStr = localDateStr(d);
           }
 
-          // All Dates ON: no date filter (show everything).
-          // Next 24h ON: every change due between now and now+24h.
-          // Else: the selected PRODUCTION DAY = selected date 08:00 → next day 08:00.
-          // (The factory day runs 8 AM to 8 AM; a change at 03:00 on the 18th belongs
-          // to the 17th's report. Explicit window, not derived from date strings.)
-          if (isAllDates) {
-            // no date restriction
-          } else if (isNext24) {
-            if (changeTime < now || changeTime > horizon) continue;
-          } else {
-            const winStart = new Date(selectedDateStr + 'T08:00:00');
-            const winEnd = new Date(winStart.getTime() + 24 * 60 * 60 * 1000);
-            if (changeTime < winStart || changeTime >= winEnd) continue;
-          }
+          if (!inWindow(changeTime)) continue;
           if (selectedShift !== 'Both' && selectedShift !== shift) continue;
 
           // Compute P/H: prefer mould-master pcsHour, else derive from cycle time + cavity.
@@ -1200,6 +1192,45 @@
         }
       });
 
+      // Per-machine status for the window, so every planned machine is accounted for:
+      //   planEnd  — its last plan finishes inside the window → idle (NO PLAN) from then on
+      //   noPlan   — its queue already runs out before the window starts
+      //   noChange — no mould change and no plan end in the window: same mould throughout
+      const statusRows = [];
+      const mouldOf = (p) => ({ mouldNo: p.mouldNo || p.mould_code || '-', mouldName: p.mouldName || 'Unknown' });
+      Object.keys(byMach).forEach(mach => {
+        const machPlans = byMach[mach];
+        const last = machPlans[machPlans.length - 1];
+        const lastEndRaw = last._rippledExpRaw || last._rippledEndRaw || last._calculatedEndRaw;
+        const lastEnd = lastEndRaw ? new Date(lastEndRaw) : null;
+        const base = { machine: mach, line: lineOf(mach), building: buildingOf(mach) };
+        if (lastEnd && winStart && lastEnd < winStart) {
+          statusRows.push({ ...base, noPlan: true });
+          return;
+        }
+        if (lastEnd && inWindow(lastEnd)) {
+          const sh = shiftOf(lastEnd);
+          if (selectedShift === 'Both' || selectedShift === sh) {
+            statusRows.push({ ...base, planEnd: true, time: lastEnd, shift: sh, ...mouldOf(last) });
+            return;
+          }
+          // Night selected, plan ends in the Day shift → idle all night.
+          if (selectedShift === 'Night') {
+            statusRows.push({ ...base, noPlan: true });
+            return;
+          }
+          // Day selected, plan ends at night → still running through the day (fall through).
+        }
+        if (!changes.some(c => c.machine === mach)) {
+          // The mould on the machine during the selected shift = the last plan started by then.
+          const shiftStart = (winStart && !isNext24 && selectedShift === 'Night') ? new Date(winStart.getTime() + 12 * 60 * 60 * 1000) : winStart;
+          const ref = (shiftStart && shiftStart > now) ? shiftStart : now;
+          let running = machPlans[0];
+          machPlans.forEach(p => { if (p._rippledStartRaw && new Date(p._rippledStartRaw) <= ref) running = p; });
+          statusRows.push({ ...base, noChange: true, ...mouldOf(running) });
+        }
+      });
+
       // Machines with no plan at all (active in Machine Master, nothing queued/running).
       // Shown as "NO PLAN" rows inside their line section so every machine is accounted for.
       const activeMachCodes = new Set(Object.keys(byMach));
@@ -1209,7 +1240,7 @@
         .filter(code => code && !activeMachCodes.has(code)))];
 
       // Render
-      if (!changes.length && !noPlanMachines.length) {
+      if (!changes.length && !statusRows.length && !noPlanMachines.length) {
         const scope = isAllDates ? 'in the plan' : (isNext24 ? 'in the next 24 hours' : `on ${escH(selectedDateStr)}`);
         list.innerHTML = `<div class="muted" style="padding:40px; text-align:center; background:#f8fafc; border:1px dashed #cbd5e1; border-radius:8px">No mould changes found ${scope} (${escH(selectedShift)}).</div>`;
         return;
@@ -1224,7 +1255,7 @@
       // B Line 1..4, C Line 1..4, E Line 1..2, F Line 1, ordered by building letter then line no.
       const byLine = {};
       const noPlanRows = noPlanMachines.map(code => ({ machine: code, line: lineOf(code), building: buildingOf(code), noPlan: true }));
-      changes.concat(noPlanRows).forEach(c => {
+      changes.concat(statusRows, noPlanRows).forEach(c => {
         const key = `${c.building} ${c.line}`;
         (byLine[key] = byLine[key] || []).push(c);
       });
@@ -1237,19 +1268,22 @@
         if (isNaN(na)) return 1; if (isNaN(nb)) return -1;
         return na - nb;
       });
-      // Mould changes first (by time), then NO PLAN machines (by machine name).
+      // Mould changes and plan ends first (by time), then NO CHANGE, then NO PLAN (by machine).
+      const rowRank = (c) => c.noPlan ? 2 : (c.noChange ? 1 : 0);
       lineKeys.forEach(k => byLine[k].sort((a, b) => {
-        if (!!a.noPlan !== !!b.noPlan) return a.noPlan ? 1 : -1;
-        if (a.noPlan) return a.machine.localeCompare(b.machine, undefined, { numeric: true });
+        const ra = rowRank(a), rb = rowRank(b);
+        if (ra !== rb) return ra - rb;
+        if (ra > 0) return a.machine.localeCompare(b.machine, undefined, { numeric: true });
         return a.time - b.time;
       }));
 
       const fmtNum = (v) => (v === null || v === undefined || v === '' || isNaN(v)) ? '-' : Number(v).toLocaleString('en-IN');
       const fmtWt = (v) => (v === null || v === undefined || v === '' || isNaN(v)) ? '-' : Number(v).toLocaleString('en-IN', { maximumFractionDigits: 3 });
       const fmtTime = (d) => d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
-      // When the rows span multiple dates, show the date alongside the time so it is unambiguous.
-      const showDate = isAllDates || isNext24;
-      const cellTime = (d) => showDate ? `${d.toLocaleDateString('en-US', { day: '2-digit', month: 'short' })} ${fmtTime(d)}` : fmtTime(d);
+      // Show the date alongside the time whenever it could be ambiguous: always for
+      // All Dates / Next 24h, and for after-midnight rows (next calendar day) of a production day.
+      const fmtDay = (d) => d.toLocaleDateString('en-US', { day: '2-digit', month: 'short' });
+      const cellTime = (d) => (isAllDates || isNext24 || localDateStr(d) !== selectedDateStr) ? `${fmtDay(d)} ${fmtTime(d)}` : fmtTime(d);
 
       // Column headers (label + alignment). Order matches the daily sheet.
       const cols = [
@@ -1282,7 +1316,7 @@
           : (selectedDateStr ? new Date(selectedDateStr + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }) : ''));
       const subDate = isAllDates
         ? `${changes.length} change${changes.length !== 1 ? 's' : ''} total`
-        : (isNext24 ? `${fmtTime(now)} → ${horizon.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} ${fmtTime(horizon)}` : '');
+        : `${fmtDay(winStart)} ${fmtTime(winStart)} → ${fmtDay(winEnd)} ${fmtTime(winEnd)}`;
 
       const generatedAt = `${now.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })} ${fmtTime(now)}`;
       let html = `
@@ -1327,6 +1361,34 @@
               <td style="${tdBase} text-align:center; font-weight:700; color:#94a3b8; background:#f8fafc">${serialNo}</td>
               <td style="${tdBase} font-weight:700; color:#64748b; white-space:nowrap; background:#f8fafc">${escH(c.machine)}</td>
               <td colspan="${cols.length - 2}" style="${tdBase} text-align:center; font-weight:800; letter-spacing:.12em; color:#94a3b8; background:#f8fafc">NO PLAN</td>
+            </tr>
+          `;
+            return;
+          }
+          if (c.noChange) {
+            html += `
+            <tr>
+              <td style="${tdBase} text-align:center; font-weight:700; color:#64748b">${serialNo}</td>
+              <td style="${tdBase} font-weight:700; color:#1e293b; white-space:nowrap">${escH(c.machine)}</td>
+              <td style="${tdBase} text-align:center; color:#94a3b8">-</td>
+              <td style="${tdBase} font-family:monospace; color:#475569; font-weight:700">${escH(c.mouldNo)}</td>
+              <td style="${tdBase} color:#475569">${escH(c.mouldName)}</td>
+              <td colspan="${cols.length - 5}" style="${tdBase} text-align:center; font-weight:800; letter-spacing:.12em; color:#15803d; background:#f0fdf4">NO CHANGE - SAME MOULD RUNNING</td>
+            </tr>
+          `;
+            return;
+          }
+          if (c.planEnd) {
+            const endBg = c.shift === 'Day' ? '#fff7ed' : '#eff6ff';
+            html += `
+            <tr>
+              <td style="${tdBase} text-align:center; font-weight:700; color:#64748b">${serialNo}</td>
+              <td style="${tdBase} font-weight:700; color:#1e293b; white-space:nowrap">${escH(c.machine)}</td>
+              <td style="${tdBase} text-align:center; font-weight:600; white-space:nowrap">${escH(cellTime(c.time))}</td>
+              <td style="${tdBase} font-family:monospace; color:#475569; font-weight:700">${escH(c.mouldNo)}</td>
+              <td style="${tdBase} color:#475569">${escH(c.mouldName)}</td>
+              <td colspan="${cols.length - 6}" style="${tdBase} text-align:center; font-weight:800; letter-spacing:.08em; color:#b91c1c; background:#fef2f2">PLAN ENDS &rarr; NO PLAN</td>
+              <td style="${tdBase} text-align:center; font-weight:700; background:${endBg}">${escH(c.shift)}</td>
             </tr>
           `;
             return;
