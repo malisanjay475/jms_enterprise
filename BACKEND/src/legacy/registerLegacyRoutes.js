@@ -6176,6 +6176,8 @@ async function initializeLegacyRuntime() {
       );
     `);
     await qIdx(`CREATE INDEX IF NOT EXISTS idx_qcslots_lookup ON qc_online_report_slots (machine, dpr_date, shift)`);
+    // Colour the QC app inspected in this slot (picked for every entry).
+    await q(`ALTER TABLE qc_online_report_slots ADD COLUMN IF NOT EXISTS colour TEXT`);
 
     // QC HOLDS — job hold records (block scanner shifting)
     await q(`
@@ -29991,7 +29993,7 @@ app.post('/api/qc/online-report/slot', (req, res, next) => {
 }, async (req, res) => {
   try {
     const body = req.body || {};
-    const { machine, dpr_date, shift, slot, job_card_no, order_no, item_name, mould_name,
+    const { machine, dpr_date, shift, slot, job_card_no, order_no, item_name, mould_name, colour,
             visual_status, visual_problem, visual_remarks,
             colour_status, colour_problem, colour_remarks,
             ff_status, ff_problem } = body;
@@ -30009,8 +30011,8 @@ app.post('/api/qc/online-report/slot', (req, res, next) => {
         (factory_id, machine, job_card_no, order_no, item_name, mould_name, dpr_date, shift, slot,
          visual_status, visual_problem, visual_remarks,
          colour_status, colour_problem, colour_remarks,
-         ff_status, ff_problem, ff_photo_url, entered_by, entered_at)
-      VALUES ($1,$2,$3,$4,$5,$6,$7::date,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,NOW())
+         ff_status, ff_problem, ff_photo_url, entered_by, entered_at, colour)
+      VALUES ($1,$2,$3,$4,$5,$6,$7::date,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,NOW(),$20)
       ON CONFLICT (machine, dpr_date, shift, slot)
       DO UPDATE SET
         job_card_no = EXCLUDED.job_card_no, order_no = EXCLUDED.order_no,
@@ -30018,13 +30020,15 @@ app.post('/api/qc/online-report/slot', (req, res, next) => {
         visual_status = EXCLUDED.visual_status, visual_problem = EXCLUDED.visual_problem, visual_remarks = EXCLUDED.visual_remarks,
         colour_status = EXCLUDED.colour_status, colour_problem = EXCLUDED.colour_problem, colour_remarks = EXCLUDED.colour_remarks,
         ff_status = EXCLUDED.ff_status, ff_problem = EXCLUDED.ff_problem, ff_photo_url = COALESCE(EXCLUDED.ff_photo_url, qc_online_report_slots.ff_photo_url),
-        entered_by = EXCLUDED.entered_by, entered_at = NOW()
+        entered_by = EXCLUDED.entered_by, entered_at = NOW(),
+        colour = COALESCE(EXCLUDED.colour, qc_online_report_slots.colour)
     `, [
       factoryId, machine, job_card_no || '', order_no || '', item_name || '', mould_name || '',
       dpr_date, shift, slot,
       visual_status || null, visual_problem || null, visual_remarks || null,
       colour_status || null, colour_problem || null, colour_remarks || null,
-      ff_status || null, ff_problem || null, ffPhotoUrl, entered_by
+      ff_status || null, ff_problem || null, ffPhotoUrl, entered_by,
+      String(colour || '').trim().slice(0, 100) || null
     ]);
     syncService.triggerSync();
     res.json({ ok: true });

@@ -15,9 +15,43 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.io.File
 
-/** 2-hourly QC inspection checkpoints. Function/Fitment is done on the 4-hourly ones. */
-val INSPECT_SLOTS = listOf("08", "10", "12", "14", "16", "18")
-val FF_SLOTS = setOf("08", "12", "16")
+/**
+ * 2-hour QC inspection slots, same labels for Day (08:00 AM–08:00 PM) and
+ * Night (08:00 PM–08:00 AM); the shift tells AM from PM. Function/Fitment is
+ * done every 4h, on the first, third and fifth slot.
+ */
+val INSPECT_SLOTS = listOf("08-10", "10-12", "12-02", "02-04", "04-06", "06-08")
+val FF_SLOTS = setOf("08-10", "12-02", "04-06")
+
+/** Older app versions saved the slot as its start hour ("08", "14" …). */
+private val LEGACY_SLOT = mapOf(
+    "08" to "08-10", "10" to "10-12", "12" to "12-02", "14" to "02-04", "16" to "04-06", "18" to "06-08"
+)
+
+/** Minutes after shift start (08:00 / 20:00) at which each slot opens. */
+private fun slotStartOffset(slot: String): Int = INSPECT_SLOTS.indexOf(slot) * 120
+
+/**
+ * Production date + shift for "now", same rule as supervisor.html: the shift
+ * changes at 08:10 and 20:10 IST; before 08:10 is still yesterday's Night shift.
+ */
+fun autoDateShift(): Pair<String, String> {
+    val cal = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("Asia/Kolkata"))
+    val mins = cal.get(java.util.Calendar.HOUR_OF_DAY) * 60 + cal.get(java.util.Calendar.MINUTE)
+    return when {
+        mins in 490 until 1210 -> Ist.date() to "Day"
+        mins < 490 -> Ist.yesterday() to "Night"
+        else -> Ist.date() to "Night"
+    }
+}
+
+/** Minutes since the start (08:00 / 20:00 IST) of [date]/[shift]; negative if it hasn't started. */
+private fun minsIntoShift(date: String, shift: String): Long {
+    val zone = java.util.TimeZone.getTimeZone("Asia/Kolkata")
+    val fmt = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.US).apply { timeZone = zone }
+    val start = fmt.parse("$date ${if (shift == "Night") "20:00" else "08:00"}") ?: return Long.MAX_VALUE
+    return (System.currentTimeMillis() - start.time) / 60000
+}
 
 val QC_DEFECTS = listOf(
     "Short Moulding", "Oil Mark / White Mark", "Black Spot", "Overlapping",
@@ -30,10 +64,13 @@ val QC_DEFECTS = listOf(
 data class QcInspectUiState(
     val job: QueueJob? = null,
     val machine: String = "",
-    val date: String = Ist.date(),
-    val shift: String = Ist.shift(),
-    val slot: String = currentSlot(),
-    // colour
+    val date: String = autoDateShift().first,
+    val shift: String = autoDateShift().second,
+    val slot: String = "",
+    // slots already saved for this machine/date/shift — hidden from the dropdown
+    val filledSlots: Set<String> = emptySet(),
+    val slotsLoaded: Boolean = false,
+    // colour — must be picked for every entry (never pre-selected)
     val colours: List<ColourLine> = emptyList(),
     val colour: String = "",
     val balances: List<ColourBalance> = emptyList(),
@@ -61,13 +98,21 @@ data class QcInspectUiState(
     val message: String? = null
 ) {
     val ffApplies: Boolean get() = slot in FF_SLOTS
-    val canSubmit: Boolean get() = !submitting && (visualOk != null || colourOk != null || (ffApplies && ffOk != null))
-}
+    val colourMissing: Boolean get() = colours.isNotEmpty() && colour.isBlank()
+    val canSubmit: Boolean
+        get() = !submitting && slot.isNotBlank() && !colourMissing &&
+            (visualOk != null || colourOk != null || (ffApplies && ffOk != null))
 
-private fun currentSlot(): String {
-    val h = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("Asia/Kolkata"))
-        .get(java.util.Calendar.HOUR_OF_DAY)
-    return INSPECT_SLOTS.lastOrNull { it.toInt() <= h } ?: INSPECT_SLOTS.first()
+    /** Today / Yesterday, like supervisor.html. */
+    val dateOptions: List<Pair<String, String>>
+        get() = listOf(Ist.date() to "Today", Ist.yesterday() to "Yesterday")
+
+    /** Unfilled slots that have already opened (all of them for a past shift). */
+    val openSlots: List<String>
+        get() {
+            val into = minsIntoShift(date, shift)
+            return INSPECT_SLOTS.filter { it !in filledSlots && slotStartOffset(it) <= into }
+        }
 }
 
 class QcInspectionViewModel : ViewModel() {
@@ -78,8 +123,7 @@ class QcInspectionViewModel : ViewModel() {
         QcInspectUiState(
             job = repo.activeJob,
             machine = session.machine,
-            colours = parseColourLines(repo.activeJob?.colourDetails),
-            colour = parseColourLines(repo.activeJob?.colourDetails).firstOrNull()?.colour ?: ""
+            colours = parseColourLines(repo.activeJob?.colourDetails)
         )
     )
     val state: StateFlow<QcInspectUiState> = _state.asStateFlow()
@@ -88,6 +132,29 @@ class QcInspectionViewModel : ViewModel() {
         loadBalances()
         loadSetup()
         loadShiftTeam()
+        loadFilledSlots()
+    }
+
+    /** Reads the slots already saved for machine/date/shift and picks the latest open one. */
+    private fun loadFilledSlots() {
+        val s = _state.value
+        if (s.machine.isBlank()) { _state.update { it.copy(slotsLoaded = true) }; return }
+        _state.update { it.copy(slotsLoaded = false) }
+        viewModelScope.launch {
+            val filled = repo.onlineReport(s.machine, s.date, s.shift).getOrNull()?.data
+                ?.map { LEGACY_SLOT[it.slot] ?: it.slot }?.toSet() ?: emptySet()
+            _state.update { st ->
+                if (st.date != s.date || st.shift != s.shift) return@update st
+                val next = st.copy(filledSlots = filled, slotsLoaded = true)
+                next.copy(slot = if (st.slot in next.openSlots) st.slot else next.openSlots.lastOrNull() ?: "")
+            }
+        }
+    }
+
+    fun setDate(v: String) {
+        if (v == _state.value.date) return
+        _state.update { it.copy(date = v, slot = "", teamChecked = false) }
+        loadSetup(); loadShiftTeam(); loadFilledSlots()
     }
 
     private fun loadShiftTeam() {
@@ -151,7 +218,11 @@ class QcInspectionViewModel : ViewModel() {
         }
     }
 
-    fun setShift(v: String) { _state.update { it.copy(shift = v) }; loadSetup() }
+    fun setShift(v: String) {
+        if (v == _state.value.shift) return
+        _state.update { it.copy(shift = v, slot = "", teamChecked = false) }
+        loadSetup(); loadShiftTeam(); loadFilledSlots()
+    }
     fun setSlot(v: String) = _state.update { it.copy(slot = v) }
     fun setColour(v: String) = _state.update { it.copy(colour = v) }
     fun setActWeight(v: String) = _state.update { it.copy(actWeight = v) }
@@ -187,11 +258,19 @@ class QcInspectionViewModel : ViewModel() {
     fun submitCheck() {
         val job = _state.value.job ?: return
         val s = _state.value
-        if (!s.canSubmit) { _state.update { it.copy(error = "Fill at least one check.") }; return }
+        if (!s.canSubmit) {
+            val why = when {
+                s.slot.isBlank() -> "Select the hour slot."
+                s.colourMissing -> "Select the colour."
+                else -> "Fill at least one check."
+            }
+            _state.update { it.copy(error = why) }; return
+        }
         _state.update { it.copy(submitting = true, error = null, message = null) }
         viewModelScope.launch {
             repo.submitSlotCheck(
                 machine = s.machine, date = s.date, shift = s.shift, slot = s.slot, job = job,
+                colour = s.colour.ifBlank { null },
                 visualStatus = s.visualOk?.let { if (it) "OK" else "Not OK" },
                 visualProblem = if (s.visualOk == false) s.visualDefect.ifBlank { null } else null,
                 visualRemarks = if (s.visualOk == false) s.visualRemarks.ifBlank { null } else null,
@@ -205,11 +284,13 @@ class QcInspectionViewModel : ViewModel() {
                 _state.update {
                     it.copy(
                         submitting = false, message = "Slot ${s.slot} check saved.",
+                        colour = "",
                         visualOk = null, visualDefect = "", visualRemarks = "",
                         colourOk = null, colourDefect = "", colourRemarks = "",
                         ffOk = null, ffRemarks = "", ffPhoto = null
                     )
                 }
+                loadFilledSlots()
             }.onFailure { e -> _state.update { it.copy(submitting = false, error = e.message ?: "Save failed") } }
         }
     }
