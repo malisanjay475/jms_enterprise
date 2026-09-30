@@ -812,6 +812,21 @@
             style="flex:1; padding:8px; border:1px solid #cbd5e1; border-radius:6px; font-size:0.82rem; resize:vertical"></textarea>
           <button type="button" onclick="addMouldVerifyNote()" class="btn-action" style="padding:8px 14px; font-size:0.8rem; background:#475569">Add Detail</button>
         </div>
+        <!-- Quality Check form: average readings + remark, saved as one remark on Confirm -->
+        <div id="mvdQualityForm" style="display:none; border:1px solid #bfdbfe; background:#f8fbff; border-radius:8px; padding:12px">
+          <div style="font-weight:700; font-size:0.86rem; color:#1e40af; margin-bottom:8px">Average Details</div>
+          <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(160px, 1fr)); gap:10px">
+            <label style="font-size:0.76rem; color:#475569">Pcs weight in gms <span style="color:#dc2626">*</span>
+              <input id="mvqPcsWt" type="number" step="0.01" min="0" inputmode="decimal" class="form-input" style="width:100%; margin-top:3px"></label>
+            <label style="font-size:0.76rem; color:#475569">Runner weight in gms <span style="color:#dc2626">*</span>
+              <input id="mvqRunnerWt" type="number" step="0.01" min="0" inputmode="decimal" class="form-input" style="width:100%; margin-top:3px"></label>
+            <label style="font-size:0.76rem; color:#475569">Cycle time in Sec. <span style="color:#dc2626">*</span>
+              <input id="mvqCycle" type="number" step="0.1" min="0" inputmode="decimal" class="form-input" style="width:100%; margin-top:3px"></label>
+          </div>
+          <label style="display:block; font-size:0.76rem; color:#475569; margin-top:10px">Remarks:-
+            <textarea id="mvqRemarks" rows="2" style="width:100%; margin-top:3px; padding:8px; border:1px solid #cbd5e1; border-radius:6px; font-size:0.82rem; resize:vertical"></textarea></label>
+          <div style="font-size:0.68rem; color:#64748b; margin-top:6px">Saved as a remark for all departments when you click Confirm.</div>
+        </div>
       </div>
 
       <div style="text-align:right; margin-top:20px; display:flex; justify-content:flex-end; gap:10px; border-top:1px solid #eee; padding-top:12px">

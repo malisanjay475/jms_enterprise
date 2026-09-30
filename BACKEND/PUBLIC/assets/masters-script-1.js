@@ -566,8 +566,17 @@
       document.getElementById('mvdTitle').textContent = viewOnly ? 'Mould Details' : 'Verification — ' + step.label;
       const confirmBtn = document.getElementById('mvdConfirmBtn');
       if (confirmBtn) confirmBtn.style.display = viewOnly ? 'none' : '';
+      // Quality Check uses a fixed form (average readings + remark) instead of the
+      // free-text box; other steps keep the free-text box.
+      const isQuality = !viewOnly && stepKey === 'quality';
       const noteWrap = document.getElementById('mvdNoteAddWrap');
-      if (noteWrap) noteWrap.style.display = viewOnly ? 'none' : 'flex';
+      if (noteWrap) noteWrap.style.display = (viewOnly || isQuality) ? 'none' : 'flex';
+      const qForm = document.getElementById('mvdQualityForm');
+      if (qForm) qForm.style.display = isQuality ? 'block' : 'none';
+      ['mvqPcsWt', 'mvqRunnerWt', 'mvqCycle', 'mvqRemarks'].forEach(k => {
+        const el = document.getElementById(k);
+        if (el) el.value = '';
+      });
       document.getElementById('mvdMouldTitle').textContent = '';
       document.getElementById('mvdMasterGrid').innerHTML = '';
       document.getElementById('mvdNotes').innerHTML = '';
@@ -778,11 +787,23 @@
     async function confirmMouldVerifyFromDetail() {
       if (!_mvCurrentMouldNumber || !_mvdStepKey) return;
       const step = MOULD_VERIFY_STEPS.find(s => s.key === _mvdStepKey);
+      // Quality Check: the three average readings are required and are saved,
+      // with the remark, as one formatted remark before the step is stamped.
+      let qualityNote = null;
+      if (_mvdStepKey === 'quality') {
+        const val = id => (document.getElementById(id) || {}).value;
+        const num = id => { const v = String(val(id) || '').trim(); return v !== '' && Number.isFinite(Number(v)) && Number(v) >= 0 ? v : null; };
+        const pcs = num('mvqPcsWt'), runner = num('mvqRunnerWt'), cycle = num('mvqCycle');
+        const missing = [[pcs, 'Pcs weight'], [runner, 'Runner weight'], [cycle, 'Cycle time']].filter(x => x[0] === null).map(x => x[1]);
+        if (missing.length) { alert('Please fill: ' + missing.join(', ') + '.'); return; }
+        const rmk = String(val('mvqRemarks') || '').trim();
+        qualityNote = `Average Details\nPcs weight in gms : ${pcs}\nRunner weight in gms : ${runner}\nCycle time in Sec. : ${cycle}\n\nRemarks:- ${rmk || '—'}`;
+      }
       if (!confirm(`Confirm "${step ? step.label : 'this step'}" for mould ${_mvCurrentMouldNumber}? This cannot be undone (only Admin/Superadmin can reset).`)) return;
       // A remark typed in the box but not yet added is saved first — before this,
       // Confirm silently dropped it, so department remarks were lost.
       const pendingInput = document.getElementById('mvdNoteInput');
-      const pendingNote = (pendingInput && pendingInput.value || '').trim();
+      const pendingNote = qualityNote || (pendingInput && pendingInput.value || '').trim();
       if (pendingNote) {
         try {
           const nr = await JPSMS.api.post(
