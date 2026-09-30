@@ -564,7 +564,11 @@ async function generateReport() {
                 const colourSeq = [];             // ordered per-hour colour  → Colour Change (each purge)
                 let mHasData = false;
 
-                Object.keys(slots).sort().forEach(slot => {
+                // Walk the hours in shift order (07-08 … 12-01, 01-02 … 06-07). A plain .sort() put
+                // 01-02…06-07 first, so the colour sequence ran out of order and over-counted colour changes.
+                const SLOT_ORDER = ['07-08','08-09','09-10','10-11','11-12','12-01','01-02','02-03','03-04','04-05','05-06','06-07'];
+                const slotRank = k => { const i = SLOT_ORDER.indexOf(k); return i < 0 ? 99 : i; };
+                Object.keys(slots).sort((a,b)=>slotRank(a)-slotRank(b)||a.localeCompare(b)).forEach(slot => {
                     let slotEntries = slots[slot];
                     if (!Array.isArray(slotEntries)) slotEntries=[slotEntries];
                     // Deterministic within-hour order (created_at, then id) so the colour picked
