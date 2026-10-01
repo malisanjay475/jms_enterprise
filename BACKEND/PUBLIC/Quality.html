@@ -289,7 +289,10 @@
             const active = OV.holds.filter(h => h.status === 'ACTIVE').length;
             $('hold-badge').textContent = active;
             $('hold-badge').classList.toggle('hidden', !active);
-            ({ dashboard: renderDashboard, compliance: renderCompliance, onlineqc: renderOnlineQC, holds: renderHolds })[currentView]();
+            if (currentView === 'compliance') renderCompliance();
+            else if (currentView === 'onlineqc') renderOnlineQC();
+            else if (currentView === 'holds') renderHolds();
+            else renderDashboard();
         }
 
         /* ================= Filters ================= */
@@ -461,7 +464,7 @@
                     const st = slotState(m.machine, s, i);
                     if (st.kind === 'ok' || st.kind === 'bad') { due++; done++; mDue++; mDone++; if (st.kind === 'bad') bad++; }
                     else if (st.kind === 'miss') { due++; mDue++; missed++; }
-                    const arg = `'${esc(m.machine).replace(/'/g, "\\'")}','${s}'`;
+                    const arg = `'${esc(m.machine).replace(/\\/g, '\\\\').replace(/'/g, "\\'")}','${s}'`;
                     if (st.kind === 'ok') return `<td class="cell"><span class="pill ok done-ok" onclick="showSlot(${arg})" title="${esc(st.entries[0].entered_by || '')}"><i class="bi bi-check-lg"></i></span></td>`;
                     if (st.kind === 'bad') return `<td class="cell"><span class="pill bad" onclick="showSlot(${arg})" title="${esc(entryProblems(st.entries[0]).join(' · '))}"><i class="bi bi-x-lg"></i> Not OK</span></td>`;
                     if (st.kind === 'miss') return `<td class="cell"><span class="pill miss">Missed</span></td>`;
