@@ -1397,6 +1397,8 @@ function escHtml(value) {
             items: [
                 { id: 'qc_dash', label: 'QC Dashboard', icon: 'bi-grid-1x2', href: 'Quality.html?view=dashboard' },
                 { id: 'qc_comp', label: 'Compliance Summary', icon: 'bi-table', href: 'Quality.html?view=compliance' },
+                { id: 'qc_online', label: 'Online QC Report', icon: 'bi-ui-checks-grid', href: 'Quality.html?view=onlineqc' },
+                { id: 'qc_hold', label: 'Hold', icon: 'bi-sign-stop', href: 'Quality.html?view=holds' },
                 { id: 'qc_hour', label: 'Quality Hourly', icon: 'bi-clock-history', href: 'Quality.html?view=hourly' },
                 { id: 'qc_fpa', label: 'FPA', icon: 'bi-clipboard-check', href: 'fpa.html' },
                 { id: 'qc_memo', label: 'MEMO', icon: 'bi-journal-text', href: 'qc_memo.html' },
