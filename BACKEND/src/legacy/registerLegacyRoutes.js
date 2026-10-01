@@ -29984,6 +29984,88 @@ app.get('/api/qc/online-report/list', async (req, res) => {
   }
 });
 
+// 2-hour QC slots (same labels Day 08 AM–08 PM / Night 08 PM–08 AM). Older QC app
+// versions saved the start hour ("08", "14" …) — map those onto the same slots.
+const QC_SLOTS_2H = ['08-10', '10-12', '12-02', '02-04', '04-06', '06-08'];
+const QC_LEGACY_SLOT = { '08': '08-10', '10': '10-12', '12': '12-02', '14': '02-04', '16': '04-06', '18': '06-08' };
+function normalizeQcSlot(s) {
+  const v = String(s || '').trim();
+  return QC_LEGACY_SLOT[v] || v;
+}
+
+// GET /api/qc/overview — everything the Quality page needs for one date/shift:
+// QC app slot checks, running plans, FPAs, memos and holds, machines in the
+// standard DPR Compliance order. One call so Dashboard / Compliance / Online QC /
+// Hold tabs stay consistent.
+app.get('/api/qc/overview', async (req, res) => {
+  try {
+    if (!getRequestUsername(req)) return res.status(401).json({ ok: false, error: 'Login required' });
+    const { date, shift } = req.query;
+    if (!date) return res.json({ ok: false, error: 'date required' });
+    const sh = (shift === 'Day' || shift === 'Night') ? shift : '';
+    const factoryId = getFactoryId(req);
+
+    const [machineRows, slotRows, planRows, fpaRows, memoRows, holdRows] = await Promise.all([
+      q(`SELECT machine, line, building FROM machines
+          WHERE COALESCE(is_active, TRUE) = TRUE
+            AND COALESCE(NULLIF(TRIM(machine_process), ''), 'Moulding') = 'Moulding'
+            AND ($1::int IS NULL OR factory_id = $1)`, [factoryId]),
+      q(`SELECT machine, shift, slot, job_card_no, order_no, item_name, mould_name, colour,
+                visual_status, visual_problem, visual_remarks,
+                colour_status, colour_problem, colour_remarks,
+                ff_status, ff_problem, ff_photo_url, entered_by, entered_at
+           FROM qc_online_report_slots
+          WHERE dpr_date = $1::date AND ($2 = '' OR shift = $2)
+            AND ($3::int IS NULL OR factory_id = $3 OR factory_id IS NULL)`, [date, sh, factoryId]),
+      q(`SELECT machine, plan_id, order_no, item_name, mould_name, status
+           FROM plan_board
+          WHERE UPPER(status) = 'RUNNING'
+            AND ($1::int IS NULL OR factory_id = $1 OR factory_id IS NULL)`, [factoryId]),
+      q(`SELECT id, machine, shift, job_card_no, order_no, item_name, mould_name, plan_id,
+                fpa_done_by, fpa_done_at, COALESCE(fpa_approval_status, 'Pending') AS fpa_approval_status,
+                fpa_reviewed_by, fpa_reject_reason
+           FROM qc_job_checks
+          WHERE fpa_status = 'Done' AND date = $1::date AND ($2 = '' OR shift = $2)
+            AND ($3::int IS NULL OR factory_id = $3 OR factory_id IS NULL)`, [date, sh, factoryId]),
+      q(`SELECT id, memo_no, machine, plan_id, job_card_no, issue_description, severity, status,
+                created_by, created_at, mentioned_name, accepted_by, resolved_by, resolved_at
+           FROM qc_material_issues
+          WHERE memo_no IS NOT NULL
+            AND ((created_at AT TIME ZONE 'Asia/Kolkata')::date = $1::date OR status <> 'SOLVED')
+            AND ($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL)
+          ORDER BY created_at DESC LIMIT 300`, [date, factoryId]),
+      q(`SELECT id, machine, job_card_no, dpr_date, shift, slot, qty_on_hold, reason, remarks,
+                hold_by, hold_at, released_by, released_at, release_remarks, status
+           FROM qc_holds
+          WHERE (status = 'ACTIVE' OR dpr_date = $1::date)
+            AND ($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL)
+          ORDER BY (status = 'ACTIVE') DESC, hold_at DESC LIMIT 300`, [date, factoryId])
+    ]);
+
+    const order = makeMachineOrder(machineRows);
+    const lineOf = new Map(machineRows.map(m => [String(m.machine || '').trim(), String(m.line || m.building || '').trim()]));
+    const slots = slotRows.map(r => ({ ...r, slot: normalizeQcSlot(r.slot) }));
+
+    // Machines to show: every machine with a running plan or a QC entry / FPA / memo / hold today.
+    const names = new Set();
+    planRows.forEach(p => p.machine && names.add(p.machine));
+    [slots, fpaRows, holdRows].forEach(list => list.forEach(r => r.machine && names.add(r.machine)));
+    memoRows.forEach(m => m.machine && names.add(m.machine));
+    const machines = [...names].sort(order).map(m => ({
+      machine: m,
+      line: lineOf.get(String(m).trim()) || 'Other',
+      plan: planRows.find(p => p.machine === m) || null
+    }));
+
+    res.json({
+      ok: true,
+      data: { date, shift: sh, slotLabels: QC_SLOTS_2H, machines, slots, fpa: fpaRows, memos: memoRows, holds: holdRows }
+    });
+  } catch (e) {
+    sendServerError(res, e);
+  }
+});
+
 // POST /api/qc/online-report/slot — upsert one slot's QC check data (with optional photo)
 app.post('/api/qc/online-report/slot', (req, res, next) => {
   uploadQC.single('ff_photo')(req, res, err => {

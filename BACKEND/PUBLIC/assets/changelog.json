@@ -11,8 +11,24 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.82.4",
+  "latest": "1.83.0",
   "versions": [
+    {
+      "version": "1.83.0",
+      "date": "2026-10-01",
+      "title": "New Quality dashboard from QC app data",
+      "modules": [
+        {
+          "app": "quality",
+          "changes": [
+            { "type": "feat", "text": "Quality Dashboard now shows live QC app data: slot compliance, missed slots, Not OK findings, FPA, open memos and holds, with charts by machine, defect, slot and mould." },
+            { "type": "feat", "text": "QC Compliance Summary is 2-hourly like the DPR Compliance Summary: machines grouped by line, each slot OK / Not OK / Due / Missed, with FPA, memo and hold columns." },
+            { "type": "feat", "text": "Online QC Report lists every QC app check slot by slot, with colour, problems and who entered it, plus an Only Not OK filter." },
+            { "type": "feat", "text": "New Hold page under Quality lists QC holds, active first, and lets Quality release them." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.82.4",
       "date": "2026-09-30",
