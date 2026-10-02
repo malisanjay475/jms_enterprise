@@ -4474,10 +4474,17 @@ function saveDataUrlImage(dataUrl, folderName, prefix) {
 
 // Send one file under PUBLIC/uploads/<folder>/ to MAIN as a binary multipart upload
 // (works for large photos and videos). Returns true when MAIN stored it.
-async function pushUploadFileToMain(folder, filename, fullPath) {
+async function pushUploadFileToMain(folderIn, filenameIn) {
   const mainUrl = String(process.env.MAIN_SERVER_URL || '').trim().replace(/\/$/, '');
   const syncKey = String(process.env.SYNC_API_KEY || '').trim();
   if (!mainUrl || !syncKey) return false;
+  // Rebuild the path from cleaned names inside PUBLIC/uploads — never a caller path.
+  const folder = String(folderIn || '').replace(/[^a-zA-Z0-9_-]/g, '');
+  const filename = String(filenameIn || '').replace(/[^a-zA-Z0-9_.\-]/g, '');
+  if (!folder || !filename || filename.startsWith('.')) return false;
+  const root = path.resolve(STATIC_PUBLIC_DIR, 'uploads');
+  const fullPath = path.resolve(root, folder, filename);
+  if (!fullPath.startsWith(root + path.sep) || !fs.existsSync(fullPath)) return false;
   const form = new FormData();
   form.append('folder', folder);
   form.append('filename', filename);
@@ -4500,7 +4507,7 @@ function queueQcUploadsToMain(files) {
       const filename = path.basename(f.path);
       for (let attempt = 1; attempt <= 3; attempt++) {
         try {
-          if (await pushUploadFileToMain(folder, filename, f.path)) break;
+          if (await pushUploadFileToMain(folder, filename)) break;
         } catch (e) {
           if (attempt === 3) console.warn(`[Uploads] Could not push ${folder}/${filename}: ${e.message}`);
         }
@@ -4571,7 +4578,7 @@ async function pushAllUploadsToMain() {
     let failed = 0;
     for (const f of missing) {
       try {
-        if (await pushUploadFileToMain(f.folder, f.filename, f.full)) pushed++; else failed++;
+        if (await pushUploadFileToMain(f.folder, f.filename)) pushed++; else failed++;
       } catch (e) {
         failed++;
         console.warn(`[Uploads] Could not push ${f.folder}/${f.filename}: ${e.message}`);

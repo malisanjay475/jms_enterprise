@@ -872,7 +872,8 @@ router.post('/upload-file', uploadAssetLimiter, (req, res, next) => {
 
 // Which of these files does MAIN not have yet? Lets a LOCAL push only what's missing
 // instead of re-sending every file on every pass. Body: { files: [{ folder, filename }] }.
-router.post('/uploads-missing', (req, res) => {
+const uploadsMissingLimiter = rateLimit({ windowMs: 60 * 1000, max: 60, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many requests' } });
+router.post('/uploads-missing', uploadsMissingLimiter, (req, res) => {
     if (!syncKeyValid(req.get('x-sync-key'))) return res.status(403).json({ error: 'Invalid Key' });
     try {
         const fs = require('fs');
