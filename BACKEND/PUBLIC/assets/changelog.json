@@ -11,8 +11,21 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.87.0",
+  "latest": "1.87.1",
   "versions": [
+    {
+      "version": "1.87.1",
+      "date": "2026-10-02",
+      "title": "QC data reaches the main server",
+      "modules": [
+        {
+          "app": "quality",
+          "changes": [
+            { "type": "fix", "text": "QC app data saved at the factory (2-hour checks, QC One-time Setup, QC shift team, holds) now syncs with the main server, so the online DPR Compliance (QC), Quality page and job details show it too." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.87.0",
       "date": "2026-10-02",
