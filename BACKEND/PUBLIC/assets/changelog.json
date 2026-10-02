@@ -27,6 +27,19 @@
       ]
     },
     {
+      "version": "1.87.3",
+      "date": "2026-10-02",
+      "title": "QC photos reach the main server",
+      "modules": [
+        {
+          "app": "quality",
+          "changes": [
+            { "type": "fix", "text": "QC app photos and memo videos saved at the factory are sent to the main server right away, so they open on the online pages too; anything missed while offline is sent within 30 minutes." }
+          ]
+        }
+      ]
+    },
+    {
       "version": "1.87.2",
       "date": "2026-10-02",
       "title": "QC memos sync",

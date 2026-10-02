@@ -1,6 +1,7 @@
 // fetch is available globally in Node.js 18+ — no require needed
 const express = require('express');
 const rateLimit = require('express-rate-limit');
+const multer = require('multer');
 const { allowedExtension, PRIVATE_UPLOAD_DIRS } = require('../src/app/uploadSafety');
 const { ensureUniqueIndex } = require('../src/db/indexUtils');
 const { sendServerError } = require('../src/app/httpErrors');
@@ -826,6 +827,65 @@ router.post('/upload-asset', uploadAssetLimiter, async (req, res) => {
         res.json({ ok: true, path: `/uploads/${safeFolder}/${safeFilename}` });
     } catch (e) {
         console.error('[Sync] upload-asset failed:', e.message);
+        sendServerError(res, e);
+    }
+});
+
+// Folder/filename as written under PUBLIC/uploads, or null when not allowed (same rules as
+// /upload-asset: plain names, media extensions only, never a private folder).
+function safeUploadTarget(folder, filename) {
+    const safeFolder = String(folder || '').replace(/[^a-zA-Z0-9_-]/g, '');
+    const safeFilename = String(filename || '').replace(/[^a-zA-Z0-9_.\-]/g, '');
+    if (!safeFolder || !safeFilename || safeFilename.startsWith('.')) return null;
+    if (!allowedExtension(safeFilename)) return null;
+    if (PRIVATE_UPLOAD_DIRS.some((d) => d.prefix === `/uploads/${safeFolder.toLowerCase()}/`)) return null;
+    return { folder: safeFolder, filename: safeFilename };
+}
+const MAIN_UPLOADS_ROOT = require('path').join(__dirname, '..', 'PUBLIC', 'uploads');
+
+// Binary upload of one file from a LOCAL (QC photos and memo videos). Multipart, so large
+// photos and videos fit (the JSON/base64 /upload-asset path is capped by the 10 MB JSON
+// body limit). Key in the x-sync-key header.
+const uploadFileFromLocal = multer({ storage: multer.memoryStorage(), limits: { fileSize: 60 * 1024 * 1024, files: 1 } });
+router.post('/upload-file', uploadAssetLimiter, (req, res, next) => {
+    if (!syncKeyValid(req.get('x-sync-key'))) return res.status(403).json({ error: 'Invalid Key' });
+    uploadFileFromLocal.single('file')(req, res, (err) => {
+        if (err) return res.status(400).json({ error: err.message || 'Upload error' });
+        next();
+    });
+}, (req, res) => {
+    try {
+        const t = safeUploadTarget(req.body && req.body.folder, req.body && req.body.filename);
+        if (!t) return res.status(400).json({ error: 'File not allowed' });
+        if (!req.file || !req.file.buffer) return res.status(400).json({ error: 'Missing file' });
+        const fs = require('fs');
+        const path = require('path');
+        const dir = path.join(MAIN_UPLOADS_ROOT, t.folder);
+        fs.mkdirSync(dir, { recursive: true });
+        fs.writeFileSync(path.join(dir, t.filename), req.file.buffer);
+        res.json({ ok: true, path: `/uploads/${t.folder}/${t.filename}` });
+    } catch (e) {
+        console.error('[Sync] upload-file failed:', e.message);
+        sendServerError(res, e);
+    }
+});
+
+// Which of these files does MAIN not have yet? Lets a LOCAL push only what's missing
+// instead of re-sending every file on every pass. Body: { files: [{ folder, filename }] }.
+const uploadsMissingLimiter = rateLimit({ windowMs: 60 * 1000, max: 60, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many requests' } });
+router.post('/uploads-missing', uploadsMissingLimiter, (req, res) => {
+    if (!syncKeyValid(req.get('x-sync-key'))) return res.status(403).json({ error: 'Invalid Key' });
+    try {
+        const fs = require('fs');
+        const path = require('path');
+        const list = Array.isArray(req.body && req.body.files) ? req.body.files.slice(0, 1000) : [];
+        const missing = [];
+        for (const f of list) {
+            const t = safeUploadTarget(f && f.folder, f && f.filename);
+            if (t && !fs.existsSync(path.join(MAIN_UPLOADS_ROOT, t.folder, t.filename))) missing.push(t);
+        }
+        res.json({ ok: true, missing });
+    } catch (e) {
         sendServerError(res, e);
     }
 });

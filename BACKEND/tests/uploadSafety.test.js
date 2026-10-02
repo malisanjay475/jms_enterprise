@@ -155,6 +155,38 @@ describe('sync upload-asset', () => {
       .send({ apiKey: 'k', folder: 'interviews', filename: 'cv.png', data: Buffer.from('x').toString('base64') });
     expect(res.status).toBe(400);
   });
+
+  it('upload-file needs the sync key', async () => {
+    const res = await request(mountSync()).post('/api/sync/upload-file')
+      .set('x-sync-key', 'wrong').field('folder', 'qc-images').field('filename', 'a.jpg')
+      .attach('file', Buffer.from('x'), 'a.jpg');
+    expect(res.status).toBe(403);
+  });
+
+  it.each([['qc-images', 'evil.svg'], ['interviews', 'cv.png'], ['qc-images', '.hidden.jpg']])(
+    'upload-file rejects %s/%s', async (folder, filename) => {
+      const res = await request(mountSync()).post('/api/sync/upload-file')
+        .set('x-sync-key', 'k').field('folder', folder).field('filename', filename)
+        .attach('file', Buffer.from('x'), 'f.bin');
+      expect(res.status).toBe(400);
+    });
+
+  it('uploads-missing lists only allowed files MAIN does not have', async () => {
+    const res = await request(mountSync()).post('/api/sync/uploads-missing')
+      .set('x-sync-key', 'k')
+      .send({ files: [
+        { folder: 'qc-images', filename: 'not-on-main-123456.jpg' },
+        { folder: 'qc-images', filename: 'evil.svg' },
+        { folder: 'interviews', filename: 'cv.png' }
+      ] });
+    expect(res.status).toBe(200);
+    expect(res.body.missing).toEqual([{ folder: 'qc-images', filename: 'not-on-main-123456.jpg' }]);
+  });
+
+  it('uploads-missing needs the sync key', async () => {
+    const res = await request(mountSync()).post('/api/sync/uploads-missing').send({ files: [] });
+    expect(res.status).toBe(403);
+  });
 });
 
 describe('QC APK temp upload is never served', () => {
