@@ -11,8 +11,22 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.88.1",
+  "latest": "1.89.0",
   "versions": [
+    {
+      "version": "1.89.0",
+      "date": "2026-10-02",
+      "title": "Order Master at a glance",
+      "modules": [
+        {
+          "app": "masters",
+          "changes": [
+            { "type": "feat", "text": "Order Master shows count cards for open, not planned, partially planned, fully planned and job-card-overdue orders. Click a card to show only those orders." },
+            { "type": "improvement", "text": "Each order shows a progress bar for how many moulds are planned, unplanned orders are marked 'Not Planned' in red, and late job card dates are highlighted." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.88.1",
       "date": "2026-10-02",

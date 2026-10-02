@@ -13,6 +13,11 @@ part of your PR. On release, the `[Unreleased]` items move under the new version
 
 ## [Unreleased]
 
+### Added
+- Order Master redesign (v1.89.0): count cards (open / not planned / partial / fully planned /
+  job card overdue) that act as quick filters, a mould plan progress bar, red "Not Planned"
+  status, and late job card dates highlighted. Client-side only; no API change.
+
 ### Fixed
 - Order Master / OR-JR Status showed another plant's orders (JR/JP in Dungra) (v1.88.1). The ERP
   import trusted the ERP factoryID over the OR/JR plant code; the plant code now wins when it maps

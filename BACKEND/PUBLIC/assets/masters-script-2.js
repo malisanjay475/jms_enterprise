@@ -113,6 +113,24 @@
     let currentView = 'active'; // 'active' or 'closed'
     let allowedFactories = [];
     let currentFactoryScope = { id: null, name: '', isAll: false };
+    let orderQuickFilter = 'all';
+
+    // 'pending' | 'partial' | 'full' from the server's plan_status.
+    function orderPlanBucket(row) {
+      const st = String(row.plan_status || '');
+      if (st === 'Fully Planned') return 'full';
+      if (st === 'Partially Planned') return 'partial';
+      return 'pending';
+    }
+
+    // Job card date has passed and the order is still not fully planned.
+    function isOrderJobCardOverdue(row) {
+      if (!row.job_card_date || orderPlanBucket(row) === 'full') return false;
+      const d = new Date(row.job_card_date);
+      if (isNaN(d)) return false;
+      const today = new Date(); today.setHours(0, 0, 0, 0);
+      return d < today;
+    }
     let currentWriteScope = { id: null, name: '', isAll: false };
     let currentMachineIconBase64 = null;
     const templateSupportedTypes = ['orders', 'moulds', 'machines', 'orjr', 'orjrwise', 'orjrwisedetail', 'jcdetails', 'boplanningdetail', 'wipstock'];
@@ -1369,6 +1387,27 @@
           }
         }
 
+        // Order Master insights: count cards double as quick filters.
+        const insightsEl = document.getElementById('orderInsights');
+        if (insightsEl) insightsEl.style.display = currentType === 'orders' ? 'block' : 'none';
+        if (currentType === 'orders') {
+          const counts = { all: rows.length, pending: 0, partial: 0, full: 0, overdue: 0 };
+          for (const r of rows) {
+            counts[orderPlanBucket(r)]++;
+            if (isOrderJobCardOverdue(r)) counts.overdue++;
+          }
+          const setKpi = (id, n) => { const el = document.getElementById(id); if (el) el.textContent = n.toLocaleString('en-IN'); };
+          setKpi('omKpiAll', counts.all); setKpi('omKpiPending', counts.pending);
+          setKpi('omKpiPartial', counts.partial); setKpi('omKpiFull', counts.full);
+          setKpi('omKpiOverdue', counts.overdue);
+          document.querySelectorAll('#orderInsights .om-kpi').forEach(b => {
+            b.classList.toggle('active', b.dataset.filter === orderQuickFilter);
+            b.onclick = () => { orderQuickFilter = b.dataset.filter; loadMasterData(); };
+          });
+          if (orderQuickFilter === 'overdue') rows = rows.filter(isOrderJobCardOverdue);
+          else if (orderQuickFilter !== 'all') rows = rows.filter(r => orderPlanBucket(r) === orderQuickFilter);
+        }
+
         if (!rows.length) {
           document.querySelector('#masterTable tbody').innerHTML = '<tr><td colspan="5" class="text-center p-3">No records found.</td></tr>';
           return;
@@ -1744,6 +1783,7 @@
 
               if (text === 'Fully Planned') color = '#16a34a'; // Green
               else if (text === 'Partially Planned') color = '#f59e0b'; // Orange
+              else if (currentType === 'orders') { color = '#dc2626'; text = 'Not Planned'; }
 
               return `<span style="background:${color}; color:white; padding:2px 8px; border-radius:12px; font-size:0.75rem; white-space:nowrap; font-weight:600">${text}</span>`;
             };
@@ -1774,7 +1814,10 @@
             base.render = function (data, type, row) {
               const p = row.planned_count || 0;
               const r = row.required_count || 0;
-              return `<span style="font-weight:bold; font-size:0.85rem; color:#334155">${p} / ${r}</span>`;
+              if (type !== 'display') return r ? p / r : 0;
+              const pct = r ? Math.min(100, Math.round((p / r) * 100)) : (p ? 100 : 0);
+              const fill = pct >= 100 ? '#16a34a' : pct > 0 ? '#f59e0b' : '#dc2626';
+              return `<span class="om-bar" title="${pct}% of moulds planned"><i style="width:${pct}%; background:${fill}"></i></span><span style="font-weight:bold; font-size:0.85rem; color:#334155">${p} / ${r}</span>`;
             };
           }
 
@@ -1918,7 +1961,7 @@
 
           // Date Formatting
           if ((c.includes('date') || c.includes('dob') || c.includes('time')) && !['cycle_time', 'mould_load_time', 'mould_unload_time'].includes(c) && !['actions', 'plan_status'].includes(c)) {
-            base.render = function (data, type) {
+            base.render = function (data, type, row) {
               if (type === 'sort' || type === 'type') {
                 // For sorting, return numeric timestamp if possible, or ISO string
                 if (!data) return -Infinity; // Push nulls to bottom/top
@@ -1927,7 +1970,12 @@
               // Display/Filter
               if (!data) return '';
               const d = new Date(data);
-              return isNaN(d.getTime()) ? data : moment(d).format('DD-MMM-YYYY');
+              if (isNaN(d.getTime())) return data;
+              const shown = moment(d).format('DD-MMM-YYYY');
+              if (type === 'display' && c === 'job_card_date' && currentType === 'orders' && isOrderJobCardOverdue(row)) {
+                return `<span style="color:#dc2626; font-weight:700" title="Job card date passed, order not fully planned">${shown} · late</span>`;
+              }
+              return shown;
             };
           }
 
