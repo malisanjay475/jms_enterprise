@@ -23,6 +23,25 @@ object Ist {
         return SimpleDateFormat("yyyy-MM-dd", Locale.US).apply { timeZone = zone }.format(cal.time)
     }
 
+    /**
+     * Production date + shift for "now" (same rule as supervisor.html): the
+     * shift changes at 08:10 and 20:10 IST, and before 08:10 it is still the
+     * previous day's Night shift — so a Night entry made after midnight keeps
+     * the date the shift started on.
+     */
+    fun production(): Pair<String, String> {
+        val cal = Calendar.getInstance(zone)
+        val mins = cal.get(Calendar.HOUR_OF_DAY) * 60 + cal.get(Calendar.MINUTE)
+        return when {
+            mins in 490 until 1210 -> date() to "Day"
+            mins < 490 -> yesterday() to "Night"
+            else -> date() to "Night"
+        }
+    }
+
+    fun productionDate(): String = production().first
+    fun productionShift(): String = production().second
+
     fun shift(): String {
         val hour = Calendar.getInstance(zone).get(Calendar.HOUR_OF_DAY)
         return if (hour in 6..17) "Day" else "Night"
