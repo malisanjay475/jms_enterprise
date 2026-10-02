@@ -1189,8 +1189,17 @@
                 // sticky column header, one card per line with the shift team strip, one block
                 // per machine) but filled from the QC app: six 2-hour checks per shift, the QC
                 // One-time Setup, FPA, memos and holds, and the QC team saved per line.
-                const loadQcDprSummary = async (container, fromDate, toDate, shiftMode) => {
+                const loadQcDprSummary = async (container, fromDateIn, toDateIn, shiftModeIn) => {
                     const esc = dprEscHtml;
+                    // Inputs come from the filter bar: keep only a fixed shift name and
+                    // dates rebuilt from numbers, so nothing typed reaches the HTML.
+                    const shiftMode = shiftModeIn === 'Both' ? 'Both' : shiftModeIn === 'Night' ? 'Night' : 'Day';
+                    const isoDay = v => {
+                        const m = String(v || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+                        return m ? new Date(Date.UTC(+m[1], +m[2] - 1, +m[3])).toISOString().slice(0, 10) : localToday();
+                    };
+                    const fromDate = isoDay(fromDateIn);
+                    const toDate = isoDay(toDateIn || fromDateIn);
                     const selectedFactory = document.getElementById('s-factory')?.value || '';
                     container.innerHTML = `<div style="padding:40px; text-align:center; color:#64748b"><i class="bi bi-arrow-repeat spin" style="font-size:2rem;display:block;margin-bottom:10px"></i> Loading QC Matrix...</div>`;
                     let res, memoRes;
@@ -1209,7 +1218,7 @@
                     }
                     const D = res.data || {};
                     const SL = D.slotLabels || ['08-10', '10-12', '12-02', '02-04', '04-06', '06-08'];
-                    const shifts = shiftMode === 'Both' ? ['Day', 'Night'] : [shiftMode];
+                    const shifts = shiftMode === 'Both' ? ['Day', 'Night'] : shiftMode === 'Night' ? ['Night'] : ['Day'];
                     const memoBy = {};
                     ((memoRes && memoRes.ok && memoRes.data) || []).forEach(mo => { if (mo && mo.machine) (memoBy[mo.machine] = memoBy[mo.machine] || []).push(mo); });
 
@@ -1375,7 +1384,7 @@
                                            </div>`
                                         : '<div style="font-size:0.8rem; color:#94a3b8; font-style:italic">No running plan</div>';
                                     mHtml += `<tr style="${sIdx === 0 ? 'border-top:2px solid #cbd5e1' : ''}">
-                                        <td data-dpr-machine="${esc(machine)}" data-dpr-shift="${sh}" data-dpr-date="${date}" style="padding:6px 8px; text-align:left; border-right:1px solid #f1f5f9; border-bottom:1px solid #e2e8f0; background:#fff; vertical-align:middle">
+                                        <td data-dpr-machine="${esc(machine)}" data-dpr-shift="${esc(sh)}" data-dpr-date="${esc(date)}" style="padding:6px 8px; text-align:left; border-right:1px solid #f1f5f9; border-bottom:1px solid #e2e8f0; background:#fff; vertical-align:middle">
                                             <div style="font-size:0.75rem; text-transform:uppercase; letter-spacing:0.5px; font-weight:700; margin-bottom:6px; color:#64748b">${label}</div>${jobHtml}
                                         </td>
                                         <td style="padding:6px 4px; border-right:2px solid #e2e8f0; border-bottom:1px solid #e2e8f0; vertical-align:middle; font-size:0.78rem">${setupCell}</td>
