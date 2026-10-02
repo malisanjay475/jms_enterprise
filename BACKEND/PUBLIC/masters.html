@@ -520,6 +520,10 @@
             <div id="factoryScopeNote" class="scope-note">
               Select a factory scope to load and export data.
             </div>
+            <label id="otherFactoryToggleWrap" class="scope-note" style="display:none;cursor:pointer">
+              <input type="checkbox" id="showOtherFactoryOrders" onchange="loadMasterData()">
+              Show other factories' OR/JR (e.g. JR/JP in Dungra)
+            </label>
           </div>
         </div>
 
@@ -1036,7 +1040,7 @@
     }
   </style>
 
-  <script src="/assets/masters-script-2.js?v=release103"></script>
+  <script src="/assets/masters-script-2.js?v=release104"></script>
 
   <!-- Machine CRUD Modal -->
   <div id="machineModal" class="modal"

@@ -20172,6 +20172,18 @@ const OR_JR_ERP_PREVIEW_ROW_CAP = Math.max(
 const ERP_PREVIEW_SELECT_COLUMNS = OR_JR_ERP_IMPORT_COLUMNS.map(c => `"${c}"`).join(', ');
 
 // Plant code = 2nd segment of the OR/JR no: 'JR/JG/2526/1' -> 'JG'.
+// SQL predicate: TRUE when the OR/JR no's plant code (JR/JP/... -> JP) belongs to a
+// factory OTHER than the row's own factory_id. Used to hide another plant's orders
+// that were mis-filed under this factory (pass ?include_other_factory=1 to show them).
+function otherFactoryPlantCodeSql(noCol, factoryCol) {
+  return `EXISTS (
+    SELECT 1 FROM factories pf
+     WHERE pf.id <> COALESCE(${factoryCol}, 0)
+       AND UPPER(SPLIT_PART(TRIM(COALESCE(${noCol}, '')), '/', 2))
+           = ANY(string_to_array(UPPER(REPLACE(COALESCE(pf.plant_codes, ''), ' ', '')), ','))
+  )`;
+}
+
 function erpPlantCodeFromOrJrNo(orJrNo) {
   const parts = String(orJrNo || '').split('/');
   return parts.length > 1 ? parts[1].trim().toUpperCase() : '';
@@ -20202,6 +20214,11 @@ async function loadErpFactoryMap() {
 //   'other'      -> belongs to a different factory, skip
 //   'unresolved' -> cannot be determined, skip and report
 function classifyErpRowFactory(erpRow, factoryId, map) {
+  // The plant code in the OR/JR no (JR/JP/... = Kachigam) is authoritative when it
+  // names a known factory: the ERP has reported other plants' JRs under Dungra's
+  // factoryID, which filed JR/JP orders into Dungra's Order Master.
+  const codeOwner = map.byPlantCode.get(erpPlantCodeFromOrJrNo(erpRow.or_jr_no));
+  if (codeOwner) return Number(codeOwner.id) === Number(factoryId) ? 'match' : 'other';
   const rawErpFactory = erpRow.factory_id;
   if (rawErpFactory !== null && rawErpFactory !== undefined && String(rawErpFactory).trim() !== '') {
     const owner = map.byErpId.get(Number(rawErpFactory));
@@ -21583,6 +21600,9 @@ app.get('/api/reports/or-jr-full', async (req, res) => {
 
     // Factory Isolation
     applyFactoryScopeCondition(conditions, params, 'factory_id', factoryScope);
+    if (String(req.query.include_other_factory || '') !== '1') {
+      conditions.push(`NOT ${otherFactoryPlantCodeSql('or_jr_no', 'factory_id')}`);
+    }
 
     // Global Search override (If searching, ignore dates to ensure we find the record)
     if (search) {
@@ -26915,6 +26935,9 @@ WHEN(SELECT COUNT(DISTINCT pb.mould_name) FROM plan_board pb WHERE pb.order_no =
     if (type === 'orders') {
       const conditions = [];
       applyFactoryScopeCondition(conditions, params, 'o.factory_id', factoryScope);
+      if (String(req.query.include_other_factory || '') !== '1') {
+        conditions.push(`NOT ${otherFactoryPlantCodeSql('o.order_no', 'o.factory_id')}`);
+      }
       if (conditions.length) {
         sql += ` AND ${conditions.join(' AND ')} `;
       }
