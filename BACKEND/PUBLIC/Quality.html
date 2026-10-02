@@ -450,7 +450,6 @@
             let due = 0, done = 0, bad = 0, missed = 0;
             let html = `<div class="q-scroll"><table class="q-table"><thead><tr>
                 <th style="min-width:200px">Machine</th>
-                <th style="min-width:150px">QC Team</th>
                 ${OV.slotLabels.map(s => `<th class="cell">${esc(slotLabel(s, shift))}</th>`).join('')}
                 <th class="cell">Done</th><th class="cell">FPA</th><th class="cell">Memo</th><th class="cell">Hold</th></tr></thead><tbody>`;
             let lastLine = null;
@@ -458,7 +457,18 @@
                 if (m.line !== lastLine) {
                     lastLine = m.line;
                     const inLine = ms.filter(x => x.line === m.line);
-                    html += `<tr class="line-row"><td colspan="${OV.slotLabels.length + 6}">${esc(m.line)} <span style="font-weight:600;opacity:.8">· ${inLine.length} machine${inLine.length === 1 ? '' : 's'}</span></td></tr>`;
+                    // QC team per line (QC app saves it per line; older per-machine names also count).
+                    const lineMs = new Set(inLine.map(x => x.machine));
+                    const pick = role => {
+                        const hit = (OV.team || []).filter(t => lineMs.has(t.machine) && (!OV.shift || t.shift === OV.shift)
+                            && String(t.role || '').toLowerCase().includes(role) && String(t.employee_name || '').trim());
+                        return hit.length ? hit[hit.length - 1].employee_name : '';
+                    };
+                    const sup = pick('supervisor'), inc = pick('incharge');
+                    const teamTxt = (sup || inc)
+                        ? `QC Supervisor: <b>${esc(sup || '—')}</b> · QC Incharge: <b>${esc(inc || '—')}</b>`
+                        : '<span style="color:var(--q-bad);font-style:italic">QC team not entered</span>';
+                    html += `<tr class="line-row"><td colspan="${OV.slotLabels.length + 5}">${esc(m.line)} <span style="font-weight:600;opacity:.8">· ${inLine.length} machine${inLine.length === 1 ? '' : 's'}</span> <span style="font-weight:500;margin-left:12px">${teamTxt}</span></td></tr>`;
                 }
                 let mDue = 0, mDone = 0;
                 const cells = OV.slotLabels.map((s, i) => {
@@ -483,18 +493,8 @@
                 const hold = OV.holds.find(h => h.machine === m.machine && h.status === 'ACTIVE');
                 const holdCell = hold ? `<span class="tag bad" style="cursor:pointer" onclick="switchView('holds')">ON HOLD</span>` : '<span class="tag grey">—</span>';
                 const pctTxt = mDue ? `${mDone}/${mDue}` : '—';
-                // Latest saved name per role for this machine (QC app "QC Shift Team").
-                const teamOf = role => {
-                    const hit = (OV.team || []).filter(t => t.machine === m.machine && (!OV.shift || t.shift === OV.shift)
-                        && String(t.role || '').toLowerCase().includes(role) && String(t.employee_name || '').trim());
-                    return hit.length ? hit[hit.length - 1].employee_name : '';
-                };
-                const sup = teamOf('supervisor'), inc = teamOf('incharge');
-                const teamCell = (sup || inc)
-                    ? `<div class="mc-sub"><b>Sup:</b> ${esc(sup || '—')}</div><div class="mc-sub"><b>Inch:</b> ${esc(inc || '—')}</div>`
-                    : '<span class="tag grey">—</span>';
                 html += `<tr><td><div class="mc">${esc(m.machine)}</div><div class="mc-sub">${esc(m.plan ? (m.plan.item_name || m.plan.mould_name || '') : 'No running plan')}</div></td>
-                    <td>${teamCell}</td>${cells}<td class="cell" style="font-weight:700;color:${mDue && mDone < mDue ? 'var(--q-bad)' : 'var(--q-ok)'}">${pctTxt}</td>
+                    ${cells}<td class="cell" style="font-weight:700;color:${mDue && mDone < mDue ? 'var(--q-bad)' : 'var(--q-ok)'}">${pctTxt}</td>
                     <td class="cell">${fpaCell}</td><td class="cell">${memoCell}</td><td class="cell">${holdCell}</td></tr>`;
             });
             html += '</tbody></table></div>';
