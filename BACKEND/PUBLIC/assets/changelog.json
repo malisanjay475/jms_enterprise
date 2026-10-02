@@ -11,8 +11,22 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.83.3",
+  "latest": "1.84.0",
   "versions": [
+    {
+      "version": "1.84.0",
+      "date": "2026-10-02",
+      "title": "QC shift team per line",
+      "modules": [
+        {
+          "app": "quality",
+          "changes": [
+            { "type": "feat", "text": "QC app 1.4.0 opens on the QC Shift Team screen: save the QC Supervisor and QC Incharge for your line(s) once per shift; Inspection, FPA, Memo and Verify unlock after that." },
+            { "type": "feat", "text": "The QC shift team is now saved per line (like Moulding), not per machine; the QC Compliance Summary shows the line team for every machine on that line." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.83.3",
       "date": "2026-10-02",

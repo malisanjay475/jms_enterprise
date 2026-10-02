@@ -157,6 +157,16 @@ interface ApiService {
     @POST("api/qc/job-setup")
     suspend fun saveJobSetup(@Body body: JobSetupSaveRequest): ApiEnvelope
 
+    @GET("api/qc/line-team")
+    suspend fun lineTeam(
+        @Query("date") date: String,
+        @Query("shift") shift: String,
+        @Query("line_access") lineAccess: String
+    ): LineTeamResponse
+
+    @POST("api/qc/line-team")
+    suspend fun saveLineTeam(@Body body: LineTeamSaveRequest): ApiEnvelope
+
     @GET("api/qc/shift-team")
     suspend fun shiftTeam(
         @Query("machine") machine: String,
