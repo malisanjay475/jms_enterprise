@@ -768,12 +768,6 @@
       }
       JPSMS.renderShell(params.get('context') || 'masters');
 
-      /* Show "Confirm All" button only for Superadmin on Orders view */
-      const confirmAllBtn = document.getElementById('confirmAllBtn');
-      if (confirmAllBtn && currentType === 'orders' && JPSMS.auth.isSuperadmin()) {
-        confirmAllBtn.style.display = 'inline-flex';
-      }
-
       setupUI(currentType, currentView);
       await initializeFactoryScope();
 
@@ -1566,7 +1560,7 @@
 
           // Action & Plan Status are UI helpers, we keep them but then follow strict data order.
           // Added confirmation workflow columns so completed OR/JR changes stay visible until confirmed.
-          cols = ['action', 'priority', 'plan_status', 'status_change', 'confirmation_action', 'factory_name', 'mould_progress', ...orJrCols.filter(c => c !== 'factory_name')];
+          cols = ['action', 'priority', 'plan_status', 'factory_name', 'mould_progress', ...orJrCols.filter(c => c !== 'factory_name')];
         } else if (currentType === 'machines' && JPSMS.auth.can('masters', 'edit')) {
           if (!cols.includes('actions')) cols.unshift('actions');
         } else if (currentType === 'moulds') {
@@ -2028,16 +2022,11 @@
                 return `<span style="color:#94a3b8; font-size:0.74rem; white-space:nowrap;">${getWriteLockShortHint()}</span>`;
               }
               const orderNo = row.or_jr_no || row.order_no || '';
-              const awaitingConfirmation = row.completion_confirmation_required === true;
 
               return `<div style="display:flex; gap:4px">
-                     ${awaitingConfirmation
-                  ? `<span style="display:inline-flex; align-items:center; justify-content:center; min-width:34px; padding:4px 8px; border-radius:10px; background:#fff7ed; color:#c2410c; border:1px solid #fed7aa;" title="Awaiting completion confirmation">
-                              <i class="bi bi-hourglass-split"></i>
-                            </span>`
-                  : `<a href="planning.html?order=${orderNo}" class="btn-action" style="padding:4px 8px; background:#2563eb; color:white; text-decoration:none;" title="Create Plan">
-                              <i class="bi bi-calendar-plus"></i>
-                            </a>`}
+                     <a href="planning.html?order=${orderNo}" class="btn-action" style="padding:4px 8px; background:#2563eb; color:white; text-decoration:none;" title="Create Plan">
+                        <i class="bi bi-calendar-plus"></i>
+                     </a>
                      <button onclick="openOrderDetail('${orderNo}')" class="btn-action" style="padding:4px 8px; background:#f8fafc; color:#475569; border:1px solid #cbd5e1" title="View Detail">
                         <i class="bi bi-eye"></i>
                      </button>
