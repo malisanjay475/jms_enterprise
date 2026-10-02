@@ -11,8 +11,21 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.90.1",
+  "latest": "1.91.0",
   "versions": [
+    {
+      "version": "1.91.0",
+      "date": "2026-10-02",
+      "title": "Completed orders leave Order Master automatically",
+      "modules": [
+        {
+          "app": "masters",
+          "changes": [
+            { "type": "improvement", "text": "When the MLD Status of an order is Completed in OR-JR Status, the order now leaves Order Master on its own at the next ERP sync. There is no more 'waiting for confirmation' step, and the Status Change, Confirmation and Confirm All controls are removed." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.90.1",
       "date": "2026-10-02",

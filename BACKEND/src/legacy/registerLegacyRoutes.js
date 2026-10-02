@@ -4054,6 +4054,9 @@ async function syncOrderCompletionConfirmations(db = pool, { factoryId = null, a
           BOOL_AND(
             COALESCE(TRIM(LOWER(mld_status)), '') IN ('cancelled', 'canceled', 'cancel')
           ) AS all_cancelled,
+          BOOL_AND(
+            COALESCE(TRIM(LOWER(mld_status)), '') IN ('completed', 'complete', 'cancelled', 'canceled', 'cancel')
+          ) AS all_terminal,
           BOOL_OR(COALESCE(is_closed, FALSE)) AS any_closed,
           ARRAY_REMOVE(ARRAY_AGG(DISTINCT NULLIF(TRIM(mld_status), '')), NULL) AS mould_statuses,
           COUNT(*) AS row_count
@@ -4188,150 +4191,47 @@ async function syncOrderCompletionConfirmations(db = pool, { factoryId = null, a
       continue;
     }
 
-    if (group.all_completed) {
-      // GATE: MLD being fully completed is necessary but NOT sufficient to move
-      // the order into Order Completion History. It must ALSO be fully planned
-      // against OR Qty, every job card must have a Job Card No, and every unique
-      // Job Plan id must be linked in the OR-JR remarks. Until then, keep the
-      // order active (fall through to the clear logic so any stale completion
-      // flag is removed) so it still appears in Order Master / Create Plan.
-      const planning = await getOrderPlanningCompletion(db, orderNo, groupFactoryId);
-      if (planning.planningComplete) {
-      const change = {
-        field: 'MLD Status',
-        to: 'Completed',
-        summary: 'MLD Status changed to Completed'
-      };
-      const sourceSnapshot = {
-        row_count: Number(group.row_count || 0),
-        any_closed: group.any_closed === true,
-        mould_statuses: Array.isArray(group.mould_statuses) ? group.mould_statuses : [],
-        representative: {
-          item_code: normalizeOptionalText(group.item_code),
-          product_name: normalizeOptionalText(group.product_name),
-          client_name: normalizeOptionalText(group.client_name),
-          plan_qty: group.plan_qty ?? null
+    // Every OR/JR row is finished (Completed, or a mix of Completed and Cancelled):
+    // the order leaves Order Master straight away. No confirmation step and no
+    // planning gate — a completed MLD must not keep the order on the board.
+    if (group.all_completed || group.all_terminal === true) {
+      if (!existing) continue; // never on the board — nothing to remove
+      if (String(existing.status || '').toLowerCase() === 'completed'
+        && existing.completion_confirmation_required !== true) continue;
+
+      await db.query(
+        `UPDATE orders
+            SET status = 'Completed',
+                completion_confirmation_required = FALSE,
+                completion_change_field = 'MLD Status',
+                completion_change_to = 'Completed',
+                completion_change_summary = NULL,
+                completion_detected_at = COALESCE(completion_detected_at, NOW()),
+                completion_source_snapshot = '{}'::jsonb,
+                completion_confirmed_at = NOW(),
+                completion_confirmed_by = $2,
+                updated_at = NOW()
+          WHERE id = $1`,
+        [existing.id, actorName]
+      );
+
+      await insertOrderCompletionHistory(db, {
+        orderNo,
+        factoryId: groupFactoryId,
+        actionType: 'AUTO_COMPLETED',
+        changeField: 'MLD Status',
+        changeTo: 'Completed',
+        summaryText: 'MLD Status Completed: order removed from Order Master automatically.',
+        masterStatusBefore: existing.status,
+        masterStatusAfter: 'Completed',
+        actorName,
+        details: {
+          row_count: Number(group.row_count || 0),
+          mould_statuses: Array.isArray(group.mould_statuses) ? group.mould_statuses : []
         }
-      };
-
-      if (!existing) {
-        await db.query(
-          `INSERT INTO orders(
-            order_no,
-            item_code,
-            item_name,
-            client_name,
-            qty,
-            priority,
-            status,
-            created_at,
-            updated_at,
-            factory_id,
-            completion_confirmation_required,
-            completion_change_field,
-            completion_change_to,
-            completion_change_summary,
-            completion_detected_at,
-            completion_source_snapshot,
-            completion_confirmed_at,
-            completion_confirmed_by
-          ) VALUES(
-            $1, $2, $3, $4, $5, 'Normal', 'Pending', NOW(), NOW(), $6,
-            TRUE, $7, $8, $9, NOW(), $10::jsonb, NULL, NULL
-          )`,
-          [
-            orderNo,
-            normalizeOptionalText(group.item_code),
-            normalizeOptionalText(group.product_name),
-            normalizeOptionalText(group.client_name),
-            toNum(group.plan_qty),
-            groupFactoryId,
-            change.field,
-            change.to,
-            change.summary,
-            JSON.stringify(sourceSnapshot)
-          ]
-        );
-
-        await insertOrderCompletionHistory(db, {
-          orderNo,
-          factoryId: groupFactoryId,
-          actionType: 'DETECTED',
-          changeField: change.field,
-          changeTo: change.to,
-          summaryText: change.summary,
-          masterStatusBefore: null,
-          masterStatusAfter: 'Pending',
-          actorName,
-          details: sourceSnapshot
-        });
-        flagged++;
-        continue;
-      }
-
-      const alreadyConfirmed = String(existing.status || '').toLowerCase() === 'completed'
-        && !!existing.completion_confirmed_at
-        && existing.completion_confirmation_required !== true;
-
-      if (alreadyConfirmed) {
-        continue;
-      }
-
-      const alreadyPendingSameChange = existing.completion_confirmation_required === true
-        && String(existing.completion_change_summary || '') === change.summary
-        && String(existing.status || '').toLowerCase() !== 'completed';
-
-      if (!alreadyPendingSameChange) {
-        await db.query(
-          `UPDATE orders
-              SET item_code = COALESCE($2, item_code),
-                  item_name = COALESCE($3, item_name),
-                  client_name = COALESCE($4, client_name),
-                  qty = COALESCE($5, qty),
-                  factory_id = COALESCE($6, factory_id),
-                  status = 'Pending',
-                  completion_confirmation_required = TRUE,
-                  completion_change_field = $7,
-                  completion_change_to = $8,
-                  completion_change_summary = $9,
-                  completion_detected_at = NOW(),
-                  completion_source_snapshot = $10::jsonb,
-                  completion_confirmed_at = NULL,
-                  completion_confirmed_by = NULL,
-                  updated_at = NOW()
-            WHERE id = $1`,
-          [
-            existing.id,
-            normalizeOptionalText(group.item_code),
-            normalizeOptionalText(group.product_name),
-            normalizeOptionalText(group.client_name),
-            toNum(group.plan_qty),
-            groupFactoryId,
-            change.field,
-            change.to,
-            change.summary,
-            JSON.stringify(sourceSnapshot)
-          ]
-        );
-
-        await insertOrderCompletionHistory(db, {
-          orderNo,
-          factoryId: groupFactoryId,
-          actionType: 'DETECTED',
-          changeField: change.field,
-          changeTo: change.to,
-          summaryText: change.summary,
-          masterStatusBefore: existing.status,
-          masterStatusAfter: 'Pending',
-          actorName,
-          details: sourceSnapshot
-        });
-        flagged++;
-      }
-
+      });
+      flagged++;
       continue;
-      }
-      // planning not complete -> fall through to clear-stale-flag logic below.
     }
 
     if (!existing) continue;
@@ -22081,7 +21981,7 @@ WHERE
   (
     mld_status IS NULL
             OR TRIM(mld_status) = ''
-            OR TRIM(LOWER(mld_status)) NOT IN('completed', 'cancelled')
+            OR TRIM(LOWER(mld_status)) NOT IN('completed', 'complete', 'cancelled', 'canceled', 'cancel')
   )
 --User Req: Ignore JR Close(fetch even if Closed, as long as Mould is not Completed)
 --BUT: If manually Closed by User(is_closed), do NOT fetch.
