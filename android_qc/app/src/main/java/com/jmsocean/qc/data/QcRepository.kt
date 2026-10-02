@@ -669,6 +669,31 @@ class QcRepository(private val session: SessionStore) {
         if (!env.ok) error(env.error ?: "Slot check failed")
     }
 
+    // ── QC line team ────────────────────────────────────────────────────────
+
+    /** Team of each of the user's lines for date/shift + the lines still missing one. */
+    suspend fun lineTeam(date: String, shift: String): Result<com.jmsocean.qc.data.remote.LineTeamResponse> = runCatching {
+        val r = try {
+            api.lineTeam(date, shift, session.line)
+        } catch (e: retrofit2.HttpException) {
+            // Server not updated yet (no line-team API) → don't lock the app.
+            if (e.code() == 404) return@runCatching com.jmsocean.qc.data.remote.LineTeamResponse(ok = true)
+            throw e
+        }
+        if (!r.ok) error(r.error ?: "Could not load QC shift team")
+        r
+    }
+
+    suspend fun saveLineTeam(line: String, date: String, shift: String, supervisor: String, incharge: String): Result<Unit> = runCatching {
+        val env = api.saveLineTeam(
+            com.jmsocean.qc.data.remote.LineTeamSaveRequest(
+                session = sessionRef(), line = line, dpr_date = date, shift = shift,
+                qc_supervisor = supervisor, qc_incharge = incharge
+            )
+        )
+        if (!env.ok) error(env.error ?: "Could not save QC shift team")
+    }
+
     // ── QC shift team ───────────────────────────────────────────────────────
 
     suspend fun shiftTeam(machine: String, date: String, shift: String): Result<List<com.jmsocean.qc.data.remote.ShiftTeamMember>> = runCatching {

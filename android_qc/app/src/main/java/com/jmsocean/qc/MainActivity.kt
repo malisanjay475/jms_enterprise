@@ -17,6 +17,7 @@ import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ExitToApp
 import androidx.compose.material.icons.filled.GridOn
+import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Menu
@@ -33,7 +34,14 @@ import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.NavigationDrawerItem
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.layout.Box
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.jmsocean.qc.ui.team.ShiftTeamScreen
+import com.jmsocean.qc.ui.team.ShiftTeamViewModel
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
@@ -78,6 +86,7 @@ private object Routes {
     const val ISSUES = "issues"
     const val DASHBOARD = "dashboard"
     const val RECENT = "recent"
+    const val TEAM = "team"
 }
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -90,7 +99,16 @@ fun QcApp_Root() {
 
     val backStack by nav.currentBackStackEntryAsState()
     val current = backStack?.destination?.route
-    val topLevel = setOf(Routes.QUEUE, Routes.VERIFY, Routes.ISSUES, Routes.DASHBOARD, Routes.RECENT)
+    val topLevel = setOf(Routes.QUEUE, Routes.VERIFY, Routes.ISSUES, Routes.DASHBOARD, Routes.RECENT, Routes.TEAM)
+
+    // QC shift team gate: after login nothing is reachable until the QC Supervisor and
+    // QC Incharge of the user's own line(s) are saved for the current shift.
+    val teamVm: ShiftTeamViewModel = viewModel()
+    val team by teamVm.state.collectAsStateWithLifecycle()
+    val loggedIn = current != null && current != Routes.LOGIN
+    LaunchedEffect(loggedIn) { if (loggedIn) teamVm.load() else teamVm.reset() }
+    val gated = loggedIn && !team.unlocked
+    BackHandler(enabled = gated) { /* stay on the shift team screen */ }
 
     // Logged in = a remembered user AND a live server session. Phones updated from an
     // older build only have the username (the session cookie was kept in memory), so
@@ -108,9 +126,16 @@ fun QcApp_Root() {
         }
     }
 
+    fun logout() {
+        app.repository.logout()
+        scope.launch { drawerState.close() }
+        nav.navigate(Routes.LOGIN) { popUpTo(0) { inclusive = true } }
+    }
+
+    Box(Modifier.fillMaxSize()) {
     ModalNavigationDrawer(
         drawerState = drawerState,
-        gesturesEnabled = current in topLevel,
+        gesturesEnabled = current in topLevel && !gated,
         drawerContent = {
             ModalDrawerSheet {
                 DrawerHeader(app.session.username, app.session.line)
@@ -121,6 +146,13 @@ fun QcApp_Root() {
                     icon = { Icon(Icons.Default.List, null) },
                     selected = current == Routes.QUEUE,
                     onClick = { go(Routes.QUEUE) },
+                    modifier = Modifier.padding(horizontal = 12.dp)
+                )
+                NavigationDrawerItem(
+                    label = { Text("QC Shift Team") },
+                    icon = { Icon(Icons.Default.Groups, null) },
+                    selected = current == Routes.TEAM,
+                    onClick = { go(Routes.TEAM) },
                     modifier = Modifier.padding(horizontal = 12.dp)
                 )
                 NavigationDrawerItem(
@@ -157,11 +189,7 @@ fun QcApp_Root() {
                     label = { Text("Log out") },
                     icon = { Icon(Icons.Default.ExitToApp, null) },
                     selected = false,
-                    onClick = {
-                        app.repository.logout()
-                        scope.launch { drawerState.close() }
-                        nav.navigate(Routes.LOGIN) { popUpTo(0) { inclusive = true } }
-                    },
+                    onClick = { logout() },
                     modifier = Modifier.padding(horizontal = 12.dp)
                 )
                 Spacer(Modifier.height(8.dp))
@@ -177,7 +205,7 @@ fun QcApp_Root() {
         Scaffold(
             containerColor = MaterialTheme.colorScheme.background,
             bottomBar = {
-                if (current in topLevel) {
+                if (current in topLevel && !gated) {
                     NavigationBar {
                         NavigationBarItem(
                             selected = current == Routes.QUEUE, onClick = { go(Routes.QUEUE) },
@@ -227,6 +255,7 @@ fun QcApp_Root() {
             composable(Routes.ISSUES) { IssuesScreen(onMenu = openDrawer) }
             composable(Routes.DASHBOARD) { DashboardScreen(onMenu = openDrawer) }
             composable(Routes.RECENT) { RecentScreen(onMenu = openDrawer) }
+            composable(Routes.TEAM) { ShiftTeamScreen(vm = teamVm, gate = false, onMenu = openDrawer) }
             composable(Routes.FPA) { FpaScreen(onBack = { nav.popBackStack() }) }
             composable(Routes.QC) {
                 QcInspectionScreen(onBack = { nav.popBackStack() })
@@ -234,6 +263,9 @@ fun QcApp_Root() {
         }
         } // Scaffold content
     }
+    // Full-screen lock on top of everything (its Scaffold surface swallows touches).
+    if (gated) ShiftTeamScreen(vm = teamVm, gate = true, onLogout = { logout() })
+    } // Box
 }
 
 @Composable

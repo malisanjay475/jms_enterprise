@@ -6217,6 +6217,24 @@ async function initializeLegacyRuntime() {
       );
     `);
 
+    // QC LINE TEAMS — QC Supervisor / QC Incharge per line + date + shift (like the
+    // Moulding shift_teams). Replaces the per-machine qc_shift_team entry in the QC app;
+    // qc_shift_team rows stay readable for older app versions and past dates.
+    await q(`
+      CREATE TABLE IF NOT EXISTS qc_line_teams (
+        id            SERIAL PRIMARY KEY,
+        factory_id    INTEGER,
+        line          TEXT NOT NULL,
+        dpr_date      DATE NOT NULL,
+        shift         TEXT NOT NULL,
+        qc_supervisor TEXT,
+        qc_incharge   TEXT,
+        saved_by      TEXT,
+        saved_at      TIMESTAMPTZ DEFAULT NOW()
+      );
+    `);
+    await qIdx(`CREATE UNIQUE INDEX IF NOT EXISTS uq_qc_line_teams ON qc_line_teams ((COALESCE(factory_id, 0)), line, dpr_date, shift)`);
+
     // QC MATERIAL ISSUES — internal issue reporting with media, assignments, audit trail
     await q(`
       CREATE TABLE IF NOT EXISTS qc_material_issues (
@@ -30045,6 +30063,14 @@ app.get('/api/qc/overview', async (req, res) => {
            FROM qc_shift_team
           WHERE dpr_date = $1::date AND ($2 = '' OR shift = $2)
             AND ($3::int IS NULL OR factory_id = $3 OR factory_id IS NULL)
+         UNION ALL
+         SELECT m.machine, t.shift, r.role, r.name AS employee_name, t.saved_at AS assigned_at
+           FROM qc_line_teams t
+           JOIN machines m ON TRIM(m.line) = TRIM(t.line)
+                          AND (t.factory_id IS NULL OR m.factory_id = t.factory_id)
+           CROSS JOIN LATERAL (VALUES ('QC Supervisor', t.qc_supervisor), ('QC Incharge', t.qc_incharge)) r(role, name)
+          WHERE COALESCE(TRIM(r.name), '') <> '' AND t.dpr_date = $1::date AND ($2 = '' OR t.shift = $2)
+            AND ($3::int IS NULL OR t.factory_id = $3 OR t.factory_id IS NULL)
           ORDER BY assigned_at ASC`, [date, sh, factoryId])
     ]);
 
@@ -30216,9 +30242,19 @@ app.get('/api/qc/shift-team', async (req, res) => {
   try {
     const { machine, date, shift } = req.query;
     const factoryId = getFactoryId(req);
+    // Per-machine rows plus the line team of this machine's line (QC app 1.4+ saves per line).
     const rows = await q(
-      `SELECT * FROM qc_shift_team WHERE machine = $1 AND dpr_date = $2::date AND shift = $3
-         AND ($4::int IS NULL OR factory_id = $4 OR factory_id IS NULL)
+      `SELECT id, machine, shift, role, employee_name, assigned_at FROM qc_shift_team
+        WHERE machine = $1 AND dpr_date = $2::date AND shift = $3
+          AND ($4::int IS NULL OR factory_id = $4 OR factory_id IS NULL)
+         UNION ALL
+         SELECT NULL::int AS id, m.machine, t.shift, r.role, r.name AS employee_name, t.saved_at AS assigned_at
+           FROM qc_line_teams t
+           JOIN machines m ON TRIM(m.line) = TRIM(t.line)
+                          AND (t.factory_id IS NULL OR m.factory_id = t.factory_id)
+           CROSS JOIN LATERAL (VALUES ('QC Supervisor', t.qc_supervisor), ('QC Incharge', t.qc_incharge)) r(role, name)
+          WHERE COALESCE(TRIM(r.name), '') <> '' AND m.machine = $1 AND t.dpr_date = $2::date AND t.shift = $3
+            AND ($4::int IS NULL OR t.factory_id = $4 OR t.factory_id IS NULL)
        ORDER BY assigned_at ASC`,
       [machine || '', date, shift || 'Day', factoryId]
     );
@@ -30242,6 +30278,115 @@ app.post('/api/qc/shift-team', async (req, res) => {
       [factoryId, machine, dpr_date, shift, role || 'QC Inspector', String(employee_name).slice(0, 80), assigned_by]
     );
     res.json({ ok: true, id: r[0].id });
+  } catch (e) {
+    sendServerError(res, e);
+  }
+});
+
+// ── QC LINE TEAM (per line, like Moulding shift_teams) ─────────────────────
+// Lines a user may work on: their line access ("B -L1,B -L2"), matched to the
+// machine master the same way /api/machines does. "All" → every Moulding line.
+async function qcUserLines(lineAccess, factoryId) {
+  const parts = String(lineAccess || '').split(',').map(s => s.trim()).filter(Boolean);
+  const isAll = !parts.length || parts.some(l => l.toLowerCase() === 'all');
+  const rows = await q(
+    `SELECT DISTINCT TRIM(line) AS line FROM machines
+      WHERE COALESCE(is_active, TRUE) = TRUE
+        AND COALESCE(NULLIF(TRIM(machine_process), ''), 'Moulding') = 'Moulding'
+        AND COALESCE(TRIM(line), '') <> ''
+        AND ($1::int IS NULL OR factory_id = $1)
+        AND ($2::boolean OR line = ANY($3::text[]) OR machine ILIKE ANY($4::text[]))`,
+    [factoryId, isAll, parts, parts.map(l => l + '%')]
+  );
+  return { isAll, lines: rows.map(r => r.line) };
+}
+
+function qcSessionUser(body) {
+  try {
+    const s = typeof body?.session === 'string' ? JSON.parse(body.session) : (body?.session || {});
+    return String(s.username || s.supervisor || s.user || '').replace(/[^\w\s\-\.@]/g, '').slice(0, 100);
+  } catch (_) { return ''; }
+}
+
+// GET /api/qc/line-team?date&shift[&line_access] — the QC team of each of the user's
+// lines. `required` lists the lines still missing a team (the QC app blocks until it
+// is empty). "All" users get every line but nothing is required.
+app.get('/api/qc/line-team', async (req, res) => {
+  try {
+    const { date, shift } = req.query;
+    if (!date || !shift) return res.json({ ok: false, error: 'date and shift required' });
+    const factoryId = getFactoryId(req);
+    const { isAll, lines } = await qcUserLines(req.query.line_access, factoryId);
+    const rows = await q(
+      `SELECT line, qc_supervisor, qc_incharge, saved_by, saved_at FROM qc_line_teams
+        WHERE dpr_date = $1::date AND shift = $2
+          AND ($3::int IS NULL OR factory_id = $3 OR factory_id IS NULL)`,
+      [date, shift, factoryId]
+    );
+    const byLine = new Map(rows.map(r => [String(r.line).trim(), r]));
+    const order = makeMachineOrder(lines.map(l => ({ machine: l, line: l })));
+    const data = [...lines].sort(order).map(line => {
+      const r = byLine.get(line);
+      return {
+        line,
+        qc_supervisor: r?.qc_supervisor || '',
+        qc_incharge: r?.qc_incharge || '',
+        saved_by: r?.saved_by || '',
+        saved_at: r?.saved_at || null
+      };
+    });
+    const done = d => String(d.qc_supervisor).trim() && String(d.qc_incharge).trim();
+    const required = isAll ? [] : data.filter(d => !done(d)).map(d => d.line);
+    res.json({ ok: true, data, required, all_access: isAll });
+  } catch (e) {
+    sendServerError(res, e);
+  }
+});
+
+// GET /api/qc/line-team-range?fromDate&toDate&shift — grouped by date (for summaries).
+app.get('/api/qc/line-team-range', async (req, res) => {
+  try {
+    const { fromDate, toDate, shift } = req.query;
+    if (!fromDate || !toDate || !shift) return res.json({ ok: true, data: {} });
+    const factoryId = getFactoryId(req);
+    const rows = await q(
+      `SELECT line, dpr_date::text AS dpr_date, shift, qc_supervisor, qc_incharge, saved_by, saved_at
+         FROM qc_line_teams
+        WHERE dpr_date BETWEEN $1::date AND $2::date AND shift = $3
+          AND ($4::int IS NULL OR factory_id = $4 OR factory_id IS NULL)`,
+      [fromDate, toDate, shift, factoryId]
+    );
+    const grouped = {};
+    rows.forEach(r => { (grouped[r.dpr_date] = grouped[r.dpr_date] || []).push(r); });
+    res.json({ ok: true, data: grouped });
+  } catch (e) {
+    sendServerError(res, e);
+  }
+});
+
+// POST /api/qc/line-team — save QC Supervisor + QC Incharge for one line/date/shift.
+app.post('/api/qc/line-team', async (req, res) => {
+  try {
+    const body = req.body || {};
+    const line = String(body.line || '').trim();
+    const dprDate = String(body.dpr_date || '').trim();
+    const shift = body.shift === 'Night' ? 'Night' : (body.shift === 'Day' ? 'Day' : '');
+    const sup = String(body.qc_supervisor || '').trim().slice(0, 80);
+    const inc = String(body.qc_incharge || '').trim().slice(0, 80);
+    if (!line || !/^\d{4}-\d{2}-\d{2}$/.test(dprDate) || !shift) return res.json({ ok: false, error: 'line, dpr_date and shift required' });
+    if (!sup || !inc) return res.json({ ok: false, error: 'Enter both QC Supervisor and QC Incharge' });
+    const factoryId = getFactoryId(req);
+    const savedBy = qcSessionUser(body) || getRequestUsername(req) || 'QC';
+    await q(
+      `INSERT INTO qc_line_teams (factory_id, line, dpr_date, shift, qc_supervisor, qc_incharge, saved_by, saved_at)
+       VALUES ($1, $2, $3::date, $4, $5, $6, $7, NOW())
+       ON CONFLICT ((COALESCE(factory_id, 0)), line, dpr_date, shift)
+       DO UPDATE SET qc_supervisor = EXCLUDED.qc_supervisor, qc_incharge = EXCLUDED.qc_incharge,
+                     saved_by = EXCLUDED.saved_by, saved_at = NOW()`,
+      [factoryId, line, dprDate, shift, sup, inc, savedBy]
+    );
+    syncService.triggerSync();
+    res.json({ ok: true });
   } catch (e) {
     sendServerError(res, e);
   }
@@ -30804,10 +30949,18 @@ app.get('/api/qc/compliance', async (req, res) => {
            FROM qc_online_report_slots
           WHERE dpr_date = $1::date AND shift = $2
             AND ($3::int IS NULL OR factory_id = $3 OR factory_id IS NULL)`, [date, shift, factoryId]),
-      q(`SELECT machine, role, employee_name, assigned_at
+      q(`SELECT machine, shift, role, employee_name, assigned_at
            FROM qc_shift_team
           WHERE dpr_date = $1::date AND shift = $2
             AND ($3::int IS NULL OR factory_id = $3 OR factory_id IS NULL)
+         UNION ALL
+         SELECT m.machine, t.shift, r.role, r.name AS employee_name, t.saved_at AS assigned_at
+           FROM qc_line_teams t
+           JOIN machines m ON TRIM(m.line) = TRIM(t.line)
+                          AND (t.factory_id IS NULL OR m.factory_id = t.factory_id)
+           CROSS JOIN LATERAL (VALUES ('QC Supervisor', t.qc_supervisor), ('QC Incharge', t.qc_incharge)) r(role, name)
+          WHERE COALESCE(TRIM(r.name), '') <> '' AND t.dpr_date = $1::date AND t.shift = $2
+            AND ($3::int IS NULL OR t.factory_id = $3 OR t.factory_id IS NULL)
           ORDER BY assigned_at ASC`, [date, shift, factoryId])
     ]);
 
