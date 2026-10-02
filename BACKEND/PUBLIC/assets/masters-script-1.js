@@ -1352,6 +1352,101 @@
       }
     }
 
+    // Order Master row detail drawer: required moulds, plans per mould (machine, dates,
+    // planned by) and DPR produced vs planned. Data from GET /api/orders/detail.
+    window.openOrderDetail = async function (orderNo) {
+      const esc = v => String(v ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+      const num = v => Number(v || 0).toLocaleString('en-IN');
+      const dt = v => v ? moment(v).format('DD-MMM-YY') : '-';
+      const id = 'orderDetailDrawer';
+      document.getElementById(id)?.remove();
+      const wrap = document.createElement('div');
+      wrap.id = id;
+      wrap.innerHTML = `
+        <div class="odd-backdrop" onclick="document.getElementById('${id}').remove()"></div>
+        <aside class="odd-panel">
+          <div class="odd-head">
+            <div><div class="odd-sub">Order detail</div><div class="odd-title">${esc(orderNo)}</div></div>
+            <button class="odd-x" aria-label="Close" onclick="document.getElementById('${id}').remove()">&times;</button>
+          </div>
+          <div class="odd-body" id="${id}Body"><div class="odd-empty">Loading...</div></div>
+        </aside>
+        <style>
+          #${id} .odd-backdrop { position:fixed; inset:0; background:rgba(15,23,42,.35); z-index:9998; }
+          #${id} .odd-panel { position:fixed; top:0; right:0; height:100vh; width:560px; max-width:100vw; background:#fff; z-index:9999; display:flex; flex-direction:column; box-shadow:-8px 0 24px rgba(0,0,0,.15); }
+          #${id} .odd-head { display:flex; justify-content:space-between; align-items:center; padding:14px 18px; border-bottom:1px solid #e2e8f0; background:#f8fafc; }
+          #${id} .odd-sub { font-size:.72rem; color:#64748b; font-weight:600; text-transform:uppercase; }
+          #${id} .odd-title { font-size:1.05rem; font-weight:700; color:#0f172a; }
+          #${id} .odd-x { border:none; background:none; font-size:1.5rem; cursor:pointer; color:#475569; }
+          #${id} .odd-body { padding:14px 18px; overflow-y:auto; flex:1; }
+          #${id} .odd-kpis { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-bottom:14px; }
+          #${id} .odd-kpi { background:#f8fafc; border-radius:8px; padding:8px 10px; }
+          #${id} .odd-kpi span { display:block; font-size:.7rem; color:#64748b; font-weight:600; }
+          #${id} .odd-kpi b { font-size:1.1rem; color:#0f172a; }
+          #${id} .odd-mould { border:1px solid #e2e8f0; border-radius:8px; margin-bottom:10px; overflow-x:auto; }
+          #${id} .odd-mh { display:flex; justify-content:space-between; gap:8px; padding:8px 10px; background:#f8fafc; border-bottom:1px solid #e2e8f0; font-size:.82rem; font-weight:700; color:#0f172a; }
+          #${id} .odd-pill { font-size:.7rem; padding:2px 8px; border-radius:999px; font-weight:700; white-space:nowrap; }
+          #${id} table { width:100%; border-collapse:collapse; font-size:.76rem; }
+          #${id} td, #${id} th { padding:6px 10px; text-align:left; border-bottom:1px solid #f1f5f9; }
+          #${id} th { color:#64748b; font-weight:600; }
+          #${id} .odd-empty { padding:10px; color:#64748b; font-size:.8rem; }
+        </style>`;
+      document.body.appendChild(wrap);
+      const body = document.getElementById(id + 'Body');
+
+      let data;
+      try {
+        data = await JPSMS.api.get(`/orders/detail?order_no=${encodeURIComponent(orderNo)}`);
+        if (!data || data.ok === false) throw new Error((data && data.error) || 'Request failed');
+      } catch (e) {
+        body.innerHTML = `<div class="odd-empty" style="color:#dc2626">Couldn't load the order detail. ${esc(e.message)}</div>`;
+        return;
+      }
+
+      const plans = data.plans || [];
+      const moulds = data.moulds || [];
+      const key = v => String(v || '').trim().toUpperCase();
+      const groups = new Map();
+      for (const md of moulds) groups.set(key(md.mould_name || md.mould_no), { name: md.mould_name || md.mould_no, required: md, plans: [] });
+      for (const pl of plans) {
+        const k = key(pl.mould_name || pl.mould_code);
+        if (!groups.has(k)) groups.set(k, { name: pl.mould_name || pl.mould_code || '-', required: null, plans: [] });
+        groups.get(k).plans.push(pl);
+      }
+
+      const plannedQty = plans.reduce((a, p) => a + Number(p.plan_qty || 0), 0);
+      const goodQty = plans.reduce((a, p) => a + Number(p.good_qty || 0), 0);
+      const plannedMoulds = [...groups.values()].filter(g => g.plans.length).length;
+      const pct = plannedQty ? Math.round((goodQty / plannedQty) * 100) : 0;
+
+      const mouldHtml = [...groups.values()].map(g => {
+        const pill = g.plans.length
+          ? '<span class="odd-pill" style="background:#dcfce7; color:#166534">Planned</span>'
+          : '<span class="odd-pill" style="background:#fee2e2; color:#b91c1c">Not planned</span>';
+        const rows = g.plans.length
+          ? `<table><tr><th>Machine</th><th>Start - end</th><th>Plan qty</th><th>Produced</th><th>Status</th><th>Planned by</th></tr>
+              ${g.plans.map(p => `<tr>
+                <td><b>${esc(p.machine || '-')}</b></td>
+                <td>${dt(p.start_date)} - ${dt(p.end_date)}</td>
+                <td>${num(p.plan_qty)}</td>
+                <td title="Reject ${num(p.reject_qty)}${p.last_dpr ? ', last DPR ' + dt(p.last_dpr) : ''}">${num(p.good_qty)}</td>
+                <td>${esc(p.status || '-')}</td>
+                <td>${esc(p.created_by || '-')}<div style="color:#94a3b8">${dt(p.created_at)}</div></td>
+              </tr>`).join('')}</table>`
+          : `<div class="odd-empty">No plan yet${g.required && g.required.machine_name ? ' · suggested machine ' + esc(g.required.machine_name) : ''}.</div>`;
+        return `<div class="odd-mould"><div class="odd-mh"><span>${esc(g.name)}</span>${pill}</div>${rows}</div>`;
+      }).join('') || '<div class="odd-empty">No moulds or plans found for this order.</div>';
+
+      body.innerHTML = `
+        <div class="odd-kpis">
+          <div class="odd-kpi"><span>Moulds planned</span><b>${plannedMoulds} / ${groups.size}</b></div>
+          <div class="odd-kpi"><span>Planned qty</span><b>${num(plannedQty)}</b></div>
+          <div class="odd-kpi"><span>Produced (DPR)</span><b>${num(goodQty)} <small style="font-size:.7rem; color:#64748b">${pct}%</small></b></div>
+        </div>
+        ${mouldHtml}
+        <a href="planning.html?order=${encodeURIComponent(orderNo)}" class="btn-action" style="display:inline-block; margin-top:6px; background:#2563eb; color:#fff; text-decoration:none; padding:6px 12px">Open in Planning Board</a>`;
+    };
+
     // --- Order Plan View Modal ---
     window.viewOrderPlan = function (orderNo, detailsEncoded) {
       const details = JSON.parse(decodeURIComponent(detailsEncoded));

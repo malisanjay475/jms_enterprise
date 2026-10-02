@@ -592,6 +592,27 @@
           style="padding:4px 10px; background:#0f766e"><i class="bi bi-file-earmark-excel"></i> Export all</button>
       </div>
 
+      <!-- Order Master insights: count cards + quick filters (orders only; filled by JS) -->
+      <div id="orderInsights" style="display:none; margin:0 0 12px 0">
+        <div class="om-kpis">
+          <button type="button" class="om-kpi" data-filter="all"><span>Open orders</span><b id="omKpiAll">0</b></button>
+          <button type="button" class="om-kpi om-kpi-danger" data-filter="pending"><span>Not planned</span><b id="omKpiPending">0</b></button>
+          <button type="button" class="om-kpi om-kpi-warn" data-filter="partial"><span>Partially planned</span><b id="omKpiPartial">0</b></button>
+          <button type="button" class="om-kpi om-kpi-ok" data-filter="full"><span>Fully planned</span><b id="omKpiFull">0</b></button>
+          <button type="button" class="om-kpi om-kpi-danger" data-filter="overdue"><span>Job card overdue</span><b id="omKpiOverdue">0</b></button>
+        </div>
+      </div>
+      <style>
+        .om-kpis { display:grid; grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); gap:10px; }
+        .om-kpi { text-align:left; background:#f8fafc; border:1px solid #e2e8f0; border-radius:10px; padding:10px 12px; cursor:pointer; }
+        .om-kpi span { display:block; font-size:0.75rem; color:#64748b; font-weight:600; }
+        .om-kpi b { font-size:1.4rem; color:#0f172a; }
+        .om-kpi-danger b { color:#dc2626; } .om-kpi-warn b { color:#d97706; } .om-kpi-ok b { color:#16a34a; }
+        .om-kpi.active { border-color:#2563eb; background:#eff6ff; box-shadow:0 0 0 1px #2563eb inset; }
+        .om-bar { width:90px; height:6px; background:#e2e8f0; border-radius:3px; overflow:hidden; display:inline-block; vertical-align:middle; margin-right:6px; }
+        .om-bar > i { display:block; height:100%; }
+      </style>
+
       <!-- Data Table -->
       <div style="width:100%; overflow-x:auto;">
         <table id="masterTable" class="display nowrap compact">
@@ -987,7 +1008,7 @@
   <datalist id="machineList"></datalist>
   <datalist id="labourJobMachineList"></datalist>
 
-  <script src="/assets/masters-script-1.js?v=release97"></script>
+  <script src="/assets/masters-script-1.js?v=release98"></script>
 
   <!-- Scripts -->
   <script src="/assets/app.min.js?v=1576"></script>
@@ -1040,7 +1061,7 @@
     }
   </style>
 
-  <script src="/assets/masters-script-2.js?v=release104"></script>
+  <script src="/assets/masters-script-2.js?v=release106"></script>
 
   <!-- Machine CRUD Modal -->
   <div id="machineModal" class="modal"
