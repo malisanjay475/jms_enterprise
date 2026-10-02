@@ -11,8 +11,21 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.87.3",
+  "latest": "1.88.0",
   "versions": [
+    {
+      "version": "1.88.0",
+      "date": "2026-10-02",
+      "title": "Transfer moulds between factories",
+      "modules": [
+        {
+          "app": "masters",
+          "changes": [
+            { "type": "feat", "text": "Users with Masters edit rights can now transfer a mould to another factory from Mould Master (Transfer button on the mould row or in Edit Mould). A reason is required, the move is shown in the mould's History, and moulds that are on open plans cannot be transferred." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.87.3",
       "date": "2026-10-02",

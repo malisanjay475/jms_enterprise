@@ -2563,9 +2563,11 @@ async function getDeletionChanges(since, targetFactoryId, afterId = null) {
 
     if (targetFactoryId) {
         params.push(targetFactoryId);
-        // Mould verification remarks are pulled company-wide (GLOBAL_MASTER_TABLES), so
-        // their deletions must reach every factory too, not only the owning factory.
-        where.push(`(factory_id = $${params.length} OR factory_id IS NULL OR table_name = 'mould_verify_notes')`);
+        // Moulds and their verification remarks are pulled company-wide (GLOBAL_MASTER_TABLES),
+        // so their deletions must reach every factory too, not only the owning factory.
+        // A mould transfer is a delete of (mould_number, old factory) + insert under the new
+        // factory, so without this every other LOCAL would keep the old-factory copy.
+        where.push(`(factory_id = $${params.length} OR factory_id IS NULL OR table_name IN ('moulds', 'mould_verify_notes'))`);
     }
 
     let sql = `

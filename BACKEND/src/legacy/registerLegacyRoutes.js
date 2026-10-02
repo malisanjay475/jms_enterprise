@@ -25336,6 +25336,147 @@ app.put('/api/moulds/:id', async (req, res) => {
   }
 });
 
+// Transfer a mould from the session's factory to another factory.
+// POST /api/moulds/:id/transfer  { target_factory_id, reason }
+// Implemented as DELETE + INSERT (same row, new factory_id) instead of an UPDATE:
+// sync keys moulds on (mould_number, factory_id), so only a delete leaves a tombstone
+// that removes the old-factory copy from every LOCAL server.
+app.post('/api/moulds/:id/transfer', async (req, res) => {
+  try {
+    if (guardMouldWriteMainOnly(res)) return; // MAIN-only master
+    const mouldNumber = String(req.params.id || '').trim();
+    if (!mouldNumber) return res.status(400).json({ ok: false, error: 'Mould number is required.' });
+
+    const writeContext = await getWritableFactoryContext(req, 'transfer moulds');
+    if (!writeContext.ok) {
+      return res.status(writeContext.status || 403).json({ ok: false, error: writeContext.error });
+    }
+    const sourceFactoryId = writeContext.factoryId;
+
+    const username = getRequestUsername(req);
+    const actor = username
+      ? (await q('SELECT username, role_code, permissions FROM users WHERE username = $1 LIMIT 1', [username]))[0]
+      : null;
+    if (!actor) return res.status(401).json({ ok: false, error: 'Login required to transfer moulds.' });
+    if (!userCanEditMasters(actor)) {
+      return res.status(403).json({ ok: false, error: 'Masters edit permission is required to transfer moulds.' });
+    }
+
+    const targetFactoryId = normalizeFactoryId(req.body?.target_factory_id);
+    const reason = String(req.body?.reason || '').trim();
+    if (targetFactoryId === null) return res.status(400).json({ ok: false, error: 'Select the factory to transfer to.' });
+    if (targetFactoryId === sourceFactoryId) {
+      return res.status(400).json({ ok: false, error: 'The mould is already in this factory.' });
+    }
+    if (!reason) return res.status(400).json({ ok: false, error: 'Enter a reason for the transfer.' });
+
+    // The user must also have access to the target factory.
+    const access = await getAccessibleFactoriesForUser(username);
+    const targetFactory = (access.factories || []).find(f => normalizeFactoryId(f && f.id) === targetFactoryId);
+    if (!targetFactory) {
+      return res.status(403).json({ ok: false, error: `You do not have access to Factory ${targetFactoryId}.` });
+    }
+    const activeTarget = await q('SELECT id FROM factories WHERE id = $1 AND is_active = true LIMIT 1', [targetFactoryId]);
+    if (!activeTarget.length) return res.status(400).json({ ok: false, error: 'Target factory is not active.' });
+
+    ttlCacheClear('moulds'); // mould list changes — drop cached reads
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+
+      const found = await client.query(
+        'SELECT * FROM moulds WHERE mould_number = $1 AND factory_id = $2 LIMIT 1 FOR UPDATE',
+        [mouldNumber, sourceFactoryId]
+      );
+      if (!found.rows.length) {
+        await client.query('ROLLBACK');
+        return res.status(404).json({ ok: false, error: 'Mould not found in this factory.' });
+      }
+      const mould = found.rows[0];
+
+      const clash = await client.query(
+        'SELECT 1 FROM moulds WHERE LOWER(mould_number) = LOWER($1) AND factory_id = $2 LIMIT 1',
+        [mould.mould_number, targetFactoryId]
+      );
+      if (clash.rows.length) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({
+          ok: false,
+          error: `Mould ${mould.mould_number} already exists in ${targetFactory.name || `Factory ${targetFactoryId}`}. Delete or rename it there first.`
+        });
+      }
+
+      // Block while the mould is on an open plan in the source factory.
+      const activePlans = await client.query(
+        `SELECT plan_id, machine, order_no, status FROM plan_board
+          WHERE factory_id = $2
+            AND UPPER(COALESCE(status, '')) IN ('RUNNING', 'PLANNED', 'PENDING')
+            AND TRIM(COALESCE(mould_code, '')) = TRIM($1)
+          ORDER BY id LIMIT 20`,
+        [mould.mould_number, sourceFactoryId]
+      );
+      if (activePlans.rows.length) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({
+          ok: false,
+          error: `This mould is on open plans in this factory (${activePlans.rows.map(p => `${p.plan_id || p.order_no} on ${p.machine || '-'}`).join(', ')}). Complete or remove them before transferring.`,
+          plans: activePlans.rows
+        });
+      }
+
+      // Clear stale tombstones for both keys so the trigger records a fresh deletion
+      // (sync_deletions ignores a repeat of the same key) and the re-inserted row is
+      // not deleted again by an old tombstone.
+      // Key text built exactly like record_sync_deletion() builds it (jsonb::text).
+      const hasTombstones = (await client.query(`SELECT to_regclass('public.sync_deletions') IS NOT NULL AS ok`)).rows[0].ok;
+      if (hasTombstones) {
+        await client.query(
+          `DELETE FROM sync_deletions
+            WHERE table_name = 'moulds'
+              AND record_pk IN (jsonb_build_object('mould_number', $1::text, 'factory_id', $2::text)::text,
+                                jsonb_build_object('mould_number', $1::text, 'factory_id', $3::text)::text)`,
+          [mould.mould_number, String(sourceFactoryId), String(targetFactoryId)]
+        );
+      }
+
+      // Copy the row in SQL so every column keeps its type, then re-insert it under the new factory.
+      const snapshot = (await client.query('SELECT to_jsonb(m) AS j FROM moulds m WHERE id = $1', [mould.id])).rows[0].j;
+      await client.query('DELETE FROM moulds WHERE id = $1', [mould.id]);
+      await client.query(
+        `INSERT INTO moulds
+         SELECT * FROM jsonb_populate_record(NULL::moulds,
+           $1::jsonb || jsonb_build_object('factory_id', $2::int, 'updated_at', NOW()))`,
+        [snapshot, targetFactoryId]
+      );
+
+      const toName = targetFactory.name || targetFactory.code || `Factory ${targetFactoryId}`;
+      const changed = JSON.stringify({
+        message: `Transferred from ${writeContext.factoryName} to ${toName}. Reason: ${reason}`,
+        factory_id: { old: sourceFactoryId, new: targetFactoryId },
+        reason
+      });
+      for (const fid of [sourceFactoryId, targetFactoryId]) {
+        await client.query(
+          `INSERT INTO mould_audit_logs(mould_id, action_type, changed_fields, changed_by, factory_id)
+           VALUES($1, 'TRANSFER', $2, $3, $4)`,
+          [mould.mould_number, changed, actor.username, fid]
+        );
+      }
+
+      await client.query('COMMIT');
+      res.json({ ok: true, message: `Mould transferred to ${targetFactory.name || `Factory ${targetFactoryId}`}` });
+    } catch (e) {
+      await client.query('ROLLBACK');
+      throw e;
+    } finally {
+      client.release();
+    }
+  } catch (e) {
+    console.error('Transfer Mould Error', e);
+    sendServerError(res, e);
+  }
+});
+
 // 3. GET Audit History
 app.get('/api/moulds/history/:id', async (req, res) => {
   try {
