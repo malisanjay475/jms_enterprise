@@ -157,6 +157,13 @@ interface ApiService {
     @POST("api/qc/job-setup")
     suspend fun saveJobSetup(@Body body: JobSetupSaveRequest): ApiEnvelope
 
+    @GET("api/qc/summary-matrix")
+    suspend fun qcSummaryMatrix(
+        @Query("fromDate") fromDate: String,
+        @Query("toDate") toDate: String,
+        @Query("shift") shift: String
+    ): QcMatrixResponse
+
     @GET("api/qc/line-team")
     suspend fun lineTeam(
         @Query("date") date: String,

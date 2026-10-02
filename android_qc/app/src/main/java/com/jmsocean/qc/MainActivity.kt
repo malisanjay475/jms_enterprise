@@ -87,6 +87,7 @@ private object Routes {
     const val DASHBOARD = "dashboard"
     const val RECENT = "recent"
     const val TEAM = "team"
+    const val COMPLIANCE = "compliance"
 }
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -99,7 +100,7 @@ fun QcApp_Root() {
 
     val backStack by nav.currentBackStackEntryAsState()
     val current = backStack?.destination?.route
-    val topLevel = setOf(Routes.QUEUE, Routes.VERIFY, Routes.ISSUES, Routes.DASHBOARD, Routes.RECENT, Routes.TEAM)
+    val topLevel = setOf(Routes.QUEUE, Routes.VERIFY, Routes.ISSUES, Routes.DASHBOARD, Routes.RECENT, Routes.TEAM, Routes.COMPLIANCE)
 
     // QC shift team gate: after login nothing is reachable until the QC Supervisor and
     // QC Incharge of the user's own line(s) are saved for the current shift.
@@ -167,6 +168,13 @@ fun QcApp_Root() {
                     icon = { Icon(Icons.Default.Warning, null) },
                     selected = current == Routes.ISSUES,
                     onClick = { go(Routes.ISSUES) },
+                    modifier = Modifier.padding(horizontal = 12.dp)
+                )
+                NavigationDrawerItem(
+                    label = { Text("QC Compliance") },
+                    icon = { Icon(Icons.Default.GridOn, null) },
+                    selected = current == Routes.COMPLIANCE,
+                    onClick = { go(Routes.COMPLIANCE) },
                     modifier = Modifier.padding(horizontal = 12.dp)
                 )
                 NavigationDrawerItem(
@@ -255,6 +263,7 @@ fun QcApp_Root() {
             composable(Routes.ISSUES) { IssuesScreen(onMenu = openDrawer) }
             composable(Routes.DASHBOARD) { DashboardScreen(onMenu = openDrawer) }
             composable(Routes.RECENT) { RecentScreen(onMenu = openDrawer) }
+            composable(Routes.COMPLIANCE) { com.jmsocean.qc.ui.compliance.ComplianceScreen(onMenu = openDrawer) }
             composable(Routes.TEAM) { ShiftTeamScreen(vm = teamVm, gate = false, onMenu = openDrawer) }
             composable(Routes.FPA) { FpaScreen(onBack = { nav.popBackStack() }) }
             composable(Routes.QC) {

@@ -11,8 +11,22 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.86.0",
+  "latest": "1.87.0",
   "versions": [
+    {
+      "version": "1.87.0",
+      "date": "2026-10-02",
+      "title": "QC Compliance in the QC app",
+      "modules": [
+        {
+          "app": "quality",
+          "changes": [
+            { "type": "feat", "text": "QC app 1.5.0 has a QC Compliance screen in the menu, laid out like the DPR Compliance Summary: one card per line with the QC team, each machine with its job, QC Setup (x/2) and the six 2-hour checks; tap a check for details." },
+            { "type": "feat", "text": "Quality page Compliance shows the QC Supervisor and QC Incharge once per line instead of per machine." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.86.0",
       "date": "2026-10-02",
