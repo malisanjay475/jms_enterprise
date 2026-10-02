@@ -248,8 +248,74 @@
         document.getElementById('mould_original_id').value = '';
         document.getElementById('mould_mould_number').readOnly = false;
       }
+      const transferBtn = document.getElementById('mouldTransferFromEditBtn');
+      if (transferBtn) transferBtn.style.display = mode === 'edit' && data ? 'inline-block' : 'none';
+      _mtEditRow = mode === 'edit' ? data : null;
       loadMachineList();
       loadLabourJobMachineList();
+    }
+
+    /* ---------- Mould transfer to another factory ---------- */
+    let _mtEditRow = null;
+    let _mtMouldNumber = null;
+
+    function openMouldTransferFromEdit() {
+      if (!_mtEditRow) return;
+      document.getElementById('mouldModal').style.display = 'none';
+      openMouldTransferModal(_mtEditRow);
+    }
+
+    function openMouldTransferModal(row) {
+      if (!ensureSingleFactoryScope('transfer moulds')) return;
+      const scope = JPSMS.factories.getWriteScope();
+      const factories = (window.allowedFactories && window.allowedFactories.length)
+        ? window.allowedFactories
+        : (JPSMS.factories.getAllowed() || []);
+      const targets = factories.filter(f => String(f.id) !== String(scope.id));
+      if (!targets.length) {
+        JPSMS.toast('You have no other factory to transfer this mould to.', 'error');
+        return;
+      }
+      _mtMouldNumber = row.mould_number;
+      document.getElementById('mtMouldLabel').textContent =
+        `${row.mould_number || ''}${row.mould_name ? ' — ' + row.mould_name : ''}`;
+      document.getElementById('mtFromFactory').textContent = scope.name || `Factory ${scope.id}`;
+      const sel = document.getElementById('mtTargetFactory');
+      sel.innerHTML = '<option value="">Select factory…</option>';
+      targets.forEach(f => {
+        const opt = document.createElement('option');
+        opt.value = f.id;
+        opt.textContent = f.name || f.code || `Factory ${f.id}`;
+        sel.appendChild(opt);
+      });
+      document.getElementById('mtReason').value = '';
+      document.getElementById('mouldTransferModal').style.display = 'flex';
+    }
+
+    async function confirmMouldTransfer() {
+      const sel = document.getElementById('mtTargetFactory');
+      const targetId = sel.value;
+      const reason = document.getElementById('mtReason').value.trim();
+      if (!targetId) return JPSMS.toast('Select the factory to transfer to.', 'error');
+      if (!reason) return JPSMS.toast('Enter a reason for the transfer.', 'error');
+      const targetName = sel.options[sel.selectedIndex].textContent;
+      if (!confirm(`Transfer mould ${_mtMouldNumber} to ${targetName}? It will disappear from this factory.`)) return;
+
+      const btn = document.getElementById('mtConfirmBtn');
+      btn.disabled = true;
+      try {
+        const res = await JPSMS.api.post('/moulds/' + encodeURIComponent(_mtMouldNumber) + '/transfer', {
+          target_factory_id: Number(targetId),
+          reason
+        });
+        document.getElementById('mouldTransferModal').style.display = 'none';
+        JPSMS.toast(res.message || 'Mould transferred', 'success');
+        loadMasterData();
+      } catch (e) {
+        alert('Transfer failed: ' + e.message);
+      } finally {
+        btn.disabled = false;
+      }
     }
 
     // Auto-calc PCS/HOUR and Target PCS/DAY from Cycle Time and No. of Cavities.
@@ -1030,7 +1096,8 @@
           try {
             const chg = typeof r.changed_fields === 'string' ? JSON.parse(r.changed_fields) : r.changed_fields;
             if (chg.message) {
-              chgHtml = `<span style="color:green">${chg.message}</span>`;
+              const safeMsg = String(chg.message).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+              chgHtml = `<span style="color:green">${safeMsg}</span>`;
             } else {
               chgHtml = Object.keys(chg).map(k => {
                 const oldV = chg[k].old !== undefined ? chg[k].old : '(empty)';
@@ -1075,7 +1142,8 @@
           try {
             const chg = typeof r.changed_fields === 'string' ? JSON.parse(r.changed_fields) : (r.changed_fields || {});
             if (chg.message) {
-              chgHtml = `<span style="color:green">${chg.message}</span>`;
+              const safeMsg = String(chg.message).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+              chgHtml = `<span style="color:green">${safeMsg}</span>`;
             } else {
               chgHtml = Object.keys(chg).map(k => {
                 const oldV = chg[k].old !== undefined ? chg[k].old : '(empty)';

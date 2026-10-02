@@ -1629,7 +1629,8 @@
                   const canEditMould = JPSMS.auth.can('masters', 'edit') && canWriteCurrentFactoryScope() && jmsMouldWriteAllowed();
                   const editBtns = canEditMould
                     ? `<button onclick="openMouldModal('edit', JSON.parse(decodeURIComponent('${safeData}')))" class="btn-action-icon" title="Edit"><i class="bi bi-pencil-square text-blue-600"></i></button>
-                       <button onclick="viewMouldHistory('${row.mould_number}')" class="btn-action-icon" title="History"><i class="bi bi-clock-history text-gray-600"></i></button>`
+                       <button onclick="viewMouldHistory('${row.mould_number}')" class="btn-action-icon" title="History"><i class="bi bi-clock-history text-gray-600"></i></button>
+                       <button onclick="openMouldTransferModal(JSON.parse(decodeURIComponent('${safeData}')))" class="btn-action-icon" title="Transfer to another factory"><i class="bi bi-arrow-left-right" style="color:#7c3aed"></i></button>`
                     : '';
                   // Remark badge: shows at a glance that some department left remarks on
                   // this mould (count + latest remark on hover); click opens them.
