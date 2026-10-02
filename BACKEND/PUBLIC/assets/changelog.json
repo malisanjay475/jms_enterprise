@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.83.0",
+  "latest": "1.83.1",
   "versions": [
+    {
+      "version": "1.83.1",
+      "date": "2026-10-02",
+      "title": "Save setup before DPR entry",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-pencil-square",
+          "changes": [
+            { "type": "fix", "text": "In the Supervisor DPR entry, the One-time Setup (STD / Actual) must be saved first; until then the entry form stays locked and an alert asks you to save the setup." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.83.0",
       "date": "2026-10-01",
@@ -1448,7 +1463,7 @@
         {
           "app": "dpr",
           "label": "DPR",
-          "icon": "bi-clipboard-data",
+          "icon": "bi-pencil-square",
           "changes": [
             { "type": "fix", "text": "Shots, good quantity, rejects and downtime can no longer be negative, and downtime cannot be more than 60 minutes in one hour slot." },
             { "type": "security", "text": "Editing, deleting or correcting DPR entries now checks the logged-in user on the server, so only people with the right role can change production records." },
@@ -1584,7 +1599,7 @@
         {
           "app": "dpr",
           "label": "DPR",
-          "icon": "bi-clipboard-data",
+          "icon": "bi-pencil-square",
           "changes": [
             { "type": "fix", "text": "The DPR Compliance Summary no longer flashes or blinks on its own — completed balances, low-efficiency rows and stale-machine alerts now show a steady colour instead of a blinking one, so the screen looks stable while you read it." }
           ]
@@ -1752,7 +1767,7 @@
         {
           "app": "dpr",
           "label": "DPR",
-          "icon": "bi-clipboard-data",
+          "icon": "bi-pencil-square",
           "changes": [
             { "type": "fix", "text": "Admins can again switch the Factory in DPR Compliance Summary and see that unit's data. A recent access check had limited factory switching to superadmins only." }
           ]
@@ -1767,7 +1782,7 @@
         {
           "app": "dpr",
           "label": "DPR",
-          "icon": "bi-clipboard-data",
+          "icon": "bi-pencil-square",
           "changes": [
             { "type": "perf", "text": "The DPR Compliance Summary now opens much faster, and re-opening or switching factory/shift is near-instant." }
           ]
@@ -1839,7 +1854,7 @@
         {
           "app": "dpr",
           "label": "DPR",
-          "icon": "bi-clipboard-data",
+          "icon": "bi-pencil-square",
           "changes": [
             { "type": "improvement", "text": "The Compliance job view shows QC weights twice with the name of who saved them, and a new toggle to view that machine's 2-hour QC Online Report." }
           ]
@@ -1854,7 +1869,7 @@
         {
           "app": "dpr",
           "label": "DPR",
-          "icon": "bi-clipboard-data",
+          "icon": "bi-pencil-square",
           "changes": [
             { "type": "fix", "text": "In DPR Compliance Summary, changing the Factory now loads that unit's production data (and the Machines-Stopped alert follows it too). Earlier it stayed on your own unit and other factories showed zero." }
           ]
@@ -1892,7 +1907,7 @@
         {
           "app": "dpr",
           "label": "DPR",
-          "icon": "bi-clipboard-data",
+          "icon": "bi-pencil-square",
           "changes": [
             { "type": "improvement", "text": "The Compliance Summary job view now shows the QC approver's remark beside the FPA images." }
           ]
@@ -2152,7 +2167,7 @@
         {
           "app": "dpr",
           "label": "DPR",
-          "icon": "bi-clipboard-data",
+          "icon": "bi-pencil-square",
           "changes": [
             { "type": "improvement", "text": "Compliance Summary now counts an FPA as Done only after it has been approved; a submitted-but-unapproved or rejected FPA stays Pending." }
           ]
@@ -2312,7 +2327,7 @@
         {
           "app": "dpr",
           "label": "DPR",
-          "icon": "bi-clipboard-data",
+          "icon": "bi-pencil-square",
           "changes": [
             { "type": "feat", "text": "Compliance Summary shows a memo chip on each machine; an unsolved memo carries into the next shift until it is solved." },
             { "type": "feat", "text": "Quality, admin and superadmin can now delete an FPA image in the Compliance Summary job view, then capture a fresh one." }
@@ -2328,7 +2343,7 @@
         {
           "app": "dpr",
           "label": "DPR",
-          "icon": "bi-clipboard-data",
+          "icon": "bi-pencil-square",
           "changes": [
             { "type": "fix", "text": "Removed the 'could not determine data type of parameter' error on the DPR Compliance Summary — the QC memo badge lookup now loads correctly." }
           ]
@@ -2388,7 +2403,7 @@
         {
           "app": "dpr",
           "label": "DPR",
-          "icon": "bi-clipboard-data",
+          "icon": "bi-pencil-square",
           "changes": [
             { "type": "fix", "text": "Fixed a 'slots is not defined' error that blanked the DPR Compliance Summary when a View filter (e.g. Show All by EFF) was selected." }
           ]
@@ -2403,7 +2418,7 @@
         {
           "app": "dpr",
           "label": "DPR",
-          "icon": "bi-clipboard-data",
+          "icon": "bi-pencil-square",
           "changes": [
             { "type": "fix", "text": "The DPR Compliance Summary View filter now shows a single sorted list of the matching machines — 'Show All (by EFF)' and 'Low EFF' order worst EFF first, 'Low OEE' worst OEE first, 'Pending Entries' most-pending first — instead of leaving the machines in their normal grouped order." }
           ]
@@ -2433,7 +2448,7 @@
         {
           "app": "dpr",
           "label": "DPR",
-          "icon": "bi-clipboard-data",
+          "icon": "bi-pencil-square",
           "changes": [
             { "type": "feat", "text": "Each machine's summary box now shows Manpower — STD (mould master) vs Actual (setup) — just above Weight. Actual over STD shows red (over-manned), below STD shows green (saving)." }
           ]
@@ -2448,7 +2463,7 @@
         {
           "app": "dpr",
           "label": "DPR",
-          "icon": "bi-clipboard-data",
+          "icon": "bi-pencil-square",
           "changes": [
             { "type": "feat", "text": "The DPR Compliance Summary now shows a machine count next to Apply — the total number of machines when unfiltered, and the matched count (matched / total) when a View filter or Search is applied." }
           ]
@@ -2463,7 +2478,7 @@
         {
           "app": "dpr",
           "label": "DPR",
-          "icon": "bi-clipboard-data",
+          "icon": "bi-pencil-square",
           "changes": [
             { "type": "fix", "text": "Fixed the DPR Compliance Summary View filter (Above Plan Qty, Pending Entries, Low EFF/OEE, Mould Change, MP Shortage, etc.) — it now correctly shows only the matching machines in the machine-wise layout." }
           ]
@@ -2478,7 +2493,7 @@
         {
           "app": "dpr",
           "label": "DPR",
-          "icon": "bi-clipboard-data",
+          "icon": "bi-pencil-square",
           "changes": [
             { "type": "perf", "text": "The DPR Compliance Summary no longer scans the whole production history to compute plan balances — it now looks up only the plans shown, so multi-day ranges load a lot faster." }
           ]
@@ -2493,7 +2508,7 @@
         {
           "app": "dpr",
           "label": "DPR",
-          "icon": "bi-clipboard-data",
+          "icon": "bi-pencil-square",
           "changes": [
             { "type": "perf", "text": "Added database indexes so the DPR Compliance Summary reads production data much faster — multi-day date ranges in particular now load quickly." }
           ]
@@ -2508,7 +2523,7 @@
         {
           "app": "dpr",
           "label": "DPR",
-          "icon": "bi-clipboard-data",
+          "icon": "bi-pencil-square",
           "changes": [
             { "type": "perf", "text": "The DPR Compliance Summary now loads much faster, especially for past date ranges — the current-shift auto-fill step (a background write) no longer runs or blocks the view when you are looking at earlier dates." }
           ]
@@ -2523,7 +2538,7 @@
         {
           "app": "dpr",
           "label": "DPR",
-          "icon": "bi-clipboard-data",
+          "icon": "bi-pencil-square",
           "changes": [
             { "type": "fix", "text": "Fixed the DPR Compliance Summary search blanking the whole report — it now correctly shows only the matching machines as you type." },
             { "type": "improvement", "text": "The Line filter no longer applies the moment you tick a box — tick the lines you want, then press Apply." }
@@ -2539,7 +2554,7 @@
         {
           "app": "dpr",
           "label": "DPR",
-          "icon": "bi-clipboard-data",
+          "icon": "bi-pencil-square",
           "changes": [
             { "type": "feat", "text": "Added a Search box at the top of the DPR Compliance Summary — type a machine, OR / order number, or client to instantly show only the matching machines." },
             { "type": "improvement", "text": "The Compliance Summary is now always Machine-wise (the Group By filter was removed), Process is a compact dropdown, the Factory box is smaller, and the whole filter bar fits on one line." }
@@ -2585,7 +2600,7 @@
         {
           "app": "dpr",
           "label": "DPR",
-          "icon": "bi-clipboard-data",
+          "icon": "bi-pencil-square",
           "changes": [
             { "type": "feat", "text": "The DPR Compliance Summary has a new 'Group By' option: choose Machine-wise to see each machine's rows for every selected date and shift together (e.g. Machine 1 — 04 Sep Day, 04 Sep Night, 05 Sep Day, 05 Sep Night — then the next machine). Date-wise stays the default." }
           ]
@@ -2600,7 +2615,7 @@
         {
           "app": "dpr",
           "label": "DPR",
-          "icon": "bi-clipboard-data",
+          "icon": "bi-pencil-square",
           "changes": [
             { "type": "fix", "text": "The Line Filter dropdown on the DPR Compliance Summary now opens above the report instead of appearing behind the legend and totals." }
           ]
@@ -2615,7 +2630,7 @@
         {
           "app": "dpr",
           "label": "DPR",
-          "icon": "bi-clipboard-data",
+          "icon": "bi-pencil-square",
           "changes": [
             { "type": "fix", "text": "Some old production records stored a machine name with a stray '>' instead of '-' (e.g. 'B -L1>HYD-300-11'), which made those rows drop out of machine-wise history and STD lookups. Those names are now corrected so historical DPR and STD reports line up with the current machine list." }
           ]
@@ -2645,7 +2660,7 @@
         {
           "app": "dpr",
           "label": "DPR",
-          "icon": "bi-clipboard-data",
+          "icon": "bi-pencil-square",
           "changes": [
             { "type": "feat", "text": "The DPR Compliance Summary Line filter is now a checkbox dropdown — tick several lines at once to see just those (or leave it on 'All Lines'); it filters as you tick." },
             { "type": "feat", "text": "The Compliance Summary date picker is now a From–To range: pick a span of days and, with the Both shift, the summary shows a separate block for each day and shift (e.g. 04 Day, 04 Night, 05 Day, 05 Night), each labelled with its date and shift." }
@@ -2691,7 +2706,7 @@
         {
           "app": "dpr",
           "label": "DPR",
-          "icon": "bi-clipboard-data",
+          "icon": "bi-pencil-square",
           "changes": [
             { "type": "fix", "text": "The 'Machines Stopped' popup now shows the reason from the actual current stoppage (the newest downtime reason after the machine last produced), instead of a stale reason from an earlier entry." }
           ]
@@ -2721,7 +2736,7 @@
         {
           "app": "dpr",
           "label": "DPR",
-          "icon": "bi-clipboard-data",
+          "icon": "bi-pencil-square",
           "changes": [
             { "type": "fix", "text": "In the Compliance Summary, when the same mould runs on one machine under two different orders (e.g. one order earlier and another later in the day), each plan's hourly entries now stay on its own row — no more false red-cross on a row where an entry was actually made." }
           ]
@@ -2736,7 +2751,7 @@
         {
           "app": "dpr",
           "label": "DPR",
-          "icon": "bi-clipboard-data",
+          "icon": "bi-pencil-square",
           "changes": [
             { "type": "feat", "text": "The DPR Compliance Summary 'Machines Stopped' popup now has a Download Excel button: pick a date and shift (Day / Night / Full Day) to get a machine-wise report with each machine's running plan, total shift time, available time, downtime and reasons." }
           ]
@@ -2751,7 +2766,7 @@
         {
           "app": "dpr",
           "label": "DPR",
-          "icon": "bi-clipboard-data",
+          "icon": "bi-pencil-square",
           "changes": [
             { "type": "fix", "text": "The DPR job detail (Compliance) was counting soft-deleted / corrected production entries, so produced was higher and balance lower than the Machine Timeline. It now excludes deleted entries and matches the plan exactly, for all jobs." }
           ]
@@ -2766,7 +2781,7 @@
         {
           "app": "dpr",
           "label": "DPR",
-          "icon": "bi-clipboard-data",
+          "icon": "bi-pencil-square",
           "changes": [
             { "type": "fix", "text": "Fixed produced/balance quantities that were over-counted when a production entry's operator name existed more than once in the user list (multi-factory accounts). The DPR Compliance job detail, summary matrix and per-operator report now match the Machine Timeline exactly." }
           ]
@@ -2781,7 +2796,7 @@
         {
           "app": "dpr",
           "label": "DPR",
-          "icon": "bi-clipboard-data",
+          "icon": "bi-pencil-square",
           "changes": [
             { "type": "improvement", "text": "The DPR Compliance Summary 'Machines Stopped' alert now flags a machine after 2 hours with no production (was 1 hour), reducing noise from short pauses." }
           ]
@@ -2811,7 +2826,7 @@
         {
           "app": "dpr",
           "label": "DPR",
-          "icon": "bi-clipboard-data",
+          "icon": "bi-pencil-square",
           "changes": [
             { "type": "feat", "text": "A red banner at the top of the DPR Compliance Summary now shows machines that are stopped — no production for over an hour, for any reason. Click it to see every stopped machine with its running plan, how long it has been stopped, and the reason. Stoppages that carried over from a previous day are included and flagged." }
           ]
@@ -2904,7 +2919,7 @@
         {
           "app": "dpr",
           "label": "DPR",
-          "icon": "bi-clipboard-data",
+          "icon": "bi-pencil-square",
           "changes": [
             { "type": "feat", "text": "When a QC verifies an hourly entry in the QC app, that hour slot now shows a green verified tick in the DPR Compliance Summary." }
           ]
@@ -2928,7 +2943,7 @@
         {
           "app": "dpr",
           "label": "DPR",
-          "icon": "bi-clipboard-data",
+          "icon": "bi-pencil-square",
           "changes": [
             { "type": "improvement", "text": "In the DPR Compliance Summary Plant Total, removed the Capacity and Predicted Tonnage figures, and renamed Overall Tonnage to Gross Production and Tonnage to Good Production." }
           ]
@@ -2981,7 +2996,7 @@
         {
           "app": "dpr",
           "label": "DPR",
-          "icon": "bi-clipboard-data",
+          "icon": "bi-pencil-square",
           "changes": [
             { "type": "fix", "text": "The DPR Job Detail Plan Date now reliably shows the JMS plan creation date; the page was still loading a cached older script." }
           ]
@@ -3011,7 +3026,7 @@
         {
           "app": "dpr",
           "label": "DPR",
-          "icon": "bi-clipboard-data",
+          "icon": "bi-pencil-square",
           "changes": [
             { "type": "feat", "text": "The DPR Compliance Summary strip now also shows a Capacity figure: every planned machine at its best mould rate for the full shift (including machines that had a plan but sat idle), so under-utilised machines are visible next to the Planned Target." }
           ]
@@ -3026,7 +3041,7 @@
         {
           "app": "dpr",
           "label": "DPR",
-          "icon": "bi-clipboard-data",
+          "icon": "bi-pencil-square",
           "changes": [
             { "type": "feat", "text": "The DPR Compliance Summary top strip now shows Planned Target, Planned Estimated (after Std Mould Changeover) and Plan Achievable (Estimated − 5%) in Kg, for the selected shift, alongside the existing tonnage figures." }
           ]
@@ -3041,7 +3056,7 @@
         {
           "app": "dpr",
           "label": "DPR",
-          "icon": "bi-clipboard-data",
+          "icon": "bi-pencil-square",
           "changes": [
             { "type": "improvement", "text": "The Daily Report Live Calculation now shows Planned Estimated → minus a 5% allowance → Planned Achievable Target before the losses, and the combined loss line is now labelled simply 'Downtime Loss'." }
           ]
@@ -3056,7 +3071,7 @@
         {
           "app": "dpr",
           "label": "DPR",
-          "icon": "bi-clipboard-data",
+          "icon": "bi-pencil-square",
           "changes": [
             { "type": "improvement", "text": "The Daily Report 'Live Calculation' now reads as a single clear waterfall: Planned Target @24h → minus Std Mould Changeover (with the number of mould changes) → Planned Achievable → minus Downtime + Speed loss (one line) → Gross Production → minus Rejection → Good Production." }
           ]
@@ -3071,7 +3086,7 @@
         {
           "app": "dpr",
           "label": "DPR",
-          "icon": "bi-clipboard-data",
+          "icon": "bi-pencil-square",
           "changes": [
             { "type": "fix", "text": "Reverted the Daily Report production waterfall added in the previous version; the Daily Report is back to its earlier layout." }
           ]
@@ -3086,7 +3101,7 @@
         {
           "app": "dpr",
           "label": "DPR",
-          "icon": "bi-clipboard-data",
+          "icon": "bi-pencil-square",
           "changes": [
             { "type": "feat", "text": "The Daily Production Report now shows a production waterfall in tons: Planned Target @24h → minus Std Mould Changeover (from machine load + unload time) → Planned Achievable → minus Downtime & Speed loss → Gross → minus Rejection → Good weight, per machine and factory total, with Full Day / Day / Night views." }
           ]
@@ -3111,7 +3126,7 @@
         {
           "app": "dpr",
           "label": "DPR",
-          "icon": "bi-clipboard-data",
+          "icon": "bi-pencil-square",
           "changes": [
             { "type": "feat", "text": "The DPR Compliance Summary now shows an \"Under Maintenance — Available by\" note on any machine that is under maintenance, so everyone can see when it will be back." }
           ]
@@ -3141,7 +3156,7 @@
         {
           "app": "dpr",
           "label": "DPR",
-          "icon": "bi-clipboard-data",
+          "icon": "bi-pencil-square",
           "changes": [
             { "type": "fix", "text": "The DPR Job Detail popup now shows the correct Actual Weight from this plan's own supervisor setup (matching the QC 'Supervisor' value) instead of sometimes borrowing another mould's weight from the same order." },
             { "type": "fix", "text": "OR Qty now shows the real quantity from OR-JR Status instead of 0." },
@@ -3235,7 +3250,7 @@
         {
           "app": "dpr",
           "label": "DPR",
-          "icon": "bi-clipboard-data",
+          "icon": "bi-pencil-square",
           "changes": [
             { "type": "fix", "text": "The Compliance Summary now counts Mould Change (MC), Colour Change (CC) and Job Change (JC) once per actual change instead of once per downtime hour, so a changeover that took several hours is counted as one — and quick-action mould changeovers are included." }
           ]
@@ -3250,7 +3265,7 @@
         {
           "app": "dpr",
           "label": "DPR",
-          "icon": "bi-clipboard-data",
+          "icon": "bi-pencil-square",
           "changes": [
             { "type": "fix", "text": "The One-time Setup STD now matches the exact mould variant shown on the job (e.g. a double-cavity BODY 2), so cavity, cycle and pcs/hr are correct even when a plan's stored code is the shorter base code." }
           ]
@@ -3265,7 +3280,7 @@
         {
           "app": "dpr",
           "label": "DPR",
-          "icon": "bi-clipboard-data",
+          "icon": "bi-pencil-square",
           "changes": [
             { "type": "fix", "text": "The One-time Setup STD values (cavity, cycle, pcs/hr, weight, manpower) now come from the Mould Master matched by Mould No. instead of mould name, so moulds like double-cavity variants show the correct standards." }
           ]
@@ -3782,7 +3797,7 @@
         {
           "app": "dpr",
           "label": "DPR",
-          "icon": "bi-clipboard-data",
+          "icon": "bi-pencil-square",
           "changes": [
             { "type": "improvement", "text": "Planner, PPC Manager and PPC Assistant Manager can now Delete Setup and Delete Quick Entry in the DPR Compliance Summary, the same as the existing Delete Entry access." }
           ]
@@ -3961,7 +3976,7 @@
         {
           "app": "dpr",
           "label": "DPR",
-          "icon": "bi-clipboard-data",
+          "icon": "bi-pencil-square",
           "changes": [
             { "type": "improvement", "text": "Planner, PPC Assistant Manager and PPC Manager can now delete a DPR entry from the DPR Compliance Summary, in addition to Admin and Superadmin." }
           ]
@@ -4063,7 +4078,7 @@
         {
           "app": "dpr",
           "label": "DPR",
-          "icon": "bi-clipboard-data",
+          "icon": "bi-pencil-square",
           "changes": [
             { "type": "fix", "text": "In the All-Factories view, a plan's hourly entries could appear twice in the Compliance Summary when the same order number existed in more than one factory. Each entry now shows only once." }
           ]
@@ -4189,7 +4204,7 @@
         {
           "app": "dpr",
           "label": "DPR",
-          "icon": "bi-clipboard-data",
+          "icon": "bi-pencil-square",
           "changes": [
             {
               "type": "fix",
@@ -4303,7 +4318,7 @@
         {
           "app": "dpr",
           "label": "DPR",
-          "icon": "bi-clipboard-data",
+          "icon": "bi-pencil-square",
           "changes": [
             {
               "type": "fix",
@@ -4322,7 +4337,7 @@
         {
           "app": "dpr",
           "label": "DPR",
-          "icon": "bi-clipboard-data",
+          "icon": "bi-pencil-square",
           "changes": [
             {
               "type": "fix",
@@ -4379,7 +4394,7 @@
         {
           "app": "dpr",
           "label": "DPR",
-          "icon": "bi-clipboard-data",
+          "icon": "bi-pencil-square",
           "changes": [
             {
               "type": "fix",
@@ -4535,7 +4550,7 @@
         {
           "app": "dpr",
           "label": "DPR",
-          "icon": "bi-clipboard-data",
+          "icon": "bi-pencil-square",
           "changes": [
             {
               "type": "fix",
@@ -4554,7 +4569,7 @@
         {
           "app": "dpr",
           "label": "DPR",
-          "icon": "bi-clipboard-data",
+          "icon": "bi-pencil-square",
           "changes": [
             {
               "type": "feat",
@@ -4584,7 +4599,7 @@
         {
           "app": "dpr",
           "label": "DPR",
-          "icon": "bi-clipboard-data",
+          "icon": "bi-pencil-square",
           "changes": [
             {
               "type": "fix",
@@ -4900,7 +4915,7 @@
         {
           "app": "dpr",
           "label": "DPR",
-          "icon": "bi-clipboard-data",
+          "icon": "bi-pencil-square",
           "changes": [
             {
               "type": "improvement",
@@ -4930,7 +4945,7 @@
         {
           "app": "dpr",
           "label": "DPR",
-          "icon": "bi-clipboard-data",
+          "icon": "bi-pencil-square",
           "changes": [
             {
               "type": "fix",
@@ -4949,7 +4964,7 @@
         {
           "app": "dpr",
           "label": "DPR",
-          "icon": "bi-clipboard-data",
+          "icon": "bi-pencil-square",
           "changes": [
             {
               "type": "fix",
@@ -5391,7 +5406,7 @@
         {
           "app": "dpr",
           "label": "DPR",
-          "icon": "bi-clipboard-data",
+          "icon": "bi-pencil-square",
           "changes": [
             {
               "type": "feat",
@@ -5467,7 +5482,7 @@
         {
           "app": "dpr",
           "label": "DPR",
-          "icon": "bi-clipboard-data",
+          "icon": "bi-pencil-square",
           "changes": [
             {
               "type": "fix",
@@ -5505,7 +5520,7 @@
         {
           "app": "dpr",
           "label": "DPR",
-          "icon": "bi-clipboard-data",
+          "icon": "bi-pencil-square",
           "changes": [
             {
               "type": "improvement",
@@ -5527,7 +5542,7 @@
         {
           "app": "dpr",
           "label": "DPR",
-          "icon": "bi-clipboard-data",
+          "icon": "bi-pencil-square",
           "changes": [
             {
               "type": "improvement",
@@ -5585,7 +5600,7 @@
         {
           "app": "dpr",
           "label": "DPR",
-          "icon": "bi-clipboard-data",
+          "icon": "bi-pencil-square",
           "changes": [
             {
               "type": "feat",

@@ -1633,12 +1633,7 @@
       update(selCc);
 
       // If no colours configured — unlock entry body immediately (colour not required)
-      if (!uniq.length) {
-        const _eb = el('dpr-entry-body');
-        const _cp = el('colour-required-prompt');
-        if (_eb) { _eb.style.pointerEvents = ''; _eb.style.opacity = '1'; }
-        if (_cp) _cp.style.display = 'none';
-      }
+      if (!uniq.length) applyEntryLock();
 
       // Populate the visual colour chips panel
       const panel = el('color-picker-panel');
@@ -1665,7 +1660,38 @@
       }
     }
 
+    // One-time Setup (STD / ACT) must be saved for this job & shift before any
+    // DPR entry. Returns false (and alerts) while setup is still unsaved.
+    function requireSetupSaved() {
+      if (!session.activeJob || setupDone) return true;
+      alert('One-time Setup not saved!\n\nPlease fill the STD / Actual values and press "Save Setup" first. DPR entries are allowed only after the setup is saved.');
+      const card = el('std-actual-card');
+      if (card) card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      return false;
+    }
+    window.requireSetupSaved = requireSetupSaved;
+
+    // Lock / unlock the entry body: needs saved setup AND (a colour, when the job has colours).
+    function applyEntryLock() {
+      const entryBody = el('dpr-entry-body');
+      const prompt = el('colour-required-prompt');
+      if (!entryBody) return;
+      const colourOptCount = el('d-color')?.options?.length || 0;
+      const needColour = colourOptCount > 1 && !(el('d-color')?.value || '');
+      const needSetup = !!session.activeJob && !setupDone;
+      const locked = needSetup || needColour;
+      entryBody.style.pointerEvents = locked ? 'none' : '';
+      entryBody.style.opacity = locked ? '0.35' : '1';
+      if (prompt) {
+        prompt.textContent = needSetup
+          ? '⚙️ Save the One-time Setup (STD / Actual) above first to make entries'
+          : '🎨 Please select a colour above to continue entry';
+        prompt.style.display = locked ? 'block' : 'none';
+      }
+    }
+
     function toggleColorPickerPanel() {
+      if (!requireSetupSaved()) return;
       const panel = el('color-picker-panel');
       const arrow = el('color-picker-arrow');
       if (!panel) return;
@@ -2898,6 +2924,7 @@
     function onColorChange() {
       const sel = el('d-color');
       if (!sel) return;
+      if (sel.value && !requireSetupSaved()) sel.value = '';
       const val = sel.value;
 
       // Colour is NOT persisted — user must always select it fresh each entry
@@ -2950,20 +2977,6 @@
         }
       });
 
-      // Lock / unlock the entry body based on whether a colour is chosen
-      const entryBody = el('dpr-entry-body');
-      const prompt = el('colour-required-prompt');
-      // If no colours configured (select has only the blank placeholder), always unlock
-      const colourOptCount = el('d-color')?.options?.length || 0;
-      const hasColours = colourOptCount > 1;
-      if (!hasColours || val) {
-        if (entryBody) { entryBody.style.pointerEvents = ''; entryBody.style.opacity = '1'; }
-        if (prompt) prompt.style.display = 'none';
-      } else {
-        if (entryBody) { entryBody.style.pointerEvents = 'none'; entryBody.style.opacity = '0.35'; }
-        if (prompt) prompt.style.display = 'block';
-      }
-
       // Always re-evaluate submit eligibility when colour changes
       validateForm();
     }
@@ -3001,6 +3014,7 @@
     }
 
     function validateForm() {
+      applyEntryLock();
       const errs = [];
       el('submit-errors').textContent = '';
 
