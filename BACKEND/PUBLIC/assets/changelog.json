@@ -11,8 +11,21 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.90.0",
+  "latest": "1.90.1",
   "versions": [
+    {
+      "version": "1.90.1",
+      "date": "2026-10-02",
+      "title": "Job card not created filter",
+      "modules": [
+        {
+          "app": "masters",
+          "changes": [
+            { "type": "improvement", "text": "Order Master's 'Job card overdue' card is replaced by 'Job card not created', which counts and filters orders that have no job card yet. Job card dates no longer show in red." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.90.0",
       "date": "2026-10-02",
