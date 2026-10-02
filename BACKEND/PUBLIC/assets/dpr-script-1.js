@@ -703,7 +703,7 @@
                 const nowMins = new Date().getHours() * 60 + new Date().getMinutes(); // browser local time (IST on factory devices)
                 // Auto-detect shift: factory handover at 08:10 AM / 08:10 PM
                 const defaultShift = (nowMins >= 1210 || nowMins < 490) ? 'Night' : 'Day';
-                const DPR_PROCESS_OPTIONS = ['Moulding', 'Printing', 'Tuffting', 'Labour Job'];
+                const DPR_PROCESS_OPTIONS = ['Moulding', 'Printing', 'Tuffting', 'Labour Job', 'QC'];
                 let dprProcess = localStorage.getItem('jpsms_dpr_process') || 'Moulding';
 
                 card.innerHTML = `
@@ -1184,6 +1184,313 @@
                 };
                 // ---- End Labour DPR Summary ----
 
+                // ---- QC DPR Summary (Process = QC) ----
+                // Same layout as the Moulding Compliance Summary (plant total bar, date banner,
+                // sticky column header, one card per line with the shift team strip, one block
+                // per machine) but filled from the QC app: six 2-hour checks per shift, the QC
+                // One-time Setup, FPA, memos and holds, and the QC team saved per line.
+                const loadQcDprSummary = async (container, fromDateIn, toDateIn, shiftModeIn) => {
+                    const esc = dprEscHtml;
+                    // Inputs come from the filter bar: keep only a fixed shift name and
+                    // dates rebuilt from numbers, so nothing typed reaches the HTML.
+                    const shiftMode = shiftModeIn === 'Both' ? 'Both' : shiftModeIn === 'Night' ? 'Night' : 'Day';
+                    const isoDay = v => {
+                        const m = String(v || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+                        return m ? new Date(Date.UTC(+m[1], +m[2] - 1, +m[3])).toISOString().slice(0, 10) : localToday();
+                    };
+                    const fromDate = isoDay(fromDateIn);
+                    const toDate = isoDay(toDateIn || fromDateIn);
+                    const selectedFactory = document.getElementById('s-factory')?.value || '';
+                    container.innerHTML = `<div style="padding:40px; text-align:center; color:#64748b"><i class="bi bi-arrow-repeat spin" style="font-size:2rem;display:block;margin-bottom:10px"></i> Loading QC Matrix...</div>`;
+                    let res, memoRes;
+                    try {
+                        [res, memoRes] = await Promise.all([
+                            J.api.get(`/qc/summary-matrix?fromDate=${fromDate}&toDate=${toDate}&shift=${encodeURIComponent(shiftMode)}&factory_id=${encodeURIComponent(selectedFactory || 'all')}`),
+                            J.api.get('/qc/memos/active-by-machine').catch(() => ({ ok: false, data: [] }))
+                        ]);
+                    } catch (e) {
+                        container.innerHTML = `<div style="padding:40px; text-align:center; color:#b91c1c">QC summary could not be loaded: ${esc(e.message || e)}</div>`;
+                        return;
+                    }
+                    if (!res || !res.ok) {
+                        container.innerHTML = `<div style="padding:40px; text-align:center; color:#b91c1c">${esc((res && res.error) || 'QC summary could not be loaded')}</div>`;
+                        return;
+                    }
+                    const D = res.data || {};
+                    const SL = D.slotLabels || ['08-10', '10-12', '12-02', '02-04', '04-06', '06-08'];
+                    const shifts = shiftMode === 'Both' ? ['Day', 'Night'] : shiftMode === 'Night' ? ['Night'] : ['Day'];
+                    const memoBy = {};
+                    ((memoRes && memoRes.ok && memoRes.data) || []).forEach(mo => { if (mo && mo.machine) (memoBy[mo.machine] = memoBy[mo.machine] || []).push(mo); });
+
+                    // Dates in range (oldest → newest, like Moulding).
+                    const dates = [];
+                    for (let d = new Date(fromDate + 'T00:00:00Z'); d.toISOString().slice(0, 10) <= toDate; d.setUTCDate(d.getUTCDate() + 1)) dates.push(d.toISOString().slice(0, 10));
+
+                    // Lines → machines, honouring the Line filter.
+                    const allLines = [];
+                    const lines = {};
+                    (D.machines || []).forEach(m => {
+                        if (!lines[m.line]) { lines[m.line] = []; allLines.push(m.line); }
+                        lines[m.line].push(m.machine);
+                    });
+                    renderLineMenu(allLines);
+                    const shownLines = selLines.length ? allLines.filter(l => selLines.includes(l)) : allLines;
+
+                    const key = (...a) => a.join('|');
+                    const slotsBy = {};
+                    (D.slots || []).forEach(r => { (slotsBy[key(r.date, r.shift, r.machine, r.slot)] = slotsBy[key(r.date, r.shift, r.machine, r.slot)] || []).push(r); });
+                    const setupsBy = {};
+                    (D.setups || []).forEach(r => { (setupsBy[key(r.date, r.shift, r.machine)] = setupsBy[key(r.date, r.shift, r.machine)] || []).push(r); });
+                    const fpaBy = {};
+                    (D.fpa || []).forEach(r => { (fpaBy[key(r.date, r.shift, r.machine)] = fpaBy[key(r.date, r.shift, r.machine)] || []).push(r); });
+                    const planBy = {};
+                    (D.plans || []).forEach(p => { if (p.machine && !planBy[p.machine]) planBy[p.machine] = p; });
+                    const holdActive = {};
+                    (D.holds || []).forEach(h => { if (h.status === 'ACTIVE' && !holdActive[h.machine]) holdActive[h.machine] = h; });
+                    const normLine = s => String(s || '').toLowerCase().replace(/[\s\-_]/g, '');
+                    const teamOf = (date, sh, line) => {
+                        const t = (D.teams || []).find(x => x.date === date && x.shift === sh && normLine(x.line) === normLine(line));
+                        if (t && (t.qc_supervisor || t.qc_incharge)) return { sup: t.qc_supervisor || '', inc: t.qc_incharge || '', by: t.saved_by || '' };
+                        // Older per-machine names for this line's machines (latest wins).
+                        const ms = new Set(lines[line] || []);
+                        let sup = '', inc = '';
+                        (D.machineTeams || []).forEach(x => {
+                            if (x.date !== date || x.shift !== sh || !ms.has(x.machine) || !String(x.employee_name || '').trim()) return;
+                            const role = String(x.role || '').toLowerCase();
+                            if (role.includes('incharge')) inc = x.employee_name; else if (role.includes('supervisor')) sup = x.employee_name;
+                        });
+                        return (sup || inc) ? { sup, inc, by: '' } : null;
+                    };
+
+                    const isBad = v => /not\s*ok/i.test(String(v || ''));
+                    const entryBad = e => isBad(e.visual_status) || isBad(e.colour_status) || isBad(e.ff_status);
+                    const slotStart = (date, sh, i) => Date.parse(`${date}T${sh === 'Night' ? '20' : '08'}:00:00+05:30`) + i * 7200000;
+                    const now = Date.now();
+                    const slotState = (date, sh, machine, i) => {
+                        const list = slotsBy[key(date, sh, machine, SL[i])] || [];
+                        const start = slotStart(date, sh, i), end = start + 7200000;
+                        if (list.length) {
+                            const e = list[0];
+                            const late = e.entered_at && (Date.parse(e.entered_at) - end) > 15 * 60000;
+                            return { kind: entryBad(e) ? 'bad' : 'ok', e, late };
+                        }
+                        if (now > end) return { kind: 'miss' };
+                        if (now >= start) return { kind: 'due' };
+                        return { kind: 'future' };
+                    };
+                    // Slot header label with AM/PM for a single shift (both shifts → plain hours).
+                    const slotLabel = (s, i) => {
+                        if (shiftMode === 'Both') return s.replace('-', '–');
+                        const [a, b] = s.split('-');
+                        const day = shiftMode === 'Day';
+                        const st = ((i <= 1) === day) ? 'AM' : 'PM';
+                        const en = i === 1 ? (st === 'AM' ? 'PM' : 'AM') : st;
+                        return `${a} ${st}–${b} ${en}`;
+                    };
+
+                    // Rows for the slot popup; cells pass an index into _qcSlotKeys.
+                    window._qcSummarySlots = slotsBy;
+                    window._qcSlotKeys = [];
+
+                    let grand = { due: 0, done: 0, bad: 0, miss: 0, setupDone: 0, setupDue: 0, fpaPend: 0, machines: 0 };
+                    let body = '';
+                    let machineCount = 0;
+
+                    dates.forEach(date => {
+                        body += `<div class="dpr-date-banner" style="position:sticky; z-index:46; background:#0f172a; color:white; padding:12px 20px; font-weight:800; border-radius:12px; margin:40px 0 20px 0; font-size:1.2rem; display:flex; justify-content:space-between; align-items:center; box-shadow:0 10px 15px -3px rgba(0,0,0,0.1)">
+                                <span><i class="bi bi-calendar3" style="margin-right:10px"></i>Compliance Summary for ${new Date(date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
+                                <span style="font-size:0.9rem; opacity:0.8">QC • ${esc(shiftMode)} Shift</span>
+                            </div>
+                            <div class="date-section-header" style="position:sticky; z-index:45; top:130px; margin-bottom:0; box-shadow:0 1px 2px rgba(0,0,0,0.05); background:#f8fafc; border:1px solid #cbd5e1; border-radius:8px 8px 0 0; overflow:hidden">
+                                <table style="width:100%; border-collapse:separate; border-spacing:0; font-size:0.8rem; text-align:center; table-layout:fixed">
+                                    <colgroup><col style="width:220px; min-width:220px"><col style="width:70px; min-width:70px">${SL.map(() => '<col style="width:130px; min-width:130px">').join('')}<col style="width:140px; min-width:140px"></colgroup>
+                                    <thead><tr>
+                                        <th style="padding:12px; text-align:left; border-bottom:1px solid #e2e8f0; background:#f8fafc; font-weight:600; color:#475569; border-right:1px solid #e2e8f0">Machine / Job</th>
+                                        <th style="padding:10px 4px; border-bottom:1px solid #e2e8f0; background:#f8fafc; font-weight:600; color:#475569; border-right:1px solid #e2e8f0">Setup</th>
+                                        ${SL.map((s, i) => `<th style="padding:10px; border-bottom:1px solid #e2e8f0; background:#f8fafc; font-weight:600; color:#475569; font-size:0.75rem; border-right:1px solid #e2e8f0">${esc(slotLabel(s, i))}</th>`).join('')}
+                                        <th style="padding:10px; border-bottom:1px solid #e2e8f0; background:#f0f9ff; font-weight:700; color:#0369a1; border-left:2px solid #e2e8f0">Summary</th>
+                                    </tr></thead>
+                                </table>
+                            </div>`;
+
+                        shownLines.forEach(line => {
+                            const ms = lines[line] || [];
+                            let lDue = 0, lDone = 0, lBad = 0, lMiss = 0, lSetupDone = 0, lSetupDue = 0, lFpaPend = 0, lHold = 0, lMemo = 0;
+                            let rowsHtml = '';
+
+                            ms.forEach(machine => {
+                                const plan = planBy[machine] || null;
+                                let mHtml = '';
+                                let search = [machine, line, plan && plan.item_name, plan && plan.mould_name, plan && plan.order_no].filter(Boolean).join(' ').toLowerCase();
+                                shifts.forEach((sh, sIdx) => {
+                                    const setups = setupsBy[key(date, sh, machine)] || [];
+                                    const halves = new Set(setups.map(s => Number(s.setup_period) || 1)).size;
+                                    const anyEntry = SL.some(s => (slotsBy[key(date, sh, machine, s)] || []).length);
+                                    const active = !!plan || anyEntry || setups.length;
+                                    const firstEntry = SL.map(s => (slotsBy[key(date, sh, machine, s)] || [])[0]).find(Boolean) || {};
+                                    const job = {
+                                        machine, order_no: firstEntry.order_no || (plan && plan.order_no) || '',
+                                        job_card_no: firstEntry.job_card_no || (setups[0] && setups[0].job_card_no) || '',
+                                        item_name: firstEntry.item_name || (plan && plan.item_name) || '',
+                                        mould_name: firstEntry.mould_name || (plan && plan.mould_name) || '',
+                                        plan_id: plan ? plan.plan_id : '',
+                                        _row_date: date, _row_shift: sh
+                                    };
+                                    if (job.item_name) search += ' ' + String(job.item_name).toLowerCase();
+
+                                    let rDue = 0, rDone = 0;
+                                    const cells = SL.map((s, i) => {
+                                        const st = slotState(date, sh, machine, i);
+                                        const base = 'padding:6px 4px; border-right:1px solid #f1f5f9; border-bottom:1px solid #e2e8f0; vertical-align:middle; font-size:0.78rem; font-weight:700';
+                                        const arg = window._qcSlotKeys.push([date, sh, machine, s]) - 1;
+                                        if (st.kind === 'ok' || st.kind === 'bad') {
+                                            rDue++; rDone++; lDue++; lDone++;
+                                            if (st.kind === 'bad') lBad++;
+                                            const who = esc(st.e.entered_by || '');
+                                            return st.kind === 'ok'
+                                                ? `<td style="${base}; background:#ecfdf5; color:#047857; cursor:pointer" onclick="qcShowSlot(${arg})" title="${who}">✔ OK${st.late ? '<div style="font-size:0.65rem; color:#b45309">late</div>' : ''}</td>`
+                                                : `<td style="${base}; background:#fef2f2; color:#b91c1c; cursor:pointer" onclick="qcShowSlot(${arg})" title="${who}">✘ Not OK${st.late ? '<div style="font-size:0.65rem; color:#b45309">late</div>' : ''}</td>`;
+                                        }
+                                        if (!active) return `<td style="${base}; color:#cbd5e1">—</td>`;
+                                        if (st.kind === 'miss') { rDue++; lDue++; lMiss++; return `<td style="${base}; background:#fff1f2; color:#e11d48">Missed</td>`; }
+                                        if (st.kind === 'due') return `<td style="${base}; background:#fffbeb; color:#b45309">Due</td>`;
+                                        return `<td style="${base}; color:#cbd5e1">—</td>`;
+                                    }).join('');
+
+                                    if (active) { lSetupDue += 2; lSetupDone += Math.min(2, halves); }
+                                    const setupCell = !active ? '<span style="color:#cbd5e1">—</span>'
+                                        : `<span style="font-weight:800; padding:2px 6px; border-radius:6px; ${halves >= 2 ? 'background:#dcfce7; color:#166534' : halves === 1 ? 'background:#fef3c7; color:#92400e' : 'background:#fee2e2; color:#991b1b'}">${Math.min(2, halves)}/2</span>`;
+                                    const fpa = fpaBy[key(date, sh, machine)] || [];
+                                    const fpaTag = !fpa.length ? '' : fpa.some(f => f.fpa_approval_status === 'Rejected') ? '<span style="color:#b91c1c">FPA rejected</span>'
+                                        : fpa.some(f => f.fpa_approval_status === 'Pending') ? (lFpaPend++, '<span style="color:#b45309">FPA pending</span>') : '<span style="color:#047857">FPA ok</span>';
+                                    const memos = memoBy[machine] || [];
+                                    if (sIdx === 0 && memos.length) lMemo += memos.length;
+                                    const hold = holdActive[machine];
+                                    if (sIdx === 0 && hold) lHold++;
+                                    const summary = `<div style="font-weight:800; color:${rDue && rDone < rDue ? '#dc2626' : '#16a34a'}">${rDue ? `${rDone}/${rDue} done` : '—'}</div>
+                                        <div style="font-size:0.7rem; font-weight:700">${fpaTag}</div>
+                                        ${memos.length ? `<div style="font-size:0.7rem; font-weight:700; color:#b91c1c">${memos.length} open memo${memos.length > 1 ? 's' : ''}</div>` : ''}
+                                        ${hold ? '<div style="font-size:0.7rem; font-weight:800; color:#fff; background:#dc2626; border-radius:4px; padding:1px 4px; display:inline-block">ON HOLD</div>' : ''}`;
+
+                                    let label = esc(machine);
+                                    if (shiftMode === 'Both') {
+                                        const c = sh === 'Day' ? '#f59e0b' : '#6366f1';
+                                        label += ` <span style="color:${c}; font-size:0.7rem; background:${c}15; padding:1px 4px; border-radius:4px; margin-left:4px">${sh}</span>`;
+                                    }
+                                    const jobHtml = (job.item_name || job.mould_name)
+                                        ? `<div style="cursor:pointer" onclick='showJobDetails(${JSON.stringify(job).replace(/'/g, "&apos;")}, "${esc(job.order_no)}")'>
+                                              ${job.order_no ? `<div style="font-size:0.75rem; color:#0ea5e9; font-weight:700">${esc(job.order_no)}${job.job_card_no ? ` | <span style="color:#64748b">${esc(job.job_card_no)}</span>` : ''}</div>` : ''}
+                                              <div style="font-size:0.85rem; font-weight:700; color:#1e293b; line-height:1.3; margin-top:2px">${esc(job.item_name || job.mould_name)}</div>
+                                           </div>`
+                                        : '<div style="font-size:0.8rem; color:#94a3b8; font-style:italic">No running plan</div>';
+                                    mHtml += `<tr style="${sIdx === 0 ? 'border-top:2px solid #cbd5e1' : ''}">
+                                        <td data-dpr-machine="${esc(machine)}" data-dpr-shift="${esc(sh)}" data-dpr-date="${esc(date)}" style="padding:6px 8px; text-align:left; border-right:1px solid #f1f5f9; border-bottom:1px solid #e2e8f0; background:#fff; vertical-align:middle">
+                                            <div style="font-size:0.75rem; text-transform:uppercase; letter-spacing:0.5px; font-weight:700; margin-bottom:6px; color:#64748b">${label}</div>${jobHtml}
+                                        </td>
+                                        <td style="padding:6px 4px; border-right:2px solid #e2e8f0; border-bottom:1px solid #e2e8f0; vertical-align:middle; font-size:0.78rem">${setupCell}</td>
+                                        ${cells}
+                                        <td style="padding:6px 8px; text-align:left; border-left:2px solid #e2e8f0; border-bottom:1px solid #e2e8f0; background:#f8fbff; vertical-align:middle; font-size:0.78rem">${summary}</td>
+                                    </tr>`;
+                                });
+                                machineCount++;
+                                rowsHtml += `<tbody class="mm-machine" data-search="${esc(search)}">${mHtml}</tbody>`;
+                            });
+
+                            grand.due += lDue; grand.done += lDone; grand.bad += lBad; grand.miss += lMiss;
+                            grand.setupDone += lSetupDone; grand.setupDue += lSetupDue; grand.fpaPend += lFpaPend;
+
+                            const teamStrip = shifts.map(sh => {
+                                const t = teamOf(date, sh, line);
+                                const pre = shiftMode === 'Both' ? `<b>${sh}:</b> ` : '';
+                                return t
+                                    ? `${pre}QC Supervisor: <b>${esc(t.sup || '-')}</b>&nbsp;|&nbsp;QC Incharge: <b>${esc(t.inc || '-')}</b>${t.by ? `&nbsp;|&nbsp;Entered by: <b>${esc(t.by)}</b>` : ''}`
+                                    : `${pre}<span style="color:#ef4444; font-style:italic">QC Shift Personnel Not Entered</span>`;
+                            }).join('&nbsp;&nbsp;•&nbsp;&nbsp;');
+                            const pct = lDue ? Math.round(lDone * 100 / lDue) : 0;
+                            const chip = (c, html) => `<div style="font-weight:700; color:${c}; font-size:0.9rem; border-left:1px solid #cbd5e1; padding-left:12px">${html}</div>`;
+                            body += `<div class="dpr-line-card"><div style="margin-bottom:24px; background:white; border:1px solid #cbd5e1; border-radius:0 0 12px 12px; overflow:hidden; box-shadow:0 4px 6px -1px rgba(0,0,0,0.05); margin-top:-1px">
+                                <div style="padding:8px 20px; background:#f1f5f9; border-bottom:1px solid #e2e8f0; border-top:1px solid #e2e8f0">
+                                    <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px">
+                                        <span style="font-weight:700; color:#0f172a; font-size:1rem">${esc(line)}</span>
+                                        <div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap">
+                                            <div style="font-weight:700; color:${lDue && lDone < lDue ? '#dc2626' : '#16a34a'}; font-size:0.9rem">Filled: ${lDue ? pct + '%' : '—'}</div>
+                                            ${chip('#e11d48', `Missed: ${lMiss}`)}
+                                            ${chip('#b91c1c', `Not OK: ${lBad}`)}
+                                            ${chip('#1d4ed8', `Setup: ${lSetupDone}/${lSetupDue}`)}
+                                            ${chip('#b45309', `FPA pend: ${lFpaPend}`)}
+                                            ${chip('#64748b', `Memo: ${lMemo} · Hold: ${lHold}`)}
+                                        </div>
+                                    </div>
+                                    <div style="margin-top:2px; font-size:0.75rem; color:#475569">${teamStrip}</div>
+                                </div>
+                                <div style="overflow-x:auto">
+                                    <table style="width:100%; border-collapse:separate; border-spacing:0; font-size:0.8rem; text-align:center; table-layout:fixed">
+                                        <colgroup><col style="width:220px; min-width:220px"><col style="width:70px; min-width:70px">${SL.map(() => '<col style="width:130px; min-width:130px">').join('')}<col style="width:140px; min-width:140px"></colgroup>
+                                        ${rowsHtml}
+                                    </table>
+                                </div>
+                            </div></div>`;
+                        });
+                    });
+
+                    const gPct = grand.due ? Math.round(grand.done * 100 / grand.due) : 0;
+                    const stat = (label, val, c) => `<div style="text-align:right"><div style="font-size:0.75rem; font-weight:600; color:${c}; text-transform:uppercase">${label}</div><div style="font-size:1.4rem; font-weight:800; color:${c}">${val}</div></div><div style="height:40px; border-right:1px solid #e2e8f0"></div>`;
+                    const top = `<div id="sticky-plant-total" style="position:relative; z-index:1; background:white; border:1px solid #cbd5e1; border-radius:12px; padding:15px; margin-bottom:20px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px">
+                            <div style="font-size:1.1rem; font-weight:700; color:#0f172a">
+                                QC Total (${new Date(fromDate).toLocaleDateString('en-GB')}${toDate !== fromDate ? ' – ' + new Date(toDate).toLocaleDateString('en-GB') : ''})
+                                <span style="font-size:0.8rem; font-weight:400; color:#64748b; margin-left:8px">2-hour checks from the QC app</span>
+                            </div>
+                            <div style="display:flex; gap:20px; flex-wrap:wrap; row-gap:12px; justify-content:flex-end; align-items:center">
+                                ${stat('Filled', grand.due ? gPct + '%' : '—', grand.due && grand.done < grand.due ? '#dc2626' : '#16a34a')}
+                                ${stat('Checks done', `${grand.done}/${grand.due}`, '#0f172a')}
+                                ${stat('Missed', grand.miss, '#e11d48')}
+                                ${stat('Not OK', grand.bad, '#b91c1c')}
+                                ${stat('Setup', `${grand.setupDone}/${grand.setupDue}`, '#1d4ed8')}
+                                <div style="text-align:right"><div style="font-size:0.75rem; font-weight:600; color:#b45309; text-transform:uppercase">FPA pending</div><div style="font-size:1.4rem; font-weight:800; color:#b45309">${grand.fpaPend}</div></div>
+                            </div>
+                        </div>`;
+
+                    container.innerHTML = machineCount ? top + body
+                        : '<div style="padding:60px; text-align:center; color:#94a3b8; background:white; border-radius:8px; border:1px dashed #cbd5e1">No Active Machines Found.</div>';
+                    window._dprMachineCount = shownLines.reduce((n, l) => n + (lines[l] || []).length, 0);
+                    try { if (window.applyDprSearch) window.applyDprSearch(); } catch (_) {}
+                    const banners = container.querySelectorAll('.dpr-date-banner');
+                    const bh = banners.length ? banners[0].offsetHeight : 0;
+                    banners.forEach(b => { b.style.top = '0px'; });
+                    container.querySelectorAll('.date-section-header').forEach(h => { h.style.top = bh + 'px'; });
+                };
+
+                // Popup with one QC 2-hour check (visual / colour / function-fitment).
+                window.qcShowSlot = (idx) => {
+                    const esc = dprEscHtml;
+                    const [date, sh, machine, slot] = (window._qcSlotKeys || [])[idx] || [];
+                    if (!machine) return;
+                    const list = (window._qcSummarySlots || {})[[date, sh, machine, slot].join('|')] || [];
+                    const st = (s, p, rm) => !s ? '<span style="color:#94a3b8">Not checked</span>'
+                        : /not\s*ok/i.test(s) ? `<b style="color:#b91c1c">Not OK</b>${p ? ' — ' + esc(p) : ''}${rm ? `<div style="color:#64748b; font-size:0.8rem">${esc(rm)}</div>` : ''}`
+                        : '<b style="color:#047857">OK</b>';
+                    const when = t => t ? new Date(t).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false }) : '';
+                    const ov = document.createElement('div');
+                    ov.style.cssText = 'position:fixed; inset:0; background:rgba(15,23,42,0.45); z-index:2000; display:flex; align-items:center; justify-content:center; padding:16px';
+                    ov.onclick = e => { if (e.target === ov) ov.remove(); };
+                    ov.innerHTML = `<div style="background:#fff; border-radius:12px; max-width:460px; width:100%; padding:18px 20px; max-height:85vh; overflow:auto">
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px">
+                            <b style="font-size:1rem; color:#0f172a">${esc(machine)} · ${esc(slot)} · ${esc(sh)}</b>
+                            <button type="button" style="border:1px solid #cbd5e1; background:#fff; border-radius:8px; padding:4px 10px; cursor:pointer" onclick="this.closest('[data-qc-pop]').remove()">Close</button>
+                        </div>
+                        ${list.map(r => `<table style="width:100%; font-size:0.85rem; border-collapse:collapse">
+                            ${[['Product', esc(r.item_name || '—')], ['Mould', esc(r.mould_name || '—')], ['Job card', esc(r.job_card_no || '—')], ['Colour', esc(r.colour || '—')],
+                               ['Visual', st(r.visual_status, r.visual_problem, r.visual_remarks)], ['Colour check', st(r.colour_status, r.colour_problem, r.colour_remarks)],
+                               ['Function / Fit', st(r.ff_status, r.ff_problem, '') + (r.ff_photo_url ? ` · <a href="${esc(r.ff_photo_url)}" target="_blank" rel="noopener">photo</a>` : '')],
+                               ['Entered by', `${esc(r.entered_by || '—')} · ${esc(when(r.entered_at))}`]]
+                              .map(([k, v]) => `<tr style="border-top:1px solid #f1f5f9"><td style="padding:5px 8px 5px 0; color:#64748b; width:110px">${k}</td><td style="padding:5px 0">${v}</td></tr>`).join('')}
+                        </table>`).join('<hr style="border:none; border-top:1px dashed #e2e8f0">') || '<div style="color:#64748b">No check saved.</div>'}
+                    </div>`;
+                    ov.setAttribute('data-qc-pop', '1');
+                    document.body.appendChild(ov);
+                };
+                // ---- End QC DPR Summary ----
+
                 const loadSummary = async () => {
                     let fromDate = document.getElementById('s-date').value;
                     let toDate = document.getElementById('s-date-to')?.value || fromDate;
@@ -1196,6 +1503,13 @@
                     // ---- Labour Job DPR: separate path ----
                     if (dprProcess === 'Labour Job') {
                         await loadLabourDprSummary(container, fromDate, toDate, shiftMode);
+                        return;
+                    }
+
+                    // ---- QC: Moulding-style summary from QC app data ----
+                    if (dprProcess === 'QC') {
+                        localStorage.setItem('jpsms_dpr_process', dprProcess);
+                        await loadQcDprSummary(container, fromDate, toDate, shiftMode);
                         return;
                     }
 

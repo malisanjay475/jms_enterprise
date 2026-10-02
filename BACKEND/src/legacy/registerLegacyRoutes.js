@@ -30099,6 +30099,88 @@ app.get('/api/qc/overview', async (req, res) => {
 });
 
 // POST /api/qc/online-report/slot — upsert one slot's QC check data (with optional photo)
+// GET /api/qc/summary-matrix?fromDate&toDate&shift(Day|Night|Both)&factory_id
+// Everything the DPR Compliance Summary needs for Process = QC, laid out like
+// Moulding: Moulding machines (Line → machine order), the QC app's 2-hour slot
+// checks, QC One-time Setups, FPAs, holds, running plans and the QC team per line.
+app.get('/api/qc/summary-matrix', async (req, res) => {
+  try {
+    if (!getRequestUsername(req)) return res.status(401).json({ ok: false, error: 'Login required' });
+    const isDate = v => /^\d{4}-\d{2}-\d{2}$/.test(String(v || ''));
+    let { fromDate, toDate } = req.query;
+    if (!isDate(fromDate)) return res.json({ ok: false, error: 'fromDate required' });
+    if (!isDate(toDate)) toDate = fromDate;
+    if (toDate < fromDate) [fromDate, toDate] = [toDate, fromDate];
+    const sh = (req.query.shift === 'Day' || req.query.shift === 'Night') ? req.query.shift : '';
+    const factoryId = await resolveScopedReportFactoryId(req);
+
+    const [machineRows, slotRows, setupRows, fpaRows, holdRows, planRows, teamRows, machineTeamRows] = await Promise.all([
+      q(`SELECT machine, line, building, factory_id FROM machines
+          WHERE COALESCE(is_active, TRUE) = TRUE
+            AND COALESCE(NULLIF(TRIM(machine_process), ''), 'Moulding') = 'Moulding'
+            AND ($1::int IS NULL OR factory_id = $1)`, [factoryId]),
+      q(`SELECT machine, dpr_date::text AS date, shift, slot, job_card_no, order_no, item_name, mould_name, colour,
+                visual_status, visual_problem, visual_remarks, colour_status, colour_problem, colour_remarks,
+                ff_status, ff_problem, ff_photo_url, entered_by, entered_at
+           FROM qc_online_report_slots
+          WHERE dpr_date BETWEEN $1::date AND $2::date AND ($3 = '' OR shift = $3)
+            AND ($4::int IS NULL OR factory_id = $4 OR factory_id IS NULL)`, [fromDate, toDate, sh, factoryId]),
+      q(`SELECT machine, dpr_date::text AS date, shift, job_card_no, COALESCE(setup_period, 1) AS setup_period,
+                std_weight, act_weight, std_cycle_time, act_cycle_time, std_cavity, act_cavity, setup_by, setup_at
+           FROM qc_job_setup
+          WHERE dpr_date BETWEEN $1::date AND $2::date AND ($3 = '' OR shift = $3)
+            AND ($4::int IS NULL OR factory_id = $4 OR factory_id IS NULL)`, [fromDate, toDate, sh, factoryId]),
+      q(`SELECT machine, date::text AS date, shift, job_card_no, COALESCE(fpa_approval_status, 'Pending') AS fpa_approval_status
+           FROM qc_job_checks
+          WHERE fpa_status = 'Done' AND date BETWEEN $1::date AND $2::date AND ($3 = '' OR shift = $3)
+            AND ($4::int IS NULL OR factory_id = $4 OR factory_id IS NULL)`, [fromDate, toDate, sh, factoryId]),
+      q(`SELECT id, machine, dpr_date::text AS date, shift, reason, status, hold_by, hold_at
+           FROM qc_holds
+          WHERE (status = 'ACTIVE' OR dpr_date BETWEEN $1::date AND $2::date)
+            AND ($3::int IS NULL OR factory_id = $3 OR factory_id IS NULL)
+          ORDER BY hold_at DESC LIMIT 500`, [fromDate, toDate, factoryId]),
+      q(`SELECT machine, plan_id, order_no, item_name, mould_name
+           FROM plan_board
+          WHERE UPPER(status) = 'RUNNING'
+            AND ($1::int IS NULL OR factory_id = $1 OR factory_id IS NULL)`, [factoryId]),
+      q(`SELECT line, dpr_date::text AS date, shift, qc_supervisor, qc_incharge, saved_by, saved_at
+           FROM qc_line_teams
+          WHERE dpr_date BETWEEN $1::date AND $2::date AND ($3 = '' OR shift = $3)
+            AND ($4::int IS NULL OR factory_id = $4 OR factory_id IS NULL)`, [fromDate, toDate, sh, factoryId]),
+      // Older per-machine QC team (before the per-line team) — shown for those dates.
+      q(`SELECT machine, dpr_date::text AS date, shift, role, employee_name, assigned_at
+           FROM qc_shift_team
+          WHERE dpr_date BETWEEN $1::date AND $2::date AND ($3 = '' OR shift = $3)
+            AND ($4::int IS NULL OR factory_id = $4 OR factory_id IS NULL)
+          ORDER BY assigned_at ASC`, [fromDate, toDate, sh, factoryId])
+    ]);
+
+    const order = makeMachineOrder(machineRows);
+    const machines = machineRows
+      .filter(m => String(m.machine || '').trim())
+      .sort((a, b) => order(a.machine, b.machine))
+      .map(m => ({ machine: m.machine, line: String(m.line || m.building || '').trim() || 'Unassigned', factory_id: m.factory_id }));
+
+    res.json({
+      ok: true,
+      data: {
+        fromDate, toDate, shift: sh || 'Both',
+        slotLabels: QC_SLOTS_2H,
+        machines,
+        slots: slotRows.map(r => ({ ...r, slot: normalizeQcSlot(r.slot) })),
+        setups: setupRows,
+        fpa: fpaRows,
+        holds: holdRows,
+        plans: planRows,
+        teams: teamRows,
+        machineTeams: machineTeamRows
+      }
+    });
+  } catch (e) {
+    sendServerError(res, e);
+  }
+});
+
 app.post('/api/qc/online-report/slot', (req, res, next) => {
   uploadQC.single('ff_photo')(req, res, err => {
     if (err) return res.status(400).json({ ok: false, error: err.message || 'Upload error' });

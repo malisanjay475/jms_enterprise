@@ -11,8 +11,22 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.85.0",
+  "latest": "1.86.0",
   "versions": [
+    {
+      "version": "1.86.0",
+      "date": "2026-10-02",
+      "title": "QC in DPR Compliance Summary",
+      "modules": [
+        {
+          "app": "quality",
+          "changes": [
+            { "type": "feat", "text": "DPR Compliance Summary has a new Process: QC. It looks like Moulding: one card per line with the QC Supervisor and QC Incharge, each machine with its job, QC Setup (x/2) and the six 2-hour QC checks (OK, Not OK, Due, Missed), plus FPA, memo and hold in the Summary column." },
+            { "type": "feat", "text": "Click a QC check to see visual, colour and function/fitment results with photo and who entered it; click the job to open the job details with the QC setup." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.85.0",
       "date": "2026-10-02",
