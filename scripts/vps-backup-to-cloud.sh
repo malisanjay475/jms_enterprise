@@ -76,9 +76,23 @@ if command -v rclone >/dev/null 2>&1 && rclone listremotes 2>/dev/null | grep -q
   [ "${RCLONE_BWLIMIT}" != "0" ] && RC_FLAGS="$RC_FLAGS --bwlimit ${RCLONE_BWLIMIT}"
   log "Uploading to Google Drive (${RCLONE_REMOTE}:${RCLONE_DEST}, bwlimit=${RCLONE_BWLIMIT})..."
   $LOWPRIO rclone copy "$DB_FILE" "${RCLONE_REMOTE}:${RCLONE_DEST}/db/${M}/" $RC_FLAGS 2>&1 && log "Drive: DB uploaded." || log "WARN: Drive DB upload failed."
-  [ -f "$UP_FILE" ] && { $LOWPRIO rclone copy "$UP_FILE" "${RCLONE_REMOTE}:${RCLONE_DEST}/uploads/${M}/" $RC_FLAGS 2>&1 && log "Drive: uploads uploaded." || log "WARN: Drive uploads failed."; }
+  if [ -f "$UP_FILE" ]; then
+    # Uploaded files go to Drive incrementally (only new/changed files, usually a
+    # few MB) every run; the full ~1.8 GB archive goes up once a day. Re-sending
+    # the full archive every 6h timed out the job whenever Drive was slow.
+    MIRROR_DIR="$BACKUP_ROOT/uploads-mirror"
+    mkdir -p "$MIRROR_DIR"
+    if $LOWPRIO tar -xzf "$UP_FILE" -C "$MIRROR_DIR" 2>/dev/null; then
+      $LOWPRIO rclone copy "$MIRROR_DIR/uploads" "${RCLONE_REMOTE}:${RCLONE_DEST}/uploads-files/" ${RC_FLAGS/--no-traverse /} 2>&1         && log "Drive: new uploaded files synced." || log "WARN: Drive uploaded-files sync failed."
+    else log "WARN: could not unpack uploads archive for incremental sync."; fi
+
+    TODAY="$(date +%Y-%m-%d)"; FULL_MARK="$BACKUP_ROOT/.last-full-uploads-drive"
+    if [ "$(cat "$FULL_MARK" 2>/dev/null)" != "$TODAY" ]; then
+      $LOWPRIO rclone copy "$UP_FILE" "${RCLONE_REMOTE}:${RCLONE_DEST}/uploads/${M}/" $RC_FLAGS 2>&1         && { echo "$TODAY" > "$FULL_MARK"; log "Drive: full uploads archive uploaded (daily)."; }         || log "WARN: Drive full uploads archive failed (retries next run)."
+    else log "Drive: full uploads archive already sent today — skipped."; fi
+  fi
   rclone delete "${RCLONE_REMOTE}:${RCLONE_DEST}/db"      --min-age 35d 2>/dev/null || true
-  rclone delete "${RCLONE_REMOTE}:${RCLONE_DEST}/uploads" --min-age 35d 2>/dev/null || true
+  rclone delete "${RCLONE_REMOTE}:${RCLONE_DEST}/uploads" --min-age 35d 2>/dev/null || true   # daily archives only; uploads-files/ is kept
 else
   echo "[backup][OFFSITE-WARNING] rclone remote '${RCLONE_REMOTE}' is NOT configured — the ONLY backup copy lives on this VPS. A disk/VPS loss would lose all backups. Set up the 'gdrive' remote (docs/OPS-SETUP.md)." >&2
   if [ "${STRICT_OFFSITE:-0}" = "1" ]; then

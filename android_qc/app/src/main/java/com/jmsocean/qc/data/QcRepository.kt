@@ -8,6 +8,8 @@ import com.jmsocean.qc.data.remote.SessionData
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
+import com.jmsocean.qc.data.remote.MemoStep
+import com.jmsocean.qc.data.remote.RaisedMemo
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -109,8 +111,7 @@ class QcRepository(private val session: SessionStore) {
                 }
             }
         }.filter { it.isNotBlank() }
-            .distinct()
-            .sortedWith(naturalMachineComparator)
+            .distinct() // keep the server order: Line from the machine master, then machine number
     }
 
     suspend fun queue(machine: String): Result<List<QueueJob>> = runCatching {
@@ -330,6 +331,35 @@ class QcRepository(private val session: SessionStore) {
         if (!env.ok) throw Exception(env.error ?: "Could not load people")
         val arr = env.data as? JsonArray ?: JsonArray(emptyList())
         Result.success(arr.map { json.decodeFromJsonElement(com.jmsocean.qc.data.remote.FactoryPerson.serializer(), it) })
+    } catch (e: Exception) {
+        Result.failure(Exception(serverErr(e)))
+    }
+
+    /** Memos raised on a machine (all statuses), newest first, with their progress. */
+    suspend fun memos(machine: String): Result<List<RaisedMemo>> = try {
+        val env = api.memos(machine)
+        if (!env.ok) throw Exception(env.error ?: "Could not load memos")
+        val arr = env.data as? JsonArray ?: JsonArray(emptyList())
+        fun JsonObject.str(k: String) = (this[k] as? JsonPrimitive)?.contentOrNull ?: ""
+        Result.success(arr.mapNotNull { el ->
+            val o = el as? JsonObject ?: return@mapNotNull null
+            val steps = (o["action_history"] as? JsonArray)?.mapNotNull { h ->
+                val ho = h as? JsonObject ?: return@mapNotNull null
+                MemoStep(ho.str("action"), ho.str("by"), ho.str("at"), ho.str("notes"))
+            } ?: emptyList()
+            RaisedMemo(
+                memoNo = o.str("memo_no"),
+                planId = o.str("plan_id"),
+                description = o.str("issue_description"),
+                severity = o.str("severity"),
+                status = o.str("status"),
+                createdBy = o.str("created_by"),
+                createdAt = o.str("created_at"),
+                mentioned = o.str("mentioned_name"),
+                mediaCount = (o["media_urls"] as? JsonArray)?.size ?: 0,
+                steps = steps
+            )
+        })
     } catch (e: Exception) {
         Result.failure(Exception(serverErr(e)))
     }
@@ -555,7 +585,7 @@ class QcRepository(private val session: SessionStore) {
                 ComplianceRow(machineName, cells)
             } ?: emptyList()
             ComplianceLine(lineName, rows)
-        }.sortedBy { it.name }
+        }.sortedWith { a, b -> naturalMachineComparator.compare(a.name, b.name) }
         ComplianceGrid(slots, lines)
     }
 
@@ -599,7 +629,7 @@ class QcRepository(private val session: SessionStore) {
 
     suspend fun submitSlotCheck(
         machine: String, date: String, shift: String, slot: String,
-        job: com.jmsocean.qc.data.remote.QueueJob,
+        job: com.jmsocean.qc.data.remote.QueueJob, colour: String? = null,
         visualStatus: String?, visualProblem: String?, visualRemarks: String?,
         colourStatus: String?, colourProblem: String?, colourRemarks: String?,
         ffStatus: String?, ffProblem: String?, ffPhoto: File?
@@ -618,6 +648,7 @@ class QcRepository(private val session: SessionStore) {
             put("order_no", text(job.orderNumber))
             put("item_name", text(job.productName))
             put("mould_name", text(job.Mould ?: ""))
+            colour?.let { put("colour", text(it)) }
             visualStatus?.let { put("visual_status", text(it)) }
             visualProblem?.let { put("visual_problem", text(it)) }
             visualRemarks?.let { put("visual_remarks", text(it)) }

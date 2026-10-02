@@ -187,30 +187,53 @@ fun QcInspectionScreen(
                 s.setupMsg?.let { Text(it, color = Good, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp)) }
             }
 
-            // Date / Shift / Slot
+            // Date / Shift / Slot / Colour — dropdowns; date + shift auto like supervisor.html
             Spacer(Modifier.size(10.dp))
             SectionCard {
-                Label("Date · Shift · Hour slot")
-                Text(s.date, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(vertical = 2.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    listOf("Day", "Night").forEach {
-                        FilterChip(selected = s.shift == it, onClick = { vm.setShift(it) }, label = { Text(it) })
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Column(Modifier.weight(1f)) {
+                        FieldLabel("Date")
+                        PickDropdown(
+                            value = s.dateOptions.firstOrNull { it.first == s.date }
+                                ?.let { "${it.second} (${shortDate(it.first)})" } ?: shortDate(s.date),
+                            placeholder = "Date",
+                            options = s.dateOptions.map { it.first to "${it.second} (${shortDate(it.first)})" },
+                            onSelect = vm::setDate
+                        )
+                    }
+                    Column(Modifier.weight(1f)) {
+                        FieldLabel("Shift")
+                        PickDropdown(
+                            value = s.shift, placeholder = "Shift",
+                            options = listOf("Day" to "Day", "Night" to "Night"),
+                            onSelect = vm::setShift
+                        )
                     }
                 }
-                Spacer(Modifier.size(6.dp))
-                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    INSPECT_SLOTS.forEach {
-                        FilterChip(selected = s.slot == it, onClick = { vm.setSlot(it) }, label = { Text(it) })
-                    }
+                Spacer(Modifier.size(8.dp))
+                FieldLabel("Hour slot (2 hours)")
+                when {
+                    !s.slotsLoaded -> Text("Loading slots…", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    s.openSlots.isEmpty() -> Text(
+                        if (s.filledSlots.isNotEmpty()) "All open slots are filled for this shift." else "No slot open yet for this shift.",
+                        fontSize = 12.sp, color = Good
+                    )
+                    else -> PickDropdown(
+                        value = s.slot.ifBlank { "" }.let { if (it.isBlank()) "" else slotLabel(it, s.shift) },
+                        placeholder = "Select hour slot",
+                        options = s.openSlots.map { it to slotLabel(it, s.shift) },
+                        onSelect = vm::setSlot
+                    )
                 }
                 if (s.colours.isNotEmpty()) {
-                    Spacer(Modifier.size(6.dp))
-                    Label("Colour")
-                    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        s.colours.forEach { c ->
-                            FilterChip(selected = s.colour == c.colour, onClick = { vm.setColour(c.colour) }, label = { Text(c.colour) })
-                        }
-                    }
+                    Spacer(Modifier.size(8.dp))
+                    FieldLabel("Colour")
+                    PickDropdown(
+                        value = s.colour, placeholder = "Select colour",
+                        options = s.colours.map { it.colour to it.colour },
+                        onSelect = vm::setColour,
+                        highlightEmpty = true
+                    )
                 }
             }
 
@@ -328,6 +351,69 @@ private fun CheckBlock(
             value = remarks, onValueChange = onRemarks, label = { Text("Remarks") }, singleLine = true,
             modifier = Modifier.fillMaxWidth()
         )
+    }
+}
+
+@Composable
+private fun FieldLabel(t: String) =
+    Text(t, fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold,
+        color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(bottom = 3.dp))
+
+/** "2026-09-30" → "30/09". */
+private fun shortDate(iso: String): String =
+    iso.split("-").takeIf { it.size == 3 }?.let { "${it[2]}/${it[1]}" } ?: iso
+
+/** "08-10" + shift → "08–10 AM" / "12–02 PM" style label. */
+private fun slotLabel(slot: String, shift: String): String {
+    val (a, b) = slot.split("-").let { (it.getOrNull(0) ?: "") to (it.getOrNull(1) ?: "") }
+    // Day slots start in the morning, Night slots in the evening; 12-02 and later flip.
+    val idx = INSPECT_SLOTS.indexOf(slot)
+    val firstHalf = idx in 0..1
+    val day = shift != "Night"
+    val start = if (firstHalf == day) "AM" else "PM"
+    val end = if (idx == 1) (if (start == "AM") "PM" else "AM") else start
+    return "$a $start – $b $end"
+}
+
+/** Compact full-width dropdown; empty value shows the placeholder. */
+@Composable
+private fun PickDropdown(
+    value: String,
+    placeholder: String,
+    options: List<Pair<String, String>>,
+    onSelect: (String) -> Unit,
+    highlightEmpty: Boolean = false
+) {
+    var open by remember { mutableStateOf(false) }
+    Box(Modifier.fillMaxWidth()) {
+        OutlinedButton(
+            onClick = { open = true },
+            shape = RoundedCornerShape(10.dp),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+            border = if (highlightEmpty && value.isBlank())
+                androidx.compose.foundation.BorderStroke(1.5.dp, Warn)
+            else androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+            modifier = Modifier.fillMaxWidth().height(40.dp)
+        ) {
+            Text(
+                value.ifBlank { placeholder },
+                fontSize = 13.5.sp,
+                fontWeight = if (value.isBlank()) FontWeight.Normal else FontWeight.SemiBold,
+                color = if (value.isBlank()) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                modifier = Modifier.weight(1f)
+            )
+            Icon(Icons.Default.ArrowDropDown, contentDescription = null)
+        }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            options.forEach { (key, label) ->
+                DropdownMenuItem(
+                    text = { Text(label, fontSize = 14.sp) },
+                    modifier = Modifier.height(40.dp),
+                    onClick = { open = false; onSelect(key) }
+                )
+            }
+        }
     }
 }
 

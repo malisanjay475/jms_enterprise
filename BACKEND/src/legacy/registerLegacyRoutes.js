@@ -1211,159 +1211,504 @@ if (String(config.serverType || '').toUpperCase() === 'LOCAL' && config.mainServ
 }
 
 /* ============================================================
-   DPR DASHBOARD MATRIX (New Endpoint for Production Dashboard)
-   Renamed to avoid conflict with existing dpr.html summary-matrix
+   MOULDING PRODUCTION DASHBOARD (production_dashboard.html)
+   GET /api/dpr/moulding-dashboard?date=YYYY-MM-DD&shift=Day|Night|All
+   One call returns everything the dashboard draws for a date + shift: every
+   active Moulding machine with its live status, current job, std vs actual
+   cycle, hourly strip and raw OEE sums, plus downtime/rejection reasons and a
+   7-day trend by line. The page sums the raw figures itself, so the Line
+   filter re-computes every KPI, chart and table without another request.
+
+   OEE basis — one DPR hour-slot per machine is the unit of time:
+     planned min = 60 − planned stop ("No Plan")
+     downtime    = min(60, downtime_min) − planned stop     (unplanned loss)
+     run min     = planned − downtime
+     ideal s/pc  = std cycle ÷ cavities (mould master, else the setup)
+     Availability = run ÷ planned
+     Performance  = Σ(output × ideal s/pc) ÷ Σ run seconds (slots with a std only)
+     Quality      = good ÷ (good + reject)
+     OEE          = A × P × Q  (P capped at 100%)
+
+   Weight (Kg) figures mirror the Daily Report (NEW) (dpr_daily_report.html), per
+   machine-shift: R = std part weight × std pcs/hr (first entry of the shift);
+     Target  = R × shift hours (12, or hours elapsed while the shift is live)
+     Planned = R × (hours − actual mould-change time)
+     Net achievable = R × (hours − all downtime, incl. No Plan)
+     Gross = (good + reject) × weight, Good, Reject; Efficiency = Good ÷ Target
+     Change-overs: distinct moulds − 1, distinct jobs − 1, colour transitions;
+     STD change-over = mould changes × machine load + unload time.
    ============================================================ */
-app.get('/api/dpr/dashboard-matrix', async (req, res) => {
+const MD_SLOTS = ['07-08', '08-09', '09-10', '10-11', '11-12', '12-01', '01-02', '02-03', '03-04', '04-05', '05-06', '06-07'];
+const MD_SHIFT_START_HOUR = { Day: 7, Night: 19 };
+const MD_PLANNED_STOP_LABELS = new Set(['No Plan']);
+
+function mdEmptySums() {
+  return { planned: 0, run: 0, dt: 0, noPlan: 0, good: 0, rej: 0, idealSec: 0, perfRunSec: 0, target: 0, goodKg: 0, rejKg: 0 };
+}
+function mdAddSums(dest, src) {
+  for (const k of Object.keys(dest)) dest[k] += src[k] || 0;
+  return dest;
+}
+function mdRoundSums(s) {
+  const out = {};
+  for (const [k, v] of Object.entries(s)) out[k] = Math.round(v * 100) / 100;
+  return out;
+}
+// Custom reasons are stored as OTHER_<free text>.
+function mdReasonLabel(label) {
+  return String(label || '').replace(/^OTHER_/i, '').trim() || 'Other';
+}
+function mdParseJson(raw) {
+  if (!raw) return null;
+  if (typeof raw === 'object') return raw;
+  try { return JSON.parse(raw); } catch (_) { return null; }
+}
+function mdLocalDate(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+function mdShiftDate(dateStr, days) {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  return mdLocalDate(new Date(y, m - 1, d + days));
+}
+// Wall-clock label for a slot ("07-08" of the Night shift starts at 19:00).
+function mdSlotLabel(shift, idx) {
+  const h = (MD_SHIFT_START_HOUR[shift] + idx) % 24;
+  return `${String(h).padStart(2, '0')}:00`;
+}
+
+app.get('/api/dpr/moulding-dashboard', async (req, res) => {
   try {
-    const { date, shift } = req.query; // '2023-10-27', 'Day' or 'Night'
-    const cleanDate = (date || '').trim();
-    const cleanShift = (shift || '').trim() || 'Day';
+    const date = String(req.query.date || '').trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ ok: false, error: 'date (YYYY-MM-DD) required' });
+    const shiftReq = String(req.query.shift || 'Day').trim();
+    const shift = ['Day', 'Night', 'All'].includes(shiftReq) ? shiftReq : 'Day';
+    const shifts = shift === 'All' ? ['Day', 'Night'] : [shift];
+    const factoryId = await resolveScopedReportFactoryId(req);
 
-    console.log(`API Hit: /api/dpr/summary-matrix?date='${cleanDate}'&shift='${cleanShift}'`);
+    const cacheKey = `${date}|${shift}|${factoryId || 'all'}`;
+    const cached = ttlCacheGet('mouldingDashboard', cacheKey);
+    if (cached) return res.json(cached);
 
-    if (!cleanDate) return res.json({ ok: false, error: 'Date required' });
+    const trendFrom = mdShiftDate(date, -6);
+    const prevDate = mdShiftDate(date, -1);
+    const now = new Date();
 
-    // 1. Determine Comparision Date (Yesterday same shift)
-    const d = new Date(cleanDate);
-    d.setDate(d.getDate() - 1);
-    const prevDate = d.toISOString().split('T')[0];
-    const factoryId = getFactoryId(req);
+    // ── Slot timeline: which hours of the selected shift(s) have elapsed ──
+    const [yy, mm, dd] = date.split('-').map(Number);
+    const slots = [];
+    shifts.forEach(sh => {
+      const start = new Date(yy, mm - 1, dd, MD_SHIFT_START_HOUR[sh]).getTime();
+      MD_SLOTS.forEach((slot, i) => {
+        const slotStart = start + i * 3600000;
+        slots.push({
+          key: `${sh}|${slot}`, shift: sh, slot, label: mdSlotLabel(sh, i),
+          elapsed: now.getTime() >= slotStart + 3600000,
+          current: now.getTime() >= slotStart && now.getTime() < slotStart + 3600000,
+          frac: Math.max(0, Math.min(1, (now.getTime() - slotStart) / 3600000))
+        });
+      });
+    });
+    const slotIndex = new Map(slots.map((s, i) => [s.key, i]));
+    const live = slots.some(s => s.current);
+    const currentIdx = slots.findIndex(s => s.current);
 
-    // 2. Fetch Current Shift Data (Hourly)
-    const sqlCurrent = `
-        SELECT 
-            h.hour_slot, 
-            SUM(h.good_qty) as total_good,
-            SUM(h.reject_qty) as total_rej,
-            SUM(h.downtime_min) as total_dt,
-            SUM( (h.good_qty * COALESCE(m.std_wt_kg, m.std_wt_kg, pm.std_wt_kg, pm.std_wt_kg, 0)) / 1000 ) as total_tonnage_act,
-            SUM( (h.shots * COALESCE(m.no_of_cav, pm.no_of_cav, 1) * COALESCE(m.std_wt_kg, m.std_wt_kg, pm.std_wt_kg, pm.std_wt_kg, 0)) / 1000 ) as total_tonnage_plan
-        FROM dpr_hourly h
-        LEFT JOIN moulds m ON m.mould_number = h.mould_no
-        LEFT JOIN plan_board pb ON (pb.id::TEXT = h.plan_id OR pb.plan_id = h.plan_id)
-          -- Factory-scope: plan_id repeats across factories, so an unscoped join can
-          -- fan out (multiply) the hour's tonnage via a same-plan_id plan elsewhere (KAN-127).
-          AND (pb.factory_id = h.factory_id OR pb.factory_id IS NULL OR h.factory_id IS NULL)
-        LEFT JOIN moulds pm ON pm.mould_number = pb.item_code
-        WHERE h.dpr_date = $1::date AND h.shift = $2 AND (h.factory_id = $3 OR ($3 IS NULL AND h.factory_id IS NULL))
-        GROUP BY h.hour_slot
-        ORDER BY h.hour_slot ASC
-    `;
-
-    // 3. Fetch Active Machines & Last Hour Data (Enhanced)
-    const sqlActive = `
-        WITH MachineTotals AS (
-            SELECT 
-                machine,
-                plan_id,
-                mould_no,
-                SUM(good_qty) as total_good,
-                SUM(reject_qty) as total_rej,
-                SUM(downtime_min) as total_dt
-            FROM dpr_hourly
-            WHERE dpr_date = $1::date AND shift = $2 AND (factory_id = $3 OR ($3 IS NULL AND factory_id IS NULL))
-            GROUP BY machine, plan_id, mould_no
-        ),
-        LastHour AS (
-            SELECT DISTINCT ON (machine)
-                machine,
-                good_qty as last_good,
-                hour_slot as last_time
-            FROM dpr_hourly
-            WHERE dpr_date = $1::date AND shift = $2 AND (factory_id = $3 OR ($3 IS NULL AND factory_id IS NULL))
-            ORDER BY machine, created_at DESC
-        )
-        SELECT 
-            t.machine,
-            t.plan_id,
-            t.mould_no,
-            t.total_good,
-            t.total_rej,
-            t.total_dt,
-            l.last_good,
-            l.last_time
-        FROM MachineTotals t
-        JOIN LastHour l ON t.machine = l.machine
-    `;
-
-    // 4. Fetch Totals for Comparison (Current vs Previous)
-    const sqlTotals = `
-        SELECT 
-            dpr_date::text as dpr_date_str,
-            SUM(good_qty) as sum_good,
-            SUM(reject_qty) as sum_rej,
-            SUM(downtime_min) as sum_dt
-        FROM dpr_hourly 
-        WHERE (dpr_date = $1::date OR dpr_date = $3::date) AND shift = $2 AND (factory_id = $4 OR ($4 IS NULL AND factory_id IS NULL))
-        GROUP BY dpr_date
-    `;
-
-    const [rowsHourly, rowsActive, rowsTotals] = await Promise.all([
-      q(sqlCurrent, [cleanDate, cleanShift, factoryId]),
-      q(sqlActive, [cleanDate, cleanShift, factoryId]),
-      q(sqlTotals, [cleanDate, cleanShift, prevDate, factoryId])
+    // ── Masters + raw data (independent queries in parallel) ──
+    const DPR_HOURLY_KEY = `machine, hour_slot, plan_id, dpr_date, shift, COALESCE(colour, '')`;
+    const [machineRows, rows, setupRows, maintRows, runningPlans] = await Promise.all([
+      q(`SELECT machine, line, building, tonnage, model_no, machine_type, mould_load_time, mould_unload_time
+           FROM machines
+          WHERE is_active = true
+            AND ($1::int IS NULL OR factory_id = $1)
+            AND COALESCE(NULLIF(TRIM(machine_process), ''), 'Moulding') = 'Moulding'`, [factoryId]),
+      // One row per natural key: synced duplicates (KAN-119) must not inflate totals.
+      q(`SELECT id, dpr_date::text AS date, shift, hour_slot, machine, line, plan_id, order_no,
+                mould_no, colour, good_qty, reject_qty, downtime_min,
+                reject_breakup, downtime_breakup, created_at, factory_id
+           FROM (
+             SELECT DISTINCT ON (${DPR_HOURLY_KEY}) *
+               FROM dpr_hourly
+              WHERE dpr_date BETWEEN $1 AND $2
+                AND shift = ANY($3::text[])
+                AND is_deleted = false
+                AND ($4::int IS NULL OR factory_id = $4)
+              ORDER BY ${DPR_HOURLY_KEY}, id DESC
+           ) d`, [trendFrom, date, shifts, factoryId]),
+      q(`SELECT DISTINCT ON (plan_id, dpr_date, shift)
+                plan_id, dpr_date::text AS date, shift, cycle_act, cavity_act, article_act, pcshr_act, man_act
+           FROM std_actual
+          WHERE dpr_date BETWEEN $1 AND $2
+            AND shift = ANY($3::text[])
+            AND is_deleted = false
+            AND plan_id IS NOT NULL
+            AND ($4::int IS NULL OR factory_id = $4)
+          ORDER BY plan_id, dpr_date, shift, id DESC`, [trendFrom, date, shifts, factoryId]),
+      q(`SELECT machine, status, start_date::text AS start_date, start_slot,
+                end_date::text AS end_date, end_slot, is_active
+           FROM machine_status_logs
+          WHERE start_date <= $1 AND COALESCE(end_date, '2099-12-31') >= $1
+            AND ($2::int IS NULL OR factory_id = $2)
+          ORDER BY id DESC`, [date, factoryId]),
+      q(`SELECT DISTINCT ON (machine)
+                machine, plan_id, order_no, item_name, mould_name, mould_code, plan_qty, start_date
+           FROM plan_board
+          WHERE UPPER(COALESCE(status, '')) = 'RUNNING'
+            AND ($1::int IS NULL OR factory_id = $1)
+          ORDER BY machine, updated_at DESC NULLS LAST, id DESC`, [factoryId])
     ]);
 
-    console.log(`Active Machines Found: ${rowsActive.length} | Hourly Rows: ${rowsHourly.length}`);
+    // Restrict to Moulding machines when the master knows them (other processes share dpr_hourly).
+    const machineSet = new Set(machineRows.map(m => String(m.machine || '').trim()));
+    const inScope = name => !machineSet.size || machineSet.has(String(name || '').trim());
+    const scopedRows = rows.filter(r => inScope(r.machine));
 
-    // --- DEBUG DIAGNOSTIC ---
-    const debugInfo = {
-      params: { date: cleanDate, shift: cleanShift, prevDate },
-      counts: {
-        hourly: rowsHourly.length,
-        active: rowsActive.length,
-        totals: rowsTotals.length
+    // Plan + mould lookups, fetched once for the plans/moulds actually present.
+    const planIds = [...new Set(scopedRows.map(r => r.plan_id).concat(runningPlans.map(p => p.plan_id)).filter(Boolean).map(String))];
+    const [planRows, producedRows] = await Promise.all([
+      planIds.length ? q(`SELECT DISTINCT ON (plan_id) id, plan_id, order_no, item_name, mould_name, mould_code, plan_qty, factory_id
+                            FROM plan_board
+                           WHERE plan_id = ANY($1::text[]) AND ($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL)
+                           ORDER BY plan_id, id DESC`, [planIds, factoryId]) : [],
+      runningPlans.length ? q(`SELECT plan_id, SUM(good_qty) AS produced
+                                  FROM (
+                                    SELECT DISTINCT ON (${DPR_HOURLY_KEY}) plan_id, good_qty
+                                      FROM dpr_hourly
+                                     WHERE is_deleted = false
+                                       AND plan_id = ANY($1::text[])
+                                       AND ($2::int IS NULL OR factory_id = $2)
+                                     ORDER BY ${DPR_HOURLY_KEY}, id DESC
+                                  ) x
+                                 GROUP BY plan_id`, [runningPlans.map(p => String(p.plan_id)), factoryId]) : []
+    ]);
+    const planById = new Map(planRows.map(p => [String(p.plan_id), p]));
+    const mouldCodes = [...new Set(
+      scopedRows.map(r => r.mould_no)
+        .concat(planRows.map(p => p.mould_code))
+        .concat(runningPlans.map(p => p.mould_code))
+        .filter(Boolean).map(s => String(s).trim())
+    )];
+    const mouldNames = [...new Set(planRows.map(p => p.mould_name).concat(runningPlans.map(p => p.mould_name)).filter(Boolean).map(x => String(x).trim()))];
+    const mouldRows = mouldCodes.length || mouldNames.length
+      ? await q(`SELECT id, TRIM(mould_number) AS code, TRIM(mould_name) AS name, mould_name, cycle_time, no_of_cav, std_wt_kg, pcs_per_hour,
+                        (factory_id IS NOT DISTINCT FROM $3::int) AS own_factory
+                   FROM moulds
+                  WHERE TRIM(mould_number) = ANY($1::text[]) OR TRIM(mould_name) = ANY($2::text[])
+                  ORDER BY (factory_id IS NOT DISTINCT FROM $3::int) DESC, id`, [mouldCodes, mouldNames, factoryId])
+      : [];
+    // First row per key wins: own factory first, then lowest id.
+    const mouldByCode = new Map(), mouldByName = new Map();
+    mouldRows.forEach(m => {
+      if (m.code && !mouldByCode.has(m.code)) mouldByCode.set(m.code, m);
+      if (m.name && !mouldByName.has(m.name)) mouldByName.set(m.name, m);
+    });
+    const setupByKey = new Map(setupRows.map(s => [`${s.plan_id}|${s.date}|${s.shift}`, s]));
+    const producedByPlan = new Map(producedRows.map(p => [String(p.plan_id), toNum(p.produced)]));
+
+    // Std for one entry: mould master first, the supervisor's setup as fallback.
+    const stdFor = (r) => {
+      const plan = r.plan_id ? planById.get(String(r.plan_id)) : null;
+      const mould = mouldByCode.get(String(r.mould_no || '').trim())
+        || (plan && mouldByCode.get(String(plan.mould_code || '').trim()))
+        || (plan && mouldByName.get(String(plan.mould_name || '').trim()))
+        || null;
+      const setup = r.plan_id ? setupByKey.get(`${r.plan_id}|${r.date}|${r.shift}`) : null;
+      const stdCycle = toNum(mould && mould.cycle_time) || toNum(setup && setup.cycle_act);
+      const stdCav = toNum(mould && mould.no_of_cav) || toNum(setup && setup.cavity_act) || 1;
+      const actCav = toNum(setup && setup.cavity_act) || stdCav;
+      const pph = stdCycle > 0 ? (3600 / stdCycle) * actCav : (toNum(mould && mould.pcs_per_hour) || toNum(setup && setup.pcshr_act));
+      // Kg are valued at the standard part weight (Mould Master), the setup's article weight only
+      // when the master has none -- the same basis as the Daily Report (NEW).
+      let wt = toNum(mould && mould.std_wt_kg) || toNum(setup && setup.article_act);
+      if (wt >= 10) wt /= 1000; // entered in grams
+      return { plan, mould, setup, stdCycle, stdCav, actCav, pph, wt };
+    };
+
+    // ── Build hour-slot cells: date|shift|slot|machine ──
+    const cells = new Map();
+    scopedRows.forEach(r => {
+      const machine = String(r.machine || '').trim();
+      const key = `${r.date}|${r.shift}|${r.hour_slot}|${machine}`;
+      let c = cells.get(key);
+      if (!c) {
+        c = { date: r.date, shift: r.shift, slot: r.hour_slot, machine, rows: [], good: 0, rej: 0, dtRaw: 0, noPlanRaw: 0, coRaw: 0, idealSec: 0, targetPph: 0, goodKg: 0, rejKg: 0, dtReasons: {}, rejReasons: {} };
+        cells.set(key, c);
       }
-    };
+      const std = stdFor(r);
+      const good = toNum(r.good_qty) || 0, rej = toNum(r.reject_qty) || 0, dtMin = toNum(r.downtime_min) || 0;
+      c.rows.push({ r, std });
+      c.good += good; c.rej += rej; c.dtRaw += dtMin;
+      if (std.pph > 0) { c.idealSec += (good + rej) * (3600 / std.pph); c.targetPph = Math.max(c.targetPph, std.pph); }
+      c.goodKg += good * std.wt; c.rejKg += rej * std.wt;
 
-    // Transform Hourly for Charts
-    const dayHours = ['08-09', '09-10', '10-11', '11-12', '12-01', '01-02', '02-03', '03-04', '04-05', '05-06', '06-07', '07-08'];
-    const nightHours = ['20-21', '21-22', '22-23', '23-00', '00-01', '01-02', '02-03', '03-04', '04-05', '05-06', '06-07', '07-08'];
-    const targetHours = cleanShift === 'Day' ? dayHours : nightHours;
+      const dtParsed = analyzeParseDowntimeBreakup(r.downtime_breakup);
+      let dtBrk = 0;
+      Object.entries(dtParsed).forEach(([raw, min]) => {
+        const label = mdReasonLabel(raw);
+        dtBrk += min;
+        if (label === 'Mould Change') c.coRaw += min;
+        if (MD_PLANNED_STOP_LABELS.has(label)) c.noPlanRaw += min;
+        else c.dtReasons[label] = (c.dtReasons[label] || 0) + min;
+      });
+      if (dtMin - dtBrk > 0) c.dtReasons.Unspecified = (c.dtReasons.Unspecified || 0) + (dtMin - dtBrk);
 
-    const chartData = {
-      labels: targetHours,
-      tonnage_act: [],
-      tonnage_plan: [],
-      efficiency: [],
-      rejection: [],
-      downtime: []
-    };
-
-    targetHours.forEach(slot => {
-      const r = rowsHourly.find(x => x.hour_slot === slot);
-      chartData.tonnage_act.push(r ? Number(r.total_tonnage_act || 0) : 0);
-      chartData.tonnage_plan.push(r ? Number(r.total_tonnage_plan || 0) : 0);
-
-      const g = r ? Number(r.total_good || 0) : 0;
-      const rej = r ? Number(r.total_rej || 0) : 0;
-      const total = g + rej;
-
-      chartData.rejection.push(total > 0 ? ((rej / total) * 100).toFixed(1) : 0);
-      chartData.downtime.push(r ? Number(r.total_dt || 0) : 0);
-
-      // Efficiency (Mock logic -> (Good / (Good+Rej)) for now)
-      chartData.efficiency.push(total > 0 ? ((g / total) * 100).toFixed(1) : 0);
+      const rb = mdParseJson(r.reject_breakup);
+      let rejBrk = 0;
+      if (rb && typeof rb === 'object') Object.entries(rb).forEach(([k, v]) => {
+        const n = toNum(v); if (!n) return;
+        const label = mdReasonLabel(analyzeRejectReasonLabel(k));
+        rejBrk += n; c.rejReasons[label] = (c.rejReasons[label] || 0) + n;
+      });
+      if (rej - rejBrk > 0) c.rejReasons.Unspecified = (c.rejReasons.Unspecified || 0) + (rej - rejBrk);
     });
 
-    // Current Stats
-    const currStats = rowsTotals.find(r => r.dpr_date_str === cleanDate) || {};
-    const prevStats = rowsTotals.find(r => r.dpr_date_str === prevDate) || {};
+    // Entries with no weight of their own take the first weight seen on that machine-shift,
+    // as the Daily Report does, so good/reject Kg are not lost for them.
+    const shiftWt = new Map();
+    cells.forEach(c => c.rows.forEach(({ std }) => {
+      const k = `${c.date}|${c.shift}|${c.machine}`;
+      if (std.wt > 0 && !shiftWt.has(k)) shiftWt.set(k, std.wt);
+    }));
+    cells.forEach(c => {
+      const wt = shiftWt.get(`${c.date}|${c.shift}|${c.machine}`) || 0;
+      if (!wt) return;
+      c.rows.forEach(({ r, std }) => {
+        if (std.wt > 0) return;
+        c.goodKg += (toNum(r.good_qty) || 0) * wt;
+        c.rejKg += (toNum(r.reject_qty) || 0) * wt;
+      });
+    });
 
-    res.json({
+    // Finalise each cell into the uniform sums shape.
+    cells.forEach(c => {
+      const noPlan = Math.min(60, c.noPlanRaw);
+      const planned = 60 - noPlan;
+      const dt = Math.min(planned, Math.max(0, Math.min(60, c.dtRaw) - noPlan));
+      const run = planned - dt;
+      c.sums = {
+        planned, run, dt, noPlan, good: c.good, rej: c.rej,
+        idealSec: c.idealSec,
+        perfRunSec: c.targetPph > 0 ? run * 60 : 0,
+        target: c.targetPph * (planned / 60),
+        goodKg: c.goodKg, rejKg: c.rejKg
+      };
+      // Scale down reason minutes when the breakup over-reports the capped hour.
+      const reasonTotal = Object.values(c.dtReasons).reduce((a, b) => a + b, 0);
+      if (reasonTotal > dt && reasonTotal > 0) Object.keys(c.dtReasons).forEach(k => { c.dtReasons[k] = c.dtReasons[k] * dt / reasonTotal; });
+    });
+
+    // ── 7-day trend by line (the page sums the lines in view) ──
+    const lineOf = new Map(machineRows.map(m => [String(m.machine || '').trim(), String(m.line || m.building || '').trim() || 'Unassigned']));
+    const lineFor = (machine, fallback) => lineOf.get(machine) || String(fallback || '').trim() || 'Unassigned';
+    const trendMap = {}, trendShiftMap = {};
+    for (let i = 0; i < 7; i++) {
+      const d = mdShiftDate(trendFrom, i);
+      trendMap[d] = {};
+      trendShiftMap[d] = Object.fromEntries(shifts.map(sh => [sh, {}]));
+    }
+    cells.forEach(c => {
+      if (!trendMap[c.date]) return;
+      const line = lineFor(c.machine, c.rows[0] && c.rows[0].r.line);
+      if (!trendMap[c.date][line]) trendMap[c.date][line] = mdEmptySums();
+      mdAddSums(trendMap[c.date][line], c.sums);
+      const byShift = trendShiftMap[c.date][c.shift];
+      if (!byShift) return;
+      if (!byShift[line]) byShift[line] = mdEmptySums();
+      mdAddSums(byShift[line], c.sums);
+    });
+    const roundLines = obj => Object.fromEntries(Object.entries(obj).map(([l, v]) => [l, mdRoundSums(v)]));
+    const trend = Object.keys(trendMap).sort().map(d => ({
+      date: d,
+      byLine: roundLines(trendMap[d]),
+      byShift: Object.fromEntries(Object.entries(trendShiftMap[d]).map(([sh, lines]) => [sh, roundLines(lines)]))
+    }));
+
+    // ── Per-machine detail for the selected date ──
+    const dayCells = [...cells.values()].filter(c => c.date === date);
+    const byMachine = new Map();
+    dayCells.forEach(c => {
+      if (!byMachine.has(c.machine)) byMachine.set(c.machine, []);
+      byMachine.get(c.machine).push(c);
+    });
+    const machineNames = new Set(machineRows.map(m => String(m.machine || '').trim()).filter(Boolean));
+    byMachine.forEach((_, name) => machineNames.add(name));
+    const masterByName = new Map(machineRows.map(m => [String(m.machine || '').trim(), m]));
+    const runningByMachine = new Map(runningPlans.map(p => [String(p.machine || '').trim(), p]));
+    const maintByMachine = new Map();
+    maintRows.forEach(m => { const k = String(m.machine || '').trim(); if (!maintByMachine.has(k)) maintByMachine.set(k, m); });
+    const sortMachines = makeMachineOrder(machineRows);
+
+    const machines = [...machineNames].sort(sortMachines).map(name => {
+      const master = masterByName.get(name) || {};
+      const mCells = (byMachine.get(name) || []).slice().sort((a, b) => (slotIndex.get(`${a.shift}|${a.slot}`) ?? 0) - (slotIndex.get(`${b.shift}|${b.slot}`) ?? 0));
+      const sums = mdEmptySums();
+      const dtReasons = {}, rejReasons = {};
+      const dtByShift = {}, rejByShift = {};
+      const hourly = slots.map(() => null);
+      mCells.forEach(c => {
+        mdAddSums(sums, c.sums);
+        Object.entries(c.dtReasons).forEach(([k, v]) => { dtReasons[k] = (dtReasons[k] || 0) + v; });
+        Object.entries(c.rejReasons).forEach(([k, v]) => { rejReasons[k] = (rejReasons[k] || 0) + v; });
+        const dS = dtByShift[c.shift] || (dtByShift[c.shift] = {});
+        const rS = rejByShift[c.shift] || (rejByShift[c.shift] = {});
+        Object.entries(c.dtReasons).forEach(([k, v]) => { dS[k] = (dS[k] || 0) + v; });
+        Object.entries(c.rejReasons).forEach(([k, v]) => { rS[k] = (rS[k] || 0) + v; });
+        const idx = slotIndex.get(`${c.shift}|${c.slot}`);
+        if (idx === undefined) return;
+        const topDt = Object.entries(c.dtReasons).sort((a, b) => b[1] - a[1])[0];
+        hourly[idx] = {
+          ...mdRoundSums(c.sums),
+          mould: c.rows[c.rows.length - 1].r.mould_no || null,
+          colour: c.rows[c.rows.length - 1].r.colour || null,
+          reason: topDt && topDt[1] > 0 ? topDt[0] : null
+        };
+      });
+
+      // Latest entry → current job, std and actual cycle.
+      const lastCell = mCells[mCells.length - 1] || null;
+      const lastRow = lastCell ? lastCell.rows.slice().sort((a, b) => new Date(a.r.created_at) - new Date(b.r.created_at)).pop() : null;
+      const running = runningByMachine.get(name) || null;
+      const std = lastRow ? lastRow.std : (running ? stdFor({ plan_id: running.plan_id, mould_no: running.mould_code, date, shift: shifts[0] }) : null);
+      const planRef = running || (lastRow && lastRow.std.plan) || null;
+      const planQty = toNum(planRef && planRef.plan_qty);
+      const produced = running ? (producedByPlan.get(String(running.plan_id)) || 0) : null;
+
+      const entered = hourly.filter(Boolean).length;
+      const activeShifts = new Set(mCells.map(c => c.shift));
+      if (live && running) slots.forEach(s => { if (s.elapsed || s.current) activeShifts.add(s.shift); });
+      const required = slots.filter(s => s.elapsed && activeShifts.has(s.shift)).length;
+      const hourlyOut = hourly.map((h, i) => {
+        if (h) {
+          const out = h.good + h.rej;
+          // A whole hour booked as a planned stop (No Plan) is idle, not a breakdown.
+          const state = h.planned === 0 ? 'idle' : h.dt >= 45 || out === 0 ? 'down' : h.dt >= 15 ? 'partial' : 'run';
+          return { ...h, state };
+        }
+        const s = slots[i];
+        if (!s.elapsed) return { state: s.current ? 'current' : 'future' };
+        return { state: activeShifts.has(s.shift) ? 'missing' : 'idle' };
+      });
+
+      // Status: maintenance log > live last-hour reading > shift result.
+      const maint = maintByMachine.get(name);
+      let status = 'IDLE', statusNote = live ? (running ? 'Plan running, no DPR' : 'No plan') : 'Not run';
+      const lastEnteredIdx = hourly.reduce((acc, h, i) => (h ? i : acc), -1);
+      // Live view: only an open log. History: any log overlapping the date.
+      if (maint && (live ? maint.is_active : true)) {
+        status = 'MAINT';
+        statusNote = `${String(maint.status || 'Maintenance').replace(/_/g, ' ')} since ${maint.start_date} ${maint.start_slot || ''}`.trim();
+      } else if (live) {
+        // One hour of grace: the last finished hour may not be entered yet.
+        const recentFloor = Math.max(0, currentIdx - 2);
+        if (lastEnteredIdx >= 0 && lastEnteredIdx >= recentFloor) {
+          const h = hourlyOut[lastEnteredIdx];
+          if (h.state === 'idle') { status = 'IDLE'; statusNote = 'No plan (planned stop)'; }
+          else if (h.state === 'down') { status = 'DOWN'; statusNote = h.reason || 'No output'; }
+          else { status = 'RUNNING'; statusNote = h.state === 'partial' ? `Minor stop: ${h.reason || 'downtime'}` : 'Producing'; }
+        } else if (running || lastEnteredIdx >= 0) {
+          status = 'NO_ENTRY';
+          const gap = currentIdx - (lastEnteredIdx + 1);
+          statusNote = lastEnteredIdx >= 0 ? `No DPR for ${gap}h` : 'Plan running, no DPR yet';
+        }
+      } else if (entered && sums.planned > 0) {
+        status = sums.good + sums.rej > 0 ? 'RUNNING' : 'DOWN';
+        statusNote = status === 'RUNNING' ? 'Produced this shift' : 'No output this shift';
+      }
+
+      // ── Daily Report (NEW) weight tiers, one machine-shift at a time ──
+      const loadUnloadMin = (toNum(master.mould_load_time) || 0) + (toNum(master.mould_unload_time) || 0);
+      const kgByShift = {};
+      shifts.forEach(sh => {
+        const sc = mCells.filter(c => c.shift === sh);
+        if (!sc.length) return;
+        const stdWt = st => { let w = toNum(st.mould && st.mould.std_wt_kg) || toNum(st.setup && st.setup.article_act) || 0; return w >= 10 ? w / 1000 : w; };
+        const first = (sc.flatMap(c => c.rows).find(x => x.std.pph > 0 && stdWt(x.std) > 0) || sc[0].rows[0]).std;
+        const wtStd = stdWt(first);
+        const R = wtStd > 0 && first.pph > 0 ? wtStd * first.pph : 0;
+        const hours = slots.filter(x => x.shift === sh).reduce((a, x) => a + x.frac, 0);
+        const moulds = new Set(), jobs = new Set();
+        let prevCol = null, cc = 0, dtHr = 0, coHr = 0, good = 0, rej = 0;
+        sc.forEach(c => {
+          good += c.goodKg; rej += c.rejKg;
+          dtHr += Math.min(60, c.dtRaw) / 60;
+          coHr += c.coRaw / 60;
+          const ordered = c.rows.slice().sort((a, b) => String(a.r.created_at).localeCompare(String(b.r.created_at)) || a.r.id - b.r.id);
+          ordered.forEach(({ r, std: st }) => {
+            const mk = r.mould_no || (st.plan && st.plan.mould_name);
+            if (mk) moulds.add(String(mk).trim().toLowerCase());
+            const jk = r.order_no || mk;
+            if (jk) jobs.add(String(jk).trim().toLowerCase());
+          });
+          const col = (ordered.find(x => x.r.colour) || {}).r;
+          if (col) { const v = String(col.colour).trim().toLowerCase(); if (prevCol !== null && v !== prevCol) cc++; prevCol = v; }
+        });
+        const mc = Math.max(0, moulds.size - 1), jc = Math.max(0, jobs.size - 1);
+        const stdCoHr = mc * loadUnloadMin / 60;
+        const overrunHr = Math.max(0, coHr - stdCoHr);
+        kgByShift[sh] = mdRoundSums({
+          target: R * hours, planned: R * Math.max(0, hours - coHr), netAch: R * Math.max(0, hours - dtHr),
+          gross: good + rej, good, rej, dtHr, coHr, stdCoHr, overrunHr, excessKg: R * overrunHr, mc, cc, jc
+        });
+      });
+      const kg = {};
+      Object.values(kgByShift).forEach(k => Object.entries(k).forEach(([key, v]) => { kg[key] = Math.round(((kg[key] || 0) + v) * 100) / 100; }));
+
+      const lastR = lastRow ? lastRow.r : null;
+      const plan = lastRow && lastRow.std.plan;
+      return {
+        machine: name,
+        line: lineFor(name, lastR && lastR.line),
+        tonnage: toNum(master.tonnage) || null,
+        model: master.model_no || master.machine_type || null,
+        status, statusNote,
+        job: {
+          plan_id: (running && running.plan_id) || (lastR && lastR.plan_id) || null,
+          order_no: (running && running.order_no) || (lastR && lastR.order_no) || (plan && plan.order_no) || null,
+          mould_no: (lastR && lastR.mould_no) || (running && running.mould_code) || null,
+          mould_name: (std && std.mould && std.mould.mould_name) || (plan && plan.mould_name) || (running && running.mould_name) || null,
+          item_name: (plan && plan.item_name) || (running && running.item_name) || null,
+          colour: (lastR && lastR.colour) || null,
+          plan_qty: planQty || null,
+          produced,
+          balance: running && planQty ? planQty - (produced || 0) : null
+        },
+        std: std ? {
+          cycle: Math.round(std.stdCycle * 10) / 10 || null,
+          cavity: std.stdCav || null,
+          actCavity: std.actCav || null,
+          pph: Math.round(std.pph) || null,
+          wtKg: std.wt || null,
+          setupCycle: toNum(std.setup && std.setup.cycle_act) || null,
+          manpower: toNum(std.setup && std.setup.man_act) || null
+        } : null,
+        // Actual cycle = run seconds × running cavities ÷ pieces (dpr_hourly.shots holds
+        // pieces, not shots). The setup's cycle when nothing was moulded.
+        actCycle: sums.good + sums.rej > 0 && sums.run > 0
+          ? Math.round((sums.run * 60 * ((std && std.actCav) || 1) / (sums.good + sums.rej)) * 10) / 10
+          : (toNum(std && std.setup && std.setup.cycle_act) || null),
+        sums: mdRoundSums(sums),
+        entered, required, missing: Math.max(0, required - entered),
+        hourly: hourlyOut,
+        dtReasons: Object.fromEntries(Object.entries(dtReasons).map(([k, v]) => [k, Math.round(v)]).filter(([, v]) => v > 0)),
+        rejReasons: Object.fromEntries(Object.entries(rejReasons).filter(([, v]) => v > 0)),
+        dtByShift: Object.fromEntries(Object.entries(dtByShift).map(([sh, o]) => [sh, Object.fromEntries(Object.entries(o).map(([k, v]) => [k, Math.round(v)]).filter(([, v]) => v > 0))])),
+        rejByShift: Object.fromEntries(Object.entries(rejByShift).map(([sh, o]) => [sh, Object.fromEntries(Object.entries(o).filter(([, v]) => v > 0))])),
+        kg, kgByShift
+      };
+    });
+
+    const payload = {
       ok: true,
-      chart: chartData,
-      comparison: {
-        current: currStats,
-        prev: prevStats
+      meta: {
+        date, shift, prevDate, trendFrom, live, factoryId: factoryId || null,
+        generatedAt: now.toISOString(),
+        slots, elapsed: slots.filter(s => s.elapsed).length, currentIdx
       },
-      active_machines: rowsActive,
-      debug: debugInfo
-    });
-
+      machines,
+      trend
+    };
+    ttlCacheSet('mouldingDashboard', cacheKey, payload, live || date >= todayLocalDateStr(now) ? 15000 : 300000);
+    res.json(payload);
   } catch (e) {
-    console.error('DPR Matrix Error', e);
+    console.error('moulding-dashboard', e);
     sendServerError(res, e);
   }
 });
@@ -5831,6 +6176,8 @@ async function initializeLegacyRuntime() {
       );
     `);
     await qIdx(`CREATE INDEX IF NOT EXISTS idx_qcslots_lookup ON qc_online_report_slots (machine, dpr_date, shift)`);
+    // Colour the QC app inspected in this slot (picked for every entry).
+    await q(`ALTER TABLE qc_online_report_slots ADD COLUMN IF NOT EXISTS colour TEXT`);
 
     // QC HOLDS — job hold records (block scanner shifting)
     await q(`
@@ -6857,14 +7204,14 @@ app.get('/api/machines', async (req, res) => {
     }
 
     const rows = await q(
-      `SELECT machine, line, COALESCE(NULLIF(TRIM(machine_process), ''), 'Moulding') AS machine_process
+      `SELECT machine, line, building, COALESCE(NULLIF(TRIM(machine_process), ''), 'Moulding') AS machine_process
          FROM machines
         WHERE COALESCE(is_active, TRUE) = TRUE
           AND ${whereClause}`,
       params
     );
-    // Natural Sort in Application Layer
-    const list = rows.map(r => r.machine).sort(naturalCompare);
+    // Standard DPR Compliance order: Line (B -L1, B -L2 … C -L1), then machine number
+    const list = rows.map(r => r.machine).sort(makeMachineOrder(rows));
     ttlCacheSet('machines', cacheKey, list, 30000);
     res.json({ ok: true, data: list });
   } catch (e) {
@@ -10267,10 +10614,14 @@ app.get('/api/planning/board', async (req, res) => {
         pb.order_no     AS "orderNo",
         COALESCE(pb.mould_name, m.mould_name, 'Unknown') AS "mouldName",
         o.client_name    AS "clientName",
-        mMaster.cycle_time AS "cycleTime",
+        -- STD cycle time / cavity drive the card's STD Total | STD Balance and the
+        -- End/Exp dates. Mould master (by mould no, then by name) wins; the planning
+        -- summary is only a fallback. NULL when no source has it — never a made-up
+        -- default, so the board can flag the missing STD instead of showing fake hours.
+        COALESCE(NULLIF(mMaster.cycle_time, 0), NULLIF(m.cycle_time, 0), NULLIF(mps.cycle_time, 0)) AS "cycleTime",
         -- Fetch Mould No from Master (Strict => Fallback to Mould Master)
         COALESCE(mps.mould_no, m.mould_number, '-') AS "mouldNo",
-        mps.cavity       AS "cavity",
+        COALESCE(NULLIF(mMaster.no_of_cav, 0), NULLIF(m.no_of_cav, 0), NULLIF(mps.cavity, 0)) AS "cavity",
         COALESCE(NULLIF(TRIM(pb.job_card_no), ''), ojr.job_card_no) AS "jcNo",
         -- OR Date + JC Date sourced from OR-JR Status. OR Date is OR-level (any
         -- OR-JR row for this OR, even without a JC); JC Date comes from the row
@@ -10309,12 +10660,34 @@ app.get('/api/planning/board', async (req, res) => {
        AND (planMachine.factory_id = pb.factory_id OR planMachine.factory_id IS NULL OR pb.factory_id IS NULL)
       -- Labour Job party name via machine's assigned party
       LEFT JOIN labour_parties lp ON lp.id = planMachine.labour_party_id
-      -- Optimized Mould Join: Match by Mould Name
-      LEFT JOIN moulds m ON m.mould_name = pb.mould_name
+      -- Mould master rows repeat per factory (unique on mould_number + factory_id), so a
+      -- plain join fans out and DISTINCT ON could keep another factory's row — one with
+      -- no cycle time — and the card then showed default 120s/1-cav hours. Pick ONE row:
+      -- this plan's factory first, then a row that actually has a cycle time.
+      LEFT JOIN LATERAL (
+         SELECT mn.mould_number, mn.mould_name, mn.cycle_time, mn.no_of_cav, mn.primary_machine,
+                mn.secondary_machine, mn.std_wt_kg, mn.pcs_per_hour
+         FROM moulds mn
+         WHERE mn.mould_name = pb.mould_name
+         ORDER BY (mn.factory_id = pb.factory_id) DESC NULLS LAST,
+                  (COALESCE(mn.cycle_time, 0) > 0) DESC,
+                  mn.updated_at DESC NULLS LAST, mn.id DESC
+         LIMIT 1
+      ) m ON true
       -- Join Planning Summary for fallback Mould No
       LEFT JOIN mould_planning_summary mps ON (mps.or_jr_no = pb.order_no AND mps.mould_name = pb.mould_name)
-      -- Fetch Master CT using Mould No from Summary
-      LEFT JOIN moulds mMaster ON TRIM(mMaster.mould_number) = TRIM(mps.mould_no)
+      -- Master CT by Mould No (summary's mould no, else the plan's own mould code)
+      LEFT JOIN LATERAL (
+         SELECT mn.cycle_time, mn.no_of_cav, mn.primary_machine, mn.secondary_machine,
+                mn.std_wt_kg, mn.pcs_per_hour
+         FROM moulds mn
+         -- Case-insensitive: the master can hold "9999-Flap" while the summary says "9999-FLAP".
+         WHERE UPPER(TRIM(mn.mould_number)) = UPPER(TRIM(COALESCE(NULLIF(TRIM(mps.mould_no), ''), NULLIF(TRIM(pb.mould_code), ''))))
+         ORDER BY (mn.factory_id = pb.factory_id) DESC NULLS LAST,
+                  (COALESCE(mn.cycle_time, 0) > 0) DESC,
+                  mn.updated_at DESC NULLS LAST, mn.id DESC
+         LIMIT 1
+      ) mMaster ON true
 
       -- Fetch JC No from OR-JR Report. An OR can carry several job cards (one per
       -- job plan), so a blind LIMIT 1 would show an arbitrary — often wrong — JC on
@@ -10371,6 +10744,7 @@ app.get('/api/planning/board', async (req, res) => {
       ORDER BY pb.id ASC,
                CASE WHEN planMachine.machine IS NULL THEN 1 ELSE 0 END ASC,
                planMachine.machine ASC,
+               (mps.factory_id = pb.factory_id) DESC NULLS LAST,
                mps.plan_date DESC NULLS LAST,
                mps.id DESC NULLS LAST
       ) t
@@ -10390,8 +10764,10 @@ app.get('/api/planning/board', async (req, res) => {
     const normalized = dedupedRows.map(r => ({
       ...r,
       machineProcess: r.machineProcess || 'Moulding',
-      // Priority: Master CT > Report CT
-      cycleTime: r.cycleTime || 120, // default if missing
+      // Priority: Master CT > Report CT. Left NULL when unknown — the board shows
+      // "STD missing" rather than hours computed from an invented 120s cycle.
+      cycleTime: Number(r.cycleTime) > 0 ? Number(r.cycleTime) : null,
+      cavity: Number(r.cavity) > 0 ? Number(r.cavity) : null,
       // Calculations? Backend or Frontend?
       // Frontend calculates expected dates.
       // We pass producedQty from DPR
@@ -13899,7 +14275,10 @@ app.get('/api/planning/orders/pending', async (req, res) => {
   try {
     const requestFactoryId = getFactoryId(req);
 
+    // Newest orders first, so the cap never hides fresh JRs (the old alphabetical
+    // order put JR/JG/... before JR/JGUI/... and cut new orders off at 500).
     const rows = await q(`
+      SELECT * FROM (
       SELECT DISTINCT ON (TRIM(s.or_jr_no))
         TRIM(s.or_jr_no) AS "orderNo",
         COALESCE(rpt.or_jr_date, s.or_jr_date) AS "orDate",
@@ -13965,7 +14344,9 @@ app.get('/api/planning/orders/pending', async (req, res) => {
             )
         )
       ORDER BY TRIM(s.or_jr_no), rpt.job_card_date DESC NULLS LAST, s.or_jr_date DESC NULLS LAST
-      LIMIT 500
+      ) pending
+      ORDER BY "orJrDate" DESC NULLS LAST, "orderNo" DESC
+      LIMIT 2000
     `, [requestFactoryId]);
     res.json({ ok: true, data: rows });
   } catch (e) {
@@ -24908,6 +25289,12 @@ function mouldVerifyDeptForRole(roleCode, roleLabel) {
   const step = MOULD_VERIFY_STEPS.find(s => s.roles.includes(role));
   if (step) return step.key;
   if (label.includes('general manager')) return 'gm';
+  // Remark tagging only (not approval rights): other members of a department,
+  // e.g. QC Supervisor / Quality Executive, are tagged with their department.
+  if (/^(qc|quality)/.test(role) || /quality|\bqc\b/.test(label)) return 'quality';
+  if (/^mould/.test(role) || label.includes('moulding')) return 'moulding';
+  if (/^ppc/.test(role) || label.includes('ppc')) return 'ppc';
+  if (/^tool/.test(role) || label.includes('toolroom') || label.includes('tool room')) return 'toolroom';
   return null;
 }
 
@@ -25072,22 +25459,64 @@ app.post('/api/moulds/:id/verify/reset', async (req, res) => {
   }
 });
 
+async function mergeMainMouldVerifyNotes(id, localNotes) {
+  const mainUrl = String(process.env.MAIN_SERVER_URL || '').trim().replace(/\/$/, '');
+  if (!mainUrl) return localNotes;
+  try {
+    const r = await fetch(`${mainUrl}/api/moulds/${encodeURIComponent(id)}/verify-detail`, {
+      signal: AbortSignal.timeout(5000)
+    });
+    const j = r.ok ? await r.json() : null;
+    const mainNotes = (j && j.ok && j.data && Array.isArray(j.data.notes)) ? j.data.notes : null;
+    if (!mainNotes) return localNotes;
+    const seen = new Set();
+    const merged = [];
+    for (const n of [...mainNotes, ...localNotes]) {
+      const key = n.sync_id
+        ? String(n.sync_id)
+        : `${n.step}|${n.note}|${n.created_by}|${new Date(n.created_at).getTime()}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      merged.push(n);
+    }
+    merged.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    return merged.slice(0, 200);
+  } catch (_) {
+    return localNotes;
+  }
+}
+
 // GET /api/moulds/:id/verify-detail
 // Read-only detail for the verification Approve screen: full mould master row
 // (never edited from here), all added notes, and the computed step status.
 app.get('/api/moulds/:id/verify-detail', async (req, res) => {
   try {
     const { id } = req.params;
-    const rows = await q(`SELECT * FROM moulds WHERE mould_number = $1 LIMIT 1`, [id]);
+    // One mould number can exist once per factory (separate master rows). Show the
+    // row of the factory the user opened it from; otherwise the most complete row,
+    // so an empty duplicate never hides the real machines/details.
+    const factoryId = parseInt(req.query.factory_id, 10);
+    const rows = await q(
+      `SELECT * FROM moulds WHERE mould_number = $1
+        ORDER BY (factory_id = $2) DESC NULLS LAST,
+                 (NULLIF(TRIM(COALESCE(primary_machine, '')), '') IS NOT NULL) DESC,
+                 updated_at DESC NULLS LAST
+        LIMIT 1`,
+      [id, Number.isFinite(factoryId) ? factoryId : null]
+    );
     if (!rows.length) return res.status(404).json({ ok: false, error: 'Mould not found' });
     const mould = rows[0];
-    const notes = await q(
-      `SELECT id, step, note, created_by, created_at
+    let notes = await q(
+      `SELECT id, sync_id, step, note, created_by, created_at
          FROM mould_verify_notes
         WHERE mould_number = $1
         ORDER BY created_at DESC LIMIT 200`,
       [id]
     );
+    // LOCAL only holds what the last sync pulled, so remarks just added by another
+    // department (on MAIN or another factory) would be missing. Merge MAIN's list in
+    // live so every department sees every remark at once; offline → local list only.
+    if (isLocalServer()) notes = await mergeMainMouldVerifyNotes(id, notes);
     const steps = MOULD_VERIFY_STEPS.map(s => ({
       key: s.key, label: s.label,
       by: mould[`verify_${s.col}_by`] || null,
@@ -25108,6 +25537,18 @@ app.post('/api/moulds/:id/verify-note', async (req, res) => {
     const { id } = req.params;
     if (isLocalServer()) {
       const fwd = await forwardMouldVerifyToMain(id, '/verify-note', req.body);
+      // OPTIMISTIC LOCAL APPLY with MAIN's sync_id, so the remark shows here at once
+      // and the next pull dedups onto the same row instead of duplicating it.
+      const saved = fwd.ok && fwd.json && fwd.json.note;
+      if (saved && saved.sync_id) {
+        try {
+          await q(
+            `INSERT INTO mould_verify_notes(mould_number, step, note, created_by, created_at, factory_id, sync_id)
+             VALUES($1, $2, $3, $4, $5, $6, $7) ON CONFLICT (sync_id) DO NOTHING`,
+            [id, saved.step, saved.note, saved.created_by, saved.created_at, saved.factory_id ?? null, saved.sync_id]
+          );
+        } catch (applyErr) { console.warn('[verify-note] optimistic local apply skipped:', applyErr.message); }
+      }
       if (fwd.ok && typeof syncService.triggerSync === 'function') syncService.triggerSync();
       return res.status(fwd.ok ? 200 : fwd.status).json(fwd.json);
     }
@@ -25125,29 +25566,28 @@ app.post('/api/moulds/:id/verify-note', async (req, res) => {
     ))[0];
     if (!urow) return res.status(403).json({ ok: false, error: 'User not found' });
 
-    // A remark may be left by ANY verification department at any time (not only the
-    // department whose step is currently pending) so every department stays in the
-    // loop. The remark is tagged with the AUTHOR's own department, so readers can see
-    // which department raised it. Admin/superadmin may target any step they pass.
+    // A remark may be left by ANY department at any time (not only the department
+    // whose step is currently pending) and every department sees it. It is tagged
+    // with the AUTHOR's own verification department; users outside the verification
+    // roles are tagged 'general'. Admin/superadmin may pick any step.
     const authorDept = mouldVerifyDeptForRole(urow.role_code, urow.role_label);
-    if (!authorDept) {
-      return res.status(403).json({ ok: false, error: 'Only mould-verification departments can add remarks.' });
-    }
-    const stepKey = authorDept === 'ALL'
-      ? (MOULD_VERIFY_STEPS.some(s => s.key === requestedStepKey) ? requestedStepKey : 'nkb')
-      : authorDept;
-    const step = MOULD_VERIFY_STEPS.find(s => s.key === stepKey);
-    if (!step) return res.status(400).json({ ok: false, error: 'Invalid verification step' });
+    const stepKey = !authorDept
+      ? 'general'
+      : authorDept === 'ALL'
+        ? (MOULD_VERIFY_STEPS.some(s => s.key === requestedStepKey) ? requestedStepKey : 'nkb')
+        : authorDept;
+    const step = MOULD_VERIFY_STEPS.find(s => s.key === stepKey) || { label: 'General' };
 
     const mrows = await q(`SELECT factory_id FROM moulds WHERE mould_number = $1 LIMIT 1`, [id]);
     if (!mrows.length) return res.status(404).json({ ok: false, error: 'Mould not found' });
     const factoryId = mrows[0].factory_id || null;
 
-    await q(
+    const saved = (await q(
       `INSERT INTO mould_verify_notes(mould_number, step, note, created_by, factory_id)
-       VALUES($1, $2, $3, $4, $5)`,
+       VALUES($1, $2, $3, $4, $5)
+       RETURNING sync_id, step, note, created_by, created_at, factory_id`,
       [id, stepKey, note, username, factoryId]
-    );
+    ))[0];
     await q(
       `INSERT INTO mould_audit_logs(mould_id, action_type, changed_fields, changed_by, factory_id)
        VALUES($1, 'VERIFY_NOTE', $2, $3, $4)`,
@@ -25155,9 +25595,56 @@ app.post('/api/moulds/:id/verify-note', async (req, res) => {
     );
 
     if (typeof syncService.triggerSync === 'function') syncService.triggerSync();
-    res.json({ ok: true, message: 'Detail added.' });
+    res.json({ ok: true, message: 'Detail added.', note: saved });
   } catch (e) {
     console.error('mould verify-note error', e);
+    sendServerError(res, e);
+  }
+});
+
+// POST /api/moulds/:id/verify-note/delete  { sync_id, session:{username} }
+// Admin/Superadmin only. Deletes one remark on MAIN; the sync delete trigger carries
+// the deletion to every factory server (mould_verify_notes deletions are global).
+app.post('/api/moulds/:id/verify-note/delete', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const syncId = String(req.body?.sync_id || '').trim();
+    if (!/^[0-9a-f-]{36}$/i.test(syncId)) return res.status(400).json({ ok: false, error: 'Invalid remark id' });
+    if (isLocalServer()) {
+      const fwd = await forwardMouldVerifyToMain(id, '/verify-note/delete', req.body);
+      if (fwd.ok) {
+        // Optimistic local delete so it disappears here at once; the pulled
+        // deletion from MAIN is then a no-op.
+        try {
+          await q(`DELETE FROM mould_verify_notes WHERE sync_id = $1::uuid AND mould_number = $2`, [syncId, id]);
+        } catch (applyErr) { console.warn('[verify-note/delete] optimistic local apply skipped:', applyErr.message); }
+        if (typeof syncService.triggerSync === 'function') syncService.triggerSync();
+      }
+      return res.status(fwd.ok ? 200 : fwd.status).json(fwd.json);
+    }
+    const username = req.body?.session?.username || req.body?._user || getRequestUsername(req);
+    if (!username) return res.status(401).json({ ok: false, error: 'Unauthorized' });
+    const urow = (await q('SELECT role_code FROM users WHERE username = $1 LIMIT 1', [username]))[0];
+    const role = String(urow?.role_code || '').toLowerCase();
+    if (role !== 'superadmin' && role !== 'admin') {
+      return res.status(403).json({ ok: false, error: 'Only Admin or Superadmin can delete remarks.' });
+    }
+    const del = await q(
+      `DELETE FROM mould_verify_notes WHERE sync_id = $1::uuid AND mould_number = $2
+       RETURNING step, note, created_by, factory_id`,
+      [syncId, id]
+    );
+    if (!del.length) return res.status(404).json({ ok: false, error: 'Remark not found (already deleted?)' });
+    const d = del[0];
+    await q(
+      `INSERT INTO mould_audit_logs(mould_id, action_type, changed_fields, changed_by, factory_id)
+       VALUES($1, 'VERIFY_NOTE_DELETE', $2, $3, $4)`,
+      [id, JSON.stringify({ message: 'Remark deleted', step: d.step, note: d.note, by: d.created_by }), username, d.factory_id || null]
+    );
+    if (typeof syncService.triggerSync === 'function') syncService.triggerSync();
+    res.json({ ok: true, message: 'Remark deleted.' });
+  } catch (e) {
+    console.error('mould verify-note delete error', e);
     sendServerError(res, e);
   }
 });
@@ -25292,9 +25779,15 @@ app.get('/api/moulds/:id/recent-jobs', async (req, res) => {
 
     // The mould master baselines to compare the real run against.
     const mrows = await q(
+      // Same row choice as /verify-detail: this factory's row first, then the most
+      // complete, so a duplicate from another factory never supplies the baselines.
       `SELECT mould_number, mould_name, cycle_time, std_wt_kg, no_of_cav
-         FROM moulds WHERE mould_number = $1 LIMIT 1`,
-      [id]
+         FROM moulds WHERE mould_number = $1
+        ORDER BY (factory_id = $2) DESC NULLS LAST,
+                 (NULLIF(TRIM(COALESCE(primary_machine, '')), '') IS NOT NULL) DESC,
+                 updated_at DESC NULLS LAST
+        LIMIT 1`,
+      [id, Number.isFinite(Number(factoryId)) && factoryId !== null && factoryId !== '' ? Number(factoryId) : null]
     );
     const mould = mrows[0] || { mould_number: id };
 
@@ -25472,12 +25965,52 @@ const MOULD_VERIFY_SELECT = `SELECT mould_number, mould_name, factory_id,
     verify_gm_by, verify_gm_at, verify_nkb_by, verify_nkb_at
   FROM moulds ORDER BY mould_number ASC`;
 
+// Per-mould remark count + latest remark, so the mould table can flag moulds that
+// have remarks without opening them. LOCAL merges MAIN's view (newest wins) so a
+// remark written in any department / on any server is flagged everywhere at once.
+async function mouldRemarkSummary() {
+  const rows = await q(
+    `SELECT DISTINCT ON (mould_number) mould_number, note, created_by, step, created_at,
+            COUNT(*) OVER (PARTITION BY mould_number) AS cnt
+       FROM mould_verify_notes
+      ORDER BY mould_number, created_at DESC`,
+    []
+  );
+  const out = {};
+  for (const r of rows) {
+    out[r.mould_number] = {
+      count: Number(r.cnt) || 0,
+      last: { note: r.note, by: r.created_by, step: r.step, at: r.created_at }
+    };
+  }
+  if (!isLocalServer()) return out;
+  const mainUrl = String(process.env.MAIN_SERVER_URL || '').trim().replace(/\/$/, '');
+  if (!mainUrl) return out;
+  try {
+    const r = await fetch(`${mainUrl}/api/moulds/verification-summary`, { signal: AbortSignal.timeout(5000) });
+    const j = r.ok ? await r.json() : null;
+    const main = j && j.ok && j.data && j.data.remarks;
+    if (main && typeof main === 'object') {
+      for (const [mn, v] of Object.entries(main)) {
+        const cur = out[mn];
+        if (!cur || (v.count || 0) > cur.count
+            || new Date(v.last && v.last.at) > new Date(cur.last && cur.last.at)) {
+          out[mn] = v;
+        }
+      }
+    }
+  } catch (_) { /* offline: local counts only */ }
+  return out;
+}
+
 // GET /api/moulds/verification-summary — counts + per-mould next-pending step.
 // Read-only; any logged-in user (drives the status panel + pending badges).
 app.get('/api/moulds/verification-summary', async (req, res) => {
   try {
     const rows = await q(MOULD_VERIFY_SELECT, []);
-    res.json({ ok: true, data: computeMouldVerifyStanding(rows), steps: MOULD_VERIFY_STEPS.map(s => ({ key: s.key, label: s.label })) });
+    const data = computeMouldVerifyStanding(rows);
+    data.remarks = await mouldRemarkSummary();
+    res.json({ ok: true, data, steps: MOULD_VERIFY_STEPS.map(s => ({ key: s.key, label: s.label })) });
   } catch (e) {
     console.error('mould verification-summary error', e);
     sendServerError(res, e);
@@ -29451,6 +29984,88 @@ app.get('/api/qc/online-report/list', async (req, res) => {
   }
 });
 
+// 2-hour QC slots (same labels Day 08 AM–08 PM / Night 08 PM–08 AM). Older QC app
+// versions saved the start hour ("08", "14" …) — map those onto the same slots.
+const QC_SLOTS_2H = ['08-10', '10-12', '12-02', '02-04', '04-06', '06-08'];
+const QC_LEGACY_SLOT = { '08': '08-10', '10': '10-12', '12': '12-02', '14': '02-04', '16': '04-06', '18': '06-08' };
+function normalizeQcSlot(s) {
+  const v = String(s || '').trim();
+  return QC_LEGACY_SLOT[v] || v;
+}
+
+// GET /api/qc/overview — everything the Quality page needs for one date/shift:
+// QC app slot checks, running plans, FPAs, memos and holds, machines in the
+// standard DPR Compliance order. One call so Dashboard / Compliance / Online QC /
+// Hold tabs stay consistent.
+app.get('/api/qc/overview', async (req, res) => {
+  try {
+    if (!getRequestUsername(req)) return res.status(401).json({ ok: false, error: 'Login required' });
+    const { date, shift } = req.query;
+    if (!date) return res.json({ ok: false, error: 'date required' });
+    const sh = (shift === 'Day' || shift === 'Night') ? shift : '';
+    const factoryId = getFactoryId(req);
+
+    const [machineRows, slotRows, planRows, fpaRows, memoRows, holdRows] = await Promise.all([
+      q(`SELECT machine, line, building FROM machines
+          WHERE COALESCE(is_active, TRUE) = TRUE
+            AND COALESCE(NULLIF(TRIM(machine_process), ''), 'Moulding') = 'Moulding'
+            AND ($1::int IS NULL OR factory_id = $1)`, [factoryId]),
+      q(`SELECT machine, shift, slot, job_card_no, order_no, item_name, mould_name, colour,
+                visual_status, visual_problem, visual_remarks,
+                colour_status, colour_problem, colour_remarks,
+                ff_status, ff_problem, ff_photo_url, entered_by, entered_at
+           FROM qc_online_report_slots
+          WHERE dpr_date = $1::date AND ($2 = '' OR shift = $2)
+            AND ($3::int IS NULL OR factory_id = $3 OR factory_id IS NULL)`, [date, sh, factoryId]),
+      q(`SELECT machine, plan_id, order_no, item_name, mould_name, status
+           FROM plan_board
+          WHERE UPPER(status) = 'RUNNING'
+            AND ($1::int IS NULL OR factory_id = $1 OR factory_id IS NULL)`, [factoryId]),
+      q(`SELECT id, machine, shift, job_card_no, order_no, item_name, mould_name, plan_id,
+                fpa_done_by, fpa_done_at, COALESCE(fpa_approval_status, 'Pending') AS fpa_approval_status,
+                fpa_reviewed_by, fpa_reject_reason
+           FROM qc_job_checks
+          WHERE fpa_status = 'Done' AND date = $1::date AND ($2 = '' OR shift = $2)
+            AND ($3::int IS NULL OR factory_id = $3 OR factory_id IS NULL)`, [date, sh, factoryId]),
+      q(`SELECT id, memo_no, machine, plan_id, job_card_no, issue_description, severity, status,
+                created_by, created_at, mentioned_name, accepted_by, resolved_by, resolved_at
+           FROM qc_material_issues
+          WHERE memo_no IS NOT NULL
+            AND ((created_at AT TIME ZONE 'Asia/Kolkata')::date = $1::date OR status <> 'SOLVED')
+            AND ($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL)
+          ORDER BY created_at DESC LIMIT 300`, [date, factoryId]),
+      q(`SELECT id, machine, job_card_no, dpr_date, shift, slot, qty_on_hold, reason, remarks,
+                hold_by, hold_at, released_by, released_at, release_remarks, status
+           FROM qc_holds
+          WHERE (status = 'ACTIVE' OR dpr_date = $1::date)
+            AND ($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL)
+          ORDER BY (status = 'ACTIVE') DESC, hold_at DESC LIMIT 300`, [date, factoryId])
+    ]);
+
+    const order = makeMachineOrder(machineRows);
+    const lineOf = new Map(machineRows.map(m => [String(m.machine || '').trim(), String(m.line || m.building || '').trim()]));
+    const slots = slotRows.map(r => ({ ...r, slot: normalizeQcSlot(r.slot) }));
+
+    // Machines to show: every machine with a running plan or a QC entry / FPA / memo / hold today.
+    const names = new Set();
+    planRows.forEach(p => p.machine && names.add(p.machine));
+    [slots, fpaRows, holdRows].forEach(list => list.forEach(r => r.machine && names.add(r.machine)));
+    memoRows.forEach(m => m.machine && names.add(m.machine));
+    const machines = [...names].sort(order).map(m => ({
+      machine: m,
+      line: lineOf.get(String(m).trim()) || 'Other',
+      plan: planRows.find(p => p.machine === m) || null
+    }));
+
+    res.json({
+      ok: true,
+      data: { date, shift: sh, slotLabels: QC_SLOTS_2H, machines, slots, fpa: fpaRows, memos: memoRows, holds: holdRows }
+    });
+  } catch (e) {
+    sendServerError(res, e);
+  }
+});
+
 // POST /api/qc/online-report/slot — upsert one slot's QC check data (with optional photo)
 app.post('/api/qc/online-report/slot', (req, res, next) => {
   uploadQC.single('ff_photo')(req, res, err => {
@@ -29460,7 +30075,7 @@ app.post('/api/qc/online-report/slot', (req, res, next) => {
 }, async (req, res) => {
   try {
     const body = req.body || {};
-    const { machine, dpr_date, shift, slot, job_card_no, order_no, item_name, mould_name,
+    const { machine, dpr_date, shift, slot, job_card_no, order_no, item_name, mould_name, colour,
             visual_status, visual_problem, visual_remarks,
             colour_status, colour_problem, colour_remarks,
             ff_status, ff_problem } = body;
@@ -29478,8 +30093,8 @@ app.post('/api/qc/online-report/slot', (req, res, next) => {
         (factory_id, machine, job_card_no, order_no, item_name, mould_name, dpr_date, shift, slot,
          visual_status, visual_problem, visual_remarks,
          colour_status, colour_problem, colour_remarks,
-         ff_status, ff_problem, ff_photo_url, entered_by, entered_at)
-      VALUES ($1,$2,$3,$4,$5,$6,$7::date,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,NOW())
+         ff_status, ff_problem, ff_photo_url, entered_by, entered_at, colour)
+      VALUES ($1,$2,$3,$4,$5,$6,$7::date,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,NOW(),$20)
       ON CONFLICT (machine, dpr_date, shift, slot)
       DO UPDATE SET
         job_card_no = EXCLUDED.job_card_no, order_no = EXCLUDED.order_no,
@@ -29487,13 +30102,15 @@ app.post('/api/qc/online-report/slot', (req, res, next) => {
         visual_status = EXCLUDED.visual_status, visual_problem = EXCLUDED.visual_problem, visual_remarks = EXCLUDED.visual_remarks,
         colour_status = EXCLUDED.colour_status, colour_problem = EXCLUDED.colour_problem, colour_remarks = EXCLUDED.colour_remarks,
         ff_status = EXCLUDED.ff_status, ff_problem = EXCLUDED.ff_problem, ff_photo_url = COALESCE(EXCLUDED.ff_photo_url, qc_online_report_slots.ff_photo_url),
-        entered_by = EXCLUDED.entered_by, entered_at = NOW()
+        entered_by = EXCLUDED.entered_by, entered_at = NOW(),
+        colour = COALESCE(EXCLUDED.colour, qc_online_report_slots.colour)
     `, [
       factoryId, machine, job_card_no || '', order_no || '', item_name || '', mould_name || '',
       dpr_date, shift, slot,
       visual_status || null, visual_problem || null, visual_remarks || null,
       colour_status || null, colour_problem || null, colour_remarks || null,
-      ff_status || null, ff_problem || null, ffPhotoUrl, entered_by
+      ff_status || null, ff_problem || null, ffPhotoUrl, entered_by,
+      String(colour || '').trim().slice(0, 100) || null
     ]);
     syncService.triggerSync();
     res.json({ ok: true });

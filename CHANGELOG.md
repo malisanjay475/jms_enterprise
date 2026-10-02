@@ -13,6 +13,12 @@ part of your PR. On release, the `[Unreleased]` items move under the new version
 
 ## [Unreleased]
 
+### Fixed
+- Local servers missed new orders from MAIN (v1.76.9). A long MAIN transaction (ERP import)
+  committed after the local pull watermark had passed its updated_at, so those rows were never
+  pulled. Pulls now re-check the last 20 minutes (`SYNC_PULL_OVERLAP_MINUTES`); re-pulled rows
+  are no-ops.
+
 ### Added
 - Enterprise engineering docs: README, CONTRIBUTING, CODE_OF_CONDUCT, ARCHITECTURE, ROADMAP.
 - `docs/` guides: GIT_WORKFLOW, GITHUB_SETTINGS, ENGINEERING_GUIDE, CODE_REVIEW_GUIDELINES,

@@ -11,25 +11,54 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.78.2",
+  "latest": "1.83.1",
   "versions": [
     {
-      "version": "1.78.2",
-      "date": "2026-09-30",
-      "title": "Safer job detail tooltips",
+      "version": "1.83.1",
+      "date": "2026-10-02",
+      "title": "Save setup before DPR entry",
       "modules": [
         {
-          "app": "planning",
-          "label": "Planning",
-          "icon": "bi-kanban",
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-pencil-square",
           "changes": [
-            { "type": "security", "text": "The approval and completion tooltips in the job details window are built from plain text, so remarks can never be shown as page content." }
+            { "type": "fix", "text": "In the Supervisor DPR entry, the One-time Setup (STD / Actual) must be saved first; until then the entry form stays locked and an alert asks you to save the setup." }
           ]
         }
       ]
     },
     {
-      "version": "1.78.1",
+      "version": "1.83.0",
+      "date": "2026-10-01",
+      "title": "New Quality dashboard from QC app data",
+      "modules": [
+        {
+          "app": "quality",
+          "changes": [
+            { "type": "feat", "text": "Quality Dashboard now shows live QC app data: slot compliance, missed slots, Not OK findings, FPA, open memos and holds, with charts by machine, defect, slot and mould." },
+            { "type": "feat", "text": "QC Compliance Summary is 2-hourly like the DPR Compliance Summary: machines grouped by line, each slot OK / Not OK / Due / Missed, with FPA, memo and hold columns." },
+            { "type": "feat", "text": "Online QC Report lists every QC app check slot by slot, with colour, problems and who entered it, plus an Only Not OK filter." },
+            { "type": "feat", "text": "New Hold page under Quality lists QC holds, active first, and lets Quality release them." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.82.4",
+      "date": "2026-09-30",
+      "title": "QC app inspection: auto shift and 2-hour slots",
+      "modules": [
+        {
+          "app": "quality",
+          "changes": [
+            { "type": "feat", "text": "QC app inspection picks the date and shift automatically like the Supervisor page, shows 2-hour slots in a dropdown, hides slots already filled, and asks for the colour every time." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.82.3",
       "date": "2026-09-30",
       "title": "Each mould listed once in job details",
       "modules": [
@@ -39,7 +68,154 @@
           "icon": "bi-kanban",
           "changes": [
             { "type": "fix", "text": "Moulds in this order lists each mould only once, and the order total is correct. A mould could appear two to four times before." },
-            { "type": "improvement", "text": "Each mould row is compact, showing the latest step (completed, approved or rejected) and its remark. Hover over it to see the full approval and completion history." }
+            { "type": "improvement", "text": "Each mould row is compact, showing the latest step (completed, approved or rejected) and its remark. Hover over it to see the full approval and completion history." },
+            { "type": "security", "text": "The approval and completion tooltips in the job details window are built from plain text, so remarks can never be shown as page content." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.82.2",
+      "date": "2026-09-30",
+      "title": "Mould Change Report accounts for every machine",
+      "modules": [
+        {
+          "app": "planning",
+          "label": "Planning",
+          "icon": "bi-calendar3",
+          "changes": [
+            { "type": "improvement", "text": "The Daily Mould Change Report now shows every machine for the selected day (8:00 AM to 8:00 AM next morning): coming mould changes, PLAN ENDS → NO PLAN with the time a machine's last plan finishes, NO CHANGE when the same mould runs all day, and NO PLAN when there is nothing planned." },
+            { "type": "improvement", "text": "The report header shows the exact time window, and changes after midnight show their date so it is clear they fall on the next morning." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.82.1",
+      "date": "2026-09-30",
+      "title": "Mould Change Report shows machines with no plan",
+      "modules": [
+        {
+          "app": "planning",
+          "label": "Planning",
+          "icon": "bi-calendar3",
+          "changes": [
+            { "type": "improvement", "text": "The Daily Mould Change Report now lists every machine that has no plan as a NO PLAN row in its line section, so each machine on the line is accounted for on the printed sheet and in Excel." },
+            { "type": "fix", "text": "The Mould Change Report now loads machines and plans correctly even when it is opened directly, without visiting the Machine Timeline first." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.82.0",
+      "date": "2026-09-30",
+      "title": "Moulding dashboard: production in Kg like the Daily Report",
+      "modules": [
+        {
+          "app": "dashboard",
+          "label": "Dashboard",
+          "icon": "bi-speedometer2",
+          "changes": [
+            { "type": "feat", "text": "The Moulding dashboard now opens with Production in Kg: Target, Planned, Net achievable, Gross, Actual good, Reject, Efficiency, Total loss and Change-overs, worked out the same way as the Daily Report (NEW), with a bar showing where the target was lost." },
+            { "type": "feat", "text": "Line and machine tables, the machine details panel, the Day vs Night view and the CSV export now include Target Kg, Good Kg and Efficiency." }
+          ]
+        },
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-pencil-square",
+          "changes": [
+            { "type": "fix", "text": "Daily Report (NEW) counted too many colour changes because it read the hours out of order (01:00 before 07:00); hours are now taken in shift order." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.81.1",
+      "date": "2026-09-30",
+      "title": "Quality Check records average readings",
+      "modules": [
+        {
+          "app": "masters",
+          "changes": [
+            { "type": "feat", "text": "When Quality approves a mould, they now fill Average Details (pcs weight in gms, runner weight in gms, cycle time in sec) and remarks; these are saved as a remark that every department can see." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.81.0",
+      "date": "2026-09-30",
+      "title": "Moulding dashboard: Day and Night themes",
+      "modules": [
+        {
+          "app": "dashboard",
+          "label": "Dashboard",
+          "icon": "bi-speedometer2",
+          "changes": [
+            { "type": "feat", "text": "The Moulding dashboard now has a Day theme (light) and a Night theme (dark); switch with the new button in the header." },
+            { "type": "feat", "text": "Auto theme uses Day from 07:00 to 19:00 and Night the rest of the time, and your choice is remembered on this device." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.80.1",
+      "date": "2026-09-30",
+      "title": "Correct plan hours on the Planning Board",
+      "modules": [
+        {
+          "app": "planning",
+          "changes": [
+            { "type": "fix", "text": "Plan cards on the Machine Timeline now show the correct STD total and balance hours. Earlier some cards used a default 120-second cycle and 1 cavity (for example 14h 6m instead of about 5h for 423 pieces) when the mould number case did not match or when another factory's mould row was picked." },
+            { "type": "improvement", "text": "If a mould has no cycle time or cavity in the Mould Master, the plan card now shows a red 'STD cycle time missing' tag instead of made-up hours." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.80.0",
+      "date": "2026-09-30",
+      "title": "Moulding dashboard: Day vs Night view",
+      "modules": [
+        {
+          "app": "dashboard",
+          "label": "Dashboard",
+          "icon": "bi-speedometer2",
+          "changes": [
+            { "type": "feat", "text": "New Day vs Night view on the Moulding dashboard shows both shifts side by side: OEE, output, rejection, downtime and DPR compliance, with which shift did better." },
+            { "type": "feat", "text": "In Day vs Night view every machine shows a Day and a Night hour strip and OEE, and the tables, hour-by-hour chart, reason charts and 7-day trend are split by shift." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.79.1",
+      "date": "2026-09-29",
+      "title": "Verification shows the right mould details",
+      "modules": [
+        {
+          "app": "masters",
+          "changes": [
+            { "type": "fix", "text": "The mould verification details screen now shows the same factory mould you opened, so primary and secondary machines and other details no longer show as empty when the mould number exists in more than one factory." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.79.0",
+      "date": "2026-09-29",
+      "title": "New Moulding dashboard: machine-wise OEE and live status",
+      "modules": [
+        {
+          "app": "dashboard",
+          "label": "Dashboard",
+          "icon": "bi-speedometer2",
+          "changes": [
+            { "type": "feat", "text": "The Moulding dashboard is rebuilt: OEE (availability, performance, quality), a live status board for every machine, hour-by-hour charts, downtime and rejection Paretos, line and machine tables and a 7-day trend." },
+            { "type": "feat", "text": "Click any machine to see its current job, standard vs actual cycle time, cavities, hour-by-hour output and its top downtime and rejection reasons." },
+            { "type": "feat", "text": "A Needs attention list flags machines that are down, missing DPR entries, running slower than standard, rejecting too much or close to finishing their plan." },
+            { "type": "fix", "text": "Moulding dashboard hours now follow the real shifts (07:00-19:00 and 19:00-07:00) and no longer count deleted or duplicate DPR entries." }
           ]
         }
       ]
@@ -112,7 +288,73 @@
       ]
     },
     {
-      "version": "1.76.2",
+      "version": "1.76.10",
+      "date": "2026-09-29",
+      "title": "View mould details from verification",
+      "modules": [
+        {
+          "app": "masters",
+          "changes": [
+            { "type": "feat", "text": "The Mould Verification window has a View Mould Details button that shows the full mould details, the last jobs and all remarks at any stage, even after your department has approved." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.76.7",
+      "date": "2026-09-29",
+      "title": "QC app machines in proper order",
+      "modules": [
+        {
+          "app": "quality",
+          "changes": [
+            { "type": "fix", "text": "The QC app now lists machines like the DPR Compliance Summary: B -L1 machines 1, 2, 3 first, then B -L2, B -L3, B -L4, then C plant." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.76.6",
+      "date": "2026-09-28",
+      "title": "Admins can delete mould remarks",
+      "modules": [
+        {
+          "app": "masters",
+          "changes": [
+            { "type": "feat", "text": "Admin and Superadmin now see a delete button on each mould verification remark; a deleted remark is removed for every department and every factory." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.76.5",
+      "date": "2026-09-28",
+      "title": "Remarks typed while approving a mould are saved",
+      "modules": [
+        {
+          "app": "masters",
+          "changes": [
+            { "type": "fix", "text": "A remark typed in the mould verification box is now saved when you click Confirm; before, it was lost unless you clicked Add Detail first, so Quality and Moulding remarks never showed." },
+            { "type": "improvement", "text": "Remarks from QC Supervisors and other department members are now tagged with their department (for example Quality) instead of General." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.76.4",
+      "date": "2026-09-28",
+      "title": "See which moulds have remarks",
+      "modules": [
+        {
+          "app": "masters",
+          "changes": [
+            { "type": "improvement", "text": "Moulds with remarks now show an orange remark badge with the count in the Mould Master list; hover to read the latest remark or click to open all remarks." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.76.3",
       "date": "2026-09-28",
       "title": "No Plan machines show under No plan",
       "modules": [
@@ -122,6 +364,20 @@
           "icon": "bi-kanban",
           "changes": [
             { "type": "fix", "text": "A machine marked No Plan in DPR now shows as No plan on the Planning Board and is counted in the No plan tile, instead of as Stopped." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.76.2",
+      "date": "2026-09-28",
+      "title": "Mould remarks visible to every department",
+      "modules": [
+        {
+          "app": "masters",
+          "changes": [
+            { "type": "fix", "text": "Mould verification remarks added by any department (Quality, Moulding, PPC and others) now show to everyone straight away, with the department name on each remark." },
+            { "type": "improvement", "text": "Every logged-in user can now add a remark on a mould, not only the verification departments." }
           ]
         }
       ]
