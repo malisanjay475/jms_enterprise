@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.83.1",
+  "latest": "1.83.2",
   "versions": [
+    {
+      "version": "1.83.2",
+      "date": "2026-10-02",
+      "title": "Setup needs all Actual values",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-pencil-square",
+          "changes": [
+            { "type": "fix", "text": "The Supervisor One-time Setup now counts as saved only when every Actual value that has a STD value is filled; DPR entry stays locked until then." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.83.1",
       "date": "2026-10-02",
