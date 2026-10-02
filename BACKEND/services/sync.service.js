@@ -193,9 +193,14 @@ const SYNC_ALL = [
     'purchase_order_items',
     'purchase_orders',
     'qc_deviations',
+    'qc_holds',
     'qc_issue_memos',
     'qc_job_checks',
+    'qc_job_setup',
+    'qc_line_teams',
+    'qc_online_report_slots',
     'qc_online_reports',
+    'qc_shift_team',
     'qc_training_sheets',
     'raw_material_issues',
     'roles',
@@ -324,6 +329,20 @@ const CONFLICT_KEYS = {
     qc_job_checks: 'sync_id',
     qc_online_reports: 'sync_id',
     qc_training_sheets: 'sync_id',
+    // QC app tables (2-hour checks, One-time Setup, holds, QC shift team). The QC app
+    // writes them on the factory LOCAL; they replicate so MAIN's DPR Compliance (Process =
+    // QC), Quality page and job details see the factory's QC data.
+    // - qc_online_report_slots / qc_job_setup: their own natural UNIQUE keys (the app
+    //   upserts on exactly these), so a re-saved slot/setup updates one row everywhere.
+    // - qc_line_teams: one row per (factory, line, date, shift) — expression index, see
+    //   RAW_CONFLICT_TARGETS.qc_line_teams.
+    // - qc_shift_team / qc_holds: no natural key (append-only team log; holds get released)
+    //   → surrogate sync_id with a deterministic seed (SYNC_ID_SEED_COLUMNS).
+    qc_online_report_slots: 'machine, dpr_date, shift, slot',
+    qc_job_setup: 'job_card_no, machine, dpr_date, shift, setup_period',
+    qc_line_teams: 'line, dpr_date, shift, factory_id',
+    qc_shift_team: 'sync_id',
+    qc_holds: 'sync_id',
     // Surrogate UUID key (full-replication batch 3): append-only shifting log, no factory_id,
     // serial id collides across factories. Deterministic seed in SYNC_ID_SEED_COLUMNS.
     shifting_records: 'sync_id',
@@ -486,7 +505,10 @@ const RAW_CONFLICT_TARGETS = {
     // ((LOWER(machine)), (COALESCE(factory_id, 0))) is an EXPRESSION index — reproduce it
     // exactly or Postgres fails every row with 42P10. getConflictColumns still returns
     // ['machine','factory_id']; only the upsert conflict target is overridden here.
-    machines: `LOWER(machine), COALESCE(factory_id, 0)`
+    machines: `LOWER(machine), COALESCE(factory_id, 0)`,
+    // qc_line_teams' unique index uq_qc_line_teams ON ((COALESCE(factory_id, 0)), line,
+    // dpr_date, shift) is an EXPRESSION index — reproduce it or every row fails with 42P10.
+    qc_line_teams: `COALESCE(factory_id, 0), line, dpr_date, shift`
 };
 
 const SYNC_CONFLICT_INDEXES = {
@@ -527,7 +549,7 @@ const GLOBAL_MASTER_TABLES = new Set([
     'erp_mould_item'
 ]);
 
-const SYNC_ID_REQUIRED_TABLES = ['notifications', 'dpr_reasons', 'assembly_plans', 'assembly_scans', 'maintenance_tickets', 'maintenance_worklogs', 'org_units', 'org_departments', 'org_grades', 'org_designations', 'org_people', 'mould_verify_notes', 'qc_online_reports', 'qc_issue_memos', 'qc_training_sheets', 'qc_deviations', 'qc_job_checks', 'plan_audit_logs', 'mould_audit_logs', 'machine_status_logs', 'operator_history', 'plan_job_card_approval_history', 'jobs_queue', 'planning_drops', 'shifting_records', 'wip_inventory', 'wip_outward_logs', 'grinding_logs'];
+const SYNC_ID_REQUIRED_TABLES = ['notifications', 'dpr_reasons', 'assembly_plans', 'assembly_scans', 'maintenance_tickets', 'maintenance_worklogs', 'org_units', 'org_departments', 'org_grades', 'org_designations', 'org_people', 'mould_verify_notes', 'qc_online_reports', 'qc_issue_memos', 'qc_training_sheets', 'qc_deviations', 'qc_job_checks', 'plan_audit_logs', 'mould_audit_logs', 'machine_status_logs', 'operator_history', 'plan_job_card_approval_history', 'jobs_queue', 'planning_drops', 'shifting_records', 'wip_inventory', 'wip_outward_logs', 'grinding_logs', 'qc_shift_team', 'qc_holds'];
 
 // Deterministic sync_id backfill seeds for tables converted to a surrogate UUID key.
 // The same physical row already exists on MAIN AND on its factory's LOCAL (LOCAL pushed
@@ -564,7 +586,10 @@ const SYNC_ID_SEED_COLUMNS = {
     // custom ensureSyncIdSchema branch (link column + FK drop + backfill) below.
     wip_inventory: ['factory_id', 'order_no', 'item_code', 'item_name', 'mould_name', 'rack_no', 'created_at'],
     // Full-replication batch 5. Immutable columns only (helper skips any that don't exist).
-    grinding_logs: ['factory_id', 'plan_id', 'order_no', 'job_card_no', 'rejection_weight', 'rejection_qty', 'reason', 'created_by', 'created_at']
+    grinding_logs: ['factory_id', 'plan_id', 'order_no', 'job_card_no', 'rejection_weight', 'rejection_qty', 'reason', 'created_by', 'created_at'],
+    // QC app tables. Holds: release_* / status mutate and are excluded.
+    qc_shift_team: ['factory_id', 'machine', 'dpr_date', 'shift', 'role', 'employee_name', 'assigned_at'],
+    qc_holds: ['factory_id', 'machine', 'job_card_no', 'dpr_date', 'shift', 'slot', 'reason', 'hold_by', 'hold_at']
 };
 const SYNC_SCHEMA_READY_KEY = 'SYNC_SCHEMA_READY_VERSION';
 // Bump this whenever ensureSyncRuntimeSchema()'s migrations change, so every server
@@ -582,7 +607,9 @@ const SYNC_SCHEMA_READY_KEY = 'SYNC_SCHEMA_READY_VERSION';
 //             jc_summaries/job_cards/plan_history marked MAIN-only (Phase A batch 5).
 // 2026-09-21: machines → natural key (machine, factory_id); vendor/purchase/HR/jc_details
 //             marked MAIN-only (Phase A batch 6). Guard now clears — full replication armable.
-const SYNC_SCHEMA_READY_VERSION = '2026-09-21-machines-nopush-v6';
+// 2026-10-02: QC app tables replicate (qc_online_report_slots, qc_job_setup, qc_line_teams
+//             natural keys; qc_shift_team, qc_holds → sync_id).
+const SYNC_SCHEMA_READY_VERSION = '2026-10-02-qc-app-tables-v7';
 
 // "Sync token" columns: app-schema UNIQUE columns that carry a per-row identity
 // token (a UUID) MAIN considers authoritative, but which a LOCAL row may have been
