@@ -117,6 +117,62 @@ data class ComplianceRow(
     val qcIncharge: String = ""
 )
 
+// ── QC summary matrix (GET /api/qc/summary-matrix) — same data as the web
+//    DPR Compliance Summary with Process = QC.
+@Serializable
+data class QcmMachine(val machine: String = "", val line: String = "")
+
+@Serializable
+data class QcmSlot(
+    val machine: String = "", val date: String = "", val shift: String = "", val slot: String = "",
+    val job_card_no: String? = null, val order_no: String? = null, val item_name: String? = null,
+    val mould_name: String? = null, val colour: String? = null,
+    val visual_status: String? = null, val visual_problem: String? = null, val visual_remarks: String? = null,
+    val colour_status: String? = null, val colour_problem: String? = null, val colour_remarks: String? = null,
+    val ff_status: String? = null, val ff_problem: String? = null,
+    val entered_by: String? = null, val entered_at: String? = null
+)
+
+@Serializable
+data class QcmSetup(val machine: String = "", val date: String = "", val shift: String = "", val setup_period: Int = 1)
+
+@Serializable
+data class QcmFpa(val machine: String = "", val date: String = "", val shift: String = "", val fpa_approval_status: String = "Pending")
+
+@Serializable
+data class QcmHold(val machine: String = "", val status: String? = null)
+
+@Serializable
+data class QcmPlan(val machine: String = "", val order_no: String? = null, val item_name: String? = null, val mould_name: String? = null)
+
+@Serializable
+data class QcmTeam(
+    val line: String = "", val date: String = "", val shift: String = "",
+    val qc_supervisor: String? = null, val qc_incharge: String? = null, val saved_by: String? = null
+)
+
+@Serializable
+data class QcmMachineTeam(
+    val machine: String = "", val date: String = "", val shift: String = "",
+    val role: String? = null, val employee_name: String? = null
+)
+
+@Serializable
+data class QcMatrix(
+    val slotLabels: List<String> = emptyList(),
+    val machines: List<QcmMachine> = emptyList(),
+    val slots: List<QcmSlot> = emptyList(),
+    val setups: List<QcmSetup> = emptyList(),
+    val fpa: List<QcmFpa> = emptyList(),
+    val holds: List<QcmHold> = emptyList(),
+    val plans: List<QcmPlan> = emptyList(),
+    val teams: List<QcmTeam> = emptyList(),
+    val machineTeams: List<QcmMachineTeam> = emptyList()
+)
+
+@Serializable
+data class QcMatrixResponse(val ok: Boolean = false, val error: String? = null, val data: QcMatrix? = null)
+
 // ── QC line team (per line + date + shift, like Moulding shift teams) ──
 @Serializable
 data class LineTeam(

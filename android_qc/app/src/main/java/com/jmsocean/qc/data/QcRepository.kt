@@ -669,6 +669,14 @@ class QcRepository(private val session: SessionStore) {
         if (!env.ok) error(env.error ?: "Slot check failed")
     }
 
+    // ── QC compliance summary (same data as the web DPR Compliance, Process = QC) ──
+
+    suspend fun qcSummary(date: String, shift: String): Result<com.jmsocean.qc.data.remote.QcMatrix> = runCatching {
+        val r = api.qcSummaryMatrix(date, date, shift)
+        if (!r.ok) error(r.error ?: "Could not load QC compliance")
+        r.data ?: com.jmsocean.qc.data.remote.QcMatrix()
+    }
+
     // ── QC line team ────────────────────────────────────────────────────────
 
     /** Team of each of the user's lines for date/shift + the lines still missing one. */
