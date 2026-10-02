@@ -11,8 +11,21 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.87.1",
+  "latest": "1.87.2",
   "versions": [
+    {
+      "version": "1.87.2",
+      "date": "2026-10-02",
+      "title": "QC memos sync",
+      "modules": [
+        {
+          "app": "quality",
+          "changes": [
+            { "type": "fix", "text": "QC memos raised at the factory now sync with the main server. Factory memos are numbered MEMO-<factory>-L<number> (existing factory memos get the L once), so they never clash with memos raised online." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.87.1",
       "date": "2026-10-02",

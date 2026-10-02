@@ -198,6 +198,7 @@ const SYNC_ALL = [
     'qc_job_checks',
     'qc_job_setup',
     'qc_line_teams',
+    'qc_material_issues',
     'qc_online_report_slots',
     'qc_online_reports',
     'qc_shift_team',
@@ -343,6 +344,10 @@ const CONFLICT_KEYS = {
     qc_line_teams: 'line, dpr_date, shift, factory_id',
     qc_shift_team: 'sync_id',
     qc_holds: 'sync_id',
+    // QC memos (+ older material issues). memo_no is unique, so LOCAL memos are numbered
+    // MEMO-<factory>-L<id> and MAIN's MEMO-<factory>-<id>; existing LOCAL memos are
+    // renumbered once when the table first joins sync (ensureSyncIdSchema).
+    qc_material_issues: 'sync_id',
     // Surrogate UUID key (full-replication batch 3): append-only shifting log, no factory_id,
     // serial id collides across factories. Deterministic seed in SYNC_ID_SEED_COLUMNS.
     shifting_records: 'sync_id',
@@ -549,7 +554,7 @@ const GLOBAL_MASTER_TABLES = new Set([
     'erp_mould_item'
 ]);
 
-const SYNC_ID_REQUIRED_TABLES = ['notifications', 'dpr_reasons', 'assembly_plans', 'assembly_scans', 'maintenance_tickets', 'maintenance_worklogs', 'org_units', 'org_departments', 'org_grades', 'org_designations', 'org_people', 'mould_verify_notes', 'qc_online_reports', 'qc_issue_memos', 'qc_training_sheets', 'qc_deviations', 'qc_job_checks', 'plan_audit_logs', 'mould_audit_logs', 'machine_status_logs', 'operator_history', 'plan_job_card_approval_history', 'jobs_queue', 'planning_drops', 'shifting_records', 'wip_inventory', 'wip_outward_logs', 'grinding_logs', 'qc_shift_team', 'qc_holds'];
+const SYNC_ID_REQUIRED_TABLES = ['notifications', 'dpr_reasons', 'assembly_plans', 'assembly_scans', 'maintenance_tickets', 'maintenance_worklogs', 'org_units', 'org_departments', 'org_grades', 'org_designations', 'org_people', 'mould_verify_notes', 'qc_online_reports', 'qc_issue_memos', 'qc_training_sheets', 'qc_deviations', 'qc_job_checks', 'plan_audit_logs', 'mould_audit_logs', 'machine_status_logs', 'operator_history', 'plan_job_card_approval_history', 'jobs_queue', 'planning_drops', 'shifting_records', 'wip_inventory', 'wip_outward_logs', 'grinding_logs', 'qc_shift_team', 'qc_holds', 'qc_material_issues'];
 
 // Deterministic sync_id backfill seeds for tables converted to a surrogate UUID key.
 // The same physical row already exists on MAIN AND on its factory's LOCAL (LOCAL pushed
@@ -589,7 +594,9 @@ const SYNC_ID_SEED_COLUMNS = {
     grinding_logs: ['factory_id', 'plan_id', 'order_no', 'job_card_no', 'rejection_weight', 'rejection_qty', 'reason', 'created_by', 'created_at'],
     // QC app tables. Holds: release_* / status mutate and are excluded.
     qc_shift_team: ['factory_id', 'machine', 'dpr_date', 'shift', 'role', 'employee_name', 'assigned_at'],
-    qc_holds: ['factory_id', 'machine', 'job_card_no', 'dpr_date', 'shift', 'slot', 'reason', 'hold_by', 'hold_at']
+    qc_holds: ['factory_id', 'machine', 'job_card_no', 'dpr_date', 'shift', 'slot', 'reason', 'hold_by', 'hold_at'],
+    // Memo lifecycle columns (status, accepted_*, resolved_*, memo_no) mutate — excluded.
+    qc_material_issues: ['factory_id', 'machine', 'job_card_no', 'issue_description', 'created_by', 'created_at']
 };
 const SYNC_SCHEMA_READY_KEY = 'SYNC_SCHEMA_READY_VERSION';
 // Bump this whenever ensureSyncRuntimeSchema()'s migrations change, so every server
@@ -609,7 +616,8 @@ const SYNC_SCHEMA_READY_KEY = 'SYNC_SCHEMA_READY_VERSION';
 //             marked MAIN-only (Phase A batch 6). Guard now clears — full replication armable.
 // 2026-10-02: QC app tables replicate (qc_online_report_slots, qc_job_setup, qc_line_teams
 //             natural keys; qc_shift_team, qc_holds → sync_id).
-const SYNC_SCHEMA_READY_VERSION = '2026-10-02-qc-app-tables-v7';
+// 2026-10-02: qc_material_issues (memos) replicate; LOCAL memos renumbered MEMO-<f>-L<id>.
+const SYNC_SCHEMA_READY_VERSION = '2026-10-02-qc-memos-v8';
 
 // "Sync token" columns: app-schema UNIQUE columns that carry a per-row identity
 // token (a UUID) MAIN considers authoritative, but which a LOCAL row may have been
@@ -1295,7 +1303,7 @@ async function ensureSyncRuntimeSchema(config = {}) {
     }
 
     await ensureSyncUpdatedAtSchema();
-    await ensureSyncIdSchema();
+    await ensureSyncIdSchema(config);
     await ensureSyncConflictIndexes();
     await ensureDeleteTrackingSchema();
     await ensureSyncOutboxSchema();
@@ -2919,8 +2927,9 @@ async function backfillDeterministicSyncId(table, seedColumns) {
     `);
 }
 
-async function ensureSyncIdSchema() {
+async function ensureSyncIdSchema(config = {}) {
     await pool.query('CREATE EXTENSION IF NOT EXISTS pgcrypto');
+    const isLocalServer = String(process.env.SERVER_TYPE || config.SERVER_TYPE || SERVER_TYPE || '').toUpperCase() === 'LOCAL';
 
     for (const table of SYNC_ID_REQUIRED_TABLES) {
         try {
@@ -2929,6 +2938,17 @@ async function ensureSyncIdSchema() {
                 continue;
             }
             const hasSyncId = await tableHasColumn(table, 'sync_id');
+            // First time QC memos join sync on a factory LOCAL: every memo here was raised on
+            // this LOCAL, numbered MEMO-<f>-<local serial id>, which MAIN may also have minted.
+            // Move them to the LOCAL namespace MEMO-<f>-L<id> once, before anything is pushed.
+            // (Only while sync_id is absent, so memos later pulled from MAIN are never touched.)
+            if (table === 'qc_material_issues' && !hasSyncId && isLocalServer && await tableHasColumn(table, 'memo_no')) {
+                const r = await pool.query(`
+                    UPDATE qc_material_issues
+                       SET memo_no = 'MEMO-' || COALESCE(factory_id, 0) || '-L' || id
+                     WHERE memo_no ~ '^MEMO-[0-9]+-[0-9]+$'`);
+                console.log(`[Sync] QC memos renumbered to the LOCAL namespace: ${r.rowCount}`);
+            }
             if (!hasSyncId) {
                 await pool.query(`ALTER TABLE ${table} ADD COLUMN sync_id UUID`);
                 tableColumnCache.delete(table);
