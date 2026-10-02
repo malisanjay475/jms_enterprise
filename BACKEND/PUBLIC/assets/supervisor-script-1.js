@@ -1296,10 +1296,32 @@
       if (act) act.classList.remove('input-warn');
     }
 
+    // Every ACT box whose STD has a value must be filled before the setup counts as saved.
+    const SETUP_FIELDS = [
+      ['article', 'Article'], ['runner', 'Runner'], ['cavity', 'Cavity'], ['cycle', 'Cycle'],
+      ['pcshr', 'PCS/HR'], ['man', 'Man Power'], ['sfgqty', 'SFG Qty']
+    ];
+    function missingSetupActuals() {
+      const hasVal = id => {
+        const v = String((el(id) && el(id).value) || '').trim();
+        return v !== '' && v !== '0' && v !== '-';
+      };
+      return SETUP_FIELDS
+        .filter(([k]) => hasVal('std-' + k) && !hasVal('act-' + k))
+        .map(([, label]) => label);
+    }
+
     function saveStdActual() {
       const job = session.activeJob;
       if (!job) {
         el('std-msg').textContent = 'No job selected.';
+        return;
+      }
+
+      const missing = missingSetupActuals();
+      if (missing.length) {
+        el('std-msg').innerHTML = '<span class="err">Fill all Actual values first: ' + missing.join(', ') + '</span>';
+        alert('Fill all Actual values before saving the setup.\n\nMissing: ' + missing.join(', '));
         return;
       }
 
@@ -1568,6 +1590,13 @@
           renderOpsChips('mp2');
 
 
+          const missingAct = missingSetupActuals();
+          if (missingAct.length) {
+            el('std-msg').innerHTML = '<span class="err">Setup incomplete — fill ' + missingAct.join(', ') + ' and Save Setup.</span>';
+            setupDone = false;
+            validateForm();
+            return;
+          }
           el('std-msg').innerHTML =
             '<span class="ok">Setup loaded — you can submit DPR.</span>';
           setupDone = true;
@@ -1664,7 +1693,7 @@
     // DPR entry. Returns false (and alerts) while setup is still unsaved.
     function requireSetupSaved() {
       if (!session.activeJob || setupDone) return true;
-      alert('One-time Setup not saved!\n\nPlease fill the STD / Actual values and press "Save Setup" first. DPR entries are allowed only after the setup is saved.');
+      alert('One-time Setup not saved!\n\nPlease fill ALL Actual values (where STD is given) and press "Save Setup" first. DPR entries are allowed only after the setup is saved.');
       const card = el('std-actual-card');
       if (card) card.scrollIntoView({ behavior: 'smooth', block: 'start' });
       return false;
