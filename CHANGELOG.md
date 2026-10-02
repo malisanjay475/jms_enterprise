@@ -14,6 +14,17 @@ part of your PR. On release, the `[Unreleased]` items move under the new version
 ## [Unreleased]
 
 ### Changed
+- Orders auto-complete (v1.91.0): when every OR-JR row of an order is Completed (or a mix of
+  Completed/Cancelled), `syncOrderCompletionConfirmations` sets the order to `Completed` directly
+  (history action `AUTO_COMPLETED`) instead of flagging it for confirmation. The planning gate
+  (fully planned + job cards linked) no longer holds completed orders on the board. Orders
+  already waiting for confirmation are completed on the next sync. The OR-JR fetch also skips
+  `Complete` / `Canceled` / `Cancel` spellings. Order Master drops the Status Change and
+  Confirmation columns, the hourglass, and Confirm All.
+  Rollback: revert the PR; orders set Completed by `AUTO_COMPLETED` can be found in
+  `order_completion_history`.
+
+### Changed
 - Order Master (v1.90.1): "Job card overdue" card replaced by "Job card not created" (orders with
   no job_card_no); the red "late" job card date highlight is removed.
 

@@ -563,12 +563,6 @@
 
         <div style="display:flex; align-items:flex-end; gap:8px; flex-wrap:wrap;">
           <button class="btn-action" onclick="loadMasterData()">Apply Filters</button>
-          <!-- Superadmin-only: Confirm All pending orders -->
-          <button id="confirmAllBtn"
-            style="display:none; background:linear-gradient(135deg,#16a34a,#15803d); color:#fff; border:none; border-radius:7px; padding:7px 14px; font-size:.82rem; font-weight:700; cursor:pointer; gap:5px; align-items:center; box-shadow:0 2px 8px rgba(22,163,74,.30);"
-            onclick="confirmAllOrders()" title="Confirm all orders that are awaiting completion — Superadmin only">
-            <i class="bi bi-check2-all"></i> Confirm All
-          </button>
         </div>
 
         <div id="filterDateHint" style="display:none; width:100%; font-size:0.74rem; color:#64748b; margin-top:4px;">
@@ -1061,7 +1055,7 @@
     }
   </style>
 
-  <script src="/assets/masters-script-2.js?v=release107"></script>
+  <script src="/assets/masters-script-2.js?v=release108"></script>
 
   <!-- Machine CRUD Modal -->
   <div id="machineModal" class="modal"
