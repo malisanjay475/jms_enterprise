@@ -2017,7 +2017,7 @@
                                             : '';
 
                                         let mouldDisplay = `
-                                             <div style="cursor:pointer" onclick='showJobDetails(${JSON.stringify(d).replace(/'/g, "&apos;")}, "${m.order_no || ''}")'>
+                                             <div style="cursor:pointer" onclick='showJobDetails(${JSON.stringify({ ...d, _row_date: date, _row_shift: rowShift }).replace(/'/g, "&apos;")}, "${m.order_no || ''}")'>
                                                  <div style="display:flex; flex-direction:column; gap:0px">
                                                      ${ordHtml}
                                                      ${cliHtml}

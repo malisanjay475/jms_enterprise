@@ -53,7 +53,7 @@
 
     function getJobSummaryScope() {
         return {
-            date: document.getElementById('s-from-date')?.value || '',
+            date: document.getElementById('s-date')?.value || '',
             shift: document.getElementById('s-shift')?.value || ''
         };
     }
@@ -122,6 +122,9 @@
         btn.innerHTML = '<i class="bi bi-clipboard-data"></i> Hide QC 2-hour Online Report';
         box.innerHTML = '<div style="color:#64748b;font-size:0.82rem">Loading QC checks…</div>';
         const scope = getJobSummaryScope();
+        if (btn.getAttribute('data-date')) scope.date = btn.getAttribute('data-date');
+        if (btn.getAttribute('data-shift')) scope.shift = btn.getAttribute('data-shift');
+        if (scope.shift === 'Both') scope.shift = '';
         const machine = btn.getAttribute('data-machine') || '';
         try {
             const qs = new URLSearchParams();
@@ -333,6 +336,63 @@
         setJobDetailMode('overall');
     }
 
+    // QC One-time Setup (QC app, saved twice per shift: 1st half / 2nd half) for the
+    // clicked job + date + shift: STD vs Actual weight, cycle time and cavity.
+    async function loadQcSetupBlock(details, date, shift) {
+        const jc = details.job_card_no || details.JobCardNo || '';
+        const machine = details.machine || '';
+        if (!jc || !machine || !date || !shift) return '';
+        try {
+            const qs = new URLSearchParams({ job_card_no: jc, date, shift, machine, mould_name: details.mould_name || '' });
+            const res = await fetch(`/api/qc/job-setup?${qs.toString()}`);
+            const json = await res.json();
+            if (!json || !json.ok) return '';
+            const halves = [(json.setups && json.setups[1]) || null, (json.setups && json.setups[2]) || null];
+            const std = json.std || {};
+            const num = v => (v === null || v === undefined || v === '' || isNaN(Number(v))) ? null : Number(v);
+            const pick = k => num(halves[0] && halves[0][k]) ?? num(halves[1] && halves[1][k]) ?? num(std[k]);
+            const rows = [
+                // [label, STD, actual column, out-of-line test]
+                ['Weight', pick('std_weight'), 'act_weight', (s, a) => s > 0 && Math.abs(a - s) / s > 0.10],
+                ['Cycle time', pick('std_cycle_time'), 'act_cycle_time', (s, a) => s > 0 && a > s * 1.10],
+                ['Cavity', pick('std_cavity'), 'act_cavity', (s, a) => s > 0 && a < s]
+            ];
+            const cell = (h, key, s, off) => {
+                const a = num(h && h[key]);
+                if (a === null) return '<td style="padding:5px 8px; color:#94a3b8">—</td>';
+                const bad = s !== null && off(s, a);
+                return `<td style="padding:5px 8px; font-weight:800; color:${bad ? '#dc2626' : '#0f172a'}">${dprEsc(String(a))}</td>`;
+            };
+            const when = h => h
+                ? `${dprEsc(h.setup_by || '—')}${h.setup_at ? ' · ' + dprEsc(new Date(h.setup_at).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: false })) : ''}`
+                : 'not saved';
+            const savedCount = halves.filter(Boolean).length;
+            return `
+                <div style="margin-top:12px; border:1px solid #bfdbfe; border-radius:10px; padding:10px 12px; background:#f8fbff">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px">
+                        <div style="font-size:0.8rem; font-weight:900; color:#1d4ed8; text-transform:uppercase">QC One-time Setup</div>
+                        <span style="font-size:0.72rem; font-weight:800; padding:2px 8px; border-radius:999px; ${savedCount === 2 ? 'background:#dcfce7; color:#166534' : 'background:#fee2e2; color:#991b1b'}">${savedCount}/2 saved</span>
+                    </div>
+                    <div style="font-size:0.72rem; color:#64748b; margin-bottom:6px">${dprEsc(dprFmtDate(date))} · ${dprEsc(shift)} shift</div>
+                    <table style="width:100%; border-collapse:collapse; font-size:0.8rem">
+                        <thead><tr style="text-align:left; color:#64748b; font-size:0.7rem; text-transform:uppercase">
+                            <th style="padding:5px 8px"></th><th style="padding:5px 8px">STD</th><th style="padding:5px 8px">1st half</th><th style="padding:5px 8px">2nd half</th>
+                        </tr></thead>
+                        <tbody>
+                            ${rows.map(([label, s, key, off]) => `<tr style="border-top:1px solid #e2e8f0">
+                                <td style="padding:5px 8px; font-weight:700; color:#334155">${label}</td>
+                                <td style="padding:5px 8px; color:#475569">${s === null ? '—' : dprEsc(String(s))}</td>
+                                ${cell(halves[0], key, s, off)}${cell(halves[1], key, s, off)}
+                            </tr>`).join('')}
+                        </tbody>
+                    </table>
+                    <div style="font-size:0.72rem; color:#64748b; margin-top:6px">1st half: ${when(halves[0])} &nbsp;|&nbsp; 2nd half: ${when(halves[1])}</div>
+                </div>`;
+        } catch (_) {
+            return '';
+        }
+    }
+
     async function loadJobQCEvidence(details) {
         const box = document.getElementById('modalJobQCEvidence');
         if (!box) return;
@@ -344,6 +404,10 @@
         const machine = details.machine || '';
         const stdWeight = details.std_weight || document.getElementById('modalJobWeight')?.innerText || '-';
         const supervisorWeight = details.article_act || details.act_weight || '-';
+        // Date/shift of the summary row that was clicked (falls back to the filter).
+        const scope = getJobSummaryScope();
+        const rowDate = details._row_date || scope.date || '';
+        const rowShift = details._row_shift || (scope.shift === 'Both' ? '' : scope.shift) || '';
         box.innerHTML = '<div style="color:#64748b; font-size:0.85rem">Loading QC weights and FPA evidence...</div>';
 
         try {
@@ -352,7 +416,10 @@
             if (planId) qs.set('planId', planId);
             if (machine) qs.set('machine', machine);
             qs.set('limit', '50');
-            const res = await fetch(`/api/qc/job-checks?${qs.toString()}`);
+            const [res, qcSetupHtml] = await Promise.all([
+                fetch(`/api/qc/job-checks?${qs.toString()}`),
+                loadQcSetupBlock(details, rowDate, rowShift)
+            ]);
             const json = await res.json();
             const rows = json.ok && Array.isArray(json.data) ? json.data : [];
             const weights = rows
@@ -395,6 +462,7 @@
                     `).join('')}
                 </div>
                 ${qcSavedByName ? `<div style="margin-top:8px; font-size:0.78rem; color:#475569"><i class="bi bi-person-check"></i> Saved by <b>${dprEsc(qcSavedByName)}</b></div>` : ''}
+                ${qcSetupHtml}
                 ${fpaImages.length ? `
                     <div style="font-size:0.85rem; color:#334155; font-weight:800; margin:14px 0 8px">FPA Images</div>
                     <div style="display:grid; grid-template-columns:repeat(3,1fr); gap:8px">
@@ -415,7 +483,7 @@
                 ` : '<div style="color:#64748b; font-size:0.82rem; margin-top:10px">No FPA images saved for this job yet.</div>'}
                 ${fpaApprovalNote}
                 <div style="margin-top:14px; border-top:1px dashed #e2e8f0; padding-top:12px">
-                    <button type="button" onclick="toggleJobOnlineQC(this)" data-machine="${dprEsc(machine)}"
+                    <button type="button" onclick="toggleJobOnlineQC(this)" data-machine="${dprEsc(machine)}" data-date="${dprEsc(rowDate)}" data-shift="${dprEsc(rowShift)}"
                         style="display:inline-flex; align-items:center; gap:6px; background:#0ea5e9; color:#fff; border:none; border-radius:8px; padding:8px 14px; font-weight:700; font-size:0.82rem; cursor:pointer">
                         <i class="bi bi-clipboard-data"></i> Show QC 2-hour Online Report
                     </button>
