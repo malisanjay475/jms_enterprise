@@ -30748,8 +30748,10 @@ app.post('/api/qc/memos', (req, res, next) => {
        shift || '', report_date || null, initAudit]
     );
     const id = ins[0].id;
-    // Unique, human-readable memo number: MEMO-<factory>-<id> (id is globally unique).
-    const memoNo = `MEMO-${factoryId || 0}-${id}`;
+    // Unique, human-readable memo number. The serial id is minted per server, so a
+    // factory LOCAL and MAIN could both mint MEMO-1-5; memos sync between them, so the
+    // LOCAL gets its own namespace: MEMO-<factory>-L<id> (MAIN keeps MEMO-<factory>-<id>).
+    const memoNo = isLocalServer() ? `MEMO-${factoryId || 0}-L${id}` : `MEMO-${factoryId || 0}-${id}`;
     await q(`UPDATE qc_material_issues SET memo_no=$1 WHERE id=$2`, [memoNo, id]);
 
     // Notify the two Moulding roles of THIS factory only.
