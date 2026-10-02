@@ -12,8 +12,8 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 data class ComplianceUiState(
-    val date: String = Ist.date(),
-    val shift: String = Ist.shift(),
+    val date: String = Ist.productionDate(),
+    val shift: String = Ist.productionShift(),
     val grid: ComplianceGrid? = null,
     val loading: Boolean = false,
     val error: String? = null

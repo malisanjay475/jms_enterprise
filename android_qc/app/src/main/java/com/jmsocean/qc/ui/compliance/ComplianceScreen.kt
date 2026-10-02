@@ -73,10 +73,11 @@ fun ComplianceScreen(
         }
     ) { pad ->
         Column(Modifier.fillMaxSize().padding(pad).padding(16.dp)) {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 listOf("Day", "Night").forEach {
                     FilterChip(selected = s.shift == it, onClick = { vm.setShift(it) }, label = { Text(it) })
                 }
+                Text(s.date, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Legend()
             Spacer(Modifier.height(8.dp))
@@ -117,6 +118,8 @@ fun ComplianceScreen(
 private fun HeaderRow(slots: List<String>) {
     Row {
         Cell("Machine", 120.dp, header = true, align = TextAlign.Start)
+        Cell("QC Supervisor", 110.dp, header = true, align = TextAlign.Start)
+        Cell("QC Incharge", 110.dp, header = true, align = TextAlign.Start)
         slots.forEach { Cell(it, 66.dp, header = true) }
     }
 }
@@ -125,6 +128,8 @@ private fun HeaderRow(slots: List<String>) {
 private fun MatrixRow(row: ComplianceRow, slots: List<String>) {
     Row {
         Cell(row.machine, 120.dp, align = TextAlign.Start)
+        Cell(row.qcSupervisor.ifBlank { "—" }, 110.dp, align = TextAlign.Start)
+        Cell(row.qcIncharge.ifBlank { "—" }, 110.dp, align = TextAlign.Start)
         slots.forEach { slot ->
             val status = row.cells[slot] ?: "MISSING"
             StatusCell(status)

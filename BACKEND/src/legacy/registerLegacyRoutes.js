@@ -30005,7 +30005,7 @@ app.get('/api/qc/overview', async (req, res) => {
     const sh = (shift === 'Day' || shift === 'Night') ? shift : '';
     const factoryId = getFactoryId(req);
 
-    const [machineRows, slotRows, planRows, fpaRows, memoRows, holdRows] = await Promise.all([
+    const [machineRows, slotRows, planRows, fpaRows, memoRows, holdRows, teamRows] = await Promise.all([
       q(`SELECT machine, line, building FROM machines
           WHERE COALESCE(is_active, TRUE) = TRUE
             AND COALESCE(NULLIF(TRIM(machine_process), ''), 'Moulding') = 'Moulding'
@@ -30039,7 +30039,13 @@ app.get('/api/qc/overview', async (req, res) => {
            FROM qc_holds
           WHERE (status = 'ACTIVE' OR dpr_date = $1::date)
             AND ($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL)
-          ORDER BY (status = 'ACTIVE') DESC, hold_at DESC LIMIT 300`, [date, factoryId])
+          ORDER BY (status = 'ACTIVE') DESC, hold_at DESC LIMIT 300`, [date, factoryId]),
+      // QC shift team (QC Supervisor / QC Incharge) saved from the QC app
+      q(`SELECT machine, shift, role, employee_name, assigned_at
+           FROM qc_shift_team
+          WHERE dpr_date = $1::date AND ($2 = '' OR shift = $2)
+            AND ($3::int IS NULL OR factory_id = $3 OR factory_id IS NULL)
+          ORDER BY assigned_at ASC`, [date, sh, factoryId])
     ]);
 
     const order = makeMachineOrder(machineRows);
@@ -30059,7 +30065,7 @@ app.get('/api/qc/overview', async (req, res) => {
 
     res.json({
       ok: true,
-      data: { date, shift: sh, slotLabels: QC_SLOTS_2H, machines, slots, fpa: fpaRows, memos: memoRows, holds: holdRows }
+      data: { date, shift: sh, slotLabels: QC_SLOTS_2H, machines, slots, fpa: fpaRows, memos: memoRows, holds: holdRows, team: teamRows }
     });
   } catch (e) {
     sendServerError(res, e);
@@ -30777,169 +30783,89 @@ app.post('/api/qc/notifications/read', async (req, res) => {
 
 // --- Master Data APIs ---
 
-// 7. QC Compliance Summary Report
+// 7. QC Compliance Summary Report (QC app "Compliance" screen)
+// Reads the QC app's 2-hour slot checks (qc_online_report_slots) and the QC
+// shift team (QC Supervisor / QC Incharge names) per machine. The date is the
+// production date: Night-shift entries made after midnight belong to the
+// previous calendar day, exactly as the QC app saves them.
 app.get('/api/qc/compliance', async (req, res) => {
   try {
-    const { date, shift } = req.query;
+    const { date, shift, machine } = req.query;
     if (!date || !shift) return res.status(400).json({ ok: false, error: 'Date and Shift required' });
-
-    // 1. Get All Active Machines (Application Sort)
-    // 1. Get All Active Machines (Fix: Use correct columns 'machine' and 'line')
-    // [FIX] Factory Isolation
     const factoryId = getFactoryId(req);
 
-    let mSql = "SELECT machine as machine_name, line as line_name FROM machines WHERE is_active = true AND COALESCE(NULLIF(TRIM(machine_process), ''), 'Moulding') = 'Moulding'";
-    const mParams = [];
-    if (factoryId) {
-      mSql += " AND factory_id = $1";
-      mParams.push(factoryId);
-    }
-    mSql += " ORDER BY line, machine";
+    const [machineRows, slotRows, teamRows] = await Promise.all([
+      q(`SELECT machine, line, building FROM machines
+          WHERE COALESCE(is_active, TRUE) = TRUE
+            AND COALESCE(NULLIF(TRIM(machine_process), ''), 'Moulding') = 'Moulding'
+            AND ($1::int IS NULL OR factory_id = $1)`, [factoryId]),
+      q(`SELECT machine, slot, item_name, job_card_no, entered_by, entered_at,
+                visual_status, colour_status, ff_status
+           FROM qc_online_report_slots
+          WHERE dpr_date = $1::date AND shift = $2
+            AND ($3::int IS NULL OR factory_id = $3 OR factory_id IS NULL)`, [date, shift, factoryId]),
+      q(`SELECT machine, role, employee_name, assigned_at
+           FROM qc_shift_team
+          WHERE dpr_date = $1::date AND shift = $2
+            AND ($3::int IS NULL OR factory_id = $3 OR factory_id IS NULL)
+          ORDER BY assigned_at ASC`, [date, shift, factoryId])
+    ]);
 
-    const machinesRes = await pool.query(mSql, mParams);
-    let machines = machinesRes.rows;
-    if (machines.length === 0) {
-      // Fallback
-      // NOTE: Shifting records also needs isolation if used as fallback
-      const fb = await pool.query("SELECT DISTINCT machine as machine_name, line as line_name FROM shifting_records ORDER BY line, machine");
-      machines = fb.rows;
-    }
+    const slots = QC_SLOTS_2H;
+    const order = makeMachineOrder(machineRows);
+    const lineOf = new Map(machineRows.map(m => [String(m.machine || '').trim(), String(m.line || m.building || '').trim()]));
 
-    console.log('[QC COM] Machines Found:', machines.length);
-
-    // Filter by Machine if provided
-    const { machine } = req.query;
-    if (machine && machine !== 'All' && machine !== 'All Machines') {
-      const target = machines.find(m => m.machine_name === machine);
-      machines = target ? [target] : [];
-    }
-
-    // 2. Get Reports for Date/Shift
-    // Fetch details to support "Show Entries" requirement
-    let rptSql = `
-      SELECT machine, hour_slot, created_at, item_name, 0 AS qty_rejected,
-             qc_weight_1, qc_weight_2, qc_weight_3, job_card_no, fpa_status
-      FROM qc_job_checks
-      WHERE date::text LIKE $1 || '%' AND shift = $2
-    `;
-    const rptParams = [date, shift];
-
-    // [FIX] Factory Isolation
-    // [FIX] Factory Isolation
-    // factoryId already declared above at line 7861
-    // Note: We need to filter machines AND reports
-
-    // Filter Machine List first (already fetched above? No, we need to filter the machines array query too?)
-    // Ah, line 7658-7664 fetched machines. I need to fix that first.
-    // Wait, I can't edit previous lines easily if I didn't include them in the chunk.
-    // But I can fix the Reports query here.
-
-    if (factoryId) {
-      rptSql += ` AND factory_id = $3`;
-      rptParams.push(factoryId);
+    // Latest name per machine + role (later saves overwrite earlier ones).
+    const team = new Map();
+    for (const t of teamRows) {
+      const key = String(t.machine || '').trim();
+      if (!team.has(key)) team.set(key, { qc_supervisor: '', qc_incharge: '' });
+      const role = String(t.role || '').toLowerCase();
+      const name = String(t.employee_name || '').trim();
+      if (!name) continue;
+      if (role.includes('incharge')) team.get(key).qc_incharge = name;
+      else if (role.includes('supervisor')) team.get(key).qc_supervisor = name;
     }
 
-    const reportsRes = await q(rptSql, rptParams);
-    const rows = reportsRes || []; // q returns array now, remember?
+    let names = machineRows.map(m => String(m.machine || '').trim()).filter(Boolean);
+    // Machines with QC entries / team but no master row still show up.
+    slotRows.forEach(r => r.machine && names.push(String(r.machine).trim()));
+    team.forEach((_, m) => names.push(m));
+    names = [...new Set(names)].sort(order);
+    if (machine && machine !== 'All' && machine !== 'All Machines') names = names.filter(m => m === machine);
 
-    console.log('[QC COM] Reports Found for Date/Shift:', rows.length);
-
-    // 3. Define QC Slots (3 checks per shift, every 4 hours)
-    const daySlots = ['06-10', '10-14', '14-18'];
-    const nightSlots = ['18-22', '22-02', '02-06'];
-    const slots = (shift === 'Day') ? daySlots : nightSlots;
-
-    // 4. Build Matrix
-    const getSlotEndTime = (slotDate, slotStr) => {
-      // 06-08 ends at 8
-      let h = parseInt(slotStr.split('-')[1]);
-      let isNextDay = false;
-
-      // Handle Midnight/Next Day logic
-      if (h === 0) { h = 24; } // 22-00 -> Ends at midnight (Date+1 if we want perfect ts, or Date 23:59)
-
-      let d = new Date(slotDate);
-
-      // Night Shift Logic
-      if (shift === 'Night') {
-        // 18-20 (20), 20-22 (22), 22-00 (24/0), 00-02 (2), 02-04 (4), 04-06 (6)
-        if (h < 12) {
-          // 0, 2, 4, 6 -> Next Day
-          isNextDay = true;
-        }
-      }
-
-      // Fix hours for date object
-      // If h=24, set 0 and add day
-      if (h === 24) { h = 0; isNextDay = true; }
-
-      d.setHours(h, 0, 0, 0);
-      if (isNextDay) d.setDate(d.getDate() + 1);
-      return d;
-    };
-
+    // Slot i of a shift ends (i+1)*2h after the shift start (08:00 Day / 20:00 Night IST).
+    const shiftStart = new Date(`${String(date).slice(0, 10)}T${shift === 'Night' ? '20' : '08'}:00:00+05:30`);
+    const slotEnd = i => new Date(shiftStart.getTime() + (i + 1) * 2 * 3600 * 1000);
     const now = new Date();
 
-    // Group machines by Line
     const lines = {};
-
-    machines.forEach(m => {
-      if (!m.machine_name) return;
-      const line = m.line_name || 'Unassigned';
+    names.forEach(m => {
+      const line = lineOf.get(m) || 'Unassigned';
       if (!lines[line]) lines[line] = [];
-
-      // Find matching reports for this machine
-      const mReports = rows.filter(r => r.machine === m.machine_name);
-
-      const row = { machine: m.machine_name, slots: {} };
-
-      slots.forEach(slot => {
-        // Match logic: Report usually saves "06:00-08:00". 
-        // We need to map our "06-08" to that.
-        // Or check if report slot *starts* with our slot start or contains it.
-        // Report slot: "06:00-08:00" | Our slot: "06-08"
-        // Let's assume report slot is formatted like "06:00-08:00"
-
-        let match = false;
-        // Try to match standard format
-        const rpt = mReports.find(r => {
-          // Normalized check
-          if (r.hour_slot === slot) return true;
-          // Check "06:00-08:00" vs "06-08"
-          const clean = r.hour_slot.replace(/:00/g, ''); // 06-08
-          return clean === slot;
-        });
-
-        let status = 'MISSING';
+      const t = team.get(m) || { qc_supervisor: '', qc_incharge: '' };
+      const row = { machine: m, qc_supervisor: t.qc_supervisor, qc_incharge: t.qc_incharge, slots: {} };
+      slots.forEach((slot, i) => {
+        const rpt = slotRows.find(r => String(r.machine || '').trim() === m && normalizeQcSlot(r.slot) === slot);
+        const end = slotEnd(i);
+        let status;
         let details = null;
-
-        // Slot End Time Logic
-        const sEnd = getSlotEndTime(date, slot);
-
         if (rpt) {
-          const created = new Date(rpt.created_at);
-          // Late if created > EndTime + 15 mins
-          const diffMins = (created - sEnd) / 60000;
-          status = (diffMins > 15) ? 'LATE' : 'FILLED';
+          const lateMins = (new Date(rpt.entered_at) - end) / 60000;
+          status = lateMins > 15 ? 'LATE' : 'FILLED';
           details = {
-            item: rpt.item_name,
-            rej: rpt.qty_rejected,
-            weights: [rpt.qc_weight_1, rpt.qc_weight_2, rpt.qc_weight_3].filter(v => v !== null && v !== undefined && String(v) !== ''),
-            job_card_no: rpt.job_card_no,
-            fpa_status: rpt.fpa_status
+            item: rpt.item_name, job_card_no: rpt.job_card_no, entered_by: rpt.entered_by,
+            visual: rpt.visual_status, colour: rpt.colour_status, ff: rpt.ff_status
           };
         } else {
-          if (now > sEnd) status = 'MISSING';
-          else status = 'PENDING';
+          status = now > end ? 'MISSING' : 'PENDING';
         }
-
         row.slots[slot] = { status, details };
       });
       lines[line].push(row);
     });
 
     res.json({ ok: true, data: { lines, slots } });
-
   } catch (e) {
     sendServerError(res, e);
   }

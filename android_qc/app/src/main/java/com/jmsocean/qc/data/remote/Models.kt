@@ -110,7 +110,12 @@ data class OnlineReportResponse(
 // Compliance grid (parsed from GET /api/qc/compliance) — plain holders.
 data class ComplianceGrid(val slots: List<String>, val lines: List<ComplianceLine>)
 data class ComplianceLine(val name: String, val rows: List<ComplianceRow>)
-data class ComplianceRow(val machine: String, val cells: Map<String, String>)
+data class ComplianceRow(
+    val machine: String,
+    val cells: Map<String, String>,
+    val qcSupervisor: String = "",
+    val qcIncharge: String = ""
+)
 
 // ── QC shift team ───────────────────────────────────────────────────────────
 @Serializable

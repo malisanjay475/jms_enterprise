@@ -179,8 +179,8 @@ class QcRepository(private val session: SessionStore) {
 
         val fields = mapOf(
             "session" to text(sessionJson),
-            "date" to text(Ist.date()),
-            "shift" to text(Ist.shift()),
+            "date" to text(Ist.productionDate()),
+            "shift" to text(Ist.productionShift()),
             "hour_slot" to text(""),
             "line" to text(session.line),
             "machine" to text(machine),
@@ -386,8 +386,8 @@ class QcRepository(private val session: SessionStore) {
             put("machine", text(machine))
             put("issue_description", text(descFull))
             put("severity", text(severity))
-            put("shift", text(Ist.shift()))
-            put("report_date", text(Ist.date()))
+            put("shift", text(Ist.productionShift()))
+            put("report_date", text(Ist.productionDate()))
             job?.let {
                 put("job_card_no", text(it.JobCardNo ?: ""))
                 put("plan_id", text(it.PlanID ?: ""))
@@ -582,7 +582,11 @@ class QcRepository(private val session: SessionStore) {
                         else -> "PENDING"
                     }
                 }
-                ComplianceRow(machineName, cells)
+                ComplianceRow(
+                    machineName, cells,
+                    qcSupervisor = ro["qc_supervisor"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+                    qcIncharge = ro["qc_incharge"]?.jsonPrimitive?.contentOrNull.orEmpty()
+                )
             } ?: emptyList()
             ComplianceLine(lineName, rows)
         }.sortedWith { a, b -> naturalMachineComparator.compare(a.name, b.name) }
