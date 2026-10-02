@@ -14,6 +14,11 @@ part of your PR. On release, the `[Unreleased]` items move under the new version
 ## [Unreleased]
 
 ### Fixed
+- Order Master / OR-JR Status showed another plant's orders (JR/JP in Dungra) (v1.88.1). The ERP
+  import trusted the ERP factoryID over the OR/JR plant code; the plant code now wins when it maps
+  to a known factory. Both pages hide mis-filed rows (`?include_other_factory=1` shows them), and
+  `BACKEND/scripts/fix_misfiled_factory_orders.js` moves existing rows (dry run by default, writes
+  a backup JSON, `--rollback <file>` restores).
 - Local servers missed new orders from MAIN (v1.76.9). A long MAIN transaction (ERP import)
   committed after the local pull watermark had passed its updated_at, so those rows were never
   pulled. Pulls now re-check the last 20 minutes (`SYNC_PULL_OVERLAP_MINUTES`); re-pulled rows

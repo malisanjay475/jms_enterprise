@@ -11,8 +11,22 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.88.0",
+  "latest": "1.88.1",
   "versions": [
+    {
+      "version": "1.88.1",
+      "date": "2026-10-02",
+      "title": "Only your factory's orders in Order Master",
+      "modules": [
+        {
+          "app": "masters",
+          "changes": [
+            { "type": "fix", "text": "Order Master and OR-JR Status now hide orders that belong to another factory (for example JR/JP orders showing in Dungra). Tick 'Show other factories' OR/JR' under Factory Scope to see them." },
+            { "type": "fix", "text": "ERP import now uses the plant code in the OR/JR number to decide the factory, so another plant's orders are no longer filed under yours." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.88.0",
       "date": "2026-10-02",

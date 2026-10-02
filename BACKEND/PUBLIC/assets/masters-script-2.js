@@ -1292,6 +1292,10 @@
         let endpoint = `/masters/${currentType}`;
         const query = new URLSearchParams({ from, to, search });
         if (currentType === 'machines' && machineProcess) query.set('process', machineProcess);
+        const otherWrap = document.getElementById('otherFactoryToggleWrap');
+        const otherOn = ['orders', 'orjr'].includes(currentType);
+        if (otherWrap) otherWrap.style.display = otherOn ? 'block' : 'none';
+        if (otherOn && document.getElementById('showOtherFactoryOrders')?.checked) query.set('include_other_factory', '1');
         const qParams = query.toString();
 
         if (currentType === 'orjr') {
