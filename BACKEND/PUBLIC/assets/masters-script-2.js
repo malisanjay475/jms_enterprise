@@ -2036,9 +2036,6 @@
               }
               const orderNo = row.or_jr_no || row.order_no || '';
               const awaitingConfirmation = row.completion_confirmation_required === true;
-              // Safe Encode
-              let detailsSafe = '[]';
-              try { detailsSafe = encodeURIComponent(JSON.stringify(row.planned_details || [])); } catch (e) { }
 
               return `<div style="display:flex; gap:4px">
                      ${awaitingConfirmation
@@ -2048,7 +2045,7 @@
                   : `<a href="planning.html?order=${orderNo}" class="btn-action" style="padding:4px 8px; background:#2563eb; color:white; text-decoration:none;" title="Create Plan">
                               <i class="bi bi-calendar-plus"></i>
                             </a>`}
-                     <button onclick="viewOrderPlan('${orderNo}', '${detailsSafe}')" class="btn-action" style="padding:4px 8px; background:#f8fafc; color:#475569; border:1px solid #cbd5e1" title="View Detail">
+                     <button onclick="openOrderDetail('${orderNo}')" class="btn-action" style="padding:4px 8px; background:#f8fafc; color:#475569; border:1px solid #cbd5e1" title="View Detail">
                         <i class="bi bi-eye"></i>
                      </button>
                  </div>`;

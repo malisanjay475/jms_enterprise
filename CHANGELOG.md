@@ -14,6 +14,9 @@ part of your PR. On release, the `[Unreleased]` items move under the new version
 ## [Unreleased]
 
 ### Added
+- Order Master row detail drawer (v1.90.0): `GET /api/orders/detail?order_no=` returns the order's
+  required moulds (mould_planning_summary), plans (plan_board) and DPR good/reject per plan
+  (dpr_hourly), factory-scoped and read-only. The eye button opens it instead of the old modal.
 - Order Master redesign (v1.89.0): count cards (open / not planned / partial / fully planned /
   job card overdue) that act as quick filters, a mould plan progress bar, red "Not Planned"
   status, and late job card dates highlighted. Client-side only; no API change.

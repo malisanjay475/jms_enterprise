@@ -22377,6 +22377,52 @@ app.post('/api/orders/priority', async (req, res) => {
   }
 });
 
+// Order Master row detail panel: required moulds, every plan for the order (machine,
+// dates, who planned it) and DPR good/reject output per plan. Read-only, factory-scoped.
+app.get('/api/orders/detail', async (req, res) => {
+  try {
+    const orderNo = normalizeOptionalText(req.query.order_no);
+    if (!orderNo) return res.status(400).json({ ok: false, error: 'order_no is required' });
+    const factoryScope = await getFactoryScopeForRequest(req);
+
+    const scoped = (col, base) => {
+      const params = [...base];
+      const conditions = [];
+      applyFactoryScopeCondition(conditions, params, col, factoryScope);
+      if (!conditions.length) return { params, where: '' };
+      // Legacy rows saved before factory_id existed stay visible, unless access is denied.
+      const nullOk = factoryScope && factoryScope.denyAll ? '' : ` OR ${col} IS NULL`;
+      return { params, where: ` AND (${conditions.join(' AND ')}${nullOk})` };
+    };
+
+    const m = scoped('factory_id', [orderNo]);
+    const moulds = await q(
+      `SELECT mould_no, mould_name, plan_qty, mould_item_qty, machine_name
+         FROM mould_planning_summary
+        WHERE TRIM(or_jr_no) = TRIM($1)${m.where}
+        ORDER BY mould_no`, m.params);
+
+    const p = scoped('pb.factory_id', [orderNo]);
+    const plans = await q(
+      `SELECT pb.plan_id, pb.mould_name, pb.mould_code, pb.machine, pb.line,
+              pb.start_date, pb.end_date, pb.plan_qty, pb.bal_qty, pb.status,
+              pb.created_by, pb.created_at, pb.job_card_no,
+              COALESCE(d.good_qty, 0) AS good_qty, COALESCE(d.reject_qty, 0) AS reject_qty,
+              d.first_dpr, d.last_dpr
+         FROM plan_board pb
+         LEFT JOIN LATERAL (
+           SELECT SUM(good_qty) AS good_qty, SUM(reject_qty) AS reject_qty,
+                  MIN(dpr_date) AS first_dpr, MAX(dpr_date) AS last_dpr
+             FROM dpr_hourly dh
+            WHERE dh.plan_id = pb.plan_id
+         ) d ON TRUE
+        WHERE TRIM(pb.order_no) = TRIM($1)${p.where}
+        ORDER BY pb.start_date NULLS LAST, pb.created_at`, p.params);
+
+    res.json({ ok: true, order_no: orderNo, moulds, plans });
+  } catch (e) { sendServerError(res, e); }
+});
+
 app.get('/api/orders/completion-history', async (req, res) => {
   try {
     const actor = await getRequestActor(req);

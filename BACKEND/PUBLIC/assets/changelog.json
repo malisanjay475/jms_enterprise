@@ -11,8 +11,21 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.89.0",
+  "latest": "1.90.0",
   "versions": [
+    {
+      "version": "1.90.0",
+      "date": "2026-10-02",
+      "title": "Order detail panel",
+      "modules": [
+        {
+          "app": "masters",
+          "changes": [
+            { "type": "feat", "text": "The eye button on an Order Master row opens a side panel with every mould of the order: which machine it is planned on, start and end dates, who planned it, and how much DPR has produced against the plan. Moulds not planned yet are marked in red." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.89.0",
       "date": "2026-10-02",
