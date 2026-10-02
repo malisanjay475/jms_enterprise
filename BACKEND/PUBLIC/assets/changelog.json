@@ -11,8 +11,22 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.84.0",
+  "latest": "1.85.0",
   "versions": [
+    {
+      "version": "1.85.0",
+      "date": "2026-10-02",
+      "title": "QC setup in job details",
+      "modules": [
+        {
+          "app": "quality",
+          "changes": [
+            { "type": "feat", "text": "DPR Compliance Summary job details: the QC card now shows the QC One-time Setup (STD vs 1st-half and 2nd-half weight, cycle time and cavity) with who saved it; out-of-line values are red." },
+            { "type": "fix", "text": "The QC 2-hour Online Report button in job details now loads the checks for the clicked date and shift (it showed none before)." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.84.0",
       "date": "2026-10-02",
