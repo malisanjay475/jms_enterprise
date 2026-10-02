@@ -1167,6 +1167,23 @@ app.use(express.static(PUBLIC_DIR, {
   }
 }));
 app.use('/uploads', express.static(PRIMARY_UPLOADS_DIR));
+
+// LOCAL: once a request that saved QC photos/videos (uploadQC → uploads/qc-images)
+// succeeds, send those files to MAIN so the live site can open them.
+if (isLocalServer()) {
+  app.use((req, res, next) => {
+    res.on('finish', () => {
+      if (res.statusCode >= 400) return;
+      const all = [];
+      if (req.file) all.push(req.file);
+      if (Array.isArray(req.files)) all.push(...req.files);
+      else if (req.files && typeof req.files === 'object') Object.values(req.files).forEach(v => Array.isArray(v) && all.push(...v));
+      const qc = all.filter(f => f && f.path && path.resolve(path.dirname(f.path)) === path.resolve(_qcImgDir));
+      if (qc.length) queueQcUploadsToMain(qc);
+    });
+    next();
+  });
+}
 if (path.normalize(LEGACY_UPLOADS_DIR) !== path.normalize(PRIMARY_UPLOADS_DIR)) {
   app.use('/uploads', express.static(LEGACY_UPLOADS_DIR));
 }
@@ -4455,8 +4472,46 @@ function saveDataUrlImage(dataUrl, folderName, prefix) {
   return relativePath;
 }
 
-// Scans PUBLIC/uploads/ and pushes every image file to MAIN.
-// Called at startup (delayed) so pre-existing icons reach the VPS even before any edit.
+// Send one file under PUBLIC/uploads/<folder>/ to MAIN as a binary multipart upload
+// (works for large photos and videos). Returns true when MAIN stored it.
+async function pushUploadFileToMain(folder, filename, fullPath) {
+  const mainUrl = String(process.env.MAIN_SERVER_URL || '').trim().replace(/\/$/, '');
+  const syncKey = String(process.env.SYNC_API_KEY || '').trim();
+  if (!mainUrl || !syncKey) return false;
+  const form = new FormData();
+  form.append('folder', folder);
+  form.append('filename', filename);
+  form.append('file', new Blob([fs.readFileSync(fullPath)]), filename);
+  const r = await fetch(`${mainUrl}/api/sync/upload-file`, {
+    method: 'POST', headers: { 'x-sync-key': syncKey }, body: form, signal: AbortSignal.timeout(120000)
+  });
+  if (!r.ok) console.warn(`[Uploads] MAIN rejected ${folder}/${filename}: HTTP ${r.status}`);
+  return r.ok;
+}
+
+// QC photos/videos saved on a LOCAL (QC app → uploadQC) go to MAIN right away, so the
+// live site can open them. A few retries cover a short internet drop; anything still
+// missing is caught by the periodic pushAllUploadsToMain() pass.
+function queueQcUploadsToMain(files) {
+  if (!isLocalServer() || !files.length) return;
+  (async () => {
+    for (const f of files) {
+      const folder = path.basename(path.dirname(f.path));
+      const filename = path.basename(f.path);
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        try {
+          if (await pushUploadFileToMain(folder, filename, f.path)) break;
+        } catch (e) {
+          if (attempt === 3) console.warn(`[Uploads] Could not push ${folder}/${filename}: ${e.message}`);
+        }
+        await new Promise(r => setTimeout(r, attempt * 15000));
+      }
+    }
+  })().catch(e => console.warn('[Uploads] QC push failed:', e.message));
+}
+
+// Scans PUBLIC/uploads/ and pushes to MAIN every media file MAIN doesn't have yet.
+// Runs 2 min after startup and then every 30 min (catches anything missed while offline).
 // Also exposed as POST /api/sync/push-uploads for manual re-trigger.
 async function pushAllUploadsToMain() {
   const serverType = String(process.env.SERVER_TYPE || '').toUpperCase();
@@ -4472,51 +4527,62 @@ async function pushAllUploadsToMain() {
   const uploadsDir = path.join(STATIC_PUBLIC_DIR, 'uploads');
   if (!fs.existsSync(uploadsDir)) return;
 
-  // Collect all image files under uploads/
-  // Raster images only — MAIN's /api/sync/upload-asset refuses SVG (can carry script).
-  const IMAGE_EXT = /\.(jpg|jpeg|png|gif|webp)$/i;
-  const files = [];
-  function scanDir(dir, folder) {
-    let entries;
-    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch (_) { return; }
-    for (const entry of entries) {
-      if (entry.isDirectory()) {
-        scanDir(path.join(dir, entry.name), entry.name);
-      } else if (entry.isFile() && IMAGE_EXT.test(entry.name)) {
-        files.push({ dir, folder, filename: entry.name });
+  if (pushAllUploadsToMain.running) return;
+  pushAllUploadsToMain.running = true;
+  try {
+    // Media files directly inside uploads/<folder>/ (images and videos; no SVG/HTML).
+    // Sub-folders such as qc-images/.thumbs are skipped — MAIN builds its own thumbnails.
+    const files = [];
+    let folders = [];
+    try { folders = fs.readdirSync(uploadsDir, { withFileTypes: true }).filter(d => d.isDirectory() && !d.name.startsWith('.')); } catch (_) { return; }
+    for (const d of folders) {
+      if (d.name.toLowerCase() === 'interviews') continue; // private (resumes) — never leaves the box
+      let entries = [];
+      try { entries = fs.readdirSync(path.join(uploadsDir, d.name), { withFileTypes: true }); } catch (_) { continue; }
+      for (const e of entries) {
+        if (e.isFile() && !e.name.startsWith('.') && extensionForUpload(e.name, '')) {
+          files.push({ folder: d.name, filename: e.name, full: path.join(uploadsDir, d.name, e.name) });
+        }
       }
     }
-  }
-  scanDir(uploadsDir, '');
+    if (files.length === 0) return;
 
-  if (files.length === 0) return;
-  console.log(`[Uploads] Syncing ${files.length} existing file(s) to MAIN...`);
-
-  let pushed = 0;
-  let skipped = 0;
-  for (const f of files) {
-    try {
-      const data = fs.readFileSync(path.join(f.dir, f.filename)).toString('base64');
-      const r = await fetch(`${mainUrl}/api/sync/upload-asset`, {
+    // Ask MAIN which ones it lacks, in batches, then send only those.
+    const missing = [];
+    for (let i = 0; i < files.length; i += 500) {
+      const batch = files.slice(i, i + 500);
+      const r = await fetch(`${mainUrl}/api/sync/uploads-missing`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ apiKey: syncKey, folder: f.folder, filename: f.filename, data }),
-        signal: AbortSignal.timeout(15000)
+        headers: { 'Content-Type': 'application/json', 'x-sync-key': syncKey },
+        body: JSON.stringify({ files: batch.map(f => ({ folder: f.folder, filename: f.filename })) }),
+        signal: AbortSignal.timeout(30000)
       });
-      if (r.ok) {
-        pushed++;
-      } else {
-        skipped++;
-        console.warn(`[Uploads] MAIN rejected ${f.folder}/${f.filename}: HTTP ${r.status}`);
+      if (!r.ok) {
+        console.warn(`[Uploads] MAIN could not list missing files: HTTP ${r.status} — skipping this pass.`);
+        return;
       }
-    } catch (e) {
-      skipped++;
-      console.warn(`[Uploads] Could not push ${f.folder}/${f.filename}: ${e.message}`);
+      const want = new Set(((await r.json()).missing || []).map(m => `${m.folder}/${m.filename}`));
+      batch.forEach(f => { if (want.has(`${f.folder}/${f.filename}`)) missing.push(f); });
     }
-    // Small delay so we don't flood MAIN's rate limiter (60 req/min = 1/s max safe)
-    await new Promise(resolve => setTimeout(resolve, 150));
+    if (missing.length === 0) return;
+    console.log(`[Uploads] ${missing.length} of ${files.length} file(s) missing on MAIN — pushing...`);
+
+    let pushed = 0;
+    let failed = 0;
+    for (const f of missing) {
+      try {
+        if (await pushUploadFileToMain(f.folder, f.filename, f.full)) pushed++; else failed++;
+      } catch (e) {
+        failed++;
+        console.warn(`[Uploads] Could not push ${f.folder}/${f.filename}: ${e.message}`);
+      }
+      // Stay well under MAIN's upload rate limit (300/min).
+      await new Promise(resolve => setTimeout(resolve, 250));
+    }
+    console.log(`[Uploads] Bulk sync done. Pushed: ${pushed}, Failed: ${failed}`);
+  } finally {
+    pushAllUploadsToMain.running = false;
   }
-  console.log(`[Uploads] Bulk sync done. Pushed: ${pushed}, Skipped/Failed: ${skipped}`);
 }
 
 function formatMachineAuditValue(value) {
@@ -6607,6 +6673,12 @@ async function initializeLegacyRuntime() {
             console.warn('[Uploads] Startup bulk sync failed:', e.message)
           );
         }, 2 * 60 * 1000);
+        // Then every 30 min: sends only what MAIN lacks (e.g. photos taken while offline).
+        setInterval(() => {
+          pushAllUploadsToMain().catch(e =>
+            console.warn('[Uploads] Periodic bulk sync failed:', e.message)
+          );
+        }, 30 * 60 * 1000);
       }
     }
   };
