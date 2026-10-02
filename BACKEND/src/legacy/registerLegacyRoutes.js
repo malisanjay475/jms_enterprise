@@ -20172,6 +20172,18 @@ const OR_JR_ERP_PREVIEW_ROW_CAP = Math.max(
 const ERP_PREVIEW_SELECT_COLUMNS = OR_JR_ERP_IMPORT_COLUMNS.map(c => `"${c}"`).join(', ');
 
 // Plant code = 2nd segment of the OR/JR no: 'JR/JG/2526/1' -> 'JG'.
+// SQL predicate: TRUE when the OR/JR no's plant code (JR/JP/... -> JP) belongs to a
+// factory OTHER than the row's own factory_id. Used to hide another plant's orders
+// that were mis-filed under this factory (pass ?include_other_factory=1 to show them).
+function otherFactoryPlantCodeSql(noCol, factoryCol) {
+  return `EXISTS (
+    SELECT 1 FROM factories pf
+     WHERE pf.id <> COALESCE(${factoryCol}, 0)
+       AND UPPER(SPLIT_PART(TRIM(COALESCE(${noCol}, '')), '/', 2))
+           = ANY(string_to_array(UPPER(REPLACE(COALESCE(pf.plant_codes, ''), ' ', '')), ','))
+  )`;
+}
+
 function erpPlantCodeFromOrJrNo(orJrNo) {
   const parts = String(orJrNo || '').split('/');
   return parts.length > 1 ? parts[1].trim().toUpperCase() : '';
@@ -20202,6 +20214,11 @@ async function loadErpFactoryMap() {
 //   'other'      -> belongs to a different factory, skip
 //   'unresolved' -> cannot be determined, skip and report
 function classifyErpRowFactory(erpRow, factoryId, map) {
+  // The plant code in the OR/JR no (JR/JP/... = Kachigam) is authoritative when it
+  // names a known factory: the ERP has reported other plants' JRs under Dungra's
+  // factoryID, which filed JR/JP orders into Dungra's Order Master.
+  const codeOwner = map.byPlantCode.get(erpPlantCodeFromOrJrNo(erpRow.or_jr_no));
+  if (codeOwner) return Number(codeOwner.id) === Number(factoryId) ? 'match' : 'other';
   const rawErpFactory = erpRow.factory_id;
   if (rawErpFactory !== null && rawErpFactory !== undefined && String(rawErpFactory).trim() !== '') {
     const owner = map.byErpId.get(Number(rawErpFactory));
@@ -21583,6 +21600,9 @@ app.get('/api/reports/or-jr-full', async (req, res) => {
 
     // Factory Isolation
     applyFactoryScopeCondition(conditions, params, 'factory_id', factoryScope);
+    if (String(req.query.include_other_factory || '') !== '1') {
+      conditions.push(`NOT ${otherFactoryPlantCodeSql('or_jr_no', 'factory_id')}`);
+    }
 
     // Global Search override (If searching, ignore dates to ensure we find the record)
     if (search) {
@@ -22355,6 +22375,52 @@ app.post('/api/orders/priority', async (req, res) => {
     console.error('orders/priority', e);
     sendServerError(res, e);
   }
+});
+
+// Order Master row detail panel: required moulds, every plan for the order (machine,
+// dates, who planned it) and DPR good/reject output per plan. Read-only, factory-scoped.
+app.get('/api/orders/detail', async (req, res) => {
+  try {
+    const orderNo = normalizeOptionalText(req.query.order_no);
+    if (!orderNo) return res.status(400).json({ ok: false, error: 'order_no is required' });
+    const factoryScope = await getFactoryScopeForRequest(req);
+
+    const scoped = (col, base) => {
+      const params = [...base];
+      const conditions = [];
+      applyFactoryScopeCondition(conditions, params, col, factoryScope);
+      if (!conditions.length) return { params, where: '' };
+      // Legacy rows saved before factory_id existed stay visible, unless access is denied.
+      const nullOk = factoryScope && factoryScope.denyAll ? '' : ` OR ${col} IS NULL`;
+      return { params, where: ` AND (${conditions.join(' AND ')}${nullOk})` };
+    };
+
+    const m = scoped('factory_id', [orderNo]);
+    const moulds = await q(
+      `SELECT mould_no, mould_name, plan_qty, mould_item_qty, machine_name
+         FROM mould_planning_summary
+        WHERE TRIM(or_jr_no) = TRIM($1)${m.where}
+        ORDER BY mould_no`, m.params);
+
+    const p = scoped('pb.factory_id', [orderNo]);
+    const plans = await q(
+      `SELECT pb.plan_id, pb.mould_name, pb.mould_code, pb.machine, pb.line,
+              pb.start_date, pb.end_date, pb.plan_qty, pb.bal_qty, pb.status,
+              pb.created_by, pb.created_at, pb.job_card_no,
+              COALESCE(d.good_qty, 0) AS good_qty, COALESCE(d.reject_qty, 0) AS reject_qty,
+              d.first_dpr, d.last_dpr
+         FROM plan_board pb
+         LEFT JOIN LATERAL (
+           SELECT SUM(good_qty) AS good_qty, SUM(reject_qty) AS reject_qty,
+                  MIN(dpr_date) AS first_dpr, MAX(dpr_date) AS last_dpr
+             FROM dpr_hourly dh
+            WHERE dh.plan_id = pb.plan_id
+         ) d ON TRUE
+        WHERE TRIM(pb.order_no) = TRIM($1)${p.where}
+        ORDER BY pb.start_date NULLS LAST, pb.created_at`, p.params);
+
+    res.json({ ok: true, order_no: orderNo, moulds, plans });
+  } catch (e) { sendServerError(res, e); }
 });
 
 app.get('/api/orders/completion-history', async (req, res) => {
@@ -26915,6 +26981,9 @@ WHEN(SELECT COUNT(DISTINCT pb.mould_name) FROM plan_board pb WHERE pb.order_no =
     if (type === 'orders') {
       const conditions = [];
       applyFactoryScopeCondition(conditions, params, 'o.factory_id', factoryScope);
+      if (String(req.query.include_other_factory || '') !== '1') {
+        conditions.push(`NOT ${otherFactoryPlantCodeSql('o.order_no', 'o.factory_id')}`);
+      }
       if (conditions.length) {
         sql += ` AND ${conditions.join(' AND ')} `;
       }

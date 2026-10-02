@@ -13,7 +13,20 @@ part of your PR. On release, the `[Unreleased]` items move under the new version
 
 ## [Unreleased]
 
+### Added
+- Order Master row detail drawer (v1.90.0): `GET /api/orders/detail?order_no=` returns the order's
+  required moulds (mould_planning_summary), plans (plan_board) and DPR good/reject per plan
+  (dpr_hourly), factory-scoped and read-only. The eye button opens it instead of the old modal.
+- Order Master redesign (v1.89.0): count cards (open / not planned / partial / fully planned /
+  job card overdue) that act as quick filters, a mould plan progress bar, red "Not Planned"
+  status, and late job card dates highlighted. Client-side only; no API change.
+
 ### Fixed
+- Order Master / OR-JR Status showed another plant's orders (JR/JP in Dungra) (v1.88.1). The ERP
+  import trusted the ERP factoryID over the OR/JR plant code; the plant code now wins when it maps
+  to a known factory. Both pages hide mis-filed rows (`?include_other_factory=1` shows them), and
+  `BACKEND/scripts/fix_misfiled_factory_orders.js` moves existing rows (dry run by default, writes
+  a backup JSON, `--rollback <file>` restores).
 - Local servers missed new orders from MAIN (v1.76.9). A long MAIN transaction (ERP import)
   committed after the local pull watermark had passed its updated_at, so those rows were never
   pulled. Pulls now re-check the last 20 minutes (`SYNC_PULL_OVERLAP_MINUTES`); re-pulled rows
