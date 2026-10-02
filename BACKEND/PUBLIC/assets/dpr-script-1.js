@@ -3824,14 +3824,31 @@
                 const dprSearchInput = document.getElementById('s-search');
                 if (dprSearchInput) dprSearchInput.addEventListener('input', () => applyDprSearch());
 
+                // Open on the user's login factory (not "All"); picking "All" in the
+                // dropdown still shows every factory. Selected before the first load so the
+                // summary never flashes all factories first.
+                const loginFactoryId = (() => { try { return localStorage.getItem('jpsms_factory_id') || ''; } catch (_) { return ''; } })();
+                const loginFactoryName = (() => { try { return localStorage.getItem('jpsms_factory_name') || ''; } catch (_) { return ''; } })();
+                const sFactorySel = document.getElementById('s-factory');
+                if (sFactorySel && /^\d+$/.test(loginFactoryId)) {
+                    const opt = document.createElement('option');
+                    opt.value = loginFactoryId;
+                    opt.textContent = loginFactoryName || `Factory ${loginFactoryId}`;
+                    sFactorySel.appendChild(opt);
+                    sFactorySel.value = loginFactoryId;
+                }
+
                 // Load factories into the factory dropdown
                 J.api.get('/factories').then(r => {
                     const sel = document.getElementById('s-factory');
                     if (!sel || !r.ok) return;
                     (r.data || []).forEach(f => {
+                        const label = f.name + (f.location ? ` — ${f.location}` : '');
+                        const existing = Array.from(sel.options).find(o => o.value === String(f.id));
+                        if (existing) { existing.textContent = label; return; }
                         const opt = document.createElement('option');
                         opt.value = String(f.id);
-                        opt.textContent = f.name + (f.location ? ` — ${f.location}` : '');
+                        opt.textContent = label;
                         sel.appendChild(opt);
                     });
                 }).catch(() => {});
