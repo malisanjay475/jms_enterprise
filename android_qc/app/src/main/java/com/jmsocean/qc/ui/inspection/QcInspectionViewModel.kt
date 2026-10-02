@@ -35,15 +35,7 @@ private fun slotStartOffset(slot: String): Int = INSPECT_SLOTS.indexOf(slot) * 1
  * Production date + shift for "now", same rule as supervisor.html: the shift
  * changes at 08:10 and 20:10 IST; before 08:10 is still yesterday's Night shift.
  */
-fun autoDateShift(): Pair<String, String> {
-    val cal = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("Asia/Kolkata"))
-    val mins = cal.get(java.util.Calendar.HOUR_OF_DAY) * 60 + cal.get(java.util.Calendar.MINUTE)
-    return when {
-        mins in 490 until 1210 -> Ist.date() to "Day"
-        mins < 490 -> Ist.yesterday() to "Night"
-        else -> Ist.date() to "Night"
-    }
-}
+fun autoDateShift(): Pair<String, String> = Ist.production()
 
 /** Minutes since the start (08:00 / 20:00 IST) of [date]/[shift]; negative if it hasn't started. */
 private fun minsIntoShift(date: String, shift: String): Long {
