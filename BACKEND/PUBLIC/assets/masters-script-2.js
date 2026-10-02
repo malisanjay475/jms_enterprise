@@ -123,13 +123,9 @@
       return 'pending';
     }
 
-    // Job card date has passed and the order is still not fully planned.
-    function isOrderJobCardOverdue(row) {
-      if (!row.job_card_date || orderPlanBucket(row) === 'full') return false;
-      const d = new Date(row.job_card_date);
-      if (isNaN(d)) return false;
-      const today = new Date(); today.setHours(0, 0, 0, 0);
-      return d < today;
+    // No job card issued yet for this OR/JR.
+    function isOrderJobCardMissing(row) {
+      return String(row.job_card_no || '').trim() === '';
     }
     let currentWriteScope = { id: null, name: '', isAll: false };
     let currentMachineIconBase64 = null;
@@ -1391,20 +1387,20 @@
         const insightsEl = document.getElementById('orderInsights');
         if (insightsEl) insightsEl.style.display = currentType === 'orders' ? 'block' : 'none';
         if (currentType === 'orders') {
-          const counts = { all: rows.length, pending: 0, partial: 0, full: 0, overdue: 0 };
+          const counts = { all: rows.length, pending: 0, partial: 0, full: 0, nojc: 0 };
           for (const r of rows) {
             counts[orderPlanBucket(r)]++;
-            if (isOrderJobCardOverdue(r)) counts.overdue++;
+            if (isOrderJobCardMissing(r)) counts.nojc++;
           }
           const setKpi = (id, n) => { const el = document.getElementById(id); if (el) el.textContent = n.toLocaleString('en-IN'); };
           setKpi('omKpiAll', counts.all); setKpi('omKpiPending', counts.pending);
           setKpi('omKpiPartial', counts.partial); setKpi('omKpiFull', counts.full);
-          setKpi('omKpiOverdue', counts.overdue);
+          setKpi('omKpiNoJc', counts.nojc);
           document.querySelectorAll('#orderInsights .om-kpi').forEach(b => {
             b.classList.toggle('active', b.dataset.filter === orderQuickFilter);
             b.onclick = () => { orderQuickFilter = b.dataset.filter; loadMasterData(); };
           });
-          if (orderQuickFilter === 'overdue') rows = rows.filter(isOrderJobCardOverdue);
+          if (orderQuickFilter === 'nojc') rows = rows.filter(isOrderJobCardMissing);
           else if (orderQuickFilter !== 'all') rows = rows.filter(r => orderPlanBucket(r) === orderQuickFilter);
         }
 
@@ -1972,9 +1968,6 @@
               const d = new Date(data);
               if (isNaN(d.getTime())) return data;
               const shown = moment(d).format('DD-MMM-YYYY');
-              if (type === 'display' && c === 'job_card_date' && currentType === 'orders' && isOrderJobCardOverdue(row)) {
-                return `<span style="color:#dc2626; font-weight:700" title="Job card date passed, order not fully planned">${shown} · late</span>`;
-              }
               return shown;
             };
           }
