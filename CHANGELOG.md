@@ -13,6 +13,10 @@ part of your PR. On release, the `[Unreleased]` items move under the new version
 
 ## [Unreleased]
 
+### Changed
+- Order Master (v1.90.1): "Job card overdue" card replaced by "Job card not created" (orders with
+  no job_card_no); the red "late" job card date highlight is removed.
+
 ### Added
 - Order Master row detail drawer (v1.90.0): `GET /api/orders/detail?order_no=` returns the order's
   required moulds (mould_planning_summary), plans (plan_board) and DPR good/reject per plan
