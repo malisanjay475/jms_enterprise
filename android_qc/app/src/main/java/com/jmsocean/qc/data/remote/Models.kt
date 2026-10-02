@@ -117,6 +117,35 @@ data class ComplianceRow(
     val qcIncharge: String = ""
 )
 
+// ── QC line team (per line + date + shift, like Moulding shift teams) ──
+@Serializable
+data class LineTeam(
+    val line: String = "",
+    val qc_supervisor: String = "",
+    val qc_incharge: String = "",
+    val saved_by: String = "",
+    val saved_at: String? = null
+)
+
+@Serializable
+data class LineTeamResponse(
+    val ok: Boolean = false,
+    val error: String? = null,
+    val data: List<LineTeam> = emptyList(),
+    val required: List<String> = emptyList(),
+    val all_access: Boolean = false
+)
+
+@Serializable
+data class LineTeamSaveRequest(
+    val session: SessionRef,
+    val line: String,
+    val dpr_date: String,
+    val shift: String,
+    val qc_supervisor: String,
+    val qc_incharge: String
+)
+
 // ── QC shift team ───────────────────────────────────────────────────────────
 @Serializable
 data class ShiftTeamMember(
