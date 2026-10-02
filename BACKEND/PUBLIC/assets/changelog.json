@@ -11,8 +11,21 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.91.0",
+  "latest": "1.91.1",
   "versions": [
+    {
+      "version": "1.91.1",
+      "date": "2026-10-02",
+      "title": "Compliance Summary opens on your factory",
+      "modules": [
+        {
+          "app": "dpr",
+          "changes": [
+            { "type": "fix", "text": "DPR Compliance Summary now opens showing the factory you logged in to; choose All in the Factory filter to see every factory." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.91.0",
       "date": "2026-10-02",
