@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.83.0",
+  "latest": "1.83.1",
   "versions": [
+    {
+      "version": "1.83.1",
+      "date": "2026-10-02",
+      "title": "Save setup before DPR entry",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-pencil-square",
+          "changes": [
+            { "type": "fix", "text": "In the Supervisor DPR entry, the One-time Setup (STD / Actual) must be saved first; until then the entry form stays locked and an alert asks you to save the setup." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.83.0",
       "date": "2026-10-01",
