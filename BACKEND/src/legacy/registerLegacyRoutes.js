@@ -26750,6 +26750,15 @@ WHERE 1 = 1
 
     if (type === 'orders') {
       sql = `
+-- Excluded OR/JRs are collected once (cancelled JC, or JR closed without a job card) and
+-- probed per order; the old per-order NOT EXISTS scans re-read ~600 rows for every order.
+WITH order_excluded AS MATERIALIZED (
+  SELECT DISTINCT TRIM(or_jr_no) AS n, factory_id AS f
+    FROM or_jr_report
+   WHERE COALESCE(TRIM(LOWER(mld_status)), '') IN ('cancelled', 'canceled', 'cancel')
+      OR (COALESCE(TRIM(job_card_no), '') = ''
+          AND COALESCE(TRIM(LOWER(jr_close)), '') IN ('close', 'closed', 'yes'))
+)
 SELECT
 COALESCE(r.or_jr_no, o.order_no) AS or_jr_no,
   r.or_jr_date,
@@ -26801,29 +26810,12 @@ COALESCE(r.or_jr_no, o.order_no) AS or_jr_no,
   o.completion_detected_at,
   o.completion_confirmed_at,
 
-  (SELECT COUNT(DISTINCT pb.mould_name) FROM plan_board pb WHERE pb.order_no = o.order_no) as planned_count,
-    (SELECT COUNT(*) FROM mould_planning_summary mps WHERE mps.or_jr_no = o.order_no) as required_count,
-
-      CASE
-WHEN(SELECT COUNT(DISTINCT pb.mould_name) FROM plan_board pb WHERE pb.order_no = o.order_no) = 0 THEN 'Pending'
-WHEN(SELECT COUNT(DISTINCT pb.mould_name) FROM plan_board pb WHERE pb.order_no = o.order_no) >=
-  COALESCE((SELECT COUNT(*) FROM mould_planning_summary mps WHERE mps.or_jr_no = o.order_no), 1) THEN 'Fully Planned'
-               ELSE 'Partially Planned'
-            END AS plan_status,
-
-  COALESCE(
-    (
-      SELECT jsonb_agg(jsonb_build_object(
-        'mould', pb.mould_name,
-        'machine', pb.machine,
-        'startDate', pb.start_date,
-        'status', pb.status
-      ))
-                FROM plan_board pb
-                WHERE pb.order_no = o.order_no
-  ),
-  '[]':: jsonb
-            ) as planned_details,
+  pc.planned_count,
+  rc.required_count,
+  CASE WHEN pc.planned_count = 0 THEN 'Pending'
+       WHEN pc.planned_count >= COALESCE(rc.required_count, 1) THEN 'Fully Planned'
+       ELSE 'Partially Planned'
+  END AS plan_status,
 
   o.id as master_id,
   o.order_no
@@ -26847,31 +26839,16 @@ WHEN(SELECT COUNT(DISTINCT pb.mould_name) FROM plan_board pb WHERE pb.order_no =
                rpt.id DESC
              LIMIT 1
           ) r ON TRUE
+          LEFT JOIN LATERAL (SELECT COUNT(DISTINCT pb.mould_name) AS planned_count FROM plan_board pb WHERE pb.order_no = o.order_no) pc ON TRUE
+          LEFT JOIN LATERAL (SELECT COUNT(*) AS required_count FROM mould_planning_summary mps WHERE mps.or_jr_no = o.order_no) rc ON TRUE
           LEFT JOIN factories f ON f.id = COALESCE(r.factory_id, o.factory_id)
  WHERE (COALESCE(o.status, 'Pending') NOT IN ('Completed', 'Cancelled')
         OR COALESCE(o.completion_confirmation_required, FALSE) = TRUE)
    AND NOT EXISTS (
          SELECT 1
-           FROM or_jr_report rc
-          WHERE TRIM(rc.or_jr_no) = TRIM(o.order_no)
-            AND (
-              COALESCE(rc.factory_id, 0) = COALESCE(o.factory_id, 0)
-              OR rc.factory_id IS NULL
-              OR o.factory_id IS NULL
-            )
-            AND COALESCE(TRIM(LOWER(rc.mld_status)), '') IN ('cancelled', 'canceled', 'cancel')
-       )
-   AND NOT EXISTS (
-         SELECT 1
-           FROM or_jr_report rj
-          WHERE TRIM(rj.or_jr_no) = TRIM(o.order_no)
-            AND (
-              COALESCE(rj.factory_id, 0) = COALESCE(o.factory_id, 0)
-              OR rj.factory_id IS NULL
-              OR o.factory_id IS NULL
-            )
-            AND COALESCE(TRIM(rj.job_card_no), '') = ''
-            AND COALESCE(TRIM(LOWER(rj.jr_close)), '') IN ('close', 'closed', 'yes')
+           FROM order_excluded x
+          WHERE x.n = TRIM(o.order_no)
+            AND (COALESCE(x.f, 0) = COALESCE(o.factory_id, 0) OR x.f IS NULL OR o.factory_id IS NULL)
        )
        `;
     } else {
