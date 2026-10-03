@@ -11,8 +11,21 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.91.1",
+  "latest": "1.91.2",
   "versions": [
+    {
+      "version": "1.91.2",
+      "date": "2026-10-03",
+      "title": "Faster Order Master",
+      "modules": [
+        {
+          "app": "masters",
+          "changes": [
+            { "type": "perf", "text": "Order Master loads much faster, and clicking a count card now filters straight away instead of reloading every order." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.91.1",
       "date": "2026-10-02",

@@ -1275,7 +1275,10 @@
     }
     window.erpExportAll = erpExportAll;
 
-    async function loadMasterData() {
+    // Last Order Master response, reused when a count card only changes the filter.
+    let orderRowsCache = null;
+
+    async function loadMasterData(opts = {}) {
       // Labour Parties has its own dedicated UI — bypass the generic DataTable rendering
       if (currentType === 'labour-parties') {
         masterDataLoading = false;
@@ -1337,7 +1340,10 @@
         console.log('[Masters] Loading data for type:', currentType);
         console.log('[Masters] Endpoint:', endpoint);
 
-        const res = await JPSMS.api.get(endpoint);
+        const useCache = opts.fromCache === true && currentType === 'orders'
+          && orderRowsCache && orderRowsCache.endpoint === endpoint;
+        const res = useCache ? orderRowsCache.res : await JPSMS.api.get(endpoint);
+        if (currentType === 'orders' && !useCache) orderRowsCache = { endpoint, res };
         let rows = res.data || [];
 
         // Mould Master: apply the ACTIVE factory scope as a CLIENT-SIDE view filter.
@@ -1392,7 +1398,7 @@
           setKpi('omKpiNoJc', counts.nojc);
           document.querySelectorAll('#orderInsights .om-kpi').forEach(b => {
             b.classList.toggle('active', b.dataset.filter === orderQuickFilter);
-            b.onclick = () => { orderQuickFilter = b.dataset.filter; loadMasterData(); };
+            b.onclick = () => { orderQuickFilter = b.dataset.filter; loadMasterData({ fromCache: true }); };
           });
           if (orderQuickFilter === 'nojc') rows = rows.filter(isOrderJobCardMissing);
           else if (orderQuickFilter !== 'all') rows = rows.filter(r => orderPlanBucket(r) === orderQuickFilter);

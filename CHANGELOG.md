@@ -13,6 +13,13 @@ part of your PR. On release, the `[Unreleased]` items move under the new version
 
 ## [Unreleased]
 
+### Performance
+- Order Master (v1.91.2): `/api/masters/orders` builds the excluded OR/JR set once
+  (`order_excluded` CTE) instead of two per-order NOT EXISTS scans, counts plans and required
+  moulds once per order (LATERAL) instead of 5 correlated subqueries, and drops the unused
+  `planned_details` JSON. Factory-1 local: 466 ms -> 94 ms, 3.4 MB -> 2.8 MB (156 KB gzip), same
+  rows and plan status. Count cards filter the cached response instead of refetching.
+
 ### Changed
 - Orders auto-complete (v1.91.0): when every OR-JR row of an order is Completed (or a mix of
   Completed/Cancelled), `syncOrderCompletionConfirmations` sets the order to `Completed` directly
