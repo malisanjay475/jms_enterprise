@@ -199,10 +199,35 @@ object Network {
 
     val cookieJar = PersistentCookieJar()
 
+    /**
+     * Phones on factory Wi-Fi drop off for a few seconds when they roam between
+     * access points or wake from sleep. Retry reads (GET) up to 3 times with a
+     * short back-off, and turn a final network failure into a plain message
+     * instead of "Failed to connect to /192.168.1.173:3001".
+     */
+    private val networkRetry = okhttp3.Interceptor { chain ->
+        val req = chain.request()
+        val attempts = if (req.method == "GET") 3 else 1
+        var last: java.io.IOException? = null
+        for (i in 1..attempts) {
+            try {
+                return@Interceptor chain.proceed(req)
+            } catch (e: java.io.IOException) {
+                if (chain.call().isCanceled()) throw e
+                last = e
+                if (i < attempts) Thread.sleep(1000L * i)
+            }
+        }
+        throw java.io.IOException(
+            "Can't reach the factory server. Check the phone is on the factory Wi-Fi — it will retry by itself when Wi-Fi is back, or tap Retry.", last
+        )
+    }
+
     private val client: OkHttpClient = OkHttpClient.Builder()
         .cookieJar(cookieJar)
-        .connectTimeout(20, TimeUnit.SECONDS)
+        .connectTimeout(8, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
+        .addInterceptor(networkRetry)
         .addInterceptor(HttpLoggingInterceptor().apply {
             level = if (BuildConfig.DEBUG) HttpLoggingInterceptor.Level.BASIC
             else HttpLoggingInterceptor.Level.NONE

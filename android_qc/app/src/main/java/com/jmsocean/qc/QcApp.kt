@@ -22,6 +22,7 @@ class QcApp : Application() {
         super.onCreate()
         // Reload the saved login session before anything talks to the server.
         Network.cookieJar.init(this)
+        com.jmsocean.qc.data.NetworkWatcher.start(this)
         session = SessionStore(this)
         repository = QcRepository(session)
         instance = this
