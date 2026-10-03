@@ -42,6 +42,13 @@ class VerifyViewModel : ViewModel() {
         loadMachines()
         loadContext()
         load()
+        // Wi-Fi back after a drop: reload whatever failed.
+        com.jmsocean.qc.data.NetworkWatcher.onNetworkBack(viewModelScope) {
+            val s = _state.value
+            if (s.machines.isEmpty()) loadMachines()
+            if (s.error != null || s.jobs.isEmpty()) loadContext()
+            if (s.error != null && !s.loading) load()
+        }
     }
 
     private fun loadMachines() {
