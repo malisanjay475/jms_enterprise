@@ -15,6 +15,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.debounce
 
 data class QueueUiState(
     val line: String = "",
@@ -31,6 +32,7 @@ data class QueueUiState(
     val updateError: String? = null
 )
 
+@OptIn(kotlinx.coroutines.FlowPreview::class)
 class QueueViewModel : ViewModel() {
     private val repo = QcApp.instance.repository
     private val session = QcApp.instance.session
@@ -45,6 +47,19 @@ class QueueViewModel : ViewModel() {
         loadMachines()
         checkForUpdate()
         SyncManager.drain()
+        // Wi-Fi back after a drop: reload by itself if the screen shows an error,
+        // and push any entries saved offline.
+        viewModelScope.launch {
+            com.jmsocean.qc.data.NetworkWatcher.networkBack
+                .debounce(1500)
+                .collect {
+                    val s = _state.value
+                    if (s.error != null && !s.loadingMachines && !s.loadingJobs) {
+                        if (s.machines.isEmpty()) loadMachines() else loadJobs()
+                    }
+                    SyncManager.drain()
+                }
+        }
     }
 
     fun syncNow() = SyncManager.drain()

@@ -219,7 +219,7 @@ object Network {
             }
         }
         throw java.io.IOException(
-            "Can't reach the factory server. Check the phone is on the factory Wi-Fi, then tap Retry.", last
+            "Can't reach the factory server. Check the phone is on the factory Wi-Fi — it will retry by itself when Wi-Fi is back, or tap Retry.", last
         )
     }
 
