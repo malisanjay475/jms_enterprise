@@ -11,8 +11,22 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.96.0",
+  "latest": "1.97.0",
   "versions": [
+    {
+      "version": "1.97.0",
+      "date": "2026-10-05",
+      "title": "Job quantity flow in every Compliance Summary",
+      "modules": [
+        {
+          "app": "dpr",
+          "changes": [
+            { "type": "feat", "text": "Moulding, QC and Shifting Compliance Summaries and the job details now show Produced, Balance, QC verified, QC hold, QC balance, Shifted, Shifting balance and Shop floor for each machine's running job." },
+            { "type": "fix", "text": "QC-verified quantities are now copied from the factory server to the main server, so the main website no longer shows 0 verified." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.96.0",
       "date": "2026-10-05",

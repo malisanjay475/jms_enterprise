@@ -14,6 +14,16 @@ part of your PR. On release, the `[Unreleased]` items move under the new version
 ## [Unreleased]
 
 ### Added
+- Job quantity flow (v1.97.0): `GET /api/shifting/job-flow?machines=` (running job per machine:
+  produced, balance, QC verified, QC hold, QC balance, shifted, shifting balance, shop floor);
+  `job-shifting-panel.js` adds a compact flow strip to every machine cell of the Moulding / QC /
+  Shifting Compliance Summary and flow tiles under Overall Progress in the job modal.
+### Fixed
+- `qc_verifications` now replicates LOCAL -> MAIN (natural key machine/date/shift/hour_slot,
+  sync schema v11), so MAIN shows QC-verified qty; `/api/qc/verify/pending` matches by slot
+  when the synced `dpr_entry_id` points to another row.
+
+### Added
 - Job details show shifting everywhere (v1.96.0): `/api/shifting/availability` adds shifted
   qty per location (job + colour), the latest 15 entries, and lookup by `order_no` (+`machine`).
   New shared `assets/job-shifting-panel.js` ("Production · QC · Shifting") in the DPR / QC

@@ -10774,6 +10774,58 @@ app.get('/api/shifting/availability', async (req, res) => {
   }
 });
 
+// GET /api/shifting/job-flow?machines=M1,M2,… — for each machine's running job (latest
+// when several): plan, produced, balance, QC verified, QC hold, QC balance (not verified),
+// shifted, shifting balance (verified − shifted) and shop floor (produced − shifted).
+// Used by every DPR Compliance Summary (Moulding / QC / Shifting) machine cell.
+app.get('/api/shifting/job-flow', async (req, res) => {
+  try {
+    const factoryId = getFactoryId(req);
+    const machines = [...new Set(String(req.query.machines || '').split(',').map(s => s.trim()).filter(Boolean))].slice(0, 400);
+    if (!machines.length) return res.json({ ok: true, data: {} });
+    const plans = await q(
+      `SELECT DISTINCT ON (TRIM(pb.machine)) pb.id, pb.plan_id, TRIM(pb.machine) AS machine, pb.item_name,
+              pb.mould_name, pb.order_no, pb.plan_qty, pb.factory_id
+         FROM plan_board pb
+        WHERE TRIM(pb.machine) = ANY($1::text[])
+          AND UPPER(COALESCE(pb.status, '')) = 'RUNNING'
+          AND ($2::int IS NULL OR pb.factory_id = $2 OR pb.factory_id IS NULL)
+        ORDER BY TRIM(pb.machine), pb.id DESC`,
+      [machines, factoryId]
+    );
+    const [avail, holds, enforced] = await Promise.all([
+      shiftingAvailabilityMap(plans.map(p => ({ pk: p.id, code: p.plan_id })), factoryId),
+      shiftingHoldsByMachine(machines, factoryId),
+      shiftingVerificationEnforced(factoryId)
+    ]);
+    const data = {};
+    plans.forEach(p => {
+      const a = avail.get(String(p.id)) || { produced: 0, verified: 0, not_verified: 0, shifted: 0, ready: 0 };
+      const h = holds.get(p.machine);
+      const planQty = Number(p.plan_qty || 0);
+      data[p.machine] = {
+        plan_id: String(p.id),
+        plan_code: p.plan_id || '',
+        item_name: p.item_name || p.mould_name || '',
+        order_no: p.order_no || '',
+        plan_qty: planQty,
+        produced: a.produced,
+        balance: planQty - a.produced,
+        qc_verified: a.verified,
+        qc_hold: h ? h.qty : 0,
+        on_hold: !!h,
+        qc_balance: a.not_verified,
+        shifted: a.shifted,
+        shift_balance: a.ready,
+        shop_floor: Math.max(a.produced - a.shifted, 0)
+      };
+    });
+    res.json({ ok: true, verification_enforced: enforced, data });
+  } catch (e) {
+    sendServerError(res, e);
+  }
+});
+
 // ── SHIFTING LINE TEAM (Shifting Supervisor + Shifting Incharge per line) ───
 // GET /api/shifting/line-team?date&shift[&line_access] — team of each of the user's
 // lines; `required` = lines still without a team (the Shifting app blocks until empty).
@@ -31269,11 +31321,16 @@ app.get('/api/qc/verify/pending', async (req, res) => {
         v.remarks                                     AS qc_remarks
       FROM dpr_hourly d
       LEFT JOIN qc_verifications v
-        ON  v.dpr_entry_id = d.id
-        AND v.machine      = d.machine
+        ON  v.machine      = d.machine
         AND v.dpr_date     = d.dpr_date
         AND v.shift        = d.shift
         AND v.hour_slot    = d.hour_slot
+        -- dpr_entry_id is the LOCAL row id; on a server that received the verification by
+        -- sync it may point elsewhere, so then the slot match alone decides.
+        AND (v.dpr_entry_id = d.id
+             OR NOT EXISTS (SELECT 1 FROM dpr_hourly x
+                             WHERE x.id = v.dpr_entry_id AND x.machine = v.machine AND x.dpr_date = v.dpr_date
+                               AND x.shift = v.shift AND x.hour_slot = v.hour_slot))
       WHERE d.machine    = $1
         AND d.dpr_date   = $2::date
         AND d.shift      = $3

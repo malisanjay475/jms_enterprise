@@ -1592,7 +1592,7 @@
                                         <div style="font-size:0.7rem; color:#64748b">Made ${fmt(m.produced_qty)} this shift</div>
                                         ${m.on_floor ? `<div style="font-size:0.72rem; font-weight:700; color:#b45309">On floor ${fmt(m.on_floor)}</div>` : ''}`;
                                     mHtml += `<tr style="${sIdx === 0 ? 'border-top:2px solid #cbd5e1' : ''}">
-                                        <td style="padding:6px 8px; text-align:left; border-right:1px solid #f1f5f9; border-bottom:1px solid #e2e8f0; background:#fff; vertical-align:middle">
+                                        <td data-dpr-machine="${esc(machine)}" data-dpr-shift="${esc(sh)}" data-dpr-date="${esc(date)}" style="padding:6px 8px; text-align:left; border-right:1px solid #f1f5f9; border-bottom:1px solid #e2e8f0; background:#fff; vertical-align:middle">
                                             <div style="font-size:0.75rem; text-transform:uppercase; letter-spacing:0.5px; font-weight:700; margin-bottom:4px; color:#64748b">${label}</div>
                                             ${m.job ? `<div style="font-size:0.85rem; font-weight:700; color:#1e293b; line-height:1.3">${esc(m.job)}</div>` : '<div style="font-size:0.8rem; color:#94a3b8; font-style:italic">No running plan</div>'}
                                         </td>
