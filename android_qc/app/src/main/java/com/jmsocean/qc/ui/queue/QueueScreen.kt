@@ -224,11 +224,17 @@ fun QueueScreen(
 
             when {
                 s.loadingJobs || s.loadingMachines -> CenterLoader()
-                s.error != null -> Text(
-                    s.error!!,
-                    color = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.padding(top = 24.dp)
-                )
+                s.error != null -> Column(Modifier.fillMaxWidth().padding(top = 24.dp)) {
+                    Text(s.error!!, color = MaterialTheme.colorScheme.error)
+                    Spacer(Modifier.height(10.dp))
+                    OutlinedButton(onClick = {
+                        if (s.machines.isEmpty()) vm.loadMachines() else vm.loadJobs()
+                    }) {
+                        Icon(Icons.Default.Refresh, contentDescription = null)
+                        Spacer(Modifier.size(6.dp))
+                        Text("Retry")
+                    }
+                }
                 s.jobs.isEmpty() -> Text(
                     "No queued jobs for this machine.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
