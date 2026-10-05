@@ -13,6 +13,11 @@ part of your PR. On release, the `[Unreleased]` items move under the new version
 
 ## [Unreleased]
 
+### Added
+- Shifting app update feed (v1.93.1): `POST /api/qc-app/publish` takes `app=shifting` to publish
+  the native Shifting APK to `PUBLIC/qc-app/shifting/` (`jms-shifting.apk` + `version.json`),
+  inside the existing qc-app volume. Default `app=qc` keeps the QC feed unchanged.
+
 ### Performance
 - Order Master (v1.91.2): `/api/masters/orders` builds the excluded OR/JR set once
   (`order_excluded` CTE) instead of two per-order NOT EXISTS scans, counts plans and required

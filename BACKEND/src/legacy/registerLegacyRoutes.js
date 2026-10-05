@@ -73,6 +73,13 @@ const uploadQC = multer({
 // factory phones auto-update. Fixed filename keeps the download URL stable.
 const _qcAppDir = path.join(STATIC_PUBLIC_DIR, 'qc-app');
 fs.mkdirSync(_qcAppDir, { recursive: true });
+// The native Shifting app has its own feed in a sub-folder (/qc-app/shifting/), inside
+// the same Docker volume, published through the same route with app=shifting.
+const _qcAppFeeds = {
+  qc: { dir: _qcAppDir, apk: 'jms-qc.apk' },
+  shifting: { dir: path.join(_qcAppDir, 'shifting'), apk: 'jms-shifting.apk' }
+};
+fs.mkdirSync(_qcAppFeeds.shifting.dir, { recursive: true });
 // multer writes the file BEFORE the route checks the credentials, so it must not go
 // straight to the served name: a failed login used to leave an attacker's APK in place
 // as jms-qc.apk for every factory phone. It lands under a dot-name (never served by
@@ -179,6 +186,7 @@ module.exports = function registerLegacyRoutes({ app, pool, config, services }) 
      QC ANDROID APP — SELF-UPDATE PUBLISH
      Admin uploads a new APK; server stores it + writes version.json.
      The app reads /qc-app/version.json (static) and installs /qc-app/jms-qc.apk.
+     app=shifting publishes the Shifting app to /qc-app/shifting/ instead.
      Additive + isolated: no existing behaviour changes.
      ============================================================ */
   app.post('/api/qc-app/publish', uploadQcApk.single('apk'), async (req, res) => {
@@ -188,6 +196,8 @@ module.exports = function registerLegacyRoutes({ app, pool, config, services }) 
     let published = false;
     try {
       const { username, password, versionCode, versionName, notes } = req.body || {};
+      const feed = _qcAppFeeds[String(req.body?.app || 'qc').toLowerCase()];
+      if (!feed) return res.status(400).json({ ok: false, error: 'app must be "qc" or "shifting"' });
       if (!username || !password) {
         return res.status(400).json({ ok: false, error: 'username and password required' });
       }
@@ -222,16 +232,16 @@ module.exports = function registerLegacyRoutes({ app, pool, config, services }) 
       if (!Number.isFinite(vc)) {
         return res.status(400).json({ ok: false, error: 'versionCode (integer) required' });
       }
-      fs.renameSync(tempPath, path.join(_qcAppDir, 'jms-qc.apk'));
+      fs.renameSync(tempPath, path.join(feed.dir, feed.apk));
       published = true;
       const meta = {
         versionCode: vc,
         versionName: String(versionName || vc),
-        apk: 'jms-qc.apk',
+        apk: feed.apk,
         notes: String(notes || ''),
         publishedAt: new Date().toISOString()
       };
-      fs.writeFileSync(path.join(_qcAppDir, 'version.json'), JSON.stringify(meta, null, 2));
+      fs.writeFileSync(path.join(feed.dir, 'version.json'), JSON.stringify(meta, null, 2));
       res.json({ ok: true, ...meta });
     } catch (e) {
       sendServerError(res, e);
@@ -5522,6 +5532,20 @@ async function initializeLegacyRuntime() {
                 created_at TIMESTAMP DEFAULT NOW()
             );
 
+            -- Shifting destinations master (Masters -> Shifting Locations). Edited on
+            -- MAIN only; LOCAL pulls it (sync: MAIN-only writer, id key).
+            CREATE TABLE IF NOT EXISTS shifting_locations (
+                id SERIAL PRIMARY KEY,
+                name TEXT NOT NULL,
+                sort_order INTEGER DEFAULT 0,
+                is_active BOOLEAN DEFAULT true,
+                factory_id INTEGER,
+                created_by TEXT,
+                updated_by TEXT,
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                updated_at TIMESTAMPTZ DEFAULT NOW()
+            );
+
             CREATE TABLE IF NOT EXISTS planning_drops (
                 id SERIAL PRIMARY KEY,
                 order_no TEXT NOT NULL,
@@ -5798,6 +5822,7 @@ async function initializeLegacyRuntime() {
       'qc_training_sheets',
       'roles',
       'shift_teams',
+      'shifting_locations',
       'shifting_records',
       'std_actual',
       'user_factories',
@@ -9137,11 +9162,229 @@ app.get('/api/debug/ids', async (req, res) => {
    SHIFTING MODULE APIs
 ============================================================ */
 
-// GET /api/shifting/locations
+// Shifting destinations. Mastered in shifting_locations (Masters -> Shifting Locations),
+// per factory, edited on MAIN only. Until a factory has rows, the built-in list below
+// is used: MAIN seeds it into the table the first time the factory's list is read;
+// a LOCAL never writes the table (it would mint ids MAIN doesn't know) and just
+// answers with the built-in list until MAIN's rows arrive by sync.
+const SHIFTING_DEFAULT_LOCATIONS = ['Moulding Itself', 'Shifting Wip', 'Shopfloor Wip', 'Printing', 'Tuffting', 'Packing'];
+
+async function listShiftingLocations(factoryId, { includeInactive = false } = {}) {
+  const fid = normalizeFactoryId(factoryId);
+  const readRows = () => q(
+    `SELECT id, name, sort_order, is_active, factory_id, updated_by, updated_at
+       FROM shifting_locations
+      WHERE ($1::int IS NULL OR factory_id = $1)
+        AND ($2::boolean OR is_active IS NOT FALSE)
+      ORDER BY sort_order, LOWER(name), id`,
+    [fid, includeInactive]
+  );
+  let rows = await readRows();
+
+  if (fid && !isLocalServer()) {
+    const any = await q(`SELECT 1 FROM shifting_locations WHERE factory_id = $1 LIMIT 1`, [fid]);
+    if (!any.length) {
+      // Seed under an advisory lock so two first reads don't both insert the defaults.
+      await withShiftingLock(`locations-seed:${fid}`, async (client) => {
+        const again = await client.query(`SELECT 1 FROM shifting_locations WHERE factory_id = $1 LIMIT 1`, [fid]);
+        if (again.rows.length) return;
+        for (const [i, name] of SHIFTING_DEFAULT_LOCATIONS.entries()) {
+          await client.query(
+            `INSERT INTO shifting_locations (name, sort_order, is_active, factory_id, created_by, updated_by)
+             VALUES ($1, $2, true, $3, 'system', 'system')`,
+            [name, (i + 1) * 10, fid]
+          );
+        }
+      });
+      rows = await readRows();
+    }
+  }
+
+  if (!rows.length) {
+    return {
+      source: 'default',
+      items: SHIFTING_DEFAULT_LOCATIONS.map((name, i) => ({ id: null, name, sort_order: (i + 1) * 10, is_active: true }))
+    };
+  }
+  if (!fid) {
+    // "All factories": one entry per name, in the first factory's order.
+    const seen = new Set();
+    rows = rows.filter(r => {
+      const key = String(r.name || '').trim().toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }
+  return { source: 'master', items: rows };
+}
+
+// Writes to the locations master: MAIN/STANDALONE only, a verified login with Masters
+// edit access, and one selected factory. Returns the factory id, or null after replying.
+function guardShiftingLocationWrite(req, res) {
+  if (isLocalServer()) {
+    res.status(403).json({ ok: false, error: 'Shifting locations can only be changed on the MAIN server. This factory server receives them automatically via sync.' });
+    return null;
+  }
+  const auth = req.auth;
+  if (!auth) {
+    res.status(401).json({ ok: false, error: 'Please log in again to use this feature.' });
+    return null;
+  }
+  if (!userCanEditMasters({ role_code: auth.role, permissions: auth.permissions })) {
+    res.status(403).json({ ok: false, error: 'Masters edit permission required.' });
+    return null;
+  }
+  const factoryId = normalizeFactoryId(getFactoryId(req));
+  if (!factoryId) {
+    res.status(400).json({ ok: false, error: 'Select one factory first. Shifting locations are kept per factory.' });
+    return null;
+  }
+  return factoryId;
+}
+
+function cleanShiftingLocationName(value) {
+  return String(value ?? '').replace(/\s+/g, ' ').trim().slice(0, 60);
+}
+
+// Canonical name of an active location for a shift entry; throws a 400 otherwise.
+async function resolveShiftingLocation(factoryId, raw) {
+  const wanted = cleanShiftingLocationName(raw).toLowerCase();
+  const { items } = await listShiftingLocations(factoryId);
+  const hit = items.find(r => r.is_active !== false && String(r.name || '').trim().toLowerCase() === wanted);
+  if (!hit) throw shiftingHttpError(400, `"${cleanShiftingLocationName(raw)}" is not an active shifting location. Refresh the page and pick one from the list.`);
+  return hit.name;
+}
+
+async function findShiftingLocationNameClash(factoryId, name, exceptId = null) {
+  const rows = await q(
+    `SELECT id, is_active FROM shifting_locations
+      WHERE factory_id = $1 AND LOWER(TRIM(name)) = LOWER($2) AND ($3::int IS NULL OR id <> $3)
+      LIMIT 1`,
+    [factoryId, name, exceptId]
+  );
+  return rows[0] || null;
+}
+
+// GET /api/shifting/locations — active destination names (data) for the shifting pages.
+// ?all=1 also returns inactive ones; items carries id/sort_order/is_active for the master.
 app.get('/api/shifting/locations', async (req, res) => {
   try {
-    const locs = ['Moulding Itself', 'Shifting Wip', 'Shopfloor Wip', 'Printing', 'Tuffting', 'Packing'];
-    res.json({ ok: true, data: locs });
+    const includeInactive = ['1', 'true', 'yes'].includes(String(req.query.all || '').toLowerCase());
+    const { source, items } = await listShiftingLocations(getFactoryId(req), { includeInactive });
+    res.json({
+      ok: true,
+      data: items.filter(r => r.is_active !== false).map(r => r.name),
+      items,
+      source,
+      editable: !isLocalServer()
+    });
+  } catch (e) {
+    sendServerError(res, e);
+  }
+});
+
+// POST /api/shifting/locations — add a destination { name, sort_order? }
+app.post('/api/shifting/locations', async (req, res) => {
+  try {
+    const factoryId = guardShiftingLocationWrite(req, res);
+    if (!factoryId) return;
+    const name = cleanShiftingLocationName(req.body?.name);
+    if (!name) return res.status(400).json({ ok: false, error: 'Enter a location name.' });
+
+    await listShiftingLocations(factoryId); // make sure the factory's defaults exist first
+    const clash = await findShiftingLocationNameClash(factoryId, name);
+    if (clash) {
+      return res.status(409).json({
+        ok: false,
+        error: clash.is_active === false
+          ? `"${name}" already exists but is inactive. Edit it and mark it Active instead.`
+          : `"${name}" already exists.`
+      });
+    }
+
+    let sortOrder = Number.parseInt(req.body?.sort_order, 10);
+    if (!Number.isInteger(sortOrder)) {
+      const max = await q(`SELECT COALESCE(MAX(sort_order), 0) AS m FROM shifting_locations WHERE factory_id = $1`, [factoryId]);
+      sortOrder = Number(max[0]?.m || 0) + 10;
+    }
+    const rows = await q(
+      `INSERT INTO shifting_locations (name, sort_order, is_active, factory_id, created_by, updated_by)
+       VALUES ($1, $2, true, $3, $4, $4)
+       RETURNING id, name, sort_order, is_active`,
+      [name, sortOrder, factoryId, req.auth.username]
+    );
+    syncService.triggerSync();
+    res.json({ ok: true, data: rows[0] });
+  } catch (e) {
+    sendServerError(res, e);
+  }
+});
+
+// PUT /api/shifting/locations/:id — rename / reorder / activate { name?, sort_order?, is_active? }
+app.put('/api/shifting/locations/:id', async (req, res) => {
+  try {
+    const factoryId = guardShiftingLocationWrite(req, res);
+    if (!factoryId) return;
+    const id = Number.parseInt(req.params.id, 10);
+    if (!Number.isInteger(id)) return res.status(400).json({ ok: false, error: 'Invalid location.' });
+
+    const sets = [];
+    const params = [];
+    if (req.body?.name !== undefined) {
+      const name = cleanShiftingLocationName(req.body.name);
+      if (!name) return res.status(400).json({ ok: false, error: 'Enter a location name.' });
+      if (await findShiftingLocationNameClash(factoryId, name, id)) {
+        return res.status(409).json({ ok: false, error: `"${name}" already exists.` });
+      }
+      params.push(name); sets.push(`name = $${params.length}`);
+    }
+    if (req.body?.sort_order !== undefined) {
+      const sortOrder = Number.parseInt(req.body.sort_order, 10);
+      if (!Number.isInteger(sortOrder)) return res.status(400).json({ ok: false, error: 'Order must be a whole number.' });
+      params.push(sortOrder); sets.push(`sort_order = $${params.length}`);
+    }
+    if (req.body?.is_active !== undefined) {
+      params.push(req.body.is_active === true || req.body.is_active === 'true'); sets.push(`is_active = $${params.length}`);
+    }
+    if (!sets.length) return res.json({ ok: true });
+
+    params.push(req.auth.username); sets.push(`updated_by = $${params.length}`);
+    sets.push('updated_at = NOW()');
+    params.push(id, factoryId);
+    const rows = await q(
+      `UPDATE shifting_locations SET ${sets.join(', ')}
+        WHERE id = $${params.length - 1} AND factory_id = $${params.length}
+        RETURNING id, name, sort_order, is_active`,
+      params
+    );
+    if (!rows.length) return res.status(404).json({ ok: false, error: 'Location not found for this factory.' });
+    syncService.triggerSync();
+    res.json({ ok: true, data: rows[0] });
+  } catch (e) {
+    sendServerError(res, e);
+  }
+});
+
+// DELETE /api/shifting/locations/:id — deactivate (soft delete). Past shifting records
+// keep the name they were saved with; an inactive location is just no longer offered.
+app.delete('/api/shifting/locations/:id', async (req, res) => {
+  try {
+    const factoryId = guardShiftingLocationWrite(req, res);
+    if (!factoryId) return;
+    const id = Number.parseInt(req.params.id, 10);
+    if (!Number.isInteger(id)) return res.status(400).json({ ok: false, error: 'Invalid location.' });
+    const active = await q(`SELECT COUNT(*)::int AS n FROM shifting_locations WHERE factory_id = $1 AND is_active IS NOT FALSE AND id <> $2`, [factoryId, id]);
+    if (!active[0]?.n) return res.status(400).json({ ok: false, error: 'Keep at least one active location.' });
+    const rows = await q(
+      `UPDATE shifting_locations SET is_active = false, updated_by = $1, updated_at = NOW()
+        WHERE id = $2 AND factory_id = $3
+        RETURNING id`,
+      [req.auth.username, id, factoryId]
+    );
+    if (!rows.length) return res.status(404).json({ ok: false, error: 'Location not found for this factory.' });
+    syncService.triggerSync();
+    res.json({ ok: true });
   } catch (e) {
     sendServerError(res, e);
   }
@@ -9280,6 +9523,59 @@ function buildShiftColourSummary(rawDetails, fallback = {}) {
   return Array.from(grouped.values());
 }
 
+// Active QC hold that blocks shifting a job. QC places holds per machine + date + shift +
+// slot (QC Supervisor / QC app), so a hold counts for this plan when:
+//  - it names the same job card, or
+//  - the DPR entry of that exact machine/date/shift/slot belongs to this plan, or
+//  - nobody has entered DPR for that slot yet, and it is on this plan's machine on a
+//    date inside the plan's run (plan start, up to the plan end once completed).
+// A hold naming a different job card never counts.
+async function findActiveShiftingQcHold({ planPk, machine, jcNo, factoryId }) {
+  const jc = String(jcNo || '').trim();
+  const mach = String(machine || '').trim();
+  if (!jc && !planPk) return null;
+  const rows = await q(
+    `WITH p AS (
+       SELECT id, plan_id,
+              COALESCE(start_date::date, CURRENT_DATE - 7) AS since,
+              CASE WHEN UPPER(COALESCE(status, '')) IN ('COMPLETED', 'CLOSED') THEN end_date::date END AS until
+         FROM plan_board WHERE id = $3::int
+     )
+     SELECT qh.id, qh.machine, qh.job_card_no, qh.dpr_date::text AS dpr_date, qh.shift, qh.slot, qh.reason, qh.hold_by
+       FROM qc_holds qh
+       LEFT JOIN p ON true
+      WHERE UPPER(COALESCE(qh.status, 'ACTIVE')) = 'ACTIVE'
+        AND ($4::int IS NULL OR qh.factory_id = $4 OR qh.factory_id IS NULL)
+        AND (
+              ($1::text <> '' AND TRIM(COALESCE(qh.job_card_no, '')) = $1::text)
+           OR (p.id IS NOT NULL
+               AND ($1::text = '' OR TRIM(COALESCE(qh.job_card_no, '')) IN ('', $1::text))
+               AND (
+                     EXISTS (SELECT 1 FROM dpr_hourly d
+                              WHERE d.machine = qh.machine AND d.dpr_date = qh.dpr_date
+                                AND d.shift = qh.shift AND d.hour_slot = qh.slot
+                                AND (CAST(d.plan_id AS TEXT) = CAST(p.id AS TEXT)
+                                  OR CAST(d.plan_id AS TEXT) = COALESCE(p.plan_id, '')))
+                  OR ($2::text <> '' AND TRIM(qh.machine) = $2::text
+                      AND NOT EXISTS (SELECT 1 FROM dpr_hourly d
+                                       WHERE d.machine = qh.machine AND d.dpr_date = qh.dpr_date
+                                         AND d.shift = qh.shift AND d.hour_slot = qh.slot)
+                      AND qh.dpr_date >= p.since
+                      AND (p.until IS NULL OR qh.dpr_date <= p.until))
+                   ))
+        )
+      ORDER BY qh.hold_at DESC
+      LIMIT 1`,
+    [jc, mach, planPk || null, factoryId || null]
+  );
+  return rows[0] || null;
+}
+
+function describeShiftingQcHold(hold) {
+  const where = [hold.machine, hold.dpr_date, hold.shift, hold.slot].filter(Boolean).join(' · ');
+  return `QC HOLD on ${where}${hold.reason ? ` (${hold.reason})` : ''}. Shifting is blocked until QC releases the hold.`;
+}
+
 async function getShiftingLabelContext(rawScanValue, factoryId) {
   await ensureJobCardLabelLogTable();
   const uid = normalizeScannedLabelUid(rawScanValue);
@@ -9327,6 +9623,7 @@ async function getShiftingLabelContext(rawScanValue, factoryId) {
        FROM dpr_hourly
       WHERE (CAST(plan_id AS TEXT) = $1
          OR ($2 <> '' AND CAST(plan_id AS TEXT) = $2))
+        AND is_deleted IS NOT TRUE
         -- Factory-scope: plan_id repeats across factories (KAN-127).
         AND ($3::int IS NULL OR factory_id = $3 OR factory_id IS NULL)`,
     [String(resolvedPlanPk), resolvedPlanCode, resolvedFactoryId || null]
@@ -9426,6 +9723,12 @@ async function getShiftingLabelContext(rawScanValue, factoryId) {
       Math.max(0, Number(row.shifted_qty || 0))
     ])
   );
+  const qcHold = await findActiveShiftingQcHold({
+    planPk: resolvedPlanPk,
+    machine: plan.machine || label.machine_name,
+    jcNo: label.jc_no,
+    factoryId: resolvedFactoryId
+  });
   const currentScannedColourKey = normalizeShiftColourKey(label.colour || '');
   const colourSummaryRows = colourSummary.map((row, index) => {
     const shiftedQty = Math.max(0, Number(shiftedByColourMap.get(row.colour_key) || 0));
@@ -9471,6 +9774,8 @@ async function getShiftingLabelContext(rawScanValue, factoryId) {
     label_shifted_qty: labelShiftedQty,
     label_pending_qty: Math.max(labelQty - labelShiftedQty, 0),
     already_shifted: labelShiftedQty >= Math.max(labelQty, 0.0001),
+    qc_hold: qcHold,
+    qc_hold_message: qcHold ? describeShiftingQcHold(qcHold) : '',
     printed_by: label.printed_by || '',
     printed_at: label.printed_at || null,
     qr_payload: label.qr_payload || {},
@@ -9542,6 +9847,7 @@ app.get('/api/shifting/dashboard', async (req, res) => {
            CAST(dh.plan_id AS TEXT) = CAST(pb.id AS TEXT)
            OR CAST(dh.plan_id AS TEXT) = CAST(pb.plan_id AS TEXT)
        )
+           AND dh.is_deleted IS NOT TRUE
            -- Factory-scope: plan_id repeats across factories, so total_produced must
            -- not sum other factories' output for the same plan_id (KAN-127).
            AND (dh.factory_id = pb.factory_id OR dh.factory_id IS NULL OR pb.factory_id IS NULL)
@@ -9557,101 +9863,140 @@ app.get('/api/shifting/dashboard', async (req, res) => {
   }
 });
 
+// GET /api/shifting/jobs — Shifting Supervisor job list.
+// Running plans, plus completed/closed plans that had DPR production or labels printed
+// in the last ?days= days (default 7). end_date is not filled on completed plans and
+// updated_at is bumped by sync, so recent DPR / label activity is the reliable signal.
+// Totals are aggregated in one query per source table for all listed plans (the old
+// per-row subqueries scanned the label log with TRIM(), ~20 s for 6000+ plans).
 app.get('/api/shifting/jobs', async (req, res) => {
   try {
     await ensureJobCardLabelLogTable();
     const line = normalizeOptionalText(req.query.line);
     const factoryId = getFactoryId(req);
-    const params = [];
-    let whereClause = `WHERE UPPER(COALESCE(pb.status, '')) IN ('RUNNING', 'COMPLETED', 'CLOSED')`;
+    const days = Math.min(Math.max(parseInt(req.query.days, 10) || 7, 1), 90);
+    const params = [days];
+    let filters = '';
 
     if (line) {
       params.push(line);
-      whereClause += ` AND (pb.line = $${params.length} OR pb.machine LIKE $${params.length} || '%')`;
+      filters += ` AND (pb.line = $${params.length} OR pb.machine LIKE $${params.length} || '%')`;
     }
     if (factoryId) {
       params.push(factoryId);
-      whereClause += ` AND (pb.factory_id = $${params.length} OR pb.factory_id IS NULL)`;
+      filters += ` AND (pb.factory_id = $${params.length} OR pb.factory_id IS NULL)`;
     }
 
-    const rows = await q(
-      `SELECT
-         pb.id AS plan_id,
-         pb.plan_id AS plan_code,
-         pb.machine,
-         pb.line,
-         pb.order_no,
-         pb.item_name,
-         pb.mould_name,
-         pb.mould_code,
-         pb.plan_qty,
-         pb.status,
-         pb.start_date,
-         pb.end_date,
-         COALESCE(
-           (SELECT jl.jc_no
-              FROM job_card_label_print_log jl
-             WHERE TRIM(COALESCE(jl.plan_id, '')) = TRIM(COALESCE(pb.plan_id, ''))
-             ORDER BY jl.printed_at DESC, jl.id DESC
-             LIMIT 1),
-           (SELECT oj.job_card_no
-              FROM or_jr_report oj
-             WHERE TRIM(COALESCE(oj.or_jr_no, '')) = TRIM(COALESCE(pb.order_no, ''))
-             ORDER BY oj.job_card_date DESC NULLS LAST, oj.id DESC
-             LIMIT 1),
-           ''
-         ) AS jc_no,
-         COALESCE(
-           (SELECT SUM(dh.good_qty)
-              FROM dpr_hourly dh
-             WHERE (CAST(dh.plan_id AS TEXT) = CAST(pb.id AS TEXT)
-                OR CAST(dh.plan_id AS TEXT) = CAST(pb.plan_id AS TEXT))
-               -- Factory-scope: plan_id repeats across factories (KAN-127).
-               AND (dh.factory_id = pb.factory_id OR dh.factory_id IS NULL OR pb.factory_id IS NULL)),
-           0
-         ) AS total_produced,
-         COALESCE(
-           (SELECT SUM(GREATEST(COALESCE(qc.qty_checked, 0) - COALESCE(qc.qty_rejected, 0), 0))
-              FROM qc_online_reports qc
-             WHERE TRIM(COALESCE(qc.machine, '')) = TRIM(COALESCE(pb.machine, ''))
-               AND TRIM(COALESCE(qc.mould_name, '')) = TRIM(COALESCE(pb.mould_name, ''))
-               AND TRIM(COALESCE(qc.item_name, '')) = TRIM(COALESCE(pb.item_name, ''))),
-           0
-         ) AS total_qc_approved,
-         COALESCE(
-           (SELECT SUM(sr.quantity)
-              FROM shifting_records sr
-             WHERE CAST(sr.plan_id AS TEXT) = CAST(pb.id AS TEXT)
-                OR CAST(sr.plan_id AS TEXT) = CAST(pb.plan_id AS TEXT)),
-           0
-         ) AS total_shifted,
-         COALESCE(
-           (SELECT SUM(jl.label_qty)
-              FROM job_card_label_print_log jl
-             WHERE TRIM(COALESCE(jl.plan_id, '')) = TRIM(COALESCE(pb.plan_id, ''))),
-           0
-         ) AS total_labelled_qty,
-         COALESCE(
-           (SELECT COUNT(*)
-              FROM job_card_label_print_log jl
-             WHERE TRIM(COALESCE(jl.plan_id, '')) = TRIM(COALESCE(pb.plan_id, ''))),
-           0
-         ) AS total_labels_printed,
-         (SELECT MAX(sr.created_at)
-            FROM shifting_records sr
-           WHERE CAST(sr.plan_id AS TEXT) = CAST(pb.id AS TEXT)
-              OR CAST(sr.plan_id AS TEXT) = CAST(pb.plan_id AS TEXT)) AS last_shifted_at
-       FROM plan_board pb
-       ${whereClause}
-       ORDER BY
-         CASE WHEN UPPER(COALESCE(pb.status, '')) = 'RUNNING' THEN 0 ELSE 1 END,
-         COALESCE(pb.end_date, pb.updated_at, pb.created_at) DESC,
-         pb.machine,
-         pb.seq`,
+    const plans = await q(
+      `SELECT pb.id AS plan_id, pb.plan_id AS plan_code, pb.machine, pb.line, pb.order_no,
+              pb.item_name, pb.mould_name, pb.mould_code, pb.plan_qty, pb.status,
+              pb.start_date, pb.end_date, pb.factory_id
+         FROM plan_board pb
+        WHERE (
+                UPPER(COALESCE(pb.status, '')) = 'RUNNING'
+             OR (UPPER(COALESCE(pb.status, '')) IN ('COMPLETED', 'CLOSED')
+                 AND COALESCE(pb.plan_id, '') <> ''
+                 AND (EXISTS (SELECT 1 FROM dpr_hourly dh
+                               WHERE dh.plan_id = pb.plan_id
+                                 AND dh.dpr_date >= CURRENT_DATE - $1::int
+                                 AND dh.is_deleted IS NOT TRUE)
+                   OR EXISTS (SELECT 1 FROM job_card_label_print_log jl
+                               WHERE jl.plan_id = pb.plan_id
+                                 AND jl.printed_at >= CURRENT_DATE - $1::int)))
+              )
+              ${filters}`,
       params
     );
+    if (!plans.length) return res.json({ ok: true, data: [], days });
 
-    res.json({ ok: true, data: rows });
+    const codes = [...new Set(plans.map(p => String(p.plan_code || '').trim()).filter(Boolean))];
+    const ids = plans.map(p => Number(p.plan_id)).filter(Number.isInteger);
+    const orders = [...new Set(plans.map(p => String(p.order_no || '').trim()).filter(Boolean))];
+    const machines = [...new Set(plans.map(p => String(p.machine || '').trim()).filter(Boolean))];
+
+    const [dprRows, labelRows, shiftRows, jcRows, qcRows, machineRows] = await Promise.all([
+      q(`SELECT plan_id, factory_id, COALESCE(SUM(good_qty), 0) AS qty, MAX(dpr_date) AS last_dpr_date
+           FROM dpr_hourly
+          WHERE plan_id = ANY($1::text[]) AND is_deleted IS NOT TRUE
+          GROUP BY plan_id, factory_id`, [codes]),
+      q(`SELECT plan_id, factory_id, COALESCE(SUM(label_qty), 0) AS qty, COUNT(*) AS labels,
+                (ARRAY_AGG(jc_no ORDER BY printed_at DESC, id DESC)
+                   FILTER (WHERE COALESCE(TRIM(jc_no), '') <> ''))[1] AS jc_no
+           FROM job_card_label_print_log
+          WHERE plan_id = ANY($1::text[])
+          GROUP BY plan_id, factory_id`, [codes]),
+      q(`SELECT plan_id, factory_id, COALESCE(SUM(quantity), 0) AS qty, MAX(created_at) AS last_shifted_at
+           FROM shifting_records
+          WHERE plan_id = ANY($1::int[])
+          GROUP BY plan_id, factory_id`, [ids]),
+      orders.length
+        ? q(`SELECT DISTINCT ON (TRIM(COALESCE(or_jr_no, ''))) TRIM(COALESCE(or_jr_no, '')) AS order_no, job_card_no
+               FROM or_jr_report
+              WHERE TRIM(COALESCE(or_jr_no, '')) = ANY($1::text[])
+              ORDER BY TRIM(COALESCE(or_jr_no, '')), job_card_date DESC NULLS LAST, id DESC`, [orders])
+        : [],
+      q(`SELECT TRIM(COALESCE(machine, '')) AS machine, TRIM(COALESCE(mould_name, '')) AS mould_name,
+                TRIM(COALESCE(item_name, '')) AS item_name,
+                SUM(GREATEST(COALESCE(qty_checked, 0) - COALESCE(qty_rejected, 0), 0)) AS qty
+           FROM qc_online_reports
+          WHERE TRIM(COALESCE(machine, '')) = ANY($1::text[])
+          GROUP BY 1, 2, 3`, [machines]),
+      q(`SELECT TRIM(machine) AS machine, line, building FROM machines WHERE COALESCE(is_active, true) = true`)
+    ]);
+
+    // Factory-scope: plan codes repeat across factories (KAN-127). A row counts for a
+    // plan when its factory matches, or either side has no factory.
+    const groupBy = (rows, keyFn) => {
+      const map = new Map();
+      rows.forEach(r => {
+        const k = keyFn(r);
+        if (!map.has(k)) map.set(k, []);
+        map.get(k).push(r);
+      });
+      return map;
+    };
+    const sameFactory = (row, plan) => row.factory_id == null || plan.factory_id == null || Number(row.factory_id) === Number(plan.factory_id);
+    const dprByCode = groupBy(dprRows, r => String(r.plan_id));
+    const labelByCode = groupBy(labelRows, r => String(r.plan_id));
+    const shiftById = groupBy(shiftRows, r => String(r.plan_id));
+    const jcByOrder = new Map(jcRows.map(r => [r.order_no, r.job_card_no]));
+    const qcByKey = new Map(qcRows.map(r => [`${r.machine}|${r.mould_name}|${r.item_name}`, Number(r.qty || 0)]));
+    const latest = (a, b) => (!a ? b : !b ? a : (new Date(a) > new Date(b) ? a : b));
+
+    const rows = plans.map(plan => {
+      const code = String(plan.plan_code || '').trim();
+      const dpr = (dprByCode.get(code) || []).filter(r => sameFactory(r, plan));
+      const labels = (labelByCode.get(code) || []).filter(r => sameFactory(r, plan));
+      const shifts = (shiftById.get(String(plan.plan_id)) || []).filter(r => sameFactory(r, plan));
+      const labelJc = labels.map(r => r.jc_no).find(Boolean);
+      return {
+        ...plan,
+        jc_no: labelJc || jcByOrder.get(String(plan.order_no || '').trim()) || '',
+        total_produced: dpr.reduce((sum, r) => sum + Number(r.qty || 0), 0),
+        total_qc_approved: qcByKey.get(`${String(plan.machine || '').trim()}|${String(plan.mould_name || '').trim()}|${String(plan.item_name || '').trim()}`) || 0,
+        total_shifted: shifts.reduce((sum, r) => sum + Number(r.qty || 0), 0),
+        total_labelled_qty: labels.reduce((sum, r) => sum + Number(r.qty || 0), 0),
+        total_labels_printed: labels.reduce((sum, r) => sum + Number(r.labels || 0), 0),
+        last_dpr_date: dpr.reduce((d, r) => latest(d, r.last_dpr_date), null),
+        last_shifted_at: shifts.reduce((d, r) => latest(d, r.last_shifted_at), null)
+      };
+    });
+
+    // Running first in the standard machine order (Line, then machine number); then
+    // completed jobs, latest production first.
+    const machineOrder = makeMachineOrder(machineRows);
+    const isRunning = r => String(r.status || '').toUpperCase() === 'RUNNING';
+    rows.sort((a, b) => {
+      if (isRunning(a) !== isRunning(b)) return isRunning(a) ? -1 : 1;
+      if (!isRunning(a)) {
+        const ta = a.last_dpr_date ? new Date(a.last_dpr_date).getTime() : 0;
+        const tb = b.last_dpr_date ? new Date(b.last_dpr_date).getTime() : 0;
+        if (ta !== tb) return tb - ta;
+      }
+      return machineOrder(a.machine, b.machine);
+    });
+
+    res.json({ ok: true, data: rows, days });
   } catch (e) {
     sendServerError(res, e);
   }
@@ -9685,22 +10030,26 @@ app.get('/api/shifting/jobs/:id/details', async (req, res) => {
 
     const planPk = String(plan.id);
     const planCode = String(plan.plan_id || '').trim();
-    const shared = [planPk, planCode];
+    const planFactoryId = normalizeFactoryId(plan.factory_id) ?? factoryId ?? null;
+    // Factory-scope: plan_id repeats across factories (KAN-127).
+    const shared = [planPk, planCode, planFactoryId];
 
     const [producedRows, shiftedRows, labelRows, qcRows, recentRows] = await Promise.all([
       q(
         `SELECT TRIM(COALESCE(colour, '')) AS colour, COALESCE(SUM(good_qty), 0) AS qty
            FROM dpr_hourly
           WHERE (CAST(plan_id AS TEXT) = $1::text OR ($2::text <> '' AND CAST(plan_id AS TEXT) = $2::text))
+            AND is_deleted IS NOT TRUE
             -- Factory-scope: plan_id repeats across factories (KAN-127).
             AND ($3::int IS NULL OR factory_id = $3 OR factory_id IS NULL)
           GROUP BY TRIM(COALESCE(colour, ''))`,
-        [planPk, planCode, normalizeFactoryId(plan.factory_id) || null]
+        shared
       ),
       q(
         `SELECT TRIM(COALESCE(colour, '')) AS colour, COALESCE(SUM(quantity), 0) AS qty
            FROM shifting_records
-          WHERE CAST(plan_id AS TEXT) = $1::text OR ($2::text <> '' AND CAST(plan_id AS TEXT) = $2::text)
+          WHERE (CAST(plan_id AS TEXT) = $1::text OR ($2::text <> '' AND CAST(plan_id AS TEXT) = $2::text))
+            AND ($3::int IS NULL OR factory_id = $3 OR factory_id IS NULL)
           GROUP BY TRIM(COALESCE(colour, ''))`,
         shared
       ),
@@ -9708,8 +10057,9 @@ app.get('/api/shifting/jobs/:id/details', async (req, res) => {
         `SELECT TRIM(COALESCE(colour, '')) AS colour, COALESCE(SUM(label_qty), 0) AS qty, COUNT(*) AS labels
            FROM job_card_label_print_log
           WHERE TRIM(COALESCE(plan_id, '')) = TRIM($1::text)
+            AND ($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL)
           GROUP BY TRIM(COALESCE(colour, ''))`,
-        [planCode]
+        [planCode, planFactoryId]
       ),
       q(
         `SELECT COALESCE(SUM(GREATEST(COALESCE(qty_checked, 0) - COALESCE(qty_rejected, 0), 0)), 0) AS qty
@@ -9722,7 +10072,8 @@ app.get('/api/shifting/jobs/:id/details', async (req, res) => {
       q(
         `SELECT id, quantity, to_location, shifted_by, created_at, colour, label_no, total_labels, weight_kg
            FROM shifting_records
-          WHERE CAST(plan_id AS TEXT) = $1::text OR ($2::text <> '' AND CAST(plan_id AS TEXT) = $2::text)
+          WHERE (CAST(plan_id AS TEXT) = $1::text OR ($2::text <> '' AND CAST(plan_id AS TEXT) = $2::text))
+            AND ($3::int IS NULL OR factory_id = $3 OR factory_id IS NULL)
           ORDER BY created_at DESC
           LIMIT 15`,
         shared
@@ -9772,11 +10123,11 @@ app.get('/api/shifting/jobs/:id/details', async (req, res) => {
 
     const jcRows = await q(
       `SELECT COALESCE(
-                (SELECT jl.jc_no FROM job_card_label_print_log jl WHERE TRIM(COALESCE(jl.plan_id, '')) = TRIM($1::text) ORDER BY jl.printed_at DESC, jl.id DESC LIMIT 1),
+                (SELECT jl.jc_no FROM job_card_label_print_log jl WHERE TRIM(COALESCE(jl.plan_id, '')) = TRIM($1::text) AND ($3::int IS NULL OR jl.factory_id = $3 OR jl.factory_id IS NULL) ORDER BY jl.printed_at DESC, jl.id DESC LIMIT 1),
                 (SELECT oj.job_card_no FROM or_jr_report oj WHERE TRIM(COALESCE(oj.or_jr_no, '')) = TRIM($2::text) ORDER BY oj.job_card_date DESC NULLS LAST, oj.id DESC LIMIT 1),
                 ''
               ) AS jc_no`,
-      [planCode, plan.order_no || '']
+      [planCode, plan.order_no || '', planFactoryId]
     );
 
     res.json({
@@ -9841,11 +10192,14 @@ app.get('/api/shifting/matrix', async (req, res) => {
        FROM shifting_records sr
        JOIN plan_board pb ON CAST(pb.id AS TEXT) = CAST(sr.plan_id AS TEXT)
        WHERE 
-         (sr.shift_date = $1 OR sr.created_at::date = $1) -- Handle Legacy
+         -- shift_date wins; created_at only for legacy rows without one (a night-shift
+         -- row saved after midnight must not also count on the next day).
+         COALESCE(sr.shift_date, sr.created_at::date) = $1::date
          AND ($2::text IS NULL OR sr.shift_type = $2)
+         AND ($3::int IS NULL OR sr.factory_id = $3 OR sr.factory_id IS NULL)
        GROUP BY pb.machine, pb.line, pb.mould_name, pb.item_name, EXTRACT(HOUR FROM sr.created_at)
        ORDER BY pb.line, pb.machine, hour_slot`,
-      [date, shift || null]
+      [date, shift || null, getFactoryId(req) || null]
     );
 
     res.json({ ok: true, data: rows });
@@ -9854,26 +10208,121 @@ app.get('/api/shifting/matrix', async (req, res) => {
   }
 });
 
-// POST /api/shifting/entry (Enhanced)
+function shiftingHttpError(status, message) {
+  const err = new Error(message);
+  err.status = status;
+  return err;
+}
+
+// Runs fn inside a transaction holding an advisory lock on `key`, so two shifts of the
+// same label / plan arriving together are checked and saved one after the other (the
+// second one sees the first one's row and is refused instead of double-shifting).
+async function withShiftingLock(key, fn) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`shifting:${key}`]);
+    const out = await fn(client);
+    await client.query('COMMIT');
+    return out;
+  } catch (e) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw e;
+  } finally {
+    client.release();
+  }
+}
+
+// Current shift by the server clock (IST): Day 08:00-20:00, Night 20:00-08:00, and a
+// Night entry after midnight belongs to the previous date (same rule as login / DPR).
+function currentShiftSlot(now = new Date()) {
+  const hour = now.getHours();
+  const date = new Date(now);
+  if (hour < 8) date.setDate(date.getDate() - 1);
+  return { date: todayLocalDateStr(date), shift: hour >= 8 && hour < 20 ? 'Day' : 'Night' };
+}
+
+// POST /api/shifting/entry — manual shift (no label). The quantity is capped at the
+// plan's shop-floor balance (produced - already shifted), and a QC hold blocks it.
 app.post('/api/shifting/entry', async (req, res) => {
   try {
-    const { planId, quantity, toLocation, date, shift, supervisor } = req.body;
+    const { planId, toLocation, date, shift, supervisor } = req.body || {};
     const factoryId = getFactoryId(req);
+    const quantity = Number(req.body?.quantity);
+    const requestedLocation = normalizeOptionalText(toLocation);
 
-    if (!planId || !quantity || !toLocation) return res.json({ ok: false, error: 'Missing required fields' });
+    if (!planId || !requestedLocation) return res.status(400).json({ ok: false, error: 'Select the job and destination.' });
+    if (!Number.isInteger(quantity) || quantity <= 0) {
+      return res.status(400).json({ ok: false, error: 'Enter a whole quantity greater than 0.' });
+    }
 
-    await q(
-      `INSERT INTO shifting_records (
-         machine_code, plan_id, quantity, from_location, to_location, shift_date, shift_type,
-         shifted_by, created_at, factory_id, scan_mode
-       )
-       VALUES ($1, $2, $3, 'Machine', $4, $5, $6, $7, NOW(), $8, 'MANUAL')`,
-      [req.body.machine || null, planId, quantity, toLocation, date || null, shift || null, supervisor || 'Supervisor', factoryId || null]
+    const planRows = await q(
+      `SELECT id, plan_id, machine, status, factory_id
+         FROM plan_board
+        WHERE (CAST(id AS TEXT) = TRIM($1::text) OR TRIM(COALESCE(plan_id, '')) = TRIM($1::text))
+          AND ($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL)
+        ORDER BY id DESC
+        LIMIT 1`,
+      [String(planId), factoryId || null]
     );
+    const plan = planRows[0];
+    if (!plan) return res.status(404).json({ ok: false, error: 'Job not found. Refresh and try again.' });
+
+    const planPk = String(plan.id);
+    const planCode = String(plan.plan_id || '').trim();
+    const planFactoryId = normalizeFactoryId(plan.factory_id) ?? factoryId ?? null;
+    const location = await resolveShiftingLocation(planFactoryId, requestedLocation);
+
+    const inserted = await withShiftingLock(`plan:${planPk}`, async (client) => {
+      const hold = await findActiveShiftingQcHold({ planPk: plan.id, machine: plan.machine, factoryId: planFactoryId });
+      if (hold) throw shiftingHttpError(409, describeShiftingQcHold(hold));
+
+      const totals = await client.query(
+        `SELECT
+           (SELECT COALESCE(SUM(good_qty), 0) FROM dpr_hourly
+             WHERE (CAST(plan_id AS TEXT) = $1 OR ($2 <> '' AND CAST(plan_id AS TEXT) = $2))
+               AND is_deleted IS NOT TRUE
+               -- Factory-scope: plan_id repeats across factories (KAN-127).
+               AND ($3::int IS NULL OR factory_id = $3 OR factory_id IS NULL)) AS produced,
+           (SELECT COALESCE(SUM(quantity), 0) FROM shifting_records
+             WHERE (CAST(plan_id AS TEXT) = $1 OR ($2 <> '' AND CAST(plan_id AS TEXT) = $2))
+               AND ($3::int IS NULL OR factory_id = $3 OR factory_id IS NULL)) AS shifted`,
+        [planPk, planCode, planFactoryId]
+      );
+      const produced = Number(totals.rows[0]?.produced || 0);
+      const shifted = Number(totals.rows[0]?.shifted || 0);
+      const balance = Math.max(produced - shifted, 0);
+      if (quantity > balance) {
+        throw shiftingHttpError(400, `Cannot shift ${quantity}: only ${balance} left on the shop floor (produced ${produced}, already shifted ${shifted}).`);
+      }
+
+      const result = await client.query(
+        `INSERT INTO shifting_records (
+           machine_code, plan_id, quantity, from_location, to_location, shift_date, shift_type,
+           shifted_by, created_at, factory_id, scan_mode
+         )
+         VALUES ($1, $2, $3, 'Machine', $4, $5, $6, $7, NOW(), $8, 'MANUAL')
+         RETURNING *`,
+        [
+          plan.machine || normalizeOptionalText(req.body?.machine) || null,
+          plan.id,
+          quantity,
+          location,
+          // A manual entry may be booked to a chosen date/shift (Shifting Module filters);
+          // otherwise it goes to the current shift.
+          normalizeOptionalText(date) || currentShiftSlot().date,
+          normalizeOptionalText(shift) || currentShiftSlot().shift,
+          (req.auth && req.auth.username) || normalizeOptionalText(supervisor) || getRequestUsername(req) || 'Supervisor',
+          planFactoryId
+        ]
+      );
+      return result.rows[0] || null;
+    });
 
     syncService.triggerSync();
-    res.json({ ok: true });
+    res.json({ ok: true, data: inserted });
   } catch (e) {
+    if (e.status) return res.status(e.status).json({ ok: false, error: e.message });
     sendServerError(res, e);
   }
 });
@@ -9894,72 +10343,77 @@ app.post('/api/shifting/scan-entry', async (req, res) => {
     const factoryId = getFactoryId(req);
     const scan = req.body?.scan || req.body?.label_uid || req.body?.uid || '';
     const toLocation = normalizeOptionalText(req.body?.toLocation);
-    const supervisor = normalizeOptionalText(req.body?.supervisor) || getRequestUsername(req) || 'Shifting Supervisor';
-    const shiftDate = normalizeOptionalText(req.body?.date) || todayLocalDateStr();
-    const shiftType = normalizeOptionalText(req.body?.shift) || ((new Date().getHours() >= 8 && new Date().getHours() < 20) ? 'Day' : 'Night');
+    const supervisor = (req.auth && req.auth.username) || normalizeOptionalText(req.body?.supervisor) || getRequestUsername(req) || 'Shifting Supervisor';
+    // A scan always happens "now", so its shift comes from the server clock. The client's
+    // date/shift is ignored: older supervisor pages sent the UTC date, which put 05:30-08:00
+    // night-shift scans on the wrong date.
+    const { date: shiftDate, shift: shiftType } = currentShiftSlot();
     if (!toLocation) return res.status(400).json({ ok: false, error: 'Select destination first.' });
+    const uid = normalizeScannedLabelUid(scan);
+    if (!uid) return res.status(400).json({ ok: false, error: 'Scan a valid printed label first.' });
 
-    const context = await getShiftingLabelContext(scan, factoryId);
-    if (context.already_shifted) {
-      return res.status(409).json({ ok: false, error: 'This printed label is already shifted.' });
-    }
-    if (!context.plan_db_id) {
-      return res.status(400).json({ ok: false, error: 'Linked plan was not resolved for this label.' });
-    }
+    const inserted = await withShiftingLock(`label:${uid}`, async (client) => {
+      const context = await getShiftingLabelContext(uid, factoryId);
+      if (context.already_shifted) throw shiftingHttpError(409, 'This printed label is already shifted.');
+      if (context.qc_hold) throw shiftingHttpError(409, context.qc_hold_message);
+      if (!context.plan_db_id) throw shiftingHttpError(400, 'Linked plan was not resolved for this label.');
+      const destination = await resolveShiftingLocation(context.factory_id || factoryId, toLocation);
 
-    const quantity = Math.max(0, Number(req.body?.quantity || context.label_qty || 0));
-    const weightKg = Math.max(0, Number(req.body?.weightKg ?? req.body?.weight ?? 0));
-    if (!quantity) return res.status(400).json({ ok: false, error: 'Label quantity is missing.' });
-    if (quantity > Math.max(0, Number(context.label_qty || 0))) {
-      return res.status(400).json({ ok: false, error: 'Shift quantity cannot be more than label quantity.' });
-    }
+      const quantity = Math.max(0, Number(req.body?.quantity || context.label_pending_qty || 0));
+      const weightKg = Math.max(0, Number(req.body?.weightKg ?? req.body?.weight ?? 0));
+      if (!quantity) throw shiftingHttpError(400, 'Label quantity is missing.');
+      if (quantity > Math.max(0, Number(context.label_pending_qty || 0))) {
+        throw shiftingHttpError(400, `Shift quantity cannot be more than the label's remaining quantity (${context.label_pending_qty}).`);
+      }
 
-    const inserted = await q(
-      `INSERT INTO shifting_records (
-         machine_code, plan_id, quantity, from_location, to_location, shift_date, shift_type,
-         shifted_by, created_at, factory_id, label_uid, label_no, total_labels, label_qty, plan_qty,
-         colour, order_no, jc_no, our_code, mould_no, mould_name, item_name, client_name,
-         weight_kg,
-         scan_mode, scan_payload
-       )
-       VALUES (
-         $1, $2, $3, 'Shop Floor', $4, $5, $6,
-         $7, NOW(), $8, $9, $10, $11, $12, $13,
-         $14, $15, $16, $17, $18, $19, $20, $21,
-         $22, 'LABEL_QR', $23::jsonb
-       )
-       RETURNING *`,
-      [
-        context.machine_name || null,
-        context.plan_db_id,
-        quantity,
-        toLocation,
-        shiftDate,
-        shiftType,
-        supervisor,
-        context.factory_id || factoryId || null,
-        context.label_uid,
-        context.label_no || null,
-        context.total_labels || null,
-        context.label_qty || null,
-        context.colour_plan_qty || null,
-        context.colour || null,
-        context.order_no || null,
-        context.jc_no || null,
-        context.our_code || null,
-        context.mould_no || null,
-        context.mould_name || null,
-        context.item_name || null,
-        context.client_name || null,
-        weightKg || null,
-        JSON.stringify(context.qr_payload || {})
-      ]
-    );
+      const result = await client.query(
+        `INSERT INTO shifting_records (
+           machine_code, plan_id, quantity, from_location, to_location, shift_date, shift_type,
+           shifted_by, created_at, factory_id, label_uid, label_no, total_labels, label_qty, plan_qty,
+           colour, order_no, jc_no, our_code, mould_no, mould_name, item_name, client_name,
+           weight_kg,
+           scan_mode, scan_payload
+         )
+         VALUES (
+           $1, $2, $3, 'Shop Floor', $4, $5, $6,
+           $7, NOW(), $8, $9, $10, $11, $12, $13,
+           $14, $15, $16, $17, $18, $19, $20, $21,
+           $22, 'LABEL_QR', $23::jsonb
+         )
+         RETURNING *`,
+        [
+          context.machine_name || null,
+          context.plan_db_id,
+          quantity,
+          destination,
+          shiftDate,
+          shiftType,
+          supervisor,
+          context.factory_id || factoryId || null,
+          context.label_uid,
+          context.label_no || null,
+          context.total_labels || null,
+          context.label_qty || null,
+          context.colour_plan_qty || null,
+          context.colour || null,
+          context.order_no || null,
+          context.jc_no || null,
+          context.our_code || null,
+          context.mould_no || null,
+          context.mould_name || null,
+          context.item_name || null,
+          context.client_name || null,
+          weightKg || null,
+          JSON.stringify(context.qr_payload || {})
+        ]
+      );
+      return result.rows[0] || null;
+    });
 
     syncService.triggerSync();
-    res.json({ ok: true, data: inserted[0] || null, message: 'Shift recorded from scanned label.' });
+    res.json({ ok: true, data: inserted, message: 'Shift recorded from scanned label.' });
   } catch (e) {
-    res.status(400).json({ ok: false, error: String(e.message || e) });
+    res.status(e.status || 400).json({ ok: false, error: String(e.message || e) });
   }
 });
 
@@ -10026,25 +10480,346 @@ app.get('/api/shifting/logs', async (req, res) => {
   }
 });
 
+/* ------------------------------------------------------------------
+   SHIFTING — SHIFT-WISE REPORT
+   GET /api/shifting/shift-report        → JSON for the Shift Report page
+   GET /api/shifting/shift-report.xlsx   → styled workbook (4 sheets)
+   ?from=YYYY-MM-DD&to=YYYY-MM-DD (max 62 days, default today) &shift=Day|Night (blank = both)
+   A record's shift is shift_date + shift_type. Old rows without them fall back to
+   created_at with the login/DPR rule (before 08:00 = previous date's Night).
+   ------------------------------------------------------------------ */
+const SHIFT_REPORT_MAX_DAYS = 62;
+
+function parseShiftReportFilters(query) {
+  const isDate = (v) => /^\d{4}-\d{2}-\d{2}$/.test(String(v || ''));
+  const today = currentShiftSlot().date;
+  const from = isDate(query.from) ? String(query.from) : today;
+  const to = isDate(query.to) ? String(query.to) : from;
+  if (to < from) throw shiftingHttpError(400, 'The To date is before the From date.');
+  const days = Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86400000) + 1;
+  if (days > SHIFT_REPORT_MAX_DAYS) throw shiftingHttpError(400, `Pick at most ${SHIFT_REPORT_MAX_DAYS} days.`);
+  const rawShift = String(query.shift || '').trim().toLowerCase();
+  const shift = rawShift === 'day' ? 'Day' : rawShift === 'night' ? 'Night' : null;
+  return { from, to, shift, days };
+}
+
+async function buildShiftingShiftReport(req) {
+  const filters = parseShiftReportFilters(req.query || {});
+  const factoryId = getFactoryId(req);
+
+  const records = await q(
+    `SELECT x.*, to_char(x.rd, 'YYYY-MM-DD') AS report_date FROM (
+       SELECT sr.id, sr.quantity, sr.weight_kg, sr.to_location, sr.shifted_by, sr.scan_mode,
+              sr.label_no, sr.total_labels, sr.created_at, sr.status,
+              TRIM(COALESCE(sr.colour, '')) AS colour,
+              COALESCE(NULLIF(TRIM(sr.machine_code), ''), pb.machine, '') AS machine,
+              COALESCE(NULLIF(TRIM(sr.item_name), ''), pb.item_name, '') AS item_name,
+              COALESCE(NULLIF(TRIM(sr.mould_name), ''), pb.mould_name, '') AS mould_name,
+              COALESCE(NULLIF(TRIM(sr.order_no), ''), pb.order_no, '') AS order_no,
+              COALESCE(sr.jc_no, '') AS jc_no,
+              COALESCE(pb.plan_id, '') AS plan_code,
+              COALESCE(sr.shift_date,
+                CASE WHEN EXTRACT(HOUR FROM sr.created_at) < 8 THEN (sr.created_at - INTERVAL '1 day')::date
+                     ELSE sr.created_at::date END) AS rd,
+              COALESCE(NULLIF(INITCAP(TRIM(sr.shift_type)), ''),
+                CASE WHEN EXTRACT(HOUR FROM sr.created_at) >= 8 AND EXTRACT(HOUR FROM sr.created_at) < 20
+                     THEN 'Day' ELSE 'Night' END) AS shift
+         FROM shifting_records sr
+         LEFT JOIN plan_board pb ON pb.id = sr.plan_id
+        WHERE ($3::int IS NULL OR sr.factory_id = $3 OR sr.factory_id IS NULL)
+          -- coarse range on created_at first (a shift date is at most a day off it)
+          AND sr.created_at >= $1::date - 1 AND sr.created_at < $2::date + 2
+     ) x
+     WHERE x.rd BETWEEN $1::date AND $2::date
+       AND ($4::text IS NULL OR x.shift = $4)
+     ORDER BY x.rd, x.shift, x.created_at`,
+    [filters.from, filters.to, factoryId || null, filters.shift]
+  );
+
+  const machineRows = await q(`SELECT TRIM(machine) AS machine, line, building FROM machines WHERE COALESCE(is_active, true) = true`);
+  const machineOrder = makeMachineOrder(machineRows);
+  const lineOf = new Map(machineRows.map(m => [String(m.machine || '').trim(), String(m.line || m.building || '').trim()]));
+  const shiftRank = (s) => (s === 'Day' ? 0 : s === 'Night' ? 1 : 2);
+  const num = (v) => Number(v || 0);
+  const round3 = (v) => Math.round(v * 1000) / 1000;
+
+  const locations = [...new Set(records.map(r => r.to_location || '-'))];
+  const locationOrder = new Map((await listShiftingLocations(factoryId)).items.map((l, i) => [String(l.name).toLowerCase(), i]));
+  locations.sort((a, b) => (locationOrder.get(a.toLowerCase()) ?? 999) - (locationOrder.get(b.toLowerCase()) ?? 999) || a.localeCompare(b));
+
+  const totals = { entries: 0, labels: 0, manual: 0, qty: 0, kg: 0 };
+  const summary = new Map();
+  const byMachine = new Map();
+  const bySupervisor = new Map();
+  const entries = [];
+
+  for (const r of records) {
+    const qty = num(r.quantity);
+    const kg = num(r.weight_kg);
+    const isLabel = String(r.scan_mode || '').toUpperCase() === 'LABEL_QR';
+    const loc = r.to_location || '-';
+    const who = String(r.shifted_by || '-').trim() || '-';
+    totals.entries += 1; totals.qty += qty; totals.kg += kg;
+    if (isLabel) totals.labels += 1; else totals.manual += 1;
+
+    const sKey = `${r.report_date}|${r.shift}`;
+    const s = summary.get(sKey) || { date: r.report_date, shift: r.shift, entries: 0, labels: 0, manual: 0, qty: 0, kg: 0, by_location: {}, supervisors: new Set() };
+    s.entries += 1; s.qty += qty; s.kg += kg;
+    if (isLabel) s.labels += 1; else s.manual += 1;
+    s.by_location[loc] = (s.by_location[loc] || 0) + qty;
+    s.supervisors.add(who);
+    summary.set(sKey, s);
+
+    const mKey = [r.report_date, r.shift, r.machine, r.item_name, r.colour, loc].join('|');
+    const m = byMachine.get(mKey) || {
+      date: r.report_date, shift: r.shift, line: lineOf.get(String(r.machine || '').trim()) || '',
+      machine: r.machine || '-', item_name: r.item_name || '-', mould_name: r.mould_name || '',
+      colour: r.colour || '', order_no: r.order_no || '', jc_no: r.jc_no || '', location: loc,
+      entries: 0, labels: 0, qty: 0, kg: 0
+    };
+    m.entries += 1; m.qty += qty; m.kg += kg;
+    if (isLabel) m.labels += 1;
+    if (!m.order_no && r.order_no) m.order_no = r.order_no;
+    if (!m.jc_no && r.jc_no) m.jc_no = r.jc_no;
+    byMachine.set(mKey, m);
+
+    const uKey = `${r.report_date}|${r.shift}|${who.toLowerCase()}`;
+    const u = bySupervisor.get(uKey) || { date: r.report_date, shift: r.shift, supervisor: who, entries: 0, labels: 0, qty: 0, kg: 0, first_at: r.created_at, last_at: r.created_at };
+    u.entries += 1; u.qty += qty; u.kg += kg;
+    if (isLabel) u.labels += 1;
+    if (r.created_at < u.first_at) u.first_at = r.created_at;
+    if (r.created_at > u.last_at) u.last_at = r.created_at;
+    bySupervisor.set(uKey, u);
+
+    entries.push({
+      date: r.report_date, shift: r.shift, time: r.created_at, machine: r.machine || '-',
+      line: lineOf.get(String(r.machine || '').trim()) || '', item_name: r.item_name || '-',
+      mould_name: r.mould_name || '', colour: r.colour || '', order_no: r.order_no || '', jc_no: r.jc_no || '',
+      plan_code: r.plan_code || '', label: r.label_no ? `${r.label_no}/${r.total_labels || '-'}` : '',
+      mode: isLabel ? 'Label scan' : 'Manual', qty, kg: kg || null, location: loc, supervisor: who,
+      wip_status: r.status || 'Pending'
+    });
+  }
+
+  const bySlot = (a, b) => (a.date === b.date ? shiftRank(a.shift) - shiftRank(b.shift) : (a.date < b.date ? -1 : 1));
+  const finishKg = (row) => ({ ...row, kg: round3(row.kg) });
+  return {
+    filters: { from: filters.from, to: filters.to, shift: filters.shift || 'All' },
+    locations,
+    totals: finishKg(totals),
+    summary: [...summary.values()].sort(bySlot).map(s => finishKg({ ...s, supervisors: [...s.supervisors].sort().join(', ') })),
+    by_machine: [...byMachine.values()]
+      .sort((a, b) => bySlot(a, b) || machineOrder(a.machine, b.machine) || a.item_name.localeCompare(b.item_name) || a.location.localeCompare(b.location))
+      .map(finishKg),
+    by_supervisor: [...bySupervisor.values()].sort((a, b) => bySlot(a, b) || b.qty - a.qty).map(finishKg),
+    entries
+  };
+}
+
+app.get('/api/shifting/shift-report', async (req, res) => {
+  try {
+    const report = await buildShiftingShiftReport(req);
+    // The page shows the summaries; the full entry list is only in the Excel file.
+    const { entries, ...rest } = report;
+    res.json({ ok: true, data: { ...rest, entry_count: entries.length } });
+  } catch (e) {
+    if (e.status) return res.status(e.status).json({ ok: false, error: e.message });
+    sendServerError(res, e);
+  }
+});
+
+app.get('/api/shifting/shift-report.xlsx', async (req, res) => {
+  try {
+    const ExcelJS = require('exceljs');
+    const report = await buildShiftingShiftReport(req);
+    const factoryId = getFactoryId(req);
+    let factoryLabel = 'All Factories';
+    if (factoryId) {
+      try { const f = await q('SELECT name FROM factories WHERE id = $1', [factoryId]); factoryLabel = f[0]?.name || `Factory ${factoryId}`; } catch (_) { factoryLabel = `Factory ${factoryId}`; }
+    }
+    const username = (req.auth && req.auth.username) || getRequestUsername(req) || 'System';
+    const { from, to, shift } = report.filters;
+
+    const BLUE = 'FF1E4E79', HEADFILL = 'FF2E6CA4', BAND = 'FFEFF4FA', TOTALFILL = 'FFDCE6F2', WHITE = 'FFFFFFFF', INK = 'FF1F2937', GREY = 'FF64748B';
+    const FONT = 'Calibri';
+    const thin = { style: 'thin', color: { argb: 'FFD5DEEA' } };
+    const box = { top: thin, left: thin, right: thin, bottom: thin };
+    const wb = new ExcelJS.Workbook();
+    wb.creator = username;
+    wb.created = new Date();
+
+    // One styled sheet: title, filter line, header row, banded rows, optional total row.
+    const addSheet = (name, title, cols, rows, totalRow) => {
+      const ws = wb.addWorksheet(name, { views: [{ state: 'frozen', ySplit: 5 }] });
+      ws.columns = cols.map(c => ({ width: c.w }));
+      const n = cols.length;
+      ws.mergeCells(1, 1, 1, n);
+      const t = ws.getCell(1, 1);
+      t.value = title;
+      t.font = { name: FONT, size: 14, bold: true, color: { argb: WHITE } };
+      t.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: BLUE } };
+      t.alignment = { horizontal: 'center', vertical: 'middle' };
+      ws.getRow(1).height = 28;
+      ws.mergeCells(2, 1, 2, n);
+      ws.getCell(2, 1).value = `Factory: ${factoryLabel}    |    Dates: ${from} to ${to}    |    Shift: ${shift}`;
+      ws.getCell(2, 1).font = { name: FONT, size: 10, color: { argb: INK } };
+      ws.mergeCells(3, 1, 3, n);
+      ws.getCell(3, 1).value = `Generated: ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}    |    By: ${username}`;
+      ws.getCell(3, 1).font = { name: FONT, size: 10, italic: true, color: { argb: GREY } };
+
+      const HROW = 5;
+      cols.forEach((c, i) => {
+        const cell = ws.getCell(HROW, i + 1);
+        cell.value = c.label;
+        cell.font = { name: FONT, size: 10, bold: true, color: { argb: WHITE } };
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: HEADFILL } };
+        cell.alignment = { horizontal: c.num ? 'right' : 'left', vertical: 'middle', wrapText: true };
+        cell.border = box;
+      });
+      ws.getRow(HROW).height = 30;
+
+      let r = HROW + 1;
+      rows.forEach((row, idx) => {
+        cols.forEach((c, i) => {
+          const cell = ws.getCell(r, i + 1);
+          const v = c.get ? c.get(row) : row[c.key];
+          cell.value = v === undefined || v === '' ? null : v;
+          cell.font = { name: FONT, size: 10, color: { argb: INK } };
+          cell.alignment = { horizontal: c.num ? 'right' : 'left', vertical: 'middle' };
+          cell.border = box;
+          if (c.fmt) cell.numFmt = c.fmt;
+          if (idx % 2 === 1) cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: BAND } };
+        });
+        r += 1;
+      });
+      if (!rows.length) {
+        ws.mergeCells(r, 1, r, n);
+        ws.getCell(r, 1).value = 'No shifting records for the selected dates / shift.';
+        ws.getCell(r, 1).font = { name: FONT, size: 10, italic: true, color: { argb: GREY } };
+        r += 1;
+      } else {
+        ws.autoFilter = { from: { row: HROW, column: 1 }, to: { row: r - 1, column: n } };
+        if (totalRow) {
+          cols.forEach((c, i) => {
+            const cell = ws.getCell(r, i + 1);
+            const v = totalRow[c.key];
+            cell.value = v === undefined ? null : v;
+            cell.font = { name: FONT, size: 10, bold: true, color: { argb: INK } };
+            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: TOTALFILL } };
+            cell.alignment = { horizontal: c.num ? 'right' : 'left', vertical: 'middle' };
+            cell.border = box;
+            if (c.fmt) cell.numFmt = c.fmt;
+          });
+        }
+      }
+      return ws;
+    };
+
+    const QTY = '#,##0', KG = '#,##0.000';
+    const t = report.totals;
+    const locationCols = report.locations.map(loc => ({ label: `${loc} (Qty)`, w: 14, num: true, fmt: QTY, key: `loc:${loc}`, get: (row) => row.by_location?.[loc] || 0 }));
+    const locationTotals = {};
+    report.locations.forEach(loc => { locationTotals[`loc:${loc}`] = report.summary.reduce((sum, s) => sum + (s.by_location[loc] || 0), 0); });
+
+    addSheet('Shift Summary', 'SHIFTING — SHIFT-WISE SUMMARY', [
+      { label: 'Date', w: 12, key: 'date' },
+      { label: 'Shift', w: 8, key: 'shift' },
+      { label: 'Entries', w: 9, key: 'entries', num: true, fmt: QTY },
+      { label: 'Label Scans', w: 11, key: 'labels', num: true, fmt: QTY },
+      { label: 'Manual', w: 9, key: 'manual', num: true, fmt: QTY },
+      { label: 'Qty Shifted', w: 13, key: 'qty', num: true, fmt: QTY },
+      { label: 'Weight (kg)', w: 13, key: 'kg', num: true, fmt: KG },
+      ...locationCols,
+      { label: 'Shifted By', w: 30, key: 'supervisors' }
+    ], report.summary, { date: 'TOTAL', entries: t.entries, labels: t.labels, manual: t.manual, qty: t.qty, kg: t.kg, ...locationTotals });
+
+    addSheet('Machine-Item', 'SHIFTING — MACHINE / ITEM WISE', [
+      { label: 'Date', w: 12, key: 'date' },
+      { label: 'Shift', w: 8, key: 'shift' },
+      { label: 'Line', w: 9, key: 'line' },
+      { label: 'Machine', w: 22, key: 'machine' },
+      { label: 'Item', w: 36, key: 'item_name' },
+      { label: 'Mould', w: 28, key: 'mould_name' },
+      { label: 'Colour', w: 12, key: 'colour' },
+      { label: 'Order No', w: 16, key: 'order_no' },
+      { label: 'JC No', w: 20, key: 'jc_no' },
+      { label: 'Sent To', w: 16, key: 'location' },
+      { label: 'Entries', w: 9, key: 'entries', num: true, fmt: QTY },
+      { label: 'Labels', w: 9, key: 'labels', num: true, fmt: QTY },
+      { label: 'Qty Shifted', w: 13, key: 'qty', num: true, fmt: QTY },
+      { label: 'Weight (kg)', w: 13, key: 'kg', num: true, fmt: KG }
+    ], report.by_machine, { date: 'TOTAL', entries: t.entries, labels: t.labels, qty: t.qty, kg: t.kg });
+
+    const timeText = (d) => (d ? new Date(d).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Asia/Kolkata' }) : '');
+    addSheet('Supervisor', 'SHIFTING — SUPERVISOR WISE', [
+      { label: 'Date', w: 12, key: 'date' },
+      { label: 'Shift', w: 8, key: 'shift' },
+      { label: 'Shifted By', w: 24, key: 'supervisor' },
+      { label: 'Entries', w: 9, key: 'entries', num: true, fmt: QTY },
+      { label: 'Label Scans', w: 11, key: 'labels', num: true, fmt: QTY },
+      { label: 'Qty Shifted', w: 13, key: 'qty', num: true, fmt: QTY },
+      { label: 'Weight (kg)', w: 13, key: 'kg', num: true, fmt: KG },
+      { label: 'First Entry', w: 11, key: 'first_at', get: (row) => timeText(row.first_at) },
+      { label: 'Last Entry', w: 11, key: 'last_at', get: (row) => timeText(row.last_at) }
+    ], report.by_supervisor, { date: 'TOTAL', entries: t.entries, labels: t.labels, qty: t.qty, kg: t.kg });
+
+    addSheet('All Entries', 'SHIFTING — ALL ENTRIES', [
+      { label: 'Date', w: 12, key: 'date' },
+      { label: 'Shift', w: 8, key: 'shift' },
+      { label: 'Time', w: 8, key: 'time', get: (row) => timeText(row.time) },
+      { label: 'Line', w: 9, key: 'line' },
+      { label: 'Machine', w: 22, key: 'machine' },
+      { label: 'Item', w: 36, key: 'item_name' },
+      { label: 'Colour', w: 12, key: 'colour' },
+      { label: 'Order No', w: 16, key: 'order_no' },
+      { label: 'JC No', w: 20, key: 'jc_no' },
+      { label: 'Plan No', w: 15, key: 'plan_code' },
+      { label: 'Label', w: 8, key: 'label' },
+      { label: 'Mode', w: 11, key: 'mode' },
+      { label: 'Qty', w: 10, key: 'qty', num: true, fmt: QTY },
+      { label: 'Weight (kg)', w: 12, key: 'kg', num: true, fmt: KG },
+      { label: 'Sent To', w: 16, key: 'location' },
+      { label: 'Shifted By', w: 18, key: 'supervisor' },
+      { label: 'WIP Status', w: 11, key: 'wip_status' }
+    ], report.entries, { date: 'TOTAL', qty: t.qty, kg: t.kg });
+
+    const buf = await wb.xlsx.writeBuffer();
+    const fname = `Shifting_Shift_Report_${from}${to !== from ? `_to_${to}` : ''}${shift !== 'All' ? `_${shift}` : ''}.xlsx`;
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename=${fname}`);
+    res.send(Buffer.from(buf));
+  } catch (e) {
+    if (e.status) return res.status(e.status).json({ ok: false, error: e.message });
+    console.error('/api/shifting/shift-report.xlsx', e);
+    sendServerError(res, e);
+  }
+});
+
 // POST /api/shifting/delete-all (ADMIN ONLY)
+// Only the verified login session counts (req.auth): the username in the body is
+// client-controlled. Clears the selected factory's records only; clearing every
+// factory at once ("All factories" selected) is superadmin-only.
 app.post('/api/shifting/delete-all', async (req, res) => {
   try {
-    const { username } = req.body;
+    const auth = req.auth;
+    if (!auth) return res.status(401).json({ ok: false, error: 'Please log in again to use this feature.' });
 
-    // Safety check: Verify admin role OR Critical Permission
-    const u = (await q('SELECT role_code, permissions FROM users WHERE username=$1', [username]))[0];
-    const perms = u ? (u.permissions || {}) : {};
-
-    // Allow if Admin OR has 'log_clear' permission
-    const allowed = isAdminLikeRole(u) || (perms.critical_ops && perms.critical_ops.log_clear);
-
+    const perms = auth.permissions || {};
+    const allowed = authSessions.isAdminLike(auth) || Boolean(perms.critical_ops && perms.critical_ops.log_clear);
     if (!allowed) {
-      return res.json({ ok: false, error: 'Unauthorized: Admin or Log Clear permission required' });
+      return res.status(403).json({ ok: false, error: 'Unauthorized: Admin or Log Clear permission required' });
     }
 
-    await q('TRUNCATE TABLE shifting_records RESTART IDENTITY');
-    console.log(`[AUDIT] Shifting Logs cleared by ${username}`);
-    res.json({ ok: true });
+    const factoryId = getFactoryId(req);
+    if (!factoryId && !authSessions.isSuperadmin(auth)) {
+      return res.status(400).json({ ok: false, error: 'Select a factory first. Clearing all factories at once is superadmin-only.' });
+    }
+
+    const result = factoryId
+      ? await pool.query('DELETE FROM shifting_records WHERE factory_id = $1', [factoryId])
+      : await pool.query('DELETE FROM shifting_records');
+    console.log(`[AUDIT] Shifting Logs cleared by ${auth.username} (factory ${factoryId || 'ALL'}, ${result.rowCount} rows)`);
+    res.json({ ok: true, deleted: result.rowCount });
   } catch (e) {
     sendServerError(res, e);
   }

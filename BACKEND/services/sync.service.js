@@ -207,6 +207,7 @@ const SYNC_ALL = [
     'raw_material_issues',
     'roles',
     'shift_teams',
+    'shifting_locations',
     'shifting_records',
     'std_actual',
     'user_factories',
@@ -252,7 +253,10 @@ const LOCAL_NO_PUSH_TABLES = ['users', 'roles', 'erp_jr_status', 'erp_jr_summary
     'jc_details', 'vendors', 'vendor_dispatch', 'vendor_users',
     'purchase_orders', 'purchase_order_items', 'dispatch_items',
     'hr_employee_profiles', 'hr_kra_templates', 'hr_kra_template_items',
-    'hr_kra_assignments', 'hr_kra_assignment_items', 'hr_interviews', 'hr_interview_scores'];
+    'hr_kra_assignments', 'hr_kra_assignment_items', 'hr_interviews', 'hr_interview_scores',
+    // Shifting destinations master: edited on MAIN only (the API refuses writes on a LOCAL,
+    // which falls back to the built-in list until MAIN's rows arrive), so MAIN mints every id.
+    'shifting_locations'];
 
 const CONFLICT_KEYS = {
     users: 'id',
@@ -378,6 +382,8 @@ const CONFLICT_KEYS = {
     vendors: 'id',
     app_settings: 'key',
     factories: 'id',
+    // MAIN-only writer (LOCAL_NO_PUSH_TABLES) — serial id is globally unique.
+    shifting_locations: 'id',
     // Surrogate UUID key (full-replication batch 5): LOCAL floor grinding/rejection log,
     // serial id collides across factories. Deterministic seed in SYNC_ID_SEED_COLUMNS.
     grinding_logs: 'sync_id',
@@ -618,7 +624,8 @@ const SYNC_SCHEMA_READY_KEY = 'SYNC_SCHEMA_READY_VERSION';
 // 2026-10-02: QC app tables replicate (qc_online_report_slots, qc_job_setup, qc_line_teams
 //             natural keys; qc_shift_team, qc_holds → sync_id).
 // 2026-10-02: qc_material_issues (memos) replicate; LOCAL memos renumbered MEMO-<f>-L<id>.
-const SYNC_SCHEMA_READY_VERSION = '2026-10-02-qc-memos-v8';
+// 2026-10-05: shifting_locations master (MAIN-only writer, id key, pulled by LOCAL).
+const SYNC_SCHEMA_READY_VERSION = '2026-10-05-shifting-locations-v9';
 
 // "Sync token" columns: app-schema UNIQUE columns that carry a per-row identity
 // token (a UUID) MAIN considers authoritative, but which a LOCAL row may have been

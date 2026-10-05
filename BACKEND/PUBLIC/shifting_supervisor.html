@@ -876,14 +876,20 @@
             <div class="section-head">
                 <div>
                     <div class="eyebrow">Job Dashboard</div>
-                    <div class="section-title">Running and completed jobs</div>
+                    <div class="section-title">Running and recently completed jobs</div>
                     <div class="section-copy">Open View Details to check colour-wise plan, moulding, QC approved, shifted, and floor balance.</div>
                 </div>
             </div>
 
-            <div style="margin-top:14px; margin-bottom:16px">
+            <div style="margin-top:14px; margin-bottom:16px; display:flex; gap:8px">
                 <input id="searchMachine" oninput="filterMachines()" class="form-control" placeholder="Search Machine / Item..."
-                    style="box-shadow:0 4px 6px -1px rgba(0,0,0,0.08)">
+                    style="box-shadow:0 4px 6px -1px rgba(0,0,0,0.08); flex:1; min-width:0">
+                <select id="jobDays" class="form-control" onchange="onJobDaysChange()" title="Show jobs completed in the last..." aria-label="Show jobs completed in the last"
+                    style="box-shadow:0 4px 6px -1px rgba(0,0,0,0.08); width:auto; max-width:112px; flex:0 0 auto">
+                    <option value="3">3 days</option>
+                    <option value="7" selected>7 days</option>
+                    <option value="30">30 days</option>
+                </select>
             </div>
 
             <div id="machineList">
@@ -1033,6 +1039,14 @@
             const n = Number(value || 0);
             if (!Number.isFinite(n)) return '0';
             return n.toLocaleString('en-IN', { maximumFractionDigits: 3 });
+        }
+
+        // Date of the current shift in local time: before 08:00 is the previous date's Night
+        // shift (same rule as DPR). toISOString() would give the UTC date instead.
+        function currentShiftDate() {
+            const d = new Date();
+            if (d.getHours() < 8) d.setDate(d.getDate() - 1);
+            return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
         }
 
         function nowShift() {
@@ -1210,6 +1224,11 @@
             document.getElementById('view-app').style.display = 'block';
             document.getElementById('userName').textContent = user.username;
             document.getElementById('userLine').textContent = user.line || 'All';
+            try {
+                const savedDays = localStorage.getItem('shiftingJobDays');
+                const daysSelect = document.getElementById('jobDays');
+                if (savedDays && daysSelect && [...daysSelect.options].some(o => o.value === savedDays)) daysSelect.value = savedDays;
+            } catch (_) { }
             loadData().then(() => {
                 const scanInput = document.getElementById('scanInput');
                 if (scanInput) scanInput.focus();
@@ -1218,7 +1237,7 @@
 
         async function loadData() {
             try {
-                const d = new Date().toISOString().split('T')[0];
+                const d = currentShiftDate();
                 const user = JPSMS.auth.getUser();
                 const params = `date=${d}&shift=${nowShift()}` +
                     ((user.line && user.line.trim() !== '') ? `&line=${encodeURIComponent(user.line.trim())}` : '');
@@ -1229,7 +1248,8 @@
                 } else {
                     promises.push(Promise.resolve({ ok: true, data: LOCATIONS }));
                 }
-                promises.push(JPSMS.api.get(`/shifting/jobs?${params}`));
+                const days = document.getElementById('jobDays')?.value || '7';
+                promises.push(JPSMS.api.get(`/shifting/jobs?${params}&days=${encodeURIComponent(days)}`));
                 promises.push(JPSMS.api.get('/shifting/logs?limit=20'));
 
                 const [locRes, dashRes, logRes] = await Promise.all(promises);
@@ -1240,7 +1260,7 @@
                 }
                 if (dashRes && dashRes.ok) {
                     MACHINES = dashRes.data || [];
-                    renderMachines(MACHINES);
+                    filterMachines();
                 }
                 if (logRes && logRes.ok) {
                     renderRecentShifts(logRes.data || []);
@@ -1253,7 +1273,7 @@
         function renderMachines(list) {
             const container = document.getElementById('machineList');
             if (!list.length) {
-                container.innerHTML = '<div class="scan-placeholder" style="margin-top:0">No running or completed jobs found for this line right now.</div>';
+                container.innerHTML = '<div class="scan-placeholder" style="margin-top:0">No running jobs, and no jobs completed in the selected days, for this line.</div>';
                 return;
             }
 
@@ -1396,6 +1416,12 @@
             `).join('');
         }
 
+        function onJobDaysChange() {
+            try { localStorage.setItem('shiftingJobDays', document.getElementById('jobDays').value); } catch (_) { }
+            document.getElementById('machineList').innerHTML = '<div class="scan-placeholder" style="margin-top:0">Loading jobs...</div>';
+            loadData();
+        }
+
         function filterMachines() {
             const q = document.getElementById('searchMachine').value.toLowerCase();
             const filtered = MACHINES.filter(m =>
@@ -1421,7 +1447,10 @@
                 : null;
             const colourPlanQty = data.colour_plan_qty || activeSummary?.plan_qty || 0;
             const colourPendingQty = data.colour_pending_qty ?? activeSummary?.pending_qty ?? 0;
+            const blocked = data.already_shifted || !!data.qc_hold;
+            const blockedText = data.already_shifted ? 'Already shifted' : (data.qc_hold ? 'QC Hold' : 'Ready');
             panel.innerHTML = `
+                ${data.qc_hold ? `<div class="status-chip error" style="display:block; white-space:normal; margin-bottom:10px;">${escapeHtml(data.qc_hold_message || 'QC HOLD: shifting is blocked until QC releases the hold.')}</div>` : ''}
                 <div class="scan-ready-top">
                     <div style="display:flex; justify-content:space-between; gap:10px; align-items:flex-start;">
                         <div>
@@ -1430,7 +1459,7 @@
                             <div class="scan-item-line">${escapeHtml(data.item_name || '-')}</div>
                             <div class="scan-item-line">${escapeHtml(data.machine_name || '-')} · Label ${escapeHtml(data.label_no || '-')}/${escapeHtml(data.total_labels || '-')}</div>
                         </div>
-                        <span class="status-chip ${data.already_shifted ? 'error' : 'ok'}">${data.already_shifted ? 'Already shifted' : 'Ready'}</span>
+                        <span class="status-chip ${blocked ? 'error' : 'ok'}">${blockedText}</span>
                     </div>
                     <div class="scan-qty-pill">
                         <div class="scan-qty-tile primary">
@@ -1445,7 +1474,7 @@
                 </div>
 
                 <div class="scan-shift-form">
-                    <input id="scanQty" type="hidden" value="${escapeHtml(data.label_qty || 0)}">
+                    <input id="scanQty" type="hidden" value="${escapeHtml(data.label_pending_qty ?? data.label_qty ?? 0)}">
                     <div class="qty-form-grid">
                         <div class="field">
                             <div class="field-label">Weight (kg)</div>
@@ -1461,7 +1490,7 @@
                         </div>
                     </div>
                     <div class="scan-actions">
-                        <button class="btn-primary" onclick="submitScannedShift()" ${data.already_shifted ? 'disabled style="opacity:.55; cursor:not-allowed;"' : ''}>${data.already_shifted ? 'Already shifted' : 'Confirm Shift'}</button>
+                        <button class="btn-primary" onclick="submitScannedShift()" ${blocked ? 'disabled style="opacity:.55; cursor:not-allowed;"' : ''}>${blocked ? blockedText : 'Confirm Shift'}</button>
                         <button class="btn-outline" type="button" onclick="clearScanState()">Clear</button>
                     </div>
                 </div>
@@ -1482,7 +1511,10 @@
                 if (!res.ok) throw new Error(res.error || 'Label lookup failed');
                 CURRENT_SCAN = res.data;
                 renderScanResult(CURRENT_SCAN);
-                setScanStatus(CURRENT_SCAN.already_shifted ? 'error' : 'ok', CURRENT_SCAN.already_shifted ? 'Already shifted' : 'Label ready');
+                setScanStatus(
+                    CURRENT_SCAN.already_shifted || CURRENT_SCAN.qc_hold ? 'error' : 'ok',
+                    CURRENT_SCAN.already_shifted ? 'Already shifted' : (CURRENT_SCAN.qc_hold ? 'On QC hold' : 'Label ready')
+                );
             } catch (e) {
                 CURRENT_SCAN = null;
                 document.getElementById('scanResultPanel').className = 'scan-placeholder';
@@ -1495,10 +1527,11 @@
         async function submitScannedShift() {
             if (!CURRENT_SCAN) return JPSMS.toast('Scan a label first', 'warning');
             if (CURRENT_SCAN.already_shifted) return JPSMS.toast('This label is already shifted', 'warning');
+            if (CURRENT_SCAN.qc_hold) return JPSMS.toast(CURRENT_SCAN.qc_hold_message || 'This job is on QC hold', 'error');
             try {
                 const user = JPSMS.auth.getUser();
                 const scanLocation = document.getElementById('scanLocation')?.value;
-                const scanQty = Math.max(0, Number(document.getElementById('scanQty')?.value || CURRENT_SCAN.label_qty || 0));
+                const scanQty = Math.max(0, Number(document.getElementById('scanQty')?.value || CURRENT_SCAN.label_pending_qty || 0));
                 const weightKg = Math.max(0, Number(document.getElementById('scanWeight')?.value || 0));
                 if (!scanLocation) return JPSMS.toast('Select destination', 'warning');
                 const res = await JPSMS.api.post('/shifting/scan-entry', {
@@ -1506,7 +1539,7 @@
                     quantity: scanQty,
                     weightKg,
                     toLocation: scanLocation,
-                    date: new Date().toISOString().split('T')[0],
+                    date: currentShiftDate(),
                     shift: nowShift(),
                     supervisor: user?.username || 'Shifting Supervisor'
                 });
@@ -1705,7 +1738,7 @@
                     planId: currentItem.plan_id,
                     quantity: qty,
                     toLocation: loc,
-                    date: new Date().toISOString().split('T')[0],
+                    date: currentShiftDate(),
                     shift: nowShift(),
                     supervisor: user.username
                 });

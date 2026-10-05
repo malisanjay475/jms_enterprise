@@ -134,6 +134,7 @@ function escHtml(value) {
         'shifting_reports.html': 'shifting_module',
         'shifting_logs.html': 'shifting_module',
         'shifting_summary.html': 'shifting_module',
+        'shifting_shift_report.html': 'shifting_module',
         'shifting.html': 'shifting_module',
         'wip.html': 'wip_internal',
         'reports.html': 'reports',
@@ -1364,7 +1365,8 @@ function escHtml(value) {
         { id: 'master_boplanning_detail', label: 'BO Planning Detail', icon: 'bi-clipboard-data', href: 'masters.html?type=boplanningdetail' },
                 { id: 'master_wip_stock', label: 'WIP Stock', icon: 'bi-box-seam-fill', href: 'masters.html?type=wipstock' },
                 { id: 'master_mould', label: 'Mould Master', icon: 'bi-gem', href: 'masters.html?type=moulds' },
-                { id: 'master_labour_parties', label: 'Labour Parties', icon: 'bi-people-fill', href: 'masters.html?type=labour-parties' }
+                { id: 'master_labour_parties', label: 'Labour Parties', icon: 'bi-people-fill', href: 'masters.html?type=labour-parties' },
+                { id: 'master_shifting_locations', label: 'Shifting Locations', icon: 'bi-geo-alt', href: 'masters.html?type=shifting-locations' }
             ]
         },
         {
@@ -1433,6 +1435,7 @@ function escHtml(value) {
                 { id: 'shift_live', label: 'Live Production', icon: 'bi-activity', href: 'shifting_reports.html?view=live' },
                 { id: 'shift_reconcile', label: 'Job Reconciliation', icon: 'bi-clipboard-check', href: 'shifting_reports.html?view=reconcile' },
                 { id: 'shift_summary', label: 'Shifting Summary', icon: 'bi-table', href: 'shifting_summary.html' },
+                { id: 'shift_report', label: 'Shift Report', icon: 'bi-file-earmark-bar-graph', href: 'shifting_shift_report.html' },
                 { id: 'shift_logs', label: 'Shifting Logs', icon: 'bi-clock-history', href: 'shifting_logs.html' }
             ]
         },
@@ -2378,6 +2381,7 @@ function escHtml(value) {
     'quality.html': 'quality', 'qc_memo.html': 'quality', 'fpa.html': 'quality', 'hr.html': 'hr', 'hr_performance.html': 'hr',
     'hr_interview_panel.html': 'hr', 'shifting_reports.html': 'shifting_module',
     'shifting_logs.html': 'shifting_module', 'shifting_summary.html': 'shifting_module',
+    'shifting_shift_report.html': 'shifting_module',
     'shifting.html': 'shifting_module', 'wip.html': 'wip_internal',
     'reports.html': 'reports', 'users.html': 'users',
     'notifications.html': 'notifications', 'settings.html': 'settings',

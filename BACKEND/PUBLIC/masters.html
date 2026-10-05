@@ -491,6 +491,14 @@
         Add Party</button>
     </div>
 
+    <!-- Shifting Locations action bar — shown only on shifting-locations type -->
+    <div id="shiftingLocationActionBar" class="card" style="display:none; padding:8px 12px;">
+      <button id="addShiftingLocationBtn" class="btn-action" onclick="openShiftingLocationModal('add')"
+        style="padding:6px 14px; background:#0f766e; display:none;"><i class="bi bi-geo-alt-fill"></i>
+        Add Location</button>
+      <div id="shiftingLocationNote" style="display:none; margin-top:6px; font-size:0.78rem; color:#475569;"></div>
+    </div>
+
     <div class="card" id="allFactoryUploadLock"
       style="display:none; padding:10px 12px; border-left:4px solid #2563eb; background:#eff6ff; color:#1e3a8a">
       <div id="factoryWriteLockTitle" style="font-weight:700; font-size:0.8rem; margin-bottom:4px;">
@@ -1055,7 +1063,7 @@
     }
   </style>
 
-  <script src="/assets/masters-script-2.js?v=release109"></script>
+  <script src="/assets/masters-script-2.js?v=release110"></script>
 
   <!-- Machine CRUD Modal -->
   <div id="machineModal" class="modal"
@@ -1202,6 +1210,38 @@
           style="padding:8px 16px; border:none; background:#ccc; border-radius:4px; cursor:pointer; margin-right:8px;">Cancel</button>
         <button onclick="saveMachine()"
           style="padding:8px 16px; border:none; background:#2563eb; color:white; border-radius:4px; cursor:pointer;">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Shifting Location CRUD Modal -->
+  <div id="shiftingLocationModal" class="modal"
+    style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); justify-content:center; align-items:center; z-index:1000;">
+    <div style="background:white; padding:24px; border-radius:10px; width:420px; max-width:92%; border-top:4px solid #0f766e;">
+      <h3 id="shiftingLocationModalTitle" style="margin-top:0; color:#115e59"><i class="bi bi-geo-alt-fill"></i> Add Shifting Location</h3>
+
+      <div style="margin-bottom:12px;">
+        <label for="sl_name" style="display:block; margin-bottom:4px; font-weight:600; font-size:0.82rem">Location Name <span style="color:#dc2626">*</span></label>
+        <input type="text" id="sl_name" maxlength="60" style="width:100%; padding:8px; border:1px solid #ddd; border-radius:4px; box-sizing:border-box;" placeholder="e.g. Packing Area 2">
+      </div>
+
+      <div style="margin-bottom:12px;">
+        <label for="sl_sort_order" style="display:block; margin-bottom:4px; font-weight:600; font-size:0.82rem">Order in list</label>
+        <input type="number" id="sl_sort_order" step="1" style="width:100%; padding:8px; border:1px solid #ddd; border-radius:4px; box-sizing:border-box;" placeholder="Blank = end of the list">
+      </div>
+
+      <div id="sl_active_row" style="margin-bottom:16px; display:flex; align-items:center; gap:8px;">
+        <input type="checkbox" id="sl_is_active" checked style="width:16px; height:16px; accent-color:#0f766e;">
+        <label for="sl_is_active" style="font-weight:600; font-size:0.82rem; cursor:pointer">Active</label>
+      </div>
+
+      <div style="text-align:right;">
+        <button onclick="closeShiftingLocationModal()"
+          style="padding:8px 16px; border:none; background:#e2e8f0; border-radius:4px; cursor:pointer; margin-right:8px; font-size:0.82rem">Cancel</button>
+        <button onclick="saveShiftingLocation()"
+          style="padding:8px 20px; border:none; background:#0f766e; color:white; border-radius:4px; cursor:pointer; font-weight:700; font-size:0.82rem">
+          <i class="bi bi-check-lg"></i> Save
+        </button>
       </div>
     </div>
   </div>

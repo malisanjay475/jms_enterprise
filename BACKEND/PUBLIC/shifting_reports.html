@@ -180,12 +180,20 @@
 
     <script src="/assets/app.min.js?v=1576"></script>
     <script>
+        // Date of the current shift in local time: before 08:00 is the previous date's Night
+        // shift (same rule as DPR). toISOString() would give the UTC date instead.
+        function currentShiftDate() {
+            const d = new Date();
+            if (d.getHours() < 8) d.setDate(d.getDate() - 1);
+            return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        }
+
         document.addEventListener('DOMContentLoaded', () => {
             JPSMS.auth.requireAuth();
             JPSMS.renderShell('shifting');
 
             // Set Today
-            document.getElementById('filterDate').valueAsDate = new Date();
+            document.getElementById('filterDate').value = currentShiftDate();
             // Auto-detect Shift (Day=08-20, Night=20-08)
             const h = new Date().getHours();
             const isDay = h >= 8 && h < 20;

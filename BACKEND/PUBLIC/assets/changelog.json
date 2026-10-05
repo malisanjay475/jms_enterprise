@@ -11,8 +11,41 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.92.1",
+  "latest": "1.93.1",
   "versions": [
+    {
+      "version": "1.93.1",
+      "date": "2026-10-05",
+      "title": "Shifting app update feed",
+      "modules": [
+        {
+          "app": "shifting_supervisor_app",
+          "changes": [
+            { "type": "improvement", "text": "The server can now hold the native Shifting phone app so phones update themselves when a new version is released." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.93.0",
+      "date": "2026-10-05",
+      "title": "Shifting Shift Report",
+      "modules": [
+        {
+          "app": "shifting_module",
+          "changes": [
+            { "type": "feat", "text": "New Shifting Module > Shift Report: quantity and weight shifted per date and shift, by machine/item and by supervisor, for up to 62 days." },
+            { "type": "feat", "text": "Download Excel gives a formatted workbook with Shift Summary, Machine-Item, Supervisor and All Entries sheets." }
+          ]
+        },
+        {
+          "app": "shifting_supervisor_app",
+          "changes": [
+            { "type": "fix", "text": "Night-shift scans between 05:30 and 08:00 are now saved under the night shift's own date instead of the next day's." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.92.1",
       "date": "2026-10-05",
@@ -24,6 +57,74 @@
           "icon": "bi-person-badge",
           "changes": [
             { "type": "feat", "text": "New role Sr. PPC Manager with all the rights of PPC Manager: PPC approval on job cards, the PPC Check in mould verification, planning, deleting DPR entries and plans, back-dated entries, setting priority, restoring plans and maintenance entries." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.92.0",
+      "date": "2026-10-05",
+      "title": "Shifting Locations master",
+      "modules": [
+        {
+          "app": "masters",
+          "changes": [
+            { "type": "feat", "text": "New Masters > Shifting Locations: add, rename, reorder or deactivate the places material can be shifted to, separately for each factory. Changes are made on the main server and reach the factory server automatically." }
+          ]
+        },
+        {
+          "app": "shifting_supervisor_app",
+          "changes": [
+            { "type": "improvement", "text": "The Send To list now comes from the Shifting Locations master, and a shift can only be saved to an active location." }
+          ]
+        },
+        {
+          "app": "shifting_module",
+          "changes": [
+            { "type": "improvement", "text": "The old Shifting Entry page now opens the Shifting Module's Live Production view, where manual shifting is done." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.91.4",
+      "date": "2026-10-05",
+      "title": "Faster Shifting Supervisor",
+      "modules": [
+        {
+          "app": "shifting_supervisor_app",
+          "changes": [
+            { "type": "perf", "text": "The Shifting Supervisor job list opens in under a second instead of about 20 seconds. It now shows running jobs plus jobs completed in the last 3, 7 or 30 days (your choice is remembered)." },
+            { "type": "improvement", "text": "Running jobs are listed first in the standard Line and machine-number order, then completed jobs with the latest production first." }
+          ]
+        },
+        {
+          "app": "shifting_module",
+          "changes": [
+            { "type": "fix", "text": "Produced quantity in Shifting no longer includes DPR entries that were deleted, so floor balance and the manual shift limit are correct." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.91.3",
+      "date": "2026-10-05",
+      "title": "Safer Shifting",
+      "modules": [
+        {
+          "app": "shifting_supervisor_app",
+          "changes": [
+            { "type": "fix", "text": "A job on QC HOLD can no longer be shifted. Scanning its label shows the hold reason, and shifting is allowed again once QC releases the hold." },
+            { "type": "fix", "text": "Scanning the same label twice in quick succession no longer shifts it twice." },
+            { "type": "fix", "text": "Manual shifting can no longer exceed the quantity left on the shop floor (produced minus already shifted)." }
+          ]
+        },
+        {
+          "app": "shifting_module",
+          "changes": [
+            { "type": "fix", "text": "Shifting job details, totals and the Shifting Summary matrix now show only the selected factory's records, and a night-shift entry saved after midnight is no longer counted on two days." },
+            { "type": "fix", "text": "The old Shifting Entry page now shows the real error when a shift is not saved, instead of saying it was recorded." },
+            { "type": "security", "text": "Delete All on Shifting Logs now checks the logged-in user on the server and clears only the selected factory's records." }
           ]
         }
       ]
