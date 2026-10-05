@@ -130,7 +130,7 @@
     let currentWriteScope = { id: null, name: '', isAll: false };
     let currentMachineIconBase64 = null;
     const templateSupportedTypes = ['orders', 'moulds', 'machines', 'orjr', 'orjrwise', 'orjrwisedetail', 'jcdetails', 'boplanningdetail', 'wipstock'];
-    const reportOnlyTypes = ['labour-parties', 'erpjrstatus', 'erpjrsummary', 'erpjrdetails', 'erpbom', 'erpmoulditem'];
+    const reportOnlyTypes = ['labour-parties', 'shifting-locations', 'erpjrstatus', 'erpjrsummary', 'erpjrdetails', 'erpbom', 'erpmoulditem'];
     const clientPreviewSchemas = {
       boplanningdetail: {
         label: 'BO Planning Detail',
@@ -648,6 +648,10 @@
       if (labourPartyActionBar) {
         labourPartyActionBar.style.display = currentType === 'labour-parties' ? 'block' : 'none';
       }
+      const shiftingLocationActionBar = document.getElementById('shiftingLocationActionBar');
+      if (shiftingLocationActionBar) {
+        shiftingLocationActionBar.style.display = currentType === 'shifting-locations' ? 'block' : 'none';
+      }
 
       if (uploadSection && reportOnlyTypes.includes(currentType)) {
         // ERP reports keep the upload bar for superadmins so the
@@ -756,7 +760,7 @@
       JPSMS.auth.requireAuth();
 
       const params = new URLSearchParams(window.location.search);
-      const allowedTypes = ['orders', 'moulds', 'machines', 'orjr', 'orjrwise', 'orjrwisedetail', 'jcdetails', 'boplanningdetail', 'wipstock', 'users', 'labour-parties', 'erpjrstatus', 'erpjrsummary', 'erpjrdetails', 'erpbom', 'erpmoulditem'];
+      const allowedTypes = ['orders', 'moulds', 'machines', 'orjr', 'orjrwise', 'orjrwisedetail', 'jcdetails', 'boplanningdetail', 'wipstock', 'users', 'labour-parties', 'shifting-locations', 'erpjrstatus', 'erpjrsummary', 'erpjrdetails', 'erpbom', 'erpmoulditem'];
       const requestedType = params.get('type') || 'orders';
         const optionalDateTypes = ['orjrwise', 'orjrwisedetail', 'jcdetails', 'boplanningdetail', 'wipstock'];
       const manualDateTypes = ['orjr'];
@@ -841,6 +845,7 @@
         'wipstock': { title: 'WIP Stock', hint: 'Upload dated WIP stock sheet', hasDates: true, icon: 'bi-box-seam-fill' },
         'users': { title: 'User Master', hint: 'Admin Only', hasDates: false },
         'labour-parties': { title: 'Labour Job Parties', hint: 'N/A', hasDates: false },
+        'shifting-locations': { title: 'Shifting Locations', hint: 'N/A', hasDates: false, icon: 'bi-geo-alt' },
         'erpjrstatus': { title: 'JR Status ERP', hint: 'Saved in database', hasDates: false, icon: 'bi-cloud-arrow-down' },
         'erpjrsummary': { title: 'JR Summary ERP', hint: 'Saved in database', hasDates: false, icon: 'bi-cloud-arrow-down' },
         'erpjrdetails': { title: 'OR JR Details ERP', hint: 'Saved in database', hasDates: false, icon: 'bi-cloud-arrow-down' },
@@ -1283,6 +1288,12 @@
       if (currentType === 'labour-parties') {
         masterDataLoading = false;
         await loadLabourParties();
+        return;
+      }
+      // Shifting Locations also has its own list + modal UI.
+      if (currentType === 'shifting-locations') {
+        masterDataLoading = false;
+        await loadShiftingLocations();
         return;
       }
       if (masterDataLoading) return;
@@ -3338,6 +3349,163 @@
         await loadLabourParties();
       } catch (e) {
         alert('Error: ' + e.message);
+      }
+    }
+
+    /* =====================================================================
+       SHIFTING LOCATIONS MASTER — destinations offered in the Shifting pages.
+       Per factory, edited on MAIN only (the API refuses LOCAL writes; a factory
+       server receives the list by sync).
+       ===================================================================== */
+
+    let shiftingLocationMode = 'add';
+    let shiftingLocationEditId = null;
+    let shiftingLocationCache = {};
+
+    function shiftingLocationWriteState(editable) {
+      if (!editable) return { allowed: false, reason: 'Shifting locations are managed on the MAIN server. This factory server receives them automatically.' };
+      if (!JPSMS.auth.can('masters', 'edit')) return { allowed: false, reason: '' };
+      if (!canWriteCurrentFactoryScope()) return { allowed: false, reason: 'Select one factory to add or change its shifting locations.' };
+      return { allowed: true, reason: '' };
+    }
+
+    async function loadShiftingLocations() {
+      const tbody = document.querySelector('#masterTable tbody');
+      const thead = document.querySelector('#masterTable thead');
+      const note = document.getElementById('shiftingLocationNote');
+      const addBtn = document.getElementById('addShiftingLocationBtn');
+      if (tbody) tbody.innerHTML = '<tr><td colspan="5" class="text-center p-3">Loading...</td></tr>';
+      if (thead) thead.innerHTML = '';
+
+      try {
+        const res = await JPSMS.api.get('/shifting/locations?all=1');
+        if (!res.ok) throw new Error(res.error || 'Could not load shifting locations');
+        const items = res.items || [];
+        const write = shiftingLocationWriteState(res.editable !== false);
+        if (addBtn) addBtn.style.display = write.allowed ? 'inline-block' : 'none';
+        if (note) {
+          const notes = [];
+          if (write.reason) notes.push(write.reason);
+          if (res.source === 'default') notes.push('Showing the built-in list. It becomes editable here once this factory\'s list is saved on the MAIN server.');
+          note.textContent = notes.join(' ');
+          note.style.display = notes.length ? 'block' : 'none';
+        }
+
+        if (thead) {
+          thead.innerHTML = `<tr>
+            <th style="width:80px">Actions</th>
+            <th style="width:70px">Order</th>
+            <th>Location</th>
+            <th>Status</th>
+            <th>Last Changed By</th>
+          </tr>`;
+        }
+        if (!items.length) {
+          if (tbody) tbody.innerHTML = '<tr><td colspan="5" class="text-center p-3" style="color:#64748b">No shifting locations yet.</td></tr>';
+          return;
+        }
+
+        const canEditRows = write.allowed && res.source !== 'default';
+        shiftingLocationCache = {};
+        items.forEach(item => { if (item.id != null) shiftingLocationCache[item.id] = item; });
+        if (tbody) {
+          tbody.innerHTML = items.map(item => `
+            <tr>
+              <td>
+                ${canEditRows && item.id != null ? `
+                  <button class="sl-edit-btn" data-loc-id="${item.id}" title="Edit"
+                    style="background:#2563eb;color:#fff;border:none;border-radius:4px;padding:3px 8px;cursor:pointer;font-size:0.75rem;margin-right:3px">
+                    <i class="bi bi-pencil"></i>
+                  </button>
+                  ${item.is_active !== false ? `
+                  <button class="sl-del-btn" data-loc-id="${item.id}" title="Deactivate"
+                    style="background:#dc2626;color:#fff;border:none;border-radius:4px;padding:3px 8px;cursor:pointer;font-size:0.75rem">
+                    <i class="bi bi-slash-circle"></i>
+                  </button>` : ''}
+                ` : ''}
+              </td>
+              <td>${escHtml(item.sort_order ?? '')}</td>
+              <td style="font-weight:600">${escHtml(item.name || '')}</td>
+              <td>${item.is_active !== false
+                ? '<span style="background:#dcfce7;color:#15803d;padding:2px 8px;border-radius:12px;font-size:0.72rem;font-weight:700">Active</span>'
+                : '<span style="background:#fee2e2;color:#dc2626;padding:2px 8px;border-radius:12px;font-size:0.72rem;font-weight:700">Inactive</span>'}</td>
+              <td style="color:#475569;font-size:0.78rem">${escHtml(item.updated_by || '-')}</td>
+            </tr>
+          `).join('');
+
+          // Delegated handlers — no user data in onclick. Bound once per tbody.
+          if (!tbody.dataset.slBound) {
+            tbody.dataset.slBound = '1';
+            tbody.addEventListener('click', (ev) => {
+              if (currentType !== 'shifting-locations') return;
+              const editBtn = ev.target.closest('.sl-edit-btn');
+              const delBtn = ev.target.closest('.sl-del-btn');
+              if (editBtn) {
+                const item = shiftingLocationCache[editBtn.dataset.locId];
+                if (item) openShiftingLocationModal('edit', item);
+              } else if (delBtn) {
+                const item = shiftingLocationCache[delBtn.dataset.locId];
+                if (item) deactivateShiftingLocation(item);
+              }
+            });
+          }
+        }
+      } catch (e) {
+        if (tbody) tbody.innerHTML = `<tr><td colspan="5" class="text-center p-3" style="color:#dc2626">Error: ${escHtml(e.message)}</td></tr>`;
+      }
+    }
+
+    function openShiftingLocationModal(mode, data = {}) {
+      shiftingLocationMode = mode;
+      shiftingLocationEditId = data.id || null;
+      const modal = document.getElementById('shiftingLocationModal');
+      if (!modal) return;
+      document.getElementById('shiftingLocationModalTitle').textContent = mode === 'add' ? 'Add Shifting Location' : 'Edit Shifting Location';
+      document.getElementById('sl_name').value = data.name || '';
+      document.getElementById('sl_sort_order').value = data.sort_order ?? '';
+      const activeEl = document.getElementById('sl_is_active');
+      if (activeEl) activeEl.checked = data.is_active !== false;
+      const activeRow = document.getElementById('sl_active_row');
+      if (activeRow) activeRow.style.display = mode === 'add' ? 'none' : 'flex';
+      modal.style.display = 'flex';
+      setTimeout(() => document.getElementById('sl_name')?.focus(), 50);
+    }
+
+    function closeShiftingLocationModal() {
+      const modal = document.getElementById('shiftingLocationModal');
+      if (modal) modal.style.display = 'none';
+    }
+
+    async function saveShiftingLocation() {
+      const name = (document.getElementById('sl_name')?.value || '').trim();
+      if (!name) { JPSMS.toast('Enter a location name', 'warning'); return; }
+      const orderRaw = (document.getElementById('sl_sort_order')?.value || '').trim();
+      const body = { name };
+      if (orderRaw !== '') body.sort_order = Number(orderRaw);
+      if (shiftingLocationMode === 'edit') body.is_active = document.getElementById('sl_is_active')?.checked !== false;
+
+      try {
+        const res = shiftingLocationMode === 'add'
+          ? await JPSMS.api.post('/shifting/locations', body)
+          : await JPSMS.api.request(`/shifting/locations/${encodeURIComponent(shiftingLocationEditId)}`, { method: 'PUT', body: JSON.stringify(body) });
+        if (!res.ok) throw new Error(res.error || 'Could not save the location');
+        JPSMS.toast(shiftingLocationMode === 'add' ? 'Location added' : 'Location updated', 'success');
+        closeShiftingLocationModal();
+        await loadShiftingLocations();
+      } catch (_) {
+        // JPSMS.api already showed the server's error message.
+      }
+    }
+
+    async function deactivateShiftingLocation(item) {
+      if (!confirm(`Deactivate "${item.name}"? It will no longer be offered in Shifting. Past shifting records keep this name.`)) return;
+      try {
+        const res = await JPSMS.api.request(`/shifting/locations/${encodeURIComponent(item.id)}`, { method: 'DELETE' });
+        if (!res.ok) throw new Error(res.error || 'Could not deactivate the location');
+        JPSMS.toast('Location deactivated', 'success');
+        await loadShiftingLocations();
+      } catch (_) {
+        // JPSMS.api already showed the server's error message.
       }
     }
 

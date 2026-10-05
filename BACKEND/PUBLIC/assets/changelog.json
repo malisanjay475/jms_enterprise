@@ -11,8 +11,33 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.91.4",
+  "latest": "1.92.0",
   "versions": [
+    {
+      "version": "1.92.0",
+      "date": "2026-10-05",
+      "title": "Shifting Locations master",
+      "modules": [
+        {
+          "app": "masters",
+          "changes": [
+            { "type": "feat", "text": "New Masters > Shifting Locations: add, rename, reorder or deactivate the places material can be shifted to, separately for each factory. Changes are made on the main server and reach the factory server automatically." }
+          ]
+        },
+        {
+          "app": "shifting_supervisor_app",
+          "changes": [
+            { "type": "improvement", "text": "The Send To list now comes from the Shifting Locations master, and a shift can only be saved to an active location." }
+          ]
+        },
+        {
+          "app": "shifting_module",
+          "changes": [
+            { "type": "improvement", "text": "The old Shifting Entry page now opens the Shifting Module's Live Production view, where manual shifting is done." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.91.4",
       "date": "2026-10-05",

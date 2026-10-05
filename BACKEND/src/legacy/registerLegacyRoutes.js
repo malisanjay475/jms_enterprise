@@ -5519,6 +5519,20 @@ async function initializeLegacyRuntime() {
                 created_at TIMESTAMP DEFAULT NOW()
             );
 
+            -- Shifting destinations master (Masters -> Shifting Locations). Edited on
+            -- MAIN only; LOCAL pulls it (sync: MAIN-only writer, id key).
+            CREATE TABLE IF NOT EXISTS shifting_locations (
+                id SERIAL PRIMARY KEY,
+                name TEXT NOT NULL,
+                sort_order INTEGER DEFAULT 0,
+                is_active BOOLEAN DEFAULT true,
+                factory_id INTEGER,
+                created_by TEXT,
+                updated_by TEXT,
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                updated_at TIMESTAMPTZ DEFAULT NOW()
+            );
+
             CREATE TABLE IF NOT EXISTS planning_drops (
                 id SERIAL PRIMARY KEY,
                 order_no TEXT NOT NULL,
@@ -5795,6 +5809,7 @@ async function initializeLegacyRuntime() {
       'qc_training_sheets',
       'roles',
       'shift_teams',
+      'shifting_locations',
       'shifting_records',
       'std_actual',
       'user_factories',
@@ -9134,11 +9149,229 @@ app.get('/api/debug/ids', async (req, res) => {
    SHIFTING MODULE APIs
 ============================================================ */
 
-// GET /api/shifting/locations
+// Shifting destinations. Mastered in shifting_locations (Masters -> Shifting Locations),
+// per factory, edited on MAIN only. Until a factory has rows, the built-in list below
+// is used: MAIN seeds it into the table the first time the factory's list is read;
+// a LOCAL never writes the table (it would mint ids MAIN doesn't know) and just
+// answers with the built-in list until MAIN's rows arrive by sync.
+const SHIFTING_DEFAULT_LOCATIONS = ['Moulding Itself', 'Shifting Wip', 'Shopfloor Wip', 'Printing', 'Tuffting', 'Packing'];
+
+async function listShiftingLocations(factoryId, { includeInactive = false } = {}) {
+  const fid = normalizeFactoryId(factoryId);
+  const readRows = () => q(
+    `SELECT id, name, sort_order, is_active, factory_id, updated_by, updated_at
+       FROM shifting_locations
+      WHERE ($1::int IS NULL OR factory_id = $1)
+        AND ($2::boolean OR is_active IS NOT FALSE)
+      ORDER BY sort_order, LOWER(name), id`,
+    [fid, includeInactive]
+  );
+  let rows = await readRows();
+
+  if (fid && !isLocalServer()) {
+    const any = await q(`SELECT 1 FROM shifting_locations WHERE factory_id = $1 LIMIT 1`, [fid]);
+    if (!any.length) {
+      // Seed under an advisory lock so two first reads don't both insert the defaults.
+      await withShiftingLock(`locations-seed:${fid}`, async (client) => {
+        const again = await client.query(`SELECT 1 FROM shifting_locations WHERE factory_id = $1 LIMIT 1`, [fid]);
+        if (again.rows.length) return;
+        for (const [i, name] of SHIFTING_DEFAULT_LOCATIONS.entries()) {
+          await client.query(
+            `INSERT INTO shifting_locations (name, sort_order, is_active, factory_id, created_by, updated_by)
+             VALUES ($1, $2, true, $3, 'system', 'system')`,
+            [name, (i + 1) * 10, fid]
+          );
+        }
+      });
+      rows = await readRows();
+    }
+  }
+
+  if (!rows.length) {
+    return {
+      source: 'default',
+      items: SHIFTING_DEFAULT_LOCATIONS.map((name, i) => ({ id: null, name, sort_order: (i + 1) * 10, is_active: true }))
+    };
+  }
+  if (!fid) {
+    // "All factories": one entry per name, in the first factory's order.
+    const seen = new Set();
+    rows = rows.filter(r => {
+      const key = String(r.name || '').trim().toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }
+  return { source: 'master', items: rows };
+}
+
+// Writes to the locations master: MAIN/STANDALONE only, a verified login with Masters
+// edit access, and one selected factory. Returns the factory id, or null after replying.
+function guardShiftingLocationWrite(req, res) {
+  if (isLocalServer()) {
+    res.status(403).json({ ok: false, error: 'Shifting locations can only be changed on the MAIN server. This factory server receives them automatically via sync.' });
+    return null;
+  }
+  const auth = req.auth;
+  if (!auth) {
+    res.status(401).json({ ok: false, error: 'Please log in again to use this feature.' });
+    return null;
+  }
+  if (!userCanEditMasters({ role_code: auth.role, permissions: auth.permissions })) {
+    res.status(403).json({ ok: false, error: 'Masters edit permission required.' });
+    return null;
+  }
+  const factoryId = normalizeFactoryId(getFactoryId(req));
+  if (!factoryId) {
+    res.status(400).json({ ok: false, error: 'Select one factory first. Shifting locations are kept per factory.' });
+    return null;
+  }
+  return factoryId;
+}
+
+function cleanShiftingLocationName(value) {
+  return String(value ?? '').replace(/\s+/g, ' ').trim().slice(0, 60);
+}
+
+// Canonical name of an active location for a shift entry; throws a 400 otherwise.
+async function resolveShiftingLocation(factoryId, raw) {
+  const wanted = cleanShiftingLocationName(raw).toLowerCase();
+  const { items } = await listShiftingLocations(factoryId);
+  const hit = items.find(r => r.is_active !== false && String(r.name || '').trim().toLowerCase() === wanted);
+  if (!hit) throw shiftingHttpError(400, `"${cleanShiftingLocationName(raw)}" is not an active shifting location. Refresh the page and pick one from the list.`);
+  return hit.name;
+}
+
+async function findShiftingLocationNameClash(factoryId, name, exceptId = null) {
+  const rows = await q(
+    `SELECT id, is_active FROM shifting_locations
+      WHERE factory_id = $1 AND LOWER(TRIM(name)) = LOWER($2) AND ($3::int IS NULL OR id <> $3)
+      LIMIT 1`,
+    [factoryId, name, exceptId]
+  );
+  return rows[0] || null;
+}
+
+// GET /api/shifting/locations — active destination names (data) for the shifting pages.
+// ?all=1 also returns inactive ones; items carries id/sort_order/is_active for the master.
 app.get('/api/shifting/locations', async (req, res) => {
   try {
-    const locs = ['Moulding Itself', 'Shifting Wip', 'Shopfloor Wip', 'Printing', 'Tuffting', 'Packing'];
-    res.json({ ok: true, data: locs });
+    const includeInactive = ['1', 'true', 'yes'].includes(String(req.query.all || '').toLowerCase());
+    const { source, items } = await listShiftingLocations(getFactoryId(req), { includeInactive });
+    res.json({
+      ok: true,
+      data: items.filter(r => r.is_active !== false).map(r => r.name),
+      items,
+      source,
+      editable: !isLocalServer()
+    });
+  } catch (e) {
+    sendServerError(res, e);
+  }
+});
+
+// POST /api/shifting/locations — add a destination { name, sort_order? }
+app.post('/api/shifting/locations', async (req, res) => {
+  try {
+    const factoryId = guardShiftingLocationWrite(req, res);
+    if (!factoryId) return;
+    const name = cleanShiftingLocationName(req.body?.name);
+    if (!name) return res.status(400).json({ ok: false, error: 'Enter a location name.' });
+
+    await listShiftingLocations(factoryId); // make sure the factory's defaults exist first
+    const clash = await findShiftingLocationNameClash(factoryId, name);
+    if (clash) {
+      return res.status(409).json({
+        ok: false,
+        error: clash.is_active === false
+          ? `"${name}" already exists but is inactive. Edit it and mark it Active instead.`
+          : `"${name}" already exists.`
+      });
+    }
+
+    let sortOrder = Number.parseInt(req.body?.sort_order, 10);
+    if (!Number.isInteger(sortOrder)) {
+      const max = await q(`SELECT COALESCE(MAX(sort_order), 0) AS m FROM shifting_locations WHERE factory_id = $1`, [factoryId]);
+      sortOrder = Number(max[0]?.m || 0) + 10;
+    }
+    const rows = await q(
+      `INSERT INTO shifting_locations (name, sort_order, is_active, factory_id, created_by, updated_by)
+       VALUES ($1, $2, true, $3, $4, $4)
+       RETURNING id, name, sort_order, is_active`,
+      [name, sortOrder, factoryId, req.auth.username]
+    );
+    syncService.triggerSync();
+    res.json({ ok: true, data: rows[0] });
+  } catch (e) {
+    sendServerError(res, e);
+  }
+});
+
+// PUT /api/shifting/locations/:id — rename / reorder / activate { name?, sort_order?, is_active? }
+app.put('/api/shifting/locations/:id', async (req, res) => {
+  try {
+    const factoryId = guardShiftingLocationWrite(req, res);
+    if (!factoryId) return;
+    const id = Number.parseInt(req.params.id, 10);
+    if (!Number.isInteger(id)) return res.status(400).json({ ok: false, error: 'Invalid location.' });
+
+    const sets = [];
+    const params = [];
+    if (req.body?.name !== undefined) {
+      const name = cleanShiftingLocationName(req.body.name);
+      if (!name) return res.status(400).json({ ok: false, error: 'Enter a location name.' });
+      if (await findShiftingLocationNameClash(factoryId, name, id)) {
+        return res.status(409).json({ ok: false, error: `"${name}" already exists.` });
+      }
+      params.push(name); sets.push(`name = $${params.length}`);
+    }
+    if (req.body?.sort_order !== undefined) {
+      const sortOrder = Number.parseInt(req.body.sort_order, 10);
+      if (!Number.isInteger(sortOrder)) return res.status(400).json({ ok: false, error: 'Order must be a whole number.' });
+      params.push(sortOrder); sets.push(`sort_order = $${params.length}`);
+    }
+    if (req.body?.is_active !== undefined) {
+      params.push(req.body.is_active === true || req.body.is_active === 'true'); sets.push(`is_active = $${params.length}`);
+    }
+    if (!sets.length) return res.json({ ok: true });
+
+    params.push(req.auth.username); sets.push(`updated_by = $${params.length}`);
+    sets.push('updated_at = NOW()');
+    params.push(id, factoryId);
+    const rows = await q(
+      `UPDATE shifting_locations SET ${sets.join(', ')}
+        WHERE id = $${params.length - 1} AND factory_id = $${params.length}
+        RETURNING id, name, sort_order, is_active`,
+      params
+    );
+    if (!rows.length) return res.status(404).json({ ok: false, error: 'Location not found for this factory.' });
+    syncService.triggerSync();
+    res.json({ ok: true, data: rows[0] });
+  } catch (e) {
+    sendServerError(res, e);
+  }
+});
+
+// DELETE /api/shifting/locations/:id — deactivate (soft delete). Past shifting records
+// keep the name they were saved with; an inactive location is just no longer offered.
+app.delete('/api/shifting/locations/:id', async (req, res) => {
+  try {
+    const factoryId = guardShiftingLocationWrite(req, res);
+    if (!factoryId) return;
+    const id = Number.parseInt(req.params.id, 10);
+    if (!Number.isInteger(id)) return res.status(400).json({ ok: false, error: 'Invalid location.' });
+    const active = await q(`SELECT COUNT(*)::int AS n FROM shifting_locations WHERE factory_id = $1 AND is_active IS NOT FALSE AND id <> $2`, [factoryId, id]);
+    if (!active[0]?.n) return res.status(400).json({ ok: false, error: 'Keep at least one active location.' });
+    const rows = await q(
+      `UPDATE shifting_locations SET is_active = false, updated_by = $1, updated_at = NOW()
+        WHERE id = $2 AND factory_id = $3
+        RETURNING id`,
+      [req.auth.username, id, factoryId]
+    );
+    if (!rows.length) return res.status(404).json({ ok: false, error: 'Location not found for this factory.' });
+    syncService.triggerSync();
+    res.json({ ok: true });
   } catch (e) {
     sendServerError(res, e);
   }
@@ -9999,9 +10232,9 @@ app.post('/api/shifting/entry', async (req, res) => {
     const { planId, toLocation, date, shift, supervisor } = req.body || {};
     const factoryId = getFactoryId(req);
     const quantity = Number(req.body?.quantity);
-    const location = normalizeOptionalText(toLocation);
+    const requestedLocation = normalizeOptionalText(toLocation);
 
-    if (!planId || !location) return res.status(400).json({ ok: false, error: 'Select the job and destination.' });
+    if (!planId || !requestedLocation) return res.status(400).json({ ok: false, error: 'Select the job and destination.' });
     if (!Number.isInteger(quantity) || quantity <= 0) {
       return res.status(400).json({ ok: false, error: 'Enter a whole quantity greater than 0.' });
     }
@@ -10021,6 +10254,7 @@ app.post('/api/shifting/entry', async (req, res) => {
     const planPk = String(plan.id);
     const planCode = String(plan.plan_id || '').trim();
     const planFactoryId = normalizeFactoryId(plan.factory_id) ?? factoryId ?? null;
+    const location = await resolveShiftingLocation(planFactoryId, requestedLocation);
 
     const inserted = await withShiftingLock(`plan:${planPk}`, async (client) => {
       const hold = await findActiveShiftingQcHold({ planPk: plan.id, machine: plan.machine, factoryId: planFactoryId });
@@ -10102,6 +10336,7 @@ app.post('/api/shifting/scan-entry', async (req, res) => {
       if (context.already_shifted) throw shiftingHttpError(409, 'This printed label is already shifted.');
       if (context.qc_hold) throw shiftingHttpError(409, context.qc_hold_message);
       if (!context.plan_db_id) throw shiftingHttpError(400, 'Linked plan was not resolved for this label.');
+      const destination = await resolveShiftingLocation(context.factory_id || factoryId, toLocation);
 
       const quantity = Math.max(0, Number(req.body?.quantity || context.label_pending_qty || 0));
       const weightKg = Math.max(0, Number(req.body?.weightKg ?? req.body?.weight ?? 0));
@@ -10129,7 +10364,7 @@ app.post('/api/shifting/scan-entry', async (req, res) => {
           context.machine_name || null,
           context.plan_db_id,
           quantity,
-          toLocation,
+          destination,
           shiftDate,
           shiftType,
           supervisor,

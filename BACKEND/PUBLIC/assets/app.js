@@ -1364,7 +1364,8 @@ function escHtml(value) {
         { id: 'master_boplanning_detail', label: 'BO Planning Detail', icon: 'bi-clipboard-data', href: 'masters.html?type=boplanningdetail' },
                 { id: 'master_wip_stock', label: 'WIP Stock', icon: 'bi-box-seam-fill', href: 'masters.html?type=wipstock' },
                 { id: 'master_mould', label: 'Mould Master', icon: 'bi-gem', href: 'masters.html?type=moulds' },
-                { id: 'master_labour_parties', label: 'Labour Parties', icon: 'bi-people-fill', href: 'masters.html?type=labour-parties' }
+                { id: 'master_labour_parties', label: 'Labour Parties', icon: 'bi-people-fill', href: 'masters.html?type=labour-parties' },
+                { id: 'master_shifting_locations', label: 'Shifting Locations', icon: 'bi-geo-alt', href: 'masters.html?type=shifting-locations' }
             ]
         },
         {
