@@ -4,6 +4,7 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.jmsocean.shifting.ShiftingApp
+import com.jmsocean.shifting.data.remote.Availability
 import com.jmsocean.shifting.data.remote.JobDetail
 import com.jmsocean.shifting.ui.common.qty
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -16,6 +17,7 @@ data class JobDetailUiState(
     val loading: Boolean = true,
     val error: String? = null,
     val job: JobDetail? = null,
+    val avail: Availability? = null,
     val locations: List<String> = emptyList(),
     val location: String = "",
     val quantity: String = "",
@@ -47,6 +49,7 @@ class JobDetailViewModel(savedState: SavedStateHandle) : ViewModel() {
     fun load() {
         _state.update { it.copy(loading = true, error = null) }
         viewModelScope.launch {
+            repo.availability(planId).onSuccess { a -> _state.update { it.copy(avail = a) } }
             repo.jobDetail(planId)
                 .onSuccess { j -> _state.update { it.copy(loading = false, job = j) } }
                 .onFailure { e -> _state.update { it.copy(loading = false, error = e.message ?: "Could not load job") } }

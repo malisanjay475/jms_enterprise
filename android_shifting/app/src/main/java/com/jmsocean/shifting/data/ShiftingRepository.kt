@@ -2,6 +2,8 @@ package com.jmsocean.shifting.data
 
 import com.jmsocean.shifting.data.remote.ApiEnvelope
 import com.jmsocean.shifting.data.remote.AvailColour
+import com.jmsocean.shifting.data.remote.AvailEntry
+import com.jmsocean.shifting.data.remote.LocQty
 import com.jmsocean.shifting.data.remote.Availability
 import com.jmsocean.shifting.data.remote.ColourRow
 import com.jmsocean.shifting.data.remote.Job
@@ -234,7 +236,15 @@ class ShiftingRepository(private val session: SessionStore) {
                 AvailColour(
                     colour = c.str("colour"), planQty = c.num("plan_qty"), produced = c.num("produced"),
                     verified = c.num("verified"), notVerified = c.num("not_verified"),
-                    shifted = c.num("shifted"), ready = c.num("ready")
+                    shifted = c.num("shifted"), ready = c.num("ready"),
+                    byLocation = c.arr("by_location").map { LocQty(it.str("location"), it.num("qty")) }
+                )
+            },
+            byLocation = t.arr("by_location").map { LocQty(it.str("location"), it.num("qty")) },
+            recent = o.arr("recent").map {
+                AvailEntry(
+                    qty = it.num("qty"), kg = it.num("kg"), location = it.str("location"), colour = it.str("colour"),
+                    by = it.str("by"), label = it.str("label"), at = it.str("at")
                 )
             }
         )

@@ -205,7 +205,10 @@ data class Availability(
     val holdQty: Double,
     val holdCount: Int,
     val holdReasons: List<String>,
-    val colours: List<AvailColour>
+    val colours: List<AvailColour>,
+    /** Shifted qty per destination (whole job). */
+    val byLocation: List<LocQty> = emptyList(),
+    val recent: List<AvailEntry> = emptyList()
 ) {
     val maxShiftQty: Double get() = if (verificationEnforced) ready else (produced - shifted).coerceAtLeast(0.0)
 }
@@ -217,7 +220,20 @@ data class AvailColour(
     val verified: Double,
     val notVerified: Double,
     val shifted: Double,
-    val ready: Double
+    val ready: Double,
+    val byLocation: List<LocQty> = emptyList()
+)
+
+data class LocQty(val location: String, val qty: Double)
+
+data class AvailEntry(
+    val qty: Double,
+    val kg: Double,
+    val location: String,
+    val colour: String,
+    val by: String,
+    val label: String,
+    val at: String
 )
 
 data class ShiftEntry(

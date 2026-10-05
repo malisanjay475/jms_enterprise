@@ -74,6 +74,7 @@ import com.jmsocean.shifting.data.ScanFeedback
 import com.jmsocean.shifting.data.ShiftClock
 import com.jmsocean.shifting.data.remote.LabelInfo
 import com.jmsocean.shifting.ui.common.AppTopBar
+import com.jmsocean.shifting.ui.common.JobAvailabilityCard
 import com.jmsocean.shifting.ui.common.MetricRow
 import com.jmsocean.shifting.ui.common.Pill
 import com.jmsocean.shifting.ui.common.PickerField
@@ -171,6 +172,7 @@ fun ScanScreen(onMenu: () -> Unit, vm: ScanViewModel = viewModel()) {
 
             s.label?.let { label ->
                 LabelCard(label)
+                s.jobAvail?.let { JobAvailabilityCard(it) }
                 if (!label.blocked) {
                     ShiftForm(
                         s = s,

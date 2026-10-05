@@ -41,6 +41,7 @@ import com.jmsocean.shifting.data.ShiftClock
 import com.jmsocean.shifting.data.remote.ShiftEntry
 import com.jmsocean.shifting.ui.common.AppTopBar
 import com.jmsocean.shifting.ui.common.ErrorCard
+import com.jmsocean.shifting.ui.common.JobAvailabilityCard
 import com.jmsocean.shifting.ui.common.MetricRow
 import com.jmsocean.shifting.ui.common.qty
 import com.jmsocean.shifting.ui.theme.Crit
@@ -129,26 +130,7 @@ fun JobDetailScreen(onBack: () -> Unit, vm: JobDetailViewModel = viewModel()) {
                 }
             }
 
-            if (job.colours.isNotEmpty()) {
-                Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
-                    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("Colours", fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                        job.colours.forEach { c ->
-                            Row(Modifier.fillMaxWidth()) {
-                                Column(Modifier.weight(1f)) {
-                                    Text(c.colour.ifBlank { "—" }, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                                    if (c.itemName.isNotBlank()) Text(c.itemName, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                }
-                                Column {
-                                    Text("Shifted ${qty(c.shiftedQty)} / ${qty(c.planQty)}", fontSize = 12.sp)
-                                    Text("On floor ${qty(c.floorBalanceQty)}", fontSize = 12.sp, color = if (c.floorBalanceQty > 0) Warn else MaterialTheme.colorScheme.onSurfaceVariant)
-                                }
-                            }
-                            HorizontalDivider()
-                        }
-                    }
-                }
-            }
+            s.avail?.let { JobAvailabilityCard(it) }
 
             if (job.recent.isNotEmpty()) {
                 Text("Recent shifts", fontWeight = FontWeight.Bold, fontSize = 15.sp)
