@@ -11,8 +11,22 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.94.0",
+  "latest": "1.95.0",
   "versions": [
+    {
+      "version": "1.95.0",
+      "date": "2026-10-05",
+      "title": "Shift only produced and QC-verified pieces",
+      "modules": [
+        {
+          "app": "shifting_supervisor_app",
+          "changes": [
+            { "type": "feat", "text": "A label or manual shift is blocked when nothing is produced in DPR for that job or colour." },
+            { "type": "feat", "text": "Only QC-verified pieces can be shifted; the app shows produced, QC verified, not verified, on hold and ready to shift per job and colour, with OR number and party." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.94.0",
       "date": "2026-10-05",

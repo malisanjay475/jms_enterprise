@@ -14,6 +14,15 @@ part of your PR. On release, the `[Unreleased]` items move under the new version
 ## [Unreleased]
 
 ### Added
+- Shifting: produced + QC-verified only (v1.95.0): `shiftingAvailabilityMap` (DPR good qty,
+  QC-verified share per machine/date/shift/hour from `qc_verifications`, shifted, ready),
+  `GET /api/shifting/availability?plan_id` (job info, party, totals, colour-wise, holds).
+  `scan-entry` / `entry` refuse NOT PRODUCED and more than the verified-ready qty
+  (verification enforced only where recent `qc_verifications` exist, i.e. factory LOCAL).
+  `scan-label` returns colour produced/verified/ready + `block_code`/`block_message`;
+  `/api/shifting/jobs` adds verified, not verified, ready, hold and client.
+
+### Added
 - Shifting v2 backend + web (v1.94.0):
   - `shifting_line_teams` (Shifting Supervisor + Incharge per line/date/shift) with
     `GET/POST /api/shifting/line-team`; replicates LOCAL -> MAIN like `qc_line_teams`

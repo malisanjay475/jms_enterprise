@@ -9797,6 +9797,26 @@ async function getShiftingLabelContext(rawScanValue, factoryId) {
     already_shifted: labelShiftedQty >= Math.max(labelQty, 0.0001),
     // kg per piece from the Mould Master (std_wt_kg); 0 when the mould has no weight.
     unit_weight_kg: unitWeightKg,
+    // Produced / QC verified / ready of the job and of the scanned colour, and why the
+    // label can't be shifted now (NOT_PRODUCED / NOT_VERIFIED), if so.
+    ...(await (async () => {
+      const avail = await shiftingAvailabilityMap([{ pk: resolvedPlanPk, code: resolvedPlanCode }], resolvedFactoryId);
+      const agg = avail.get(String(resolvedPlanPk)) || { produced: 0, verified: 0, not_verified: 0, shifted: 0, ready: 0, colours: new Map() };
+      const c = agg.colours.get(shiftingColourKey(label.colour)) || { produced: 0, verified: 0, not_verified: 0, shifted: 0, ready: 0 };
+      const block = await shiftingBlockReason({
+        planPk: resolvedPlanPk, planCode: resolvedPlanCode, colour: label.colour,
+        quantity: Math.min(Math.max(labelQty - labelShiftedQty, 0), 1), factoryId: resolvedFactoryId
+      });
+      const holdQty = (await shiftingHoldsByMachine([plan.machine || label.machine_name], resolvedFactoryId)).get(String(plan.machine || label.machine_name || '').trim());
+      return {
+        job_verified_qty: agg.verified, job_not_verified_qty: agg.not_verified, job_ready_qty: agg.ready,
+        colour_produced_qty: c.produced, colour_verified_qty: c.verified, colour_not_verified_qty: c.not_verified,
+        colour_ready_qty: c.ready,
+        hold_qty: holdQty ? holdQty.qty : 0,
+        block_code: block ? block.code : '',
+        block_message: block ? block.message : ''
+      };
+    })()),
     qc_hold: qcHold,
     qc_hold_message: qcHold ? describeShiftingQcHold(qcHold) : '',
     printed_by: label.printed_by || '',
@@ -10008,9 +10028,29 @@ app.get('/api/shifting/jobs', async (req, res) => {
     // Running first in the standard machine order (Line, then machine number); then
     // completed jobs, latest production first.
     const jobWeights = await shiftingUnitWeights(plans.flatMap(p => [p.mould_name, p.mould_code]), factoryId);
+    const [jobAvail, jobHolds, verifyEnforced, clientRows] = await Promise.all([
+      shiftingAvailabilityMap(plans.map(p => ({ pk: p.plan_id, code: p.plan_code })), factoryId),
+      shiftingHoldsByMachine(plans.map(p => p.machine), factoryId),
+      shiftingVerificationEnforced(factoryId),
+      orders.length
+        ? q(`SELECT DISTINCT ON (TRIM(COALESCE(or_jr_no, ''))) TRIM(COALESCE(or_jr_no, '')) AS order_no, client_name
+               FROM or_jr_report
+              WHERE TRIM(COALESCE(or_jr_no, '')) = ANY($1::text[]) AND COALESCE(TRIM(client_name), '') <> ''
+              ORDER BY TRIM(COALESCE(or_jr_no, '')), job_card_date DESC NULLS LAST, id DESC`, [orders])
+        : []
+    ]);
+    const clientByOrder = new Map(clientRows.map(r => [r.order_no, r.client_name]));
     const lineByMachine = new Map(machineRows.map(m => [String(m.machine || '').trim(), String(m.line || '').trim()]));
     rows.forEach(r => {
       r.unit_weight_kg = [r.mould_name, r.mould_code].map(m => jobWeights.get(shiftingMouldKey(m))).find(w => w > 0) || 0;
+      const av = jobAvail.get(String(r.plan_id));
+      r.total_verified = av ? av.verified : 0;
+      r.total_not_verified = av ? av.not_verified : 0;
+      r.ready_qty = av ? av.ready : 0;
+      r.verification_enforced = verifyEnforced;
+      r.hold_qty = (jobHolds.get(String(r.machine || '').trim()) || {}).qty || 0;
+      r.on_hold = jobHolds.has(String(r.machine || '').trim());
+      r.client_name = clientByOrder.get(String(r.order_no || '').trim()) || '';
       if (!String(r.line || '').trim()) r.line = lineByMachine.get(String(r.machine || '').trim()) || '';
     });
 
@@ -10325,6 +10365,8 @@ app.post('/api/shifting/entry', async (req, res) => {
       if (quantity > balance) {
         throw shiftingHttpError(400, `Cannot shift ${quantity}: only ${balance} left on the shop floor (produced ${produced}, already shifted ${shifted}).`);
       }
+      const block = await shiftingBlockReason({ planPk: plan.id, planCode, colour: '', quantity, factoryId: planFactoryId });
+      if (block) throw shiftingHttpError(block.status, block.message);
 
       const result = await client.query(
         `INSERT INTO shifting_records (
@@ -10397,6 +10439,12 @@ app.post('/api/shifting/scan-entry', async (req, res) => {
       if (quantity > Math.max(0, Number(context.label_pending_qty || 0))) {
         throw shiftingHttpError(400, `Shift quantity cannot be more than the label's remaining quantity (${context.label_pending_qty}).`);
       }
+      // Only produced and QC-verified pieces may leave the shop floor.
+      const block = await shiftingBlockReason({
+        planPk: context.plan_db_id, planCode: context.plan_code, colour: context.colour,
+        quantity, factoryId: context.factory_id || factoryId
+      });
+      if (block) throw shiftingHttpError(block.status, block.message);
 
       const result = await client.query(
         `INSERT INTO shifting_records (
@@ -10472,6 +10520,232 @@ async function shiftingUnitWeights(mouldNames, factoryId) {
   });
   return map;
 }
+
+// ── Shifting availability: produced / QC verified / shifted / ready per job + colour ──
+// Only QC-verified pieces may be shifted. A DPR hour counts as verified when the QC app
+// saved a "Verified" check for that machine/date/shift/hour (qc_verifications is UNIQUE on
+// those); its QC good qty is shared over the hour's DPR rows in proportion to their good
+// qty. "Ready" = verified - already shifted. qc_verifications is written on the factory
+// LOCAL and does not sync, so a server without any recent verification data (MAIN) only
+// enforces the "not produced" rule — see shiftingVerificationEnforced().
+function shiftingColourKey(v) { return String(v || '').trim().toLowerCase(); }
+
+let _shiftVerifyCache = { at: 0, factory: null, value: false };
+async function shiftingVerificationEnforced(factoryId) {
+  const fid = normalizeFactoryId(factoryId) ?? null;
+  if (_shiftVerifyCache.factory === fid && Date.now() - _shiftVerifyCache.at < 5 * 60000) return _shiftVerifyCache.value;
+  const rows = await q(
+    `SELECT 1 FROM qc_verifications
+      WHERE dpr_date >= CURRENT_DATE - 3
+        AND ($1::int IS NULL OR factory_id = $1 OR factory_id IS NULL)
+      LIMIT 1`,
+    [fid]
+  ).catch(() => []);
+  _shiftVerifyCache = { at: Date.now(), factory: fid, value: rows.length > 0 };
+  return _shiftVerifyCache.value;
+}
+
+/**
+ * Availability of the given plans. `plans` = [{ pk, code }]. Returns
+ * Map<String(pk), { produced, verified, not_verified, shifted, ready, colours: Map<ck, {...}> }>.
+ */
+async function shiftingAvailabilityMap(plans, factoryId) {
+  const list = (plans || []).filter(p => p && (p.pk != null || p.code));
+  const out = new Map();
+  if (!list.length) return out;
+  const fid = normalizeFactoryId(factoryId) ?? null;
+  const keyByRef = new Map();
+  list.forEach(p => {
+    const pk = String(p.pk ?? '').trim();
+    const code = String(p.code || '').trim();
+    if (pk) keyByRef.set(pk, pk);
+    if (code) keyByRef.set(code, pk || code);
+    out.set(pk || code, { produced: 0, verified: 0, not_verified: 0, shifted: 0, ready: 0, colours: new Map() });
+  });
+  const refs = [...keyByRef.keys()];
+  const pkInts = list.map(p => Number(p.pk)).filter(Number.isInteger);
+
+  const [dprRows, shiftRows] = await Promise.all([
+    q(`SELECT TRIM(CAST(d.plan_id AS TEXT)) AS ref, TRIM(COALESCE(d.colour, '')) AS colour,
+              COALESCE(SUM(d.good_qty), 0) AS produced,
+              COALESCE(SUM(CASE WHEN qv.status = 'Verified'
+                                THEN d.good_qty * LEAST(1.0, COALESCE(qv.qc_good_qty::numeric / NULLIF(qv.sup_good_qty, 0), 1.0))
+                                ELSE 0 END), 0) AS verified,
+              COALESCE(SUM(CASE WHEN qv.status = 'Verified' THEN 0 ELSE d.good_qty END), 0) AS not_verified
+         FROM dpr_hourly d
+         LEFT JOIN LATERAL (
+           SELECT status, qc_good_qty, sup_good_qty FROM qc_verifications v
+            WHERE v.machine = d.machine AND v.dpr_date = d.dpr_date
+              AND v.shift = d.shift AND v.hour_slot = d.hour_slot
+            ORDER BY v.id DESC LIMIT 1
+         ) qv ON true
+        WHERE TRIM(CAST(d.plan_id AS TEXT)) = ANY($1::text[])
+          AND d.is_deleted IS NOT TRUE
+          AND ($2::int IS NULL OR d.factory_id = $2 OR d.factory_id IS NULL)
+        GROUP BY 1, 2`, [refs, fid]),
+    pkInts.length
+      ? q(`SELECT CAST(plan_id AS TEXT) AS ref, TRIM(COALESCE(colour, '')) AS colour, COALESCE(SUM(quantity), 0) AS shifted
+             FROM shifting_records
+            WHERE plan_id = ANY($1::int[])
+              AND ($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL)
+            GROUP BY 1, 2`, [pkInts, fid])
+      : []
+  ]);
+
+  const colourOf = (agg, colour) => {
+    const ck = shiftingColourKey(colour);
+    if (!agg.colours.has(ck)) agg.colours.set(ck, { colour: String(colour || '').trim(), produced: 0, verified: 0, not_verified: 0, shifted: 0, ready: 0 });
+    return agg.colours.get(ck);
+  };
+  dprRows.forEach(r => {
+    const agg = out.get(keyByRef.get(r.ref));
+    if (!agg) return;
+    const c = colourOf(agg, r.colour);
+    const produced = Number(r.produced) || 0;
+    const verified = Math.floor(Number(r.verified) || 0);
+    const notVerified = Number(r.not_verified) || 0;
+    c.produced += produced; c.verified += verified; c.not_verified += notVerified;
+    agg.produced += produced; agg.verified += verified; agg.not_verified += notVerified;
+  });
+  shiftRows.forEach(r => {
+    const agg = out.get(keyByRef.get(r.ref));
+    if (!agg) return;
+    const shifted = Number(r.shifted) || 0;
+    agg.shifted += shifted;
+    // Manual entries carry no colour: they only reduce the job total.
+    if (String(r.colour || '').trim()) colourOf(agg, r.colour).shifted += shifted;
+  });
+  out.forEach(agg => {
+    agg.ready = Math.max(agg.verified - agg.shifted, 0);
+    agg.colours.forEach(c => { c.ready = Math.max(c.verified - c.shifted, 0); });
+  });
+  return out;
+}
+
+/** Active QC holds (qty + reasons) on these machines. Map<machine, { qty, count, reasons[] }>. */
+async function shiftingHoldsByMachine(machines, factoryId) {
+  const ms = [...new Set((machines || []).map(m => String(m || '').trim()).filter(Boolean))];
+  const map = new Map();
+  if (!ms.length) return map;
+  const rows = await q(
+    `SELECT TRIM(machine) AS machine, COALESCE(qty_on_hold, 0) AS qty, reason, job_card_no
+       FROM qc_holds
+      WHERE UPPER(COALESCE(status, 'ACTIVE')) = 'ACTIVE' AND TRIM(machine) = ANY($1::text[])
+        AND ($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL)`,
+    [ms, normalizeFactoryId(factoryId) ?? null]
+  );
+  rows.forEach(r => {
+    const h = map.get(r.machine) || { qty: 0, count: 0, reasons: [] };
+    h.qty += Number(r.qty) || 0; h.count += 1;
+    if (r.reason) h.reasons.push(r.reason);
+    map.set(r.machine, h);
+  });
+  return map;
+}
+
+/**
+ * Why `quantity` pcs of this plan (optionally one colour) may not be shifted, or null.
+ * Returns { status, code, message }: NOT_PRODUCED / NOT_VERIFIED.
+ */
+async function shiftingBlockReason({ planPk, planCode, colour, quantity, factoryId }) {
+  const map = await shiftingAvailabilityMap([{ pk: planPk, code: planCode }], factoryId);
+  const agg = map.get(String(planPk ?? '').trim() || String(planCode || '').trim());
+  if (!agg) return null;
+  const ck = shiftingColourKey(colour);
+  const c = ck ? agg.colours.get(ck) : null;
+  const scope = c ? `colour ${c.colour}` : (ck ? `colour ${String(colour).trim()}` : 'this job');
+  const produced = ck ? (c ? c.produced : 0) : agg.produced;
+  if (produced <= 0) {
+    return { status: 409, code: 'NOT_PRODUCED', message: `NOT PRODUCED: no production is entered in DPR for ${scope}. It cannot be shifted.` };
+  }
+  if (!(await shiftingVerificationEnforced(factoryId))) return null;
+  const ready = ck ? (c ? c.ready : 0) : agg.ready;
+  const qty = Number(quantity) || 0;
+  if (qty > ready) {
+    const verified = ck ? c.verified : agg.verified;
+    const notVerified = ck ? c.not_verified : agg.not_verified;
+    return {
+      status: 409,
+      code: 'NOT_VERIFIED',
+      message: ready <= 0
+        ? `NOT QC VERIFIED: ${scope} has no QC-verified pieces left to shift (produced ${produced}, verified ${verified}, not verified ${notVerified}). Wait for QC.`
+        : `NOT QC VERIFIED: only ${ready} QC-verified pcs of ${scope} are ready to shift (not verified ${notVerified}).`
+    };
+  }
+  return null;
+}
+
+// GET /api/shifting/availability?plan_id=…  — one job: info, totals, colour-wise breakdown,
+// QC holds. Used by the Shifting app (Manual + Scan) to show what is ready to shift.
+app.get('/api/shifting/availability', async (req, res) => {
+  try {
+    const factoryId = getFactoryId(req);
+    const ref = String(req.query.plan_id || '').trim();
+    if (!ref) return res.status(400).json({ ok: false, error: 'plan_id required' });
+    const planRows = await q(
+      `SELECT pb.id, pb.plan_id, pb.machine, pb.line, pb.order_no, pb.item_name, pb.mould_name,
+              pb.plan_qty, pb.status, pb.colour_details, pb.factory_id
+         FROM plan_board pb
+        WHERE (CAST(pb.id AS TEXT) = $1 OR TRIM(COALESCE(pb.plan_id, '')) = $1)
+          AND ($2::int IS NULL OR pb.factory_id = $2 OR pb.factory_id IS NULL)
+        ORDER BY pb.id DESC LIMIT 1`,
+      [ref, factoryId]
+    );
+    const plan = planRows[0];
+    if (!plan) return res.status(404).json({ ok: false, error: 'Job not found.' });
+    const fid = normalizeFactoryId(plan.factory_id) ?? factoryId;
+    const [avail, holds, orderRows, enforced] = await Promise.all([
+      shiftingAvailabilityMap([{ pk: plan.id, code: plan.plan_id }], fid),
+      shiftingHoldsByMachine([plan.machine], fid),
+      q(`SELECT ojr.job_card_no, COALESCE(ojr.client_name, o.client_name) AS client_name
+           FROM (SELECT $1::text AS order_no) x
+           LEFT JOIN LATERAL (SELECT job_card_no, client_name FROM or_jr_report
+                               WHERE TRIM(COALESCE(or_jr_no, '')) = x.order_no
+                               ORDER BY job_card_date DESC NULLS LAST, id DESC LIMIT 1) ojr ON true
+           LEFT JOIN LATERAL (SELECT client_name FROM orders WHERE order_no = x.order_no LIMIT 1) o ON true`,
+        [String(plan.order_no || '').trim()]),
+      shiftingVerificationEnforced(fid)
+    ]);
+    const agg = avail.get(String(plan.id)) || { produced: 0, verified: 0, not_verified: 0, shifted: 0, ready: 0, colours: new Map() };
+    const hold = holds.get(String(plan.machine || '').trim()) || null;
+    const weights = await shiftingUnitWeights([plan.mould_name], fid);
+    // Colour plan quantities from the plan's colour split, matched case-insensitively.
+    const planByColour = new Map();
+    try {
+      buildShiftColourSummary(plan.colour_details, { item_name: plan.item_name || '', mould_name: plan.mould_name || '', plan_qty: Number(plan.plan_qty || 0) })
+        .forEach(r => planByColour.set(shiftingColourKey(r.colour), Number(r.plan_qty || 0)));
+    } catch (_) { /* no colour split */ }
+    // DPR colour names are the real ones; the plan's colour split (often short codes) is
+    // only listed while nothing is produced yet.
+    const colourKeys = agg.colours.size ? [...agg.colours.keys()] : [...planByColour.keys()];
+    res.json({
+      ok: true,
+      data: {
+        plan_id: String(plan.id),
+        plan_code: plan.plan_id || '',
+        machine: plan.machine || '',
+        line: plan.line || '',
+        status: plan.status || '',
+        order_no: plan.order_no || '',
+        jc_no: orderRows[0]?.job_card_no || '',
+        client_name: orderRows[0]?.client_name || '',
+        item_name: plan.item_name || '',
+        mould_name: plan.mould_name || '',
+        plan_qty: Number(plan.plan_qty || 0),
+        unit_weight_kg: weights.get(shiftingMouldKey(plan.mould_name)) || 0,
+        verification_enforced: enforced,
+        totals: { produced: agg.produced, verified: agg.verified, not_verified: agg.not_verified, shifted: agg.shifted, ready: agg.ready },
+        hold: hold ? { qty: hold.qty, count: hold.count, reasons: hold.reasons } : null,
+        colours: colourKeys.map(k => {
+          const c = agg.colours.get(k) || { colour: '', produced: 0, verified: 0, not_verified: 0, shifted: 0, ready: 0 };
+          return { ...c, colour: c.colour || k, plan_qty: planByColour.get(k) || 0 };
+        })
+      }
+    });
+  } catch (e) {
+    sendServerError(res, e);
+  }
+});
 
 // ── SHIFTING LINE TEAM (Shifting Supervisor + Shifting Incharge per line) ───
 // GET /api/shifting/line-team?date&shift[&line_access] — team of each of the user's
