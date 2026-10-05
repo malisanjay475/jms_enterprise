@@ -196,7 +196,7 @@
             const u = (window.JPSMS && JPSMS.auth && JPSMS.auth.getUser && JPSMS.auth.getUser()) || {};
             const r = String(u.role_code || u.role || '').toLowerCase();
             const adminLike = (JPSMS.auth.isAdminLike ? JPSMS.auth.isAdminLike(u) : (r === 'admin' || r === 'superadmin'));
-            return adminLike || ['planner', 'ppc_ass_manager', 'ppc_manager'].includes(r);
+            return adminLike || ['planner', 'ppc_ass_manager', 'ppc_manager', 'sr_ppc_manager'].includes(r);
         };
 
         // Who may delete an FPA image in the Compliance Summary job modal:

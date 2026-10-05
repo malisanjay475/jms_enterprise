@@ -562,6 +562,7 @@
         // Restore allowed for superadmin + PPC Manager / PPC Ass. Manager.
         const _restoreRole = String(u.role_code || '').toLowerCase();
         const isSuper = _restoreRole === 'superadmin'
+          || _restoreRole === 'sr_ppc_manager'
           || _restoreRole === 'ppc_manager'
           || _restoreRole === 'ppc_ass_manager';
 

@@ -8599,7 +8599,7 @@
             if (window.JPSMS && window.JPSMS.auth && (function () {
               const u = JPSMS.auth.getUser() || {};
               const r = String(u.role_code || u.role || '').toLowerCase();
-              return JPSMS.auth.hasRole('admin') || ['ppc_ass_manager', 'ppc_manager'].includes(r);
+              return JPSMS.auth.hasRole('admin') || ['ppc_ass_manager', 'ppc_manager', 'sr_ppc_manager'].includes(r);
             })()) {
               actionHtml += `
                 <button class="btn icon mini master-action-btn delete" 

@@ -2908,7 +2908,7 @@ function isSuperadminRole(user) {
 // Roles allowed to delete a DPR entry from the DPR Compliance Summary, in
 // addition to admin/superadmin. Keep in sync with the frontend gate
 // (canDeleteDprEntry in dpr.html).
-const DPR_DELETE_ENTRY_ROLES = new Set(['planner', 'ppc_ass_manager', 'ppc_manager']);
+const DPR_DELETE_ENTRY_ROLES = new Set(['planner', 'ppc_ass_manager', 'ppc_manager', 'sr_ppc_manager']);
 function canDeleteDprEntry(user) {
   if (isAdminLikeRole(user)) return true;
   return DPR_DELETE_ENTRY_ROLES.has(String(user?.role_code || '').toLowerCase());
@@ -2916,7 +2916,7 @@ function canDeleteDprEntry(user) {
 
 // Roles allowed to permanently delete a plan from Master Plan, in addition to
 // admin/superadmin. Keep in sync with the frontend gate (planning-script-3.js).
-const PLAN_DELETE_ROLES = new Set(['ppc_ass_manager', 'ppc_manager']);
+const PLAN_DELETE_ROLES = new Set(['ppc_ass_manager', 'ppc_manager', 'sr_ppc_manager']);
 function canDeletePlan(user) {
   if (isAdminLikeRole(user)) return true;
   return PLAN_DELETE_ROLES.has(String(user?.role_code || '').toLowerCase());
@@ -2952,6 +2952,8 @@ function normalizeApprovalRoleCode(value) {
 }
 
 const PPC_APPROVAL_ROLE_CODES = new Set([
+  'sr_ppc_manager',
+  'senior_ppc_manager',
   'ppc_manager',
   'ppc_ass_manager',
   'ppc_assistant_manager',
@@ -2999,7 +3001,7 @@ function getJcApprovalStage(status) {
     code: 'PPC',
     status: 'PENDING',
     label: 'Waiting for PPC Check',
-    roleLabel: 'PPC Manager / PPC Ass. Manager'
+    roleLabel: 'Sr. PPC Manager / PPC Manager / PPC Ass. Manager'
   };
 }
 
@@ -5343,6 +5345,7 @@ async function initializeLegacyRuntime() {
             ('operator', 'Operator'),
             ('supervisor', 'Supervisor'),
             ('planner', 'Planner'),
+            ('sr_ppc_manager', 'Sr. PPC Manager'),
             ('ppc_manager', 'PPC Manager'),
             ('ppc_ass_manager', 'PPC Ass. Manager'),
             ('moulding_manager', 'Moulding Manager'),
@@ -7701,7 +7704,7 @@ async function assertDateEntryAllowed(session, entryDate) {
   // Roles allowed to back-date entries (up to 30 days) regardless of line access,
   // so PPC/Planner/Admin can complete pending back-dated entries. Keep in sync with
   // BACKDATE_ROLES in supervisor-script-1.js.
-  const BACKDATE_ROLES = new Set(['ppc_manager', 'ppc_ass_manager', 'planner', 'admin', 'superadmin']);
+  const BACKDATE_ROLES = new Set(['sr_ppc_manager', 'ppc_manager', 'ppc_ass_manager', 'planner', 'admin', 'superadmin']);
   const uRole = String(rows[0].role_code || '').trim().toLowerCase();
   const allAccess = uLine === 'all' || rows[0].global_access === true || BACKDATE_ROLES.has(uRole);
 
@@ -10252,7 +10255,7 @@ app.post('/api/planning/priority', async (req, res) => {
     // a priority (MC/MP) schedule. Mirrors the frontend gate in etvApplyPriorityRole
     // (planning-script-1.js); enforced here so the button-hiding can't be bypassed.
     const actor = await getRequestActor(req);
-    const PRIORITY_CREATE_ROLES = new Set(['ppc_ass_manager', 'ppc_manager', 'hr_manager', 'general_manager']);
+    const PRIORITY_CREATE_ROLES = new Set(['ppc_ass_manager', 'ppc_manager', 'sr_ppc_manager', 'hr_manager', 'general_manager']);
     const roleOk = actor && (isAdminLikeRole(actor)
       || PRIORITY_CREATE_ROLES.has(String(actor.role_code || '').toLowerCase()));
     if (!roleOk) {
@@ -25463,7 +25466,7 @@ app.get('/api/moulds/history/:id', async (req, res) => {
 // Ordered steps. `roles` = role_codes allowed for that step (admin/superadmin
 // may act on any step). `label` is for messages/audit.
 const MOULD_VERIFY_STEPS = [
-  { key: 'ppc',      col: 'ppc',      label: 'PPC Check',            roles: ['ppc_manager', 'ppc_ass_manager'] },
+  { key: 'ppc',      col: 'ppc',      label: 'PPC Check',            roles: ['sr_ppc_manager', 'ppc_manager', 'ppc_ass_manager'] },
   { key: 'quality',  col: 'quality',  label: 'Quality Check',        roles: ['quality', 'quality_ass__manager'] },
   { key: 'moulding', col: 'moulding', label: 'Moulding Check',       roles: ['moulding_manager', 'moulding_ass_manager'] },
   { key: 'toolroom', col: 'toolroom', label: 'Tool Room Check',      roles: ['toolroom_manager'] },
@@ -27777,7 +27780,7 @@ const MAINT_ALERT_ROLES = {
   machine: ['maintenance_manager', 'maintenance_tech'],
   mould:   ['toolroom_manager', 'maintenance_tech']
 };
-const MAINT_ALWAYS_ROLES = ['ppc_manager', 'ppc_ass_manager', 'planner'];
+const MAINT_ALWAYS_ROLES = ['sr_ppc_manager', 'ppc_manager', 'ppc_ass_manager', 'planner'];
 
 function maintAssetType(v) { return String(v || '').toLowerCase() === 'mould' ? 'mould' : 'machine'; }
 
