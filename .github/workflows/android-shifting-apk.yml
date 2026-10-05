@@ -91,12 +91,12 @@ jobs:
 
       # A release that changes the backend and this app together deploys both at once.
       # Servers older than 1.93.1 ignore app=shifting (they would overwrite the QC feed), and app 1.1+
-      # needs the 1.94.0 endpoints (shift team, weights),
+      # needs the 1.94.0 endpoints (shift team, weights) and app 1.2+ the 1.95.0 ones (availability),
       # so wait (up to 25 min) until MAIN runs a version that has the Shifting feed.
       - name: Wait for MAIN to support the Shifting feed
         if: ${{ github.ref == 'refs/heads/main' && env.HAS_KEYSTORE == 'true' && env.HAS_PUBLISH == 'true' }}
         run: |
-          MIN=1.94.0
+          MIN=1.95.0
           for i in $(seq 1 50); do
             V=$(curl -fsS "$PUBLISH_URL/api/version" | grep -oP '"version"\s*:\s*"\K[0-9.]+' || true)
             if [ -n "$V" ] && [ "$(printf '%s\n%s\n' "$MIN" "$V" | sort -V | head -1)" = "$MIN" ]; then
