@@ -1132,7 +1132,7 @@
     /* ── Create Priority: role gating ───────────────────────────────────
        Visible only to PPC managers, HR manager, General Manager, admin and superadmin. */
     window.etvApplyPriorityRole = function () {
-      const allowed = ['ppc_ass_manager', 'ppc_manager', 'hr_manager', 'general_manager', 'admin', 'superadmin'];
+      const allowed = ['ppc_ass_manager', 'ppc_manager', 'sr_ppc_manager', 'hr_manager', 'general_manager', 'admin', 'superadmin'];
       let show = false;
       try {
         const auth = window.JPSMS && window.JPSMS.auth;

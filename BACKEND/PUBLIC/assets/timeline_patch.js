@@ -742,7 +742,7 @@
     };
 
     /* ── Extra Qty Allowances (PPC override of 10% colour cap) ────────── */
-    const EQA_ROLES = ['planner', 'superadmin', 'admin', 'ppc_manager', 'ppc_ass_manager'];
+    const EQA_ROLES = ['planner', 'superadmin', 'admin', 'sr_ppc_manager', 'ppc_manager', 'ppc_ass_manager'];
     function _eqaUser() {
         try { return (window.JPSMS && window.JPSMS.auth.getUser()) || {}; } catch (_) { return {}; }
     }

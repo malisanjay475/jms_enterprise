@@ -750,7 +750,7 @@
     /* Roles that may back-date entries (up to 30 days) even without all-line access,
        so PPC/Planner/Admin can complete pending back-dated entries. Keep in sync with
        BACKDATE_ROLES in registerLegacyRoutes.js assertDateEntryAllowed(). */
-    const BACKDATE_ROLES = ['ppc_manager', 'ppc_ass_manager', 'planner', 'admin', 'superadmin'];
+    const BACKDATE_ROLES = ['sr_ppc_manager', 'ppc_manager', 'ppc_ass_manager', 'planner', 'admin', 'superadmin'];
     function canBackDate() {
       if (isAllLineAccess()) return true;
       return BACKDATE_ROLES.includes(String(session.role_code || '').trim().toLowerCase());
