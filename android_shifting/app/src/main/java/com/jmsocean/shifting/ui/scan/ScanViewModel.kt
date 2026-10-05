@@ -23,7 +23,16 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 /** Last outcome shown in the coloured banner under the scan box. */
-data class ScanResult(val ok: Boolean, val text: String)
+data class ScanResult(val ok: Boolean, val text: String, val title: String = "")
+
+/** Big heading for a server refusal ("NOT PRODUCED: ..." / "NOT QC VERIFIED: ..." / "QC HOLD ..."). */
+fun blockTitle(message: String): String = when {
+    message.startsWith("NOT PRODUCED", ignoreCase = true) -> "NOT PRODUCED"
+    message.startsWith("NOT QC VERIFIED", ignoreCase = true) -> "NOT QC VERIFIED"
+    message.startsWith("QC HOLD", ignoreCase = true) -> "QC HOLD"
+    message.contains("already shifted", ignoreCase = true) -> "ALREADY SHIFTED"
+    else -> ""
+}
 
 data class ScanUiState(
     val input: String = "",
@@ -135,7 +144,7 @@ class ScanViewModel : ViewModel() {
                 .onSuccess { label ->
                     // Quantity starts at what is left on the label; weight follows from the
                     // mould's standard weight (kg per piece).
-                    val q = label.labelPendingQty.toInt()
+                    val q = label.maxShiftQty.coerceAtLeast(0)
                     _state.update {
                         it.copy(
                             lookingUp = false, label = label, input = "",
@@ -147,11 +156,17 @@ class ScanViewModel : ViewModel() {
                         _feedback.tryEmit(Feedback.ERROR)
                         _state.update {
                             it.copy(
-                                result = ScanResult(
-                                    false,
-                                    if (label.alreadyShifted) "This label is already shifted."
-                                    else label.qcHoldMessage.ifBlank { "This job is on QC hold. Shifting is blocked." }
-                                )
+                                result = when {
+                                    label.alreadyShifted -> ScanResult(false, "This label is already shifted.", "ALREADY SHIFTED")
+                                    label.qcHold != null -> ScanResult(
+                                        false, label.qcHoldMessage.ifBlank { "This job is on QC hold. Shifting is blocked." }, "QC HOLD"
+                                    )
+                                    else -> ScanResult(
+                                        false,
+                                        label.blockMessage.substringAfter(": ", label.blockMessage),
+                                        if (label.blockCode == "NOT_PRODUCED") "NOT PRODUCED" else "NOT QC VERIFIED"
+                                    )
+                                }
                             )
                         }
                     } else {
@@ -162,7 +177,7 @@ class ScanViewModel : ViewModel() {
                 .onFailure { e ->
                     _feedback.tryEmit(Feedback.ERROR)
                     _state.update {
-                        it.copy(lookingUp = false, input = "", result = ScanResult(false, e.message ?: "Could not read this label."))
+                        it.copy(lookingUp = false, input = "", result = ScanResult(false, e.message ?: "Could not read this label.", blockTitle(e.message.orEmpty())))
                     }
                 }
         }
@@ -216,7 +231,7 @@ class ScanViewModel : ViewModel() {
             _feedback.tryEmit(Feedback.ERROR)
             return
         }
-        val max = label.labelPendingQty.toInt()
+        val max = label.maxShiftQty
         val qty = s.quantity.toIntOrNull() ?: 0
         if (qty <= 0) {
             _state.update { it.copy(result = ScanResult(false, "Enter the weight or the quantity.")) }
@@ -224,7 +239,13 @@ class ScanViewModel : ViewModel() {
             return
         }
         if (qty > max) {
-            _state.update { it.copy(result = ScanResult(false, "Only $max pcs are left on this label.")) }
+            _state.update {
+                it.copy(
+                    result = if (max < label.labelPendingQty.toInt())
+                        ScanResult(false, "Only $max QC-verified pcs of this colour are ready to shift.", "NOT QC VERIFIED")
+                    else ScanResult(false, "Only $max pcs are left on this label.")
+                )
+            }
             _feedback.tryEmit(Feedback.ERROR)
             return
         }
@@ -249,7 +270,11 @@ class ScanViewModel : ViewModel() {
                 }
                 .onFailure { e ->
                     _feedback.tryEmit(Feedback.ERROR)
-                    _state.update { it.copy(submitting = false, result = ScanResult(false, e.message ?: "Shift failed.")) }
+                    val msg = e.message ?: "Shift failed."
+                    val title = blockTitle(msg)
+                    _state.update {
+                        it.copy(submitting = false, result = ScanResult(false, if (title.isBlank()) msg else msg.substringAfter(": ", msg), title))
+                    }
                 }
         }
     }

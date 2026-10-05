@@ -22,6 +22,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
@@ -63,6 +64,7 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
@@ -180,8 +182,6 @@ fun ScanScreen(onMenu: () -> Unit, vm: ScanViewModel = viewModel()) {
                         onConfirm = { keyboard?.hide(); vm.confirm() },
                         onCancel = { vm.clear() }
                     )
-                } else {
-                    TextButton(onClick = { vm.clear() }, modifier = Modifier.align(Alignment.CenterHorizontally)) { Text("Scan next label") }
                 }
             }
 
@@ -242,6 +242,22 @@ fun ScanScreen(onMenu: () -> Unit, vm: ScanViewModel = viewModel()) {
 
 @Composable
 private fun ResultBanner(result: ScanResult, onClose: () -> Unit) {
+    if (!result.ok && result.title.isNotBlank()) {
+        // Refusals (not produced / not verified / hold / already shifted) in big letters.
+        Card(colors = CardDefaults.cardColors(containerColor = Crit)) {
+            Column(Modifier.fillMaxWidth().padding(18.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                Icon(Icons.Default.Block, null, tint = Color.White, modifier = Modifier.size(44.dp))
+                Spacer(Modifier.height(6.dp))
+                Text(result.title, color = Color.White, fontWeight = FontWeight.Black, fontSize = 30.sp, lineHeight = 34.sp,
+                    textAlign = TextAlign.Center)
+                Spacer(Modifier.height(6.dp))
+                Text(result.text, color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, textAlign = TextAlign.Center)
+                Spacer(Modifier.height(8.dp))
+                OutlinedButton(onClick = onClose) { Text("Scan next label", color = Color.White, fontWeight = FontWeight.Bold) }
+            }
+        }
+        return
+    }
     val bg = if (result.ok) Good else Crit
     Card(colors = CardDefaults.cardColors(containerColor = bg)) {
         Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -293,10 +309,16 @@ private fun LabelCard(label: LabelInfo) {
                 Triple("Shifted", qty(label.totalShifted), MaterialTheme.colorScheme.primary),
                 Triple("On floor", qty(label.shopFloorQty), if (label.shopFloorQty > 0) Warn else Color.Unspecified)
             )
+            Text("THIS COLOUR", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
             MetricRow(
-                Triple("Label left", qty(label.labelPendingQty), MaterialTheme.colorScheme.primary),
-                Triple("Colour pending", qty(label.colourPendingQty), Warn),
-                Triple("Colour plan", qty(label.colourPlanQty), Color.Unspecified)
+                Triple("Produced", qty(label.colourProduced), Color.Unspecified),
+                Triple("QC verified", qty(label.colourVerified), Good),
+                Triple("Not verified", qty(label.colourNotVerified), if (label.colourNotVerified > 0) Crit else Color.Unspecified)
+            )
+            MetricRow(
+                Triple("Ready to shift", qty(label.colourReady), MaterialTheme.colorScheme.primary),
+                Triple("Label left", qty(label.labelPendingQty), Color.Unspecified),
+                Triple("On QC hold", qty(label.holdQty), if (label.holdQty > 0 || label.qcHold != null) Crit else Color.Unspecified)
             )
 
             if (label.colours.size > 1) {
@@ -329,7 +351,7 @@ private fun ShiftForm(
     onConfirm: () -> Unit,
     onCancel: () -> Unit
 ) {
-    val max = label.labelPendingQty.toInt()
+    val max = label.maxShiftQty
     val q = s.quantity.toIntOrNull() ?: 0
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -367,7 +389,7 @@ private fun ShiftForm(
                     when {
                         s.location.isBlank() -> "Pick Send To first"
                         q <= 0 -> "Enter weight or quantity"
-                        q > max -> "Max ${qty(max.toDouble())} pcs on this label"
+                        q > max -> "Max ${qty(max.toDouble())} pcs ready"
                         else -> "Shift ${qty(q.toDouble())} pcs → ${s.location}"
                     },
                     fontWeight = FontWeight.Bold, fontSize = 16.sp

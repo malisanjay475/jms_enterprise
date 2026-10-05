@@ -111,9 +111,23 @@ data class LabelInfo(
     val alreadyShifted: Boolean,
     val qcHold: QcHold?,
     val qcHoldMessage: String,
-    val colours: List<ColourRow>
+    val colours: List<ColourRow>,
+    // Produced / QC verified / ready of the scanned colour (server: shifting availability)
+    val colourProduced: Double = 0.0,
+    val colourVerified: Double = 0.0,
+    val colourNotVerified: Double = 0.0,
+    val colourReady: Double = 0.0,
+    val holdQty: Double = 0.0,
+    val verificationEnforced: Boolean = false,
+    /** NOT_PRODUCED / NOT_VERIFIED when the label cannot be shifted now; blank otherwise. */
+    val blockCode: String = "",
+    val blockMessage: String = ""
 ) {
-    val blocked: Boolean get() = alreadyShifted || qcHold != null
+    val blocked: Boolean get() = alreadyShifted || qcHold != null || blockCode.isNotBlank()
+
+    /** Most that may be shifted from this label now (label left, and QC-verified ready). */
+    val maxShiftQty: Int
+        get() = if (verificationEnforced) minOf(labelPendingQty, colourReady).toInt() else labelPendingQty.toInt()
 }
 
 data class Job(
@@ -133,8 +147,18 @@ data class Job(
     val labelsPrinted: Int,
     val labelledQty: Double,
     /** kg per piece from the Mould Master; 0 when the mould has no weight. */
-    val unitWeightKg: Double = 0.0
+    val unitWeightKg: Double = 0.0,
+    val verified: Double = 0.0,
+    val notVerified: Double = 0.0,
+    /** QC verified - shifted: what may be shifted now. */
+    val readyQty: Double = 0.0,
+    val holdQty: Double = 0.0,
+    val onHold: Boolean = false,
+    val clientName: String = "",
+    val verificationEnforced: Boolean = false
 ) {
+    /** Most that may be shifted now: QC-verified ready where enforced, else shop-floor balance. */
+    val maxShiftQty: Double get() = if (verificationEnforced) minOf(readyQty, floorBalance) else floorBalance
     val isRunning: Boolean get() = status.equals("running", ignoreCase = true)
     val floorBalance: Double get() = (produced - shifted).coerceAtLeast(0.0)
     val pending: Double get() = ((if (qcApproved > 0) qcApproved else produced) - shifted).coerceAtLeast(0.0)
@@ -159,6 +183,43 @@ data class JobDetail(
     val recent: List<ShiftEntry>
 )
 
+/** One job's availability, colour-wise (GET /api/shifting/availability). */
+data class Availability(
+    val planId: String,
+    val planCode: String,
+    val machine: String,
+    val status: String,
+    val orderNo: String,
+    val jcNo: String,
+    val clientName: String,
+    val itemName: String,
+    val mouldName: String,
+    val planQty: Double,
+    val unitWeightKg: Double,
+    val verificationEnforced: Boolean,
+    val produced: Double,
+    val verified: Double,
+    val notVerified: Double,
+    val shifted: Double,
+    val ready: Double,
+    val holdQty: Double,
+    val holdCount: Int,
+    val holdReasons: List<String>,
+    val colours: List<AvailColour>
+) {
+    val maxShiftQty: Double get() = if (verificationEnforced) ready else (produced - shifted).coerceAtLeast(0.0)
+}
+
+data class AvailColour(
+    val colour: String,
+    val planQty: Double,
+    val produced: Double,
+    val verified: Double,
+    val notVerified: Double,
+    val shifted: Double,
+    val ready: Double
+)
+
 data class ShiftEntry(
     val id: String,
     val machine: String,
@@ -171,7 +232,11 @@ data class ShiftEntry(
     val createdAt: String,
     val labelNo: Int,
     val totalLabels: Int,
-    val scanMode: String
+    val scanMode: String,
+    val planId: String = "",
+    val orderNo: String = "",
+    val jcNo: String = "",
+    val clientName: String = ""
 )
 
 data class ShiftSummary(
