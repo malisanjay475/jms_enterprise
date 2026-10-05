@@ -73,6 +73,13 @@ const uploadQC = multer({
 // factory phones auto-update. Fixed filename keeps the download URL stable.
 const _qcAppDir = path.join(STATIC_PUBLIC_DIR, 'qc-app');
 fs.mkdirSync(_qcAppDir, { recursive: true });
+// The native Shifting app has its own feed in a sub-folder (/qc-app/shifting/), inside
+// the same Docker volume, published through the same route with app=shifting.
+const _qcAppFeeds = {
+  qc: { dir: _qcAppDir, apk: 'jms-qc.apk' },
+  shifting: { dir: path.join(_qcAppDir, 'shifting'), apk: 'jms-shifting.apk' }
+};
+fs.mkdirSync(_qcAppFeeds.shifting.dir, { recursive: true });
 // multer writes the file BEFORE the route checks the credentials, so it must not go
 // straight to the served name: a failed login used to leave an attacker's APK in place
 // as jms-qc.apk for every factory phone. It lands under a dot-name (never served by
@@ -179,6 +186,7 @@ module.exports = function registerLegacyRoutes({ app, pool, config, services }) 
      QC ANDROID APP — SELF-UPDATE PUBLISH
      Admin uploads a new APK; server stores it + writes version.json.
      The app reads /qc-app/version.json (static) and installs /qc-app/jms-qc.apk.
+     app=shifting publishes the Shifting app to /qc-app/shifting/ instead.
      Additive + isolated: no existing behaviour changes.
      ============================================================ */
   app.post('/api/qc-app/publish', uploadQcApk.single('apk'), async (req, res) => {
@@ -188,6 +196,8 @@ module.exports = function registerLegacyRoutes({ app, pool, config, services }) 
     let published = false;
     try {
       const { username, password, versionCode, versionName, notes } = req.body || {};
+      const feed = _qcAppFeeds[String(req.body?.app || 'qc').toLowerCase()];
+      if (!feed) return res.status(400).json({ ok: false, error: 'app must be "qc" or "shifting"' });
       if (!username || !password) {
         return res.status(400).json({ ok: false, error: 'username and password required' });
       }
@@ -222,16 +232,16 @@ module.exports = function registerLegacyRoutes({ app, pool, config, services }) 
       if (!Number.isFinite(vc)) {
         return res.status(400).json({ ok: false, error: 'versionCode (integer) required' });
       }
-      fs.renameSync(tempPath, path.join(_qcAppDir, 'jms-qc.apk'));
+      fs.renameSync(tempPath, path.join(feed.dir, feed.apk));
       published = true;
       const meta = {
         versionCode: vc,
         versionName: String(versionName || vc),
-        apk: 'jms-qc.apk',
+        apk: feed.apk,
         notes: String(notes || ''),
         publishedAt: new Date().toISOString()
       };
-      fs.writeFileSync(path.join(_qcAppDir, 'version.json'), JSON.stringify(meta, null, 2));
+      fs.writeFileSync(path.join(feed.dir, 'version.json'), JSON.stringify(meta, null, 2));
       res.json({ ok: true, ...meta });
     } catch (e) {
       sendServerError(res, e);
