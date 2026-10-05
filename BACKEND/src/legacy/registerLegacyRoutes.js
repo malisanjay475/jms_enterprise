@@ -10223,9 +10223,13 @@ async function withShiftingLock(key, fn) {
   }
 }
 
-function defaultShiftType() {
-  const hour = new Date().getHours();
-  return hour >= 8 && hour < 20 ? 'Day' : 'Night';
+// Current shift by the server clock (IST): Day 08:00-20:00, Night 20:00-08:00, and a
+// Night entry after midnight belongs to the previous date (same rule as login / DPR).
+function currentShiftSlot(now = new Date()) {
+  const hour = now.getHours();
+  const date = new Date(now);
+  if (hour < 8) date.setDate(date.getDate() - 1);
+  return { date: todayLocalDateStr(date), shift: hour >= 8 && hour < 20 ? 'Day' : 'Night' };
 }
 
 // POST /api/shifting/entry — manual shift (no label). The quantity is capped at the
@@ -10294,8 +10298,10 @@ app.post('/api/shifting/entry', async (req, res) => {
           plan.id,
           quantity,
           location,
-          normalizeOptionalText(date) || todayLocalDateStr(),
-          normalizeOptionalText(shift) || defaultShiftType(),
+          // A manual entry may be booked to a chosen date/shift (Shifting Module filters);
+          // otherwise it goes to the current shift.
+          normalizeOptionalText(date) || currentShiftSlot().date,
+          normalizeOptionalText(shift) || currentShiftSlot().shift,
           (req.auth && req.auth.username) || normalizeOptionalText(supervisor) || getRequestUsername(req) || 'Supervisor',
           planFactoryId
         ]
@@ -10328,8 +10334,10 @@ app.post('/api/shifting/scan-entry', async (req, res) => {
     const scan = req.body?.scan || req.body?.label_uid || req.body?.uid || '';
     const toLocation = normalizeOptionalText(req.body?.toLocation);
     const supervisor = (req.auth && req.auth.username) || normalizeOptionalText(req.body?.supervisor) || getRequestUsername(req) || 'Shifting Supervisor';
-    const shiftDate = normalizeOptionalText(req.body?.date) || todayLocalDateStr();
-    const shiftType = normalizeOptionalText(req.body?.shift) || defaultShiftType();
+    // A scan always happens "now", so its shift comes from the server clock. The client's
+    // date/shift is ignored: older supervisor pages sent the UTC date, which put 05:30-08:00
+    // night-shift scans on the wrong date.
+    const { date: shiftDate, shift: shiftType } = currentShiftSlot();
     if (!toLocation) return res.status(400).json({ ok: false, error: 'Select destination first.' });
     const uid = normalizeScannedLabelUid(scan);
     if (!uid) return res.status(400).json({ ok: false, error: 'Scan a valid printed label first.' });
@@ -10458,6 +10466,321 @@ app.get('/api/shifting/logs', async (req, res) => {
     );
     res.json({ ok: true, data: rows });
   } catch (e) {
+    sendServerError(res, e);
+  }
+});
+
+/* ------------------------------------------------------------------
+   SHIFTING — SHIFT-WISE REPORT
+   GET /api/shifting/shift-report        → JSON for the Shift Report page
+   GET /api/shifting/shift-report.xlsx   → styled workbook (4 sheets)
+   ?from=YYYY-MM-DD&to=YYYY-MM-DD (max 62 days, default today) &shift=Day|Night (blank = both)
+   A record's shift is shift_date + shift_type. Old rows without them fall back to
+   created_at with the login/DPR rule (before 08:00 = previous date's Night).
+   ------------------------------------------------------------------ */
+const SHIFT_REPORT_MAX_DAYS = 62;
+
+function parseShiftReportFilters(query) {
+  const isDate = (v) => /^\d{4}-\d{2}-\d{2}$/.test(String(v || ''));
+  const today = currentShiftSlot().date;
+  const from = isDate(query.from) ? String(query.from) : today;
+  const to = isDate(query.to) ? String(query.to) : from;
+  if (to < from) throw shiftingHttpError(400, 'The To date is before the From date.');
+  const days = Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86400000) + 1;
+  if (days > SHIFT_REPORT_MAX_DAYS) throw shiftingHttpError(400, `Pick at most ${SHIFT_REPORT_MAX_DAYS} days.`);
+  const rawShift = String(query.shift || '').trim().toLowerCase();
+  const shift = rawShift === 'day' ? 'Day' : rawShift === 'night' ? 'Night' : null;
+  return { from, to, shift, days };
+}
+
+async function buildShiftingShiftReport(req) {
+  const filters = parseShiftReportFilters(req.query || {});
+  const factoryId = getFactoryId(req);
+
+  const records = await q(
+    `SELECT x.*, to_char(x.rd, 'YYYY-MM-DD') AS report_date FROM (
+       SELECT sr.id, sr.quantity, sr.weight_kg, sr.to_location, sr.shifted_by, sr.scan_mode,
+              sr.label_no, sr.total_labels, sr.created_at, sr.status,
+              TRIM(COALESCE(sr.colour, '')) AS colour,
+              COALESCE(NULLIF(TRIM(sr.machine_code), ''), pb.machine, '') AS machine,
+              COALESCE(NULLIF(TRIM(sr.item_name), ''), pb.item_name, '') AS item_name,
+              COALESCE(NULLIF(TRIM(sr.mould_name), ''), pb.mould_name, '') AS mould_name,
+              COALESCE(NULLIF(TRIM(sr.order_no), ''), pb.order_no, '') AS order_no,
+              COALESCE(sr.jc_no, '') AS jc_no,
+              COALESCE(pb.plan_id, '') AS plan_code,
+              COALESCE(sr.shift_date,
+                CASE WHEN EXTRACT(HOUR FROM sr.created_at) < 8 THEN (sr.created_at - INTERVAL '1 day')::date
+                     ELSE sr.created_at::date END) AS rd,
+              COALESCE(NULLIF(INITCAP(TRIM(sr.shift_type)), ''),
+                CASE WHEN EXTRACT(HOUR FROM sr.created_at) >= 8 AND EXTRACT(HOUR FROM sr.created_at) < 20
+                     THEN 'Day' ELSE 'Night' END) AS shift
+         FROM shifting_records sr
+         LEFT JOIN plan_board pb ON pb.id = sr.plan_id
+        WHERE ($3::int IS NULL OR sr.factory_id = $3 OR sr.factory_id IS NULL)
+          -- coarse range on created_at first (a shift date is at most a day off it)
+          AND sr.created_at >= $1::date - 1 AND sr.created_at < $2::date + 2
+     ) x
+     WHERE x.rd BETWEEN $1::date AND $2::date
+       AND ($4::text IS NULL OR x.shift = $4)
+     ORDER BY x.rd, x.shift, x.created_at`,
+    [filters.from, filters.to, factoryId || null, filters.shift]
+  );
+
+  const machineRows = await q(`SELECT TRIM(machine) AS machine, line, building FROM machines WHERE COALESCE(is_active, true) = true`);
+  const machineOrder = makeMachineOrder(machineRows);
+  const lineOf = new Map(machineRows.map(m => [String(m.machine || '').trim(), String(m.line || m.building || '').trim()]));
+  const shiftRank = (s) => (s === 'Day' ? 0 : s === 'Night' ? 1 : 2);
+  const num = (v) => Number(v || 0);
+  const round3 = (v) => Math.round(v * 1000) / 1000;
+
+  const locations = [...new Set(records.map(r => r.to_location || '-'))];
+  const locationOrder = new Map((await listShiftingLocations(factoryId)).items.map((l, i) => [String(l.name).toLowerCase(), i]));
+  locations.sort((a, b) => (locationOrder.get(a.toLowerCase()) ?? 999) - (locationOrder.get(b.toLowerCase()) ?? 999) || a.localeCompare(b));
+
+  const totals = { entries: 0, labels: 0, manual: 0, qty: 0, kg: 0 };
+  const summary = new Map();
+  const byMachine = new Map();
+  const bySupervisor = new Map();
+  const entries = [];
+
+  for (const r of records) {
+    const qty = num(r.quantity);
+    const kg = num(r.weight_kg);
+    const isLabel = String(r.scan_mode || '').toUpperCase() === 'LABEL_QR';
+    const loc = r.to_location || '-';
+    const who = String(r.shifted_by || '-').trim() || '-';
+    totals.entries += 1; totals.qty += qty; totals.kg += kg;
+    if (isLabel) totals.labels += 1; else totals.manual += 1;
+
+    const sKey = `${r.report_date}|${r.shift}`;
+    const s = summary.get(sKey) || { date: r.report_date, shift: r.shift, entries: 0, labels: 0, manual: 0, qty: 0, kg: 0, by_location: {}, supervisors: new Set() };
+    s.entries += 1; s.qty += qty; s.kg += kg;
+    if (isLabel) s.labels += 1; else s.manual += 1;
+    s.by_location[loc] = (s.by_location[loc] || 0) + qty;
+    s.supervisors.add(who);
+    summary.set(sKey, s);
+
+    const mKey = [r.report_date, r.shift, r.machine, r.item_name, r.colour, loc].join('|');
+    const m = byMachine.get(mKey) || {
+      date: r.report_date, shift: r.shift, line: lineOf.get(String(r.machine || '').trim()) || '',
+      machine: r.machine || '-', item_name: r.item_name || '-', mould_name: r.mould_name || '',
+      colour: r.colour || '', order_no: r.order_no || '', jc_no: r.jc_no || '', location: loc,
+      entries: 0, labels: 0, qty: 0, kg: 0
+    };
+    m.entries += 1; m.qty += qty; m.kg += kg;
+    if (isLabel) m.labels += 1;
+    if (!m.order_no && r.order_no) m.order_no = r.order_no;
+    if (!m.jc_no && r.jc_no) m.jc_no = r.jc_no;
+    byMachine.set(mKey, m);
+
+    const uKey = `${r.report_date}|${r.shift}|${who.toLowerCase()}`;
+    const u = bySupervisor.get(uKey) || { date: r.report_date, shift: r.shift, supervisor: who, entries: 0, labels: 0, qty: 0, kg: 0, first_at: r.created_at, last_at: r.created_at };
+    u.entries += 1; u.qty += qty; u.kg += kg;
+    if (isLabel) u.labels += 1;
+    if (r.created_at < u.first_at) u.first_at = r.created_at;
+    if (r.created_at > u.last_at) u.last_at = r.created_at;
+    bySupervisor.set(uKey, u);
+
+    entries.push({
+      date: r.report_date, shift: r.shift, time: r.created_at, machine: r.machine || '-',
+      line: lineOf.get(String(r.machine || '').trim()) || '', item_name: r.item_name || '-',
+      mould_name: r.mould_name || '', colour: r.colour || '', order_no: r.order_no || '', jc_no: r.jc_no || '',
+      plan_code: r.plan_code || '', label: r.label_no ? `${r.label_no}/${r.total_labels || '-'}` : '',
+      mode: isLabel ? 'Label scan' : 'Manual', qty, kg: kg || null, location: loc, supervisor: who,
+      wip_status: r.status || 'Pending'
+    });
+  }
+
+  const bySlot = (a, b) => (a.date === b.date ? shiftRank(a.shift) - shiftRank(b.shift) : (a.date < b.date ? -1 : 1));
+  const finishKg = (row) => ({ ...row, kg: round3(row.kg) });
+  return {
+    filters: { from: filters.from, to: filters.to, shift: filters.shift || 'All' },
+    locations,
+    totals: finishKg(totals),
+    summary: [...summary.values()].sort(bySlot).map(s => finishKg({ ...s, supervisors: [...s.supervisors].sort().join(', ') })),
+    by_machine: [...byMachine.values()]
+      .sort((a, b) => bySlot(a, b) || machineOrder(a.machine, b.machine) || a.item_name.localeCompare(b.item_name) || a.location.localeCompare(b.location))
+      .map(finishKg),
+    by_supervisor: [...bySupervisor.values()].sort((a, b) => bySlot(a, b) || b.qty - a.qty).map(finishKg),
+    entries
+  };
+}
+
+app.get('/api/shifting/shift-report', async (req, res) => {
+  try {
+    const report = await buildShiftingShiftReport(req);
+    // The page shows the summaries; the full entry list is only in the Excel file.
+    const { entries, ...rest } = report;
+    res.json({ ok: true, data: { ...rest, entry_count: entries.length } });
+  } catch (e) {
+    if (e.status) return res.status(e.status).json({ ok: false, error: e.message });
+    sendServerError(res, e);
+  }
+});
+
+app.get('/api/shifting/shift-report.xlsx', async (req, res) => {
+  try {
+    const ExcelJS = require('exceljs');
+    const report = await buildShiftingShiftReport(req);
+    const factoryId = getFactoryId(req);
+    let factoryLabel = 'All Factories';
+    if (factoryId) {
+      try { const f = await q('SELECT name FROM factories WHERE id = $1', [factoryId]); factoryLabel = f[0]?.name || `Factory ${factoryId}`; } catch (_) { factoryLabel = `Factory ${factoryId}`; }
+    }
+    const username = (req.auth && req.auth.username) || getRequestUsername(req) || 'System';
+    const { from, to, shift } = report.filters;
+
+    const BLUE = 'FF1E4E79', HEADFILL = 'FF2E6CA4', BAND = 'FFEFF4FA', TOTALFILL = 'FFDCE6F2', WHITE = 'FFFFFFFF', INK = 'FF1F2937', GREY = 'FF64748B';
+    const FONT = 'Calibri';
+    const thin = { style: 'thin', color: { argb: 'FFD5DEEA' } };
+    const box = { top: thin, left: thin, right: thin, bottom: thin };
+    const wb = new ExcelJS.Workbook();
+    wb.creator = username;
+    wb.created = new Date();
+
+    // One styled sheet: title, filter line, header row, banded rows, optional total row.
+    const addSheet = (name, title, cols, rows, totalRow) => {
+      const ws = wb.addWorksheet(name, { views: [{ state: 'frozen', ySplit: 5 }] });
+      ws.columns = cols.map(c => ({ width: c.w }));
+      const n = cols.length;
+      ws.mergeCells(1, 1, 1, n);
+      const t = ws.getCell(1, 1);
+      t.value = title;
+      t.font = { name: FONT, size: 14, bold: true, color: { argb: WHITE } };
+      t.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: BLUE } };
+      t.alignment = { horizontal: 'center', vertical: 'middle' };
+      ws.getRow(1).height = 28;
+      ws.mergeCells(2, 1, 2, n);
+      ws.getCell(2, 1).value = `Factory: ${factoryLabel}    |    Dates: ${from} to ${to}    |    Shift: ${shift}`;
+      ws.getCell(2, 1).font = { name: FONT, size: 10, color: { argb: INK } };
+      ws.mergeCells(3, 1, 3, n);
+      ws.getCell(3, 1).value = `Generated: ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}    |    By: ${username}`;
+      ws.getCell(3, 1).font = { name: FONT, size: 10, italic: true, color: { argb: GREY } };
+
+      const HROW = 5;
+      cols.forEach((c, i) => {
+        const cell = ws.getCell(HROW, i + 1);
+        cell.value = c.label;
+        cell.font = { name: FONT, size: 10, bold: true, color: { argb: WHITE } };
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: HEADFILL } };
+        cell.alignment = { horizontal: c.num ? 'right' : 'left', vertical: 'middle', wrapText: true };
+        cell.border = box;
+      });
+      ws.getRow(HROW).height = 30;
+
+      let r = HROW + 1;
+      rows.forEach((row, idx) => {
+        cols.forEach((c, i) => {
+          const cell = ws.getCell(r, i + 1);
+          const v = c.get ? c.get(row) : row[c.key];
+          cell.value = v === undefined || v === '' ? null : v;
+          cell.font = { name: FONT, size: 10, color: { argb: INK } };
+          cell.alignment = { horizontal: c.num ? 'right' : 'left', vertical: 'middle' };
+          cell.border = box;
+          if (c.fmt) cell.numFmt = c.fmt;
+          if (idx % 2 === 1) cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: BAND } };
+        });
+        r += 1;
+      });
+      if (!rows.length) {
+        ws.mergeCells(r, 1, r, n);
+        ws.getCell(r, 1).value = 'No shifting records for the selected dates / shift.';
+        ws.getCell(r, 1).font = { name: FONT, size: 10, italic: true, color: { argb: GREY } };
+        r += 1;
+      } else {
+        ws.autoFilter = { from: { row: HROW, column: 1 }, to: { row: r - 1, column: n } };
+        if (totalRow) {
+          cols.forEach((c, i) => {
+            const cell = ws.getCell(r, i + 1);
+            const v = totalRow[c.key];
+            cell.value = v === undefined ? null : v;
+            cell.font = { name: FONT, size: 10, bold: true, color: { argb: INK } };
+            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: TOTALFILL } };
+            cell.alignment = { horizontal: c.num ? 'right' : 'left', vertical: 'middle' };
+            cell.border = box;
+            if (c.fmt) cell.numFmt = c.fmt;
+          });
+        }
+      }
+      return ws;
+    };
+
+    const QTY = '#,##0', KG = '#,##0.000';
+    const t = report.totals;
+    const locationCols = report.locations.map(loc => ({ label: `${loc} (Qty)`, w: 14, num: true, fmt: QTY, key: `loc:${loc}`, get: (row) => row.by_location?.[loc] || 0 }));
+    const locationTotals = {};
+    report.locations.forEach(loc => { locationTotals[`loc:${loc}`] = report.summary.reduce((sum, s) => sum + (s.by_location[loc] || 0), 0); });
+
+    addSheet('Shift Summary', 'SHIFTING — SHIFT-WISE SUMMARY', [
+      { label: 'Date', w: 12, key: 'date' },
+      { label: 'Shift', w: 8, key: 'shift' },
+      { label: 'Entries', w: 9, key: 'entries', num: true, fmt: QTY },
+      { label: 'Label Scans', w: 11, key: 'labels', num: true, fmt: QTY },
+      { label: 'Manual', w: 9, key: 'manual', num: true, fmt: QTY },
+      { label: 'Qty Shifted', w: 13, key: 'qty', num: true, fmt: QTY },
+      { label: 'Weight (kg)', w: 13, key: 'kg', num: true, fmt: KG },
+      ...locationCols,
+      { label: 'Shifted By', w: 30, key: 'supervisors' }
+    ], report.summary, { date: 'TOTAL', entries: t.entries, labels: t.labels, manual: t.manual, qty: t.qty, kg: t.kg, ...locationTotals });
+
+    addSheet('Machine-Item', 'SHIFTING — MACHINE / ITEM WISE', [
+      { label: 'Date', w: 12, key: 'date' },
+      { label: 'Shift', w: 8, key: 'shift' },
+      { label: 'Line', w: 9, key: 'line' },
+      { label: 'Machine', w: 22, key: 'machine' },
+      { label: 'Item', w: 36, key: 'item_name' },
+      { label: 'Mould', w: 28, key: 'mould_name' },
+      { label: 'Colour', w: 12, key: 'colour' },
+      { label: 'Order No', w: 16, key: 'order_no' },
+      { label: 'JC No', w: 20, key: 'jc_no' },
+      { label: 'Sent To', w: 16, key: 'location' },
+      { label: 'Entries', w: 9, key: 'entries', num: true, fmt: QTY },
+      { label: 'Labels', w: 9, key: 'labels', num: true, fmt: QTY },
+      { label: 'Qty Shifted', w: 13, key: 'qty', num: true, fmt: QTY },
+      { label: 'Weight (kg)', w: 13, key: 'kg', num: true, fmt: KG }
+    ], report.by_machine, { date: 'TOTAL', entries: t.entries, labels: t.labels, qty: t.qty, kg: t.kg });
+
+    const timeText = (d) => (d ? new Date(d).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Asia/Kolkata' }) : '');
+    addSheet('Supervisor', 'SHIFTING — SUPERVISOR WISE', [
+      { label: 'Date', w: 12, key: 'date' },
+      { label: 'Shift', w: 8, key: 'shift' },
+      { label: 'Shifted By', w: 24, key: 'supervisor' },
+      { label: 'Entries', w: 9, key: 'entries', num: true, fmt: QTY },
+      { label: 'Label Scans', w: 11, key: 'labels', num: true, fmt: QTY },
+      { label: 'Qty Shifted', w: 13, key: 'qty', num: true, fmt: QTY },
+      { label: 'Weight (kg)', w: 13, key: 'kg', num: true, fmt: KG },
+      { label: 'First Entry', w: 11, key: 'first_at', get: (row) => timeText(row.first_at) },
+      { label: 'Last Entry', w: 11, key: 'last_at', get: (row) => timeText(row.last_at) }
+    ], report.by_supervisor, { date: 'TOTAL', entries: t.entries, labels: t.labels, qty: t.qty, kg: t.kg });
+
+    addSheet('All Entries', 'SHIFTING — ALL ENTRIES', [
+      { label: 'Date', w: 12, key: 'date' },
+      { label: 'Shift', w: 8, key: 'shift' },
+      { label: 'Time', w: 8, key: 'time', get: (row) => timeText(row.time) },
+      { label: 'Line', w: 9, key: 'line' },
+      { label: 'Machine', w: 22, key: 'machine' },
+      { label: 'Item', w: 36, key: 'item_name' },
+      { label: 'Colour', w: 12, key: 'colour' },
+      { label: 'Order No', w: 16, key: 'order_no' },
+      { label: 'JC No', w: 20, key: 'jc_no' },
+      { label: 'Plan No', w: 15, key: 'plan_code' },
+      { label: 'Label', w: 8, key: 'label' },
+      { label: 'Mode', w: 11, key: 'mode' },
+      { label: 'Qty', w: 10, key: 'qty', num: true, fmt: QTY },
+      { label: 'Weight (kg)', w: 12, key: 'kg', num: true, fmt: KG },
+      { label: 'Sent To', w: 16, key: 'location' },
+      { label: 'Shifted By', w: 18, key: 'supervisor' },
+      { label: 'WIP Status', w: 11, key: 'wip_status' }
+    ], report.entries, { date: 'TOTAL', qty: t.qty, kg: t.kg });
+
+    const buf = await wb.xlsx.writeBuffer();
+    const fname = `Shifting_Shift_Report_${from}${to !== from ? `_to_${to}` : ''}${shift !== 'All' ? `_${shift}` : ''}.xlsx`;
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename=${fname}`);
+    res.send(Buffer.from(buf));
+  } catch (e) {
+    if (e.status) return res.status(e.status).json({ ok: false, error: e.message });
+    console.error('/api/shifting/shift-report.xlsx', e);
     sendServerError(res, e);
   }
 });

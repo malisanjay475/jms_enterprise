@@ -1041,6 +1041,14 @@
             return n.toLocaleString('en-IN', { maximumFractionDigits: 3 });
         }
 
+        // Date of the current shift in local time: before 08:00 is the previous date's Night
+        // shift (same rule as DPR). toISOString() would give the UTC date instead.
+        function currentShiftDate() {
+            const d = new Date();
+            if (d.getHours() < 8) d.setDate(d.getDate() - 1);
+            return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        }
+
         function nowShift() {
             const h = new Date().getHours();
             return (h >= 8 && h < 20) ? 'Day' : 'Night';
@@ -1229,7 +1237,7 @@
 
         async function loadData() {
             try {
-                const d = new Date().toISOString().split('T')[0];
+                const d = currentShiftDate();
                 const user = JPSMS.auth.getUser();
                 const params = `date=${d}&shift=${nowShift()}` +
                     ((user.line && user.line.trim() !== '') ? `&line=${encodeURIComponent(user.line.trim())}` : '');
@@ -1531,7 +1539,7 @@
                     quantity: scanQty,
                     weightKg,
                     toLocation: scanLocation,
-                    date: new Date().toISOString().split('T')[0],
+                    date: currentShiftDate(),
                     shift: nowShift(),
                     supervisor: user?.username || 'Shifting Supervisor'
                 });
@@ -1730,7 +1738,7 @@
                     planId: currentItem.plan_id,
                     quantity: qty,
                     toLocation: loc,
-                    date: new Date().toISOString().split('T')[0],
+                    date: currentShiftDate(),
                     shift: nowShift(),
                     supervisor: user.username
                 });

@@ -11,8 +11,28 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.92.1",
+  "latest": "1.93.0",
   "versions": [
+    {
+      "version": "1.93.0",
+      "date": "2026-10-05",
+      "title": "Shifting Shift Report",
+      "modules": [
+        {
+          "app": "shifting_module",
+          "changes": [
+            { "type": "feat", "text": "New Shifting Module > Shift Report: quantity and weight shifted per date and shift, by machine/item and by supervisor, for up to 62 days." },
+            { "type": "feat", "text": "Download Excel gives a formatted workbook with Shift Summary, Machine-Item, Supervisor and All Entries sheets." }
+          ]
+        },
+        {
+          "app": "shifting_supervisor_app",
+          "changes": [
+            { "type": "fix", "text": "Night-shift scans between 05:30 and 08:00 are now saved under the night shift's own date instead of the next day's." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.92.1",
       "date": "2026-10-05",

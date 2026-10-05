@@ -49,9 +49,9 @@
 ### Shifting / WIP
 - **What:** Moves work-in-progress between physical locations; barcode-driven.
 - **Why:** Keeps an accurate map of where every batch physically is.
-- **UI:** `shifting_supervisor.html` (scanner app), `shifting_reports.html` (Live Production / Reconciliation), `shifting_summary.html`, `shifting_logs.html`, `wip.html`, `wip_supervisor.html`, `scanning.html`. `shifting.html` is retired and redirects to `shifting_reports.html?view=live`.
+- **UI:** `shifting_supervisor.html` (scanner app), `shifting_reports.html` (Live Production / Reconciliation), `shifting_summary.html`, `shifting_shift_report.html` (shift-wise report + Excel), `shifting_logs.html`, `wip.html`, `wip_supervisor.html`, `scanning.html`. `shifting.html` is retired and redirects to `shifting_reports.html?view=live`.
 - **Locations:** destinations come from the `shifting_locations` master (Masters → Shifting Locations), kept per factory and edited on MAIN only; LOCAL pulls them by sync and uses the built-in list until they arrive. Shift entries must use an active location.
-- **Key API:** `/api/shifting/dashboard`, `/api/shifting/jobs`, `/api/shifting/matrix`, `/api/shifting/entry`, `/api/shifting/scan-entry`, `/api/shifting/scan-label`, `/api/shifting/logs`, `/api/shifting/locations` (GET; POST/PUT/DELETE on MAIN), `/api/job/complete`
+- **Key API:** `/api/shifting/dashboard`, `/api/shifting/jobs`, `/api/shifting/matrix`, `/api/shifting/entry`, `/api/shifting/scan-entry`, `/api/shifting/scan-label`, `/api/shifting/logs`, `/api/shifting/locations` (GET; POST/PUT/DELETE on MAIN), `/api/shifting/shift-report` (+ `.xlsx`), `/api/job/complete`
 
 ---
 
