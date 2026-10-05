@@ -207,6 +207,7 @@ const SYNC_ALL = [
     'raw_material_issues',
     'roles',
     'shift_teams',
+    'shifting_line_teams',
     'shifting_locations',
     'shifting_records',
     'std_actual',
@@ -356,6 +357,8 @@ const CONFLICT_KEYS = {
     // Surrogate UUID key (full-replication batch 3): append-only shifting log, no factory_id,
     // serial id collides across factories. Deterministic seed in SYNC_ID_SEED_COLUMNS.
     shifting_records: 'sync_id',
+    // Shifting app team per line/date/shift — same shape and key as qc_line_teams.
+    shifting_line_teams: 'line, dpr_date, shift, factory_id',
     std_actual: 'plan_id, shift, dpr_date, machine',
     // Natural key matches uq_eqa_natural — serial id diverges LOCAL↔MAIN
     extra_qty_allowances: 'plan_id, colour, allowed_by, allowed_at',
@@ -520,7 +523,9 @@ const RAW_CONFLICT_TARGETS = {
     machines: `LOWER(machine), COALESCE(factory_id, 0)`,
     // qc_line_teams' unique index uq_qc_line_teams ON ((COALESCE(factory_id, 0)), line,
     // dpr_date, shift) is an EXPRESSION index — reproduce it or every row fails with 42P10.
-    qc_line_teams: `COALESCE(factory_id, 0), line, dpr_date, shift`
+    qc_line_teams: `COALESCE(factory_id, 0), line, dpr_date, shift`,
+    // Same expression index shape (uq_shifting_line_teams).
+    shifting_line_teams: `COALESCE(factory_id, 0), line, dpr_date, shift`
 };
 
 const SYNC_CONFLICT_INDEXES = {
@@ -625,7 +630,8 @@ const SYNC_SCHEMA_READY_KEY = 'SYNC_SCHEMA_READY_VERSION';
 //             natural keys; qc_shift_team, qc_holds → sync_id).
 // 2026-10-02: qc_material_issues (memos) replicate; LOCAL memos renumbered MEMO-<f>-L<id>.
 // 2026-10-05: shifting_locations master (MAIN-only writer, id key, pulled by LOCAL).
-const SYNC_SCHEMA_READY_VERSION = '2026-10-05-shifting-locations-v9';
+// 2026-10-05: shifting_line_teams (Shifting app team) replicates, natural key like qc_line_teams.
+const SYNC_SCHEMA_READY_VERSION = '2026-10-05-shifting-line-teams-v10';
 
 // "Sync token" columns: app-schema UNIQUE columns that carry a per-row identity
 // token (a UUID) MAIN considers authoritative, but which a LOCAL row may have been
