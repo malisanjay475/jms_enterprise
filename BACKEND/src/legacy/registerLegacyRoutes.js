@@ -9813,6 +9813,7 @@ async function getShiftingLabelContext(rawScanValue, factoryId) {
         colour_produced_qty: c.produced, colour_verified_qty: c.verified, colour_not_verified_qty: c.not_verified,
         colour_ready_qty: c.ready,
         hold_qty: holdQty ? holdQty.qty : 0,
+        verification_enforced: await shiftingVerificationEnforced(resolvedFactoryId),
         block_code: block ? block.code : '',
         block_message: block ? block.message : ''
       };
