@@ -330,6 +330,14 @@
         const currentOrder = d.order_no || orderNo;
 
         loadJobQCEvidence(d);
+        // Produced / QC verified / shifted (with location), colour-wise.
+        if (window.JMSJobShifting) {
+            window.JMSJobShifting.render(document.getElementById('modalJobShifting'), {
+                planId: d.plan_id || d.PlanID || '',
+                orderNo: d.order_no || orderNo || '',
+                machine: d.machine || ''
+            });
+        }
 
         // Show Modal
         document.getElementById('jobDetailModal').style.display = 'flex';
