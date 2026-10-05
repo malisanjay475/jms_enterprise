@@ -41,6 +41,7 @@ const SYNC_ALL = [
     // 'roles', // Static?
     // 'server_config', // LOCAL ONLY
     'shift_teams',
+    'shifting_locations',
     'shifting_records',
     'std_actual',
     'user_factories',
