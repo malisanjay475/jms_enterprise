@@ -350,6 +350,11 @@ const CONFLICT_KEYS = {
     // - qc_shift_team / qc_holds: no natural key (append-only team log; holds get released)
     //   → surrogate sync_id with a deterministic seed (SYNC_ID_SEED_COLUMNS).
     qc_online_report_slots: 'machine, dpr_date, shift, slot',
+    // QC verification of a DPR hour (QC app "Verify Entries", written on the factory LOCAL):
+    // its own UNIQUE (machine, dpr_date, shift, hour_slot). Replicates so MAIN's job details,
+    // compliance and shifting availability show QC-verified qty. dpr_entry_id is a LOCAL id;
+    // readers match the slot, not the id (see /api/qc/verify/pending).
+    qc_verifications: 'machine, dpr_date, shift, hour_slot',
     qc_job_setup: 'job_card_no, machine, dpr_date, shift, setup_period',
     qc_line_teams: 'line, dpr_date, shift, factory_id',
     qc_shift_team: 'sync_id',
@@ -492,7 +497,8 @@ const SYNC_UPDATED_AT_SOURCE_COLUMNS = {
     wip_stock_movements: 'created_at',
     // job_card_label_print_log has no updated_at — use printed_at as the source column
     // so existing rows get updated_at = printed_at (not just NOW())
-    job_card_label_print_log: 'printed_at'
+    job_card_label_print_log: 'printed_at',
+    qc_verifications: 'verified_at'
 };
 
 // Tables whose ON CONFLICT target must be a raw expression rather than a plain
