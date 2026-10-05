@@ -1,0 +1,171 @@
+package com.jmsocean.shifting.ui.login
+
+import android.Manifest
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.res.painterResource
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.jmsocean.shifting.BuildConfig
+import com.jmsocean.shifting.data.LocationProvider
+import com.jmsocean.shifting.ui.theme.Accent
+
+@Composable
+fun LoginScreen(
+    onLoggedIn: () -> Unit,
+    vm: LoginViewModel = viewModel()
+) {
+    val s by vm.state.collectAsStateWithLifecycle()
+    val ctx = LocalContext.current
+
+    // Ask for location, then log in — the server geofence requires a GPS fix.
+    val permLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted -> vm.login(locationPermitted = granted) }
+
+    fun attemptLogin() {
+        if (LocationProvider.hasPermission(ctx)) vm.login(locationPermitted = true)
+        else permLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+    }
+
+    LaunchedEffect(s.success) { if (s.success) onLoggedIn() }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(24.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Card(
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            shape = RoundedCornerShape(20.dp)
+        ) {
+            Column(
+                modifier = Modifier.padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Image(
+                    painter = painterResource(com.jmsocean.shifting.R.drawable.jms_logo),
+                    contentDescription = "JMS logo",
+                    modifier = Modifier.size(88.dp)
+                )
+                Spacer(Modifier.height(12.dp))
+                Text(
+                    "JMS Shifting",
+                    fontSize = 26.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    "Scan labels · shift material",
+                    fontSize = 13.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    "Use your JMS login. The phone must be on the factory Wi-Fi.",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(Modifier.height(20.dp))
+
+                OutlinedTextField(
+                    value = s.username,
+                    onValueChange = vm::onUsername,
+                    label = { Text("Username") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(Modifier.height(12.dp))
+                OutlinedTextField(
+                    value = s.password,
+                    onValueChange = vm::onPassword,
+                    label = { Text("Password") },
+                    singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                if (s.error != null) {
+                    Spacer(Modifier.height(10.dp))
+                    Text(
+                        s.error!!,
+                        color = MaterialTheme.colorScheme.error,
+                        fontSize = 13.sp
+                    )
+                }
+                if (s.statusLine != null) {
+                    Spacer(Modifier.height(10.dp))
+                    Text(
+                        s.statusLine!!,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 13.sp
+                    )
+                }
+
+                Spacer(Modifier.height(20.dp))
+                Button(
+                    onClick = { attemptLogin() },
+                    enabled = !s.loading,
+                    modifier = Modifier.fillMaxWidth().height(50.dp)
+                ) {
+                    if (s.loading) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.height(20.dp),
+                            strokeWidth = 2.dp,
+                            color = MaterialTheme.colorScheme.onPrimary
+                        )
+                    } else {
+                        Text("Log in", color = MaterialTheme.colorScheme.onPrimary)
+                    }
+                }
+
+                Spacer(Modifier.height(14.dp))
+                Text(
+                    "App v${BuildConfig.VERSION_NAME} (build ${BuildConfig.VERSION_CODE})",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Text(
+                    "Server: ${BuildConfig.BASE_URL}",
+                    fontSize = 10.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        }
+    }
+}

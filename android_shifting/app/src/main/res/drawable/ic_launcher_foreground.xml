@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Adaptive-icon foreground: the JMS-OCEAN mark, inset into the icon safe zone. -->
+<inset xmlns:android="http://schemas.android.com/apk/res/android"
+    android:drawable="@drawable/jms_logo"
+    android:insetLeft="22%"
+    android:insetTop="22%"
+    android:insetRight="22%"
+    android:insetBottom="22%" />
