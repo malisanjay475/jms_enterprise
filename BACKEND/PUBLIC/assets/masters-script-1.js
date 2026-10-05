@@ -447,7 +447,7 @@
        next step is actionable for the current user.
     ============================================================ */
     const MOULD_VERIFY_STEPS = [
-      { key: 'ppc',      col: 'ppc',      label: 'PPC Check',              roles: ['ppc_manager', 'ppc_ass_manager'] },
+      { key: 'ppc',      col: 'ppc',      label: 'PPC Check',              roles: ['sr_ppc_manager', 'ppc_manager', 'ppc_ass_manager'] },
       { key: 'quality',  col: 'quality',  label: 'Quality Check',          roles: ['quality', 'quality_ass__manager'] },
       { key: 'moulding', col: 'moulding', label: 'Moulding Check',         roles: ['moulding_manager', 'moulding_ass_manager'] },
       { key: 'toolroom', col: 'toolroom', label: 'Tool Room Check',        roles: ['toolroom_manager'] },

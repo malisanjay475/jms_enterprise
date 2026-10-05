@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.92.0",
+  "latest": "1.92.1",
   "versions": [
+    {
+      "version": "1.92.1",
+      "date": "2026-10-05",
+      "title": "Sr. PPC Manager role",
+      "modules": [
+        {
+          "app": "all",
+          "label": "Platform",
+          "icon": "bi-person-badge",
+          "changes": [
+            { "type": "feat", "text": "New role Sr. PPC Manager with all the rights of PPC Manager: PPC approval on job cards, the PPC Check in mould verification, planning, deleting DPR entries and plans, back-dated entries, setting priority, restoring plans and maintenance entries." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.92.0",
       "date": "2026-10-05",
