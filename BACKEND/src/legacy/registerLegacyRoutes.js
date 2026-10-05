@@ -6236,6 +6236,24 @@ async function initializeLegacyRuntime() {
     `);
     await qIdx(`CREATE UNIQUE INDEX IF NOT EXISTS uq_qc_line_teams ON qc_line_teams ((COALESCE(factory_id, 0)), line, dpr_date, shift)`);
 
+    // SHIFTING LINE TEAMS — Shifting Supervisor + Shifting Incharge per line/date/shift.
+    // The Shifting app stays locked until the team of the user's line is saved (same as
+    // qc_line_teams for the QC app); shown on DPR Compliance (Process = Shifting).
+    await q(`
+      CREATE TABLE IF NOT EXISTS shifting_line_teams (
+        id            SERIAL PRIMARY KEY,
+        factory_id    INTEGER,
+        line          TEXT NOT NULL,
+        dpr_date      DATE NOT NULL,
+        shift         TEXT NOT NULL,
+        supervisor    TEXT,
+        incharge      TEXT,
+        saved_by      TEXT,
+        saved_at      TIMESTAMPTZ DEFAULT NOW()
+      );
+    `);
+    await qIdx(`CREATE UNIQUE INDEX IF NOT EXISTS uq_shifting_line_teams ON shifting_line_teams ((COALESCE(factory_id, 0)), line, dpr_date, shift)`);
+
     // QC MATERIAL ISSUES — internal issue reporting with media, assignments, audit trail
     await q(`
       CREATE TABLE IF NOT EXISTS qc_material_issues (
@@ -9723,6 +9741,9 @@ async function getShiftingLabelContext(rawScanValue, factoryId) {
       Math.max(0, Number(row.shifted_qty || 0))
     ])
   );
+  const unitWeights = await shiftingUnitWeights([label.mould_name, plan.mould_name, label.mould_no], resolvedFactoryId);
+  const unitWeightKg = [label.mould_name, plan.mould_name, label.mould_no]
+    .map(m => unitWeights.get(shiftingMouldKey(m))).find(w => w > 0) || 0;
   const qcHold = await findActiveShiftingQcHold({
     planPk: resolvedPlanPk,
     machine: plan.machine || label.machine_name,
@@ -9774,6 +9795,8 @@ async function getShiftingLabelContext(rawScanValue, factoryId) {
     label_shifted_qty: labelShiftedQty,
     label_pending_qty: Math.max(labelQty - labelShiftedQty, 0),
     already_shifted: labelShiftedQty >= Math.max(labelQty, 0.0001),
+    // kg per piece from the Mould Master (std_wt_kg); 0 when the mould has no weight.
+    unit_weight_kg: unitWeightKg,
     qc_hold: qcHold,
     qc_hold_message: qcHold ? describeShiftingQcHold(qcHold) : '',
     printed_by: label.printed_by || '',
@@ -9984,6 +10007,13 @@ app.get('/api/shifting/jobs', async (req, res) => {
 
     // Running first in the standard machine order (Line, then machine number); then
     // completed jobs, latest production first.
+    const jobWeights = await shiftingUnitWeights(plans.flatMap(p => [p.mould_name, p.mould_code]), factoryId);
+    const lineByMachine = new Map(machineRows.map(m => [String(m.machine || '').trim(), String(m.line || '').trim()]));
+    rows.forEach(r => {
+      r.unit_weight_kg = [r.mould_name, r.mould_code].map(m => jobWeights.get(shiftingMouldKey(m))).find(w => w > 0) || 0;
+      if (!String(r.line || '').trim()) r.line = lineByMachine.get(String(r.machine || '').trim()) || '';
+    });
+
     const machineOrder = makeMachineOrder(machineRows);
     const isRunning = r => String(r.status || '').toUpperCase() === 'RUNNING';
     rows.sort((a, b) => {
@@ -10299,9 +10329,9 @@ app.post('/api/shifting/entry', async (req, res) => {
       const result = await client.query(
         `INSERT INTO shifting_records (
            machine_code, plan_id, quantity, from_location, to_location, shift_date, shift_type,
-           shifted_by, created_at, factory_id, scan_mode
+           shifted_by, created_at, factory_id, scan_mode, weight_kg
          )
-         VALUES ($1, $2, $3, 'Machine', $4, $5, $6, $7, NOW(), $8, 'MANUAL')
+         VALUES ($1, $2, $3, 'Machine', $4, $5, $6, $7, NOW(), $8, 'MANUAL', $9)
          RETURNING *`,
         [
           plan.machine || normalizeOptionalText(req.body?.machine) || null,
@@ -10313,7 +10343,9 @@ app.post('/api/shifting/entry', async (req, res) => {
           normalizeOptionalText(date) || currentShiftSlot().date,
           normalizeOptionalText(shift) || currentShiftSlot().shift,
           (req.auth && req.auth.username) || normalizeOptionalText(supervisor) || getRequestUsername(req) || 'Supervisor',
-          planFactoryId
+          planFactoryId,
+          // Optional weight from the Shifting app (kg <-> pcs from the mould's std weight).
+          Number(req.body?.weightKg) > 0 ? Number(req.body.weightKg) : null
         ]
       );
       return result.rows[0] || null;
@@ -10417,6 +10449,255 @@ app.post('/api/shifting/scan-entry', async (req, res) => {
   }
 });
 
+
+// ── Shifting helpers: mould std weight (kg per piece) ───────────────────────
+function shiftingMouldKey(v) { return String(v || '').trim().toLowerCase(); }
+
+// Map of lower(mould name / number) -> std_wt_kg (kg per piece, Mould Master).
+async function shiftingUnitWeights(mouldNames, factoryId) {
+  const keys = [...new Set((mouldNames || []).map(shiftingMouldKey).filter(Boolean))];
+  const map = new Map();
+  if (!keys.length) return map;
+  const rows = await q(
+    `SELECT LOWER(TRIM(mould_name)) AS n, LOWER(TRIM(mould_number)) AS c, std_wt_kg
+       FROM moulds
+      WHERE (LOWER(TRIM(mould_name)) = ANY($1::text[]) OR LOWER(TRIM(mould_number)) = ANY($1::text[]))
+        AND COALESCE(std_wt_kg, 0) > 0
+        AND ($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL)`,
+    [keys, normalizeFactoryId(factoryId) ?? null]
+  );
+  rows.forEach(r => {
+    const w = Number(r.std_wt_kg);
+    [r.n, r.c].forEach(k => { if (k && keys.includes(k) && !map.has(k)) map.set(k, w); });
+  });
+  return map;
+}
+
+// ── SHIFTING LINE TEAM (Shifting Supervisor + Shifting Incharge per line) ───
+// GET /api/shifting/line-team?date&shift[&line_access] — team of each of the user's
+// lines; `required` = lines still without a team (the Shifting app blocks until empty).
+app.get('/api/shifting/line-team', async (req, res) => {
+  try {
+    const { date, shift } = req.query;
+    if (!date || !shift) return res.json({ ok: false, error: 'date and shift required' });
+    const factoryId = getFactoryId(req);
+    const { isAll, lines } = await qcUserLines(req.query.line_access, factoryId);
+    const rows = await q(
+      `SELECT line, supervisor, incharge, saved_by, saved_at FROM shifting_line_teams
+        WHERE dpr_date = $1::date AND shift = $2
+          AND ($3::int IS NULL OR factory_id = $3 OR factory_id IS NULL)`,
+      [date, shift, factoryId]
+    );
+    const byLine = new Map(rows.map(r => [String(r.line).trim(), r]));
+    const order = makeMachineOrder(lines.map(l => ({ machine: l, line: l })));
+    const data = [...lines].sort(order).map(line => {
+      const r = byLine.get(line);
+      return {
+        line,
+        supervisor: r?.supervisor || '',
+        incharge: r?.incharge || '',
+        saved_by: r?.saved_by || '',
+        saved_at: r?.saved_at || null
+      };
+    });
+    const done = d => String(d.supervisor).trim() && String(d.incharge).trim();
+    const required = isAll ? [] : data.filter(d => !done(d)).map(d => d.line);
+    res.json({ ok: true, data, required, all_access: isAll });
+  } catch (e) {
+    sendServerError(res, e);
+  }
+});
+
+// POST /api/shifting/line-team — save Shifting Supervisor + Incharge for one line/date/shift.
+app.post('/api/shifting/line-team', async (req, res) => {
+  try {
+    const body = req.body || {};
+    const line = String(body.line || '').trim();
+    const dprDate = String(body.dpr_date || '').trim();
+    const shift = body.shift === 'Night' ? 'Night' : (body.shift === 'Day' ? 'Day' : '');
+    const sup = String(body.supervisor || '').trim().slice(0, 80);
+    const inc = String(body.incharge || '').trim().slice(0, 80);
+    if (!line || !/^\d{4}-\d{2}-\d{2}$/.test(dprDate) || !shift) return res.status(400).json({ ok: false, error: 'line, dpr_date and shift required' });
+    if (!sup || !inc) return res.status(400).json({ ok: false, error: 'Enter both Shifting Supervisor and Shifting Incharge' });
+    const factoryId = getFactoryId(req);
+    const savedBy = (req.auth && req.auth.username) || getRequestUsername(req) || 'Shifting';
+    await q(
+      `INSERT INTO shifting_line_teams (factory_id, line, dpr_date, shift, supervisor, incharge, saved_by, saved_at)
+       VALUES ($1, $2, $3::date, $4, $5, $6, $7, NOW())
+       ON CONFLICT ((COALESCE(factory_id, 0)), line, dpr_date, shift)
+       DO UPDATE SET supervisor = EXCLUDED.supervisor, incharge = EXCLUDED.incharge,
+                     saved_by = EXCLUDED.saved_by, saved_at = NOW()`,
+      [factoryId, line, dprDate, shift, sup, inc, String(savedBy).slice(0, 100)]
+    );
+    syncService.triggerSync();
+    res.json({ ok: true });
+  } catch (e) {
+    sendServerError(res, e);
+  }
+});
+
+// ── SHIFTING COMPLIANCE (DPR -> Compliance Summary, Process = Shifting) ─────
+// Slot index (0-5) of an hour inside a 12-hour shift, in 2-hour steps:
+// Day 08-10 ... 18-20, Night 20-22 ... 06-08.
+function shiftingSlotIndex(hour, shift) {
+  const h = Number(hour);
+  if (!Number.isFinite(h)) return -1;
+  const rel = shift === 'Night' ? (h + 24 - 20) % 24 : h - 8;
+  if (rel < 0 || rel >= 12) return -1;
+  return Math.floor(rel / 2);
+}
+
+// GET /api/shifting/compliance?date&shift — per line: the Shifting team, and per machine
+// the pcs/kg shifted in each 2-hour slot (with its entries), what the machine produced in
+// that slot (DPR), and the running job's shop-floor balance.
+app.get('/api/shifting/compliance', async (req, res) => {
+  try {
+    const date = String(req.query.date || '').trim();
+    const shift = req.query.shift === 'Night' ? 'Night' : 'Day';
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ ok: false, error: 'date (YYYY-MM-DD) required' });
+    const factoryId = getFactoryId(req);
+
+    const [machineRows, dprRows, recRows, teamRows, runRows] = await Promise.all([
+      q(`SELECT TRIM(machine) AS machine, TRIM(COALESCE(line, '')) AS line, building
+           FROM machines
+          WHERE COALESCE(is_active, TRUE) = TRUE
+            AND COALESCE(NULLIF(TRIM(machine_process), ''), 'Moulding') = 'Moulding'
+            AND ($1::int IS NULL OR factory_id = $1)`, [factoryId]),
+      q(`SELECT TRIM(machine) AS machine, hour_slot, COALESCE(SUM(good_qty), 0) AS good
+           FROM dpr_hourly
+          WHERE dpr_date = $1::date AND shift = $2 AND is_deleted IS NOT TRUE
+            AND ($3::int IS NULL OR factory_id = $3 OR factory_id IS NULL)
+          GROUP BY 1, 2`, [date, shift, factoryId]),
+      q(`SELECT sr.id, TRIM(COALESCE(sr.machine_code, pb.machine, '')) AS machine,
+                sr.quantity, sr.weight_kg, sr.to_location, sr.shifted_by, sr.scan_mode,
+                sr.label_no, sr.total_labels, sr.colour,
+                COALESCE(sr.item_name, pb.item_name, '') AS item_name,
+                to_char(sr.created_at, 'HH24:MI') AS hhmm, EXTRACT(HOUR FROM sr.created_at)::int AS hr
+           FROM shifting_records sr
+           LEFT JOIN plan_board pb ON pb.id = sr.plan_id
+          WHERE sr.shift_date = $1::date AND sr.shift_type = $2
+            AND ($3::int IS NULL OR sr.factory_id = $3 OR sr.factory_id IS NULL)
+          ORDER BY sr.created_at`, [date, shift, factoryId]),
+      q(`SELECT line, supervisor, incharge, saved_by, saved_at FROM shifting_line_teams
+          WHERE dpr_date = $1::date AND shift = $2
+            AND ($3::int IS NULL OR factory_id = $3 OR factory_id IS NULL)`, [date, shift, factoryId]),
+      q(`SELECT pb.id, pb.plan_id AS plan_code, TRIM(pb.machine) AS machine, pb.item_name, pb.mould_name
+           FROM plan_board pb
+          WHERE UPPER(COALESCE(pb.status, '')) = 'RUNNING'
+            AND ($1::int IS NULL OR pb.factory_id = $1 OR pb.factory_id IS NULL)`, [factoryId])
+    ]);
+
+    // Shop-floor balance (produced - shifted) of each machine's running job.
+    const codes = runRows.map(r => String(r.plan_code || '').trim()).filter(Boolean);
+    const ids = runRows.map(r => Number(r.id)).filter(Number.isInteger);
+    const [prodRows, shiftedRows] = await Promise.all([
+      codes.length ? q(`SELECT plan_id, COALESCE(SUM(good_qty), 0) AS qty FROM dpr_hourly
+                         WHERE plan_id = ANY($1::text[]) AND is_deleted IS NOT TRUE
+                           AND ($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL)
+                         GROUP BY plan_id`, [codes, factoryId]) : [],
+      ids.length ? q(`SELECT plan_id, COALESCE(SUM(quantity), 0) AS qty FROM shifting_records
+                       WHERE plan_id = ANY($1::int[])
+                         AND ($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL)
+                       GROUP BY plan_id`, [ids, factoryId]) : []
+    ]);
+    const prodByCode = new Map(prodRows.map(r => [String(r.plan_id), Number(r.qty)]));
+    const shiftedById = new Map(shiftedRows.map(r => [String(r.plan_id), Number(r.qty)]));
+    const runByMachine = new Map();
+    runRows.forEach(r => {
+      const produced = prodByCode.get(String(r.plan_code || '').trim()) || 0;
+      const shifted = shiftedById.get(String(r.id)) || 0;
+      const cur = runByMachine.get(r.machine) || { jobs: [], on_floor: 0 };
+      cur.jobs.push(r.item_name || r.mould_name || '');
+      cur.on_floor += Math.max(produced - shifted, 0);
+      runByMachine.set(r.machine, cur);
+    });
+
+    const emptySlots = () => Array.from({ length: 6 }, () => ({ qty: 0, kg: 0, count: 0, last: '', produced: 0, entries: [] }));
+    const lineOf = new Map(machineRows.map(m => [m.machine, m.line]));
+    const byMachine = new Map();
+    const touch = (machine) => {
+      if (!byMachine.has(machine)) byMachine.set(machine, { machine, line: lineOf.get(machine) || '', slots: emptySlots(), items: new Set() });
+      return byMachine.get(machine);
+    };
+    // dpr_hourly.hour_slot is 12-hour text ("08-09", "12-01", "01-02"): Day 08-11 are AM,
+    // 12 noon and 01-07 PM; Night 08-11 are PM, 12 midnight and 01-07 AM.
+    const dprHour24 = (slot) => {
+      const h = parseInt(String(slot || '').slice(0, 2), 10);
+      if (!Number.isFinite(h) || h < 1 || h > 12) return NaN;
+      if (shift === 'Night') return h === 12 ? 0 : (h >= 8 ? h + 12 : h);
+      return h === 12 ? 12 : (h >= 8 ? h : h + 12);
+    };
+    dprRows.forEach(r => {
+      const idx = shiftingSlotIndex(dprHour24(r.hour_slot), shift);
+      if (idx < 0) return;
+      touch(r.machine).slots[idx].produced += Number(r.good || 0);
+    });
+    recRows.forEach(r => {
+      const m = touch(r.machine || '(no machine)');
+      if (r.item_name) m.items.add(r.item_name);
+      const idx = shiftingSlotIndex(r.hr, shift);
+      if (idx < 0) return;
+      const sl = m.slots[idx];
+      sl.qty += Number(r.quantity || 0);
+      sl.kg += Number(r.weight_kg || 0);
+      sl.count += 1;
+      sl.last = r.hhmm;
+      sl.entries.push({
+        id: r.id, time: r.hhmm, qty: Number(r.quantity || 0), kg: Number(r.weight_kg || 0),
+        location: r.to_location || '', by: r.shifted_by || '', mode: r.scan_mode || '',
+        label: r.total_labels ? `${r.label_no}/${r.total_labels}` : '', colour: r.colour || '', item: r.item_name || ''
+      });
+    });
+    // Running machines show even before anything is produced or shifted this shift.
+    runByMachine.forEach((_, machine) => { if (lineOf.has(machine)) touch(machine); });
+
+    const order = makeMachineOrder(machineRows);
+    const teamByLine = new Map(teamRows.map(t => [String(t.line).trim(), t]));
+    const lines = new Map();
+    [...byMachine.values()].sort((a, b) => order(a.machine, b.machine)).forEach(m => {
+      const run = runByMachine.get(m.machine);
+      const row = {
+        machine: m.machine,
+        job: (run ? run.jobs.filter(Boolean).join(', ') : '') || [...m.items].join(', '),
+        running: !!run,
+        slots: m.slots.map(sl => ({ ...sl, kg: Math.round(sl.kg * 1000) / 1000 })),
+        shifted_qty: m.slots.reduce((a, sl) => a + sl.qty, 0),
+        shifted_kg: Math.round(m.slots.reduce((a, sl) => a + sl.kg, 0) * 1000) / 1000,
+        produced_qty: m.slots.reduce((a, sl) => a + sl.produced, 0),
+        on_floor: run ? run.on_floor : 0
+      };
+      const key = m.line || '(no line)';
+      if (!lines.has(key)) {
+        const t = teamByLine.get(key);
+        lines.set(key, {
+          line: key,
+          team: t ? { supervisor: t.supervisor || '', incharge: t.incharge || '', saved_by: t.saved_by || '', saved_at: t.saved_at } : null,
+          machines: []
+        });
+      }
+      lines.get(key).machines.push(row);
+    });
+    const data = [...lines.values()];
+    const all = data.flatMap(l => l.machines);
+    res.json({
+      ok: true,
+      date,
+      shift,
+      slots: shift === 'Night'
+        ? ['20-22', '22-24', '00-02', '02-04', '04-06', '06-08']
+        : ['08-10', '10-12', '12-14', '14-16', '16-18', '18-20'],
+      totals: {
+        shifted_qty: all.reduce((a, m) => a + m.shifted_qty, 0),
+        shifted_kg: Math.round(all.reduce((a, m) => a + m.shifted_kg, 0) * 1000) / 1000,
+        on_floor: all.reduce((a, m) => a + m.on_floor, 0),
+        entries: recRows.length
+      },
+      data
+    });
+  } catch (e) {
+    sendServerError(res, e);
+  }
+});
 
 /* ============================================================
    PACKING / ASSEMBLY PLANNING
