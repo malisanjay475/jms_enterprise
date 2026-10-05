@@ -8,6 +8,9 @@ import com.jmsocean.shifting.data.AppUpdater
 import com.jmsocean.shifting.data.NetworkWatcher
 import com.jmsocean.shifting.data.remote.AppVersion
 import com.jmsocean.shifting.data.remote.LabelInfo
+import com.jmsocean.shifting.ui.common.cleanDecimal
+import com.jmsocean.shifting.ui.common.kgForQty
+import com.jmsocean.shifting.ui.common.qtyForKg
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -28,6 +31,7 @@ data class ScanUiState(
     val scanned: String = "",          // the raw scan the loaded label came from
     val label: LabelInfo? = null,
     val weight: String = "",
+    val quantity: String = "",
     val locations: List<String> = emptyList(),
     val locationsError: String? = null,
     val location: String = "",
@@ -75,7 +79,8 @@ class ScanViewModel : ViewModel() {
                         val keep = s.location.takeIf { it.isNotBlank() && list.any { l -> l.equals(it, ignoreCase = true) } }
                         s.copy(
                             locations = list, locationsError = null,
-                            location = keep ?: list.firstOrNull { it.equals("Shifting Wip", ignoreCase = true) } ?: list.firstOrNull().orEmpty()
+                            // No silent default: the shifter picks Send To after the scan.
+                            location = keep.orEmpty()
                         )
                     }
                 }
@@ -128,7 +133,16 @@ class ScanViewModel : ViewModel() {
         viewModelScope.launch {
             repo.lookupLabel(raw)
                 .onSuccess { label ->
-                    _state.update { it.copy(lookingUp = false, label = label, input = "") }
+                    // Quantity starts at what is left on the label; weight follows from the
+                    // mould's standard weight (kg per piece).
+                    val q = label.labelPendingQty.toInt()
+                    _state.update {
+                        it.copy(
+                            lookingUp = false, label = label, input = "",
+                            quantity = if (q > 0) q.toString() else "",
+                            weight = kgForQty(q, label.unitWeightKg)
+                        )
+                    }
                     if (label.blocked) {
                         _feedback.tryEmit(Feedback.ERROR)
                         _state.update {
@@ -159,10 +173,28 @@ class ScanViewModel : ViewModel() {
         _state.update { it.copy(location = loc) }
     }
 
+    /** Weight typed: pieces follow from the standard weight (when the mould has one). */
     fun setWeight(v: String) {
-        val clean = v.filter { it.isDigit() || it == '.' }
-        if (clean.count { it == '.' } > 1) return
-        _state.update { it.copy(weight = clean) }
+        val clean = cleanDecimal(v)
+        val unit = _state.value.label?.unitWeightKg ?: 0.0
+        _state.update {
+            it.copy(
+                weight = clean, result = null,
+                quantity = if (unit > 0) qtyForKg(clean.toDoubleOrNull() ?: 0.0, unit).takeIf { q -> q > 0 }?.toString().orEmpty() else it.quantity
+            )
+        }
+    }
+
+    /** Pieces typed: weight follows from the standard weight. */
+    fun setQuantity(v: String) {
+        val clean = v.filter(Char::isDigit).take(7)
+        val unit = _state.value.label?.unitWeightKg ?: 0.0
+        _state.update {
+            it.copy(
+                quantity = clean, result = null,
+                weight = if (unit > 0) kgForQty(clean.toIntOrNull() ?: 0, unit) else it.weight
+            )
+        }
     }
 
     fun setQuickShift(on: Boolean) {
@@ -172,7 +204,7 @@ class ScanViewModel : ViewModel() {
 
     fun clear() {
         autoLookupJob?.cancel()
-        _state.update { it.copy(input = "", label = null, scanned = "", weight = "", result = null) }
+        _state.update { it.copy(input = "", label = null, scanned = "", weight = "", quantity = "", result = null) }
     }
 
     fun confirm() {
@@ -184,16 +216,28 @@ class ScanViewModel : ViewModel() {
             _feedback.tryEmit(Feedback.ERROR)
             return
         }
+        val max = label.labelPendingQty.toInt()
+        val qty = s.quantity.toIntOrNull() ?: 0
+        if (qty <= 0) {
+            _state.update { it.copy(result = ScanResult(false, "Enter the weight or the quantity.")) }
+            _feedback.tryEmit(Feedback.ERROR)
+            return
+        }
+        if (qty > max) {
+            _state.update { it.copy(result = ScanResult(false, "Only $max pcs are left on this label.")) }
+            _feedback.tryEmit(Feedback.ERROR)
+            return
+        }
         val weight = s.weight.toDoubleOrNull()?.takeIf { it > 0 }
         _state.update { it.copy(submitting = true, result = null) }
         viewModelScope.launch {
-            repo.shiftLabel(s.scanned, s.location, quantity = null, weightKg = weight)
+            repo.shiftLabel(s.scanned, s.location, quantity = qty.toDouble(), weightKg = weight)
                 .onSuccess { savedQty ->
                     _feedback.tryEmit(Feedback.SUCCESS)
-                    val q = if (savedQty > 0) savedQty else label.labelPendingQty
+                    val q = if (savedQty > 0) savedQty else qty.toDouble()
                     _state.update {
                         it.copy(
-                            submitting = false, label = null, scanned = "", weight = "",
+                            submitting = false, label = null, scanned = "", weight = "", quantity = "",
                             shiftedThisSession = it.shiftedThisSession + 1,
                             result = ScanResult(
                                 true,
