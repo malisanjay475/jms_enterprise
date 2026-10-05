@@ -13,6 +13,11 @@ part of your PR. On release, the `[Unreleased]` items move under the new version
 
 ## [Unreleased]
 
+### Fixed
+- Shifting APK auto-publish (v1.93.2): `android-shifting-apk.yml` now waits (up to 25 min) for
+  MAIN to report version >= 1.93.1 before publishing. On the 1.93.1 release the publish reached the
+  old server first, which ignored `app=shifting` and overwrote the QC feed (restored by re-runs).
+
 ### Added
 - Shifting app update feed (v1.93.1): `POST /api/qc-app/publish` takes `app=shifting` to publish
   the native Shifting APK to `PUBLIC/qc-app/shifting/` (`jms-shifting.apk` + `version.json`),
