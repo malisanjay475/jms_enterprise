@@ -13,6 +13,18 @@ part of your PR. On release, the `[Unreleased]` items move under the new version
 
 ## [Unreleased]
 
+### Added
+- Shifting v2 backend + web (v1.94.0):
+  - `shifting_line_teams` (Shifting Supervisor + Incharge per line/date/shift) with
+    `GET/POST /api/shifting/line-team`; replicates LOCAL -> MAIN like `qc_line_teams`
+    (sync schema v10).
+  - `unit_weight_kg` (Mould Master `std_wt_kg`, kg per piece) on `/api/shifting/scan-label`
+    and `/api/shifting/jobs`; jobs fall back to the machine master line.
+  - `POST /api/shifting/entry` saves an optional `weightKg`.
+  - `GET /api/shifting/compliance?date&shift`: per line team, per machine pcs/kg per 2-hour
+    slot with entries, DPR production per slot, running-job shop-floor balance.
+  - DPR Compliance Summary: new Process "Shifting" (dpr-script-1.js).
+
 ### Fixed
 - Shifting APK auto-publish (v1.93.2): `android-shifting-apk.yml` now waits (up to 25 min) for
   MAIN to report version >= 1.93.1 before publishing. On the 1.93.1 release the publish reached the

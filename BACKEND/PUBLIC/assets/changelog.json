@@ -11,8 +11,29 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.93.2",
+  "latest": "1.94.0",
   "versions": [
+    {
+      "version": "1.94.0",
+      "date": "2026-10-05",
+      "title": "Shifting team, weight and Shifting compliance",
+      "modules": [
+        {
+          "app": "shifting_supervisor_app",
+          "changes": [
+            { "type": "feat", "text": "Shifting Supervisor and Shifting Incharge are saved per line and shift; the Shifting app opens only after the team is saved." },
+            { "type": "feat", "text": "Weight and quantity are linked: enter kg and the pieces are worked out from the mould's standard weight, or enter pieces and the kg is shown." },
+            { "type": "feat", "text": "Manual shifting from the app saves the weight too." }
+          ]
+        },
+        {
+          "app": "dpr",
+          "changes": [
+            { "type": "feat", "text": "DPR Compliance Summary has a new process, Shifting: pieces and kg shifted per machine in 2-hour slots, the Shifting team per line, and slots where a machine produced but nothing was shifted." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.93.2",
       "date": "2026-10-05",

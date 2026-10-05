@@ -703,7 +703,7 @@
                 const nowMins = new Date().getHours() * 60 + new Date().getMinutes(); // browser local time (IST on factory devices)
                 // Auto-detect shift: factory handover at 08:10 AM / 08:10 PM
                 const defaultShift = (nowMins >= 1210 || nowMins < 490) ? 'Night' : 'Day';
-                const DPR_PROCESS_OPTIONS = ['Moulding', 'Printing', 'Tuffting', 'Labour Job', 'QC'];
+                const DPR_PROCESS_OPTIONS = ['Moulding', 'Printing', 'Tuffting', 'Labour Job', 'QC', 'Shifting'];
                 let dprProcess = localStorage.getItem('jpsms_dpr_process') || 'Moulding';
 
                 card.innerHTML = `
@@ -1491,6 +1491,209 @@
                 };
                 // ---- End QC DPR Summary ----
 
+                // ---- Shifting DPR Summary (Process = Shifting) ----
+                // Same layout as the QC summary, filled from /api/shifting/compliance: per
+                // line the Shifting team, per machine the pcs/kg shifted in each 2-hour slot
+                // (green), slots where the machine produced but nothing was shifted (red),
+                // and the running job's shop-floor balance.
+                const loadShiftingDprSummary = async (container, fromDateIn, toDateIn, shiftModeIn) => {
+                    const esc = dprEscHtml;
+                    const shiftMode = shiftModeIn === 'Both' ? 'Both' : shiftModeIn === 'Night' ? 'Night' : 'Day';
+                    const isoDay = v => {
+                        const m = String(v || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+                        return m ? new Date(Date.UTC(+m[1], +m[2] - 1, +m[3])).toISOString().slice(0, 10) : localToday();
+                    };
+                    const fromDate = isoDay(fromDateIn);
+                    const toDate = isoDay(toDateIn || fromDateIn);
+                    const dates = [];
+                    for (let d = new Date(fromDate + 'T00:00:00Z'); d.toISOString().slice(0, 10) <= toDate && dates.length < 31; d.setUTCDate(d.getUTCDate() + 1)) dates.push(d.toISOString().slice(0, 10));
+                    const shifts = shiftMode === 'Both' ? ['Day', 'Night'] : [shiftMode];
+                    container.innerHTML = `<div style="padding:40px; text-align:center; color:#64748b"><i class="bi bi-arrow-repeat spin" style="font-size:2rem;display:block;margin-bottom:10px"></i> Loading Shifting Matrix...</div>`;
+
+                    let results;
+                    try {
+                        results = await Promise.all(dates.flatMap(date => shifts.map(sh =>
+                            J.api.get(`/shifting/compliance?date=${date}&shift=${sh}`).then(r => ({ date, sh, r })))));
+                    } catch (e) {
+                        container.innerHTML = `<div style="padding:40px; text-align:center; color:#b91c1c">Shifting summary could not be loaded: ${esc(e.message || e)}</div>`;
+                        return;
+                    }
+                    const bad = results.find(x => !x.r || !x.r.ok);
+                    if (bad) {
+                        container.innerHTML = `<div style="padding:40px; text-align:center; color:#b91c1c">${esc((bad.r && bad.r.error) || 'Shifting summary could not be loaded')}</div>`;
+                        return;
+                    }
+
+                    const allLines = [];
+                    results.forEach(x => (x.r.data || []).forEach(l => { if (!allLines.includes(l.line)) allLines.push(l.line); }));
+                    renderLineMenu(allLines);
+                    const shownLines = selLines.length ? allLines.filter(l => selLines.includes(l)) : allLines;
+                    const fmt = n => Math.round(Number(n) || 0).toLocaleString('en-IN');
+                    const fmtKg = n => { const v = Math.round((Number(n) || 0) * 10) / 10; return v ? v.toLocaleString('en-IN') : ''; };
+                    const slotStart = (date, sh, i) => Date.parse(`${date}T${sh === 'Night' ? '20' : '08'}:00:00+05:30`) + i * 7200000;
+                    const now = Date.now();
+
+                    window._shiftSlotEntries = [];
+                    const grand = { qty: 0, kg: 0, floor: 0, entries: 0, missed: 0 };
+                    let body = '';
+                    let machineCount = 0;
+
+                    dates.forEach(date => {
+                        const perShift = shifts.map(sh => results.find(x => x.date === date && x.sh === sh).r);
+                        const SL = perShift[0].slots || [];
+                        body += `<div class="dpr-date-banner" style="position:sticky; z-index:46; background:#0f172a; color:white; padding:12px 20px; font-weight:800; border-radius:12px; margin:40px 0 20px 0; font-size:1.2rem; display:flex; justify-content:space-between; align-items:center; box-shadow:0 10px 15px -3px rgba(0,0,0,0.1)">
+                                <span><i class="bi bi-calendar3" style="margin-right:10px"></i>Compliance Summary for ${new Date(date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
+                                <span style="font-size:0.9rem; opacity:0.8">Shifting • ${esc(shiftMode)} Shift</span>
+                            </div>
+                            <div class="date-section-header" style="position:sticky; z-index:45; top:130px; margin-bottom:0; background:#f8fafc; border:1px solid #cbd5e1; border-radius:8px 8px 0 0; overflow:hidden">
+                                <table style="width:100%; border-collapse:separate; border-spacing:0; font-size:0.8rem; text-align:center; table-layout:fixed">
+                                    <colgroup><col style="width:220px; min-width:220px">${SL.map(() => '<col style="width:120px; min-width:120px">').join('')}<col style="width:150px; min-width:150px"></colgroup>
+                                    <thead><tr>
+                                        <th style="padding:12px; text-align:left; background:#f8fafc; font-weight:600; color:#475569; border-right:1px solid #e2e8f0">Machine / Job</th>
+                                        ${SL.map((s, i) => `<th style="padding:10px; background:#f8fafc; font-weight:600; color:#475569; font-size:0.75rem; border-right:1px solid #e2e8f0">${esc(shiftMode === 'Both' ? 'Slot ' + (i + 1) : s.replace('-', '–'))}</th>`).join('')}
+                                        <th style="padding:10px; background:#f0f9ff; font-weight:700; color:#0369a1; border-left:2px solid #e2e8f0">Summary</th>
+                                    </tr></thead>
+                                </table>
+                            </div>`;
+
+                        shownLines.forEach(line => {
+                            let lQty = 0, lKg = 0, lFloor = 0, lMissed = 0, rowsHtml = '';
+                            const machines = [];
+                            perShift.forEach(r => ((r.data || []).find(l => l.line === line) || { machines: [] }).machines.forEach(m => { if (!machines.includes(m.machine)) machines.push(m.machine); }));
+                            if (!machines.length) return;
+
+                            machines.forEach(machine => {
+                                let mHtml = '', search = [machine, line].join(' ').toLowerCase();
+                                shifts.forEach((sh, sIdx) => {
+                                    const r = perShift[sIdx];
+                                    const SLs = r.slots || [];
+                                    const m = ((r.data || []).find(l => l.line === line) || { machines: [] }).machines.find(x => x.machine === machine);
+                                    if (!m) return;
+                                    if (m.job) search += ' ' + String(m.job).toLowerCase();
+                                    const cells = (m.slots || []).map((sl, i) => {
+                                        const base = 'padding:6px 4px; border-right:1px solid #f1f5f9; border-bottom:1px solid #e2e8f0; vertical-align:middle; font-size:0.78rem; font-weight:700';
+                                        const ended = now > slotStart(date, sh, i) + 7200000;
+                                        if (sl.count) {
+                                            const arg = window._shiftSlotEntries.push({ machine, date, sh, slot: SLs[i], entries: sl.entries || [] }) - 1;
+                                            return `<td style="${base}; background:#ecfdf5; color:#047857; cursor:pointer" onclick="shiftingShowSlot(${arg})">${fmt(sl.qty)} pcs${sl.kg ? `<div style="font-size:0.68rem; font-weight:600">${fmtKg(sl.kg)} kg</div>` : ''}<div style="font-size:0.66rem; color:#64748b; font-weight:600">${esc(sl.last)}${sl.count > 1 ? ` · ${sl.count} entries` : ''}</div></td>`;
+                                        }
+                                        if (sl.produced > 0 && ended) { lMissed++; return `<td style="${base}; background:#fff1f2; color:#e11d48" title="Produced ${fmt(sl.produced)} pcs, nothing shifted">Not shifted<div style="font-size:0.66rem; font-weight:600">made ${fmt(sl.produced)}</div></td>`; }
+                                        if (sl.produced > 0) return `<td style="${base}; background:#fffbeb; color:#b45309">Due<div style="font-size:0.66rem; font-weight:600">made ${fmt(sl.produced)}</div></td>`;
+                                        return `<td style="${base}; color:#cbd5e1">—</td>`;
+                                    }).join('');
+                                    lQty += m.shifted_qty; lKg += m.shifted_kg;
+                                    if (sIdx === 0) lFloor += m.on_floor;
+                                    let label = esc(machine);
+                                    if (shiftMode === 'Both') {
+                                        const c = sh === 'Day' ? '#f59e0b' : '#6366f1';
+                                        label += ` <span style="color:${c}; font-size:0.7rem; background:${c}15; padding:1px 4px; border-radius:4px; margin-left:4px">${sh}</span>`;
+                                    }
+                                    const summary = `<div style="font-weight:800; color:#0f172a">${fmt(m.shifted_qty)} pcs${m.shifted_kg ? ` · ${fmtKg(m.shifted_kg)} kg` : ''}</div>
+                                        <div style="font-size:0.7rem; color:#64748b">Made ${fmt(m.produced_qty)} this shift</div>
+                                        ${m.on_floor ? `<div style="font-size:0.72rem; font-weight:700; color:#b45309">On floor ${fmt(m.on_floor)}</div>` : ''}`;
+                                    mHtml += `<tr style="${sIdx === 0 ? 'border-top:2px solid #cbd5e1' : ''}">
+                                        <td style="padding:6px 8px; text-align:left; border-right:1px solid #f1f5f9; border-bottom:1px solid #e2e8f0; background:#fff; vertical-align:middle">
+                                            <div style="font-size:0.75rem; text-transform:uppercase; letter-spacing:0.5px; font-weight:700; margin-bottom:4px; color:#64748b">${label}</div>
+                                            ${m.job ? `<div style="font-size:0.85rem; font-weight:700; color:#1e293b; line-height:1.3">${esc(m.job)}</div>` : '<div style="font-size:0.8rem; color:#94a3b8; font-style:italic">No running plan</div>'}
+                                        </td>
+                                        ${cells}
+                                        <td style="padding:6px 8px; text-align:left; border-left:2px solid #e2e8f0; border-bottom:1px solid #e2e8f0; background:#f8fbff; vertical-align:middle; font-size:0.78rem">${summary}</td>
+                                    </tr>`;
+                                });
+                                if (!mHtml) return;
+                                machineCount++;
+                                rowsHtml += `<tbody class="mm-machine" data-search="${esc(search)}">${mHtml}</tbody>`;
+                            });
+
+                            grand.qty += lQty; grand.kg += lKg; grand.floor += lFloor; grand.missed += lMissed;
+                            const teamStrip = shifts.map((sh, sIdx) => {
+                                const t = ((perShift[sIdx].data || []).find(l => l.line === line) || {}).team;
+                                const pre = shiftMode === 'Both' ? `<b>${sh}:</b> ` : '';
+                                return t
+                                    ? `${pre}Shifting Supervisor: <b>${esc(t.supervisor || '-')}</b>&nbsp;|&nbsp;Shifting Incharge: <b>${esc(t.incharge || '-')}</b>${t.saved_by ? `&nbsp;|&nbsp;Entered by: <b>${esc(t.saved_by)}</b>` : ''}`
+                                    : `${pre}<span style="color:#ef4444; font-style:italic">Shifting Team Not Entered</span>`;
+                            }).join('&nbsp;&nbsp;•&nbsp;&nbsp;');
+                            const chip = (c, html) => `<div style="font-weight:700; color:${c}; font-size:0.9rem; border-left:1px solid #cbd5e1; padding-left:12px">${html}</div>`;
+                            body += `<div class="dpr-line-card"><div style="margin-bottom:24px; background:white; border:1px solid #cbd5e1; border-radius:0 0 12px 12px; overflow:hidden; box-shadow:0 4px 6px -1px rgba(0,0,0,0.05); margin-top:-1px">
+                                <div style="padding:8px 20px; background:#f1f5f9; border-bottom:1px solid #e2e8f0; border-top:1px solid #e2e8f0">
+                                    <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px">
+                                        <span style="font-weight:700; color:#0f172a; font-size:1rem">${esc(line)}</span>
+                                        <div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap">
+                                            <div style="font-weight:700; color:#047857; font-size:0.9rem">Shifted: ${fmt(lQty)} pcs${lKg ? ` · ${fmtKg(lKg)} kg` : ''}</div>
+                                            ${chip('#b45309', `On floor: ${fmt(lFloor)}`)}
+                                            ${chip('#e11d48', `Not shifted slots: ${lMissed}`)}
+                                        </div>
+                                    </div>
+                                    <div style="margin-top:2px; font-size:0.75rem; color:#475569">${teamStrip}</div>
+                                </div>
+                                <div style="overflow-x:auto">
+                                    <table style="width:100%; border-collapse:separate; border-spacing:0; font-size:0.8rem; text-align:center; table-layout:fixed">
+                                        <colgroup><col style="width:220px; min-width:220px">${SL.map(() => '<col style="width:120px; min-width:120px">').join('')}<col style="width:150px; min-width:150px"></colgroup>
+                                        ${rowsHtml}
+                                    </table>
+                                </div>
+                            </div></div>`;
+                        });
+                        perShift.forEach(r => { grand.entries += (r.totals && r.totals.entries) || 0; });
+                    });
+
+                    const stat = (label, val, c) => `<div style="text-align:right"><div style="font-size:0.75rem; font-weight:600; color:${c}; text-transform:uppercase">${label}</div><div style="font-size:1.4rem; font-weight:800; color:${c}">${val}</div></div><div style="height:40px; border-right:1px solid #e2e8f0"></div>`;
+                    const top = `<div id="sticky-plant-total" style="position:relative; z-index:1; background:white; border:1px solid #cbd5e1; border-radius:12px; padding:15px; margin-bottom:20px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px">
+                            <div style="font-size:1.1rem; font-weight:700; color:#0f172a">
+                                Shifting Total (${new Date(fromDate).toLocaleDateString('en-GB')}${toDate !== fromDate ? ' – ' + new Date(toDate).toLocaleDateString('en-GB') : ''})
+                                <span style="font-size:0.8rem; font-weight:400; color:#64748b; margin-left:8px">from the Shifting app, in 2-hour slots</span>
+                            </div>
+                            <div style="display:flex; gap:20px; flex-wrap:wrap; row-gap:12px; justify-content:flex-end; align-items:center">
+                                ${stat('Shifted pcs', fmt(grand.qty), '#047857')}
+                                ${stat('Shifted kg', fmtKg(grand.kg) || '0', '#0f172a')}
+                                ${stat('Entries', fmt(grand.entries), '#1d4ed8')}
+                                ${stat('Not shifted slots', grand.missed, '#e11d48')}
+                                <div style="text-align:right"><div style="font-size:0.75rem; font-weight:600; color:#b45309; text-transform:uppercase">On floor (running jobs)</div><div style="font-size:1.4rem; font-weight:800; color:#b45309">${fmt(grand.floor)}</div></div>
+                            </div>
+                        </div>`;
+
+                    container.innerHTML = machineCount ? top + body
+                        : '<div style="padding:60px; text-align:center; color:#94a3b8; background:white; border-radius:8px; border:1px dashed #cbd5e1">No machines produced or shifted in this period.</div>';
+                    window._dprMachineCount = machineCount;
+                    try { if (window.applyDprSearch) window.applyDprSearch(); } catch (_) {}
+                    const banners = container.querySelectorAll('.dpr-date-banner');
+                    const bh = banners.length ? banners[0].offsetHeight : 0;
+                    banners.forEach(b => { b.style.top = '0px'; });
+                    container.querySelectorAll('.date-section-header').forEach(h => { h.style.top = bh + 'px'; });
+                };
+
+                // Popup with every shifting entry of one machine in one 2-hour slot.
+                window.shiftingShowSlot = (idx) => {
+                    const esc = dprEscHtml;
+                    const s = (window._shiftSlotEntries || [])[idx];
+                    if (!s) return;
+                    const ov = document.createElement('div');
+                    ov.style.cssText = 'position:fixed; inset:0; background:rgba(15,23,42,0.45); z-index:2000; display:flex; align-items:center; justify-content:center; padding:16px';
+                    ov.onclick = e => { if (e.target === ov) ov.remove(); };
+                    const rows = s.entries.map(e => `<tr style="border-top:1px solid #f1f5f9">
+                            <td style="padding:6px 6px 6px 0">${esc(e.time)}</td>
+                            <td style="padding:6px; font-weight:700">${Math.round(e.qty).toLocaleString('en-IN')}</td>
+                            <td style="padding:6px">${e.kg ? esc(String(Math.round(e.kg * 1000) / 1000)) : '—'}</td>
+                            <td style="padding:6px">${esc(e.location || '—')}</td>
+                            <td style="padding:6px">${esc(e.label ? 'Label ' + e.label : 'Manual')}${e.colour ? ' · ' + esc(e.colour) : ''}</td>
+                            <td style="padding:6px">${esc(e.by || '—')}</td>
+                        </tr>`).join('');
+                    ov.innerHTML = `<div data-shift-pop="1" style="background:#fff; border-radius:12px; max-width:640px; width:100%; padding:18px 20px; max-height:85vh; overflow:auto">
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px">
+                            <b style="font-size:1rem; color:#0f172a">${esc(s.machine)} · ${esc(s.slot)} · ${esc(s.sh)} · ${esc(s.date)}</b>
+                            <button type="button" style="border:1px solid #cbd5e1; background:#fff; border-radius:8px; padding:4px 10px; cursor:pointer">Close</button>
+                        </div>
+                        <table style="width:100%; font-size:0.85rem; border-collapse:collapse; text-align:left">
+                            <tr style="color:#64748b"><th style="padding:4px 6px 4px 0">Time</th><th style="padding:4px 6px">Pcs</th><th style="padding:4px 6px">Kg</th><th style="padding:4px 6px">Sent to</th><th style="padding:4px 6px">Label</th><th style="padding:4px 6px">By</th></tr>
+                            ${rows}
+                        </table>
+                    </div>`;
+                    ov.querySelector('button').onclick = () => ov.remove();
+                    document.body.appendChild(ov);
+                };
+                // ---- End Shifting DPR Summary ----
+
+
                 const loadSummary = async () => {
                     let fromDate = document.getElementById('s-date').value;
                     let toDate = document.getElementById('s-date-to')?.value || fromDate;
@@ -1503,6 +1706,13 @@
                     // ---- Labour Job DPR: separate path ----
                     if (dprProcess === 'Labour Job') {
                         await loadLabourDprSummary(container, fromDate, toDate, shiftMode);
+                        return;
+                    }
+
+                    // ---- Shifting: 2-hour slots from the Shifting app ----
+                    if (dprProcess === 'Shifting') {
+                        localStorage.setItem('jpsms_dpr_process', dprProcess);
+                        await loadShiftingDprSummary(container, fromDate, toDate, shiftMode);
                         return;
                     }
 
