@@ -212,9 +212,15 @@ class ShiftingRepository(private val session: SessionStore) {
 
     suspend fun lineTeam(date: String, shift: String): Result<LineTeamStatus> = runCatching {
         var required: List<String> = emptyList()
+        var missingOnServer = false
         val data = call {
             api.lineTeam(date = date, shift = shift, lineAccess = session.line).also { r ->
                 required = r.body()?.required.orEmpty()
+                missingOnServer = r.code() == 404
+            }.let { r ->
+                // A factory server not yet on 1.94.0 has no shift-team endpoint: don't lock
+                // the app over it (the team is asked for once the server is updated).
+                if (missingOnServer) Response.success(ApiEnvelope(ok = true)) else r
             }
         }
         val teams = (data as? JsonArray).orEmpty().mapNotNull { it as? JsonObject }.map {
