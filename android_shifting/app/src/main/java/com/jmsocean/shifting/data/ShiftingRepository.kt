@@ -5,6 +5,9 @@ import com.jmsocean.shifting.data.remote.ColourRow
 import com.jmsocean.shifting.data.remote.Job
 import com.jmsocean.shifting.data.remote.JobDetail
 import com.jmsocean.shifting.data.remote.LabelInfo
+import com.jmsocean.shifting.data.remote.LineTeam
+import com.jmsocean.shifting.data.remote.LineTeamRequest
+import com.jmsocean.shifting.data.remote.LineTeamStatus
 import com.jmsocean.shifting.data.remote.LoginRequest
 import com.jmsocean.shifting.data.remote.ManualEntryRequest
 import com.jmsocean.shifting.data.remote.Network
@@ -114,6 +117,8 @@ class ShiftingRepository(private val session: SessionStore) {
             colourPendingQty = o.num("colour_pending_qty"),
             totalProduced = o.num("total_produced"),
             totalShifted = o.num("total_shifted"),
+            shopFloorQty = o.num("shop_floor_qty"),
+            unitWeightKg = o.num("unit_weight_kg"),
             alreadyShifted = o.bool("already_shifted"),
             qcHold = hold,
             qcHoldMessage = o.str("qc_hold_message"),
@@ -137,8 +142,10 @@ class ShiftingRepository(private val session: SessionStore) {
 
     // ── Jobs ────────────────────────────────────────────────────────────────
 
-    suspend fun jobs(days: Int): Result<List<Job>> = runCatching {
-        (call { api.jobs(days = days, line = session.line.ifBlank { null }) } as? JsonArray).orEmpty()
+    /** Jobs of the user's own line (Jobs screen), or of every line when [allLines] (Manual shift). */
+    suspend fun jobs(days: Int, allLines: Boolean = false): Result<List<Job>> = runCatching {
+        val line = if (allLines) null else session.line.ifBlank { null }
+        (call { api.jobs(days = days, line = line) } as? JsonArray).orEmpty()
             .mapNotNull { it as? JsonObject }
             .map { o ->
                 Job(
@@ -156,7 +163,8 @@ class ShiftingRepository(private val session: SessionStore) {
                     qcApproved = o.num("total_qc_approved"),
                     shifted = o.num("total_shifted"),
                     labelsPrinted = o.num("total_labels_printed").toInt(),
-                    labelledQty = o.num("total_labelled_qty")
+                    labelledQty = o.num("total_labelled_qty"),
+                    unitWeightKg = o.num("unit_weight_kg")
                 )
             }
     }
@@ -191,8 +199,38 @@ class ShiftingRepository(private val session: SessionStore) {
         )
     }
 
-    suspend fun manualShift(planId: String, machine: String, quantity: Int, toLocation: String): Result<Unit> = runCatching {
-        call { api.manualEntry(ManualEntryRequest(planId = planId, quantity = quantity, toLocation = toLocation, machine = machine)) }
+    suspend fun manualShift(planId: String, machine: String, quantity: Int, toLocation: String, weightKg: Double? = null): Result<Unit> = runCatching {
+        call {
+            api.manualEntry(
+                ManualEntryRequest(planId = planId, quantity = quantity, toLocation = toLocation, machine = machine, weightKg = weightKg)
+            )
+        }
+        Unit
+    }
+
+    // ── Shift team (Shifting Supervisor + Incharge per line) ────────────────
+
+    suspend fun lineTeam(date: String, shift: String): Result<LineTeamStatus> = runCatching {
+        var required: List<String> = emptyList()
+        var missingOnServer = false
+        val data = call {
+            api.lineTeam(date = date, shift = shift, lineAccess = session.line).also { r ->
+                required = r.body()?.required.orEmpty()
+                missingOnServer = r.code() == 404
+            }.let { r ->
+                // A factory server not yet on 1.94.0 has no shift-team endpoint: don't lock
+                // the app over it (the team is asked for once the server is updated).
+                if (missingOnServer) Response.success(ApiEnvelope(ok = true)) else r
+            }
+        }
+        val teams = (data as? JsonArray).orEmpty().mapNotNull { it as? JsonObject }.map {
+            LineTeam(line = it.str("line"), supervisor = it.str("supervisor"), incharge = it.str("incharge"))
+        }
+        LineTeamStatus(teams = teams, required = required)
+    }
+
+    suspend fun saveLineTeam(line: String, date: String, shift: String, supervisor: String, incharge: String): Result<Unit> = runCatching {
+        call { api.saveLineTeam(LineTeamRequest(line = line, dpr_date = date, shift = shift, supervisor = supervisor, incharge = incharge)) }
         Unit
     }
 

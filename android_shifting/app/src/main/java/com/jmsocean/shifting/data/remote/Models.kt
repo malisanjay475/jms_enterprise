@@ -13,7 +13,9 @@ import kotlinx.serialization.json.JsonElement
 data class ApiEnvelope(
     val ok: Boolean = false,
     val error: String? = null,
-    val data: JsonElement? = null
+    val data: JsonElement? = null,
+    /** /api/shifting/line-team: lines still without a saved shift team. */
+    val required: List<String>? = null
 )
 
 @Serializable
@@ -40,7 +42,17 @@ data class ManualEntryRequest(
     val planId: String,
     val quantity: Int,
     val toLocation: String,
-    val machine: String? = null
+    val machine: String? = null,
+    val weightKg: Double? = null
+)
+
+@Serializable
+data class LineTeamRequest(
+    val line: String,
+    val dpr_date: String,
+    val shift: String,
+    val supervisor: String,
+    val incharge: String
 )
 
 @Serializable
@@ -93,6 +105,9 @@ data class LabelInfo(
     val colourPendingQty: Double,
     val totalProduced: Double,
     val totalShifted: Double,
+    val shopFloorQty: Double,
+    /** kg per piece from the Mould Master; 0 when the mould has no weight. */
+    val unitWeightKg: Double,
     val alreadyShifted: Boolean,
     val qcHold: QcHold?,
     val qcHoldMessage: String,
@@ -116,7 +131,9 @@ data class Job(
     val qcApproved: Double,
     val shifted: Double,
     val labelsPrinted: Int,
-    val labelledQty: Double
+    val labelledQty: Double,
+    /** kg per piece from the Mould Master; 0 when the mould has no weight. */
+    val unitWeightKg: Double = 0.0
 ) {
     val isRunning: Boolean get() = status.equals("running", ignoreCase = true)
     val floorBalance: Double get() = (produced - shifted).coerceAtLeast(0.0)
@@ -169,6 +186,21 @@ data class ShiftSummary(
     val byMachine: List<SummaryRow>,
     val bySupervisor: List<SummaryRow>,
     val byLocation: List<SummaryRow>
+)
+
+/** Shifting Supervisor + Incharge saved for one line in the current shift. */
+data class LineTeam(
+    val line: String,
+    val supervisor: String,
+    val incharge: String
+) {
+    val done: Boolean get() = supervisor.isNotBlank() && incharge.isNotBlank()
+}
+
+data class LineTeamStatus(
+    val teams: List<LineTeam>,
+    /** Lines still missing a team; the app stays locked until this is empty. */
+    val required: List<String>
 )
 
 data class SummaryRow(
