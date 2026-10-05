@@ -10561,7 +10561,7 @@ async function shiftingAvailabilityMap(plans, factoryId) {
     const code = String(p.code || '').trim();
     if (pk) keyByRef.set(pk, pk);
     if (code) keyByRef.set(code, pk || code);
-    out.set(pk || code, { produced: 0, verified: 0, not_verified: 0, shifted: 0, ready: 0, colours: new Map() });
+    out.set(pk || code, { produced: 0, verified: 0, not_verified: 0, shifted: 0, ready: 0, colours: new Map(), by_location: new Map() });
   });
   const refs = [...keyByRef.keys()];
   const pkInts = list.map(p => Number(p.pk)).filter(Number.isInteger);
@@ -10585,17 +10585,18 @@ async function shiftingAvailabilityMap(plans, factoryId) {
           AND ($2::int IS NULL OR d.factory_id = $2 OR d.factory_id IS NULL)
         GROUP BY 1, 2`, [refs, fid]),
     pkInts.length
-      ? q(`SELECT CAST(plan_id AS TEXT) AS ref, TRIM(COALESCE(colour, '')) AS colour, COALESCE(SUM(quantity), 0) AS shifted
+      ? q(`SELECT CAST(plan_id AS TEXT) AS ref, TRIM(COALESCE(colour, '')) AS colour,
+                  COALESCE(NULLIF(TRIM(to_location), ''), '—') AS location, COALESCE(SUM(quantity), 0) AS shifted
              FROM shifting_records
             WHERE plan_id = ANY($1::int[])
               AND ($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL)
-            GROUP BY 1, 2`, [pkInts, fid])
+            GROUP BY 1, 2, 3`, [pkInts, fid])
       : []
   ]);
 
   const colourOf = (agg, colour) => {
     const ck = shiftingColourKey(colour);
-    if (!agg.colours.has(ck)) agg.colours.set(ck, { colour: String(colour || '').trim(), produced: 0, verified: 0, not_verified: 0, shifted: 0, ready: 0 });
+    if (!agg.colours.has(ck)) agg.colours.set(ck, { colour: String(colour || '').trim(), produced: 0, verified: 0, not_verified: 0, shifted: 0, ready: 0, by_location: new Map() });
     return agg.colours.get(ck);
   };
   dprRows.forEach(r => {
@@ -10613,8 +10614,13 @@ async function shiftingAvailabilityMap(plans, factoryId) {
     if (!agg) return;
     const shifted = Number(r.shifted) || 0;
     agg.shifted += shifted;
+    agg.by_location.set(r.location, (agg.by_location.get(r.location) || 0) + shifted);
     // Manual entries carry no colour: they only reduce the job total.
-    if (String(r.colour || '').trim()) colourOf(agg, r.colour).shifted += shifted;
+    if (String(r.colour || '').trim()) {
+      const c = colourOf(agg, r.colour);
+      c.shifted += shifted;
+      c.by_location.set(r.location, (c.by_location.get(r.location) || 0) + shifted);
+    }
   });
   out.forEach(agg => {
     agg.ready = Math.max(agg.verified - agg.shifted, 0);
@@ -10682,20 +10688,26 @@ app.get('/api/shifting/availability', async (req, res) => {
   try {
     const factoryId = getFactoryId(req);
     const ref = String(req.query.plan_id || '').trim();
-    if (!ref) return res.status(400).json({ ok: false, error: 'plan_id required' });
+    const orderNo = String(req.query.order_no || '').trim();
+    const machineQ = String(req.query.machine || '').trim();
+    if (!ref && !orderNo) return res.status(400).json({ ok: false, error: 'plan_id or order_no required' });
+    // By plan id / plan code; or, for pages that only know the job (DPR / QC job details),
+    // by OR number (+ machine): the running plan first, then the latest one.
     const planRows = await q(
       `SELECT pb.id, pb.plan_id, pb.machine, pb.line, pb.order_no, pb.item_name, pb.mould_name,
               pb.plan_qty, pb.status, pb.colour_details, pb.factory_id
          FROM plan_board pb
-        WHERE (CAST(pb.id AS TEXT) = $1 OR TRIM(COALESCE(pb.plan_id, '')) = $1)
+        WHERE (($1::text <> '' AND (CAST(pb.id AS TEXT) = $1 OR TRIM(COALESCE(pb.plan_id, '')) = $1))
+            OR ($1::text = '' AND TRIM(COALESCE(pb.order_no, '')) = $3
+                AND ($4::text = '' OR TRIM(COALESCE(pb.machine, '')) = $4)))
           AND ($2::int IS NULL OR pb.factory_id = $2 OR pb.factory_id IS NULL)
-        ORDER BY pb.id DESC LIMIT 1`,
-      [ref, factoryId]
+        ORDER BY (UPPER(COALESCE(pb.status, '')) = 'RUNNING') DESC, pb.id DESC LIMIT 1`,
+      [ref, factoryId, orderNo, machineQ]
     );
     const plan = planRows[0];
     if (!plan) return res.status(404).json({ ok: false, error: 'Job not found.' });
     const fid = normalizeFactoryId(plan.factory_id) ?? factoryId;
-    const [avail, holds, orderRows, enforced] = await Promise.all([
+    const [avail, holds, orderRows, enforced, recentRows] = await Promise.all([
       shiftingAvailabilityMap([{ pk: plan.id, code: plan.plan_id }], fid),
       shiftingHoldsByMachine([plan.machine], fid),
       q(`SELECT ojr.job_card_no, COALESCE(ojr.client_name, o.client_name) AS client_name
@@ -10705,9 +10717,15 @@ app.get('/api/shifting/availability', async (req, res) => {
                                ORDER BY job_card_date DESC NULLS LAST, id DESC LIMIT 1) ojr ON true
            LEFT JOIN LATERAL (SELECT client_name FROM orders WHERE order_no = x.order_no LIMIT 1) o ON true`,
         [String(plan.order_no || '').trim()]),
-      shiftingVerificationEnforced(fid)
+      shiftingVerificationEnforced(fid),
+      q(`SELECT id, quantity, weight_kg, COALESCE(NULLIF(TRIM(to_location), ''), '—') AS location, colour,
+                shifted_by, scan_mode, label_no, total_labels, created_at
+           FROM shifting_records
+          WHERE plan_id = $1 AND ($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL)
+          ORDER BY created_at DESC LIMIT 15`, [plan.id, fid])
     ]);
-    const agg = avail.get(String(plan.id)) || { produced: 0, verified: 0, not_verified: 0, shifted: 0, ready: 0, colours: new Map() };
+    const agg = avail.get(String(plan.id)) || { produced: 0, verified: 0, not_verified: 0, shifted: 0, ready: 0, colours: new Map(), by_location: new Map() };
+    const locList = (m) => [...(m || new Map()).entries()].map(([location, qty]) => ({ location, qty })).sort((a, b) => b.qty - a.qty);
     const hold = holds.get(String(plan.machine || '').trim()) || null;
     const weights = await shiftingUnitWeights([plan.mould_name], fid);
     // Colour plan quantities from the plan's colour split, matched case-insensitively.
@@ -10735,11 +10753,19 @@ app.get('/api/shifting/availability', async (req, res) => {
         plan_qty: Number(plan.plan_qty || 0),
         unit_weight_kg: weights.get(shiftingMouldKey(plan.mould_name)) || 0,
         verification_enforced: enforced,
-        totals: { produced: agg.produced, verified: agg.verified, not_verified: agg.not_verified, shifted: agg.shifted, ready: agg.ready },
+        totals: {
+          produced: agg.produced, verified: agg.verified, not_verified: agg.not_verified, shifted: agg.shifted, ready: agg.ready,
+          by_location: locList(agg.by_location)
+        },
+        recent: recentRows.map(r => ({
+          id: r.id, qty: Number(r.quantity || 0), kg: Number(r.weight_kg || 0), location: r.location, colour: r.colour || '',
+          by: r.shifted_by || '', mode: r.scan_mode || '', label: r.total_labels ? `${r.label_no}/${r.total_labels}` : '',
+          at: r.created_at
+        })),
         hold: hold ? { qty: hold.qty, count: hold.count, reasons: hold.reasons } : null,
         colours: colourKeys.map(k => {
-          const c = agg.colours.get(k) || { colour: '', produced: 0, verified: 0, not_verified: 0, shifted: 0, ready: 0 };
-          return { ...c, colour: c.colour || k, plan_qty: planByColour.get(k) || 0 };
+          const c = agg.colours.get(k) || { colour: '', produced: 0, verified: 0, not_verified: 0, shifted: 0, ready: 0, by_location: new Map() };
+          return { ...c, colour: c.colour || k, plan_qty: planByColour.get(k) || 0, by_location: locList(c.by_location) };
         })
       }
     });

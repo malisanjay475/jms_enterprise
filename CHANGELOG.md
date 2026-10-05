@@ -14,6 +14,12 @@ part of your PR. On release, the `[Unreleased]` items move under the new version
 ## [Unreleased]
 
 ### Added
+- Job details show shifting everywhere (v1.96.0): `/api/shifting/availability` adds shifted
+  qty per location (job + colour), the latest 15 entries, and lookup by `order_no` (+`machine`).
+  New shared `assets/job-shifting-panel.js` ("Production · QC · Shifting") in the DPR / QC
+  Compliance job-details modal (dpr.html) and the Shifting Supervisor job modal.
+
+### Added
 - Shifting: produced + QC-verified only (v1.95.0): `shiftingAvailabilityMap` (DPR good qty,
   QC-verified share per machine/date/shift/hour from `qc_verifications`, shifted, ready),
   `GET /api/shifting/availability?plan_id` (job info, party, totals, colour-wise, holds).
