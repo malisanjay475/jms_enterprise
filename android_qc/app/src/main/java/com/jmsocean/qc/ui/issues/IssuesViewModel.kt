@@ -63,6 +63,13 @@ class IssuesViewModel : ViewModel() {
         loadMachines()
         loadPeople()
         if (_state.value.machine.isNotBlank()) loadJobs(_state.value.machine)
+        // Wi-Fi back after a drop: reload whatever failed (never touches a memo being typed).
+        com.jmsocean.qc.data.NetworkWatcher.onNetworkBack(viewModelScope) {
+            val s = _state.value
+            if (s.machines.isEmpty()) loadMachines()
+            if (s.people.isEmpty()) loadPeople()
+            if (s.machine.isNotBlank() && !s.loadingJobs && !s.submitting && (s.jobs.isEmpty() || s.error != null)) loadJobs(s.machine)
+        }
     }
 
     private fun loadMachines() = viewModelScope.launch {
