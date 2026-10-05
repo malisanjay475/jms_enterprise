@@ -2952,6 +2952,8 @@ function normalizeApprovalRoleCode(value) {
 }
 
 const PPC_APPROVAL_ROLE_CODES = new Set([
+  'sr_ppc_manager',
+  'senior_ppc_manager',
   'ppc_manager',
   'ppc_ass_manager',
   'ppc_assistant_manager',
@@ -2999,7 +3001,7 @@ function getJcApprovalStage(status) {
     code: 'PPC',
     status: 'PENDING',
     label: 'Waiting for PPC Check',
-    roleLabel: 'PPC Manager / PPC Ass. Manager'
+    roleLabel: 'Sr. PPC Manager / PPC Manager / PPC Ass. Manager'
   };
 }
 
@@ -5343,6 +5345,7 @@ async function initializeLegacyRuntime() {
             ('operator', 'Operator'),
             ('supervisor', 'Supervisor'),
             ('planner', 'Planner'),
+            ('sr_ppc_manager', 'Sr. PPC Manager'),
             ('ppc_manager', 'PPC Manager'),
             ('ppc_ass_manager', 'PPC Ass. Manager'),
             ('moulding_manager', 'Moulding Manager'),
@@ -25463,7 +25466,7 @@ app.get('/api/moulds/history/:id', async (req, res) => {
 // Ordered steps. `roles` = role_codes allowed for that step (admin/superadmin
 // may act on any step). `label` is for messages/audit.
 const MOULD_VERIFY_STEPS = [
-  { key: 'ppc',      col: 'ppc',      label: 'PPC Check',            roles: ['ppc_manager', 'ppc_ass_manager'] },
+  { key: 'ppc',      col: 'ppc',      label: 'PPC Check',            roles: ['sr_ppc_manager', 'ppc_manager', 'ppc_ass_manager'] },
   { key: 'quality',  col: 'quality',  label: 'Quality Check',        roles: ['quality', 'quality_ass__manager'] },
   { key: 'moulding', col: 'moulding', label: 'Moulding Check',       roles: ['moulding_manager', 'moulding_ass_manager'] },
   { key: 'toolroom', col: 'toolroom', label: 'Tool Room Check',      roles: ['toolroom_manager'] },
