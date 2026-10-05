@@ -42,7 +42,7 @@ function escHtml(value) {
     const perms = mobileUser.permissions || {};
     const role = String(mobileUser.role_code || '').toLowerCase();
     const isAdmin = role === 'admin' || role === 'superadmin';
-    const canPlan = isAdmin || ['planner', 'ppc_manager', 'ppc_ass_manager'].includes(role) || Boolean(perms.planning);
+    const canPlan = isAdmin || ['planner', 'sr_ppc_manager', 'ppc_manager', 'ppc_ass_manager'].includes(role) || Boolean(perms.planning);
     const canDpr = isAdmin || ['supervisor', 'planner'].includes(role) || Boolean(perms.dpr);
     const canStats = isAdmin || role === 'management' || Boolean(perms.analyze);
 
