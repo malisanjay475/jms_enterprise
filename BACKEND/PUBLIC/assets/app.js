@@ -134,6 +134,7 @@ function escHtml(value) {
         'shifting_reports.html': 'shifting_module',
         'shifting_logs.html': 'shifting_module',
         'shifting_summary.html': 'shifting_module',
+        'shifting_shift_report.html': 'shifting_module',
         'shifting.html': 'shifting_module',
         'wip.html': 'wip_internal',
         'reports.html': 'reports',
@@ -1434,6 +1435,7 @@ function escHtml(value) {
                 { id: 'shift_live', label: 'Live Production', icon: 'bi-activity', href: 'shifting_reports.html?view=live' },
                 { id: 'shift_reconcile', label: 'Job Reconciliation', icon: 'bi-clipboard-check', href: 'shifting_reports.html?view=reconcile' },
                 { id: 'shift_summary', label: 'Shifting Summary', icon: 'bi-table', href: 'shifting_summary.html' },
+                { id: 'shift_report', label: 'Shift Report', icon: 'bi-file-earmark-bar-graph', href: 'shifting_shift_report.html' },
                 { id: 'shift_logs', label: 'Shifting Logs', icon: 'bi-clock-history', href: 'shifting_logs.html' }
             ]
         },
@@ -2379,6 +2381,7 @@ function escHtml(value) {
     'quality.html': 'quality', 'qc_memo.html': 'quality', 'fpa.html': 'quality', 'hr.html': 'hr', 'hr_performance.html': 'hr',
     'hr_interview_panel.html': 'hr', 'shifting_reports.html': 'shifting_module',
     'shifting_logs.html': 'shifting_module', 'shifting_summary.html': 'shifting_module',
+    'shifting_shift_report.html': 'shifting_module',
     'shifting.html': 'shifting_module', 'wip.html': 'wip_internal',
     'reports.html': 'reports', 'users.html': 'users',
     'notifications.html': 'notifications', 'settings.html': 'settings',

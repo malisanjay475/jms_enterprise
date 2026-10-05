@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JMS OCEAN - Shifting Shift Report</title>
+    <link rel="stylesheet" href="/assets/app.css?v=12">
+    <link rel="stylesheet" href="/assets/bootstrap-icons.min.css">
+    <style>
+        .filter-bar {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            align-items: flex-end;
+            padding: 12px;
+            margin-bottom: 16px;
+        }
+
+        .filter-bar label {
+            display: block;
+            font-size: 0.72rem;
+            font-weight: 600;
+            color: #64748b;
+            text-transform: uppercase;
+            margin-bottom: 4px;
+        }
+
+        .stat-row {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            gap: 12px;
+            margin-bottom: 16px;
+        }
+
+        .stat {
+            background: #fff;
+            border: 1px solid #e2e8f0;
+            border-radius: 10px;
+            padding: 12px 14px;
+        }
+
+        .stat-label {
+            font-size: 0.7rem;
+            font-weight: 700;
+            color: #64748b;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+        }
+
+        .stat-value {
+            font-size: 1.4rem;
+            font-weight: 700;
+            color: #1e293b;
+            margin-top: 4px;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .section-title {
+            font-size: 0.95rem;
+            font-weight: 700;
+            color: #1e293b;
+            margin: 0 0 10px;
+        }
+
+        .table-wrap {
+            overflow-x: auto;
+        }
+
+        .report-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.8rem;
+            background: #fff;
+            white-space: nowrap;
+        }
+
+        .report-table th,
+        .report-table td {
+            border: 1px solid #e2e8f0;
+            padding: 6px 8px;
+            text-align: left;
+        }
+
+        .report-table th {
+            background: #f8fafc;
+            color: #64748b;
+            font-weight: 600;
+            text-transform: uppercase;
+            font-size: 0.68rem;
+        }
+
+        .report-table td.num,
+        .report-table th.num {
+            text-align: right;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .report-table tr.total td {
+            background: #eef2ff;
+            font-weight: 700;
+        }
+
+        .empty-note {
+            padding: 28px;
+            text-align: center;
+            color: #94a3b8;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="main-content">
+        <div class="header">
+            <div class="page-title">Shifting Shift Report</div>
+            <div style="font-size:0.9rem; color:#64748b">Quantity shifted per date and shift, by machine/item and by supervisor</div>
+        </div>
+
+        <div class="card filter-bar">
+            <div>
+                <label for="fromDate">From</label>
+                <input type="date" id="fromDate" class="form-control" style="width:160px">
+            </div>
+            <div>
+                <label for="toDate">To</label>
+                <input type="date" id="toDate" class="form-control" style="width:160px">
+            </div>
+            <div>
+                <label for="shiftFilter">Shift</label>
+                <select id="shiftFilter" class="form-control" style="width:120px">
+                    <option value="">All</option>
+                    <option value="Day">Day</option>
+                    <option value="Night">Night</option>
+                </select>
+            </div>
+            <button onclick="loadReport()" class="btn btn-primary"><i class="bi bi-filter"></i> Apply</button>
+            <button id="excelBtn" onclick="downloadExcel()" class="btn btn-outline" style="margin-left:auto">
+                <i class="bi bi-file-earmark-excel"></i> Download Excel
+            </button>
+        </div>
+
+        <div id="statRow" class="stat-row"></div>
+
+        <div class="card" style="padding:14px; margin-bottom:16px">
+            <div class="section-title">Shift Summary</div>
+            <div id="summaryTable" class="table-wrap"><div class="empty-note">Loading...</div></div>
+        </div>
+
+        <div class="card" style="padding:14px; margin-bottom:16px">
+            <div class="section-title">Machine / Item Wise</div>
+            <div id="machineTable" class="table-wrap"><div class="empty-note">Loading...</div></div>
+        </div>
+
+        <div class="card" style="padding:14px; margin-bottom:16px">
+            <div class="section-title">Supervisor Wise</div>
+            <div id="supervisorTable" class="table-wrap"><div class="empty-note">Loading...</div></div>
+        </div>
+
+        <div style="font-size:0.78rem; color:#64748b; margin-bottom:24px">
+            The Excel file also has an <b>All Entries</b> sheet with every shifting record (time, label, plan, WIP status). Up to 62 days at a time.
+        </div>
+    </div>
+
+    <script src="/assets/app.min.js?v=1576"></script>
+    <script>
+        // Date of the current shift in local time: before 08:00 is the previous date's Night
+        // shift (same rule as DPR). toISOString() would give the UTC date instead.
+        function currentShiftDate() {
+            const d = new Date();
+            if (d.getHours() < 8) d.setDate(d.getDate() - 1);
+            return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        }
+
+        const qtyFmt = (v) => Number(v || 0).toLocaleString('en-IN');
+        const kgFmt = (v) => Number(v || 0).toLocaleString('en-IN', { maximumFractionDigits: 3 });
+        const esc = (v) => escHtml(v == null ? '' : v);
+
+        document.addEventListener('DOMContentLoaded', () => {
+            JPSMS.auth.requireAuth();
+            JPSMS.renderShell('shifting');
+            const today = currentShiftDate();
+            document.getElementById('fromDate').value = today;
+            document.getElementById('toDate').value = today;
+            loadReport();
+        });
+
+        function filterQuery() {
+            const from = document.getElementById('fromDate').value;
+            const to = document.getElementById('toDate').value || from;
+            const shift = document.getElementById('shiftFilter').value;
+            return { from, to, shift, qs: `from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&shift=${encodeURIComponent(shift)}` };
+        }
+
+        async function loadReport() {
+            const { qs } = filterQuery();
+            try {
+                const res = await JPSMS.api.get(`/shifting/shift-report?${qs}`);
+                render(res.data || {});
+            } catch (e) {
+                // JPSMS.api already showed the server's message (e.g. date range too long).
+                ['summaryTable', 'machineTable', 'supervisorTable'].forEach(id => {
+                    document.getElementById(id).innerHTML = `<div class="empty-note">${esc(e.message || 'Could not load the report')}</div>`;
+                });
+            }
+        }
+
+        function table(headers, rows, totalRow) {
+            if (!rows.length) return '<div class="empty-note">No shifting records for the selected dates / shift.</div>';
+            const th = headers.map(h => `<th class="${h.num ? 'num' : ''}">${esc(h.label)}</th>`).join('');
+            const cell = (h, row) => {
+                const v = h.get ? h.get(row) : row[h.key];
+                return `<td class="${h.num ? 'num' : ''}">${h.num ? (h.kg ? kgFmt(v) : qtyFmt(v)) : esc(v || '-')}</td>`;
+            };
+            const body = rows.map(row => `<tr>${headers.map(h => cell(h, row)).join('')}</tr>`).join('');
+            const total = totalRow
+                ? `<tr class="total">${headers.map((h, i) => {
+                    const v = h.get ? h.get(totalRow) : totalRow[h.key];
+                    if (i === 0) return '<td>Total</td>';
+                    if (!h.num || v === undefined) return '<td></td>';
+                    return `<td class="num">${h.kg ? kgFmt(v) : qtyFmt(v)}</td>`;
+                }).join('')}</tr>`
+                : '';
+            return `<table class="report-table"><thead><tr>${th}</tr></thead><tbody>${body}${total}</tbody></table>`;
+        }
+
+        function render(data) {
+            const t = data.totals || {};
+            const stat = (label, value) => `<div class="stat"><div class="stat-label">${label}</div><div class="stat-value">${value}</div></div>`;
+            document.getElementById('statRow').innerHTML = [
+                stat('Qty Shifted', qtyFmt(t.qty)),
+                stat('Weight (kg)', kgFmt(t.kg)),
+                stat('Entries', qtyFmt(t.entries)),
+                stat('Label Scans', qtyFmt(t.labels)),
+                stat('Manual', qtyFmt(t.manual))
+            ].join('');
+
+            const locations = data.locations || [];
+            const summary = data.summary || [];
+            const locTotals = {};
+            locations.forEach(loc => { locTotals[loc] = summary.reduce((sum, s) => sum + Number((s.by_location || {})[loc] || 0), 0); });
+            document.getElementById('summaryTable').innerHTML = table([
+                { label: 'Date', key: 'date' },
+                { label: 'Shift', key: 'shift' },
+                { label: 'Entries', key: 'entries', num: true },
+                { label: 'Label Scans', key: 'labels', num: true },
+                { label: 'Manual', key: 'manual', num: true },
+                { label: 'Qty Shifted', key: 'qty', num: true },
+                { label: 'Weight (kg)', key: 'kg', num: true, kg: true },
+                ...locations.map(loc => ({ label: loc, num: true, get: (row) => (row.by_location ? row.by_location[loc] || 0 : locTotals[loc]) })),
+                { label: 'Shifted By', key: 'supervisors' }
+            ], summary, t);
+
+            document.getElementById('machineTable').innerHTML = table([
+                { label: 'Date', key: 'date' },
+                { label: 'Shift', key: 'shift' },
+                { label: 'Line', key: 'line' },
+                { label: 'Machine', key: 'machine' },
+                { label: 'Item', key: 'item_name' },
+                { label: 'Colour', key: 'colour' },
+                { label: 'Order No', key: 'order_no' },
+                { label: 'Sent To', key: 'location' },
+                { label: 'Labels', key: 'labels', num: true },
+                { label: 'Qty', key: 'qty', num: true },
+                { label: 'Kg', key: 'kg', num: true, kg: true }
+            ], data.by_machine || [], t);
+
+            const timeText = (d) => (d ? new Date(d).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: false }) : '-');
+            document.getElementById('supervisorTable').innerHTML = table([
+                { label: 'Date', key: 'date' },
+                { label: 'Shift', key: 'shift' },
+                { label: 'Shifted By', key: 'supervisor' },
+                { label: 'Entries', key: 'entries', num: true },
+                { label: 'Label Scans', key: 'labels', num: true },
+                { label: 'Qty', key: 'qty', num: true },
+                { label: 'Kg', key: 'kg', num: true, kg: true },
+                { label: 'First', get: (row) => timeText(row.first_at) },
+                { label: 'Last', get: (row) => timeText(row.last_at) }
+            ], data.by_supervisor || [], t);
+        }
+
+        async function downloadExcel() {
+            const { from, to, shift, qs } = filterQuery();
+            const headers = {};
+            const token = localStorage.getItem('token');
+            if (token) headers['Authorization'] = `Bearer ${token}`;
+            try { const u = JSON.parse(localStorage.getItem('user') || '{}'); if (u && u.username) headers['X-User-Name'] = u.username; } catch (_) { }
+            const factoryId = localStorage.getItem('jpsms_factory_id');
+            if (factoryId) headers['X-Factory-ID'] = factoryId;
+            const btn = document.getElementById('excelBtn');
+            btn.disabled = true;
+            try {
+                JPSMS.toast('Preparing Excel...', 'info');
+                const res = await fetch(`/api/shifting/shift-report.xlsx?${qs}`, { headers, credentials: 'same-origin' });
+                if (!res.ok) {
+                    let msg = `Download failed (${res.status})`;
+                    try { const j = await res.json(); if (j && j.error) msg = j.error; } catch (_) { }
+                    throw new Error(msg);
+                }
+                const blob = await res.blob();
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(blob);
+                a.download = `Shifting_Shift_Report_${from}${to !== from ? `_to_${to}` : ''}${shift ? `_${shift}` : ''}.xlsx`;
+                document.body.appendChild(a); a.click(); a.remove();
+                setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+            } catch (e) {
+                JPSMS.toast(e.message || 'Excel download failed', 'error');
+            } finally {
+                btn.disabled = false;
+            }
+        }
+    </script>
+    <script src="/assets/register-sw.js?v=release63"></script>
+</body>
+
+</html>
