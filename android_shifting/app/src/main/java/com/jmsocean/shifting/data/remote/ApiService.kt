@@ -38,6 +38,9 @@ interface ApiService {
     @POST("api/shifting/entry")
     suspend fun manualEntry(@Body body: ManualEntryRequest): Response<ApiEnvelope>
 
+    @GET("api/shifting/availability")
+    suspend fun availability(@Query("plan_id") planId: String): Response<ApiEnvelope>
+
     @GET("api/shifting/line-team")
     suspend fun lineTeam(
         @Query("date") date: String,
@@ -49,7 +52,7 @@ interface ApiService {
     suspend fun saveLineTeam(@Body body: LineTeamRequest): Response<ApiEnvelope>
 
     @GET("api/shifting/logs")
-    suspend fun logs(@Query("limit") limit: Int = 60): Response<ApiEnvelope>
+    suspend fun logs(@Query("limit") limit: Int = 300): Response<ApiEnvelope>
 
     @GET("api/shifting/shift-report")
     suspend fun shiftReport(
