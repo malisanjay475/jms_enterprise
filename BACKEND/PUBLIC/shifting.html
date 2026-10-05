@@ -259,12 +259,13 @@
 
             try {
                 JPSMS.toggleLoader(true);
-                await JPSMS.api.post('/shifting/entry', {
+                const res = await JPSMS.api.post('/shifting/entry', {
                     machine: mCode,
                     planId: currentPlanId,
                     quantity: qty,
                     toLocation: loc
                 });
+                if (!res || !res.ok) throw new Error((res && res.error) || 'Failed to submit');
 
                 JPSMS.toast('Shifting Recorded!', 'success');
 

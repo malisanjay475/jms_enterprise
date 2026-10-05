@@ -138,9 +138,9 @@
         }
 
         async function deleteAll() {
-            if (!confirm('DANGER: This will permanently delete ALL shifting records. This cannot be undone.\n\nAre you sure?')) return;
+            if (!confirm('DANGER: This will permanently delete ALL shifting records of the selected factory. This cannot be undone.\n\nAre you sure?')) return;
 
-            if (!confirm('DANGER: This will permanently delete ALL shifting records. This cannot be undone.\n\nAre you sure?')) return;
+            if (!confirm('DANGER: This will permanently delete ALL shifting records of the selected factory. This cannot be undone.\n\nAre you sure?')) return;
 
             const user = JPSMS.auth.getUser();
             if (!(window.JPSMS && window.JPSMS.auth && window.JPSMS.auth.isAdminLike && window.JPSMS.auth.isAdminLike(user))) {
@@ -149,9 +149,9 @@
             }
             try {
                 JPSMS.toggleLoader(true);
-                const res = await JPSMS.api.post('/shifting/delete-all', { username: user.username });
+                const res = await JPSMS.api.post('/shifting/delete-all', {});
                 if (res.ok) {
-                    JPSMS.toast('All records deleted!', 'success');
+                    JPSMS.toast(`Deleted ${res.deleted ?? 0} shifting records`, 'success');
                     loadLogs();
                 } else {
                     JPSMS.toast(res.error, 'error');
