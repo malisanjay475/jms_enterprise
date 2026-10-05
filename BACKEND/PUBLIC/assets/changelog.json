@@ -11,8 +11,31 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.91.2",
+  "latest": "1.91.3",
   "versions": [
+    {
+      "version": "1.91.3",
+      "date": "2026-10-05",
+      "title": "Safer Shifting",
+      "modules": [
+        {
+          "app": "shifting_supervisor_app",
+          "changes": [
+            { "type": "fix", "text": "A job on QC HOLD can no longer be shifted. Scanning its label shows the hold reason, and shifting is allowed again once QC releases the hold." },
+            { "type": "fix", "text": "Scanning the same label twice in quick succession no longer shifts it twice." },
+            { "type": "fix", "text": "Manual shifting can no longer exceed the quantity left on the shop floor (produced minus already shifted)." }
+          ]
+        },
+        {
+          "app": "shifting_module",
+          "changes": [
+            { "type": "fix", "text": "Shifting job details, totals and the Shifting Summary matrix now show only the selected factory's records, and a night-shift entry saved after midnight is no longer counted on two days." },
+            { "type": "fix", "text": "The old Shifting Entry page now shows the real error when a shift is not saved, instead of saying it was recorded." },
+            { "type": "security", "text": "Delete All on Shifting Logs now checks the logged-in user on the server and clears only the selected factory's records." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.91.2",
       "date": "2026-10-03",

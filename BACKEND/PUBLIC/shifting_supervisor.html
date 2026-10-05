@@ -1421,7 +1421,10 @@
                 : null;
             const colourPlanQty = data.colour_plan_qty || activeSummary?.plan_qty || 0;
             const colourPendingQty = data.colour_pending_qty ?? activeSummary?.pending_qty ?? 0;
+            const blocked = data.already_shifted || !!data.qc_hold;
+            const blockedText = data.already_shifted ? 'Already shifted' : (data.qc_hold ? 'QC Hold' : 'Ready');
             panel.innerHTML = `
+                ${data.qc_hold ? `<div class="status-chip error" style="display:block; white-space:normal; margin-bottom:10px;">${escapeHtml(data.qc_hold_message || 'QC HOLD: shifting is blocked until QC releases the hold.')}</div>` : ''}
                 <div class="scan-ready-top">
                     <div style="display:flex; justify-content:space-between; gap:10px; align-items:flex-start;">
                         <div>
@@ -1430,7 +1433,7 @@
                             <div class="scan-item-line">${escapeHtml(data.item_name || '-')}</div>
                             <div class="scan-item-line">${escapeHtml(data.machine_name || '-')} · Label ${escapeHtml(data.label_no || '-')}/${escapeHtml(data.total_labels || '-')}</div>
                         </div>
-                        <span class="status-chip ${data.already_shifted ? 'error' : 'ok'}">${data.already_shifted ? 'Already shifted' : 'Ready'}</span>
+                        <span class="status-chip ${blocked ? 'error' : 'ok'}">${blockedText}</span>
                     </div>
                     <div class="scan-qty-pill">
                         <div class="scan-qty-tile primary">
@@ -1445,7 +1448,7 @@
                 </div>
 
                 <div class="scan-shift-form">
-                    <input id="scanQty" type="hidden" value="${escapeHtml(data.label_qty || 0)}">
+                    <input id="scanQty" type="hidden" value="${escapeHtml(data.label_pending_qty ?? data.label_qty ?? 0)}">
                     <div class="qty-form-grid">
                         <div class="field">
                             <div class="field-label">Weight (kg)</div>
@@ -1461,7 +1464,7 @@
                         </div>
                     </div>
                     <div class="scan-actions">
-                        <button class="btn-primary" onclick="submitScannedShift()" ${data.already_shifted ? 'disabled style="opacity:.55; cursor:not-allowed;"' : ''}>${data.already_shifted ? 'Already shifted' : 'Confirm Shift'}</button>
+                        <button class="btn-primary" onclick="submitScannedShift()" ${blocked ? 'disabled style="opacity:.55; cursor:not-allowed;"' : ''}>${blocked ? blockedText : 'Confirm Shift'}</button>
                         <button class="btn-outline" type="button" onclick="clearScanState()">Clear</button>
                     </div>
                 </div>
@@ -1482,7 +1485,10 @@
                 if (!res.ok) throw new Error(res.error || 'Label lookup failed');
                 CURRENT_SCAN = res.data;
                 renderScanResult(CURRENT_SCAN);
-                setScanStatus(CURRENT_SCAN.already_shifted ? 'error' : 'ok', CURRENT_SCAN.already_shifted ? 'Already shifted' : 'Label ready');
+                setScanStatus(
+                    CURRENT_SCAN.already_shifted || CURRENT_SCAN.qc_hold ? 'error' : 'ok',
+                    CURRENT_SCAN.already_shifted ? 'Already shifted' : (CURRENT_SCAN.qc_hold ? 'On QC hold' : 'Label ready')
+                );
             } catch (e) {
                 CURRENT_SCAN = null;
                 document.getElementById('scanResultPanel').className = 'scan-placeholder';
@@ -1495,10 +1501,11 @@
         async function submitScannedShift() {
             if (!CURRENT_SCAN) return JPSMS.toast('Scan a label first', 'warning');
             if (CURRENT_SCAN.already_shifted) return JPSMS.toast('This label is already shifted', 'warning');
+            if (CURRENT_SCAN.qc_hold) return JPSMS.toast(CURRENT_SCAN.qc_hold_message || 'This job is on QC hold', 'error');
             try {
                 const user = JPSMS.auth.getUser();
                 const scanLocation = document.getElementById('scanLocation')?.value;
-                const scanQty = Math.max(0, Number(document.getElementById('scanQty')?.value || CURRENT_SCAN.label_qty || 0));
+                const scanQty = Math.max(0, Number(document.getElementById('scanQty')?.value || CURRENT_SCAN.label_pending_qty || 0));
                 const weightKg = Math.max(0, Number(document.getElementById('scanWeight')?.value || 0));
                 if (!scanLocation) return JPSMS.toast('Select destination', 'warning');
                 const res = await JPSMS.api.post('/shifting/scan-entry', {
