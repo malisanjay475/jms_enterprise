@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.92.0",
+  "latest": "1.92.1",
   "versions": [
+    {
+      "version": "1.92.1",
+      "date": "2026-10-05",
+      "title": "Sr. PPC Manager role",
+      "modules": [
+        {
+          "app": "all",
+          "label": "Platform",
+          "icon": "bi-person-badge",
+          "changes": [
+            { "type": "feat", "text": "New role Sr. PPC Manager. It can give PPC approval on job cards and the PPC Check in mould verification, the same as PPC Manager and PPC Ass. Manager." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.92.0",
       "date": "2026-10-05",
