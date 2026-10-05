@@ -7,8 +7,6 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -31,11 +29,9 @@ import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -78,12 +74,13 @@ import com.jmsocean.shifting.data.remote.LabelInfo
 import com.jmsocean.shifting.ui.common.AppTopBar
 import com.jmsocean.shifting.ui.common.MetricRow
 import com.jmsocean.shifting.ui.common.Pill
+import com.jmsocean.shifting.ui.common.PickerField
+import com.jmsocean.shifting.ui.common.WeightQtyFields
 import com.jmsocean.shifting.ui.common.qty
 import com.jmsocean.shifting.ui.theme.Crit
 import com.jmsocean.shifting.ui.theme.Good
 import com.jmsocean.shifting.ui.theme.Warn
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun ScanScreen(onMenu: () -> Unit, vm: ScanViewModel = viewModel()) {
     val s by vm.state.collectAsStateWithLifecycle()
@@ -159,14 +156,43 @@ fun ScanScreen(onMenu: () -> Unit, vm: ScanViewModel = viewModel()) {
                 }
             }
 
-            // ── Scan box ──────────────────────────────────────────────────
+            // ── What was scanned: always at the top ─────────────────────────
+            s.result?.let { ResultBanner(it, onClose = { vm.clear() }) }
+
+            if (s.lookingUp || s.submitting) {
+                Row(Modifier.fillMaxWidth().padding(8.dp), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+                    CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp)
+                    Spacer(Modifier.width(10.dp))
+                    Text(if (s.submitting) "Saving shift…" else "Checking label…")
+                }
+            }
+
+            s.label?.let { label ->
+                LabelCard(label)
+                if (!label.blocked) {
+                    ShiftForm(
+                        s = s,
+                        label = label,
+                        onLocation = vm::setLocation,
+                        onRetryLocations = { vm.loadLocations() },
+                        onWeight = vm::setWeight,
+                        onQuantity = vm::setQuantity,
+                        onConfirm = { keyboard?.hide(); vm.confirm() },
+                        onCancel = { vm.clear() }
+                    )
+                } else {
+                    TextButton(onClick = { vm.clear() }, modifier = Modifier.align(Alignment.CenterHorizontally)) { Text("Scan next label") }
+                }
+            }
+
+            // ── Scan box (below the scanned label) ──────────────────────────
             Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
                 Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         OutlinedTextField(
                             value = s.input,
                             onValueChange = vm::onInput,
-                            label = { Text("Scan label or type code") },
+                            label = { Text(if (s.label == null) "Scan label or type code" else "Scan next label") },
                             singleLine = true,
                             leadingIcon = { Icon(Icons.Default.QrCodeScanner, null) },
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii, imeAction = ImeAction.Search),
@@ -190,60 +216,17 @@ fun ScanScreen(onMenu: () -> Unit, vm: ScanViewModel = viewModel()) {
                             shape = RoundedCornerShape(14.dp)
                         ) { Icon(Icons.Default.CameraAlt, contentDescription = "Scan with camera") }
                     }
-
-                    Text("Send To", fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    if (s.locations.isEmpty()) {
-                        Text(
-                            s.locationsError ?: "Loading destinations…",
-                            fontSize = 13.sp,
-                            color = if (s.locationsError != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        if (s.locationsError != null) TextButton(onClick = { vm.loadLocations() }) { Text("Retry") }
-                    } else {
-                        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            s.locations.forEach { loc ->
-                                FilterChip(
-                                    selected = loc.equals(s.location, ignoreCase = true),
-                                    onClick = { vm.setLocation(loc) },
-                                    label = { Text(loc) }
-                                )
-                            }
-                        }
-                    }
-
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
                             Text("Quick shift", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
                             Text(
-                                "Shift straight after each good scan (no weight)",
+                                "Shift the full label to the last Send To right after each good scan",
                                 fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                         Switch(checked = s.quickShift, onCheckedChange = vm::setQuickShift)
                     }
                 }
-            }
-
-            if (s.lookingUp || s.submitting) {
-                Row(Modifier.fillMaxWidth().padding(8.dp), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
-                    CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp)
-                    Spacer(Modifier.width(10.dp))
-                    Text(if (s.submitting) "Saving shift…" else "Checking label…")
-                }
-            }
-
-            s.result?.let { ResultBanner(it, onClose = { vm.clear() }) }
-
-            s.label?.let { label ->
-                LabelCard(
-                    label = label,
-                    weight = s.weight,
-                    location = s.location,
-                    submitting = s.submitting,
-                    onWeight = vm::setWeight,
-                    onConfirm = { keyboard?.hide(); vm.confirm() },
-                    onClear = { vm.clear() }
-                )
             }
 
             if (s.shiftedThisSession > 0) {
@@ -270,21 +253,14 @@ private fun ResultBanner(result: ScanResult, onClose: () -> Unit) {
     }
 }
 
+/** The scanned label and its job: produced, shifted and still on the shop floor. */
 @Composable
-private fun LabelCard(
-    label: LabelInfo,
-    weight: String,
-    location: String,
-    submitting: Boolean,
-    onWeight: (String) -> Unit,
-    onConfirm: () -> Unit,
-    onClear: () -> Unit
-) {
+private fun LabelCard(label: LabelInfo) {
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(verticalAlignment = Alignment.Top) {
                 Column(Modifier.weight(1f)) {
-                    Text("SCANNED COLOUR", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("SCANNED", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text(label.colour.ifBlank { "—" }, fontSize = 24.sp, fontWeight = FontWeight.ExtraBold)
                     Text(label.itemName.ifBlank { "—" }, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                     Text(
@@ -311,37 +287,17 @@ private fun LabelCard(
                 )
             }
 
+            Text("THIS JOB", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
             MetricRow(
-                Triple("Label qty", qty(label.labelPendingQty), MaterialTheme.colorScheme.primary),
+                Triple("Produced", qty(label.totalProduced), Color.Unspecified),
+                Triple("Shifted", qty(label.totalShifted), MaterialTheme.colorScheme.primary),
+                Triple("On floor", qty(label.shopFloorQty), if (label.shopFloorQty > 0) Warn else Color.Unspecified)
+            )
+            MetricRow(
+                Triple("Label left", qty(label.labelPendingQty), MaterialTheme.colorScheme.primary),
                 Triple("Colour pending", qty(label.colourPendingQty), Warn),
                 Triple("Colour plan", qty(label.colourPlanQty), Color.Unspecified)
             )
-
-            if (!label.blocked) {
-                OutlinedTextField(
-                    value = weight,
-                    onValueChange = onWeight,
-                    label = { Text("Weight (kg) — optional") },
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal, imeAction = ImeAction.Done),
-                    keyboardActions = KeyboardActions(onDone = { onConfirm() }),
-                    modifier = Modifier.fillMaxWidth()
-                )
-                Button(
-                    onClick = onConfirm,
-                    enabled = !submitting && location.isNotBlank(),
-                    modifier = Modifier.fillMaxWidth().height(54.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
-                ) {
-                    Text(
-                        if (location.isBlank()) "Pick Send To first" else "Shift ${qty(label.labelPendingQty)} pcs → $location",
-                        fontWeight = FontWeight.Bold, fontSize = 16.sp
-                    )
-                }
-            }
-            TextButton(onClick = onClear, modifier = Modifier.align(Alignment.CenterHorizontally)) {
-                Text(if (label.blocked) "Scan next label" else "Cancel")
-            }
 
             if (label.colours.size > 1) {
                 HorizontalDivider()
@@ -357,6 +313,67 @@ private fun LabelCard(
                     }
                 }
             }
+        }
+    }
+}
+
+/** Send To → weight / quantity → Shift. */
+@Composable
+private fun ShiftForm(
+    s: ScanUiState,
+    label: LabelInfo,
+    onLocation: (String) -> Unit,
+    onRetryLocations: () -> Unit,
+    onWeight: (String) -> Unit,
+    onQuantity: (String) -> Unit,
+    onConfirm: () -> Unit,
+    onCancel: () -> Unit
+) {
+    val max = label.labelPendingQty.toInt()
+    val q = s.quantity.toIntOrNull() ?: 0
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            if (s.locations.isEmpty()) {
+                Text(
+                    s.locationsError ?: "Loading locations…",
+                    fontSize = 13.sp,
+                    color = if (s.locationsError != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                if (s.locationsError != null) TextButton(onClick = onRetryLocations) { Text("Retry") }
+            } else {
+                PickerField(
+                    label = "Send To",
+                    options = s.locations,
+                    selected = s.location,
+                    onSelect = onLocation,
+                    placeholder = "Select location",
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+            WeightQtyFields(
+                weight = s.weight,
+                quantity = s.quantity,
+                unitWeightKg = label.unitWeightKg,
+                onWeight = onWeight,
+                onQuantity = onQuantity,
+                maxQty = max
+            )
+            Button(
+                onClick = onConfirm,
+                enabled = !s.submitting && s.location.isNotBlank() && q in 1..max,
+                modifier = Modifier.fillMaxWidth().height(54.dp)
+            ) {
+                Text(
+                    when {
+                        s.location.isBlank() -> "Pick Send To first"
+                        q <= 0 -> "Enter weight or quantity"
+                        q > max -> "Max ${qty(max.toDouble())} pcs on this label"
+                        else -> "Shift ${qty(q.toDouble())} pcs → ${s.location}"
+                    },
+                    fontWeight = FontWeight.Bold, fontSize = 16.sp
+                )
+            }
+            TextButton(onClick = onCancel, modifier = Modifier.align(Alignment.CenterHorizontally)) { Text("Cancel") }
         }
     }
 }
