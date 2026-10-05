@@ -11,8 +11,21 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.93.1",
+  "latest": "1.93.2",
   "versions": [
+    {
+      "version": "1.93.2",
+      "date": "2026-10-05",
+      "title": "Safer Shifting app releases",
+      "modules": [
+        {
+          "app": "shifting_supervisor_app",
+          "changes": [
+            { "type": "fix", "text": "A new Shifting app version is now offered to phones only after the server update has finished, so it can never show up as a QC app update." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.93.1",
       "date": "2026-10-05",
