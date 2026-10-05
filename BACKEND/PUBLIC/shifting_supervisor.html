@@ -975,6 +975,7 @@
     </div>
 
     <script src="/assets/app.min.js?v=1576"></script>
+    <script src="/assets/job-shifting-panel.js?v=2"></script>
     <script>
         let MACHINES = [];
         let LOCATIONS = [];
@@ -1344,15 +1345,8 @@
             const body = document.getElementById('jobDetailBody');
             const title = document.getElementById('detailTitle');
             const sub = document.getElementById('detailSub');
-            const totals = data.totals || {};
             title.textContent = data.product_name || data.mould_name || 'Job Details';
             sub.textContent = `${data.machine || '-'} | ${data.status || '-'} | OR ${data.order_no || '-'} | JC ${data.jc_no || '-'}`;
-            const metric = (label, value, cls = '') => `
-                <div class="metric ${cls}">
-                    <div class="metric-label">${label}</div>
-                    <div class="metric-value">${numberFmt(value)}</div>
-                </div>`;
-            const colourRows = Array.isArray(data.colours) ? data.colours : [];
             body.innerHTML = `
                 <div class="job-meta-grid">
                     <div class="field"><div class="field-label">OR Number</div><div class="field-value">${escapeHtml(data.order_no || '-')}</div></div>
@@ -1362,39 +1356,12 @@
                     <div class="field"><div class="field-label">Machine</div><div class="field-value">${escapeHtml(data.machine || '-')}</div></div>
                     <div class="field"><div class="field-label">Plan No</div><div class="field-value">${escapeHtml(data.plan_code || '-')}</div></div>
                 </div>
-                <div class="metric-grid">
-                    ${metric('Plan Qty', totals.plan_qty || data.plan_qty)}
-                    ${metric('Produced', totals.produced_qty)}
-                    ${metric('QC Approved', totals.qc_approved_qty, 'good')}
-                    ${metric('Shifted', totals.shifted_qty)}
-                    ${metric('Floor Bal', totals.shop_floor_balance_qty, 'hot')}
-                    ${metric('Shift Pending', totals.shifting_pending_qty, 'warn')}
-                </div>
-                <div class="colour-summary-wrap">
-                    <div class="section-head">
-                        <div>
-                            <div class="eyebrow">Colour Wise Breakdown</div>
-                            <div class="section-title">Plan vs moulding vs QC vs shifting</div>
-                        </div>
-                    </div>
-                    <div style="margin-top:12px">
-                        ${colourRows.length ? colourRows.map(row => `
-                            <div class="colour-break-card">
-                                <div class="colour-break-title">${escapeHtml(row.item_name || '-')}</div>
-                                <div class="colour-break-colour">Colour: ${escapeHtml(row.colour || '-')}</div>
-                                <div class="colour-break-grid">
-                                    ${metric('Plan Qty', row.plan_qty)}
-                                    ${metric('Produced', row.produced_qty)}
-                                    ${metric('QC Approved', row.qc_approved_qty, 'good')}
-                                    ${metric('Shifted', row.shifted_qty)}
-                                    ${metric('Floor Balance', row.shop_floor_balance_qty, 'hot')}
-                                    ${metric('Shift Pending', row.shifting_pending_qty, 'warn')}
-                                </div>
-                            </div>
-                        `).join('') : '<div class="scan-placeholder">No colour breakdown found for this job.</div>'}
-                    </div>
-                </div>
+                <div id="jobShiftingPanel" style="margin-top:12px"></div>
             `;
+            // Produced / QC verified / shifted with location, colour-wise (shared panel).
+            if (window.JMSJobShifting) {
+                window.JMSJobShifting.render(document.getElementById('jobShiftingPanel'), { planId: data.plan_id || '' });
+            }
         }
 
         function renderRecentShifts(rows) {

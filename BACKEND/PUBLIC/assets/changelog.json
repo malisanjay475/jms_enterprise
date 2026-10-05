@@ -11,8 +11,21 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.95.0",
+  "latest": "1.96.0",
   "versions": [
+    {
+      "version": "1.96.0",
+      "date": "2026-10-05",
+      "title": "Shifting in every job detail",
+      "modules": [
+        {
+          "app": "dpr",
+          "changes": [
+            { "type": "feat", "text": "Job details in DPR, QC compliance and the Shifting Supervisor page now show produced, QC verified, not verified, shifted (with location) and ready to shift, colour-wise, with OR number and party." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.95.0",
       "date": "2026-10-05",
