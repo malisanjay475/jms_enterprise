@@ -7,6 +7,7 @@ import com.jmsocean.shifting.ShiftingApp
 import com.jmsocean.shifting.data.AppUpdater
 import com.jmsocean.shifting.data.NetworkWatcher
 import com.jmsocean.shifting.data.remote.AppVersion
+import com.jmsocean.shifting.data.remote.Availability
 import com.jmsocean.shifting.data.remote.LabelInfo
 import com.jmsocean.shifting.ui.common.cleanDecimal
 import com.jmsocean.shifting.ui.common.kgForQty
@@ -39,6 +40,8 @@ data class ScanUiState(
     val lookingUp: Boolean = false,
     val scanned: String = "",          // the raw scan the loaded label came from
     val label: LabelInfo? = null,
+    /** Whole job of the scanned label: produced / verified / shifted with location, colour-wise. */
+    val jobAvail: Availability? = null,
     val weight: String = "",
     val quantity: String = "",
     val locations: List<String> = emptyList(),
@@ -138,12 +141,13 @@ class ScanViewModel : ViewModel() {
     fun lookup(raw: String) {
         if (_state.value.lookingUp || _state.value.submitting) return
         autoLookupJob?.cancel()
-        _state.update { it.copy(lookingUp = true, result = null, label = null, scanned = raw, weight = "") }
+        _state.update { it.copy(lookingUp = true, result = null, label = null, jobAvail = null, scanned = raw, weight = "") }
         viewModelScope.launch {
             repo.lookupLabel(raw)
                 .onSuccess { label ->
                     // Quantity starts at what is left on the label; weight follows from the
                     // mould's standard weight (kg per piece).
+                    loadJobAvailability(label.planCode)
                     val q = label.maxShiftQty.coerceAtLeast(0)
                     _state.update {
                         it.copy(
@@ -183,6 +187,15 @@ class ScanViewModel : ViewModel() {
         }
     }
 
+    private fun loadJobAvailability(planCode: String) {
+        if (planCode.isBlank()) return
+        viewModelScope.launch {
+            repo.availability(planCode).onSuccess { a ->
+                _state.update { if (it.label?.planCode == planCode) it.copy(jobAvail = a) else it }
+            }
+        }
+    }
+
     fun setLocation(loc: String) {
         app.session.lastLocation = loc
         _state.update { it.copy(location = loc) }
@@ -219,7 +232,7 @@ class ScanViewModel : ViewModel() {
 
     fun clear() {
         autoLookupJob?.cancel()
-        _state.update { it.copy(input = "", label = null, scanned = "", weight = "", quantity = "", result = null) }
+        _state.update { it.copy(input = "", label = null, jobAvail = null, scanned = "", weight = "", quantity = "", result = null) }
     }
 
     fun confirm() {
@@ -258,7 +271,7 @@ class ScanViewModel : ViewModel() {
                     val q = if (savedQty > 0) savedQty else qty.toDouble()
                     _state.update {
                         it.copy(
-                            submitting = false, label = null, scanned = "", weight = "", quantity = "",
+                            submitting = false, label = null, jobAvail = null, scanned = "", weight = "", quantity = "",
                             shiftedThisSession = it.shiftedThisSession + 1,
                             result = ScanResult(
                                 true,
