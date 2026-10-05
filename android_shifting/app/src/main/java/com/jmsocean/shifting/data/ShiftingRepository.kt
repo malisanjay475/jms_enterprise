@@ -1,6 +1,8 @@
 package com.jmsocean.shifting.data
 
 import com.jmsocean.shifting.data.remote.ApiEnvelope
+import com.jmsocean.shifting.data.remote.AvailColour
+import com.jmsocean.shifting.data.remote.Availability
 import com.jmsocean.shifting.data.remote.ColourRow
 import com.jmsocean.shifting.data.remote.Job
 import com.jmsocean.shifting.data.remote.JobDetail
@@ -128,7 +130,15 @@ class ShiftingRepository(private val session: SessionStore) {
                     planQty = r.num("plan_qty"), shiftedQty = r.num("shifted_qty"),
                     pendingQty = r.num("pending_qty"), isScannedColour = r.bool("is_scanned_colour")
                 )
-            }
+            },
+            colourProduced = o.num("colour_produced_qty"),
+            colourVerified = o.num("colour_verified_qty"),
+            colourNotVerified = o.num("colour_not_verified_qty"),
+            colourReady = o.num("colour_ready_qty"),
+            holdQty = o.num("hold_qty"),
+            verificationEnforced = o.bool("verification_enforced"),
+            blockCode = o.str("block_code"),
+            blockMessage = o.str("block_message")
         )
     }
 
@@ -164,7 +174,14 @@ class ShiftingRepository(private val session: SessionStore) {
                     shifted = o.num("total_shifted"),
                     labelsPrinted = o.num("total_labels_printed").toInt(),
                     labelledQty = o.num("total_labelled_qty"),
-                    unitWeightKg = o.num("unit_weight_kg")
+                    unitWeightKg = o.num("unit_weight_kg"),
+                    verified = o.num("total_verified"),
+                    notVerified = o.num("total_not_verified"),
+                    readyQty = o.num("ready_qty"),
+                    holdQty = o.num("hold_qty"),
+                    onHold = o.bool("on_hold"),
+                    clientName = o.str("client_name"),
+                    verificationEnforced = o.bool("verification_enforced")
                 )
             }
     }
@@ -196,6 +213,30 @@ class ShiftingRepository(private val session: SessionStore) {
                 )
             },
             recent = o.arr("recent_scans").map { it.toShiftEntry(machineFallback = o.str("machine")) }
+        )
+    }
+
+    suspend fun availability(planId: String): Result<Availability> = runCatching {
+        val o = call { api.availability(planId) } as? JsonObject ?: error("Job not found.")
+        val t = o["totals"] as? JsonObject ?: JsonObject(emptyMap())
+        val h = o["hold"] as? JsonObject
+        Availability(
+            planId = o.str("plan_id"), planCode = o.str("plan_code"), machine = o.str("machine"),
+            status = o.str("status"), orderNo = o.str("order_no"), jcNo = o.str("jc_no"),
+            clientName = o.str("client_name"), itemName = o.str("item_name"), mouldName = o.str("mould_name"),
+            planQty = o.num("plan_qty"), unitWeightKg = o.num("unit_weight_kg"),
+            verificationEnforced = o.bool("verification_enforced"),
+            produced = t.num("produced"), verified = t.num("verified"), notVerified = t.num("not_verified"),
+            shifted = t.num("shifted"), ready = t.num("ready"),
+            holdQty = h?.num("qty") ?: 0.0, holdCount = h?.num("count")?.toInt() ?: 0,
+            holdReasons = (h?.get("reasons") as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.contentOrNull },
+            colours = o.arr("colours").map { c ->
+                AvailColour(
+                    colour = c.str("colour"), planQty = c.num("plan_qty"), produced = c.num("produced"),
+                    verified = c.num("verified"), notVerified = c.num("not_verified"),
+                    shifted = c.num("shifted"), ready = c.num("ready")
+                )
+            }
         )
     }
 
@@ -236,7 +277,7 @@ class ShiftingRepository(private val session: SessionStore) {
 
     // ── Recent + summary ────────────────────────────────────────────────────
 
-    suspend fun recent(limit: Int = 60): Result<List<ShiftEntry>> = runCatching {
+    suspend fun recent(limit: Int = 300): Result<List<ShiftEntry>> = runCatching {
         (call { api.logs(limit) } as? JsonArray).orEmpty()
             .mapNotNull { it as? JsonObject }
             .map { it.toShiftEntry() }
@@ -289,7 +330,11 @@ class ShiftingRepository(private val session: SessionStore) {
             createdAt = o.str("created_at"),
             labelNo = o.num("label_no").toInt(),
             totalLabels = o.num("total_labels").toInt(),
-            scanMode = o.str("scan_mode")
+            scanMode = o.str("scan_mode"),
+            planId = o.str("plan_id"),
+            orderNo = o.str("order_no"),
+            jcNo = o.str("jc_no"),
+            clientName = o.str("client_name")
         )
     }
 }
