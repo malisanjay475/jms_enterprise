@@ -11,8 +11,21 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.93.0",
+  "latest": "1.93.1",
   "versions": [
+    {
+      "version": "1.93.1",
+      "date": "2026-10-05",
+      "title": "Shifting app update feed",
+      "modules": [
+        {
+          "app": "shifting_supervisor_app",
+          "changes": [
+            { "type": "improvement", "text": "The server can now hold the native Shifting phone app so phones update themselves when a new version is released." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.93.0",
       "date": "2026-10-05",

@@ -148,3 +148,4 @@ scripts/github-actions.secrets.env
 # QC Android app self-update artifacts (runtime, uploaded to LOCAL server)
 BACKEND/PUBLIC/qc-app/*.apk
 BACKEND/PUBLIC/qc-app/version.json
+BACKEND/PUBLIC/qc-app/shifting/
