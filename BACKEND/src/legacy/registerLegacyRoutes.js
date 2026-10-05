@@ -9377,6 +9377,7 @@ async function getShiftingLabelContext(rawScanValue, factoryId) {
        FROM dpr_hourly
       WHERE (CAST(plan_id AS TEXT) = $1
          OR ($2 <> '' AND CAST(plan_id AS TEXT) = $2))
+        AND is_deleted IS NOT TRUE
         -- Factory-scope: plan_id repeats across factories (KAN-127).
         AND ($3::int IS NULL OR factory_id = $3 OR factory_id IS NULL)`,
     [String(resolvedPlanPk), resolvedPlanCode, resolvedFactoryId || null]
@@ -9600,6 +9601,7 @@ app.get('/api/shifting/dashboard', async (req, res) => {
            CAST(dh.plan_id AS TEXT) = CAST(pb.id AS TEXT)
            OR CAST(dh.plan_id AS TEXT) = CAST(pb.plan_id AS TEXT)
        )
+           AND dh.is_deleted IS NOT TRUE
            -- Factory-scope: plan_id repeats across factories, so total_produced must
            -- not sum other factories' output for the same plan_id (KAN-127).
            AND (dh.factory_id = pb.factory_id OR dh.factory_id IS NULL OR pb.factory_id IS NULL)
@@ -9615,107 +9617,140 @@ app.get('/api/shifting/dashboard', async (req, res) => {
   }
 });
 
+// GET /api/shifting/jobs — Shifting Supervisor job list.
+// Running plans, plus completed/closed plans that had DPR production or labels printed
+// in the last ?days= days (default 7). end_date is not filled on completed plans and
+// updated_at is bumped by sync, so recent DPR / label activity is the reliable signal.
+// Totals are aggregated in one query per source table for all listed plans (the old
+// per-row subqueries scanned the label log with TRIM(), ~20 s for 6000+ plans).
 app.get('/api/shifting/jobs', async (req, res) => {
   try {
     await ensureJobCardLabelLogTable();
     const line = normalizeOptionalText(req.query.line);
     const factoryId = getFactoryId(req);
-    const params = [];
-    let whereClause = `WHERE UPPER(COALESCE(pb.status, '')) IN ('RUNNING', 'COMPLETED', 'CLOSED')`;
+    const days = Math.min(Math.max(parseInt(req.query.days, 10) || 7, 1), 90);
+    const params = [days];
+    let filters = '';
 
     if (line) {
       params.push(line);
-      whereClause += ` AND (pb.line = $${params.length} OR pb.machine LIKE $${params.length} || '%')`;
+      filters += ` AND (pb.line = $${params.length} OR pb.machine LIKE $${params.length} || '%')`;
     }
     if (factoryId) {
       params.push(factoryId);
-      whereClause += ` AND (pb.factory_id = $${params.length} OR pb.factory_id IS NULL)`;
+      filters += ` AND (pb.factory_id = $${params.length} OR pb.factory_id IS NULL)`;
     }
 
-    const rows = await q(
-      `SELECT
-         pb.id AS plan_id,
-         pb.plan_id AS plan_code,
-         pb.machine,
-         pb.line,
-         pb.order_no,
-         pb.item_name,
-         pb.mould_name,
-         pb.mould_code,
-         pb.plan_qty,
-         pb.status,
-         pb.start_date,
-         pb.end_date,
-         COALESCE(
-           (SELECT jl.jc_no
-              FROM job_card_label_print_log jl
-             WHERE TRIM(COALESCE(jl.plan_id, '')) = TRIM(COALESCE(pb.plan_id, ''))
-               AND (jl.factory_id = pb.factory_id OR jl.factory_id IS NULL OR pb.factory_id IS NULL)
-             ORDER BY jl.printed_at DESC, jl.id DESC
-             LIMIT 1),
-           (SELECT oj.job_card_no
-              FROM or_jr_report oj
-             WHERE TRIM(COALESCE(oj.or_jr_no, '')) = TRIM(COALESCE(pb.order_no, ''))
-             ORDER BY oj.job_card_date DESC NULLS LAST, oj.id DESC
-             LIMIT 1),
-           ''
-         ) AS jc_no,
-         COALESCE(
-           (SELECT SUM(dh.good_qty)
-              FROM dpr_hourly dh
-             WHERE (CAST(dh.plan_id AS TEXT) = CAST(pb.id AS TEXT)
-                OR CAST(dh.plan_id AS TEXT) = CAST(pb.plan_id AS TEXT))
-               -- Factory-scope: plan_id repeats across factories (KAN-127).
-               AND (dh.factory_id = pb.factory_id OR dh.factory_id IS NULL OR pb.factory_id IS NULL)),
-           0
-         ) AS total_produced,
-         COALESCE(
-           (SELECT SUM(GREATEST(COALESCE(qc.qty_checked, 0) - COALESCE(qc.qty_rejected, 0), 0))
-              FROM qc_online_reports qc
-             WHERE TRIM(COALESCE(qc.machine, '')) = TRIM(COALESCE(pb.machine, ''))
-               AND TRIM(COALESCE(qc.mould_name, '')) = TRIM(COALESCE(pb.mould_name, ''))
-               AND TRIM(COALESCE(qc.item_name, '')) = TRIM(COALESCE(pb.item_name, ''))),
-           0
-         ) AS total_qc_approved,
-         COALESCE(
-           (SELECT SUM(sr.quantity)
-              FROM shifting_records sr
-             WHERE (CAST(sr.plan_id AS TEXT) = CAST(pb.id AS TEXT)
-                OR CAST(sr.plan_id AS TEXT) = CAST(pb.plan_id AS TEXT))
-               -- Factory-scope: plan_id repeats across factories (KAN-127).
-               AND (sr.factory_id = pb.factory_id OR sr.factory_id IS NULL OR pb.factory_id IS NULL)),
-           0
-         ) AS total_shifted,
-         COALESCE(
-           (SELECT SUM(jl.label_qty)
-              FROM job_card_label_print_log jl
-             WHERE TRIM(COALESCE(jl.plan_id, '')) = TRIM(COALESCE(pb.plan_id, ''))
-               AND (jl.factory_id = pb.factory_id OR jl.factory_id IS NULL OR pb.factory_id IS NULL)),
-           0
-         ) AS total_labelled_qty,
-         COALESCE(
-           (SELECT COUNT(*)
-              FROM job_card_label_print_log jl
-             WHERE TRIM(COALESCE(jl.plan_id, '')) = TRIM(COALESCE(pb.plan_id, ''))
-               AND (jl.factory_id = pb.factory_id OR jl.factory_id IS NULL OR pb.factory_id IS NULL)),
-           0
-         ) AS total_labels_printed,
-         (SELECT MAX(sr.created_at)
-            FROM shifting_records sr
-           WHERE (CAST(sr.plan_id AS TEXT) = CAST(pb.id AS TEXT)
-              OR CAST(sr.plan_id AS TEXT) = CAST(pb.plan_id AS TEXT))
-             AND (sr.factory_id = pb.factory_id OR sr.factory_id IS NULL OR pb.factory_id IS NULL)) AS last_shifted_at
-       FROM plan_board pb
-       ${whereClause}
-       ORDER BY
-         CASE WHEN UPPER(COALESCE(pb.status, '')) = 'RUNNING' THEN 0 ELSE 1 END,
-         COALESCE(pb.end_date, pb.updated_at, pb.created_at) DESC,
-         pb.machine,
-         pb.seq`,
+    const plans = await q(
+      `SELECT pb.id AS plan_id, pb.plan_id AS plan_code, pb.machine, pb.line, pb.order_no,
+              pb.item_name, pb.mould_name, pb.mould_code, pb.plan_qty, pb.status,
+              pb.start_date, pb.end_date, pb.factory_id
+         FROM plan_board pb
+        WHERE (
+                UPPER(COALESCE(pb.status, '')) = 'RUNNING'
+             OR (UPPER(COALESCE(pb.status, '')) IN ('COMPLETED', 'CLOSED')
+                 AND COALESCE(pb.plan_id, '') <> ''
+                 AND (EXISTS (SELECT 1 FROM dpr_hourly dh
+                               WHERE dh.plan_id = pb.plan_id
+                                 AND dh.dpr_date >= CURRENT_DATE - $1::int
+                                 AND dh.is_deleted IS NOT TRUE)
+                   OR EXISTS (SELECT 1 FROM job_card_label_print_log jl
+                               WHERE jl.plan_id = pb.plan_id
+                                 AND jl.printed_at >= CURRENT_DATE - $1::int)))
+              )
+              ${filters}`,
       params
     );
+    if (!plans.length) return res.json({ ok: true, data: [], days });
 
-    res.json({ ok: true, data: rows });
+    const codes = [...new Set(plans.map(p => String(p.plan_code || '').trim()).filter(Boolean))];
+    const ids = plans.map(p => Number(p.plan_id)).filter(Number.isInteger);
+    const orders = [...new Set(plans.map(p => String(p.order_no || '').trim()).filter(Boolean))];
+    const machines = [...new Set(plans.map(p => String(p.machine || '').trim()).filter(Boolean))];
+
+    const [dprRows, labelRows, shiftRows, jcRows, qcRows, machineRows] = await Promise.all([
+      q(`SELECT plan_id, factory_id, COALESCE(SUM(good_qty), 0) AS qty, MAX(dpr_date) AS last_dpr_date
+           FROM dpr_hourly
+          WHERE plan_id = ANY($1::text[]) AND is_deleted IS NOT TRUE
+          GROUP BY plan_id, factory_id`, [codes]),
+      q(`SELECT plan_id, factory_id, COALESCE(SUM(label_qty), 0) AS qty, COUNT(*) AS labels,
+                (ARRAY_AGG(jc_no ORDER BY printed_at DESC, id DESC)
+                   FILTER (WHERE COALESCE(TRIM(jc_no), '') <> ''))[1] AS jc_no
+           FROM job_card_label_print_log
+          WHERE plan_id = ANY($1::text[])
+          GROUP BY plan_id, factory_id`, [codes]),
+      q(`SELECT plan_id, factory_id, COALESCE(SUM(quantity), 0) AS qty, MAX(created_at) AS last_shifted_at
+           FROM shifting_records
+          WHERE plan_id = ANY($1::int[])
+          GROUP BY plan_id, factory_id`, [ids]),
+      orders.length
+        ? q(`SELECT DISTINCT ON (TRIM(COALESCE(or_jr_no, ''))) TRIM(COALESCE(or_jr_no, '')) AS order_no, job_card_no
+               FROM or_jr_report
+              WHERE TRIM(COALESCE(or_jr_no, '')) = ANY($1::text[])
+              ORDER BY TRIM(COALESCE(or_jr_no, '')), job_card_date DESC NULLS LAST, id DESC`, [orders])
+        : [],
+      q(`SELECT TRIM(COALESCE(machine, '')) AS machine, TRIM(COALESCE(mould_name, '')) AS mould_name,
+                TRIM(COALESCE(item_name, '')) AS item_name,
+                SUM(GREATEST(COALESCE(qty_checked, 0) - COALESCE(qty_rejected, 0), 0)) AS qty
+           FROM qc_online_reports
+          WHERE TRIM(COALESCE(machine, '')) = ANY($1::text[])
+          GROUP BY 1, 2, 3`, [machines]),
+      q(`SELECT TRIM(machine) AS machine, line, building FROM machines WHERE COALESCE(is_active, true) = true`)
+    ]);
+
+    // Factory-scope: plan codes repeat across factories (KAN-127). A row counts for a
+    // plan when its factory matches, or either side has no factory.
+    const groupBy = (rows, keyFn) => {
+      const map = new Map();
+      rows.forEach(r => {
+        const k = keyFn(r);
+        if (!map.has(k)) map.set(k, []);
+        map.get(k).push(r);
+      });
+      return map;
+    };
+    const sameFactory = (row, plan) => row.factory_id == null || plan.factory_id == null || Number(row.factory_id) === Number(plan.factory_id);
+    const dprByCode = groupBy(dprRows, r => String(r.plan_id));
+    const labelByCode = groupBy(labelRows, r => String(r.plan_id));
+    const shiftById = groupBy(shiftRows, r => String(r.plan_id));
+    const jcByOrder = new Map(jcRows.map(r => [r.order_no, r.job_card_no]));
+    const qcByKey = new Map(qcRows.map(r => [`${r.machine}|${r.mould_name}|${r.item_name}`, Number(r.qty || 0)]));
+    const latest = (a, b) => (!a ? b : !b ? a : (new Date(a) > new Date(b) ? a : b));
+
+    const rows = plans.map(plan => {
+      const code = String(plan.plan_code || '').trim();
+      const dpr = (dprByCode.get(code) || []).filter(r => sameFactory(r, plan));
+      const labels = (labelByCode.get(code) || []).filter(r => sameFactory(r, plan));
+      const shifts = (shiftById.get(String(plan.plan_id)) || []).filter(r => sameFactory(r, plan));
+      const labelJc = labels.map(r => r.jc_no).find(Boolean);
+      return {
+        ...plan,
+        jc_no: labelJc || jcByOrder.get(String(plan.order_no || '').trim()) || '',
+        total_produced: dpr.reduce((sum, r) => sum + Number(r.qty || 0), 0),
+        total_qc_approved: qcByKey.get(`${String(plan.machine || '').trim()}|${String(plan.mould_name || '').trim()}|${String(plan.item_name || '').trim()}`) || 0,
+        total_shifted: shifts.reduce((sum, r) => sum + Number(r.qty || 0), 0),
+        total_labelled_qty: labels.reduce((sum, r) => sum + Number(r.qty || 0), 0),
+        total_labels_printed: labels.reduce((sum, r) => sum + Number(r.labels || 0), 0),
+        last_dpr_date: dpr.reduce((d, r) => latest(d, r.last_dpr_date), null),
+        last_shifted_at: shifts.reduce((d, r) => latest(d, r.last_shifted_at), null)
+      };
+    });
+
+    // Running first in the standard machine order (Line, then machine number); then
+    // completed jobs, latest production first.
+    const machineOrder = makeMachineOrder(machineRows);
+    const isRunning = r => String(r.status || '').toUpperCase() === 'RUNNING';
+    rows.sort((a, b) => {
+      if (isRunning(a) !== isRunning(b)) return isRunning(a) ? -1 : 1;
+      if (!isRunning(a)) {
+        const ta = a.last_dpr_date ? new Date(a.last_dpr_date).getTime() : 0;
+        const tb = b.last_dpr_date ? new Date(b.last_dpr_date).getTime() : 0;
+        if (ta !== tb) return tb - ta;
+      }
+      return machineOrder(a.machine, b.machine);
+    });
+
+    res.json({ ok: true, data: rows, days });
   } catch (e) {
     sendServerError(res, e);
   }
@@ -9758,6 +9793,7 @@ app.get('/api/shifting/jobs/:id/details', async (req, res) => {
         `SELECT TRIM(COALESCE(colour, '')) AS colour, COALESCE(SUM(good_qty), 0) AS qty
            FROM dpr_hourly
           WHERE (CAST(plan_id AS TEXT) = $1::text OR ($2::text <> '' AND CAST(plan_id AS TEXT) = $2::text))
+            AND is_deleted IS NOT TRUE
             -- Factory-scope: plan_id repeats across factories (KAN-127).
             AND ($3::int IS NULL OR factory_id = $3 OR factory_id IS NULL)
           GROUP BY TRIM(COALESCE(colour, ''))`,
@@ -9994,6 +10030,7 @@ app.post('/api/shifting/entry', async (req, res) => {
         `SELECT
            (SELECT COALESCE(SUM(good_qty), 0) FROM dpr_hourly
              WHERE (CAST(plan_id AS TEXT) = $1 OR ($2 <> '' AND CAST(plan_id AS TEXT) = $2))
+               AND is_deleted IS NOT TRUE
                -- Factory-scope: plan_id repeats across factories (KAN-127).
                AND ($3::int IS NULL OR factory_id = $3 OR factory_id IS NULL)) AS produced,
            (SELECT COALESCE(SUM(quantity), 0) FROM shifting_records

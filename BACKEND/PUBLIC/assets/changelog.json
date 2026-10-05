@@ -11,8 +11,28 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.91.3",
+  "latest": "1.91.4",
   "versions": [
+    {
+      "version": "1.91.4",
+      "date": "2026-10-05",
+      "title": "Faster Shifting Supervisor",
+      "modules": [
+        {
+          "app": "shifting_supervisor_app",
+          "changes": [
+            { "type": "perf", "text": "The Shifting Supervisor job list opens in under a second instead of about 20 seconds. It now shows running jobs plus jobs completed in the last 3, 7 or 30 days (your choice is remembered)." },
+            { "type": "improvement", "text": "Running jobs are listed first in the standard Line and machine-number order, then completed jobs with the latest production first." }
+          ]
+        },
+        {
+          "app": "shifting_module",
+          "changes": [
+            { "type": "fix", "text": "Produced quantity in Shifting no longer includes DPR entries that were deleted, so floor balance and the manual shift limit are correct." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.91.3",
       "date": "2026-10-05",

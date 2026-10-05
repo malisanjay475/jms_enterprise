@@ -876,14 +876,20 @@
             <div class="section-head">
                 <div>
                     <div class="eyebrow">Job Dashboard</div>
-                    <div class="section-title">Running and completed jobs</div>
+                    <div class="section-title">Running and recently completed jobs</div>
                     <div class="section-copy">Open View Details to check colour-wise plan, moulding, QC approved, shifted, and floor balance.</div>
                 </div>
             </div>
 
-            <div style="margin-top:14px; margin-bottom:16px">
+            <div style="margin-top:14px; margin-bottom:16px; display:flex; gap:8px">
                 <input id="searchMachine" oninput="filterMachines()" class="form-control" placeholder="Search Machine / Item..."
-                    style="box-shadow:0 4px 6px -1px rgba(0,0,0,0.08)">
+                    style="box-shadow:0 4px 6px -1px rgba(0,0,0,0.08); flex:1; min-width:0">
+                <select id="jobDays" class="form-control" onchange="onJobDaysChange()" title="Show jobs completed in the last..." aria-label="Show jobs completed in the last"
+                    style="box-shadow:0 4px 6px -1px rgba(0,0,0,0.08); width:auto; max-width:112px; flex:0 0 auto">
+                    <option value="3">3 days</option>
+                    <option value="7" selected>7 days</option>
+                    <option value="30">30 days</option>
+                </select>
             </div>
 
             <div id="machineList">
@@ -1210,6 +1216,11 @@
             document.getElementById('view-app').style.display = 'block';
             document.getElementById('userName').textContent = user.username;
             document.getElementById('userLine').textContent = user.line || 'All';
+            try {
+                const savedDays = localStorage.getItem('shiftingJobDays');
+                const daysSelect = document.getElementById('jobDays');
+                if (savedDays && daysSelect && [...daysSelect.options].some(o => o.value === savedDays)) daysSelect.value = savedDays;
+            } catch (_) { }
             loadData().then(() => {
                 const scanInput = document.getElementById('scanInput');
                 if (scanInput) scanInput.focus();
@@ -1229,7 +1240,8 @@
                 } else {
                     promises.push(Promise.resolve({ ok: true, data: LOCATIONS }));
                 }
-                promises.push(JPSMS.api.get(`/shifting/jobs?${params}`));
+                const days = document.getElementById('jobDays')?.value || '7';
+                promises.push(JPSMS.api.get(`/shifting/jobs?${params}&days=${encodeURIComponent(days)}`));
                 promises.push(JPSMS.api.get('/shifting/logs?limit=20'));
 
                 const [locRes, dashRes, logRes] = await Promise.all(promises);
@@ -1240,7 +1252,7 @@
                 }
                 if (dashRes && dashRes.ok) {
                     MACHINES = dashRes.data || [];
-                    renderMachines(MACHINES);
+                    filterMachines();
                 }
                 if (logRes && logRes.ok) {
                     renderRecentShifts(logRes.data || []);
@@ -1253,7 +1265,7 @@
         function renderMachines(list) {
             const container = document.getElementById('machineList');
             if (!list.length) {
-                container.innerHTML = '<div class="scan-placeholder" style="margin-top:0">No running or completed jobs found for this line right now.</div>';
+                container.innerHTML = '<div class="scan-placeholder" style="margin-top:0">No running jobs, and no jobs completed in the selected days, for this line.</div>';
                 return;
             }
 
@@ -1394,6 +1406,12 @@
                     <div class="recent-qty">${numberFmt(row.quantity)}<br><span class="recent-meta">${row.label_no ? `${row.label_no}/${row.total_labels}` : 'Qty'}</span></div>
                 </div>
             `).join('');
+        }
+
+        function onJobDaysChange() {
+            try { localStorage.setItem('shiftingJobDays', document.getElementById('jobDays').value); } catch (_) { }
+            document.getElementById('machineList').innerHTML = '<div class="scan-placeholder" style="margin-top:0">Loading jobs...</div>';
+            loadData();
         }
 
         function filterMachines() {
