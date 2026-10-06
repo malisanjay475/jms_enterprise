@@ -13,6 +13,15 @@ part of your PR. On release, the `[Unreleased]` items move under the new version
 
 ## [Unreleased]
 
+### Added
+- Delete QC entries (v1.100.4): new `POST /api/qc/entry/delete` `{ kind: slot | setup | verify, id }`
+  for roles quality (QC HOD), quality_ass__manager, quality_executive, admin, superadmin (checked
+  server-side from the user's role). Delete buttons in the QC 2-hour check popup, the QC One-time
+  Setup card (per half) and the DPR entry popup (QC verification). Slot / setup deletes sync through
+  `sync_deletions`; verifications live on the factory server only. `/api/qc/summary-matrix` slots and
+  `/api/dpr/summary-matrix` entries now include the row id (`id`, `qc_verify_id`).
+
+
 ### Changed
 - QC Compliance job cell (v1.100.3): DPR Compliance (Process QC) Machine / Job cell matches
   Moulding: date + shift chips, MC / CC chips, OR | JC, client, mould name, Plan | Bal.

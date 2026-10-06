@@ -25047,6 +25047,7 @@ app.get('/api/dpr/summary-matrix', async (req, res) => {
         -- QC verify detail for this hour slot (one per DPR entry; legacy
         -- hour-level rows still match; qv/qh joined LATERAL below, fan-out-safe).
         (qv.id IS NOT NULL)   AS qc_verified,
+        qv.id                 AS qc_verify_id,
         qv.status             AS qc_verify_status,
         qv.verified_by        AS qc_verified_by,
         qv.verified_at        AS qc_verified_at,
@@ -31026,6 +31027,44 @@ app.get('/api/qc/job-checks', async (req, res) => {
 // POST /api/qc/fpa/delete-image — remove ONE FPA image from a qc_job_checks row.
 // Allowed roles: quality, admin, superadmin — so Quality can drop a bad FPA photo
 // and re-take it. Role is resolved server-side; a client-sent role is never trusted.
+// POST /api/qc/entry/delete — remove one QC app entry so QC can enter it again in the app.
+// Body: { kind: 'slot' | 'setup' | 'verify', id }
+//   slot   = a 2-hour QC check (qc_online_report_slots)
+//   setup  = one half of a QC One-time Setup (qc_job_setup)
+//   verify = a QC verification of a DPR entry (qc_verifications; exists on the factory server only)
+// Roles: QC HOD (quality), Quality Ass. Manager, Quality Executive, admin, superadmin — checked
+// here from the user's stored role. slot / setup deletions sync to the other server.
+const QC_ENTRY_DELETE_ROLES = ['admin', 'superadmin', 'quality', 'quality_ass__manager', 'quality_executive'];
+const QC_ENTRY_TABLES = { slot: 'qc_online_report_slots', setup: 'qc_job_setup', verify: 'qc_verifications' };
+app.post('/api/qc/entry/delete', async (req, res) => {
+  try {
+    const body = req.body || {};
+    const table = QC_ENTRY_TABLES[String(body.kind || '')];
+    const id = parseInt(body.id, 10);
+    if (!table || !Number.isInteger(id)) return res.status(400).json({ ok: false, error: 'kind (slot / setup / verify) and id required' });
+
+    const uname = getRequestUsername(req) || '';
+    const urow = uname ? await q('SELECT role_code FROM users WHERE username = $1 LIMIT 1', [uname]) : [];
+    const role = String((urow[0] && urow[0].role_code) || '').toLowerCase();
+    if (!QC_ENTRY_DELETE_ROLES.includes(role)) {
+      return res.status(403).json({ ok: false, error: 'Only QC HOD, Quality Ass. Manager, Quality Executive or admin can delete QC entries.' });
+    }
+
+    const factoryId = getFactoryId(req);
+    const rows = await q(
+      `DELETE FROM ${table} WHERE id = $1 AND ($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL) RETURNING *`,
+      [id, factoryId]
+    );
+    if (!rows.length) return res.status(404).json({ ok: false, error: 'Entry not found (already deleted?)' });
+    const r = rows[0];
+    console.log(`[QC] ${uname} (${role}) deleted ${table} #${id}: ${r.machine || ''} ${r.dpr_date ? new Date(r.dpr_date).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' }) : ''} ${r.shift || ''} ${r.slot || r.hour_slot || (r.setup_period ? 'setup ' + r.setup_period : '')}`);
+    if (table !== 'qc_verifications') syncService.triggerSync();
+    res.json({ ok: true, kind: body.kind, id });
+  } catch (e) {
+    sendServerError(res, e);
+  }
+});
+
 app.post('/api/qc/fpa/delete-image', async (req, res) => {
   try {
     const body = req.body || {};
@@ -31824,7 +31863,7 @@ app.get('/api/qc/summary-matrix', async (req, res) => {
           WHERE COALESCE(is_active, TRUE) = TRUE
             AND COALESCE(NULLIF(TRIM(machine_process), ''), 'Moulding') = 'Moulding'
             AND ($1::int IS NULL OR factory_id = $1)`, [factoryId]),
-      q(`SELECT machine, dpr_date::text AS date, shift, slot, job_card_no, order_no, item_name, mould_name, colour,
+      q(`SELECT id, machine, dpr_date::text AS date, shift, slot, job_card_no, order_no, item_name, mould_name, colour,
                 visual_status, visual_problem, visual_remarks, colour_status, colour_problem, colour_remarks,
                 ff_status, ff_problem, ff_photo_url, entered_by, entered_at
            FROM qc_online_report_slots
