@@ -11,8 +11,21 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.100.0",
+  "latest": "1.100.1",
   "versions": [
+    {
+      "version": "1.100.1",
+      "date": "2026-10-06",
+      "title": "QC app saves the 2nd half setup",
+      "modules": [
+        {
+          "app": "quality",
+          "changes": [
+            { "type": "fix", "text": "QC app: a One-time Setup saved as 2nd half was stored as 1st half (overwriting it), so the 2nd half always showed not saved. It is now saved as 2nd half. Each half shows its own saved values, a saved half has a tick, and the screen opens on 2nd half once the 1st half is saved. Needs QC app 1.8.1." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.100.0",
       "date": "2026-10-06",
