@@ -3326,14 +3326,18 @@
             ? [activePlan.itemName, activePlan.mouldName].filter(Boolean).join(' / ')
             : 'No job assigned';
           const detailClient = activePlan ? (activePlan.clientName || '-') : '-';
+          // Balance = plan qty - DPR produced qty, same as Master Plan and "View full details".
+          // The stored balQty only changes when a plan is edited, so it stays at the full
+          // plan qty while the machine produces; a real 0 balance must also show as 0.
+          const liveBalQty = (p) => Math.max(0, Number(p.planQty || 0) - Number(p.producedQty || 0));
           const detailBalance = activePlan
-            ? Number(activePlan.balQty || activePlan.planQty || 0).toLocaleString('en-IN')
+            ? liveBalQty(activePlan).toLocaleString('en-IN')
             : '-';
           const detailStatus = frontStatusText;
           const detailSlot = runningPlan ? 'Running now' : (nextPlan ? 'Next in queue' : 'Open');
           // Progress only for the job actually running (a queued job has not started)
           const planQtyNum = runningPlan ? Number(runningPlan.planQty || 0) : 0;
-          const balQtyNum = runningPlan ? Number(runningPlan.balQty || 0) : 0;
+          const balQtyNum = runningPlan ? liveBalQty(runningPlan) : 0;
           const progressPct = planQtyNum > 0
             ? Math.max(0, Math.min(100, Math.round((planQtyNum - balQtyNum) / planQtyNum * 100)))
             : null;

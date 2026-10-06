@@ -11,8 +11,21 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.100.8",
+  "latest": "1.100.10",
   "versions": [
+    {
+      "version": "1.100.10",
+      "date": "2026-10-06",
+      "title": "Planning Board machine balance",
+      "modules": [
+        {
+          "app": "planning",
+          "changes": [
+            { "type": "fix", "text": "Planning Board machine cards now show the real Balance qty (plan qty minus DPR production) and the correct Done %. They used to show the full plan qty and 0% until the Master Plan tab was opened." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.100.8",
       "date": "2026-10-06",
