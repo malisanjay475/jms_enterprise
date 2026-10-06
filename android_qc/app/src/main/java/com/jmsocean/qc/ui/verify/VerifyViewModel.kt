@@ -25,7 +25,7 @@ data class VerifyUiState(
     val slots: List<VerifySlot> = emptyList(),
     val loading: Boolean = false,
     val error: String? = null,
-    val busySlot: String? = null,   // hour_slot currently submitting
+    val busySlot: String? = null,   // entry key (see entryKey) currently submitting
     val message: String? = null
 ) {
     val pendingCount: Int get() = slots.count { !it.qc_verified }
@@ -109,11 +109,36 @@ class VerifyViewModel : ViewModel() {
 
     fun submit(slot: VerifySlot, good: Int, reject: Int, remarks: String) {
         val s = _state.value
-        _state.update { it.copy(busySlot = slot.hour_slot, error = null, message = null) }
+        _state.update { it.copy(busySlot = entryKey(slot), error = null, message = null) }
         viewModelScope.launch {
-            repo.verifySubmit(s.machine, s.date, s.shift, slot.hour_slot, good, reject, remarks)
+            repo.verifySubmit(s.machine, s.date, s.shift, slot.hour_slot, good, reject, remarks,
+                dprEntryId = slot.dpr_entry_id)
                 .onSuccess {
-                    _state.update { it.copy(busySlot = null, message = "Slot ${slot.hour_slot} verified.") }
+                    _state.update { it.copy(busySlot = null, message = "${entryLabel(slot)} ${slot.hour_slot} verified.") }
+                    load()
+                }
+                .onFailure { e -> _state.update { it.copy(busySlot = null, error = e.message) } }
+        }
+    }
+
+    /** Verify every not-yet-verified entry of an hour with the supervisor's figures. */
+    fun submitAll(entries: List<VerifySlot>) {
+        val s = _state.value
+        val todo = entries.filter { !it.qc_verified }
+        if (todo.isEmpty()) return
+        val hour = todo.first().hour_slot
+        _state.update { it.copy(busySlot = hourKey(hour), error = null, message = null) }
+        val items = todo.map {
+            com.jmsocean.qc.data.remote.VerifyBatchItem(
+                machine = s.machine, dpr_date = s.date, shift = s.shift, hour_slot = it.hour_slot,
+                dpr_entry_id = it.dpr_entry_id,
+                qc_good_qty = it.sup_good_qty ?: 0, qc_reject_qty = it.sup_reject_qty ?: 0
+            )
+        }
+        viewModelScope.launch {
+            repo.verifySubmitBatch(items)
+                .onSuccess {
+                    _state.update { it.copy(busySlot = null, message = "All ${items.size} entries of $hour verified.") }
                     load()
                 }
                 .onFailure { e -> _state.update { it.copy(busySlot = null, error = e.message) } }
@@ -122,12 +147,12 @@ class VerifyViewModel : ViewModel() {
 
     fun submitDeviation(slot: VerifySlot, good: Int, reject: Int, desc: String, remarks: String) {
         val s = _state.value
-        _state.update { it.copy(busySlot = slot.hour_slot, error = null, message = null) }
+        _state.update { it.copy(busySlot = entryKey(slot), error = null, message = null) }
         val note = "DEVIATION: $desc" + (if (remarks.isNotBlank()) " | $remarks" else "")
         viewModelScope.launch {
             repo.verifySubmit(
                 s.machine, s.date, s.shift, slot.hour_slot, good, reject, note,
-                statusOverride = "Deviation"
+                statusOverride = "Deviation", dprEntryId = slot.dpr_entry_id
             ).onSuccess {
                 _state.update { it.copy(busySlot = null, message = "Deviation recorded for ${slot.hour_slot}.") }
                 load()
@@ -137,7 +162,7 @@ class VerifyViewModel : ViewModel() {
 
     fun placeHold(slot: VerifySlot, reason: String, qty: Int?, remarks: String) {
         val s = _state.value
-        _state.update { it.copy(busySlot = slot.hour_slot, error = null, message = null) }
+        _state.update { it.copy(busySlot = entryKey(slot), error = null, message = null) }
         viewModelScope.launch {
             repo.placeHold(
                 machine = s.machine, date = s.date, shift = s.shift,
@@ -149,4 +174,14 @@ class VerifyViewModel : ViewModel() {
             }.onFailure { e -> _state.update { it.copy(busySlot = null, error = e.message) } }
         }
     }
+}
+
+/** Busy-state key for one DPR entry (an hour can have two: main + colour change). */
+fun entryKey(slot: VerifySlot) = "${slot.hour_slot}#${slot.dpr_entry_id ?: 0}"
+fun hourKey(hour: String) = "$hour#all"
+
+/** "Main · Red" / "Colour change · Blue" — shown when an hour has more than one entry. */
+fun entryLabel(slot: VerifySlot): String {
+    val kind = if (slot.entry_no <= 1) "Main" else "Colour change"
+    return slot.colour?.takeIf { it.isNotBlank() }?.let { "$kind · $it" } ?: kind
 }

@@ -11,8 +11,21 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.96.1",
+  "latest": "1.97.0",
   "versions": [
+    {
+      "version": "1.97.0",
+      "date": "2026-10-06",
+      "title": "QC can verify both entries of an hour",
+      "modules": [
+        {
+          "app": "quality",
+          "changes": [
+            { "type": "feat", "text": "When an hour has two entries (main and colour change), the QC app Verify screen now shows both. QC can verify each one, or tap Verify both. Needs QC app 1.6.0." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.96.1",
       "date": "2026-10-06",

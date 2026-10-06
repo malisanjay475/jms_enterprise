@@ -13,6 +13,17 @@ part of your PR. On release, the `[Unreleased]` items move under the new version
 
 ## [Unreleased]
 
+### Added
+- QC verify per DPR entry (v1.97.0, QC app 1.6.0): an hour with a main + colour-change entry
+  is verified entry by entry. `qc_verifications` is now unique per `dpr_entry_id` (the old
+  one-per-hour key is dropped; rows with no entry keep a partial hour key). `/api/qc/verify/pending`
+  returns `colour`, `entries_in_hour`, `entry_no`; `/api/qc/verify/submit` takes an optional
+  `dpr_entry_id`; new `/api/qc/verify/submit-batch` ("Verify both"). DPR Compliance Summary and
+  shifting availability read the entry's own verification. Rollback: older code keeps working on
+  the new table except that its one-per-hour `ON CONFLICT` has no matching key; recreate
+  `UNIQUE(machine, dpr_date, shift, hour_slot)` after deleting duplicate-hour rows to roll back.
+
+
 ### Fixed
 - DPR Compliance Summary, multi-mould orders (v1.96.1): mould rows were de-duplicated by
   `order_no` alone, so a second mould of the same order on a machine/shift (e.g. TOP + HOOK of
