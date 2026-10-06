@@ -69,12 +69,26 @@ const GUARDED_ROUTES = [
   { method: 'POST', path: /^\/api\/reports\/erp-autosync\/run-now\/?$/, need: 'superadmin' },
   // "Import from ERP Data" preview: the handler checks Masters edit permission for
   // the user named in the body; with a session it uses the verified user instead.
-  { method: 'POST', path: /^\/api\/upload\/or-jr-erp-preview\/?$/, need: 'session' }
+  { method: 'POST', path: /^\/api\/upload\/or-jr-erp-preview\/?$/, need: 'session' },
+  // Found open in the Oct-2026 audit. The full user list (roles, permissions, factory
+  // access) and who-is-online-from-which-IP were readable by anyone; the HR operator
+  // list / Excel export carry staff personal data; fix-sync-schema runs DDL on a GET.
+  // No client calls these without a session (legacy_auth_usage, 14 days).
+  { method: 'GET', path: /^\/api\/users\/?$/, need: 'session' },
+  { method: 'GET', path: /^\/api\/activity\/monitor\/?$/, need: 'session' },
+  { method: 'GET', path: /^\/api\/hr\/(operators|history|download-operators)\/?$/, need: 'session' },
+  { method: 'GET', path: /^\/api\/admin\/fix-sync-schema\/?$/, need: 'admin' }
 ];
 
+// Express routes case-insensitively by default and answers HEAD with the GET handler,
+// so "/API/admin/backup" or "HEAD /api/admin/backup" used to reach the handler while
+// skipping these (case-sensitive, GET-only) rules. Match on the lower-cased path and
+// treat HEAD as GET. createApp also turns on case-sensitive routing as a second layer.
 function findGuard(method, path) {
-  const m = String(method || '').toUpperCase();
-  return GUARDED_ROUTES.find((rule) => (rule.method === '*' || rule.method === m) && rule.path.test(path)) || null;
+  let m = String(method || '').toUpperCase();
+  if (m === 'HEAD') m = 'GET';
+  const p = String(path || '').toLowerCase();
+  return GUARDED_ROUTES.find((rule) => (rule.method === '*' || rule.method === m) && rule.path.test(p)) || null;
 }
 
 function routeGuardMiddleware(req, res, next) {

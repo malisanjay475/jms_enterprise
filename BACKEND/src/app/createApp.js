@@ -33,6 +33,11 @@ function createApp(deps) {
   }
   app.set('trust proxy', trustProxy);
 
+  // Path-based security checks (routeGuards, sessionPolicy) compare lower-case paths.
+  // With Express's default case-insensitive routing, "/API/admin/backup" still reached
+  // the handler while skipping those checks. Every route and client uses lower-case.
+  app.set('case sensitive routing', true);
+
   app.use(requestHandler());
 
   registerCoreMiddleware(app);
