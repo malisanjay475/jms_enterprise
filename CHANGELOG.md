@@ -13,6 +13,13 @@ part of your PR. On release, the `[Unreleased]` items move under the new version
 
 ## [Unreleased]
 
+### Changed
+- QC Compliance job cell (v1.100.3): DPR Compliance (Process QC) Machine / Job cell matches
+  Moulding: date + shift chips, MC / CC chips, OR | JC, client, mould name, Plan | Bal.
+  `/api/qc/summary-matrix` `plans` now also cover orders QC checked in the range and carry
+  `plan_qty`, `balance_qty`, `client_name`, `status`; `dprRunning` carries `cc` / `mc` counts.
+
+
 ### Fixed
 - FPA per machine (v1.100.2, QC app 1.8.2): the QC app looked up FPA by plan on any machine,
   so a job moved to another machine showed the old machine's FPA as done while the DPR job
