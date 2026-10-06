@@ -11,8 +11,21 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.100.6",
+  "latest": "1.100.7",
   "versions": [
+    {
+      "version": "1.100.7",
+      "date": "2026-10-06",
+      "title": "QC verifications reach the main site",
+      "modules": [
+        {
+          "app": "quality",
+          "changes": [
+            { "type": "improvement", "text": "QC verifications made in the QC app now sync from the factory server to the main site. Job details show real QC Verified and Ready figures there, without the \"may be incomplete\" warning, and the Compliance Summary shows the Verified, Hold, Rejected and Deviation marks on the main site too." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.100.6",
       "date": "2026-10-06",
