@@ -11,8 +11,28 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.97.0",
+  "latest": "1.98.0",
   "versions": [
+    {
+      "version": "1.98.0",
+      "date": "2026-10-06",
+      "title": "QC hold photos and Reject / Deviation marks",
+      "modules": [
+        {
+          "app": "quality",
+          "changes": [
+            { "type": "feat", "text": "QC can add up to 4 photos when placing a HOLD in the QC app. The photos show in the Quality page holds list and in the DPR Compliance Summary entry details." },
+            { "type": "feat", "text": "QC can Reject an hourly entry in the QC app. Deviation entries are now saved as Deviation (they were saved as Verified before). Needs QC app 1.7.0." }
+          ]
+        },
+        {
+          "app": "dpr",
+          "changes": [
+            { "type": "feat", "text": "DPR Compliance Summary cells show the QC result of each entry: a green tick for Verified, an amber pause for Hold, a red cross for Rejected, a purple mark for Deviation and an orange warning when QC changed the qty. Tap the entry to see the details and hold photos." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.97.0",
       "date": "2026-10-06",

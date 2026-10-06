@@ -160,14 +160,31 @@ class VerifyViewModel : ViewModel() {
         }
     }
 
-    fun placeHold(slot: VerifySlot, reason: String, qty: Int?, remarks: String) {
+    /** QC rejects this entry: kept with the supervisor's qty, marked Rejected with the reason. */
+    fun submitReject(slot: VerifySlot, reason: String) {
+        val s = _state.value
+        _state.update { it.copy(busySlot = entryKey(slot), error = null, message = null) }
+        viewModelScope.launch {
+            repo.verifySubmit(
+                s.machine, s.date, s.shift, slot.hour_slot,
+                slot.sup_good_qty ?: 0, slot.sup_reject_qty ?: 0, "REJECTED: $reason",
+                statusOverride = "Rejected", dprEntryId = slot.dpr_entry_id
+            ).onSuccess {
+                _state.update { it.copy(busySlot = null, message = "${entryLabel(slot)} ${slot.hour_slot} rejected.") }
+                load()
+            }.onFailure { e -> _state.update { it.copy(busySlot = null, error = e.message) } }
+        }
+    }
+
+    fun placeHold(slot: VerifySlot, reason: String, qty: Int?, remarks: String, photos: List<java.io.File> = emptyList()) {
         val s = _state.value
         _state.update { it.copy(busySlot = entryKey(slot), error = null, message = null) }
         viewModelScope.launch {
             repo.placeHold(
                 machine = s.machine, date = s.date, shift = s.shift,
                 slot = slot.hour_slot, jobCardNo = slot.job_card_no ?: "",
-                qtyOnHold = qty, reason = reason, remarks = remarks
+                qtyOnHold = qty, reason = reason, remarks = remarks,
+                dprEntryId = slot.dpr_entry_id, photos = photos
             ).onSuccess {
                 _state.update { it.copy(busySlot = null, message = "HOLD placed on ${slot.hour_slot}. Scanning blocked.") }
                 load()

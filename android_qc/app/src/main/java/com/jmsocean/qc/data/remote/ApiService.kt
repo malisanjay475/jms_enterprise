@@ -87,6 +87,14 @@ interface ApiService {
         @PartMap fields: Map<String, @JvmSuppressWildcards RequestBody>
     ): ApiEnvelope
 
+    // QC HOLD with photos (hold_images[], max 4). Without photos the JSON route is used.
+    @Multipart
+    @POST("api/qc/hold")
+    suspend fun placeHoldWithPhotos(
+        @PartMap fields: Map<String, @JvmSuppressWildcards RequestBody>,
+        @Part photos: List<@JvmSuppressWildcards MultipartBody.Part>
+    ): ApiEnvelope
+
     // Raised Memo — multipart create (multiple images/video via media_files[])
     @Multipart
     @POST("api/qc/memos")
