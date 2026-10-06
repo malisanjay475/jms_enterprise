@@ -11,8 +11,27 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.100.1",
+  "latest": "1.100.2",
   "versions": [
+    {
+      "version": "1.100.2",
+      "date": "2026-10-06",
+      "title": "FPA is checked per machine",
+      "modules": [
+        {
+          "app": "quality",
+          "changes": [
+            { "type": "fix", "text": "QC app: FPA now counts only for the machine the job is on. A job moved from another machine shows \"FPA needed on this machine\" and says where the old FPA was done. Before, the app showed the old machine's FPA as done. Needs QC app 1.8.2." }
+          ]
+        },
+        {
+          "app": "dpr",
+          "changes": [
+            { "type": "fix", "text": "DPR job details: when a job has no FPA on its current machine but has one from the machine it moved from, the QC panel shows that FPA and its photos, marked \"done on <machine>, needs an FPA here\", instead of \"No FPA images saved\"." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.100.1",
       "date": "2026-10-06",

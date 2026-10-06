@@ -32,6 +32,8 @@ data class FpaUiState(
     val approvalStatus: String? = null,   // "Pending" | "Approved" | "Rejected"
     val pendingApproval: Boolean = false, // submitted, awaiting QC HOD approval
     val transferredFrom: String? = null,  // FPA copied from this machine when the job moved
+    val otherMachineFpa: String? = null,  // job has an FPA only on this other machine
+    val otherMachineFpaAt: String? = null,
     val rejected: Boolean = false,        // rejected — user must correct & re-upload
     val rejectReason: String? = null,
     val reviewedBy: String? = null,
@@ -72,7 +74,7 @@ class FpaViewModel : ViewModel() {
             return
         }
         viewModelScope.launch {
-            repo.fpaStatusFull(job.PlanID ?: "", job.JobCardNo ?: "")
+            repo.fpaStatusFull(job.PlanID ?: "", job.JobCardNo ?: "", job.Machine ?: _state.value.machine)
                 .onSuccess { st ->
                     when {
                         // Approved -> locked, view-only.
@@ -96,7 +98,10 @@ class FpaViewModel : ViewModel() {
                                 rejectReason = st.reject_reason, reviewedBy = st.reviewed_by
                             )
                         }
-                        else -> _state.update { it.copy(checking = false, alreadyDone = false) }
+                        else -> _state.update {
+                            it.copy(checking = false, alreadyDone = false,
+                                otherMachineFpa = st.other_machine, otherMachineFpaAt = st.done_at)
+                        }
                     }
                 }
                 .onFailure { _state.update { it.copy(checking = false) } } // treat unknown as not-done
@@ -172,7 +177,7 @@ class FpaViewModel : ViewModel() {
                     )
                 }
                 // reload from server so the saved images render in the pending view
-                repo.fpaStatusFull(job.PlanID ?: "", job.JobCardNo ?: "")
+                repo.fpaStatusFull(job.PlanID ?: "", job.JobCardNo ?: "", job.Machine ?: _state.value.machine)
                     .onSuccess { st ->
                         if (st.ok && st.done) applySaved(st)
                         else if (st.ok && st.submitted) _state.update {

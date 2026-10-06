@@ -430,6 +430,17 @@
             ]);
             const json = await res.json();
             const rows = json.ok && Array.isArray(json.data) ? json.data : [];
+            // No FPA on this machine: the job may have been moved here after its FPA was done
+            // on another machine. Show that one, marked, so QC knows a new FPA is due here.
+            let otherFpa = null;
+            if (machine && !rows.some(r => r.fpa_status === 'Done')) {
+                const q2 = new URLSearchParams(qs); q2.delete('machine');
+                try {
+                    const j2 = await (await fetch(`/api/qc/job-checks?${q2.toString()}`)).json();
+                    otherFpa = ((j2.ok && j2.data) || []).find(r => r.fpa_status === 'Done' && r.machine !== machine
+                        && (r.fpa_form_image || (Array.isArray(r.product_images) && r.product_images.length))) || null;
+                } catch (_) { /* best-effort */ }
+            }
             const weights = rows
                 .flatMap(r => [r.qc_weight_1, r.qc_weight_2, r.qc_weight_3])
                 .filter(v => v !== null && v !== undefined && String(v) !== '')
@@ -488,7 +499,12 @@
                             style="position:absolute;top:5px;right:5px;width:26px;height:26px;padding:0;border:none;border-radius:50%;background:#dc2626;color:#fff;font-size:15px;font-weight:900;line-height:1;cursor:pointer;box-shadow:0 1px 4px rgba(0,0,0,.35);z-index:2">&times;</button>` : ''}
                         </div>`).join('')}
                     </div>
-                ` : '<div style="color:#64748b; font-size:0.82rem; margin-top:10px">No FPA images saved for this job yet.</div>'}
+                ` : otherFpa ? `
+                    <div style="margin-top:10px; padding:10px 12px; background:#fffbeb; border:1px solid #fde68a; border-radius:8px">
+                        <div style="font-weight:800; color:#b45309; font-size:0.85rem">No FPA on ${dprEsc(machine)} yet</div>
+                        <div style="font-size:0.8rem; color:#92400e; margin-top:2px">FPA for this job was done on <b>${dprEsc(otherFpa.machine || '-')}</b>${otherFpa.fpa_done_at ? ' on ' + dprEsc(new Date(otherFpa.fpa_done_at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })) : ''}${otherFpa.fpa_approval_status ? ' (' + dprEsc(otherFpa.fpa_approval_status) + ')' : ''}. The job moved to this machine, so it needs an FPA here.</div>
+                        <div style="display:flex; gap:6px; flex-wrap:wrap; margin-top:8px">${[otherFpa.fpa_form_image, ...(Array.isArray(otherFpa.product_images) ? otherFpa.product_images : [])].filter(Boolean).map(src => `<a href="${dprEsc(src)}" target="_blank" rel="noopener"><img src="${dprEsc(/^\/uploads\/qc-images\//.test(src) ? ('/api/qc/thumb?src=' + encodeURIComponent(src) + '&w=200') : src)}" alt="FPA image from ${dprEsc(otherFpa.machine || '')}" loading="lazy" style="width:64px; height:64px; object-fit:cover; border-radius:6px; border:1px solid #fde68a; opacity:0.85"></a>`).join('')}</div>
+                    </div>` : '<div style="color:#64748b; font-size:0.82rem; margin-top:10px">No FPA images saved for this job yet.</div>'}
                 ${fpaApprovalNote}
                 <div style="margin-top:14px; border-top:1px dashed #e2e8f0; padding-top:12px">
                     <button type="button" onclick="toggleJobOnlineQC(this)" data-machine="${dprEsc(machine)}" data-date="${dprEsc(rowDate)}" data-shift="${dprEsc(rowShift)}"
