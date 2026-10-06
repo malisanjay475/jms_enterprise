@@ -11,8 +11,69 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.96.1",
+  "latest": "1.100.0",
   "versions": [
+    {
+      "version": "1.100.0",
+      "date": "2026-10-06",
+      "title": "FPA follows a job to its new machine",
+      "modules": [
+        {
+          "app": "quality",
+          "changes": [
+            { "type": "feat", "text": "When Planning moves a job to another machine, its FPA (form and photos) is copied to the new machine as Pending, and the approvers get a notification. The FPA page shows \"Job moved from M-x\", so QC checks the job on the new machine and approves it again. The FPA on the old machine stays as history. The QC app shows the same note (QC app 1.8.0)." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.99.0",
+      "date": "2026-10-06",
+      "title": "QC Setup and second jobs in the QC Compliance Summary",
+      "modules": [
+        {
+          "app": "dpr",
+          "changes": [
+            { "type": "feat", "text": "DPR Compliance Summary, Process QC: new Setup 1 (shift start) and Setup 2 (mid-shift) columns show when QC saved the setup and who saved it. The cell turns red with Wt, Cycle or Cavity when the actual value is outside the standard (weight 5%, cycle time 10%, cavity exact)." },
+            { "type": "feat", "text": "When a machine runs a second job in the shift, that job gets its own row with its own setup and 2-hour checks, and each job only counts the slots it ran in." },
+            { "type": "improvement", "text": "A machine with no running plan, no DPR entry and no QC data shows Not running. A running machine with no setup saved shows a blank setup cell." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.98.0",
+      "date": "2026-10-06",
+      "title": "QC hold photos and Reject / Deviation marks",
+      "modules": [
+        {
+          "app": "quality",
+          "changes": [
+            { "type": "feat", "text": "QC can add up to 4 photos when placing a HOLD in the QC app. The photos show in the Quality page holds list and in the DPR Compliance Summary entry details." },
+            { "type": "feat", "text": "QC can Reject an hourly entry in the QC app. Deviation entries are now saved as Deviation (they were saved as Verified before). Needs QC app 1.7.0." }
+          ]
+        },
+        {
+          "app": "dpr",
+          "changes": [
+            { "type": "feat", "text": "DPR Compliance Summary cells show the QC result of each entry: a green tick for Verified, an amber pause for Hold, a red cross for Rejected, a purple mark for Deviation and an orange warning when QC changed the qty. Tap the entry to see the details and hold photos." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.97.0",
+      "date": "2026-10-06",
+      "title": "QC can verify both entries of an hour",
+      "modules": [
+        {
+          "app": "quality",
+          "changes": [
+            { "type": "feat", "text": "When an hour has two entries (main and colour change), the QC app Verify screen now shows both. QC can verify each one, or tap Verify both. Needs QC app 1.6.0." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.96.1",
       "date": "2026-10-06",

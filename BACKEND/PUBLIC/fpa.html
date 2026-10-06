@@ -191,6 +191,7 @@
                 <div class="fpa-head">
                     <div>
                         <div class="fpa-title">${esc(r.machine || '-')}${r.line ? ' · Line ' + esc(r.line) : ''} — JC ${esc(r.job_card_no || '-')}</div>
+                        ${r.fpa_transferred_from ? `<div style="font-size:12px;font-weight:700;color:#b45309;margin-top:2px;"><i class="bi bi-arrow-left-right"></i> Job moved from ${esc(r.fpa_transferred_from)}. Check it on ${esc(r.machine || 'this machine')} before approving.</div>` : ''}
                         <div class="fpa-meta">
                             <span><i class="bi bi-box-seam"></i> ${esc(r.item_name || '-')}</span>
                             <span><i class="bi bi-hammer"></i> ${esc(r.mould_name || '-')}</span>

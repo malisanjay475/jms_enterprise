@@ -6113,6 +6113,21 @@ async function initializeLegacyRuntime() {
     `);
     await qIdx(`CREATE INDEX IF NOT EXISTS idx_qcv_machine_date ON qc_verifications (machine, dpr_date, shift)`);
     await qIdx(`CREATE INDEX IF NOT EXISTS idx_qcv_entry       ON qc_verifications (dpr_entry_id)`);
+    // An hour can hold two DPR entries (main + colour change); each is verified on its own.
+    // One verification per DPR entry; the old one-per-hour key stays only for rows that
+    // never had a DPR entry to link to.
+    await q(`DO $$
+      DECLARE c text;
+      BEGIN
+        SELECT conname INTO c FROM pg_constraint
+          WHERE conrelid = 'qc_verifications'::regclass AND contype = 'u'
+            AND pg_get_constraintdef(oid) LIKE '%(machine, dpr_date, shift, hour_slot)%';
+        IF c IS NOT NULL THEN EXECUTE 'ALTER TABLE qc_verifications DROP CONSTRAINT ' || quote_ident(c); END IF;
+      END $$;`);
+    await qIdx(`CREATE UNIQUE INDEX IF NOT EXISTS uq_qcv_entry ON qc_verifications (dpr_entry_id)
+                WHERE dpr_entry_id IS NOT NULL`);
+    await qIdx(`CREATE UNIQUE INDEX IF NOT EXISTS uq_qcv_slot_noentry ON qc_verifications (machine, dpr_date, shift, hour_slot)
+                WHERE dpr_entry_id IS NULL`);
 
     // QC JOB SETUP — STD (from mould master) vs Actual entered by QC per job/shift
     await q(`
@@ -6202,6 +6217,10 @@ async function initializeLegacyRuntime() {
       );
     `);
     await qIdx(`CREATE INDEX IF NOT EXISTS idx_qcholds_machine ON qc_holds (machine, dpr_date, status)`);
+    // Photos taken at hold time (/uploads/qc-images/...), and the exact DPR entry held
+    // (an hour can have a main + colour-change entry). NULL entry = whole hour (older rows).
+    await q(`ALTER TABLE qc_holds ADD COLUMN IF NOT EXISTS image_urls JSONB DEFAULT '[]'::jsonb`);
+    await q(`ALTER TABLE qc_holds ADD COLUMN IF NOT EXISTS dpr_entry_id INTEGER`);
 
     // QC SHIFT TEAM — QC team members assigned per machine/shift
     await q(`
@@ -6354,6 +6373,9 @@ async function initializeLegacyRuntime() {
     // fpa_reject_reason for the reject path). Shown next to the FPA image in the
     // QC app and the DPR Compliance Summary.
     await q(`ALTER TABLE qc_job_checks ADD COLUMN IF NOT EXISTS fpa_approve_remark TEXT`);
+    // FPA copied to a new machine when its plan was moved (needs approval again there).
+    await q(`ALTER TABLE qc_job_checks ADD COLUMN IF NOT EXISTS fpa_transferred_from TEXT`);
+    await q(`ALTER TABLE qc_job_checks ADD COLUMN IF NOT EXISTS fpa_transferred_from_id INTEGER`);
 
     await q(`ALTER TABLE shifting_records ADD COLUMN IF NOT EXISTS shift_date DATE;`);
     await q(`ALTER TABLE shifting_records ADD COLUMN IF NOT EXISTS shift_type TEXT;`);
@@ -10524,8 +10546,8 @@ async function shiftingUnitWeights(mouldNames, factoryId) {
 
 // ── Shifting availability: produced / QC verified / shifted / ready per job + colour ──
 // Only QC-verified pieces may be shifted. A DPR hour counts as verified when the QC app
-// saved a "Verified" check for that machine/date/shift/hour (qc_verifications is UNIQUE on
-// those); its QC good qty is shared over the hour's DPR rows in proportion to their good
+// saved a "Verified" check for that DPR entry (or a legacy hour-level check); the
+// entry counts in proportion of QC good qty to supervisor good
 // qty. "Ready" = verified - already shifted. qc_verifications is written on the factory
 // LOCAL and does not sync, so a server without any recent verification data (MAIN) only
 // enforces the "not produced" rule — see shiftingVerificationEnforced().
@@ -10578,7 +10600,8 @@ async function shiftingAvailabilityMap(plans, factoryId) {
            SELECT status, qc_good_qty, sup_good_qty FROM qc_verifications v
             WHERE v.machine = d.machine AND v.dpr_date = d.dpr_date
               AND v.shift = d.shift AND v.hour_slot = d.hour_slot
-            ORDER BY v.id DESC LIMIT 1
+              AND (v.dpr_entry_id = d.id OR v.dpr_entry_id IS NULL)
+            ORDER BY (v.dpr_entry_id = d.id) DESC NULLS LAST, v.id DESC LIMIT 1
          ) qv ON true
         WHERE TRIM(CAST(d.plan_id AS TEXT)) = ANY($1::text[])
           AND d.is_deleted IS NOT TRUE
@@ -17154,6 +17177,81 @@ app.get('/api/planning/mould-machines', async (req, res) => {
 
 // POST /api/planning/move
 // Body: { rowId, targetMachine }
+// Copy the plan's latest done FPA from `fromMachine` to `toMachine` as Pending, with
+// "transferred from" set, so QC must approve it again on the new machine. If the job
+// already has an FPA row on the new machine (moved back), that row is reset the same way.
+// The old machine's FPA stays as history. Returns { id, from } or null when there is none.
+async function transferFpaToMachine(plan, fromMachine, toMachine) {
+  const refs = [plan.plan_id, plan.id].map(v => String(v ?? '').trim()).filter(Boolean);
+  const src = (await q(
+    `SELECT * FROM qc_job_checks
+      WHERE fpa_status = 'Done' AND machine = $1
+        AND (TRIM(COALESCE(plan_id, '')) = ANY($2::text[])
+             OR (TRIM(COALESCE(order_no, '')) <> '' AND TRIM(order_no) = TRIM($3)
+                 AND TRIM(COALESCE(mould_name, '')) = TRIM($4)))
+        AND ($5::int IS NULL OR factory_id = $5 OR factory_id IS NULL)
+      ORDER BY fpa_done_at DESC NULLS LAST, id DESC LIMIT 1`,
+    [fromMachine, refs, plan.order_no || '', plan.mould_name || '', plan.factory_id ?? null]
+  ))[0];
+  if (!src) return null;
+
+  const autoUntil = await getFpaAutoApproveUntil();
+  const status = autoUntil ? 'Approved' : 'Pending';
+  const reviewer = autoUntil ? 'AUTO-APPROVED' : null;
+  const remark = autoUntil ? `Auto-approved (FPA approval paused till ${autoUntil})` : null;
+  const jc = String(src.job_card_no || '').trim();
+  const existing = jc ? (await q(
+    `SELECT id FROM qc_job_checks
+      WHERE TRIM(COALESCE(job_card_no, '')) = $1 AND machine = $2
+        AND ($3::int IS NULL OR factory_id = $3 OR factory_id IS NULL)
+      ORDER BY id DESC LIMIT 1`, [jc, toMachine, src.factory_id ?? null]))[0] : null;
+
+  let id;
+  if (existing) {
+    id = existing.id;
+    await q(
+      `UPDATE qc_job_checks SET
+         fpa_status = 'Done', fpa_form_image = $2, fpa_form_url = $3, product_images = $4::jsonb,
+         fpa_done_at = $5, fpa_done_by = $6, plan_id = $7, order_no = $8, item_name = $9, mould_name = $10,
+         fpa_approval_status = $11, fpa_reviewed_by = $12, fpa_reviewed_at = $13, fpa_approve_remark = $14,
+         fpa_reject_reason = NULL, fpa_transferred_from = $15, fpa_transferred_from_id = $16, updated_at = NOW()
+       WHERE id = $1`,
+      [id, src.fpa_form_image, src.fpa_form_url, JSON.stringify(src.product_images || []),
+       src.fpa_done_at, src.fpa_done_by, src.plan_id, src.order_no, src.item_name, src.mould_name,
+       status, reviewer, autoUntil ? new Date() : null, remark, fromMachine, src.id]);
+  } else {
+    const line = (await q(`SELECT line FROM machines WHERE machine = $1 LIMIT 1`, [toMachine]))[0];
+    const ins = await q(
+      `INSERT INTO qc_job_checks (
+         date, shift, hour_slot, plan_id, job_card_no, order_no, line, machine, item_name, mould_name,
+         fpa_status, fpa_form_image, fpa_form_url, product_images, remarks, supervisor,
+         fpa_done_at, fpa_done_by, factory_id, fpa_approval_status,
+         fpa_reviewed_by, fpa_reviewed_at, fpa_approve_remark,
+         fpa_transferred_from, fpa_transferred_from_id, updated_at
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'Done',$11,$12,$13::jsonb,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,NOW())
+       RETURNING id`,
+      [src.date, src.shift, src.hour_slot, src.plan_id, src.job_card_no, src.order_no,
+       (line && line.line) || src.line, toMachine, src.item_name, src.mould_name,
+       src.fpa_form_image, src.fpa_form_url, JSON.stringify(src.product_images || []), src.remarks, src.supervisor,
+       src.fpa_done_at, src.fpa_done_by, src.factory_id, status,
+       reviewer, autoUntil ? new Date() : null, remark, fromMachine, src.id]);
+    id = ins[0] && ins[0].id;
+  }
+
+  if (!autoUntil) {
+    try {
+      for (const role of FPA_APPROVER_ROLES) {
+        await q(
+          `INSERT INTO qc_notifications (factory_id, recipient_role, message, ref_type, ref_id)
+           VALUES ($1,$2,$3,'FPA',$4)`,
+          [src.factory_id ?? null, role, `FPA moved ${fromMachine} → ${toMachine} / ${jc || '-'}: approve again on ${toMachine}`, id]
+        );
+      }
+    } catch (_) { /* notifications are best-effort */ }
+  }
+  return { id, from: fromMachine, status };
+}
+
 app.post('/api/planning/move', async (req, res) => {
   try {
     let { rowId, targetMachine, newMachine } = req.body || {};
@@ -17232,10 +17330,17 @@ app.post('/api/planning/move', async (req, res) => {
       [rowId, JSON.stringify({ from: plan.machine, to: targetMachine, index: insertIdx })]
     );
 
+    // FPA follows the job to the new machine, as Pending, so QC approves it again there.
+    let fpaTransferred = null;
+    if (plan.machine && String(plan.machine).trim() !== String(targetMachine).trim()) {
+      try { fpaTransferred = await transferFpaToMachine(plan, plan.machine, targetMachine); }
+      catch (err) { console.error('planning/move FPA transfer', err); }
+    }
+
     // [Real-Time Sync]
     syncService.triggerSync();
 
-    res.json({ ok: true });
+    res.json({ ok: true, fpa_transferred: fpaTransferred });
   } catch (e) {
     console.error('planning/move', e);
     sendServerError(res, e);
@@ -24939,8 +25044,8 @@ app.get('/api/dpr/summary-matrix', async (req, res) => {
         TRIM(COALESCE(pb.mould_name, mps.mould_name)) as mould_name,
         ojr.job_card_no,
         COALESCE(ojr.client_name, o.client_name) as client_name,
-        -- QC verify detail for this hour slot (qc_verifications is UNIQUE per
-        -- machine/date/shift/hour_slot; qv/qh joined LATERAL below, fan-out-safe).
+        -- QC verify detail for this hour slot (one per DPR entry; legacy
+        -- hour-level rows still match; qv/qh joined LATERAL below, fan-out-safe).
         (qv.id IS NOT NULL)   AS qc_verified,
         qv.status             AS qc_verify_status,
         qv.verified_by        AS qc_verified_by,
@@ -24949,7 +25054,11 @@ app.get('/api/dpr/summary-matrix', async (req, res) => {
         qv.qc_reject_qty      AS qc_reject_qty,
         qv.remarks            AS qc_remarks,
         (qh.id IS NOT NULL)   AS qc_hold,
-        qh.reason             AS qc_hold_reason
+        qh.reason             AS qc_hold_reason,
+        qh.qty_on_hold        AS qc_hold_qty,
+        qh.hold_by            AS qc_hold_by,
+        qh.hold_at            AS qc_hold_at,
+        COALESCE(qh.image_urls, '[]'::jsonb) AS qc_hold_images
       FROM (
         SELECT DISTINCT ON (${DPR_HOURLY_KEY}) *
         FROM dpr_hourly
@@ -25003,15 +25112,18 @@ app.get('/api/dpr/summary-matrix', async (req, res) => {
         FROM qc_verifications qv2
         WHERE qv2.machine = d.machine AND qv2.dpr_date = d.dpr_date
           AND qv2.shift = d.shift AND qv2.hour_slot = d.hour_slot
+          AND (qv2.dpr_entry_id = d.id OR qv2.dpr_entry_id IS NULL)
+        ORDER BY (qv2.dpr_entry_id = d.id) DESC NULLS LAST, qv2.id DESC
         LIMIT 1
       ) qv ON true
       -- Active QC hold on this slot (→ cross in the Compliance Summary)
       LEFT JOIN LATERAL (
-        SELECT id, reason FROM qc_holds qh2
+        SELECT id, reason, qty_on_hold, hold_by, hold_at, image_urls FROM qc_holds qh2
         WHERE qh2.machine = d.machine AND qh2.dpr_date = d.dpr_date
           AND qh2.shift = d.shift AND qh2.slot = d.hour_slot
+          AND (qh2.dpr_entry_id = d.id OR qh2.dpr_entry_id IS NULL)
           AND UPPER(COALESCE(qh2.status,'ACTIVE')) = 'ACTIVE'
-        ORDER BY qh2.id DESC LIMIT 1
+        ORDER BY (qh2.dpr_entry_id = d.id) DESC NULLS LAST, qh2.id DESC LIMIT 1
       ) qh ON true
     `;
     const entryParams = [fDate, tDate, shift];
@@ -30655,7 +30767,7 @@ app.get('/api/qc/fpa/status', async (req, res) => {
     const rows = await q(
       `SELECT id, date, shift, fpa_done_at, fpa_done_by, fpa_form_url, product_images,
               COALESCE(fpa_approval_status,'Approved') AS fpa_approval_status,
-              fpa_reject_reason, fpa_reviewed_by, fpa_reviewed_at
+              fpa_reject_reason, fpa_reviewed_by, fpa_reviewed_at, fpa_transferred_from
        FROM qc_job_checks
        WHERE TRIM(COALESCE(job_card_no,'')) = TRIM($1)
          AND fpa_status = 'Done'
@@ -30683,6 +30795,7 @@ app.get('/api/qc/fpa/status', async (req, res) => {
         approval_status: approval,
         reject_reason: r.fpa_reject_reason || null,
         reviewed_by: r.fpa_reviewed_by || null,
+        transferred_from: r.fpa_transferred_from || null,
         date: fpaDate,
         shift: r.shift || null,
         done_by: r.fpa_done_by,
@@ -31007,7 +31120,8 @@ app.get('/api/qc/fpa/list', async (req, res) => {
          jc.fpa_done_by, jc.fpa_done_at,
          COALESCE(jc.fpa_approval_status, 'Pending') AS fpa_approval_status,
          jc.fpa_reviewed_by, jc.fpa_reviewed_at, jc.fpa_reject_reason, jc.fpa_approve_remark,
-         COALESCE(jc.fpa_resubmit_count, 0) AS fpa_resubmit_count
+         COALESCE(jc.fpa_resubmit_count, 0) AS fpa_resubmit_count,
+         jc.fpa_transferred_from
        FROM qc_job_checks jc
        WHERE jc.fpa_status = 'Done'
          -- Always surface PENDING FPAs regardless of the selected date so an
@@ -31250,6 +31364,8 @@ app.get('/api/qc/verify/pending', async (req, res) => {
     const { machine, date, shift } = req.query;
     if (!machine || !date || !shift) return res.json({ ok: false, error: 'machine, date, shift required' });
     const factoryId = getFactoryId(req);
+    // One row per DPR entry. An hour can have two entries (main + colour change);
+    // each carries its own verification. entries_in_hour lets the app group them.
     const rows = await q(`
       SELECT
         d.id                                          AS dpr_entry_id,
@@ -31259,6 +31375,10 @@ app.get('/api/qc/verify/pending', async (req, res) => {
         d.shots                                       AS sup_shots,
         d.supervisor,
         d.entry_type,
+        NULLIF(TRIM(COALESCE(d.colour, '')), '')      AS colour,
+        d.plan_id,
+        (COUNT(*) OVER (PARTITION BY d.hour_slot))::int AS entries_in_hour,
+        (ROW_NUMBER() OVER (PARTITION BY d.hour_slot ORDER BY d.id))::int AS entry_no,
         (v.id IS NOT NULL)                            AS qc_verified,
         v.id                                          AS verify_id,
         v.qc_good_qty,
@@ -31266,20 +31386,34 @@ app.get('/api/qc/verify/pending', async (req, res) => {
         v.verified_by,
         to_char(v.verified_at AT TIME ZONE 'Asia/Kolkata', 'HH24:MI')  AS verified_at,
         v.status                                      AS verify_status,
-        v.remarks                                     AS qc_remarks
+        v.remarks                                     AS qc_remarks,
+        (h.id IS NOT NULL)                            AS qc_hold,
+        h.reason                                      AS qc_hold_reason
       FROM dpr_hourly d
-      LEFT JOIN qc_verifications v
-        ON  v.dpr_entry_id = d.id
-        AND v.machine      = d.machine
-        AND v.dpr_date     = d.dpr_date
-        AND v.shift        = d.shift
-        AND v.hour_slot    = d.hour_slot
+      LEFT JOIN LATERAL (
+        SELECT id, reason FROM qc_holds h2
+         WHERE h2.machine = d.machine AND h2.dpr_date = d.dpr_date
+           AND h2.shift = d.shift AND h2.slot = d.hour_slot
+           AND (h2.dpr_entry_id = d.id OR h2.dpr_entry_id IS NULL)
+           AND UPPER(COALESCE(h2.status, 'ACTIVE')) = 'ACTIVE'
+         ORDER BY (h2.dpr_entry_id = d.id) DESC NULLS LAST, h2.id DESC LIMIT 1
+      ) h ON true
+      LEFT JOIN LATERAL (
+        -- The entry's own verification; a legacy row saved before entries were
+        -- linked (dpr_entry_id NULL) still covers its hour.
+        SELECT * FROM qc_verifications v2
+         WHERE v2.machine = d.machine AND v2.dpr_date = d.dpr_date
+           AND v2.shift = d.shift AND v2.hour_slot = d.hour_slot
+           AND (v2.dpr_entry_id = d.id OR v2.dpr_entry_id IS NULL)
+         ORDER BY (v2.dpr_entry_id = d.id) DESC NULLS LAST, v2.id DESC
+         LIMIT 1
+      ) v ON true
       WHERE d.machine    = $1
         AND d.dpr_date   = $2::date
         AND d.shift      = $3
         AND d.is_deleted = false
         AND ($4::int IS NULL OR d.factory_id = $4 OR d.factory_id IS NULL)
-      ORDER BY d.hour_slot ASC
+      ORDER BY d.hour_slot ASC, d.id ASC
     `, [machine, date, shift, factoryId]);
     res.json({ ok: true, data: rows });
   } catch (e) {
@@ -31288,88 +31422,132 @@ app.get('/api/qc/verify/pending', async (req, res) => {
   }
 });
 
+// Save one QC verification. `item` = { machine, dpr_date, shift, hour_slot,
+// dpr_entry_id?, qc_good_qty, qc_reject_qty, remarks }. Returns { ok, status } or
+// { ok:false, error }. dpr_entry_id from the client is only used to pick WHICH entry of
+// the hour; it is checked against machine/date/shift/hour before use. Without it (older
+// app builds) the hour's latest entry is used, as before.
+async function saveQcVerification(item, verified_by, factoryId) {
+  const { machine, dpr_date, shift, hour_slot, dpr_entry_id: wantedId,
+          qc_good_qty, qc_reject_qty, remarks, status_override } = item || {};
+  if (!machine || !dpr_date || !shift || !hour_slot) {
+    return { ok: false, error: 'machine, dpr_date, shift, hour_slot required' };
+  }
+  // Validate hour_slot format (e.g. "07-08") to prevent injection via slot key
+  if (!/^\d{2}-\d{2}$/.test(String(hour_slot))) return { ok: false, error: 'Invalid hour_slot format' };
+  if (!['Day', 'Night'].includes(String(shift))) return { ok: false, error: 'Invalid shift value' };
+
+  const good = parseInt(qc_good_qty,  10);
+  const rej  = parseInt(qc_reject_qty, 10);
+  if (isNaN(good) || isNaN(rej) || good < 0 || rej < 0) {
+    return { ok: false, error: 'qc_good_qty and qc_reject_qty must be non-negative integers' };
+  }
+  const entryId = (wantedId !== undefined && wantedId !== null && wantedId !== '') ? parseInt(wantedId, 10) : null;
+  if (wantedId !== undefined && wantedId !== null && wantedId !== '' && !Number.isInteger(entryId)) {
+    return { ok: false, error: 'Invalid dpr_entry_id' };
+  }
+
+  const dprRows = await q(
+    `SELECT id, good_qty, reject_qty, shots FROM dpr_hourly
+     WHERE machine   = $1
+       AND dpr_date  = $2::date
+       AND shift     = $3
+       AND hour_slot = $4
+       AND is_deleted = false
+       AND ($5::int IS NULL OR factory_id = $5 OR factory_id IS NULL)
+       AND ($6::int IS NULL OR id = $6)
+     ORDER BY id DESC LIMIT 1`,
+    [machine, dpr_date, shift, hour_slot, factoryId, entryId]
+  );
+  if (entryId !== null && !dprRows.length) {
+    return { ok: false, error: 'DPR entry not found for this machine / hour' };
+  }
+
+  const dprRow       = dprRows[0] || null;
+  const dpr_entry_id = dprRow ? dprRow.id : null;
+  const sgood        = dprRow ? (parseInt(dprRow.good_qty,   10) || 0) : 0;
+  const srej         = dprRow ? (parseInt(dprRow.reject_qty, 10) || 0) : 0;
+  const sshots       = dprRow ? (parseInt(dprRow.shots,      10) || 0) : 0;
+  // QC can mark an entry Rejected or as a Deviation; otherwise the qty match decides.
+  const override     = ['Rejected', 'Deviation'].includes(String(status_override || '')) ? String(status_override) : null;
+  const status       = override || ((good !== sgood || rej !== srej) ? 'Discrepancy' : 'Verified');
+  const params = [factoryId, dpr_entry_id, machine, dpr_date, shift, hour_slot,
+                  sgood, srej, sshots, good, rej, verified_by, remarks || null, status];
+  const conflict = dpr_entry_id !== null
+    ? `ON CONFLICT (dpr_entry_id) WHERE dpr_entry_id IS NOT NULL`
+    : `ON CONFLICT (machine, dpr_date, shift, hour_slot) WHERE dpr_entry_id IS NULL`;
+
+  // A legacy hour-level row (no entry link) for this hour is taken over by the first
+  // entry verified, so it does not keep marking the other entry as verified.
+  if (dpr_entry_id !== null) {
+    await q(
+      `UPDATE qc_verifications SET dpr_entry_id = $1
+        WHERE machine = $2 AND dpr_date = $3::date AND shift = $4 AND hour_slot = $5
+          AND dpr_entry_id IS NULL
+          AND NOT EXISTS (SELECT 1 FROM qc_verifications x WHERE x.dpr_entry_id = $1)`,
+      [dpr_entry_id, machine, dpr_date, shift, hour_slot]
+    );
+  }
+
+  await q(`
+    INSERT INTO qc_verifications
+      (factory_id, dpr_entry_id, machine, dpr_date, shift, hour_slot,
+       sup_good_qty, sup_reject_qty, sup_shots,
+       qc_good_qty, qc_reject_qty, verified_by, verified_at, remarks, status)
+    VALUES ($1,$2,$3,$4::date,$5,$6,$7,$8,$9,$10,$11,$12,NOW(),$13,$14)
+    ${conflict}
+    DO UPDATE SET
+      qc_good_qty    = EXCLUDED.qc_good_qty,
+      qc_reject_qty  = EXCLUDED.qc_reject_qty,
+      sup_good_qty   = EXCLUDED.sup_good_qty,
+      sup_reject_qty = EXCLUDED.sup_reject_qty,
+      sup_shots      = EXCLUDED.sup_shots,
+      verified_by    = EXCLUDED.verified_by,
+      verified_at    = NOW(),
+      remarks        = EXCLUDED.remarks,
+      status         = EXCLUDED.status
+  `, params);
+  return { ok: true, status, dpr_entry_id };
+}
+
+// SECURITY: verified_by comes from the session, sanitized + truncated.
+function qcVerifierName(session) {
+  const rawUser = (session && (session.username || session.supervisor || session.user)) || '';
+  return String(rawUser).replace(/[^\w\s\-\.@]/g, '').slice(0, 100) || 'QC';
+}
+
 // POST /api/qc/verify/submit
-// Upsert a QC verification for a single hour slot.
-// Body: { session, machine, dpr_date, shift, hour_slot,
+// Upsert a QC verification for one DPR entry.
+// Body: { session, machine, dpr_date, shift, hour_slot, dpr_entry_id?,
 //         qc_good_qty, qc_reject_qty, remarks }
-// NOTE: dpr_entry_id is resolved server-side — never trusted from client.
 app.post('/api/qc/verify/submit', async (req, res) => {
   try {
-    const { session, machine, dpr_date, shift, hour_slot,
-            qc_good_qty, qc_reject_qty, remarks } = req.body || {};
-
-    // Validate required fields
-    if (!machine || !dpr_date || !shift || !hour_slot) {
-      return res.json({ ok: false, error: 'machine, dpr_date, shift, hour_slot required' });
-    }
-
-    // Validate hour_slot format (e.g. "07-08") to prevent injection via slot key
-    if (!/^\d{2}-\d{2}$/.test(String(hour_slot))) {
-      return res.json({ ok: false, error: 'Invalid hour_slot format' });
-    }
-
-    // Validate shift
-    if (!['Day', 'Night'].includes(String(shift))) {
-      return res.json({ ok: false, error: 'Invalid shift value' });
-    }
-
-    // SECURITY: derive verified_by from server-side session, sanitized + truncated.
-    // Never trust the raw client value.
-    const rawUser   = (session && (session.username || session.supervisor || session.user)) || '';
-    const verified_by = String(rawUser).replace(/[^\w\s\-\.@]/g, '').slice(0, 100) || 'QC';
-
-    const factoryId = getFactoryId(req);
-    const good  = parseInt(qc_good_qty,  10);
-    const rej   = parseInt(qc_reject_qty, 10);
-    if (isNaN(good) || isNaN(rej) || good < 0 || rej < 0) {
-      return res.json({ ok: false, error: 'qc_good_qty and qc_reject_qty must be non-negative integers' });
-    }
-
-    // DATA INTEGRITY: resolve dpr_entry_id server-side by looking up the actual
-    // DPR entry — never trust the client-supplied value.
-    const dprRows = await q(
-      `SELECT id, good_qty, reject_qty, shots FROM dpr_hourly
-       WHERE machine   = $1
-         AND dpr_date  = $2::date
-         AND shift     = $3
-         AND hour_slot = $4
-         AND is_deleted = false
-         AND ($5::int IS NULL OR factory_id = $5 OR factory_id IS NULL)
-       ORDER BY id DESC LIMIT 1`,
-      [machine, dpr_date, shift, hour_slot, factoryId]
-    );
-
-    const dprRow       = dprRows[0] || null;
-    const dpr_entry_id = dprRow ? dprRow.id : null;
-    const sgood        = dprRow ? (parseInt(dprRow.good_qty,   10) || 0) : 0;
-    const srej         = dprRow ? (parseInt(dprRow.reject_qty, 10) || 0) : 0;
-    const sshots       = dprRow ? (parseInt(dprRow.shots,      10) || 0) : 0;
-    const status       = (good !== sgood || rej !== srej) ? 'Discrepancy' : 'Verified';
-
-    await q(`
-      INSERT INTO qc_verifications
-        (factory_id, dpr_entry_id, machine, dpr_date, shift, hour_slot,
-         sup_good_qty, sup_reject_qty, sup_shots,
-         qc_good_qty, qc_reject_qty, verified_by, verified_at, remarks, status)
-      VALUES ($1,$2,$3,$4::date,$5,$6,$7,$8,$9,$10,$11,$12,NOW(),$13,$14)
-      ON CONFLICT (machine, dpr_date, shift, hour_slot)
-      DO UPDATE SET
-        dpr_entry_id   = EXCLUDED.dpr_entry_id,
-        qc_good_qty    = EXCLUDED.qc_good_qty,
-        qc_reject_qty  = EXCLUDED.qc_reject_qty,
-        sup_good_qty   = EXCLUDED.sup_good_qty,
-        sup_reject_qty = EXCLUDED.sup_reject_qty,
-        sup_shots      = EXCLUDED.sup_shots,
-        verified_by    = EXCLUDED.verified_by,
-        verified_at    = NOW(),
-        remarks        = EXCLUDED.remarks,
-        status         = EXCLUDED.status
-    `, [factoryId, dpr_entry_id, machine, dpr_date, shift, hour_slot,
-        sgood, srej, sshots, good, rej, verified_by, remarks || null, status]);
-
-    res.json({ ok: true, status });
+    const body = req.body || {};
+    const r = await saveQcVerification(body, qcVerifierName(body.session), getFactoryId(req));
+    res.json(r);
   } catch (e) {
     console.error('/api/qc/verify/submit', e);
+    sendServerError(res, e);
+  }
+});
+
+// POST /api/qc/verify/submit-batch
+// "Verify both": several entries of one hour in one call.
+// Body: { session, items: [{ machine, dpr_date, shift, hour_slot, dpr_entry_id,
+//         qc_good_qty, qc_reject_qty, remarks }] }  (max 10)
+app.post('/api/qc/verify/submit-batch', async (req, res) => {
+  try {
+    const body = req.body || {};
+    const items = Array.isArray(body.items) ? body.items : [];
+    if (!items.length) return res.json({ ok: false, error: 'items required' });
+    if (items.length > 10) return res.json({ ok: false, error: 'Too many items (max 10)' });
+    const by = qcVerifierName(body.session);
+    const factoryId = getFactoryId(req);
+    const results = [];
+    for (const it of items) results.push(await saveQcVerification(it, by, factoryId));
+    res.json({ ok: results.every(r => r.ok), results });
+  } catch (e) {
+    console.error('/api/qc/verify/submit-batch', e);
     sendServerError(res, e);
   }
 });
@@ -31579,7 +31757,8 @@ app.get('/api/qc/overview', async (req, res) => {
             AND ($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL)
           ORDER BY created_at DESC LIMIT 300`, [date, factoryId]),
       q(`SELECT id, machine, job_card_no, dpr_date, shift, slot, qty_on_hold, reason, remarks,
-                hold_by, hold_at, released_by, released_at, release_remarks, status
+                hold_by, hold_at, released_by, released_at, release_remarks, status,
+                COALESCE(image_urls, '[]'::jsonb) AS image_urls
            FROM qc_holds
           WHERE (status = 'ACTIVE' OR dpr_date = $1::date)
             AND ($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL)
@@ -31640,7 +31819,7 @@ app.get('/api/qc/summary-matrix', async (req, res) => {
     const sh = (req.query.shift === 'Day' || req.query.shift === 'Night') ? req.query.shift : '';
     const factoryId = await resolveScopedReportFactoryId(req);
 
-    const [machineRows, slotRows, setupRows, fpaRows, holdRows, planRows, teamRows, machineTeamRows] = await Promise.all([
+    const [machineRows, slotRows, setupRows, fpaRows, holdRows, planRows, teamRows, machineTeamRows, dprRunRows] = await Promise.all([
       q(`SELECT machine, line, building, factory_id FROM machines
           WHERE COALESCE(is_active, TRUE) = TRUE
             AND COALESCE(NULLIF(TRIM(machine_process), ''), 'Moulding') = 'Moulding'
@@ -31678,7 +31857,14 @@ app.get('/api/qc/summary-matrix', async (req, res) => {
            FROM qc_shift_team
           WHERE dpr_date BETWEEN $1::date AND $2::date AND ($3 = '' OR shift = $3)
             AND ($4::int IS NULL OR factory_id = $4 OR factory_id IS NULL)
-          ORDER BY assigned_at ASC`, [fromDate, toDate, sh, factoryId])
+          ORDER BY assigned_at ASC`, [fromDate, toDate, sh, factoryId]),
+      // Machines that ran in a shift (any DPR entry) — a machine with none, no running
+      // plan and no QC data shows "Not running".
+      q(`SELECT DISTINCT machine, dpr_date::text AS date, shift
+           FROM dpr_hourly
+          WHERE dpr_date BETWEEN $1::date AND $2::date AND ($3 = '' OR shift = $3)
+            AND is_deleted IS NOT TRUE
+            AND ($4::int IS NULL OR factory_id = $4 OR factory_id IS NULL)`, [fromDate, toDate, sh, factoryId])
     ]);
 
     const order = makeMachineOrder(machineRows);
@@ -31699,7 +31885,8 @@ app.get('/api/qc/summary-matrix', async (req, res) => {
         holds: holdRows,
         plans: planRows,
         teams: teamRows,
-        machineTeams: machineTeamRows
+        machineTeams: machineTeamRows,
+        dprRunning: dprRunRows
       }
     });
   } catch (e) {
@@ -32013,17 +32200,29 @@ app.delete('/api/qc/shift-team/:id', async (req, res) => {
 });
 
 // POST /api/qc/hold — place a QC hold on a job (blocks scanner shifting)
-app.post('/api/qc/hold', async (req, res) => {
+// Body is JSON (no photos) or multipart with up to 4 `hold_images`.
+app.post('/api/qc/hold', (req, res, next) => {
+  if (!req.is('multipart/form-data')) return next();
+  uploadQC.fields([{ name: 'hold_images', maxCount: 4 }])(req, res, err => {
+    if (err) return res.status(400).json({ ok: false, error: err.message || 'Upload error' });
+    next();
+  });
+}, async (req, res) => {
   try {
     const { job_card_no, machine, dpr_date, shift, slot, qty_on_hold, reason, remarks } = req.body || {};
     if (!machine || !dpr_date || !reason) return res.json({ ok: false, error: 'machine, dpr_date, reason required' });
+    const imageUrls = ((req.files && req.files['hold_images']) || [])
+      .map(f => `/uploads/qc-images/${path.basename(f.filename || f.path)}`);
+    const entryId = parseInt(req.body.dpr_entry_id, 10);
     const rawUser = (req.body.session ? (() => { try { const s = typeof req.body.session === 'string' ? JSON.parse(req.body.session) : req.body.session; return s.username || s.supervisor || s.user || ''; } catch(_) { return ''; } })() : '') || '';
     const hold_by = String(rawUser).replace(/[^\w\s\-\.@]/g, '').slice(0, 100) || 'QC';
     const factoryId = getFactoryId(req);
     const r = await q(
-      `INSERT INTO qc_holds (factory_id, job_card_no, machine, dpr_date, shift, slot, qty_on_hold, reason, remarks, hold_by, status)
-       VALUES ($1,$2,$3,$4::date,$5,$6,$7,$8,$9,$10,'ACTIVE') RETURNING id`,
-      [factoryId, job_card_no || '', machine, dpr_date, shift || 'Day', slot || '', parseInt(qty_on_hold) || null, reason, remarks || '', hold_by]
+      `INSERT INTO qc_holds (factory_id, job_card_no, machine, dpr_date, shift, slot, qty_on_hold, reason, remarks, hold_by, status,
+                             image_urls, dpr_entry_id)
+       VALUES ($1,$2,$3,$4::date,$5,$6,$7,$8,$9,$10,'ACTIVE',$11::jsonb,$12) RETURNING id`,
+      [factoryId, job_card_no || '', machine, dpr_date, shift || 'Day', slot || '', parseInt(qty_on_hold) || null, reason, remarks || '', hold_by,
+       JSON.stringify(imageUrls), Number.isInteger(entryId) ? entryId : null]
     );
     // Notify via qc_notifications
     await q(

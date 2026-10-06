@@ -31,6 +31,7 @@ data class FpaUiState(
     // approval workflow
     val approvalStatus: String? = null,   // "Pending" | "Approved" | "Rejected"
     val pendingApproval: Boolean = false, // submitted, awaiting QC HOD approval
+    val transferredFrom: String? = null,  // FPA copied from this machine when the job moved
     val rejected: Boolean = false,        // rejected — user must correct & re-upload
     val rejectReason: String? = null,
     val reviewedBy: String? = null,
@@ -83,7 +84,8 @@ class FpaViewModel : ViewModel() {
                                 pendingApproval = true, approvalStatus = "Pending",
                                 savedFormUrl = absUrl(st.form_url),
                                 savedProductUrls = parseUrls(st.product_images).map { u -> absUrl(u) ?: u },
-                                doneBy = st.done_by, doneAt = st.done_at
+                                doneBy = st.done_by, doneAt = st.done_at,
+                                transferredFrom = st.transferred_from
                             )
                         }
                         // Rejected -> show reason and let the QC user correct & re-upload (form stays open).

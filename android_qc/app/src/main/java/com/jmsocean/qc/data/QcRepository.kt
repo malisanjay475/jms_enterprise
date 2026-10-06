@@ -230,7 +230,8 @@ class QcRepository(private val session: SessionStore) {
         good: Int,
         reject: Int,
         remarks: String,
-        statusOverride: String? = null
+        statusOverride: String? = null,
+        dprEntryId: Int? = null
     ): Result<Unit> = submitOrQueue(
         "api/qc/verify/submit",
         com.jmsocean.qc.data.remote.VerifySubmitRequest.serializer(),
@@ -243,9 +244,20 @@ class QcRepository(private val session: SessionStore) {
             qc_good_qty = good,
             qc_reject_qty = reject,
             remarks = remarks,
-            status_override = statusOverride
+            status_override = statusOverride,
+            dpr_entry_id = dprEntryId
         ),
         if (statusOverride != null) "Deviation $machine $hourSlot" else "Verify $machine $hourSlot"
+    )
+
+    /** "Verify both": every entry of one hour in a single call. */
+    suspend fun verifySubmitBatch(
+        items: List<com.jmsocean.qc.data.remote.VerifyBatchItem>
+    ): Result<Unit> = submitOrQueue(
+        "api/qc/verify/submit-batch",
+        com.jmsocean.qc.data.remote.VerifyBatchRequest.serializer(),
+        com.jmsocean.qc.data.remote.VerifyBatchRequest(session = sessionRef(), items = items),
+        "Verify ${items.firstOrNull()?.machine ?: ""} ${items.firstOrNull()?.hour_slot ?: ""} (${items.size} entries)"
     )
 
     suspend fun placeHold(
@@ -256,8 +268,12 @@ class QcRepository(private val session: SessionStore) {
         jobCardNo: String,
         qtyOnHold: Int?,
         reason: String,
-        remarks: String
-    ): Result<Unit> = submitOrQueue(
+        remarks: String,
+        dprEntryId: Int? = null,
+        photos: List<File> = emptyList()
+    ): Result<Unit> = if (photos.isNotEmpty()) placeHoldWithPhotos(
+        machine, date, shift, slot, jobCardNo, qtyOnHold, reason, remarks, dprEntryId, photos
+    ) else submitOrQueue(
         "api/qc/hold",
         com.jmsocean.qc.data.remote.HoldRequest.serializer(),
         com.jmsocean.qc.data.remote.HoldRequest(
@@ -269,10 +285,44 @@ class QcRepository(private val session: SessionStore) {
             job_card_no = jobCardNo,
             qty_on_hold = qtyOnHold,
             reason = reason,
-            remarks = remarks
+            remarks = remarks,
+            dpr_entry_id = dprEntryId
         ),
         "Hold $machine $slot"
     )
+
+    /** A hold with photos goes straight to the server; the offline queue holds JSON only. */
+    private suspend fun placeHoldWithPhotos(
+        machine: String, date: String, shift: String, slot: String, jobCardNo: String,
+        qtyOnHold: Int?, reason: String, remarks: String, dprEntryId: Int?, photos: List<File>
+    ): Result<Unit> = try {
+        val sessionJson = buildJsonObject {
+            put("username", session.username)
+            put("line", session.line)
+        }.toString()
+        fun text(v: String): RequestBody = v.toRequestBody("text/plain".toMediaTypeOrNull())
+        val fields = mapOf(
+            "session" to text(sessionJson),
+            "machine" to text(machine),
+            "dpr_date" to text(date),
+            "shift" to text(shift),
+            "slot" to text(slot),
+            "job_card_no" to text(jobCardNo),
+            "qty_on_hold" to text(qtyOnHold?.toString() ?: ""),
+            "reason" to text(reason),
+            "remarks" to text(remarks),
+            "dpr_entry_id" to text(dprEntryId?.toString() ?: "")
+        )
+        val parts = photos.take(4).map {
+            MultipartBody.Part.createFormData("hold_images", it.name, it.asRequestBody("image/jpeg".toMediaTypeOrNull()))
+        }
+        val env = api.placeHoldWithPhotos(fields, parts)
+        if (env.ok) Result.success(Unit) else Result.failure(Exception(env.error ?: "Hold failed"))
+    } catch (_: IOException) {
+        Result.failure(Exception("No network. A hold with photos needs a connection: try again, or save it without photos."))
+    } catch (e: Exception) {
+        Result.failure(Exception(serverErr(e)))
+    }
 
     // ── Issues ──────────────────────────────────────────────────────────────
 

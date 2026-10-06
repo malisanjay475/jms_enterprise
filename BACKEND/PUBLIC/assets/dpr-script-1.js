@@ -316,6 +316,30 @@
         };
 
         // --- DETAIL MODAL LOGIC ---
+        // QC mark on a Compliance Summary cell: H hold, ✕ rejected, ◆ deviation, ⚠ qty changed, ✓ verified.
+        window.qcMarkHtml = function (entry) {
+            const st = entry.qc_verify_status;
+            let icon, color, title;
+            if (entry.qc_hold) { icon = 'bi-pause-circle-fill'; color = '#d97706'; title = 'QC Hold'; }
+            else if (st === 'Rejected') { icon = 'bi-x-circle-fill'; color = '#dc2626'; title = 'Rejected by QC'; }
+            else if (st === 'Deviation') { icon = 'bi-exclamation-diamond-fill'; color = '#7c3aed'; title = 'QC Deviation'; }
+            else if (st === 'Discrepancy') { icon = 'bi-exclamation-triangle-fill'; color = '#ea580c'; title = 'QC changed qty'; }
+            else if (entry.qc_verified) { icon = 'bi-patch-check-fill'; color = '#16a34a'; title = 'QC Verified'; }
+            else return '';
+            return `<span title="${title} — tap for details" aria-label="${title}" style="margin-left:auto;color:${color};font-size:0.88rem;line-height:1;flex:0 0 auto"><i class="bi ${icon}"></i></span>`;
+        };
+
+        // QC Setup vs STD (mould master): weight ±5%, cycle time ±10%, cavity exact.
+        window.qcSetupProblems = function (st) {
+            const n = v => (v === null || v === undefined || v === '' || isNaN(Number(v))) ? null : Number(v);
+            const off = (std, act, tol) => { const a = n(act), b = n(std); return a !== null && b !== null && b > 0 && Math.abs(a - b) / b > tol; };
+            const out = [];
+            if (off(st.std_weight, st.act_weight, 0.05)) out.push('Wt');
+            if (off(st.std_cycle_time, st.act_cycle_time, 0.10)) out.push('Cycle');
+            if (n(st.std_cavity) !== null && n(st.act_cavity) !== null && n(st.std_cavity) !== n(st.act_cavity)) out.push('Cavity');
+            return out;
+        };
+
         window.showEntryDetails = (entry) => {
             const e = typeof entry === 'string' ? JSON.parse(decodeURIComponent(entry)) : entry;
             const content = document.getElementById('modal-details-content');
@@ -331,18 +355,23 @@
                 </div>
             `;
 
-            // QC Verification (Verified / Qty changed / Hold) + who / when / remarks
+            // QC Verification (Verified / Qty changed / Rejected / Deviation / Hold) + who / when / remarks
             if (e.qc_verified || e.qc_hold) {
                 const fmtWhen = e.qc_verified_at ? new Date(e.qc_verified_at).toLocaleString() : '';
                 let badge, bg, bc, fg;
-                if (e.qc_hold) { badge = '✘ On Hold'; bg = '#fff1f2'; bc = '#fecaca'; fg = '#be123c'; }
-                else if (e.qc_verify_status === 'Discrepancy') { badge = '✘ QC changed qty'; bg = '#fff7ed'; bc = '#fed7aa'; fg = '#c2410c'; }
+                if (e.qc_hold) { badge = '⏸ On Hold'; bg = '#fffbeb'; bc = '#fde68a'; fg = '#b45309'; }
+                else if (e.qc_verify_status === 'Rejected') { badge = '✘ Rejected by QC'; bg = '#fff1f2'; bc = '#fecaca'; fg = '#be123c'; }
+                else if (e.qc_verify_status === 'Deviation') { badge = '◆ Deviation'; bg = '#f5f3ff'; bc = '#ddd6fe'; fg = '#6d28d9'; }
+                else if (e.qc_verify_status === 'Discrepancy') { badge = '⚠ QC changed qty'; bg = '#fff7ed'; bc = '#fed7aa'; fg = '#c2410c'; }
                 else { badge = '✔ QC Verified'; bg = '#ecfdf5'; bc = '#a7f3d0'; fg = '#047857'; }
+                const holdPics = (Array.isArray(e.qc_hold_images) ? e.qc_hold_images : [])
+                    .filter(u => /^\/uploads\/qc-images\/[A-Za-z0-9._-]+$/.test(String(u)));
                 html += `<div style="margin-top:16px;padding:10px 12px;background:${bg};border:1px solid ${bc};border-radius:8px">
                     <div style="font-weight:800;color:${fg}">${badge}</div>
                     ${(e.qc_verified_by || fmtWhen) ? `<div style="font-size:0.82rem;color:#475569;margin-top:3px">By <b>${e.qc_verified_by || '—'}</b>${fmtWhen ? ' · ' + fmtWhen : ''}</div>` : ''}
                     ${e.qc_verify_status === 'Discrepancy' ? `<div style="font-size:0.82rem;color:#475569;margin-top:3px">QC qty: <b>${e.qc_good_qty ?? '—'}</b> good / <b>${e.qc_reject_qty ?? '—'}</b> rej (supervisor: ${e.good_qty} / ${e.reject_qty || 0})</div>` : ''}
-                    ${e.qc_hold_reason ? `<div style="font-size:0.82rem;color:#475569;margin-top:3px">Hold reason: <b>${e.qc_hold_reason}</b></div>` : ''}
+                    ${e.qc_hold_reason ? `<div style="font-size:0.82rem;color:#475569;margin-top:3px">Hold reason: <b>${e.qc_hold_reason}</b>${e.qc_hold_qty ? ` · Qty <b>${e.qc_hold_qty}</b>` : ''}${e.qc_hold_by ? ` · by <b>${e.qc_hold_by}</b>` : ''}</div>` : ''}
+                    ${holdPics.length ? `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">${holdPics.map(u => `<a href="${u}" target="_blank" rel="noopener"><img src="/api/qc/thumb?src=${encodeURIComponent(u)}&w=200" alt="Hold photo" style="width:72px;height:72px;object-fit:cover;border-radius:6px;border:1px solid ${bc}"></a>`).join('')}</div>` : ''}
                     ${e.qc_remarks ? `<div style="font-size:0.82rem;color:#334155;margin-top:5px;padding-top:5px;border-top:1px dashed ${bc}"><b>QC remarks:</b> ${e.qc_remarks}</div>` : ''}
                 </div>`;
             }
@@ -1266,8 +1295,8 @@
                     const entryBad = e => isBad(e.visual_status) || isBad(e.colour_status) || isBad(e.ff_status);
                     const slotStart = (date, sh, i) => Date.parse(`${date}T${sh === 'Night' ? '20' : '08'}:00:00+05:30`) + i * 7200000;
                     const now = Date.now();
-                    const slotState = (date, sh, machine, i) => {
-                        const list = slotsBy[key(date, sh, machine, SL[i])] || [];
+                    // Slot state for one job's checks in that slot (a machine can run two jobs in a shift).
+                    const slotStateOf = (list, date, sh, i) => {
                         const start = slotStart(date, sh, i), end = start + 7200000;
                         if (list.length) {
                             const e = list[0];
@@ -1278,6 +1307,8 @@
                         if (now >= start) return { kind: 'due' };
                         return { kind: 'future' };
                     };
+                    const dprRun = new Set((D.dprRunning || []).map(r => key(r.date, r.shift, r.machine)));
+
                     // Slot header label with AM/PM for a single shift (both shifts → plain hours).
                     const slotLabel = (s, i) => {
                         if (shiftMode === 'Both') return s.replace('-', '–');
@@ -1303,10 +1334,11 @@
                             </div>
                             <div class="date-section-header" style="position:sticky; z-index:45; top:130px; margin-bottom:0; box-shadow:0 1px 2px rgba(0,0,0,0.05); background:#f8fafc; border:1px solid #cbd5e1; border-radius:8px 8px 0 0; overflow:hidden">
                                 <table style="width:100%; border-collapse:separate; border-spacing:0; font-size:0.8rem; text-align:center; table-layout:fixed">
-                                    <colgroup><col style="width:220px; min-width:220px"><col style="width:70px; min-width:70px">${SL.map(() => '<col style="width:130px; min-width:130px">').join('')}<col style="width:140px; min-width:140px"></colgroup>
+                                    <colgroup><col style="width:220px; min-width:220px"><col style="width:86px; min-width:86px"><col style="width:86px; min-width:86px">${SL.map(() => '<col style="width:130px; min-width:130px">').join('')}<col style="width:140px; min-width:140px"></colgroup>
                                     <thead><tr>
                                         <th style="padding:12px; text-align:left; border-bottom:1px solid #e2e8f0; background:#f8fafc; font-weight:600; color:#475569; border-right:1px solid #e2e8f0">Machine / Job</th>
-                                        <th style="padding:10px 4px; border-bottom:1px solid #e2e8f0; background:#f8fafc; font-weight:600; color:#475569; border-right:1px solid #e2e8f0">Setup</th>
+                                        <th style="padding:10px 4px; border-bottom:1px solid #e2e8f0; background:#f8fafc; font-weight:600; color:#475569; border-right:1px solid #e2e8f0">Setup 1<div style="font-size:0.65rem; font-weight:500">shift start</div></th>
+                                        <th style="padding:10px 4px; border-bottom:1px solid #e2e8f0; background:#f8fafc; font-weight:600; color:#475569; border-right:1px solid #e2e8f0">Setup 2<div style="font-size:0.65rem; font-weight:500">mid-shift</div></th>
                                         ${SL.map((s, i) => `<th style="padding:10px; border-bottom:1px solid #e2e8f0; background:#f8fafc; font-weight:600; color:#475569; font-size:0.75rem; border-right:1px solid #e2e8f0">${esc(slotLabel(s, i))}</th>`).join('')}
                                         <th style="padding:10px; border-bottom:1px solid #e2e8f0; background:#f0f9ff; font-weight:700; color:#0369a1; border-left:2px solid #e2e8f0">Summary</th>
                                     </tr></thead>
@@ -1324,73 +1356,123 @@
                                 let search = [machine, line, plan && plan.item_name, plan && plan.mould_name, plan && plan.order_no].filter(Boolean).join(' ').toLowerCase();
                                 shifts.forEach((sh, sIdx) => {
                                     const setups = setupsBy[key(date, sh, machine)] || [];
-                                    const halves = new Set(setups.map(s => Number(s.setup_period) || 1)).size;
-                                    const anyEntry = SL.some(s => (slotsBy[key(date, sh, machine, s)] || []).length);
-                                    const active = !!plan || anyEntry || setups.length;
-                                    const firstEntry = SL.map(s => (slotsBy[key(date, sh, machine, s)] || [])[0]).find(Boolean) || {};
-                                    const job = {
-                                        machine, order_no: firstEntry.order_no || (plan && plan.order_no) || '',
-                                        job_card_no: firstEntry.job_card_no || (setups[0] && setups[0].job_card_no) || '',
-                                        item_name: firstEntry.item_name || (plan && plan.item_name) || '',
-                                        mould_name: firstEntry.mould_name || (plan && plan.mould_name) || '',
-                                        plan_id: plan ? plan.plan_id : '',
-                                        _row_date: date, _row_shift: sh
-                                    };
-                                    if (job.item_name) search += ' ' + String(job.item_name).toLowerCase();
-
-                                    let rDue = 0, rDone = 0;
-                                    const cells = SL.map((s, i) => {
-                                        const st = slotState(date, sh, machine, i);
-                                        const base = 'padding:6px 4px; border-right:1px solid #f1f5f9; border-bottom:1px solid #e2e8f0; vertical-align:middle; font-size:0.78rem; font-weight:700';
-                                        const arg = window._qcSlotKeys.push([date, sh, machine, s]) - 1;
-                                        if (st.kind === 'ok' || st.kind === 'bad') {
-                                            rDue++; rDone++; lDue++; lDone++;
-                                            if (st.kind === 'bad') lBad++;
-                                            const who = esc(st.e.entered_by || '');
-                                            return st.kind === 'ok'
-                                                ? `<td style="${base}; background:#ecfdf5; color:#047857; cursor:pointer" onclick="qcShowSlot(${arg})" title="${who}">✔ OK${st.late ? '<div style="font-size:0.65rem; color:#b45309">late</div>' : ''}</td>`
-                                                : `<td style="${base}; background:#fef2f2; color:#b91c1c; cursor:pointer" onclick="qcShowSlot(${arg})" title="${who}">✘ Not OK${st.late ? '<div style="font-size:0.65rem; color:#b45309">late</div>' : ''}</td>`;
-                                        }
-                                        if (!active) return `<td style="${base}; color:#cbd5e1">—</td>`;
-                                        if (st.kind === 'miss') { rDue++; lDue++; lMiss++; return `<td style="${base}; background:#fff1f2; color:#e11d48">Missed</td>`; }
-                                        if (st.kind === 'due') return `<td style="${base}; background:#fffbeb; color:#b45309">Due</td>`;
-                                        return `<td style="${base}; color:#cbd5e1">—</td>`;
-                                    }).join('');
-
-                                    if (active) { lSetupDue += 2; lSetupDone += Math.min(2, halves); }
-                                    const setupCell = !active ? '<span style="color:#cbd5e1">—</span>'
-                                        : `<span style="font-weight:800; padding:2px 6px; border-radius:6px; ${halves >= 2 ? 'background:#dcfce7; color:#166534' : halves === 1 ? 'background:#fef3c7; color:#92400e' : 'background:#fee2e2; color:#991b1b'}">${Math.min(2, halves)}/2</span>`;
-                                    const fpa = fpaBy[key(date, sh, machine)] || [];
-                                    const fpaTag = !fpa.length ? '' : fpa.some(f => f.fpa_approval_status === 'Rejected') ? '<span style="color:#b91c1c">FPA rejected</span>'
-                                        : fpa.some(f => f.fpa_approval_status === 'Pending') ? (lFpaPend++, '<span style="color:#b45309">FPA pending</span>') : '<span style="color:#047857">FPA ok</span>';
-                                    const memos = memoBy[machine] || [];
-                                    if (sIdx === 0 && memos.length) lMemo += memos.length;
-                                    const hold = holdActive[machine];
-                                    if (sIdx === 0 && hold) lHold++;
-                                    const summary = `<div style="font-weight:800; color:${rDue && rDone < rDue ? '#dc2626' : '#16a34a'}">${rDue ? `${rDone}/${rDue} done` : '—'}</div>
-                                        <div style="font-size:0.7rem; font-weight:700">${fpaTag}</div>
-                                        ${memos.length ? `<div style="font-size:0.7rem; font-weight:700; color:#b91c1c">${memos.length} open memo${memos.length > 1 ? 's' : ''}</div>` : ''}
-                                        ${hold ? '<div style="font-size:0.7rem; font-weight:800; color:#fff; background:#dc2626; border-radius:4px; padding:1px 4px; display:inline-block">ON HOLD</div>' : ''}`;
-
+                                    const slotLists = SL.map(s => slotsBy[key(date, sh, machine, s)] || []);
+                                    const active = !!plan || dprRun.has(key(date, sh, machine)) || setups.length > 0 || slotLists.some(l => l.length);
                                     let label = esc(machine);
                                     if (shiftMode === 'Both') {
                                         const c = sh === 'Day' ? '#f59e0b' : '#6366f1';
                                         label += ` <span style="color:${c}; font-size:0.7rem; background:${c}15; padding:1px 4px; border-radius:4px; margin-left:4px">${sh}</span>`;
                                     }
-                                    const jobHtml = (job.item_name || job.mould_name)
-                                        ? `<div style="cursor:pointer" onclick='showJobDetails(${JSON.stringify(job).replace(/'/g, "&apos;")}, "${esc(job.order_no)}")'>
-                                              ${job.order_no ? `<div style="font-size:0.75rem; color:#0ea5e9; font-weight:700">${esc(job.order_no)}${job.job_card_no ? ` | <span style="color:#64748b">${esc(job.job_card_no)}</span>` : ''}</div>` : ''}
-                                              <div style="font-size:0.85rem; font-weight:700; color:#1e293b; line-height:1.3; margin-top:2px">${esc(job.item_name || job.mould_name)}</div>
-                                           </div>`
-                                        : '<div style="font-size:0.8rem; color:#94a3b8; font-style:italic">No running plan</div>';
-                                    mHtml += `<tr style="${sIdx === 0 ? 'border-top:2px solid #cbd5e1' : ''}">
-                                        <td data-dpr-machine="${esc(machine)}" data-dpr-shift="${esc(sh)}" data-dpr-date="${esc(date)}" style="padding:6px 8px; text-align:left; border-right:1px solid #f1f5f9; border-bottom:1px solid #e2e8f0; background:#fff; vertical-align:middle">
-                                            <div style="font-size:0.75rem; text-transform:uppercase; letter-spacing:0.5px; font-weight:700; margin-bottom:6px; color:#64748b">${label}</div>${jobHtml}
-                                        </td>
-                                        <td style="padding:6px 4px; border-right:2px solid #e2e8f0; border-bottom:1px solid #e2e8f0; vertical-align:middle; font-size:0.78rem">${setupCell}</td>
-                                        ${cells}
-                                        <td style="padding:6px 8px; text-align:left; border-left:2px solid #e2e8f0; border-bottom:1px solid #e2e8f0; background:#f8fbff; vertical-align:middle; font-size:0.78rem">${summary}</td>
-                                    </tr>`;
+                                    const machineTd = (sub) => `<td data-dpr-machine="${esc(machine)}" data-dpr-shift="${esc(sh)}" data-dpr-date="${esc(date)}" style="padding:6px 8px; text-align:left; border-right:1px solid #f1f5f9; border-bottom:1px solid #e2e8f0; background:#fff; vertical-align:middle">
+                                            <div style="font-size:0.75rem; text-transform:uppercase; letter-spacing:0.5px; font-weight:700; margin-bottom:6px; color:#64748b">${sub ? '<span style="color:#94a3b8">↳ next job</span>' : label}</div>`;
+                                    if (!active) {
+                                        mHtml += `<tr style="${sIdx === 0 ? 'border-top:2px solid #cbd5e1' : ''}">
+                                            ${machineTd(false)}</td>
+                                            <td colspan="${SL.length + 3}" style="padding:6px 8px; border-bottom:1px solid #e2e8f0; background:#f8fafc; color:#94a3b8; font-weight:700; font-size:0.78rem; text-align:left">Not running</td>
+                                        </tr>`;
+                                        return;
+                                    }
+
+                                    // Jobs this shift = every job card with a QC Setup or QC check, in the order
+                                    // they started. A second job on the machine gets its own row, like a
+                                    // multi-mould order in Moulding. Rows without a job card fold into the first job.
+                                    // Each job's first slot: its first QC check, or the slot its Setup was saved in.
+                                    const startOf = {};
+                                    const seen = (jc, i) => { const k = String(jc || '').trim(); if (k && !(startOf[k] <= i)) startOf[k] = i; };
+                                    slotLists.forEach((l, i) => l.forEach(e => seen(e.job_card_no, i)));
+                                    setups.forEach(st => {
+                                        const t = Date.parse(st.setup_at || '');
+                                        const i = isNaN(t) ? 0 : Math.max(0, Math.min(SL.length - 1, Math.floor((t - slotStart(date, sh, 0)) / 7200000)));
+                                        seen(st.job_card_no, i);
+                                    });
+                                    const jobKeys = Object.keys(startOf).sort((a, b) => startOf[a] - startOf[b]);
+                                    const rowJobs = jobKeys.length ? jobKeys : [''];
+                                    // Job j owns slots from its start until the next job starts (the first job from slot 0).
+                                    const ownsSlot = (jIdx, i) => (jIdx === 0 || i >= startOf[rowJobs[jIdx]])
+                                        && (jIdx === rowJobs.length - 1 || i < startOf[rowJobs[jIdx + 1]]);
+                                    const owns = (jk, jIdx, jc) => { const k = String(jc || '').trim(); return k === jk || (!k && jIdx === 0); };
+
+                                    rowJobs.forEach((jk, jIdx) => {
+                                        const jSetups = setups.filter(st => owns(jk, jIdx, st.job_card_no));
+                                        const jLists = slotLists.map(l => l.filter(e => owns(jk, jIdx, e.job_card_no)));
+                                        const firstEntry = jLists.map(l => l[0]).find(Boolean) || {};
+                                        // The running plan is the machine's current job → the last row.
+                                        const rowPlan = jIdx === rowJobs.length - 1 ? plan : null;
+                                        const job = {
+                                            machine, order_no: firstEntry.order_no || (rowPlan && rowPlan.order_no) || '',
+                                            job_card_no: jk || firstEntry.job_card_no || (jSetups[0] && jSetups[0].job_card_no) || '',
+                                            item_name: firstEntry.item_name || (rowPlan && rowPlan.item_name) || '',
+                                            mould_name: firstEntry.mould_name || (rowPlan && rowPlan.mould_name) || '',
+                                            plan_id: rowPlan ? rowPlan.plan_id : '',
+                                            _row_date: date, _row_shift: sh
+                                        };
+                                        if (job.item_name) search += ' ' + String(job.item_name).toLowerCase();
+                                        if (job.job_card_no) search += ' ' + String(job.job_card_no).toLowerCase();
+
+                                        let rDue = 0, rDone = 0;
+                                        const cells = SL.map((s, i) => {
+                                            const st = slotStateOf(jLists[i], date, sh, i);
+                                            const base = 'padding:6px 4px; border-right:1px solid #f1f5f9; border-bottom:1px solid #e2e8f0; vertical-align:middle; font-size:0.78rem; font-weight:700';
+                                            const arg = window._qcSlotKeys.push([date, sh, machine, s]) - 1;
+                                            if (st.kind === 'ok' || st.kind === 'bad') {
+                                                rDue++; rDone++; lDue++; lDone++;
+                                                if (st.kind === 'bad') lBad++;
+                                                const who = esc(st.e.entered_by || '');
+                                                return st.kind === 'ok'
+                                                    ? `<td style="${base}; background:#ecfdf5; color:#047857; cursor:pointer" onclick="qcShowSlot(${arg})" title="${who}">✔ OK${st.late ? '<div style="font-size:0.65rem; color:#b45309">late</div>' : ''}</td>`
+                                                    : `<td style="${base}; background:#fef2f2; color:#b91c1c; cursor:pointer" onclick="qcShowSlot(${arg})" title="${who}">✘ Not OK${st.late ? '<div style="font-size:0.65rem; color:#b45309">late</div>' : ''}</td>`;
+                                            }
+                                            // Slots outside this job's run on the machine are not counted for it.
+                                            if (!ownsSlot(jIdx, i)) return `<td style="${base}; color:#cbd5e1">·</td>`;
+                                            if (st.kind === 'miss') { rDue++; lDue++; lMiss++; return `<td style="${base}; background:#fff1f2; color:#e11d48">Missed</td>`; }
+                                            if (st.kind === 'due') return `<td style="${base}; background:#fffbeb; color:#b45309">Due</td>`;
+                                            return `<td style="${base}; color:#cbd5e1">—</td>`;
+                                        }).join('');
+
+                                        const periods = new Set(jSetups.map(st => Number(st.setup_period) || 1));
+                                        lSetupDue += 2; lSetupDone += Math.min(2, periods.size);
+                                        const setupTd = p => {
+                                            const st = jSetups.filter(x => (Number(x.setup_period) || 1) === p)
+                                                .sort((a, b) => Date.parse(b.setup_at || 0) - Date.parse(a.setup_at || 0))[0];
+                                            const td = 'padding:4px; border-right:1px solid #e2e8f0; border-bottom:1px solid #e2e8f0; vertical-align:middle; font-size:0.72rem; line-height:1.25';
+                                            if (!st) return `<td style="${td}"></td>`;
+                                            const bad = qcSetupProblems(st);
+                                            const when = st.setup_at ? new Date(st.setup_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' }) : '';
+                                            return `<td style="${td}; background:${bad.length ? '#fef2f2' : '#ecfdf5'}; color:${bad.length ? '#b91c1c' : '#047857'}" title="${esc(bad.length ? 'Out of STD: ' + bad.join(', ') : 'Within STD')}">
+                                                <div style="font-weight:800">${bad.length ? '✘' : '✔'} ${esc(when)}</div>
+                                                <div style="font-weight:600; color:#475569; overflow:hidden; text-overflow:ellipsis; white-space:nowrap">${esc(st.setup_by || '')}</div>
+                                                ${bad.length ? `<div style="font-weight:700">${esc(bad.join(' · '))}</div>` : ''}
+                                            </td>`;
+                                        };
+
+                                        const fpaAll = fpaBy[key(date, sh, machine)] || [];
+                                        const fpa = jk ? fpaAll.filter(f => String(f.job_card_no || '').trim() === jk) : fpaAll;
+                                        const fpaTag = !fpa.length ? '' : fpa.some(f => f.fpa_approval_status === 'Rejected') ? '<span style="color:#b91c1c">FPA rejected</span>'
+                                            : fpa.some(f => f.fpa_approval_status === 'Pending') ? (lFpaPend++, '<span style="color:#b45309">FPA pending</span>') : '<span style="color:#047857">FPA ok</span>';
+                                        const first = jIdx === 0;
+                                        const memos = first ? (memoBy[machine] || []) : [];
+                                        if (sIdx === 0 && memos.length) lMemo += memos.length;
+                                        const hold = first ? holdActive[machine] : null;
+                                        if (sIdx === 0 && hold) lHold++;
+                                        const summary = `<div style="font-weight:800; color:${rDue && rDone < rDue ? '#dc2626' : '#16a34a'}">${rDue ? `${rDone}/${rDue} done` : '—'}</div>
+                                            <div style="font-size:0.7rem; font-weight:700">${fpaTag}</div>
+                                            ${memos.length ? `<div style="font-size:0.7rem; font-weight:700; color:#b91c1c">${memos.length} open memo${memos.length > 1 ? 's' : ''}</div>` : ''}
+                                            ${hold ? '<div style="font-size:0.7rem; font-weight:800; color:#fff; background:#dc2626; border-radius:4px; padding:1px 4px; display:inline-block">ON HOLD</div>' : ''}`;
+
+                                        const jobHtml = (job.item_name || job.mould_name || job.job_card_no)
+                                            ? `<div style="cursor:pointer" onclick='showJobDetails(${JSON.stringify(job).replace(/'/g, "&apos;")}, "${esc(job.order_no)}")'>
+                                                  ${(job.order_no || job.job_card_no) ? `<div style="font-size:0.75rem; color:#0ea5e9; font-weight:700">${esc(job.order_no || '')}${job.job_card_no ? `${job.order_no ? ' | ' : ''}<span style="color:#64748b">${esc(job.job_card_no)}</span>` : ''}</div>` : ''}
+                                                  <div style="font-size:0.85rem; font-weight:700; color:#1e293b; line-height:1.3; margin-top:2px">${esc(job.item_name || job.mould_name || '')}</div>
+                                               </div>`
+                                            : '<div style="font-size:0.8rem; color:#94a3b8; font-style:italic">No running plan</div>';
+                                        mHtml += `<tr style="${sIdx === 0 && first ? 'border-top:2px solid #cbd5e1' : ''}${first ? '' : '; background:#fbfdff'}">
+                                            ${machineTd(!first)}${jobHtml}
+                                            </td>
+                                            ${setupTd(1)}${setupTd(2).replace('border-right:1px solid #e2e8f0', 'border-right:2px solid #e2e8f0')}
+                                            ${cells}
+                                            <td style="padding:6px 8px; text-align:left; border-left:2px solid #e2e8f0; border-bottom:1px solid #e2e8f0; background:#f8fbff; vertical-align:middle; font-size:0.78rem">${summary}</td>
+                                        </tr>`;
+                                    });
                                 });
                                 machineCount++;
                                 rowsHtml += `<tbody class="mm-machine" data-search="${esc(search)}">${mHtml}</tbody>`;
@@ -1425,7 +1507,7 @@
                                 </div>
                                 <div style="overflow-x:auto">
                                     <table style="width:100%; border-collapse:separate; border-spacing:0; font-size:0.8rem; text-align:center; table-layout:fixed">
-                                        <colgroup><col style="width:220px; min-width:220px"><col style="width:70px; min-width:70px">${SL.map(() => '<col style="width:130px; min-width:130px">').join('')}<col style="width:140px; min-width:140px"></colgroup>
+                                        <colgroup><col style="width:220px; min-width:220px"><col style="width:86px; min-width:86px"><col style="width:86px; min-width:86px">${SL.map(() => '<col style="width:130px; min-width:130px">').join('')}<col style="width:140px; min-width:140px"></colgroup>
                                         ${rowsHtml}
                                     </table>
                                 </div>
@@ -2815,9 +2897,7 @@
                                                             <div style="display:flex;align-items:baseline;gap:3px;line-height:1;min-width:0">
                                                                 <span style="font-weight:800;font-size:0.95rem;color:#15803d;line-height:1">${entry.good_qty}</span>
                                                                 ${rejQty > 0 ? `<span style="font-size:0.78rem;color:#9ca3af;font-weight:600;line-height:1">|</span><span style="font-weight:800;font-size:0.85rem;color:#dc2626;line-height:1">${rejQty}</span>` : ''}
-                                                                ${(entry.qc_hold || entry.qc_verify_status === 'Discrepancy')
-                                                                    ? `<span title="${entry.qc_hold ? 'QC Hold' : 'QC changed qty'} — tap for details" aria-label="QC flagged" style="margin-left:auto;color:#dc2626;font-size:0.9rem;line-height:1;flex:0 0 auto"><i class="bi bi-x-circle-fill"></i></span>`
-                                                                    : (entry.qc_verified ? `<span title="QC Verified — tap for details" aria-label="QC Verified" style="margin-left:auto;color:#16a34a;font-size:0.85rem;line-height:1;flex:0 0 auto"><i class="bi bi-patch-check-fill"></i></span>` : '')}
+                                                                ${qcMarkHtml(entry)}
                                                             </div>
 
                                                             <!-- Row 2: Time -->

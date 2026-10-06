@@ -13,6 +13,44 @@ part of your PR. On release, the `[Unreleased]` items move under the new version
 
 ## [Unreleased]
 
+### Added
+- FPA follows a moved job (v1.100.0, QC app 1.8.0): `/api/planning/move` copies the plan's
+  latest done FPA (`qc_job_checks`, matched by plan_id or order + mould) to the target machine
+  as Pending (or resets the job's existing row there), sets new `fpa_transferred_from` /
+  `fpa_transferred_from_id`, and notifies FPA approvers; honours the FPA auto-approve window.
+  `/api/qc/fpa/list` and `/api/qc/fpa/status` return it; fpa.html and the QC app show
+  "Job moved from M-x". Only adds columns; a failed copy never blocks the move.
+
+
+### Added
+- QC Compliance Summary setups + jobs (v1.99.0): DPR Compliance (Process QC) shows Setup 1 /
+  Setup 2 (time, who, out-of-STD flags: weight 5%, cycle 10%, cavity exact) per job, one row
+  per job card on the machine in the shift (each job owns its slots until the next starts), and
+  "Not running" when the machine has no running plan, DPR entry or QC data.
+  `/api/qc/summary-matrix` adds `dprRunning` (machines with DPR entries per date/shift).
+
+
+### Added
+- QC hold photos + per-entry QC marks (v1.98.0, QC app 1.7.0): `qc_holds` gains `image_urls`
+  (JSONB) and `dpr_entry_id`; `POST /api/qc/hold` also takes multipart with up to 4 `hold_images`.
+  `qc_verifications.status` can be `Rejected` or `Deviation` via `status_override` (the app sent
+  Deviation before but the server saved Verified). `/api/dpr/summary-matrix` entries carry the
+  entry's own hold + photos; the DPR Compliance cell shows hold / rejected / deviation / qty
+  changed / verified marks. Quality holds list shows photos. Only adds columns; rollback = older
+  code ignores them.
+
+
+### Added
+- QC verify per DPR entry (v1.97.0, QC app 1.6.0): an hour with a main + colour-change entry
+  is verified entry by entry. `qc_verifications` is now unique per `dpr_entry_id` (the old
+  one-per-hour key is dropped; rows with no entry keep a partial hour key). `/api/qc/verify/pending`
+  returns `colour`, `entries_in_hour`, `entry_no`; `/api/qc/verify/submit` takes an optional
+  `dpr_entry_id`; new `/api/qc/verify/submit-batch` ("Verify both"). DPR Compliance Summary and
+  shifting availability read the entry's own verification. Rollback: older code keeps working on
+  the new table except that its one-per-hour `ON CONFLICT` has no matching key; recreate
+  `UNIQUE(machine, dpr_date, shift, hour_slot)` after deleting duplicate-hour rows to roll back.
+
+
 ### Fixed
 - DPR Compliance Summary, multi-mould orders (v1.96.1): mould rows were de-duplicated by
   `order_no` alone, so a second mould of the same order on a machine/shift (e.g. TOP + HOOK of
