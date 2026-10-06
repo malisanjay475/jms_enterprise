@@ -13,6 +13,13 @@ part of your PR. On release, the `[Unreleased]` items move under the new version
 
 ## [Unreleased]
 
+### Fixed
+- DPR Compliance Summary, multi-mould orders (v1.96.1): mould rows were de-duplicated by
+  `order_no` alone, so a second mould of the same order on a machine/shift (e.g. TOP + HOOK of
+  JR/JGUI/2627/3901, BODY + INNER BODY of JR/JGUI/2627/2703) was dropped and its hours hidden.
+  Rows and hourly cells now match on order + plan (fallback: mould code, then name) through one
+  shared `sameJob` / `rowOwnsEntry` rule; `/api/dpr/summary-matrix` entries now include `plan_id`.
+
 ### Added
 - Job details show shifting everywhere (v1.96.0): `/api/shifting/availability` adds shifted
   qty per location (job + colour), the latest 15 entries, and lookup by `order_no` (+`machine`).

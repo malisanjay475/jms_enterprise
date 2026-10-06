@@ -2352,6 +2352,36 @@
                                         });
                                     });
 
+                                    // One order can carry several moulds (multi-component orders, e.g. TOP + HOOK
+                                    // under one JR). A row is the same job only when the order matches AND the
+                                    // plan (or, failing that, the mould) matches — order alone hid the 2nd mould.
+                                    const sameJob = (m, order, planId, code, name) => {
+                                        if ((m.order_no || '').trim().toLowerCase() !== (order || '').trim().toLowerCase()) return false;
+                                        const mPlan = String(m.plan_id || '').trim(), ePlan = String(planId || '').trim();
+                                        if (mPlan && ePlan) return mPlan === ePlan;
+                                        const mCode = (m.code || '').trim().toLowerCase(), eCode = (code || '').trim().toLowerCase();
+                                        if (mCode && eCode) return mCode === eCode;
+                                        const mName = (m.name || '').trim().toLowerCase(), eName = (name || '').trim().toLowerCase();
+                                        if (mName && eName) return mName === eName;
+                                        return true;
+                                    };
+
+                                    // Does hourly entry `e` belong to mould row `m`? Same rule as sameJob: an
+                                    // entry with an order may only land on that order's row, and within one
+                                    // order on the row of its own plan/mould — never on a sibling mould's row.
+                                    const rowOwnsEntry = (m, e) => {
+                                        if (!m || m.is_dummy || !e) return false;
+                                        let eNo = (e.mould_no || '').trim();
+                                        const eName = (e.mould_name || '').trim();
+                                        if (!eNo && eName && nameToCode[eName]) eNo = nameToCode[eName];
+                                        const mOrder = (m.order_no || '').trim().toLowerCase(), eOrder = (e.order_no || '').trim().toLowerCase();
+                                        if (mOrder && eOrder) return sameJob(m, e.order_no.trim(), e.plan_id, eNo, eName);
+                                        const mCode = (m.code || '').trim().toLowerCase(), mName = (m.name || '').trim().toLowerCase();
+                                        if (mCode && eNo && mCode === eNo.toLowerCase()) return true;
+                                        if (mName && eName && mName === eName.toLowerCase()) return true;
+                                        return false;
+                                    };
+
                                     const addMould = (mName, mNo, std, startTime, orderNo, endTime, fullDetails) => {
                                         let code = (mNo || '').trim();
                                         let name = (mName || '').trim();
@@ -2373,7 +2403,7 @@
                                         if (strongKey) {
                                             // STRONG ROW (Has Order)
                                             // 1. Check if we already have this Order
-                                            const existingStrong = distinctMoulds.find(m => (m.order_no || '').toLowerCase() === strongKey);
+                                            const existingStrong = distinctMoulds.find(m => sameJob(m, order, (fullDetails || {}).plan_id, code, name));
                                             if (existingStrong) return; // Already have this Order Row
 
                                             // 2. RETROACTIVE CLEANUP: Did we add a "Weak" row for this same Mould earlier?
@@ -2456,7 +2486,7 @@
                                             if (e && (e.mould_name || e.mould_no || e.order_no)) {
                                                 addMould(e.mould_name, e.mould_no, e.std_pcs_hr, null, e.order_no, null, e);
                                                 // Find back the mould and update first_slot
-                                                const m = distinctMoulds.find(mx => (mx.order_no && mx.order_no === e.order_no) || (!mx.order_no && (mx.code === e.mould_no || mx.name === e.mould_name)));
+                                                const m = distinctMoulds.find(mx => (mx.order_no && sameJob(mx, e.order_no, e.plan_id, e.mould_no, e.mould_name)) || (!mx.order_no && (mx.code === e.mould_no || mx.name === e.mould_name)));
                                                 if (m && m.first_slot > sIdx) m.first_slot = sIdx;
                                             }
                                         });
@@ -2588,29 +2618,7 @@
                                         let currentActiveIdx = 0;
                                         slots.forEach((s, sIdx) => {
                                             const list = mData[s] || [];
-                                            const foundMouldIdx = distinctMoulds.findIndex(m => {
-                                                if (m.is_dummy) return false;
-                                                const mCode = (m.code || '').trim(), mName = (m.name || '').trim(), mOrder = (m.order_no || '').trim().toLowerCase();
-                                                return list.some(e => {
-                                                    let eNo = (e.mould_no || '').trim(), eName = (e.mould_name || '').trim(), eOrder = (e.order_no || '').trim().toLowerCase();
-                                                    // Same order — for multi-component orders (many moulds share one
-                                                    // order_no) require the mould to match too, so the active mould is
-                                                    // the right component, not just the first row of that order.
-                                                    if (mOrder && eOrder) {
-                                                        // Entry belongs to a specific order — ONLY that order's row may
-                                                        // claim it. Never fall through to a mould-code/name match against
-                                                        // a different order, or two plans of the same mould on one machine
-                                                        // cross-attribute (wrong active slot -> false red cross).
-                                                        if (mOrder !== eOrder) return false;
-                                                        if (mCode && eNo) return mCode.toLowerCase() === eNo.toLowerCase();
-                                                        if (mName && eName) return mName.toLowerCase() === eName.toLowerCase();
-                                                        return true;
-                                                    }
-                                                    if (mCode && eNo && mCode === eNo) return true;
-                                                    if (mName && eName && mName === eName) return true;
-                                                    return false;
-                                                });
-                                            });
+                                            const foundMouldIdx = distinctMoulds.findIndex(m => list.some(e => rowOwnsEntry(m, e)));
                                             if (foundMouldIdx !== -1) currentActiveIdx = foundMouldIdx;
                                             activeMouldBySlot[sIdx] = currentActiveIdx;
                                         });
@@ -2633,24 +2641,7 @@
                                             const list = Array.isArray(slotEntries) ? slotEntries : (slotEntries ? [slotEntries] : []);
 
                                             // Find Entries (plural)
-                                            let entries = list.filter(e => {
-                                                let eNo = (e.mould_no || '').trim(), eName = (e.mould_name || '').trim(), eOrder = (e.order_no || '').trim().toLowerCase();
-                                                if (!eNo && eName && nameToCode[eName]) eNo = nameToCode[eName];
-
-                                                const mCode = (m.code || '').trim(), mName = (m.name || '').trim(), mOrder = (m.order_no || '').trim().toLowerCase();
-
-                                                // STRICT CHECK: If Row has Order, Entry MUST match Order
-                                                // STRICT CHECK: If Row has Order, Entry MUST match Order
-                                                if (mOrder && eOrder) {
-                                                    return (mOrder === eOrder);
-                                                }
-                                                // If Row has Order but Entry has NONE, allow Code/Name match
-                                                // If Row has NO Order, allow Code/Name match
-                                                if (mCode && eNo && mCode === eNo) return true;
-                                                if (mName && eName && mName === eName) return true;
-
-                                                return false;
-                                            });
+                                            let entries = list.filter(e => rowOwnsEntry(m, e));
 
                                             // Fallback for First Line matching loose entries
                                             if (entries.length === 0 && isFirstMouldInMachine) {
@@ -2950,7 +2941,9 @@
                                         // Row Setup Weight Logic ...
                                         const mCode = (m.code || '').toLowerCase(), mName = (m.name || '').toLowerCase(), mOrder = (m.order_no || '').toLowerCase();
                                         // SEARCH IN ROW SETUPS
-                                        let matchingSetup = rowSetups.find(s => {
+                                        // Exact plan first — sibling moulds of one order share order_no.
+                                        let matchingSetup = m.plan_id ? rowSetups.find(s => s.machine === machine && String(s.plan_id || '') === String(m.plan_id)) : null;
+                                        if (!matchingSetup) matchingSetup = rowSetups.find(s => {
                                             const sOrder = (s.order_no || '').trim().toLowerCase(), sCode = (s.mould_no || '').trim().toLowerCase(), sName = (s.mould_name || '').trim().toLowerCase();
                                             if (sOrder && mOrder && sOrder === mOrder) return (sCode && mCode && sCode === mCode) || (sName && mName && sName === mName);
                                             return false;
@@ -2975,32 +2968,7 @@
 
                                                 const list = Array.isArray(slotEntries) ? slotEntries : (slotEntries ? [slotEntries] : []);
                                                 // Find Entries (plural)
-                                                let entries = list.filter(e => {
-                                                    let eNo = (e.mould_no || '').trim(), eName = (e.mould_name || '').trim(), eOrder = (e.order_no || '').trim().toLowerCase();
-                                                    if (!eNo && eName && nameToCode[eName]) eNo = nameToCode[eName];
-                                                    // Use shared variables instead of re-declaring them
-                                                    const sMCode = (m.code || '').trim(), sMName = (m.name || '').trim(), sMOrder = (m.order_no || '').trim().toLowerCase();
-
-                                                    // Same order — for multi-component orders (many moulds share one
-                                                    // order_no) require the mould to match too, so each component's
-                                                    // entries attach to its own row instead of piling onto the first.
-                                                    if (mOrder && eOrder) {
-                                                        // Entry belongs to a specific order — ONLY that order's row may
-                                                        // claim it. Never fall through to a mould-code/name match against
-                                                        // a different order, or two plans of the same mould on one machine
-                                                        // cross-attribute (entries land on the wrong plan's row).
-                                                        if (mOrder !== eOrder) return false;
-                                                        if (mCode && eNo) return mCode === eNo.toLowerCase();
-                                                        if (mName && eName) return mName === eName.toLowerCase();
-                                                        return true;
-                                                    }
-
-                                                    // Fallback: If Row has Order but Entry has None, OR Row has None
-                                                    if (mCode && eNo && mCode === eNo) return true;
-                                                    if (mName && eName && mName === eName) return true;
-
-                                                    return false;
-                                                });
+                                                let entries = list.filter(e => rowOwnsEntry(m, e));
                                                 if (entries.length === 0 && isFirstMouldInMachine) entries = list.filter(e => !e.mould_no && !e.mould_name && !e.order_no);
 
                                                  // --- FEATURE: Auto-Fill Summary Integration ---
