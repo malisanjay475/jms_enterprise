@@ -11,8 +11,21 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.100.4",
+  "latest": "1.100.5",
   "versions": [
+    {
+      "version": "1.100.5",
+      "date": "2026-10-06",
+      "title": "Time of each QC check",
+      "modules": [
+        {
+          "app": "dpr",
+          "changes": [
+            { "type": "improvement", "text": "DPR Compliance Summary, Process QC: each 2-hour check now shows the time QC saved it (for example 09:52 am) under OK / Not OK." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.100.4",
       "date": "2026-10-06",
