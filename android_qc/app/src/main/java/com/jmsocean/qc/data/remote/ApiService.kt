@@ -55,7 +55,8 @@ interface ApiService {
     suspend fun jobChecks(
         @Query("planId") planId: String? = null,
         @Query("jobCardNo") jobCardNo: String? = null,
-        @Query("limit") limit: Int = 20
+        @Query("limit") limit: Int = 20,
+        @Query("machine") machine: String? = null
     ): ApiEnvelope
 
     @GET("api/qc/verify/pending")

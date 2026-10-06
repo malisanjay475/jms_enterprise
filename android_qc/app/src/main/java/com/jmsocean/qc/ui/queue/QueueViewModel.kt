@@ -133,8 +133,8 @@ class QueueViewModel : ViewModel() {
     /** Check FPA status per job (in parallel) so the card can show FPA ✓ and unlock QC. */
     private fun refreshFpaDone(jobs: List<QueueJob>) {
         viewModelScope.launch {
-            val done = jobs.mapNotNull { it.PlanID }.distinct().map { planId ->
-                async { planId to (repo.fpaStatus(planId, "").getOrDefault(false)) }
+            val done = jobs.filter { !it.PlanID.isNullOrBlank() }.distinctBy { it.PlanID }.map { j ->
+                async { j.PlanID!! to (repo.fpaStatus(j.PlanID, "", j.Machine ?: "").getOrDefault(false)) }
             }.awaitAll().filter { it.second }.map { it.first }.toSet()
             _state.update { it.copy(fpaDonePlanIds = done) }
         }

@@ -275,6 +275,24 @@ fun FpaScreen(
                 }
 
                 else -> {
+                    if (!s.otherMachineFpa.isNullOrBlank()) {
+                        Surface(
+                            color = Color(0xFFFFFBEB),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(Modifier.padding(16.dp)) {
+                                Text("FPA needed on this machine", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = Color(0xFFB45309))
+                                Spacer(Modifier.height(4.dp))
+                                Text(
+                                    "This job's FPA was done on ${s.otherMachineFpa}${s.otherMachineFpaAt?.let { " (" + it.take(10) + ")" } ?: ""}. " +
+                                        "The job is now on ${s.job?.Machine ?: s.machine}, so do the FPA here and send it for approval.",
+                                    fontSize = 13.sp, color = Color(0xFF92400E)
+                                )
+                            }
+                        }
+                        Spacer(Modifier.height(12.dp))
+                    }
                     if (s.rejected) {
                         Surface(
                             color = Color(0xFFFEF2F2),

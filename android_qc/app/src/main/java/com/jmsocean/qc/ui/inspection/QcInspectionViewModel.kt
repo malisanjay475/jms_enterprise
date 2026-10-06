@@ -71,6 +71,8 @@ data class QcInspectUiState(
     val stdCT: String = "", val actCT: String = "",
     val stdCavity: String = "", val actCavity: String = "",
     val setupPeriod: String = "1st half",
+    /** Saved actuals per half (1 / 2) for this job & shift, from the server. */
+    val savedSetups: Map<Int, com.jmsocean.qc.data.remote.JobSetupRow> = emptyMap(),
     val savingSetup: Boolean = false,
     val setupMsg: String? = null,
     // checks
@@ -154,14 +156,23 @@ class QcInspectionViewModel : ViewModel() {
         viewModelScope.launch {
             repo.jobSetup(job.JobCardNo ?: "", s.date, s.shift, s.machine, job.Mould ?: "")
                 .onSuccess { r ->
+                    val saved = buildMap {
+                        r.setups?.forEach { (k, v) -> val p = k.toIntOrNull(); if (p != null && v != null) put(p, v) }
+                        if (isEmpty() && r.setup != null) put(1, r.setup)   // older server: 1st half only
+                    }
+                    // 1st half saved, 2nd not yet → open on 2nd half so it is not saved over the 1st.
+                    val period = if (saved.containsKey(1) && !saved.containsKey(2)) "2nd half" else _state.value.setupPeriod
+                    val row = saved[periodNo(period)]
                     _state.update {
                         it.copy(
                             stdWeight = r.std?.std_weight?.toString() ?: it.stdWeight,
                             stdCT = r.std?.std_cycle_time?.toString() ?: it.stdCT,
                             stdCavity = r.std?.std_cavity?.toString() ?: it.stdCavity,
-                            actWeight = r.setup?.act_weight?.toString() ?: it.actWeight,
-                            actCT = r.setup?.act_cycle_time?.toString() ?: it.actCT,
-                            actCavity = r.setup?.act_cavity?.toString() ?: it.actCavity
+                            savedSetups = saved,
+                            setupPeriod = period,
+                            actWeight = row?.act_weight?.toString() ?: "",
+                            actCT = row?.act_cycle_time?.toString() ?: "",
+                            actCavity = row?.act_cavity?.toString() ?: ""
                         )
                     }
                 }
@@ -178,7 +189,16 @@ class QcInspectionViewModel : ViewModel() {
     fun setActWeight(v: String) = _state.update { it.copy(actWeight = v) }
     fun setActCT(v: String) = _state.update { it.copy(actCT = v) }
     fun setActCavity(v: String) = _state.update { it.copy(actCavity = v.filter(Char::isDigit)) }
-    fun setPeriod(v: String) = _state.update { it.copy(setupPeriod = v) }
+    /** Switch half; show that half's saved actuals (blank if not saved yet). */
+    fun setPeriod(v: String) = _state.update {
+        val row = it.savedSetups[periodNo(v)]
+        it.copy(
+            setupPeriod = v,
+            actWeight = row?.act_weight?.toString() ?: "",
+            actCT = row?.act_cycle_time?.toString() ?: "",
+            actCavity = row?.act_cavity?.toString() ?: ""
+        )
+    }
 
     fun setVisualOk(v: Boolean) = _state.update { it.copy(visualOk = v) }
     fun setVisualDefect(v: String) = _state.update { it.copy(visualDefect = v) }
@@ -199,8 +219,18 @@ class QcInspectionViewModel : ViewModel() {
                 jobCardNo = job.JobCardNo ?: "", machine = s.machine, date = s.date, shift = s.shift,
                 stdWeight = s.stdWeight.toDoubleOrNull(), actWeight = s.actWeight.toDoubleOrNull(),
                 stdCT = s.stdCT.toDoubleOrNull(), actCT = s.actCT.toDoubleOrNull(),
-                stdCavity = s.stdCavity.toIntOrNull(), actCavity = s.actCavity.toIntOrNull()
-            ).onSuccess { _state.update { it.copy(savingSetup = false, setupMsg = "Setup saved (${s.setupPeriod}).") } }
+                stdCavity = s.stdCavity.toIntOrNull(), actCavity = s.actCavity.toIntOrNull(),
+                setupPeriod = periodNo(s.setupPeriod)
+            ).onSuccess {
+                val row = com.jmsocean.qc.data.remote.JobSetupRow(
+                    act_weight = s.actWeight.toDoubleOrNull(), act_cycle_time = s.actCT.toDoubleOrNull(),
+                    act_cavity = s.actCavity.toIntOrNull()
+                )
+                _state.update {
+                    it.copy(savingSetup = false, setupMsg = "Setup saved (${s.setupPeriod}).",
+                        savedSetups = it.savedSetups + (periodNo(s.setupPeriod) to row))
+                }
+            }
                 .onFailure { e -> _state.update { it.copy(savingSetup = false, error = e.message) } }
         }
     }
@@ -245,3 +275,6 @@ class QcInspectionViewModel : ViewModel() {
         }
     }
 }
+
+/** "2nd half" → 2 (mid-shift setup), anything else → 1 (shift-start setup). */
+private fun periodNo(label: String) = if (label.startsWith("2")) 2 else 1

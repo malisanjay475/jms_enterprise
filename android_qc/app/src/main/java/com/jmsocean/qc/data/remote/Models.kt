@@ -239,7 +239,9 @@ data class JobSetupResponse(
     val ok: Boolean = false,
     val error: String? = null,
     val std: StdValues? = null,
-    val setup: JobSetupRow? = null
+    val setup: JobSetupRow? = null,
+    /** Saved setup per half: "1" = 1st half (shift start), "2" = 2nd half (mid-shift). */
+    val setups: Map<String, JobSetupRow?>? = null
 )
 
 @Serializable
@@ -254,7 +256,9 @@ data class JobSetupSaveRequest(
     val std_cycle_time: Double? = null,
     val act_cycle_time: Double? = null,
     val std_cavity: Int? = null,
-    val act_cavity: Int? = null
+    val act_cavity: Int? = null,
+    /** 1 = 1st half (shift start), 2 = 2nd half (mid-shift). Without it the server saves 1st half. */
+    val setup_period: Int = 1
 )
 
 /** A recent QC online-report slot check — GET /api/qc/recent-slots. */
@@ -289,6 +293,8 @@ data class FpaStatus(
     val reviewed_by: String? = null,
     /** Machine the job (and this FPA) was moved from; it needs approval again here. */
     val transferred_from: String? = null,
+    /** No FPA on this machine, but the job has one from another machine (moved before FPAs were copied). */
+    val other_machine: String? = null,
     val error: String? = null,
     val done_by: String? = null,
     val done_at: String? = null,
