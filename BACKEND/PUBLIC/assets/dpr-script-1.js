@@ -1442,9 +1442,12 @@
                                                 rDue++; rDone++; lDue++; lDone++;
                                                 if (st.kind === 'bad') lBad++;
                                                 const who = esc(st.e.entered_by || '');
+                                                // Time QC saved the check (IST), shown under OK / Not OK.
+                                                const at = st.e.entered_at ? new Date(st.e.entered_at).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' }) : '';
+                                                const sub = `${at ? `<div style="font-size:0.65rem; color:#475569; font-weight:600">${esc(at)}</div>` : ''}${st.late ? '<div style="font-size:0.65rem; color:#b45309">late</div>' : ''}`;
                                                 return st.kind === 'ok'
-                                                    ? `<td style="${base}; background:#ecfdf5; color:#047857; cursor:pointer" onclick="qcShowSlot(${arg})" title="${who}">✔ OK${st.late ? '<div style="font-size:0.65rem; color:#b45309">late</div>' : ''}</td>`
-                                                    : `<td style="${base}; background:#fef2f2; color:#b91c1c; cursor:pointer" onclick="qcShowSlot(${arg})" title="${who}">✘ Not OK${st.late ? '<div style="font-size:0.65rem; color:#b45309">late</div>' : ''}</td>`;
+                                                    ? `<td style="${base}; background:#ecfdf5; color:#047857; cursor:pointer" onclick="qcShowSlot(${arg})" title="${who}">✔ OK${sub}</td>`
+                                                    : `<td style="${base}; background:#fef2f2; color:#b91c1c; cursor:pointer" onclick="qcShowSlot(${arg})" title="${who}">✘ Not OK${sub}</td>`;
                                             }
                                             // Slots outside this job's run on the machine are not counted for it.
                                             if (!ownsSlot(jIdx, i)) return `<td style="${base}; color:#cbd5e1">·</td>`;

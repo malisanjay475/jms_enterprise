@@ -13,6 +13,11 @@ part of your PR. On release, the `[Unreleased]` items move under the new version
 
 ## [Unreleased]
 
+### Changed
+- QC check time (v1.100.5): DPR Compliance (Process QC) 2-hour check cells show the IST time
+  the check was saved (`entered_at`) under OK / Not OK.
+
+
 ### Added
 - Delete QC entries (v1.100.4): new `POST /api/qc/entry/delete` `{ kind: slot | setup | verify, id }`
   for roles quality (QC HOD), quality_ass__manager, quality_executive, admin, superadmin (checked
