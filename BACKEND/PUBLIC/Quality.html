@@ -564,7 +564,7 @@
             const user = (JPSMS.auth.getUser && JPSMS.auth.getUser()) || {};
             const canRelease = ['quality', 'quality_manager', 'quality_supervisor', 'qc_supervisor', 'quality_ass__manager', 'admin', 'superadmin'].includes(String(user.role_code || '').toLowerCase());
             $('holds-container').innerHTML = `<div class="q-scroll"><table class="q-table"><thead><tr>
-                <th>Status</th><th>Machine</th><th>Date / Shift</th><th>Job card</th><th>Qty</th><th>Reason</th><th>Held by</th><th>Released</th><th></th></tr></thead><tbody>
+                <th>Status</th><th>Machine</th><th>Date / Shift</th><th>Job card</th><th>Qty</th><th>Reason</th><th>Photos</th><th>Held by</th><th>Released</th><th></th></tr></thead><tbody>
                 ${list.map(h => `<tr>
                     <td>${h.status === 'ACTIVE' ? '<span class="tag bad">ON HOLD</span>' : '<span class="tag ok">Released</span>'}</td>
                     <td class="mc">${esc(h.machine)}</td>
@@ -572,10 +572,18 @@
                     <td>${esc(h.job_card_no || '—')}</td>
                     <td>${esc(h.qty_on_hold ?? '—')}</td>
                     <td><div style="font-weight:600">${esc(h.reason || '')}</div>${h.remarks ? `<div class="mc-sub" style="white-space:normal">${esc(h.remarks)}</div>` : ''}</td>
+                    <td>${holdPhotos(h.image_urls)}</td>
                     <td style="white-space:nowrap">${esc(h.hold_by || '')}<div class="mc-sub">${esc(fmtTime(h.hold_at))}</div></td>
                     <td style="white-space:nowrap">${h.released_at ? `${esc(h.released_by || '')}<div class="mc-sub">${esc(fmtTime(h.released_at))}</div>${h.release_remarks ? `<div class="mc-sub">${esc(h.release_remarks)}</div>` : ''}` : '—'}</td>
                     <td>${h.status === 'ACTIVE' && canRelease ? `<button class="btn btn-outline small" onclick="releaseHold(${Number(h.id)})">Release</button>` : ''}</td>
                 </tr>`).join('')}</tbody></table></div>`;
+        }
+
+        // Hold photos from the QC app: small thumbnails, tap to open full size.
+        function holdPhotos(urls) {
+            const list = (Array.isArray(urls) ? urls : []).filter(u => /^\/uploads\/qc-images\/[A-Za-z0-9._-]+$/.test(String(u)));
+            if (!list.length) return '<span class="mc-sub">—</span>';
+            return `<div style="display:flex;gap:4px;flex-wrap:wrap">${list.map(u => `<a href="${esc(u)}" target="_blank" rel="noopener"><img src="/api/qc/thumb?src=${encodeURIComponent(u)}&w=120" alt="Hold photo" style="width:44px;height:44px;object-fit:cover;border-radius:6px;border:1px solid #e2e8f0"></a>`).join('')}</div>`;
         }
 
         async function releaseHold(id) {

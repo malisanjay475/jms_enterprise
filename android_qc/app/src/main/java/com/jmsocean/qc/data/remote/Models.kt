@@ -355,7 +355,10 @@ data class VerifySlot(
     val qc_reject_qty: Int? = null,
     val verified_by: String? = null,
     val verified_at: String? = null,
-    val job_card_no: String? = null
+    val job_card_no: String? = null,
+    /** Active QC hold on this entry (or its whole hour). */
+    val qc_hold: Boolean = false,
+    val qc_hold_reason: String? = null
 )
 
 @Serializable
@@ -431,7 +434,8 @@ data class HoldRequest(
     val job_card_no: String = "",
     val qty_on_hold: Int? = null,
     val reason: String,
-    val remarks: String = ""
+    val remarks: String = "",
+    val dpr_entry_id: Int? = null
 )
 
 /** The self-update feed hosted on the LOCAL server: /qc-app/version.json */

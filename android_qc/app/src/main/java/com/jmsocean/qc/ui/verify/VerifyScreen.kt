@@ -1,5 +1,8 @@
 package com.jmsocean.qc.ui.verify
 
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -46,6 +49,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.core.content.FileProvider
+import coil.compose.AsyncImage
+import java.io.File
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -70,6 +78,7 @@ fun VerifyScreen(
     val s by vm.state.collectAsStateWithLifecycle()
     var holdFor by remember { mutableStateOf<VerifySlot?>(null) }
     var deviationFor by remember { mutableStateOf<VerifySlot?>(null) }
+    var rejectFor by remember { mutableStateOf<VerifySlot?>(null) }
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
@@ -185,7 +194,8 @@ fun VerifyScreen(
                                 busy = s.busySlot == entryKey(slot) || s.busySlot == hourKey(hour),
                                 onVerify = { g, r, rmk -> vm.submit(slot, g, r, rmk) },
                                 onHold = { holdFor = slot },
-                                onDeviation = { deviationFor = slot }
+                                onDeviation = { deviationFor = slot },
+                                onReject = { rejectFor = slot }
                             )
                         }
                     }
@@ -199,9 +209,20 @@ fun VerifyScreen(
         HoldDialog(
             slot = slot,
             onDismiss = { holdFor = null },
-            onConfirm = { reason, qty, rmk ->
-                vm.placeHold(slot, reason, qty, rmk)
+            onConfirm = { reason, qty, rmk, photos ->
+                vm.placeHold(slot, reason, qty, rmk, photos)
                 holdFor = null
+            }
+        )
+    }
+
+    rejectFor?.let { slot ->
+        RejectDialog(
+            slot = slot,
+            onDismiss = { rejectFor = null },
+            onConfirm = { reason ->
+                vm.submitReject(slot, reason)
+                rejectFor = null
             }
         )
     }
@@ -255,18 +276,17 @@ private fun SlotCard(
     busy: Boolean,
     onVerify: (Int, Int, String) -> Unit,
     onHold: () -> Unit,
-    onDeviation: () -> Unit
+    onDeviation: () -> Unit,
+    onReject: () -> Unit
 ) {
-    val isDisc = slot.verify_status.equals("Discrepancy", ignoreCase = true)
-    val badgeColor = when {
-        slot.qc_verified && !isDisc -> Good
-        slot.qc_verified && isDisc -> Warn
-        else -> Crit
-    }
-    val badgeText = when {
-        slot.qc_verified && !isDisc -> "✓ Verified"
-        slot.qc_verified && isDisc -> "⚠ Discrepancy"
-        else -> "Overdue"
+    val st = slot.verify_status ?: ""
+    val (badgeText, badgeColor) = when {
+        slot.qc_hold -> "⏸ On Hold" to Warn
+        slot.qc_verified && st.equals("Rejected", ignoreCase = true) -> "✕ Rejected" to Crit
+        slot.qc_verified && st.equals("Deviation", ignoreCase = true) -> "◆ Deviation" to Warn
+        slot.qc_verified && st.equals("Discrepancy", ignoreCase = true) -> "⚠ Discrepancy" to Warn
+        slot.qc_verified -> "✓ Verified" to Good
+        else -> "Overdue" to Crit
     }
 
     var good by remember(slot.hour_slot, slot.dpr_entry_id, slot.qc_verified) {
@@ -371,6 +391,12 @@ private fun SlotCard(
                         border = BorderStroke(1.dp, Warn),
                         modifier = Modifier.weight(1f).height(40.dp)
                     ) { Text("⚠ Deviation", color = Warn, fontSize = 13.sp, fontWeight = FontWeight.Bold) }
+                    OutlinedButton(
+                        onClick = onReject, enabled = !busy,
+                        shape = RoundedCornerShape(10.dp),
+                        border = BorderStroke(1.dp, Crit),
+                        modifier = Modifier.weight(1f).height(40.dp)
+                    ) { Text("✕ Reject", color = Crit, fontSize = 13.sp, fontWeight = FontWeight.Bold) }
                 }
             }
         }
@@ -597,11 +623,26 @@ private fun DeviationDialog(
 private fun HoldDialog(
     slot: VerifySlot,
     onDismiss: () -> Unit,
-    onConfirm: (reason: String, qty: Int?, remarks: String) -> Unit
+    onConfirm: (reason: String, qty: Int?, remarks: String, photos: List<File>) -> Unit
 ) {
     var reason by remember { mutableStateOf("") }
     var qty by remember { mutableStateOf("") }
     var remarks by remember { mutableStateOf("") }
+    var photos by remember { mutableStateOf<List<File>>(emptyList()) }
+    val ctx = LocalContext.current
+    var pending by remember { mutableStateOf<File?>(null) }
+    val camera = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
+        val f = pending
+        if (ok && f != null && f.length() > 0) photos = (photos + f).take(MAX_HOLD_PHOTOS)
+        pending = null
+    }
+    fun takePhoto() {
+        val dir = File(ctx.cacheDir, "images").apply { mkdirs() }
+        val f = File(dir, "hold_${System.currentTimeMillis()}.jpg")
+        pending = f
+        val uri: Uri = FileProvider.getUriForFile(ctx, "${ctx.packageName}.fileprovider", f)
+        camera.launch(uri)
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -631,13 +672,69 @@ private fun HoldDialog(
                     label = { Text("Remarks (optional)") }, singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
+                Spacer(Modifier.size(10.dp))
+                Text(
+                    "Photos (${photos.size}/$MAX_HOLD_PHOTOS) · tap a photo to remove it",
+                    fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(Modifier.size(6.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    photos.forEach { f ->
+                        AsyncImage(
+                            model = f, contentDescription = "Hold photo",
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.size(54.dp)
+                                .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(6.dp))
+                                .clickable { photos = photos - f }
+                        )
+                    }
+                    if (photos.size < MAX_HOLD_PHOTOS) OutlinedButton(
+                        onClick = { takePhoto() },
+                        shape = RoundedCornerShape(6.dp),
+                        contentPadding = PaddingValues(0.dp),
+                        modifier = Modifier.size(54.dp)
+                    ) { Text("+", fontSize = 22.sp) }
+                }
             }
         },
         confirmButton = {
             Button(
-                onClick = { onConfirm(reason.trim(), qty.toIntOrNull(), remarks) },
+                onClick = { onConfirm(reason.trim(), qty.toIntOrNull(), remarks, photos) },
                 enabled = reason.isNotBlank()
             ) { Text("Place HOLD") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+    )
+}
+
+private const val MAX_HOLD_PHOTOS = 4
+
+@Composable
+private fun RejectDialog(
+    slot: VerifySlot,
+    onDismiss: () -> Unit,
+    onConfirm: (reason: String) -> Unit
+) {
+    var reason by remember { mutableStateOf("") }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Reject · ${slot.hour_slot}${if (slot.entries_in_hour > 1) " · " + entryLabel(slot) else ""}") },
+        text = {
+            Column {
+                Text(
+                    "Marks this entry Rejected (✕) in the Compliance Summary.",
+                    fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(Modifier.size(10.dp))
+                OutlinedTextField(
+                    value = reason, onValueChange = { reason = it },
+                    label = { Text("Reason") }, singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        },
+        confirmButton = {
+            Button(onClick = { onConfirm(reason.trim()) }, enabled = reason.isNotBlank()) { Text("Reject entry") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
     )

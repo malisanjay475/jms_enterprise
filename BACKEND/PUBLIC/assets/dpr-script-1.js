@@ -316,6 +316,19 @@
         };
 
         // --- DETAIL MODAL LOGIC ---
+        // QC mark on a Compliance Summary cell: H hold, ✕ rejected, ◆ deviation, ⚠ qty changed, ✓ verified.
+        window.qcMarkHtml = function (entry) {
+            const st = entry.qc_verify_status;
+            let icon, color, title;
+            if (entry.qc_hold) { icon = 'bi-pause-circle-fill'; color = '#d97706'; title = 'QC Hold'; }
+            else if (st === 'Rejected') { icon = 'bi-x-circle-fill'; color = '#dc2626'; title = 'Rejected by QC'; }
+            else if (st === 'Deviation') { icon = 'bi-exclamation-diamond-fill'; color = '#7c3aed'; title = 'QC Deviation'; }
+            else if (st === 'Discrepancy') { icon = 'bi-exclamation-triangle-fill'; color = '#ea580c'; title = 'QC changed qty'; }
+            else if (entry.qc_verified) { icon = 'bi-patch-check-fill'; color = '#16a34a'; title = 'QC Verified'; }
+            else return '';
+            return `<span title="${title} — tap for details" aria-label="${title}" style="margin-left:auto;color:${color};font-size:0.88rem;line-height:1;flex:0 0 auto"><i class="bi ${icon}"></i></span>`;
+        };
+
         window.showEntryDetails = (entry) => {
             const e = typeof entry === 'string' ? JSON.parse(decodeURIComponent(entry)) : entry;
             const content = document.getElementById('modal-details-content');
@@ -331,18 +344,23 @@
                 </div>
             `;
 
-            // QC Verification (Verified / Qty changed / Hold) + who / when / remarks
+            // QC Verification (Verified / Qty changed / Rejected / Deviation / Hold) + who / when / remarks
             if (e.qc_verified || e.qc_hold) {
                 const fmtWhen = e.qc_verified_at ? new Date(e.qc_verified_at).toLocaleString() : '';
                 let badge, bg, bc, fg;
-                if (e.qc_hold) { badge = '✘ On Hold'; bg = '#fff1f2'; bc = '#fecaca'; fg = '#be123c'; }
-                else if (e.qc_verify_status === 'Discrepancy') { badge = '✘ QC changed qty'; bg = '#fff7ed'; bc = '#fed7aa'; fg = '#c2410c'; }
+                if (e.qc_hold) { badge = '⏸ On Hold'; bg = '#fffbeb'; bc = '#fde68a'; fg = '#b45309'; }
+                else if (e.qc_verify_status === 'Rejected') { badge = '✘ Rejected by QC'; bg = '#fff1f2'; bc = '#fecaca'; fg = '#be123c'; }
+                else if (e.qc_verify_status === 'Deviation') { badge = '◆ Deviation'; bg = '#f5f3ff'; bc = '#ddd6fe'; fg = '#6d28d9'; }
+                else if (e.qc_verify_status === 'Discrepancy') { badge = '⚠ QC changed qty'; bg = '#fff7ed'; bc = '#fed7aa'; fg = '#c2410c'; }
                 else { badge = '✔ QC Verified'; bg = '#ecfdf5'; bc = '#a7f3d0'; fg = '#047857'; }
+                const holdPics = (Array.isArray(e.qc_hold_images) ? e.qc_hold_images : [])
+                    .filter(u => /^\/uploads\/qc-images\/[A-Za-z0-9._-]+$/.test(String(u)));
                 html += `<div style="margin-top:16px;padding:10px 12px;background:${bg};border:1px solid ${bc};border-radius:8px">
                     <div style="font-weight:800;color:${fg}">${badge}</div>
                     ${(e.qc_verified_by || fmtWhen) ? `<div style="font-size:0.82rem;color:#475569;margin-top:3px">By <b>${e.qc_verified_by || '—'}</b>${fmtWhen ? ' · ' + fmtWhen : ''}</div>` : ''}
                     ${e.qc_verify_status === 'Discrepancy' ? `<div style="font-size:0.82rem;color:#475569;margin-top:3px">QC qty: <b>${e.qc_good_qty ?? '—'}</b> good / <b>${e.qc_reject_qty ?? '—'}</b> rej (supervisor: ${e.good_qty} / ${e.reject_qty || 0})</div>` : ''}
-                    ${e.qc_hold_reason ? `<div style="font-size:0.82rem;color:#475569;margin-top:3px">Hold reason: <b>${e.qc_hold_reason}</b></div>` : ''}
+                    ${e.qc_hold_reason ? `<div style="font-size:0.82rem;color:#475569;margin-top:3px">Hold reason: <b>${e.qc_hold_reason}</b>${e.qc_hold_qty ? ` · Qty <b>${e.qc_hold_qty}</b>` : ''}${e.qc_hold_by ? ` · by <b>${e.qc_hold_by}</b>` : ''}</div>` : ''}
+                    ${holdPics.length ? `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">${holdPics.map(u => `<a href="${u}" target="_blank" rel="noopener"><img src="/api/qc/thumb?src=${encodeURIComponent(u)}&w=200" alt="Hold photo" style="width:72px;height:72px;object-fit:cover;border-radius:6px;border:1px solid ${bc}"></a>`).join('')}</div>` : ''}
                     ${e.qc_remarks ? `<div style="font-size:0.82rem;color:#334155;margin-top:5px;padding-top:5px;border-top:1px dashed ${bc}"><b>QC remarks:</b> ${e.qc_remarks}</div>` : ''}
                 </div>`;
             }
@@ -2815,9 +2833,7 @@
                                                             <div style="display:flex;align-items:baseline;gap:3px;line-height:1;min-width:0">
                                                                 <span style="font-weight:800;font-size:0.95rem;color:#15803d;line-height:1">${entry.good_qty}</span>
                                                                 ${rejQty > 0 ? `<span style="font-size:0.78rem;color:#9ca3af;font-weight:600;line-height:1">|</span><span style="font-weight:800;font-size:0.85rem;color:#dc2626;line-height:1">${rejQty}</span>` : ''}
-                                                                ${(entry.qc_hold || entry.qc_verify_status === 'Discrepancy')
-                                                                    ? `<span title="${entry.qc_hold ? 'QC Hold' : 'QC changed qty'} — tap for details" aria-label="QC flagged" style="margin-left:auto;color:#dc2626;font-size:0.9rem;line-height:1;flex:0 0 auto"><i class="bi bi-x-circle-fill"></i></span>`
-                                                                    : (entry.qc_verified ? `<span title="QC Verified — tap for details" aria-label="QC Verified" style="margin-left:auto;color:#16a34a;font-size:0.85rem;line-height:1;flex:0 0 auto"><i class="bi bi-patch-check-fill"></i></span>` : '')}
+                                                                ${qcMarkHtml(entry)}
                                                             </div>
 
                                                             <!-- Row 2: Time -->

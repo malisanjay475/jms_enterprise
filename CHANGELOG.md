@@ -14,6 +14,16 @@ part of your PR. On release, the `[Unreleased]` items move under the new version
 ## [Unreleased]
 
 ### Added
+- QC hold photos + per-entry QC marks (v1.98.0, QC app 1.7.0): `qc_holds` gains `image_urls`
+  (JSONB) and `dpr_entry_id`; `POST /api/qc/hold` also takes multipart with up to 4 `hold_images`.
+  `qc_verifications.status` can be `Rejected` or `Deviation` via `status_override` (the app sent
+  Deviation before but the server saved Verified). `/api/dpr/summary-matrix` entries carry the
+  entry's own hold + photos; the DPR Compliance cell shows hold / rejected / deviation / qty
+  changed / verified marks. Quality holds list shows photos. Only adds columns; rollback = older
+  code ignores them.
+
+
+### Added
 - QC verify per DPR entry (v1.97.0, QC app 1.6.0): an hour with a main + colour-change entry
   is verified entry by entry. `qc_verifications` is now unique per `dpr_entry_id` (the old
   one-per-hour key is dropped; rows with no entry keep a partial hour key). `/api/qc/verify/pending`

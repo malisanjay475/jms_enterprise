@@ -6217,6 +6217,10 @@ async function initializeLegacyRuntime() {
       );
     `);
     await qIdx(`CREATE INDEX IF NOT EXISTS idx_qcholds_machine ON qc_holds (machine, dpr_date, status)`);
+    // Photos taken at hold time (/uploads/qc-images/...), and the exact DPR entry held
+    // (an hour can have a main + colour-change entry). NULL entry = whole hour (older rows).
+    await q(`ALTER TABLE qc_holds ADD COLUMN IF NOT EXISTS image_urls JSONB DEFAULT '[]'::jsonb`);
+    await q(`ALTER TABLE qc_holds ADD COLUMN IF NOT EXISTS dpr_entry_id INTEGER`);
 
     // QC SHIFT TEAM — QC team members assigned per machine/shift
     await q(`
@@ -24965,7 +24969,11 @@ app.get('/api/dpr/summary-matrix', async (req, res) => {
         qv.qc_reject_qty      AS qc_reject_qty,
         qv.remarks            AS qc_remarks,
         (qh.id IS NOT NULL)   AS qc_hold,
-        qh.reason             AS qc_hold_reason
+        qh.reason             AS qc_hold_reason,
+        qh.qty_on_hold        AS qc_hold_qty,
+        qh.hold_by            AS qc_hold_by,
+        qh.hold_at            AS qc_hold_at,
+        COALESCE(qh.image_urls, '[]'::jsonb) AS qc_hold_images
       FROM (
         SELECT DISTINCT ON (${DPR_HOURLY_KEY}) *
         FROM dpr_hourly
@@ -25025,11 +25033,12 @@ app.get('/api/dpr/summary-matrix', async (req, res) => {
       ) qv ON true
       -- Active QC hold on this slot (→ cross in the Compliance Summary)
       LEFT JOIN LATERAL (
-        SELECT id, reason FROM qc_holds qh2
+        SELECT id, reason, qty_on_hold, hold_by, hold_at, image_urls FROM qc_holds qh2
         WHERE qh2.machine = d.machine AND qh2.dpr_date = d.dpr_date
           AND qh2.shift = d.shift AND qh2.slot = d.hour_slot
+          AND (qh2.dpr_entry_id = d.id OR qh2.dpr_entry_id IS NULL)
           AND UPPER(COALESCE(qh2.status,'ACTIVE')) = 'ACTIVE'
-        ORDER BY qh2.id DESC LIMIT 1
+        ORDER BY (qh2.dpr_entry_id = d.id) DESC NULLS LAST, qh2.id DESC LIMIT 1
       ) qh ON true
     `;
     const entryParams = [fDate, tDate, shift];
@@ -31290,8 +31299,18 @@ app.get('/api/qc/verify/pending', async (req, res) => {
         v.verified_by,
         to_char(v.verified_at AT TIME ZONE 'Asia/Kolkata', 'HH24:MI')  AS verified_at,
         v.status                                      AS verify_status,
-        v.remarks                                     AS qc_remarks
+        v.remarks                                     AS qc_remarks,
+        (h.id IS NOT NULL)                            AS qc_hold,
+        h.reason                                      AS qc_hold_reason
       FROM dpr_hourly d
+      LEFT JOIN LATERAL (
+        SELECT id, reason FROM qc_holds h2
+         WHERE h2.machine = d.machine AND h2.dpr_date = d.dpr_date
+           AND h2.shift = d.shift AND h2.slot = d.hour_slot
+           AND (h2.dpr_entry_id = d.id OR h2.dpr_entry_id IS NULL)
+           AND UPPER(COALESCE(h2.status, 'ACTIVE')) = 'ACTIVE'
+         ORDER BY (h2.dpr_entry_id = d.id) DESC NULLS LAST, h2.id DESC LIMIT 1
+      ) h ON true
       LEFT JOIN LATERAL (
         -- The entry's own verification; a legacy row saved before entries were
         -- linked (dpr_entry_id NULL) still covers its hour.
@@ -31323,7 +31342,7 @@ app.get('/api/qc/verify/pending', async (req, res) => {
 // app builds) the hour's latest entry is used, as before.
 async function saveQcVerification(item, verified_by, factoryId) {
   const { machine, dpr_date, shift, hour_slot, dpr_entry_id: wantedId,
-          qc_good_qty, qc_reject_qty, remarks } = item || {};
+          qc_good_qty, qc_reject_qty, remarks, status_override } = item || {};
   if (!machine || !dpr_date || !shift || !hour_slot) {
     return { ok: false, error: 'machine, dpr_date, shift, hour_slot required' };
   }
@@ -31362,7 +31381,9 @@ async function saveQcVerification(item, verified_by, factoryId) {
   const sgood        = dprRow ? (parseInt(dprRow.good_qty,   10) || 0) : 0;
   const srej         = dprRow ? (parseInt(dprRow.reject_qty, 10) || 0) : 0;
   const sshots       = dprRow ? (parseInt(dprRow.shots,      10) || 0) : 0;
-  const status       = (good !== sgood || rej !== srej) ? 'Discrepancy' : 'Verified';
+  // QC can mark an entry Rejected or as a Deviation; otherwise the qty match decides.
+  const override     = ['Rejected', 'Deviation'].includes(String(status_override || '')) ? String(status_override) : null;
+  const status       = override || ((good !== sgood || rej !== srej) ? 'Discrepancy' : 'Verified');
   const params = [factoryId, dpr_entry_id, machine, dpr_date, shift, hour_slot,
                   sgood, srej, sshots, good, rej, verified_by, remarks || null, status];
   const conflict = dpr_entry_id !== null
@@ -31649,7 +31670,8 @@ app.get('/api/qc/overview', async (req, res) => {
             AND ($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL)
           ORDER BY created_at DESC LIMIT 300`, [date, factoryId]),
       q(`SELECT id, machine, job_card_no, dpr_date, shift, slot, qty_on_hold, reason, remarks,
-                hold_by, hold_at, released_by, released_at, release_remarks, status
+                hold_by, hold_at, released_by, released_at, release_remarks, status,
+                COALESCE(image_urls, '[]'::jsonb) AS image_urls
            FROM qc_holds
           WHERE (status = 'ACTIVE' OR dpr_date = $1::date)
             AND ($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL)
@@ -32083,17 +32105,29 @@ app.delete('/api/qc/shift-team/:id', async (req, res) => {
 });
 
 // POST /api/qc/hold — place a QC hold on a job (blocks scanner shifting)
-app.post('/api/qc/hold', async (req, res) => {
+// Body is JSON (no photos) or multipart with up to 4 `hold_images`.
+app.post('/api/qc/hold', (req, res, next) => {
+  if (!req.is('multipart/form-data')) return next();
+  uploadQC.fields([{ name: 'hold_images', maxCount: 4 }])(req, res, err => {
+    if (err) return res.status(400).json({ ok: false, error: err.message || 'Upload error' });
+    next();
+  });
+}, async (req, res) => {
   try {
     const { job_card_no, machine, dpr_date, shift, slot, qty_on_hold, reason, remarks } = req.body || {};
     if (!machine || !dpr_date || !reason) return res.json({ ok: false, error: 'machine, dpr_date, reason required' });
+    const imageUrls = ((req.files && req.files['hold_images']) || [])
+      .map(f => `/uploads/qc-images/${path.basename(f.filename || f.path)}`);
+    const entryId = parseInt(req.body.dpr_entry_id, 10);
     const rawUser = (req.body.session ? (() => { try { const s = typeof req.body.session === 'string' ? JSON.parse(req.body.session) : req.body.session; return s.username || s.supervisor || s.user || ''; } catch(_) { return ''; } })() : '') || '';
     const hold_by = String(rawUser).replace(/[^\w\s\-\.@]/g, '').slice(0, 100) || 'QC';
     const factoryId = getFactoryId(req);
     const r = await q(
-      `INSERT INTO qc_holds (factory_id, job_card_no, machine, dpr_date, shift, slot, qty_on_hold, reason, remarks, hold_by, status)
-       VALUES ($1,$2,$3,$4::date,$5,$6,$7,$8,$9,$10,'ACTIVE') RETURNING id`,
-      [factoryId, job_card_no || '', machine, dpr_date, shift || 'Day', slot || '', parseInt(qty_on_hold) || null, reason, remarks || '', hold_by]
+      `INSERT INTO qc_holds (factory_id, job_card_no, machine, dpr_date, shift, slot, qty_on_hold, reason, remarks, hold_by, status,
+                             image_urls, dpr_entry_id)
+       VALUES ($1,$2,$3,$4::date,$5,$6,$7,$8,$9,$10,'ACTIVE',$11::jsonb,$12) RETURNING id`,
+      [factoryId, job_card_no || '', machine, dpr_date, shift || 'Day', slot || '', parseInt(qty_on_hold) || null, reason, remarks || '', hold_by,
+       JSON.stringify(imageUrls), Number.isInteger(entryId) ? entryId : null]
     );
     // Notify via qc_notifications
     await q(
