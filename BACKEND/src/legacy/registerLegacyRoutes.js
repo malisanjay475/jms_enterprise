@@ -31844,10 +31844,30 @@ app.get('/api/qc/summary-matrix', async (req, res) => {
           WHERE (status = 'ACTIVE' OR dpr_date BETWEEN $1::date AND $2::date)
             AND ($3::int IS NULL OR factory_id = $3 OR factory_id IS NULL)
           ORDER BY hold_at DESC LIMIT 500`, [fromDate, toDate, factoryId]),
-      q(`SELECT machine, plan_id, order_no, item_name, mould_name
-           FROM plan_board
-          WHERE UPPER(status) = 'RUNNING'
-            AND ($1::int IS NULL OR factory_id = $1 OR factory_id IS NULL)`, [factoryId]),
+      // Running plans plus the plans of every order QC checked in the range, with plan qty,
+      // balance (plan − produced, as in Moulding) and client for the machine / job cell.
+      q(`SELECT pb.machine, pb.plan_id, pb.order_no, pb.item_name, pb.mould_name, pb.status,
+                COALESCE(NULLIF(TRIM(pb.job_card_no), ''), '') AS job_card_no,
+                COALESCE(pb.plan_qty, 0)::int AS plan_qty,
+                GREATEST(0, COALESCE(pb.plan_qty, 0) - COALESCE(prod.produced, 0))::int AS balance_qty,
+                COALESCE(o.client_name, '') AS client_name
+           FROM plan_board pb
+           LEFT JOIN LATERAL (
+             SELECT SUM(dh.good_qty) AS produced FROM dpr_hourly dh
+              WHERE (dh.plan_id = pb.plan_id OR CAST(dh.plan_id AS TEXT) = CAST(pb.id AS TEXT))
+                AND (dh.factory_id = pb.factory_id OR dh.factory_id IS NULL OR pb.factory_id IS NULL)
+                AND dh.is_deleted = false
+           ) prod ON true
+           LEFT JOIN LATERAL (
+             SELECT client_name FROM orders o2
+              WHERE o2.order_no = pb.order_no
+                AND (o2.factory_id = pb.factory_id OR o2.factory_id IS NULL OR pb.factory_id IS NULL)
+              LIMIT 1
+           ) o ON true
+          WHERE (UPPER(pb.status) = 'RUNNING'
+                 OR pb.order_no IN (SELECT DISTINCT order_no FROM qc_online_report_slots
+                                     WHERE dpr_date BETWEEN $2::date AND $3::date AND COALESCE(order_no, '') <> ''))
+            AND ($1::int IS NULL OR pb.factory_id = $1 OR pb.factory_id IS NULL)`, [factoryId, fromDate, toDate]),
       q(`SELECT line, dpr_date::text AS date, shift, qc_supervisor, qc_incharge, saved_by, saved_at
            FROM qc_line_teams
           WHERE dpr_date BETWEEN $1::date AND $2::date AND ($3 = '' OR shift = $3)
@@ -31860,12 +31880,37 @@ app.get('/api/qc/summary-matrix', async (req, res) => {
           ORDER BY assigned_at ASC`, [fromDate, toDate, sh, factoryId]),
       // Machines that ran in a shift (any DPR entry) — a machine with none, no running
       // plan and no QC data shows "Not running".
-      q(`SELECT DISTINCT machine, dpr_date::text AS date, shift
+      // Per machine/date/shift/hour: did a Colour Change / Mould Change run (same rule as Moulding).
+      q(`SELECT machine, dpr_date::text AS date, shift, hour_slot,
+                BOOL_OR(entry_type = 'ColourChange'
+                        OR COALESCE(NULLIF(downtime_breakup->>'9', '')::numeric, 0) > 0) AS cc,
+                BOOL_OR(entry_type IN ('MouldChange', 'MouldChangeover')
+                        OR COALESCE(NULLIF(downtime_breakup->>'2', '')::numeric, 0) > 0) AS mc
            FROM dpr_hourly
           WHERE dpr_date BETWEEN $1::date AND $2::date AND ($3 = '' OR shift = $3)
             AND is_deleted IS NOT TRUE
-            AND ($4::int IS NULL OR factory_id = $4 OR factory_id IS NULL)`, [fromDate, toDate, sh, factoryId])
+            AND ($4::int IS NULL OR factory_id = $4 OR factory_id IS NULL)
+          GROUP BY 1, 2, 3, 4`, [fromDate, toDate, sh, factoryId])
     ]);
+
+    // Machines that ran per date/shift, with Colour / Mould Change counts: a change counts
+    // once per run of consecutive hours (08→07 for Day, 20→19 for Night), like Moulding.
+    const runBy = new Map();
+    const hourOf = s => parseInt(String(s || '').slice(0, 2), 10);
+    dprRunRows
+      .sort((a, b) => {
+        const off = r => (hourOf(r.hour_slot) - (r.shift === 'Night' ? 20 : 8) + 24) % 24;
+        return off(a) - off(b);
+      })
+      .forEach(r => {
+        const k = `${r.machine}|${r.date}|${r.shift}`;
+        if (!runBy.has(k)) runBy.set(k, { machine: r.machine, date: r.date, shift: r.shift, cc: 0, mc: 0, _cc: false, _mc: false });
+        const g = runBy.get(k);
+        if (r.cc && !g._cc) g.cc++;
+        if (r.mc && !g._mc) g.mc++;
+        g._cc = !!r.cc; g._mc = !!r.mc;
+      });
+    const dprRunning = [...runBy.values()].map(({ _cc, _mc, ...g }) => g);
 
     const order = makeMachineOrder(machineRows);
     const machines = machineRows
@@ -31886,7 +31931,7 @@ app.get('/api/qc/summary-matrix', async (req, res) => {
         plans: planRows,
         teams: teamRows,
         machineTeams: machineTeamRows,
-        dprRunning: dprRunRows
+        dprRunning
       }
     });
   } catch (e) {
