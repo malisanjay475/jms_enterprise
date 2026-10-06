@@ -13,6 +13,11 @@ part of your PR. On release, the `[Unreleased]` items move under the new version
 
 ## [Unreleased]
 
+### Changed
+- QC late grace (v1.100.8): a 2-hour QC check is "late" only when saved more than 60 min after
+  its slot ends (was 15) — DPR Compliance (Process QC) and `/api/qc/compliance` (QC app).
+
+
 ### Added
 - Sync QC verifications (v1.100.7): `qc_verifications` joins sync (`sync_id` key). It and `qc_holds` get
   `dpr_global_id` (= `dpr_hourly.global_id`); trigger `qc_link_dpr_entry` re-points `dpr_entry_id` to the
