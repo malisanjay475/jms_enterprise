@@ -665,7 +665,8 @@ class QcRepository(private val session: SessionStore) {
         jobCardNo: String, machine: String, date: String, shift: String,
         stdWeight: Double?, actWeight: Double?,
         stdCT: Double?, actCT: Double?,
-        stdCavity: Int?, actCavity: Int?
+        stdCavity: Int?, actCavity: Int?,
+        setupPeriod: Int = 1
     ): Result<Unit> = runCatching {
         val env = api.saveJobSetup(
             com.jmsocean.qc.data.remote.JobSetupSaveRequest(
@@ -673,7 +674,8 @@ class QcRepository(private val session: SessionStore) {
                 dpr_date = date, shift = shift,
                 std_weight = stdWeight, act_weight = actWeight,
                 std_cycle_time = stdCT, act_cycle_time = actCT,
-                std_cavity = stdCavity, act_cavity = actCavity
+                std_cavity = stdCavity, act_cavity = actCavity,
+                setup_period = setupPeriod
             )
         )
         if (!env.ok) error(env.error ?: "Setup save failed")

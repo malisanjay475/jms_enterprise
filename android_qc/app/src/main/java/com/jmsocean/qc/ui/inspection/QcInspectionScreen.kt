@@ -144,7 +144,9 @@ fun QcInspectionScreen(
                 Label("One-time setup · STD vs Actual")
                 Row(Modifier.padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     listOf("1st half", "2nd half").forEach {
-                        FilterChip(selected = s.setupPeriod == it, onClick = { vm.setPeriod(it) }, label = { Text(it) })
+                        val saved = s.savedSetups.containsKey(if (it.startsWith("2")) 2 else 1)
+                        FilterChip(selected = s.setupPeriod == it, onClick = { vm.setPeriod(it) },
+                            label = { Text(if (saved) "$it ✓" else it) })
                     }
                 }
                 Spacer(Modifier.size(8.dp))

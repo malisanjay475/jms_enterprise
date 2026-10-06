@@ -13,6 +13,13 @@ part of your PR. On release, the `[Unreleased]` items move under the new version
 
 ## [Unreleased]
 
+### Fixed
+- QC app One-time Setup 2nd half (v1.100.1, QC app 1.8.1): the app never sent `setup_period`, so
+  the server saved every setup as period 1 and a "2nd half" save overwrote the 1st half. The app
+  now sends `setup_period`, loads `setups` per half, ticks saved halves, and defaults to 2nd half
+  when only the 1st is saved. Setups already overwritten cannot be recovered.
+
+
 ### Added
 - FPA follows a moved job (v1.100.0, QC app 1.8.0): `/api/planning/move` copies the plan's
   latest done FPA (`qc_job_checks`, matched by plan_id or order + mould) to the target machine
