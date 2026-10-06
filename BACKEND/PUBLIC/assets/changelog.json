@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.98.0",
+  "latest": "1.99.0",
   "versions": [
+    {
+      "version": "1.99.0",
+      "date": "2026-10-06",
+      "title": "QC Setup and second jobs in the QC Compliance Summary",
+      "modules": [
+        {
+          "app": "dpr",
+          "changes": [
+            { "type": "feat", "text": "DPR Compliance Summary, Process QC: new Setup 1 (shift start) and Setup 2 (mid-shift) columns show when QC saved the setup and who saved it. The cell turns red with Wt, Cycle or Cavity when the actual value is outside the standard (weight 5%, cycle time 10%, cavity exact)." },
+            { "type": "feat", "text": "When a machine runs a second job in the shift, that job gets its own row with its own setup and 2-hour checks, and each job only counts the slots it ran in." },
+            { "type": "improvement", "text": "A machine with no running plan, no DPR entry and no QC data shows Not running. A running machine with no setup saved shows a blank setup cell." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.98.0",
       "date": "2026-10-06",

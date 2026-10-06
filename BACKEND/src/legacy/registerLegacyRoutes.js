@@ -31732,7 +31732,7 @@ app.get('/api/qc/summary-matrix', async (req, res) => {
     const sh = (req.query.shift === 'Day' || req.query.shift === 'Night') ? req.query.shift : '';
     const factoryId = await resolveScopedReportFactoryId(req);
 
-    const [machineRows, slotRows, setupRows, fpaRows, holdRows, planRows, teamRows, machineTeamRows] = await Promise.all([
+    const [machineRows, slotRows, setupRows, fpaRows, holdRows, planRows, teamRows, machineTeamRows, dprRunRows] = await Promise.all([
       q(`SELECT machine, line, building, factory_id FROM machines
           WHERE COALESCE(is_active, TRUE) = TRUE
             AND COALESCE(NULLIF(TRIM(machine_process), ''), 'Moulding') = 'Moulding'
@@ -31770,7 +31770,14 @@ app.get('/api/qc/summary-matrix', async (req, res) => {
            FROM qc_shift_team
           WHERE dpr_date BETWEEN $1::date AND $2::date AND ($3 = '' OR shift = $3)
             AND ($4::int IS NULL OR factory_id = $4 OR factory_id IS NULL)
-          ORDER BY assigned_at ASC`, [fromDate, toDate, sh, factoryId])
+          ORDER BY assigned_at ASC`, [fromDate, toDate, sh, factoryId]),
+      // Machines that ran in a shift (any DPR entry) — a machine with none, no running
+      // plan and no QC data shows "Not running".
+      q(`SELECT DISTINCT machine, dpr_date::text AS date, shift
+           FROM dpr_hourly
+          WHERE dpr_date BETWEEN $1::date AND $2::date AND ($3 = '' OR shift = $3)
+            AND is_deleted IS NOT TRUE
+            AND ($4::int IS NULL OR factory_id = $4 OR factory_id IS NULL)`, [fromDate, toDate, sh, factoryId])
     ]);
 
     const order = makeMachineOrder(machineRows);
@@ -31791,7 +31798,8 @@ app.get('/api/qc/summary-matrix', async (req, res) => {
         holds: holdRows,
         plans: planRows,
         teams: teamRows,
-        machineTeams: machineTeamRows
+        machineTeams: machineTeamRows,
+        dprRunning: dprRunRows
       }
     });
   } catch (e) {
