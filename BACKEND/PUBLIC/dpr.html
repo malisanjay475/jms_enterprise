@@ -126,7 +126,7 @@
     </div>
 
     <script src="/assets/app.min.js?v=1576"></script>
-  <script src="/assets/dpr-script-1.js?v=release109"></script>
+  <script src="/assets/dpr-script-1.js?v=release110"></script>
 
     <!-- ADMIN EDIT MODAL -->
     <div id="dprEditModal" class="modal"
@@ -206,6 +206,28 @@
             const r = String(u.role_code || u.role || '').toLowerCase();
             const adminLike = (JPSMS.auth.isAdminLike ? JPSMS.auth.isAdminLike(u) : (r === 'admin' || r === 'superadmin'));
             return adminLike || ['quality', 'quality_manager'].includes(r);
+        };
+
+        // Who may delete a QC app entry (2-hour check, setup half, verification) so QC can
+        // re-enter it: QC HOD, Quality Ass. Manager, Quality Executive, admin, superadmin.
+        // The server enforces this too.
+        window.canDeleteQcEntry = () => {
+            const u = (window.JPSMS && JPSMS.auth && JPSMS.auth.getUser && JPSMS.auth.getUser()) || {};
+            const r = String(u.role_code || u.role || '').toLowerCase();
+            return ['admin', 'superadmin', 'quality', 'quality_ass__manager', 'quality_executive'].includes(r);
+        };
+        window.deleteQcEntry = async (kind, id, what, after) => {
+            if (!confirm(`Delete this QC ${what}?\n\nQC can then enter it again in the QC app.`)) return;
+            try {
+                const res = await JPSMS.api.post('/qc/entry/delete', { kind, id });
+                if (!res || !res.ok) throw new Error((res && res.error) || 'Delete failed');
+                document.querySelectorAll('[data-qc-pop]').forEach(el => el.remove());
+                if (typeof after === 'function') after();
+                const sel = document.getElementById('s-process-sel');
+                if (sel) sel.dispatchEvent(new Event('change'));
+            } catch (e) {
+                alert('Could not delete: ' + (e.message || e));
+            }
         };
 
         // --- DELETE MODAL LOGIC (ADD-ON) ---
@@ -426,7 +448,7 @@
 </body>
 
   <script src="/assets/job-shifting-panel.js?v=2"></script>
-  <script src="/assets/dpr-script-2.js?v=release109"></script>
+  <script src="/assets/dpr-script-2.js?v=release110"></script>
   <script src="/assets/dpr-machine-auto.js?v=release5"></script>
 
 <!-- JOB DETAIL MODAL -->

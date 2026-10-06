@@ -373,6 +373,7 @@
                     ${e.qc_hold_reason ? `<div style="font-size:0.82rem;color:#475569;margin-top:3px">Hold reason: <b>${e.qc_hold_reason}</b>${e.qc_hold_qty ? ` · Qty <b>${e.qc_hold_qty}</b>` : ''}${e.qc_hold_by ? ` · by <b>${e.qc_hold_by}</b>` : ''}</div>` : ''}
                     ${holdPics.length ? `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">${holdPics.map(u => `<a href="${u}" target="_blank" rel="noopener"><img src="/api/qc/thumb?src=${encodeURIComponent(u)}&w=200" alt="Hold photo" style="width:72px;height:72px;object-fit:cover;border-radius:6px;border:1px solid ${bc}"></a>`).join('')}</div>` : ''}
                     ${e.qc_remarks ? `<div style="font-size:0.82rem;color:#334155;margin-top:5px;padding-top:5px;border-top:1px dashed ${bc}"><b>QC remarks:</b> ${e.qc_remarks}</div>` : ''}
+                    ${(e.qc_verify_id && window.canDeleteQcEntry && window.canDeleteQcEntry()) ? `<div style="text-align:right;margin-top:8px"><button type="button" onclick="deleteQcEntry('verify', ${Number(e.qc_verify_id)}, 'verification', () => { const m = document.getElementById('modal-details'); if (m) m.style.display = 'none'; })" style="border:1px solid #fca5a5;background:#fef2f2;color:#b91c1c;border-radius:8px;padding:4px 10px;font-size:0.8rem;font-weight:700;cursor:pointer"><i class="bi bi-trash"></i> Delete QC verification</button></div>` : ''}
                 </div>`;
             }
 
@@ -1595,7 +1596,8 @@
                                ['Function / Fit', st(r.ff_status, r.ff_problem, '') + (r.ff_photo_url ? ` · <a href="${esc(r.ff_photo_url)}" target="_blank" rel="noopener">photo</a>` : '')],
                                ['Entered by', `${esc(r.entered_by || '—')} · ${esc(when(r.entered_at))}`]]
                               .map(([k, v]) => `<tr style="border-top:1px solid #f1f5f9"><td style="padding:5px 8px 5px 0; color:#64748b; width:110px">${k}</td><td style="padding:5px 0">${v}</td></tr>`).join('')}
-                        </table>`).join('<hr style="border:none; border-top:1px dashed #e2e8f0">') || '<div style="color:#64748b">No check saved.</div>'}
+                        </table>
+                        ${(r.id && window.canDeleteQcEntry && window.canDeleteQcEntry()) ? `<div style="text-align:right; margin-top:8px"><button type="button" onclick="deleteQcEntry('slot', ${Number(r.id)}, '2-hour check')" style="border:1px solid #fca5a5; background:#fef2f2; color:#b91c1c; border-radius:8px; padding:4px 10px; font-size:0.8rem; font-weight:700; cursor:pointer"><i class="bi bi-trash"></i> Delete this check</button></div>` : ''}`).join('<hr style="border:none; border-top:1px dashed #e2e8f0">') || '<div style="color:#64748b">No check saved.</div>'}
                     </div>`;
                     ov.setAttribute('data-qc-pop', '1');
                     document.body.appendChild(ov);
