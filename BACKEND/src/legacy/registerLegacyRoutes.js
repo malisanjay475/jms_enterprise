@@ -32939,7 +32939,8 @@ app.get('/api/qc/compliance', async (req, res) => {
         let details = null;
         if (rpt) {
           const lateMins = (new Date(rpt.entered_at) - end) / 60000;
-          status = lateMins > 15 ? 'LATE' : 'FILLED';
+          // Late = saved more than 60 min after the 2-hour slot ended (grace).
+          status = lateMins > 60 ? 'LATE' : 'FILLED';
           details = {
             item: rpt.item_name, job_card_no: rpt.job_card_no, entered_by: rpt.entered_by,
             visual: rpt.visual_status, colour: rpt.colour_status, ff: rpt.ff_status

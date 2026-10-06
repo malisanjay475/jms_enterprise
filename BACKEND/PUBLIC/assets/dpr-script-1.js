@@ -1308,7 +1308,7 @@
                         const start = slotStart(date, sh, i), end = start + 7200000;
                         if (list.length) {
                             const e = list[0];
-                            const late = e.entered_at && (Date.parse(e.entered_at) - end) > 15 * 60000;
+                            const late = e.entered_at && (Date.parse(e.entered_at) - end) > 60 * 60000; // 60-min grace after the slot ends
                             return { kind: entryBad(e) ? 'bad' : 'ok', e, late };
                         }
                         if (now > end) return { kind: 'miss' };
