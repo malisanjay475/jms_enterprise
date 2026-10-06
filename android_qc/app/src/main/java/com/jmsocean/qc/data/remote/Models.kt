@@ -340,7 +340,13 @@ data class SessionRef(val username: String, val line: String)
 /** A slot row from GET /api/qc/verify/pending — field names match the JSON. */
 @Serializable
 data class VerifySlot(
+    val dpr_entry_id: Int? = null,
     val hour_slot: String = "",
+    val colour: String? = null,
+    val entry_type: String? = null,
+    /** How many DPR entries this hour has (2 = main + colour change), and this one's order. */
+    val entries_in_hour: Int = 1,
+    val entry_no: Int = 1,
     val qc_verified: Boolean = false,
     val verify_status: String? = null,
     val sup_good_qty: Int? = null,
@@ -362,7 +368,28 @@ data class VerifySubmitRequest(
     val qc_good_qty: Int,
     val qc_reject_qty: Int,
     val remarks: String = "",
-    val status_override: String? = null
+    val status_override: String? = null,
+    /** Which entry of the hour; null = the hour's latest entry (old behaviour). */
+    val dpr_entry_id: Int? = null
+)
+
+/** One entry inside a "Verify both" call. */
+@Serializable
+data class VerifyBatchItem(
+    val machine: String,
+    val dpr_date: String,
+    val shift: String,
+    val hour_slot: String,
+    val dpr_entry_id: Int?,
+    val qc_good_qty: Int,
+    val qc_reject_qty: Int,
+    val remarks: String = ""
+)
+
+@Serializable
+data class VerifyBatchRequest(
+    val session: SessionRef,
+    val items: List<VerifyBatchItem>
 )
 
 // ── QC hourly filling (DPR submit) ──────────────────────────────────────────

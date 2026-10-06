@@ -166,14 +166,28 @@ fun VerifyScreen(
                     slots.isEmpty() -> item {
                         Text("No entries for this plan / shift yet.", color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                    else -> items(slots) { slot ->
-                        SlotCard(
-                            slot = slot,
-                            busy = s.busySlot == slot.hour_slot,
-                            onVerify = { g, r, rmk -> vm.submit(slot, g, r, rmk) },
-                            onHold = { holdFor = slot },
-                            onDeviation = { deviationFor = slot }
-                        )
+                    else -> slots.groupBy { it.hour_slot }.forEach { (hour, entries) ->
+                        // An hour with a main + colour-change entry: each is verified on its own,
+                        // or both at once with the supervisor's figures.
+                        if (entries.size > 1) item(key = "hdr-$hour") {
+                            HourGroupHeader(
+                                hour = hour,
+                                count = entries.size,
+                                pending = entries.count { !it.qc_verified },
+                                busy = s.busySlot == hourKey(hour),
+                                onVerifyAll = { vm.submitAll(entries) }
+                            )
+                        }
+                        items(entries, key = { entryKey(it) }) { slot ->
+                            SlotCard(
+                                slot = slot,
+                                label = if (entries.size > 1) entryLabel(slot) else null,
+                                busy = s.busySlot == entryKey(slot) || s.busySlot == hourKey(hour),
+                                onVerify = { g, r, rmk -> vm.submit(slot, g, r, rmk) },
+                                onHold = { holdFor = slot },
+                                onDeviation = { deviationFor = slot }
+                            )
+                        }
                     }
                 }
                 item { Spacer(Modifier.size(8.dp)) }
@@ -205,8 +219,39 @@ fun VerifyScreen(
 }
 
 @Composable
+private fun HourGroupHeader(
+    hour: String,
+    count: Int,
+    pending: Int,
+    busy: Boolean,
+    onVerifyAll: () -> Unit
+) {
+    Row(
+        Modifier.fillMaxWidth().padding(top = 4.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(hour, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+            StatusPill("$count entries", Warn)
+        }
+        if (pending > 0) Button(
+            onClick = onVerifyAll, enabled = !busy,
+            shape = RoundedCornerShape(10.dp),
+            contentPadding = PaddingValues(horizontal = 12.dp),
+            modifier = Modifier.height(36.dp)
+        ) {
+            if (busy) CircularProgressIndicator(
+                Modifier.size(16.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary
+            ) else Text(if (pending == count) "✓ Verify both" else "✓ Verify rest", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
+@Composable
 private fun SlotCard(
     slot: VerifySlot,
+    label: String?,
     busy: Boolean,
     onVerify: (Int, Int, String) -> Unit,
     onHold: () -> Unit,
@@ -224,14 +269,14 @@ private fun SlotCard(
         else -> "Overdue"
     }
 
-    var good by remember(slot.hour_slot, slot.qc_verified) {
+    var good by remember(slot.hour_slot, slot.dpr_entry_id, slot.qc_verified) {
         mutableStateOf((slot.qc_good_qty ?: slot.sup_good_qty)?.toString() ?: "")
     }
-    var reject by remember(slot.hour_slot, slot.qc_verified) {
+    var reject by remember(slot.hour_slot, slot.dpr_entry_id, slot.qc_verified) {
         mutableStateOf((slot.qc_reject_qty ?: slot.sup_reject_qty)?.toString() ?: "")
     }
-    var remarks by remember(slot.hour_slot) { mutableStateOf("") }
-    var expanded by remember(slot.hour_slot, slot.qc_verified) { mutableStateOf(!slot.qc_verified) }
+    var remarks by remember(slot.hour_slot, slot.dpr_entry_id) { mutableStateOf("") }
+    var expanded by remember(slot.hour_slot, slot.dpr_entry_id, slot.qc_verified) { mutableStateOf(!slot.qc_verified) }
 
     // Compact card that echoes the web Verify slot (red outline when pending).
     Card(
@@ -247,7 +292,10 @@ private fun SlotCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(slot.hour_slot, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                Text(
+                    if (label != null) "${slot.hour_slot} · $label" else slot.hour_slot,
+                    fontWeight = FontWeight.Bold, fontSize = 15.sp
+                )
                 StatusPill(badgeText, badgeColor)
             }
             Spacer(Modifier.size(8.dp))
@@ -305,7 +353,7 @@ private fun SlotCard(
                 ) {
                     if (busy) CircularProgressIndicator(
                         Modifier.size(18.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary
-                    ) else Text("✓ Verify This Slot", fontWeight = FontWeight.Bold)
+                    ) else Text(if (label != null) "✓ Verify This Entry" else "✓ Verify This Slot", fontWeight = FontWeight.Bold)
                 }
                 Spacer(Modifier.size(8.dp))
 
