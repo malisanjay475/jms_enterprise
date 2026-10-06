@@ -14,6 +14,14 @@ part of your PR. On release, the `[Unreleased]` items move under the new version
 ## [Unreleased]
 
 ### Added
+- QC Compliance Summary setups + jobs (v1.99.0): DPR Compliance (Process QC) shows Setup 1 /
+  Setup 2 (time, who, out-of-STD flags: weight 5%, cycle 10%, cavity exact) per job, one row
+  per job card on the machine in the shift (each job owns its slots until the next starts), and
+  "Not running" when the machine has no running plan, DPR entry or QC data.
+  `/api/qc/summary-matrix` adds `dprRunning` (machines with DPR entries per date/shift).
+
+
+### Added
 - QC hold photos + per-entry QC marks (v1.98.0, QC app 1.7.0): `qc_holds` gains `image_urls`
   (JSONB) and `dpr_entry_id`; `POST /api/qc/hold` also takes multipart with up to 4 `hold_images`.
   `qc_verifications.status` can be `Rejected` or `Deviation` via `status_override` (the app sent
