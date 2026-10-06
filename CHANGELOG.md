@@ -13,6 +13,16 @@ part of your PR. On release, the `[Unreleased]` items move under the new version
 
 ## [Unreleased]
 
+### Security
+- Route guard bypass (v1.100.9): Express matched routes case-insensitively and answered HEAD with
+  the GET handler, while the hard locks in `routeGuards.js` only matched lower-case GET paths. So
+  `/API/admin/backup` (whole-DB download), `/API/admin/users/create` (new admin account),
+  `/API/admin/restore` etc. ran with no login on MAIN, staging and factory servers. The guard now
+  matches the lower-cased path and treats HEAD as GET, and `createApp` enables case-sensitive routing.
+  Also guarded (no client calls them without a session): `GET /api/users`, `/api/activity/monitor`,
+  `/api/hr/operators|history|download-operators` (login), `/api/admin/fix-sync-schema` (admin).
+  Rollback: revert this PR.
+
 ### Changed
 - QC late grace (v1.100.8): a 2-hour QC check is "late" only when saved more than 60 min after
   its slot ends (was 15) — DPR Compliance (Process QC) and `/api/qc/compliance` (QC app).
