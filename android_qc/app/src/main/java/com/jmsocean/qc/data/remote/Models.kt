@@ -287,6 +287,8 @@ data class FpaStatus(
     val approval_status: String? = null, // "Pending" | "Approved" | "Rejected"
     val reject_reason: String? = null,
     val reviewed_by: String? = null,
+    /** Machine the job (and this FPA) was moved from; it needs approval again here. */
+    val transferred_from: String? = null,
     val error: String? = null,
     val done_by: String? = null,
     val done_at: String? = null,

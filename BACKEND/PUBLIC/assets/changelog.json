@@ -11,8 +11,21 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.99.0",
+  "latest": "1.100.0",
   "versions": [
+    {
+      "version": "1.100.0",
+      "date": "2026-10-06",
+      "title": "FPA follows a job to its new machine",
+      "modules": [
+        {
+          "app": "quality",
+          "changes": [
+            { "type": "feat", "text": "When Planning moves a job to another machine, its FPA (form and photos) is copied to the new machine as Pending, and the approvers get a notification. The FPA page shows \"Job moved from M-x\", so QC checks the job on the new machine and approves it again. The FPA on the old machine stays as history. The QC app shows the same note (QC app 1.8.0)." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.99.0",
       "date": "2026-10-06",

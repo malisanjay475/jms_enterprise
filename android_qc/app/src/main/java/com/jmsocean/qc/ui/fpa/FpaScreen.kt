@@ -246,7 +246,9 @@ fun FpaScreen(
                             Text("⏳ Pending Approval", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = Color(0xFFB45309))
                             Spacer(Modifier.height(4.dp))
                             Text(
-                                "Your FPA has been submitted and is waiting for QC HOD approval. It will appear in the DPR Compliance Summary only after it is approved.",
+                                s.transferredFrom?.let {
+                                    "This job moved here from $it. Its FPA was copied to this machine and needs QC HOD approval again before it counts here."
+                                } ?: "Your FPA has been submitted and is waiting for QC HOD approval. It will appear in the DPR Compliance Summary only after it is approved.",
                                 fontSize = 13.sp, color = Color(0xFF92400E)
                             )
                         }

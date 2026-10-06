@@ -6373,6 +6373,9 @@ async function initializeLegacyRuntime() {
     // fpa_reject_reason for the reject path). Shown next to the FPA image in the
     // QC app and the DPR Compliance Summary.
     await q(`ALTER TABLE qc_job_checks ADD COLUMN IF NOT EXISTS fpa_approve_remark TEXT`);
+    // FPA copied to a new machine when its plan was moved (needs approval again there).
+    await q(`ALTER TABLE qc_job_checks ADD COLUMN IF NOT EXISTS fpa_transferred_from TEXT`);
+    await q(`ALTER TABLE qc_job_checks ADD COLUMN IF NOT EXISTS fpa_transferred_from_id INTEGER`);
 
     await q(`ALTER TABLE shifting_records ADD COLUMN IF NOT EXISTS shift_date DATE;`);
     await q(`ALTER TABLE shifting_records ADD COLUMN IF NOT EXISTS shift_type TEXT;`);
@@ -17174,6 +17177,81 @@ app.get('/api/planning/mould-machines', async (req, res) => {
 
 // POST /api/planning/move
 // Body: { rowId, targetMachine }
+// Copy the plan's latest done FPA from `fromMachine` to `toMachine` as Pending, with
+// "transferred from" set, so QC must approve it again on the new machine. If the job
+// already has an FPA row on the new machine (moved back), that row is reset the same way.
+// The old machine's FPA stays as history. Returns { id, from } or null when there is none.
+async function transferFpaToMachine(plan, fromMachine, toMachine) {
+  const refs = [plan.plan_id, plan.id].map(v => String(v ?? '').trim()).filter(Boolean);
+  const src = (await q(
+    `SELECT * FROM qc_job_checks
+      WHERE fpa_status = 'Done' AND machine = $1
+        AND (TRIM(COALESCE(plan_id, '')) = ANY($2::text[])
+             OR (TRIM(COALESCE(order_no, '')) <> '' AND TRIM(order_no) = TRIM($3)
+                 AND TRIM(COALESCE(mould_name, '')) = TRIM($4)))
+        AND ($5::int IS NULL OR factory_id = $5 OR factory_id IS NULL)
+      ORDER BY fpa_done_at DESC NULLS LAST, id DESC LIMIT 1`,
+    [fromMachine, refs, plan.order_no || '', plan.mould_name || '', plan.factory_id ?? null]
+  ))[0];
+  if (!src) return null;
+
+  const autoUntil = await getFpaAutoApproveUntil();
+  const status = autoUntil ? 'Approved' : 'Pending';
+  const reviewer = autoUntil ? 'AUTO-APPROVED' : null;
+  const remark = autoUntil ? `Auto-approved (FPA approval paused till ${autoUntil})` : null;
+  const jc = String(src.job_card_no || '').trim();
+  const existing = jc ? (await q(
+    `SELECT id FROM qc_job_checks
+      WHERE TRIM(COALESCE(job_card_no, '')) = $1 AND machine = $2
+        AND ($3::int IS NULL OR factory_id = $3 OR factory_id IS NULL)
+      ORDER BY id DESC LIMIT 1`, [jc, toMachine, src.factory_id ?? null]))[0] : null;
+
+  let id;
+  if (existing) {
+    id = existing.id;
+    await q(
+      `UPDATE qc_job_checks SET
+         fpa_status = 'Done', fpa_form_image = $2, fpa_form_url = $3, product_images = $4::jsonb,
+         fpa_done_at = $5, fpa_done_by = $6, plan_id = $7, order_no = $8, item_name = $9, mould_name = $10,
+         fpa_approval_status = $11, fpa_reviewed_by = $12, fpa_reviewed_at = $13, fpa_approve_remark = $14,
+         fpa_reject_reason = NULL, fpa_transferred_from = $15, fpa_transferred_from_id = $16, updated_at = NOW()
+       WHERE id = $1`,
+      [id, src.fpa_form_image, src.fpa_form_url, JSON.stringify(src.product_images || []),
+       src.fpa_done_at, src.fpa_done_by, src.plan_id, src.order_no, src.item_name, src.mould_name,
+       status, reviewer, autoUntil ? new Date() : null, remark, fromMachine, src.id]);
+  } else {
+    const line = (await q(`SELECT line FROM machines WHERE machine = $1 LIMIT 1`, [toMachine]))[0];
+    const ins = await q(
+      `INSERT INTO qc_job_checks (
+         date, shift, hour_slot, plan_id, job_card_no, order_no, line, machine, item_name, mould_name,
+         fpa_status, fpa_form_image, fpa_form_url, product_images, remarks, supervisor,
+         fpa_done_at, fpa_done_by, factory_id, fpa_approval_status,
+         fpa_reviewed_by, fpa_reviewed_at, fpa_approve_remark,
+         fpa_transferred_from, fpa_transferred_from_id, updated_at
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'Done',$11,$12,$13::jsonb,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,NOW())
+       RETURNING id`,
+      [src.date, src.shift, src.hour_slot, src.plan_id, src.job_card_no, src.order_no,
+       (line && line.line) || src.line, toMachine, src.item_name, src.mould_name,
+       src.fpa_form_image, src.fpa_form_url, JSON.stringify(src.product_images || []), src.remarks, src.supervisor,
+       src.fpa_done_at, src.fpa_done_by, src.factory_id, status,
+       reviewer, autoUntil ? new Date() : null, remark, fromMachine, src.id]);
+    id = ins[0] && ins[0].id;
+  }
+
+  if (!autoUntil) {
+    try {
+      for (const role of FPA_APPROVER_ROLES) {
+        await q(
+          `INSERT INTO qc_notifications (factory_id, recipient_role, message, ref_type, ref_id)
+           VALUES ($1,$2,$3,'FPA',$4)`,
+          [src.factory_id ?? null, role, `FPA moved ${fromMachine} → ${toMachine} / ${jc || '-'}: approve again on ${toMachine}`, id]
+        );
+      }
+    } catch (_) { /* notifications are best-effort */ }
+  }
+  return { id, from: fromMachine, status };
+}
+
 app.post('/api/planning/move', async (req, res) => {
   try {
     let { rowId, targetMachine, newMachine } = req.body || {};
@@ -17252,10 +17330,17 @@ app.post('/api/planning/move', async (req, res) => {
       [rowId, JSON.stringify({ from: plan.machine, to: targetMachine, index: insertIdx })]
     );
 
+    // FPA follows the job to the new machine, as Pending, so QC approves it again there.
+    let fpaTransferred = null;
+    if (plan.machine && String(plan.machine).trim() !== String(targetMachine).trim()) {
+      try { fpaTransferred = await transferFpaToMachine(plan, plan.machine, targetMachine); }
+      catch (err) { console.error('planning/move FPA transfer', err); }
+    }
+
     // [Real-Time Sync]
     syncService.triggerSync();
 
-    res.json({ ok: true });
+    res.json({ ok: true, fpa_transferred: fpaTransferred });
   } catch (e) {
     console.error('planning/move', e);
     sendServerError(res, e);
@@ -30682,7 +30767,7 @@ app.get('/api/qc/fpa/status', async (req, res) => {
     const rows = await q(
       `SELECT id, date, shift, fpa_done_at, fpa_done_by, fpa_form_url, product_images,
               COALESCE(fpa_approval_status,'Approved') AS fpa_approval_status,
-              fpa_reject_reason, fpa_reviewed_by, fpa_reviewed_at
+              fpa_reject_reason, fpa_reviewed_by, fpa_reviewed_at, fpa_transferred_from
        FROM qc_job_checks
        WHERE TRIM(COALESCE(job_card_no,'')) = TRIM($1)
          AND fpa_status = 'Done'
@@ -30710,6 +30795,7 @@ app.get('/api/qc/fpa/status', async (req, res) => {
         approval_status: approval,
         reject_reason: r.fpa_reject_reason || null,
         reviewed_by: r.fpa_reviewed_by || null,
+        transferred_from: r.fpa_transferred_from || null,
         date: fpaDate,
         shift: r.shift || null,
         done_by: r.fpa_done_by,
@@ -31034,7 +31120,8 @@ app.get('/api/qc/fpa/list', async (req, res) => {
          jc.fpa_done_by, jc.fpa_done_at,
          COALESCE(jc.fpa_approval_status, 'Pending') AS fpa_approval_status,
          jc.fpa_reviewed_by, jc.fpa_reviewed_at, jc.fpa_reject_reason, jc.fpa_approve_remark,
-         COALESCE(jc.fpa_resubmit_count, 0) AS fpa_resubmit_count
+         COALESCE(jc.fpa_resubmit_count, 0) AS fpa_resubmit_count,
+         jc.fpa_transferred_from
        FROM qc_job_checks jc
        WHERE jc.fpa_status = 'Done'
          -- Always surface PENDING FPAs regardless of the selected date so an
