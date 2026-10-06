@@ -24930,7 +24930,7 @@ app.get('/api/dpr/summary-matrix', async (req, res) => {
     // 2. Get DPR Entries for this Range
     let sqlEntries = `
       SELECT
-        d.id, d.dpr_date::text as dpr_date_str, d.machine, d.hour_slot, d.good_qty, d.reject_qty, d.downtime_min,
+        d.id, d.plan_id, d.dpr_date::text as dpr_date_str, d.machine, d.hour_slot, d.good_qty, d.reject_qty, d.downtime_min,
         d.reject_breakup, d.downtime_breakup, d.colour, d.entry_type,
         d.created_by as user_name, d.created_at,
         u.line as creator_line_access,
