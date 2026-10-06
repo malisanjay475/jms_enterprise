@@ -221,7 +221,24 @@ describe('route guards', () => {
     // Not guarded: normal traffic still works without a session during the soft rollout.
     ['get', '/api/dpr/recent', null, 200],
     ['post', '/api/dpr/submit', null, 200],
-    ['get', '/api/machine-data/latest', null, 200]
+    ['get', '/api/machine-data/latest', null, 200],
+    // Upper-case paths and HEAD used to skip the guard (Express routes both to the handler).
+    ['get', '/API/admin/backup', null, 401],
+    ['get', '/Api/Admin/Backup', 'alice', 403],
+    ['post', '/API/ADMIN/USERS/CREATE', null, 401],
+    ['post', '/api/Admin/Restore', 'admin1', 403],
+    ['head', '/api/admin/backup', null, 401],
+    ['head', '/api/admin/legacy-auth-usage', 'alice', 403],
+    // Oct-2026 audit: open reads of users / activity / HR data, DDL on a GET.
+    ['get', '/api/users', null, 401],
+    ['get', '/api/users', 'alice', 200],
+    ['get', '/api/activity/monitor', null, 401],
+    ['get', '/api/hr/download-operators', null, 401],
+    ['get', '/api/admin/fix-sync-schema', 'alice', 403],
+    ['get', '/api/admin/fix-sync-schema', 'admin1', 200],
+    // Still open for the no-session DPR tablets.
+    ['get', '/api/user/access', null, 200],
+    ['post', '/api/activity/heartbeat', null, 200]
   ];
 
   it.each(cases)('%s %s as %s -> %i', async (method, path, user, expected) => {
@@ -233,7 +250,7 @@ describe('route guards', () => {
     const res = await req;
 
     expect(res.status).toBe(expected);
-    if (expected === 401) expect(res.body.code).toBe('AUTH_REQUIRED');
+    if (expected === 401 && method !== 'head') expect(res.body.code).toBe('AUTH_REQUIRED');
   });
 
   it('the guard list covers every endpoint the audit found open', () => {
@@ -247,6 +264,26 @@ describe('route guards', () => {
       ['POST', '/api/vendor/admin/po/save']
     ]) {
       expect(guards.findGuard(method, path)).not.toBeNull();
+    }
+  });
+
+  it('createApp turns on case-sensitive routing so /API/... cannot reach a handler', async () => {
+    jest.resetModules();
+    jest.doMock('../src/app/registerCoreMiddleware', () => () => {});
+    jest.doMock('../src/app/registerRoutes', () => (app) => {
+      app.get('/api/admin/backup', (_req, res) => res.json({ ok: true }));
+      app.use((_req, res) => res.status(404).json({ ok: false }));
+      return {};
+    });
+    try {
+      const createApp = require('../src/app/createApp');
+      const { app } = createApp({ config: { serverType: 'MAIN' }, pool: makePool() });
+
+      expect((await request(app).get('/api/admin/backup')).status).toBe(200);
+      expect((await request(app).get('/API/admin/backup')).status).toBe(404);
+    } finally {
+      jest.dontMock('../src/app/registerCoreMiddleware');
+      jest.dontMock('../src/app/registerRoutes');
     }
   });
 });
