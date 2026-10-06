@@ -1449,8 +1449,10 @@
                                                     ? `<td style="${base}; background:#ecfdf5; color:#047857; cursor:pointer" onclick="qcShowSlot(${arg})" title="${who}">✔ OK${sub}</td>`
                                                     : `<td style="${base}; background:#fef2f2; color:#b91c1c; cursor:pointer" onclick="qcShowSlot(${arg})" title="${who}">✘ Not OK${sub}</td>`;
                                             }
-                                            // Slots outside this job's run on the machine are not counted for it.
-                                            if (!ownsSlot(jIdx, i)) return `<td style="${base}; color:#cbd5e1">·</td>`;
+                                            // Slots outside this job's run on the machine are not counted for it, and
+                                            // neither is a slot QC already checked under another job of this machine
+                                            // (one check per machine per slot is enough — not Missed).
+                                            if (!ownsSlot(jIdx, i) || slotLists[i].length) return `<td style="${base}; color:#cbd5e1">·</td>`;
                                             if (st.kind === 'miss') { rDue++; lDue++; lMiss++; return `<td style="${base}; background:#fff1f2; color:#e11d48">Missed</td>`; }
                                             if (st.kind === 'due') return `<td style="${base}; background:#fffbeb; color:#b45309">Due</td>`;
                                             return `<td style="${base}; color:#cbd5e1">—</td>`;
