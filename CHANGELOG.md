@@ -13,6 +13,11 @@ part of your PR. On release, the `[Unreleased]` items move under the new version
 
 ## [Unreleased]
 
+### Fixed
+- QC Compliance two jobs (v1.100.6): a slot QC checked under one job of a machine is no longer
+  counted as Missed on the other job's row (one check per machine per slot).
+
+
 ### Changed
 - QC check time (v1.100.5): DPR Compliance (Process QC) 2-hour check cells show the IST time
   the check was saved (`entered_at`) under OK / Not OK.
