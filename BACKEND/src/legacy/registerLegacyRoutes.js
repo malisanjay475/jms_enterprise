@@ -25047,6 +25047,7 @@ app.get('/api/dpr/summary-matrix', async (req, res) => {
         -- QC verify detail for this hour slot (one per DPR entry; legacy
         -- hour-level rows still match; qv/qh joined LATERAL below, fan-out-safe).
         (qv.id IS NOT NULL)   AS qc_verified,
+        qv.id                 AS qc_verify_id,
         qv.status             AS qc_verify_status,
         qv.verified_by        AS qc_verified_by,
         qv.verified_at        AS qc_verified_at,
@@ -31026,6 +31027,44 @@ app.get('/api/qc/job-checks', async (req, res) => {
 // POST /api/qc/fpa/delete-image — remove ONE FPA image from a qc_job_checks row.
 // Allowed roles: quality, admin, superadmin — so Quality can drop a bad FPA photo
 // and re-take it. Role is resolved server-side; a client-sent role is never trusted.
+// POST /api/qc/entry/delete — remove one QC app entry so QC can enter it again in the app.
+// Body: { kind: 'slot' | 'setup' | 'verify', id }
+//   slot   = a 2-hour QC check (qc_online_report_slots)
+//   setup  = one half of a QC One-time Setup (qc_job_setup)
+//   verify = a QC verification of a DPR entry (qc_verifications; exists on the factory server only)
+// Roles: QC HOD (quality), Quality Ass. Manager, Quality Executive, admin, superadmin — checked
+// here from the user's stored role. slot / setup deletions sync to the other server.
+const QC_ENTRY_DELETE_ROLES = ['admin', 'superadmin', 'quality', 'quality_ass__manager', 'quality_executive'];
+const QC_ENTRY_TABLES = { slot: 'qc_online_report_slots', setup: 'qc_job_setup', verify: 'qc_verifications' };
+app.post('/api/qc/entry/delete', async (req, res) => {
+  try {
+    const body = req.body || {};
+    const table = QC_ENTRY_TABLES[String(body.kind || '')];
+    const id = parseInt(body.id, 10);
+    if (!table || !Number.isInteger(id)) return res.status(400).json({ ok: false, error: 'kind (slot / setup / verify) and id required' });
+
+    const uname = getRequestUsername(req) || '';
+    const urow = uname ? await q('SELECT role_code FROM users WHERE username = $1 LIMIT 1', [uname]) : [];
+    const role = String((urow[0] && urow[0].role_code) || '').toLowerCase();
+    if (!QC_ENTRY_DELETE_ROLES.includes(role)) {
+      return res.status(403).json({ ok: false, error: 'Only QC HOD, Quality Ass. Manager, Quality Executive or admin can delete QC entries.' });
+    }
+
+    const factoryId = getFactoryId(req);
+    const rows = await q(
+      `DELETE FROM ${table} WHERE id = $1 AND ($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL) RETURNING *`,
+      [id, factoryId]
+    );
+    if (!rows.length) return res.status(404).json({ ok: false, error: 'Entry not found (already deleted?)' });
+    const r = rows[0];
+    console.log(`[QC] ${uname} (${role}) deleted ${table} #${id}: ${r.machine || ''} ${r.dpr_date ? new Date(r.dpr_date).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' }) : ''} ${r.shift || ''} ${r.slot || r.hour_slot || (r.setup_period ? 'setup ' + r.setup_period : '')}`);
+    if (table !== 'qc_verifications') syncService.triggerSync();
+    res.json({ ok: true, kind: body.kind, id });
+  } catch (e) {
+    sendServerError(res, e);
+  }
+});
+
 app.post('/api/qc/fpa/delete-image', async (req, res) => {
   try {
     const body = req.body || {};
@@ -31824,7 +31863,7 @@ app.get('/api/qc/summary-matrix', async (req, res) => {
           WHERE COALESCE(is_active, TRUE) = TRUE
             AND COALESCE(NULLIF(TRIM(machine_process), ''), 'Moulding') = 'Moulding'
             AND ($1::int IS NULL OR factory_id = $1)`, [factoryId]),
-      q(`SELECT machine, dpr_date::text AS date, shift, slot, job_card_no, order_no, item_name, mould_name, colour,
+      q(`SELECT id, machine, dpr_date::text AS date, shift, slot, job_card_no, order_no, item_name, mould_name, colour,
                 visual_status, visual_problem, visual_remarks, colour_status, colour_problem, colour_remarks,
                 ff_status, ff_problem, ff_photo_url, entered_by, entered_at
            FROM qc_online_report_slots
@@ -31844,10 +31883,30 @@ app.get('/api/qc/summary-matrix', async (req, res) => {
           WHERE (status = 'ACTIVE' OR dpr_date BETWEEN $1::date AND $2::date)
             AND ($3::int IS NULL OR factory_id = $3 OR factory_id IS NULL)
           ORDER BY hold_at DESC LIMIT 500`, [fromDate, toDate, factoryId]),
-      q(`SELECT machine, plan_id, order_no, item_name, mould_name
-           FROM plan_board
-          WHERE UPPER(status) = 'RUNNING'
-            AND ($1::int IS NULL OR factory_id = $1 OR factory_id IS NULL)`, [factoryId]),
+      // Running plans plus the plans of every order QC checked in the range, with plan qty,
+      // balance (plan − produced, as in Moulding) and client for the machine / job cell.
+      q(`SELECT pb.machine, pb.plan_id, pb.order_no, pb.item_name, pb.mould_name, pb.status,
+                COALESCE(NULLIF(TRIM(pb.job_card_no), ''), '') AS job_card_no,
+                COALESCE(pb.plan_qty, 0)::int AS plan_qty,
+                GREATEST(0, COALESCE(pb.plan_qty, 0) - COALESCE(prod.produced, 0))::int AS balance_qty,
+                COALESCE(o.client_name, '') AS client_name
+           FROM plan_board pb
+           LEFT JOIN LATERAL (
+             SELECT SUM(dh.good_qty) AS produced FROM dpr_hourly dh
+              WHERE (dh.plan_id = pb.plan_id OR CAST(dh.plan_id AS TEXT) = CAST(pb.id AS TEXT))
+                AND (dh.factory_id = pb.factory_id OR dh.factory_id IS NULL OR pb.factory_id IS NULL)
+                AND dh.is_deleted = false
+           ) prod ON true
+           LEFT JOIN LATERAL (
+             SELECT client_name FROM orders o2
+              WHERE o2.order_no = pb.order_no
+                AND (o2.factory_id = pb.factory_id OR o2.factory_id IS NULL OR pb.factory_id IS NULL)
+              LIMIT 1
+           ) o ON true
+          WHERE (UPPER(pb.status) = 'RUNNING'
+                 OR pb.order_no IN (SELECT DISTINCT order_no FROM qc_online_report_slots
+                                     WHERE dpr_date BETWEEN $2::date AND $3::date AND COALESCE(order_no, '') <> ''))
+            AND ($1::int IS NULL OR pb.factory_id = $1 OR pb.factory_id IS NULL)`, [factoryId, fromDate, toDate]),
       q(`SELECT line, dpr_date::text AS date, shift, qc_supervisor, qc_incharge, saved_by, saved_at
            FROM qc_line_teams
           WHERE dpr_date BETWEEN $1::date AND $2::date AND ($3 = '' OR shift = $3)
@@ -31860,12 +31919,37 @@ app.get('/api/qc/summary-matrix', async (req, res) => {
           ORDER BY assigned_at ASC`, [fromDate, toDate, sh, factoryId]),
       // Machines that ran in a shift (any DPR entry) — a machine with none, no running
       // plan and no QC data shows "Not running".
-      q(`SELECT DISTINCT machine, dpr_date::text AS date, shift
+      // Per machine/date/shift/hour: did a Colour Change / Mould Change run (same rule as Moulding).
+      q(`SELECT machine, dpr_date::text AS date, shift, hour_slot,
+                BOOL_OR(entry_type = 'ColourChange'
+                        OR COALESCE(NULLIF(downtime_breakup->>'9', '')::numeric, 0) > 0) AS cc,
+                BOOL_OR(entry_type IN ('MouldChange', 'MouldChangeover')
+                        OR COALESCE(NULLIF(downtime_breakup->>'2', '')::numeric, 0) > 0) AS mc
            FROM dpr_hourly
           WHERE dpr_date BETWEEN $1::date AND $2::date AND ($3 = '' OR shift = $3)
             AND is_deleted IS NOT TRUE
-            AND ($4::int IS NULL OR factory_id = $4 OR factory_id IS NULL)`, [fromDate, toDate, sh, factoryId])
+            AND ($4::int IS NULL OR factory_id = $4 OR factory_id IS NULL)
+          GROUP BY 1, 2, 3, 4`, [fromDate, toDate, sh, factoryId])
     ]);
+
+    // Machines that ran per date/shift, with Colour / Mould Change counts: a change counts
+    // once per run of consecutive hours (08→07 for Day, 20→19 for Night), like Moulding.
+    const runBy = new Map();
+    const hourOf = s => parseInt(String(s || '').slice(0, 2), 10);
+    dprRunRows
+      .sort((a, b) => {
+        const off = r => (hourOf(r.hour_slot) - (r.shift === 'Night' ? 20 : 8) + 24) % 24;
+        return off(a) - off(b);
+      })
+      .forEach(r => {
+        const k = `${r.machine}|${r.date}|${r.shift}`;
+        if (!runBy.has(k)) runBy.set(k, { machine: r.machine, date: r.date, shift: r.shift, cc: 0, mc: 0, _cc: false, _mc: false });
+        const g = runBy.get(k);
+        if (r.cc && !g._cc) g.cc++;
+        if (r.mc && !g._mc) g.mc++;
+        g._cc = !!r.cc; g._mc = !!r.mc;
+      });
+    const dprRunning = [...runBy.values()].map(({ _cc, _mc, ...g }) => g);
 
     const order = makeMachineOrder(machineRows);
     const machines = machineRows
@@ -31886,7 +31970,7 @@ app.get('/api/qc/summary-matrix', async (req, res) => {
         plans: planRows,
         teams: teamRows,
         machineTeams: machineTeamRows,
-        dprRunning: dprRunRows
+        dprRunning
       }
     });
   } catch (e) {

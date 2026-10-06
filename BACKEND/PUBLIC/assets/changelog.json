@@ -11,8 +11,34 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.100.2",
+  "latest": "1.100.4",
   "versions": [
+    {
+      "version": "1.100.4",
+      "date": "2026-10-06",
+      "title": "Quality can delete QC entries",
+      "modules": [
+        {
+          "app": "dpr",
+          "changes": [
+            { "type": "feat", "text": "QC HOD, Quality Ass. Manager, Quality Executive, admin and superadmin can delete a QC entry in the DPR Compliance Summary: a 2-hour QC check (in its popup), the 1st or 2nd half of a QC One-time Setup (in job details), or a QC verification (in the entry popup). QC can then enter it again in the QC app." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.100.3",
+      "date": "2026-10-06",
+      "title": "QC Compliance job cell like Moulding",
+      "modules": [
+        {
+          "app": "dpr",
+          "changes": [
+            { "type": "improvement", "text": "DPR Compliance Summary, Process QC: the Machine / Job cell now looks like Moulding. It shows the date and shift chips, MC / CC chips for mould and colour changes, OR | JC, the client name, the mould name, and Plan | Bal (Bal turns red when the plan is met)." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.100.2",
       "date": "2026-10-06",

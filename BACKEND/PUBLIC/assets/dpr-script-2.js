@@ -395,6 +395,9 @@
                         </tbody>
                     </table>
                     <div style="font-size:0.72rem; color:#64748b; margin-top:6px">1st half: ${when(halves[0])} &nbsp;|&nbsp; 2nd half: ${when(halves[1])}</div>
+                    ${(window.canDeleteQcEntry && window.canDeleteQcEntry() && halves.some(h => h && h.id)) ? `<div style="display:flex; gap:6px; justify-content:flex-end; margin-top:8px">
+                        ${halves.map((h, i) => (h && h.id) ? `<button type="button" onclick="deleteQcEntry('setup', ${Number(h.id)}, '${i ? '2nd' : '1st'} half setup', () => { if (window._lastQcJobDetails && window.loadJobQCEvidence) window.loadJobQCEvidence(window._lastQcJobDetails); })" style="border:1px solid #fca5a5; background:#fef2f2; color:#b91c1c; border-radius:8px; padding:3px 9px; font-size:0.75rem; font-weight:700; cursor:pointer"><i class="bi bi-trash"></i> Delete ${i ? '2nd' : '1st'} half</button>` : '').join('')}
+                    </div>` : ''}
                 </div>`;
         } catch (_) {
             return '';
@@ -522,6 +525,9 @@
     // Delete one FPA image (Quality / admin / superadmin). Server re-checks the role.
     // After a successful delete, re-render the same job's evidence so the grid updates
     // and Quality can capture a fresh FPA photo from the app.
+    // Global so the QC entry delete buttons (onclick) can refresh the QC panel.
+    window.loadJobQCEvidence = loadJobQCEvidence;
+
     window.deleteFpaImage = async function (id, url) {
         if (!confirm('Delete this FPA image? Quality can then add a new one.')) return;
         try {

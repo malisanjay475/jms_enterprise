@@ -373,6 +373,7 @@
                     ${e.qc_hold_reason ? `<div style="font-size:0.82rem;color:#475569;margin-top:3px">Hold reason: <b>${e.qc_hold_reason}</b>${e.qc_hold_qty ? ` · Qty <b>${e.qc_hold_qty}</b>` : ''}${e.qc_hold_by ? ` · by <b>${e.qc_hold_by}</b>` : ''}</div>` : ''}
                     ${holdPics.length ? `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">${holdPics.map(u => `<a href="${u}" target="_blank" rel="noopener"><img src="/api/qc/thumb?src=${encodeURIComponent(u)}&w=200" alt="Hold photo" style="width:72px;height:72px;object-fit:cover;border-radius:6px;border:1px solid ${bc}"></a>`).join('')}</div>` : ''}
                     ${e.qc_remarks ? `<div style="font-size:0.82rem;color:#334155;margin-top:5px;padding-top:5px;border-top:1px dashed ${bc}"><b>QC remarks:</b> ${e.qc_remarks}</div>` : ''}
+                    ${(e.qc_verify_id && window.canDeleteQcEntry && window.canDeleteQcEntry()) ? `<div style="text-align:right;margin-top:8px"><button type="button" onclick="deleteQcEntry('verify', ${Number(e.qc_verify_id)}, 'verification', () => { const m = document.getElementById('modal-details'); if (m) m.style.display = 'none'; })" style="border:1px solid #fca5a5;background:#fef2f2;color:#b91c1c;border-radius:8px;padding:4px 10px;font-size:0.8rem;font-weight:700;cursor:pointer"><i class="bi bi-trash"></i> Delete QC verification</button></div>` : ''}
                 </div>`;
             }
 
@@ -1273,7 +1274,14 @@
                     const fpaBy = {};
                     (D.fpa || []).forEach(r => { (fpaBy[key(r.date, r.shift, r.machine)] = fpaBy[key(r.date, r.shift, r.machine)] || []).push(r); });
                     const planBy = {};
-                    (D.plans || []).forEach(p => { if (p.machine && !planBy[p.machine]) planBy[p.machine] = p; });
+                    // D.plans = running plans + plans of orders QC checked. planBy = the machine's running plan.
+                    (D.plans || []).forEach(p => { if (p.machine && String(p.status || '').toUpperCase() === 'RUNNING' && !planBy[p.machine]) planBy[p.machine] = p; });
+                    // Plan for a job row (plan qty / balance / client): same order, prefer same machine, then same job card.
+                    const planFor = (orderNo, machine, jc) => {
+                        const list = (D.plans || []).filter(p => orderNo && String(p.order_no || '').trim() === String(orderNo).trim());
+                        return list.find(p => p.machine === machine && (!jc || !p.job_card_no || p.job_card_no === jc))
+                            || list.find(p => p.machine === machine) || list.find(p => jc && p.job_card_no === jc) || list[0] || null;
+                    };
                     const holdActive = {};
                     (D.holds || []).forEach(h => { if (h.status === 'ACTIVE' && !holdActive[h.machine]) holdActive[h.machine] = h; });
                     const normLine = s => String(s || '').toLowerCase().replace(/[\s\-_]/g, '');
@@ -1307,7 +1315,7 @@
                         if (now >= start) return { kind: 'due' };
                         return { kind: 'future' };
                     };
-                    const dprRun = new Set((D.dprRunning || []).map(r => key(r.date, r.shift, r.machine)));
+                    const dprRun = new Map((D.dprRunning || []).map(r => [key(r.date, r.shift, r.machine), r]));
 
                     // Slot header label with AM/PM for a single shift (both shifts → plain hours).
                     const slotLabel = (s, i) => {
@@ -1358,13 +1366,20 @@
                                     const setups = setupsBy[key(date, sh, machine)] || [];
                                     const slotLists = SL.map(s => slotsBy[key(date, sh, machine, s)] || []);
                                     const active = !!plan || dprRun.has(key(date, sh, machine)) || setups.length > 0 || slotLists.some(l => l.length);
-                                    let label = esc(machine);
-                                    if (shiftMode === 'Both') {
-                                        const c = sh === 'Day' ? '#f59e0b' : '#6366f1';
-                                        label += ` <span style="color:${c}; font-size:0.7rem; background:${c}15; padding:1px 4px; border-radius:4px; margin-left:4px">${sh}</span>`;
-                                    }
+                                    // Machine label like Moulding: name + date + shift chips, then MC / CC chips.
+                                    const shC = sh === 'Day' ? '#f59e0b' : '#6366f1';
+                                    const dLbl = new Date(date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
+                                    const label = `${esc(machine)} <span style="color:#334155; font-size:0.7rem; background:#e2e8f0; padding:1px 5px; border-radius:4px; margin-left:4px">${esc(dLbl)}</span>`
+                                        + ` <span style="color:${shC}; font-size:0.7rem; background:${shC}15; padding:1px 4px; border-radius:4px; margin-left:3px">${esc(sh)}</span>`;
+                                    const run = dprRun.get(key(date, sh, machine)) || {};
+                                    const chip = (bg, bd, col, icon, text, tip) =>
+                                        `<span title="${tip}" style="display:inline-flex; align-items:center; gap:3px; background:${bg}; border:1px solid ${bd}; color:${col}; font-size:0.62rem; font-weight:800; padding:1px 7px; border-radius:10px; white-space:nowrap"><i class="bi ${icon}"></i>${text}</span>`;
+                                    const chips = [];
+                                    if (run.mc > 0) chips.push(chip('#fef3c7', '#fde68a', '#b45309', 'bi-tools', `MC ×${run.mc}`, 'Mould Change done on this machine'));
+                                    if (run.cc > 0) chips.push(chip('#fff7ed', '#fed7aa', '#c2410c', 'bi-palette-fill', `CC ×${run.cc}`, 'Colour Change done on this machine'));
+                                    const chipsHtml = chips.length ? `<div style="display:flex; gap:4px; flex-wrap:wrap; margin:0 0 5px">${chips.join('')}</div>` : '';
                                     const machineTd = (sub) => `<td data-dpr-machine="${esc(machine)}" data-dpr-shift="${esc(sh)}" data-dpr-date="${esc(date)}" style="padding:6px 8px; text-align:left; border-right:1px solid #f1f5f9; border-bottom:1px solid #e2e8f0; background:#fff; vertical-align:middle">
-                                            <div style="font-size:0.75rem; text-transform:uppercase; letter-spacing:0.5px; font-weight:700; margin-bottom:6px; color:#64748b">${sub ? '<span style="color:#94a3b8">↳ next job</span>' : label}</div>`;
+                                            <div style="font-size:0.75rem; text-transform:uppercase; letter-spacing:0.5px; font-weight:700; margin-bottom:6px; color:#64748b; display:flex; align-items:center; flex-wrap:wrap">${sub ? '<span style="color:#94a3b8">↳ next job</span>' : label}</div>${sub ? '' : chipsHtml}`;
                                     if (!active) {
                                         mHtml += `<tr style="${sIdx === 0 ? 'border-top:2px solid #cbd5e1' : ''}">
                                             ${machineTd(false)}</td>
@@ -1406,6 +1421,15 @@
                                             plan_id: rowPlan ? rowPlan.plan_id : '',
                                             _row_date: date, _row_shift: sh
                                         };
+                                        const pl = planFor(job.order_no, machine, job.job_card_no) || rowPlan;
+                                        if (pl) {
+                                            if (!job.plan_id) job.plan_id = pl.plan_id || '';
+                                            if (!job.mould_name) job.mould_name = pl.mould_name || '';
+                                            if (!job.item_name) job.item_name = pl.item_name || '';
+                                            job.client_name = pl.client_name || '';
+                                            job.plan_qty = Number(pl.plan_qty || 0);
+                                            job.balance_qty = Number(pl.balance_qty ?? job.plan_qty);
+                                        }
                                         if (job.item_name) search += ' ' + String(job.item_name).toLowerCase();
                                         if (job.job_card_no) search += ' ' + String(job.job_card_no).toLowerCase();
 
@@ -1462,7 +1486,13 @@
                                         const jobHtml = (job.item_name || job.mould_name || job.job_card_no)
                                             ? `<div style="cursor:pointer" onclick='showJobDetails(${JSON.stringify(job).replace(/'/g, "&apos;")}, "${esc(job.order_no)}")'>
                                                   ${(job.order_no || job.job_card_no) ? `<div style="font-size:0.75rem; color:#0ea5e9; font-weight:700">${esc(job.order_no || '')}${job.job_card_no ? `${job.order_no ? ' | ' : ''}<span style="color:#64748b">${esc(job.job_card_no)}</span>` : ''}</div>` : ''}
-                                                  <div style="font-size:0.85rem; font-weight:700; color:#1e293b; line-height:1.3; margin-top:2px">${esc(job.item_name || job.mould_name || '')}</div>
+                                                  ${job.client_name ? `<div style="font-size:0.7rem; color:#475569; font-weight:600; margin-bottom:2px">${esc(job.client_name)}</div>` : ''}
+                                                  <div style="font-size:0.85rem; font-weight:700; color:#1e293b; line-height:1.3; margin-top:2px">${esc(job.mould_name || job.item_name || '')}</div>
+                                                  ${job.plan_qty > 0 ? `<div style="font-size:0.72rem; font-weight:700; margin-top:2px">
+                                                      <span style="color:#0f172a">Plan: ${job.plan_qty.toLocaleString('en-IN')}</span>
+                                                      <span style="color:#cbd5e1"> | </span>
+                                                      <span class="${job.balance_qty <= 0 ? 'bal-blink' : ''}" style="color:${job.balance_qty <= 0 ? '#dc2626' : '#16a34a'}">Bal: ${job.balance_qty.toLocaleString('en-IN')}</span>
+                                                  </div>` : ''}
                                                </div>`
                                             : '<div style="font-size:0.8rem; color:#94a3b8; font-style:italic">No running plan</div>';
                                         mHtml += `<tr style="${sIdx === 0 && first ? 'border-top:2px solid #cbd5e1' : ''}${first ? '' : '; background:#fbfdff'}">
@@ -1566,7 +1596,8 @@
                                ['Function / Fit', st(r.ff_status, r.ff_problem, '') + (r.ff_photo_url ? ` · <a href="${esc(r.ff_photo_url)}" target="_blank" rel="noopener">photo</a>` : '')],
                                ['Entered by', `${esc(r.entered_by || '—')} · ${esc(when(r.entered_at))}`]]
                               .map(([k, v]) => `<tr style="border-top:1px solid #f1f5f9"><td style="padding:5px 8px 5px 0; color:#64748b; width:110px">${k}</td><td style="padding:5px 0">${v}</td></tr>`).join('')}
-                        </table>`).join('<hr style="border:none; border-top:1px dashed #e2e8f0">') || '<div style="color:#64748b">No check saved.</div>'}
+                        </table>
+                        ${(r.id && window.canDeleteQcEntry && window.canDeleteQcEntry()) ? `<div style="text-align:right; margin-top:8px"><button type="button" onclick="deleteQcEntry('slot', ${Number(r.id)}, '2-hour check')" style="border:1px solid #fca5a5; background:#fef2f2; color:#b91c1c; border-radius:8px; padding:4px 10px; font-size:0.8rem; font-weight:700; cursor:pointer"><i class="bi bi-trash"></i> Delete this check</button></div>` : ''}`).join('<hr style="border:none; border-top:1px dashed #e2e8f0">') || '<div style="color:#64748b">No check saved.</div>'}
                     </div>`;
                     ov.setAttribute('data-qc-pop', '1');
                     document.body.appendChild(ov);
