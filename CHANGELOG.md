@@ -13,6 +13,21 @@ part of your PR. On release, the `[Unreleased]` items move under the new version
 
 ## [Unreleased]
 
+### Added
+- Sync QC verifications (v1.100.7): `qc_verifications` joins sync (`sync_id` key). It and `qc_holds` get
+  `dpr_global_id` (= `dpr_hourly.global_id`); trigger `qc_link_dpr_entry` re-points `dpr_entry_id` to the
+  receiving server's own `dpr_hourly` row (ids differ between servers). The factory LOCAL backfills
+  `dpr_global_id` for existing rows on boot. Reads match by entry id OR global id; the hour-level
+  fallback is only for rows with neither. The no-entry unique index becomes `uq_qcv_slot_noentry2`.
+  `dpr_hourly.global_id` is now created on a fresh DB too (same definition as existing servers).
+  Rollback: remove `qc_verifications` from SYNC_ALL; the added columns/trigger are harmless.
+
+
+### Fixed
+- QC Compliance two jobs (v1.100.6): a slot QC checked under one job of a machine is no longer
+  counted as Missed on the other job's row (one check per machine per slot).
+
+
 ### Changed
 - QC check time (v1.100.5): DPR Compliance (Process QC) 2-hour check cells show the IST time
   the check was saved (`entered_at`) under OK / Not OK.

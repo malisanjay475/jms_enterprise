@@ -204,6 +204,7 @@ const SYNC_ALL = [
     'qc_online_reports',
     'qc_shift_team',
     'qc_training_sheets',
+    'qc_verifications',
     'raw_material_issues',
     'roles',
     'shift_teams',
@@ -350,6 +351,9 @@ const CONFLICT_KEYS = {
     qc_line_teams: 'line, dpr_date, shift, factory_id',
     qc_shift_team: 'sync_id',
     qc_holds: 'sync_id',
+    // QC verifications: surrogate sync_id. dpr_entry_id is per-server; the row carries
+    // dpr_global_id and a trigger re-points dpr_entry_id on arrival (registerLegacyRoutes).
+    qc_verifications: 'sync_id',
     // QC memos (+ older material issues). memo_no is unique, so LOCAL memos are numbered
     // MEMO-<factory>-L<id> and MAIN's MEMO-<factory>-<id>; existing LOCAL memos are
     // renumbered once when the table first joins sync (ensureSyncIdSchema).
@@ -566,7 +570,7 @@ const GLOBAL_MASTER_TABLES = new Set([
     'erp_mould_item'
 ]);
 
-const SYNC_ID_REQUIRED_TABLES = ['notifications', 'dpr_reasons', 'assembly_plans', 'assembly_scans', 'maintenance_tickets', 'maintenance_worklogs', 'org_units', 'org_departments', 'org_grades', 'org_designations', 'org_people', 'mould_verify_notes', 'qc_online_reports', 'qc_issue_memos', 'qc_training_sheets', 'qc_deviations', 'qc_job_checks', 'plan_audit_logs', 'mould_audit_logs', 'machine_status_logs', 'operator_history', 'plan_job_card_approval_history', 'jobs_queue', 'planning_drops', 'shifting_records', 'wip_inventory', 'wip_outward_logs', 'grinding_logs', 'qc_shift_team', 'qc_holds', 'qc_material_issues'];
+const SYNC_ID_REQUIRED_TABLES = ['notifications', 'dpr_reasons', 'assembly_plans', 'assembly_scans', 'maintenance_tickets', 'maintenance_worklogs', 'org_units', 'org_departments', 'org_grades', 'org_designations', 'org_people', 'mould_verify_notes', 'qc_online_reports', 'qc_issue_memos', 'qc_training_sheets', 'qc_deviations', 'qc_job_checks', 'plan_audit_logs', 'mould_audit_logs', 'machine_status_logs', 'operator_history', 'plan_job_card_approval_history', 'jobs_queue', 'planning_drops', 'shifting_records', 'wip_inventory', 'wip_outward_logs', 'grinding_logs', 'qc_shift_team', 'qc_holds', 'qc_material_issues', 'qc_verifications'];
 
 // Deterministic sync_id backfill seeds for tables converted to a surrogate UUID key.
 // The same physical row already exists on MAIN AND on its factory's LOCAL (LOCAL pushed
@@ -631,7 +635,8 @@ const SYNC_SCHEMA_READY_KEY = 'SYNC_SCHEMA_READY_VERSION';
 // 2026-10-02: qc_material_issues (memos) replicate; LOCAL memos renumbered MEMO-<f>-L<id>.
 // 2026-10-05: shifting_locations master (MAIN-only writer, id key, pulled by LOCAL).
 // 2026-10-05: shifting_line_teams (Shifting app team) replicates, natural key like qc_line_teams.
-const SYNC_SCHEMA_READY_VERSION = '2026-10-05-shifting-line-teams-v10';
+// 2026-10-06: qc_verifications replicate (sync_id; linked to dpr_hourly by dpr_global_id).
+const SYNC_SCHEMA_READY_VERSION = '2026-10-06-qc-verifications-v11';
 
 // "Sync token" columns: app-schema UNIQUE columns that carry a per-row identity
 // token (a UUID) MAIN considers authoritative, but which a LOCAL row may have been

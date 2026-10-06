@@ -6126,8 +6126,19 @@ async function initializeLegacyRuntime() {
       END $$;`);
     await qIdx(`CREATE UNIQUE INDEX IF NOT EXISTS uq_qcv_entry ON qc_verifications (dpr_entry_id)
                 WHERE dpr_entry_id IS NOT NULL`);
-    await qIdx(`CREATE UNIQUE INDEX IF NOT EXISTS uq_qcv_slot_noentry ON qc_verifications (machine, dpr_date, shift, hour_slot)
-                WHERE dpr_entry_id IS NULL`);
+    // QC verifications sync to MAIN, where dpr_hourly ids differ from the factory's.
+    // dpr_global_id (dpr_hourly.global_id, shared by every server) is the portable link;
+    // the trigger below keeps dpr_entry_id pointing at THIS server's row for it.
+    // dpr_hourly.global_id is the sync identity of an hourly entry (sync key). Existing servers
+    // have it from their restored schema; create it the same way on a fresh DB.
+    await q(`CREATE EXTENSION IF NOT EXISTS pgcrypto`);
+    await q(`ALTER TABLE dpr_hourly ADD COLUMN IF NOT EXISTS global_id UUID NOT NULL DEFAULT gen_random_uuid()`);
+    await qIdx(`CREATE UNIQUE INDEX IF NOT EXISTS idx_dpr_hourly_global_id ON dpr_hourly (global_id)`);
+    await q(`ALTER TABLE qc_verifications ADD COLUMN IF NOT EXISTS dpr_global_id UUID`);
+    await qIdx(`DROP INDEX IF EXISTS uq_qcv_slot_noentry`);
+    await qIdx(`CREATE UNIQUE INDEX IF NOT EXISTS uq_qcv_slot_noentry2 ON qc_verifications (machine, dpr_date, shift, hour_slot)
+                WHERE dpr_entry_id IS NULL AND dpr_global_id IS NULL`);
+    await qIdx(`CREATE INDEX IF NOT EXISTS idx_qcv_dpr_global ON qc_verifications (dpr_global_id)`);
 
     // QC JOB SETUP — STD (from mould master) vs Actual entered by QC per job/shift
     await q(`
@@ -6221,6 +6232,36 @@ async function initializeLegacyRuntime() {
     // (an hour can have a main + colour-change entry). NULL entry = whole hour (older rows).
     await q(`ALTER TABLE qc_holds ADD COLUMN IF NOT EXISTS image_urls JSONB DEFAULT '[]'::jsonb`);
     await q(`ALTER TABLE qc_holds ADD COLUMN IF NOT EXISTS dpr_entry_id INTEGER`);
+    // Portable link to the held DPR entry (see qc_verifications.dpr_global_id).
+    await q(`ALTER TABLE qc_holds ADD COLUMN IF NOT EXISTS dpr_global_id UUID`);
+    // dpr_global_id wins: it maps to this server's dpr_hourly row. Without it, fill it from
+    // dpr_entry_id (rows saved here by the QC app).
+    await q(`
+      CREATE OR REPLACE FUNCTION qc_link_dpr_entry() RETURNS trigger AS $fn$
+      BEGIN
+        IF NEW.dpr_global_id IS NOT NULL THEN
+          NEW.dpr_entry_id := (SELECT id FROM dpr_hourly WHERE global_id = NEW.dpr_global_id ORDER BY id LIMIT 1);
+        ELSIF NEW.dpr_entry_id IS NOT NULL THEN
+          NEW.dpr_global_id := (SELECT global_id FROM dpr_hourly WHERE id = NEW.dpr_entry_id);
+        END IF;
+        RETURN NEW;
+      END $fn$ LANGUAGE plpgsql`);
+    // Fill the link for rows saved before it existed — only on the factory LOCAL, where
+    // dpr_entry_id is this server's own id (on MAIN it may be a factory id).
+    // (A fresh DB has no dpr_hourly.global_id yet and nothing to fill — skip then.)
+    const dprHasGlobalId = (await q(`SELECT 1 FROM information_schema.columns
+                                      WHERE table_name = 'dpr_hourly' AND column_name = 'global_id' LIMIT 1`)).length > 0;
+    if (!isMainServer() && dprHasGlobalId) {
+      await q(`UPDATE qc_verifications v SET dpr_global_id = d.global_id
+                 FROM dpr_hourly d WHERE d.id = v.dpr_entry_id AND v.dpr_global_id IS NULL AND d.global_id IS NOT NULL`);
+      await q(`UPDATE qc_holds h SET dpr_global_id = d.global_id
+                 FROM dpr_hourly d WHERE d.id = h.dpr_entry_id AND h.dpr_global_id IS NULL AND d.global_id IS NOT NULL`);
+    }
+    for (const t of ['qc_verifications', 'qc_holds']) {
+      await q(`DROP TRIGGER IF EXISTS trg_${t}_link_dpr ON ${t}`);
+      await q(`CREATE TRIGGER trg_${t}_link_dpr BEFORE INSERT OR UPDATE OF dpr_entry_id, dpr_global_id ON ${t}
+               FOR EACH ROW EXECUTE FUNCTION qc_link_dpr_entry()`);
+    }
 
     // QC SHIFT TEAM — QC team members assigned per machine/shift
     await q(`
@@ -10549,7 +10590,7 @@ async function shiftingUnitWeights(mouldNames, factoryId) {
 // saved a "Verified" check for that DPR entry (or a legacy hour-level check); the
 // entry counts in proportion of QC good qty to supervisor good
 // qty. "Ready" = verified - already shifted. qc_verifications is written on the factory
-// LOCAL and does not sync, so a server without any recent verification data (MAIN) only
+// LOCAL and syncs to MAIN (v1.100.7); a server without any recent verification data only
 // enforces the "not produced" rule — see shiftingVerificationEnforced().
 function shiftingColourKey(v) { return String(v || '').trim().toLowerCase(); }
 
@@ -10600,8 +10641,8 @@ async function shiftingAvailabilityMap(plans, factoryId) {
            SELECT status, qc_good_qty, sup_good_qty FROM qc_verifications v
             WHERE v.machine = d.machine AND v.dpr_date = d.dpr_date
               AND v.shift = d.shift AND v.hour_slot = d.hour_slot
-              AND (v.dpr_entry_id = d.id OR v.dpr_entry_id IS NULL)
-            ORDER BY (v.dpr_entry_id = d.id) DESC NULLS LAST, v.id DESC LIMIT 1
+              AND (v.dpr_entry_id = d.id OR v.dpr_global_id = d.global_id OR (v.dpr_entry_id IS NULL AND v.dpr_global_id IS NULL))
+            ORDER BY (v.dpr_entry_id = d.id OR v.dpr_global_id = d.global_id) DESC NULLS LAST, v.id DESC LIMIT 1
          ) qv ON true
         WHERE TRIM(CAST(d.plan_id AS TEXT)) = ANY($1::text[])
           AND d.is_deleted IS NOT TRUE
@@ -25113,8 +25154,8 @@ app.get('/api/dpr/summary-matrix', async (req, res) => {
         FROM qc_verifications qv2
         WHERE qv2.machine = d.machine AND qv2.dpr_date = d.dpr_date
           AND qv2.shift = d.shift AND qv2.hour_slot = d.hour_slot
-          AND (qv2.dpr_entry_id = d.id OR qv2.dpr_entry_id IS NULL)
-        ORDER BY (qv2.dpr_entry_id = d.id) DESC NULLS LAST, qv2.id DESC
+          AND (qv2.dpr_entry_id = d.id OR qv2.dpr_global_id = d.global_id OR (qv2.dpr_entry_id IS NULL AND qv2.dpr_global_id IS NULL))
+        ORDER BY (qv2.dpr_entry_id = d.id OR qv2.dpr_global_id = d.global_id) DESC NULLS LAST, qv2.id DESC
         LIMIT 1
       ) qv ON true
       -- Active QC hold on this slot (→ cross in the Compliance Summary)
@@ -25122,9 +25163,9 @@ app.get('/api/dpr/summary-matrix', async (req, res) => {
         SELECT id, reason, qty_on_hold, hold_by, hold_at, image_urls FROM qc_holds qh2
         WHERE qh2.machine = d.machine AND qh2.dpr_date = d.dpr_date
           AND qh2.shift = d.shift AND qh2.slot = d.hour_slot
-          AND (qh2.dpr_entry_id = d.id OR qh2.dpr_entry_id IS NULL)
+          AND (qh2.dpr_entry_id = d.id OR qh2.dpr_global_id = d.global_id OR (qh2.dpr_entry_id IS NULL AND qh2.dpr_global_id IS NULL))
           AND UPPER(COALESCE(qh2.status,'ACTIVE')) = 'ACTIVE'
-        ORDER BY (qh2.dpr_entry_id = d.id) DESC NULLS LAST, qh2.id DESC LIMIT 1
+        ORDER BY (qh2.dpr_entry_id = d.id OR qh2.dpr_global_id = d.global_id) DESC NULLS LAST, qh2.id DESC LIMIT 1
       ) qh ON true
     `;
     const entryParams = [fDate, tDate, shift];
@@ -31031,9 +31072,9 @@ app.get('/api/qc/job-checks', async (req, res) => {
 // Body: { kind: 'slot' | 'setup' | 'verify', id }
 //   slot   = a 2-hour QC check (qc_online_report_slots)
 //   setup  = one half of a QC One-time Setup (qc_job_setup)
-//   verify = a QC verification of a DPR entry (qc_verifications; exists on the factory server only)
+//   verify = a QC verification of a DPR entry (qc_verifications)
 // Roles: QC HOD (quality), Quality Ass. Manager, Quality Executive, admin, superadmin — checked
-// here from the user's stored role. slot / setup deletions sync to the other server.
+// here from the user's stored role. Deletions sync to the other server.
 const QC_ENTRY_DELETE_ROLES = ['admin', 'superadmin', 'quality', 'quality_ass__manager', 'quality_executive'];
 const QC_ENTRY_TABLES = { slot: 'qc_online_report_slots', setup: 'qc_job_setup', verify: 'qc_verifications' };
 app.post('/api/qc/entry/delete', async (req, res) => {
@@ -31058,7 +31099,7 @@ app.post('/api/qc/entry/delete', async (req, res) => {
     if (!rows.length) return res.status(404).json({ ok: false, error: 'Entry not found (already deleted?)' });
     const r = rows[0];
     console.log(`[QC] ${uname} (${role}) deleted ${table} #${id}: ${r.machine || ''} ${r.dpr_date ? new Date(r.dpr_date).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' }) : ''} ${r.shift || ''} ${r.slot || r.hour_slot || (r.setup_period ? 'setup ' + r.setup_period : '')}`);
-    if (table !== 'qc_verifications') syncService.triggerSync();
+    syncService.triggerSync();
     res.json({ ok: true, kind: body.kind, id });
   } catch (e) {
     sendServerError(res, e);
@@ -31433,9 +31474,9 @@ app.get('/api/qc/verify/pending', async (req, res) => {
         SELECT id, reason FROM qc_holds h2
          WHERE h2.machine = d.machine AND h2.dpr_date = d.dpr_date
            AND h2.shift = d.shift AND h2.slot = d.hour_slot
-           AND (h2.dpr_entry_id = d.id OR h2.dpr_entry_id IS NULL)
+           AND (h2.dpr_entry_id = d.id OR h2.dpr_global_id = d.global_id OR (h2.dpr_entry_id IS NULL AND h2.dpr_global_id IS NULL))
            AND UPPER(COALESCE(h2.status, 'ACTIVE')) = 'ACTIVE'
-         ORDER BY (h2.dpr_entry_id = d.id) DESC NULLS LAST, h2.id DESC LIMIT 1
+         ORDER BY (h2.dpr_entry_id = d.id OR h2.dpr_global_id = d.global_id) DESC NULLS LAST, h2.id DESC LIMIT 1
       ) h ON true
       LEFT JOIN LATERAL (
         -- The entry's own verification; a legacy row saved before entries were
@@ -31443,8 +31484,8 @@ app.get('/api/qc/verify/pending', async (req, res) => {
         SELECT * FROM qc_verifications v2
          WHERE v2.machine = d.machine AND v2.dpr_date = d.dpr_date
            AND v2.shift = d.shift AND v2.hour_slot = d.hour_slot
-           AND (v2.dpr_entry_id = d.id OR v2.dpr_entry_id IS NULL)
-         ORDER BY (v2.dpr_entry_id = d.id) DESC NULLS LAST, v2.id DESC
+           AND (v2.dpr_entry_id = d.id OR v2.dpr_global_id = d.global_id OR (v2.dpr_entry_id IS NULL AND v2.dpr_global_id IS NULL))
+         ORDER BY (v2.dpr_entry_id = d.id OR v2.dpr_global_id = d.global_id) DESC NULLS LAST, v2.id DESC
          LIMIT 1
       ) v ON true
       WHERE d.machine    = $1
@@ -31514,7 +31555,7 @@ async function saveQcVerification(item, verified_by, factoryId) {
                   sgood, srej, sshots, good, rej, verified_by, remarks || null, status];
   const conflict = dpr_entry_id !== null
     ? `ON CONFLICT (dpr_entry_id) WHERE dpr_entry_id IS NOT NULL`
-    : `ON CONFLICT (machine, dpr_date, shift, hour_slot) WHERE dpr_entry_id IS NULL`;
+    : `ON CONFLICT (machine, dpr_date, shift, hour_slot) WHERE dpr_entry_id IS NULL AND dpr_global_id IS NULL`;
 
   // A legacy hour-level row (no entry link) for this hour is taken over by the first
   // entry verified, so it does not keep marking the other entry as verified.
@@ -31522,7 +31563,7 @@ async function saveQcVerification(item, verified_by, factoryId) {
     await q(
       `UPDATE qc_verifications SET dpr_entry_id = $1
         WHERE machine = $2 AND dpr_date = $3::date AND shift = $4 AND hour_slot = $5
-          AND dpr_entry_id IS NULL
+          AND dpr_entry_id IS NULL AND dpr_global_id IS NULL
           AND NOT EXISTS (SELECT 1 FROM qc_verifications x WHERE x.dpr_entry_id = $1)`,
       [dpr_entry_id, machine, dpr_date, shift, hour_slot]
     );
