@@ -14,6 +14,15 @@ part of your PR. On release, the `[Unreleased]` items move under the new version
 ## [Unreleased]
 
 ### Added
+- FPA follows a moved job (v1.100.0, QC app 1.8.0): `/api/planning/move` copies the plan's
+  latest done FPA (`qc_job_checks`, matched by plan_id or order + mould) to the target machine
+  as Pending (or resets the job's existing row there), sets new `fpa_transferred_from` /
+  `fpa_transferred_from_id`, and notifies FPA approvers; honours the FPA auto-approve window.
+  `/api/qc/fpa/list` and `/api/qc/fpa/status` return it; fpa.html and the QC app show
+  "Job moved from M-x". Only adds columns; a failed copy never blocks the move.
+
+
+### Added
 - QC Compliance Summary setups + jobs (v1.99.0): DPR Compliance (Process QC) shows Setup 1 /
   Setup 2 (time, who, out-of-STD flags: weight 5%, cycle 10%, cavity exact) per job, one row
   per job card on the machine in the shift (each job owns its slots until the next starts), and
