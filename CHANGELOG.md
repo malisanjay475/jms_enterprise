@@ -14,6 +14,14 @@ part of your PR. On release, the `[Unreleased]` items move under the new version
 ## [Unreleased]
 
 ### Fixed
+- FPA per machine (v1.100.2, QC app 1.8.2): the QC app looked up FPA by plan on any machine,
+  so a job moved to another machine showed the old machine's FPA as done while the DPR job
+  details (machine-scoped) showed none. The app now checks the job's machine (`/api/qc/job-checks`
+  `machine`), and says where the old FPA was when only another machine has one. The DPR job
+  details panel shows that other-machine FPA, marked, instead of "No FPA images saved".
+
+
+### Fixed
 - QC app One-time Setup 2nd half (v1.100.1, QC app 1.8.1): the app never sent `setup_period`, so
   the server saved every setup as period 1 and a "2nd half" save overwrote the 1st half. The app
   now sends `setup_period`, loads `setups` per half, ticks saved halves, and defaults to 2nd half

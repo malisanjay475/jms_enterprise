@@ -126,17 +126,29 @@ class QcRepository(private val session: SessionStore) {
      * via /api/qc/job-checks and looks for a row with fpa_status='Done', so it
      * works even when the job has no job-card number.
      */
-    suspend fun fpaStatusFull(planId: String, jobCardNo: String): Result<FpaStatus> = runCatching {
-        val env = when {
-            planId.isNotBlank() -> api.jobChecks(planId = planId)
-            jobCardNo.isNotBlank() -> api.jobChecks(jobCardNo = jobCardNo)
-            else -> return@runCatching FpaStatus(ok = true, done = false)
+    suspend fun fpaStatusFull(planId: String, jobCardNo: String, machine: String = ""): Result<FpaStatus> = runCatching {
+        // FPA is per job AND machine: a job moved to another machine needs its own FPA there.
+        suspend fun doneRowOn(m: String?): kotlinx.serialization.json.JsonObject? {
+            val env = when {
+                planId.isNotBlank() -> api.jobChecks(planId = planId, machine = m)
+                jobCardNo.isNotBlank() -> api.jobChecks(jobCardNo = jobCardNo, machine = m)
+                else -> return null
+            }
+            if (!env.ok) error(env.error ?: "Status check failed")
+            val arr = env.data as? JsonArray ?: JsonArray(emptyList())
+            return arr.map { it.jsonObject }.firstOrNull { row ->
+                row["fpa_status"]?.jsonPrimitive?.contentOrNull?.equals("Done", ignoreCase = true) == true
+            }
         }
-        if (!env.ok) error(env.error ?: "Status check failed")
-        val arr = env.data as? JsonArray ?: JsonArray(emptyList())
-        val doneRow = arr.map { it.jsonObject }.firstOrNull { row ->
-            row["fpa_status"]?.jsonPrimitive?.contentOrNull?.equals("Done", ignoreCase = true) == true
-        } ?: return@runCatching FpaStatus(ok = true, done = false, submitted = false)
+        if (planId.isBlank() && jobCardNo.isBlank()) return@runCatching FpaStatus(ok = true, done = false)
+        val doneRow = doneRowOn(machine.ifBlank { null }) ?: run {
+            val other = if (machine.isNotBlank()) doneRowOn(null) else null
+            return@runCatching FpaStatus(
+                ok = true, done = false, submitted = false,
+                other_machine = other?.get("machine")?.jsonPrimitive?.contentOrNull,
+                done_at = other?.get("fpa_done_at")?.jsonPrimitive?.contentOrNull
+            )
+        }
         // Honor the approval workflow: an FPA row exists (submitted), but it only counts as
         // "done" (locked) once it has been APPROVED. Pending/Rejected keep the form usable.
         val approval = doneRow["fpa_approval_status"]?.jsonPrimitive?.contentOrNull ?: "Approved"
@@ -155,8 +167,8 @@ class QcRepository(private val session: SessionStore) {
     }
 
     /** Convenience boolean form used by the QC-entry FPA gate. */
-    suspend fun fpaStatus(planId: String, jobCardNo: String): Result<Boolean> =
-        fpaStatusFull(planId, jobCardNo).map { it.ok && it.done }
+    suspend fun fpaStatus(planId: String, jobCardNo: String, machine: String = ""): Result<Boolean> =
+        fpaStatusFull(planId, jobCardNo, machine).map { it.ok && it.done }
 
     /**
      * Submit FPA with the physical-form photo + product reference photos.

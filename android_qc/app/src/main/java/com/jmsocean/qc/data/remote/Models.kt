@@ -293,6 +293,8 @@ data class FpaStatus(
     val reviewed_by: String? = null,
     /** Machine the job (and this FPA) was moved from; it needs approval again here. */
     val transferred_from: String? = null,
+    /** No FPA on this machine, but the job has one from another machine (moved before FPAs were copied). */
+    val other_machine: String? = null,
     val error: String? = null,
     val done_by: String? = null,
     val done_at: String? = null,
