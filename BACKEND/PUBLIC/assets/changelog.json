@@ -14,6 +14,19 @@
   "latest": "1.101.1",
   "versions": [
     {
+      "version": "1.101.4",
+      "date": "2026-10-07",
+      "title": "Factory server no longer double-counts DPR",
+      "modules": [
+        {
+          "app": "dpr",
+          "changes": [
+            { "type": "fix", "text": "Factory (local) server: an hourly DPR entry could be saved twice by sync, doubling Produced and showing every job as OVER on the Machine Timeline. Sync now recognises the existing entry instead of adding a copy." }
+          ]
+        }
+      ]
+    },
+    {
       "version": "1.101.1",
       "date": "2026-10-07",
       "title": "Machine Timeline Excel shows Indian time",

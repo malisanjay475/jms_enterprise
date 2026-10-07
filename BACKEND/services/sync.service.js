@@ -2145,6 +2145,71 @@ async function resyncSerialSequence(table, column = 'id', client = null) {
     }
 }
 
+// dpr_hourly syncs on global_id. When the same hourly entry carries a DIFFERENT global_id
+// on each server (e.g. a LOCAL whose rows got fresh uuids from a schema change or an old
+// build that pushed without global_id), ON CONFLICT (global_id) never matches and the
+// incoming row is inserted as a second copy — produced qty doubles and plan balances go
+// negative. Before the upsert, find this server's twin of the incoming row (same natural
+// key AND same created_at to the millisecond — the entry's original save moment, kept
+// through sync) and give it the incoming global_id, so the upsert UPDATEs it instead.
+// Only re-keys when exactly one twin exists and its global_id is not itself arriving in
+// this batch; QC links (dpr_global_id) follow the new id.
+let dprCreatedAtType = null;
+async function adoptDprHourlyTwinGlobalId(client, row, tableColumns, seenGlobalIds) {
+    if (!row || !row.global_id || !row.created_at) return false;
+    const keyCols = ['machine', 'dpr_date', 'shift', 'hour_slot', 'plan_id', 'colour', 'entry_type', 'factory_id']
+        .filter((c) => tableColumns.has(c));
+    const params = [String(row.global_id), row.created_at];
+    const conds = keyCols.map((c) => {
+        params.push(row[c] ?? null);
+        return `${c} IS NOT DISTINCT FROM $${params.length}`;
+    });
+    await client.query('SAVEPOINT sync_dpr_twin');
+    try {
+        const exists = await client.query('SELECT 1 FROM dpr_hourly WHERE global_id = $1 LIMIT 1', [params[0]]);
+        if (exists.rowCount > 0) {
+            await client.query('RELEASE SAVEPOINT sync_dpr_twin');
+            return false;
+        }
+        // Cast like the INSERT does: into the column's own type (a plain timestamp column
+        // ignores the zone suffix), so the comparison matches what the copy would store.
+        if (!dprCreatedAtType) {
+            const t = await client.query(
+                `SELECT data_type FROM information_schema.columns
+                  WHERE table_schema = 'public' AND table_name = 'dpr_hourly' AND column_name = 'created_at'`
+            );
+            dprCreatedAtType = t.rows[0]?.data_type === 'timestamp with time zone' ? 'timestamptz' : 'timestamp';
+        }
+        const twins = await client.query(
+            `SELECT id, global_id FROM dpr_hourly
+              WHERE global_id <> $1
+                AND date_trunc('milliseconds', created_at) = date_trunc('milliseconds', $2::${dprCreatedAtType})
+                AND ${conds.join(' AND ')}
+              LIMIT 2`,
+            params
+        );
+        const twin = twins.rowCount === 1 ? twins.rows[0] : null;
+        if (!twin || seenGlobalIds.has(String(twin.global_id))) {
+            await client.query('RELEASE SAVEPOINT sync_dpr_twin');
+            return false;
+        }
+        await client.query('UPDATE dpr_hourly SET global_id = $1 WHERE id = $2', [params[0], twin.id]);
+        for (const qcTable of ['qc_verifications', 'qc_holds']) {
+            const cols = await getTableColumns(qcTable);
+            if (cols.has('dpr_global_id')) {
+                await client.query(`UPDATE ${qcTable} SET dpr_global_id = $1 WHERE dpr_global_id = $2`, [params[0], twin.global_id]);
+            }
+        }
+        await client.query('RELEASE SAVEPOINT sync_dpr_twin');
+        return true;
+    } catch (e) {
+        await client.query('ROLLBACK TO SAVEPOINT sync_dpr_twin');
+        await client.query('RELEASE SAVEPOINT sync_dpr_twin');
+        console.warn('[Sync] dpr_hourly twin re-key skipped:', e.message);
+        return false;
+    }
+}
+
 async function upsertData(table, data) {
     if (!data.length) return { created: 0, updated: 0, failed: 0 };
 
@@ -2169,6 +2234,11 @@ async function upsertData(table, data) {
             // Set when at least one row in this batch carried an explicit 'id'
             // into the INSERT — those bypass nextval and leave the sequence stale.
             let sawExplicitId = false;
+            // dpr_hourly global_ids arriving in this batch — a twin holding one of them
+            // is that row's own copy, never a candidate for re-keying.
+            const seenGlobalIds = new Set(
+                table === 'dpr_hourly' ? data.map((r) => r && r.global_id).filter(Boolean).map(String) : []
+            );
 
             for (let row of data) {
                 if (table === 'plan_board' && (row.plan_id == null || String(row.plan_id).trim() === '')) {
@@ -2263,6 +2333,10 @@ async function upsertData(table, data) {
                         stats.skipped += 1;
                         continue;
                     }
+                }
+
+                if (table === 'dpr_hourly') {
+                    await adoptDprHourlyTwinGlobalId(client, row, tableColumns, seenGlobalIds);
                 }
 
                 let whereClause = hasUpdatedAtColumn
@@ -3513,6 +3587,7 @@ module.exports = {
         pushRowsToMain,
         coerceJsonColumnsForWire,
         upsertData,
+        adoptDprHourlyTwinGlobalId,
         setRuntimeForTests,
         resyncSerialSequence,
         findFullReplicationKeyOffenders,
