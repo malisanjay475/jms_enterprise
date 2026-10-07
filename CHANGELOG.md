@@ -13,6 +13,15 @@ part of your PR. On release, the `[Unreleased]` items move under the new version
 
 ## [Unreleased]
 
+### Fixed
+- Scheduled backup (v1.101.5): every run since 28-Sep failed at the 60-min SSH timeout. The DB dump reached
+  Google Drive each time, but the per-file uploads mirror (3.4 GB, throttled, no time limit) never
+  finished. Carried over from #1675: each Drive step is time-boxed (DB 20m, daily archive 25m, files
+  mirror 15m soft cutoff that continues next run), thumbnail folders are skipped, larger Drive chunks,
+  fewer retries, real deletes instead of Drive trash, SSH timeout 90m. The run now fails (and emails)
+  only when the DB dump misses Drive. The log warns while the shared rclone client ID is in use
+  (fix: docs/OPS-SETUP.md section 1b). Rollback: revert this PR.
+
 ### Security
 - Internal code maps no longer public (v1.101.3): `api-inventory.json` (every route with source file and
   line), `graphify-graph.json` (1 MB code graph) and their viewer `graph-view.html` moved from
