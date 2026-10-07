@@ -19573,10 +19573,13 @@ app.post('/api/reports/machine-timeline.xlsx', async (req, res) => {
     const thin = { style: 'thin', color: { argb: 'FFD5DEEA' } };
     const box = { top: thin, left: thin, right: thin, bottom: thin };
 
+    // ExcelJS writes Date values as UTC; shift so cells show IST wall-clock
+    // time (and OR / JC dates, which arrive as 18:30Z the day before, the right day).
+    const IST_MS = 330 * 60 * 1000;
     const toDate = (v) => {
       if (!v) return null;
       const d = new Date(v);
-      return Number.isNaN(d.getTime()) ? null : d;
+      return Number.isNaN(d.getTime()) ? null : new Date(d.getTime() + IST_MS);
     };
 
     const cols = [
