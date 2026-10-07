@@ -91,7 +91,7 @@
 ## Reports & sync
 
 ### Reports
-- **UI:** `reports.html`, `job_summary.html`, `analyze.html`, `graph-view.html`
+- **UI:** `reports.html`, `job_summary.html`, `analyze.html` (code map viewer: `docs/code-map/graph-view.html`, not served)
 - **Key API:** `/api/reports/jms-plan` (in `src/app/registerRoutes.js`), ERP proxy in `BACKEND/routes/erp.routes.js`
 
 ### Sync (LOCAL ↔ MAIN)
