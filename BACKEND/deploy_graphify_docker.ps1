@@ -24,9 +24,9 @@ scp "graphify-view/Dockerfile" "${sshTarget}:${RemotePath}/graphify-view/"
 scp "graphify-view/nginx.conf" "${sshTarget}:${RemotePath}/graphify-view/"
 
 Write-Host "Uploading static assets (graph + API inventory)..." -ForegroundColor Cyan
-scp "PUBLIC/graph-view.html" "${sshTarget}:${RemotePath}/PUBLIC/"
-scp "PUBLIC/api-inventory.json" "${sshTarget}:${RemotePath}/PUBLIC/"
-scp "PUBLIC/graphify-graph.json" "${sshTarget}:${RemotePath}/PUBLIC/"
+scp "../docs/code-map/graph-view.html" "${sshTarget}:${RemotePath}/PUBLIC/"
+scp "../docs/code-map/api-inventory.json" "${sshTarget}:${RemotePath}/PUBLIC/"
+scp "../docs/code-map/graphify-graph.json" "${sshTarget}:${RemotePath}/PUBLIC/"
 
 Write-Host "Building and starting container..." -ForegroundColor Cyan
 ssh $sshTarget "cd `"$RemotePath`" && (docker compose -f docker-compose.graphify.yml up -d --build || docker-compose -f docker-compose.graphify.yml up -d --build)"

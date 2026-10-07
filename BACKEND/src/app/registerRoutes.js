@@ -6,7 +6,7 @@ const { getFactoryId } = require('./requestContext');
 const sseManager = require('./sseManager');
 const { createAuthMiddleware } = require('./auth');
 const { routeGuardMiddleware } = require('./routeGuards');
-const { createPrivateUploadGuard } = require('./uploadSafety');
+const { createPrivateUploadGuard, canonicalRequestPath } = require('./uploadSafety');
 const { apiLimiter } = require('./registerCoreMiddleware');
 const { createReadinessCheck } = require('./healthCheck');
 const legacyAuthUsage = require('./legacyAuthUsage');
@@ -48,6 +48,16 @@ function sseBroadcastMiddleware(req, res, next) {
     return origJson(body);
   };
   next();
+}
+
+const RETIRED_PUBLIC_FILES = new Set(['/api-inventory.json', '/graphify-graph.json', '/graph-view.html']);
+
+function blockRetiredPublicFiles(req, res, next) {
+  const p = canonicalRequestPath(req.path);
+  if (p !== null && RETIRED_PUBLIC_FILES.has(p.replace(/\/+$/, ''))) {
+    return res.status(404).type('text/plain').send('Not found');
+  }
+  return next();
 }
 
 const _pkg = (() => {
@@ -196,6 +206,10 @@ function registerRoutes(app, deps) {
   // Private upload folders (resumes) need a session with the right role. Root-mounted
   // and registered before the legacy static handlers, which serve all of PUBLIC.
   app.use(createPrivateUploadGuard(createAuthMiddleware(pool)));
+  // Internal code maps (every route + source file/line) moved to docs/code-map/. The
+  // LOCAL updater copies files but never deletes, so factory servers still hold the
+  // old PUBLIC copies — refuse them here.
+  app.use(blockRetiredPublicFiles);
 
   // -----------------------------------------------------------------------
   // SSE: register broadcast middleware early so it covers all routes below
@@ -287,3 +301,4 @@ function registerRoutes(app, deps) {
 }
 
 module.exports = registerRoutes;
+module.exports.blockRetiredPublicFiles = blockRetiredPublicFiles;
