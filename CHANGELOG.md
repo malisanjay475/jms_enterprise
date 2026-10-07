@@ -14,7 +14,7 @@ part of your PR. On release, the `[Unreleased]` items move under the new version
 ## [Unreleased]
 
 ### Security
-- Dependencies (v1.100.10): `npm audit fix` — `proxy-addr` 2.0.8 (critical: IP spoofing through
+- Dependencies (v1.101.1): `npm audit fix` — `proxy-addr` 2.0.8 (critical: IP spoofing through
   IPv4-mapped IPv6 trust subnets; matters for TRUST_PROXY, rate limit and login lockout keys),
   `brace-expansion` 1.1.21 / 2.1.7 / 5.0.12 (high), plus non-breaking patch bumps (e.g. sharp 0.35.5).
   Left: `sprintf-js` (moderate) via `mammoth` → `argparse` — only mammoth's CLI uses it; the fix needs a
