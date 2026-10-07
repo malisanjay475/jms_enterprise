@@ -20,6 +20,15 @@ part of your PR. On release, the `[Unreleased]` items move under the new version
   for those paths, because the LOCAL updater never deletes old files from factory servers.
   `analyze.html` and `joy.html` are real modules and stay. Rollback: revert this PR.
 
+### Fixed
+- Version 1.101.4: LOCAL servers no longer duplicate dpr_hourly rows on sync. When the incoming
+  row's global_id is unknown but this server holds the same entry (natural key + identical
+  created_at) under another global_id, sync re-keys that row instead of inserting a copy (copies
+  doubled Produced and made Machine Timeline balances negative). New
+  `BACKEND/scripts/cleanup-dpr-hourly-sync-duplicates.js` removes existing copies on a LOCAL
+  (dry run by default; `--apply` backs up, verifies every removed row is unknown to MAIN, then
+  deletes).
+
 ### Changed
 - Version 1.101.2: unique version for the release carrying the Timeline Excel IST fix and the npm
   audit fix (both had been numbered 1.101.1).
