@@ -13,6 +13,13 @@ part of your PR. On release, the `[Unreleased]` items move under the new version
 
 ## [Unreleased]
 
+### Security
+- Internal code maps no longer public (v1.101.3): `api-inventory.json` (every route with source file and
+  line), `graphify-graph.json` (1 MB code graph) and their viewer `graph-view.html` moved from
+  `BACKEND/PUBLIC` to `docs/code-map/` (`deploy_graphify_docker.ps1` updated). The server answers 404
+  for those paths, because the LOCAL updater never deletes old files from factory servers.
+  `analyze.html` and `joy.html` are real modules and stay. Rollback: revert this PR.
+
 ### Changed
 - Version 1.101.2: unique version for the release carrying the Timeline Excel IST fix and the npm
   audit fix (both had been numbered 1.101.1).
