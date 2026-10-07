@@ -13,6 +13,30 @@ rclone mkdir gdrive:JMS-Backups
 ```
 Backups already save locally on the VPS before this; this adds the offsite copy.
 
+### 1b. Use your own Google client ID (required for reliable backups)
+"Accept defaults" leaves the remote on rclone's **shared** Google client ID
+(project 202264815644). Its quota is shared by every rclone user in the world,
+so uploads get `403 rateLimitExceeded` and crawl (a 120 MB dump took 10 min,
+and backups failed from 28-Sep-2026). The backup log warns while this is unset.
+
+1. https://console.cloud.google.com → create a project (e.g. `jms-backup`).
+2. APIs & Services → Library → enable **Google Drive API**.
+3. OAuth consent screen → External → add your Gmail as a test user →
+   then **Publish app** (in "Testing" the token expires every 7 days).
+4. Credentials → Create credentials → OAuth client ID → **Desktop app** →
+   copy the client ID and secret.
+5. On the VPS:
+   ```bash
+   rclone config update gdrive client_id <ID> client_secret <SECRET>
+   rclone config reconnect gdrive:   # answer "n" to "Use web browser"; it prints an
+                                     # `rclone authorize "drive" "..."` command: run that on
+                                     # a PC with rclone + a browser, sign in, paste the
+                                     # token it prints back into the VPS prompt
+   rclone config show gdrive | grep client_id   # must show your ID
+   rclone lsd gdrive:JMS-Backups
+   ```
+   Same Google account = same Drive folder; existing backups stay where they are.
+
 ## 2. Alert emails (Gmail app password) — 5 min
 1. On a Gmail account, enable 2-Step Verification.
 2. Create an App Password (Google Account → Security → App passwords → Mail).
