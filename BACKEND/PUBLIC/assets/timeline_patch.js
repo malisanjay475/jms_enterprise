@@ -1600,6 +1600,10 @@
                         <i class="bi bi-file-earmark-excel" style="font-size:1rem"></i> Download Excel
                     </button>
 
+                    <button onclick="window.downloadTimelineTonnageExcel()" title="Download the load of ALL plans grouped by machine tonnage — tonnage summary, machine load and every plan (ignores the filters above)" style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:0.82rem;font-weight:700;color:#1d4ed8;white-space:nowrap;border:1px solid #93c5fd;border-radius:6px;padding:6px 12px;background:#eff6ff;">
+                        <i class="bi bi-bar-chart-line" style="font-size:1rem"></i> Tonnage Load
+                    </button>
+
                     <div id="filter-count" style="margin-left:auto; font-weight:700; color:#475569; font-size:0.9rem; background:#e2e8f0; padding:6px 14px; border-radius:20px;"></div>
                 </div>`;
             if (con.parentNode) con.parentNode.insertBefore(stickyHeader, con);
@@ -1667,6 +1671,7 @@
                 building: machine.building || machine.machine_process || currentProcess,
                 line: machine.line || (machine.machine_process === 'Moulding' ? '1' : 'Machines'),
                 machine_process: machine.machine_process || currentProcess,
+                tonnage: machine.tonnage,
                 is_active: machine.is_active !== false,
                 status: machine.is_active === false ? 'off' : 'stopped'
             }));
@@ -1855,6 +1860,7 @@
                 building: m.building,
                 line: m.line,
                 machine_process: m.machine_process,
+                tonnage: m.tonnage,
                 is_active: m.is_active,
                 status: m.status,
                 _isRegistered: true
