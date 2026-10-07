@@ -13,6 +13,10 @@ part of your PR. On release, the `[Unreleased]` items move under the new version
 
 ## [Unreleased]
 
+### Changed
+- Version 1.101.2: unique version for the release carrying the Timeline Excel IST fix and the npm
+  audit fix (both had been numbered 1.101.1).
+
 ### Security
 - Dependencies (v1.101.1): `npm audit fix` — `proxy-addr` 2.0.8 (critical: IP spoofing through
   IPv4-mapped IPv6 trust subnets; matters for TRUST_PROXY, rate limit and login lockout keys),
