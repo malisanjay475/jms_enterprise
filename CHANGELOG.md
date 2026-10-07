@@ -13,6 +13,17 @@ part of your PR. On release, the `[Unreleased]` items move under the new version
 
 ## [Unreleased]
 
+### Changed
+- Version 1.101.2: unique version for the release carrying the Timeline Excel IST fix and the npm
+  audit fix (both had been numbered 1.101.1).
+
+### Security
+- Dependencies (v1.101.1): `npm audit fix` — `proxy-addr` 2.0.8 (critical: IP spoofing through
+  IPv4-mapped IPv6 trust subnets; matters for TRUST_PROXY, rate limit and login lockout keys),
+  `brace-expansion` 1.1.21 / 2.1.7 / 5.0.12 (high), plus non-breaking patch bumps (e.g. sharp 0.35.5).
+  Left: `sprintf-js` (moderate) via `mammoth` → `argparse` — only mammoth's CLI uses it; the fix needs a
+  breaking `--force`. Rollback: revert this PR.
+
 ### Security
 - Route guard bypass (v1.100.9): Express matched routes case-insensitively and answered HEAD with
   the GET handler, while the hard locks in `routeGuards.js` only matched lower-case GET paths. So

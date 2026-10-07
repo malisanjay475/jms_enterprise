@@ -19573,10 +19573,13 @@ app.post('/api/reports/machine-timeline.xlsx', async (req, res) => {
     const thin = { style: 'thin', color: { argb: 'FFD5DEEA' } };
     const box = { top: thin, left: thin, right: thin, bottom: thin };
 
+    // ExcelJS writes Date values as UTC; shift so cells show IST wall-clock
+    // time (and OR / JC dates, which arrive as 18:30Z the day before, the right day).
+    const IST_MS = 330 * 60 * 1000;
     const toDate = (v) => {
       if (!v) return null;
       const d = new Date(v);
-      return Number.isNaN(d.getTime()) ? null : d;
+      return Number.isNaN(d.getTime()) ? null : new Date(d.getTime() + IST_MS);
     };
 
     const cols = [
@@ -19711,6 +19714,314 @@ app.post('/api/reports/machine-timeline.xlsx', async (req, res) => {
     res.send(Buffer.from(buf));
   } catch (e) {
     console.error('/api/reports/machine-timeline.xlsx', e);
+    sendServerError(res, e);
+  }
+});
+
+// ------------------------------------------------------------------
+//  POST /api/reports/machine-timeline-tonnage.xlsx
+//  Tonnage-wise machine load for ALL plans on the Machine Timeline.
+//  Like the timeline export, the ripple (Start / Exp End) and the STD
+//  balance time per plan are computed in the browser, so the client
+//  POSTs every machine (with tonnage) and every plan. Load = remaining
+//  balance time at STD rate. Three sheets: Tonnage Summary, Machine
+//  Load (machines grouped under each tonnage) and All Plans.
+// ------------------------------------------------------------------
+app.post('/api/reports/machine-timeline-tonnage.xlsx', async (req, res) => {
+  try {
+    const ExcelJS = require('exceljs');
+    const body = req.body || {};
+    const machinesIn = Array.isArray(body.machines) ? body.machines : [];
+    const rows = Array.isArray(body.rows) ? body.rows : [];
+    const factoryLabel = String(body.factory || 'All Factories');
+    const username = getRequestUsername(req) || 'System';
+
+    const BLUE = 'FF1E4E79', HEADFILL = 'FF2E6CA4', WHITE = 'FFFFFFFF',
+      INK = 'FF1F2937', GREY = 'FF64748B', REDINK = 'FFB91C1C',
+      GRPFILL = 'FFDBEAFE', GRPINK = 'FF1E3A8A', TOTFILL = 'FFF1F5F9',
+      RUNBG = 'FFDCFCE7', HEAVYBG = 'FFFEE2E2', PLAIN = 'FFFFFFFF';
+    const FONT = 'Calibri';
+    const HEAVY_DAYS = 7; // load above this many days per machine is flagged red
+    const thin = { style: 'thin', color: { argb: 'FFD5DEEA' } };
+    const box = { top: thin, left: thin, right: thin, bottom: thin };
+
+    // ExcelJS writes Date values as UTC; shift so cells show IST wall-clock time.
+    const IST_MS = 330 * 60 * 1000;
+    const toIst = (v) => {
+      if (!v) return null;
+      const d = new Date(v);
+      return Number.isNaN(d.getTime()) ? null : new Date(d.getTime() + IST_MS);
+    };
+    const fmtIst = (ms) => new Date(ms + IST_MS).toISOString().replace(/^\d{4}-(\d\d)-(\d\d)T(\d\d:\d\d).*$/, '$2/$1 $3');
+    const num = (v) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
+    const r1 = (n) => Math.round(n * 10) / 10;
+    const tonKey = (t) => { const n = num(t); return n > 0 ? n : null; };
+    const tonLabel = (t) => (t == null ? 'No Tonnage' : `${t}T`);
+    const now = Date.now();
+
+    // ── Machine-level rollup ──
+    const machineMap = new Map();
+    machinesIn.forEach((m) => {
+      const code = String(m.machine || '').trim();
+      if (!code || machineMap.has(code)) return;
+      machineMap.set(code, {
+        machine: code,
+        building: String(m.building || ''),
+        line: String(m.line || ''),
+        tonnage: tonKey(m.tonnage),
+        plans: 0, balQty: 0, loadHrs: 0, noStd: 0, running: [], freeAt: null
+      });
+    });
+    rows.forEach((p) => {
+      const code = String(p.machine || '').trim();
+      if (!machineMap.has(code)) {
+        machineMap.set(code, { machine: code, building: '', line: '', tonnage: tonKey(p.tonnage), plans: 0, balQty: 0, loadHrs: 0, noStd: 0, running: [], freeAt: null });
+      }
+      const m = machineMap.get(code);
+      m.plans += 1;
+      m.balQty += Math.max(0, num(p.balQty));
+      m.loadHrs += Math.max(0, num(p.loadHrs));
+      if (p.stdMissing) m.noStd += 1;
+      if (String(p.status || '').toLowerCase() === 'running') m.running.push(String(p.mouldName || p.mouldNo || p.orderNo || 'Running'));
+      const exp = p.exp ? new Date(p.exp).getTime() : NaN;
+      if (Number.isFinite(exp) && (m.freeAt == null || exp > m.freeAt)) m.freeAt = exp;
+    });
+    // A machine whose last plan already ended is free now.
+    machineMap.forEach((m) => { if (m.freeAt != null && m.freeAt < now) m.freeAt = now; });
+
+    // ── Tonnage-level rollup (ascending tonnage, unknown tonnage last) ──
+    const tonMap = new Map();
+    machineMap.forEach((m) => {
+      if (!tonMap.has(m.tonnage)) tonMap.set(m.tonnage, { tonnage: m.tonnage, machines: [] });
+      tonMap.get(m.tonnage).machines.push(m);
+    });
+    const tonOrder = (a, b) => (a == null) - (b == null) || (a || 0) - (b || 0);
+    const groups = [...tonMap.values()].sort((a, b) => tonOrder(a.tonnage, b.tonnage));
+    groups.forEach((g) => {
+      const ms = g.machines;
+      g.count = ms.length;
+      g.loaded = ms.filter((m) => m.plans > 0).length;
+      g.idle = g.count - g.loaded;
+      g.plans = ms.reduce((s, m) => s + m.plans, 0);
+      g.running = ms.reduce((s, m) => s + m.running.length, 0);
+      g.balQty = ms.reduce((s, m) => s + m.balQty, 0);
+      g.loadHrs = ms.reduce((s, m) => s + m.loadHrs, 0);
+      g.noStd = ms.reduce((s, m) => s + m.noStd, 0);
+      g.avgDays = g.count ? g.loadHrs / g.count / 24 : 0;
+      g.heaviest = ms.reduce((best, m) => (!best || m.loadHrs > best.loadHrs ? m : best), null);
+      const busy = ms.filter((m) => m.freeAt != null).map((m) => m.freeAt);
+      g.firstFree = g.idle > 0 ? null : (busy.length ? Math.min(...busy) : null);
+      g.allFree = busy.length ? Math.max(...busy) : null;
+    });
+    const tonIndex = new Map(groups.map((g, i) => [g.tonnage, i]));
+
+    const wb = new ExcelJS.Workbook();
+    wb.creator = username;
+
+    const styleHeader = (ws, rowNo, cols) => {
+      cols.forEach((c, i) => {
+        const cell = ws.getCell(rowNo, i + 1);
+        cell.value = c.label;
+        cell.font = { name: FONT, size: 10, bold: true, color: { argb: WHITE } };
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: HEADFILL } };
+        cell.alignment = { horizontal: c.num ? 'right' : 'left', vertical: 'middle', wrapText: true };
+        cell.border = box;
+      });
+      ws.getRow(rowNo).height = 30;
+    };
+    const writeTitle = (ws, ncol, title, sub) => {
+      ws.mergeCells(1, 1, 1, ncol);
+      const t = ws.getCell(1, 1);
+      t.value = title;
+      t.font = { name: FONT, size: 14, bold: true, color: { argb: WHITE } };
+      t.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: BLUE } };
+      t.alignment = { horizontal: 'center', vertical: 'middle' };
+      ws.getRow(1).height = 30;
+      ws.mergeCells(2, 1, 2, ncol);
+      ws.getCell(2, 1).value = sub;
+      ws.getCell(2, 1).font = { name: FONT, size: 10, color: { argb: INK } };
+      ws.mergeCells(3, 1, 3, ncol);
+      ws.getCell(3, 1).value = `Generated: ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}    |    By: ${username}    |    Load = balance qty time at STD cycle time & cavity · Load days on a 24-hour day · Red = over ${HEAVY_DAYS} days`;
+      ws.getCell(3, 1).font = { name: FONT, size: 10, italic: true, color: { argb: GREY } };
+    };
+    // Write one data row from rec[col.key]. opts: bg fill, bold, red(colKey) → flag that cell.
+    const writeRow = (ws, rowNo, cols, rec, opts = {}) => {
+      cols.forEach((c, i) => {
+        const cell = ws.getCell(rowNo, i + 1);
+        const v = rec[c.key];
+        if (c.date) {
+          const d = toIst(v);
+          cell.value = d || (v ? String(v) : '-');
+          if (d) cell.numFmt = c.date;
+        } else if (c.num) {
+          cell.value = (v == null || v === '') ? '-' : num(v);
+          cell.numFmt = c.fmt || '#,##0';
+        } else {
+          cell.value = (v == null || v === '') ? '-' : String(v);
+        }
+        const red = opts.red && opts.red(c.key);
+        cell.font = { name: FONT, size: 10, bold: !!opts.bold || red, color: { argb: red ? REDINK : INK } };
+        cell.alignment = { horizontal: c.num ? 'right' : 'left', vertical: 'middle', wrapText: !!c.wrap };
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: red ? HEAVYBG : (opts.bg || PLAIN) } };
+        cell.border = box;
+      });
+    };
+    const writeBand = (ws, rowNo, ncol, text, fill, ink) => {
+      ws.mergeCells(rowNo, 1, rowNo, ncol);
+      const cell = ws.getCell(rowNo, 1);
+      cell.value = text;
+      cell.font = { name: FONT, size: 10, bold: true, color: { argb: ink } };
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: fill } };
+      cell.alignment = { horizontal: 'left', vertical: 'middle' };
+      cell.border = box;
+    };
+
+    const totalMachines = machineMap.size;
+    const subLine = `Factory: ${factoryLabel}    |    All plans (timeline filters ignored)    |    Machines: ${totalMachines}    |    Plans: ${rows.length}`;
+
+    // ── Sheet 1: Tonnage Summary ──
+    const sumCols = [
+      { label: 'Tonnage', w: 12, key: 'ton' },
+      { label: 'Machines', w: 10, key: 'count', num: true },
+      { label: 'Loaded', w: 9, key: 'loaded', num: true },
+      { label: 'Idle', w: 8, key: 'idle', num: true },
+      { label: 'Plans', w: 8, key: 'plans', num: true },
+      { label: 'Running', w: 9, key: 'running', num: true },
+      { label: 'Total Bal Qty', w: 14, key: 'balQty', num: true },
+      { label: 'Load Hrs', w: 11, key: 'loadHrs', num: true, fmt: '#,##0' },
+      { label: 'Avg Load Days / Machine', w: 13, key: 'avgDays', num: true, fmt: '0.0' },
+      { label: 'Heaviest Machine', w: 18, key: 'heavyMc' },
+      { label: 'Heaviest Load Days', w: 11, key: 'heavyDays', num: true, fmt: '0.0' },
+      { label: 'First Machine Free', w: 17, key: 'firstFree' },
+      { label: 'All Machines Free By', w: 17, key: 'allFree' },
+      { label: 'Plans w/o STD', w: 10, key: 'noStd', num: true }
+    ];
+    const ws1 = wb.addWorksheet('Tonnage Summary', { views: [{ state: 'frozen', xSplit: 1, ySplit: 5 }] });
+    ws1.columns = sumCols.map((c) => ({ width: c.w }));
+    writeTitle(ws1, sumCols.length, 'MACHINE TIMELINE — TONNAGE-WISE LOAD (ALL PLANS)', subLine);
+    styleHeader(ws1, 5, sumCols);
+    let r = 6;
+    groups.forEach((g) => {
+      const heavyDays = g.heaviest ? g.heaviest.loadHrs / 24 : 0;
+      writeRow(ws1, r, sumCols, {
+        ton: tonLabel(g.tonnage),
+        count: g.count, loaded: g.loaded, idle: g.idle, plans: g.plans, running: g.running,
+        balQty: g.balQty, loadHrs: g.loadHrs, avgDays: r1(g.avgDays),
+        heavyMc: g.heaviest && g.heaviest.plans ? g.heaviest.machine : '-',
+        heavyDays: r1(heavyDays),
+        firstFree: g.idle > 0 ? `Now (${g.idle} idle)` : (g.firstFree != null ? fmtIst(g.firstFree) : '-'),
+        allFree: g.allFree != null ? fmtIst(g.allFree) : (g.idle ? 'Now' : '-'),
+        noStd: g.noStd
+      }, { red: (k) => (k === 'avgDays' && g.avgDays > HEAVY_DAYS) || ((k === 'heavyDays' || k === 'heavyMc') && heavyDays > HEAVY_DAYS) });
+      r += 1;
+    });
+    const tot = groups.reduce((a, g) => {
+      ['count', 'loaded', 'idle', 'plans', 'running', 'balQty', 'loadHrs', 'noStd'].forEach((k) => { a[k] += g[k]; });
+      return a;
+    }, { count: 0, loaded: 0, idle: 0, plans: 0, running: 0, balQty: 0, loadHrs: 0, noStd: 0 });
+    writeRow(ws1, r, sumCols, {
+      ...tot, ton: 'TOTAL', avgDays: r1(tot.count ? tot.loadHrs / tot.count / 24 : 0),
+      heavyMc: '', heavyDays: '', firstFree: '', allFree: ''
+    }, { bg: TOTFILL, bold: true });
+    if (!groups.length) {
+      r += 1;
+      ws1.mergeCells(r, 1, r, sumCols.length);
+      ws1.getCell(r, 1).value = 'No machines found on the Machine Timeline.';
+      ws1.getCell(r, 1).font = { name: FONT, size: 10, italic: true, color: { argb: GREY } };
+    }
+
+    // ── Sheet 2: Machine Load (grouped under each tonnage) ──
+    const mcCols = [
+      { label: 'Tonnage', w: 11, key: 'ton' },
+      { label: 'Machine No', w: 18, key: 'machine' },
+      { label: 'Building', w: 10, key: 'building' },
+      { label: 'Line', w: 9, key: 'line' },
+      { label: 'Plans', w: 8, key: 'plans', num: true },
+      { label: 'Total Bal Qty', w: 14, key: 'balQty', num: true },
+      { label: 'Load Hrs', w: 11, key: 'loadHrs', num: true, fmt: '#,##0' },
+      { label: 'Load Days', w: 10, key: 'loadDays', num: true, fmt: '0.0' },
+      { label: 'Running Now', w: 28, key: 'runningNow', wrap: true },
+      { label: 'Free From', w: 16, key: 'freeFrom' },
+      { label: 'Plans w/o STD', w: 10, key: 'noStd', num: true }
+    ];
+    const ws2 = wb.addWorksheet('Machine Load', { views: [{ state: 'frozen', xSplit: 2, ySplit: 5 }] });
+    ws2.columns = mcCols.map((c) => ({ width: c.w }));
+    writeTitle(ws2, mcCols.length, 'MACHINE LOAD — GROUPED BY TONNAGE', subLine);
+    styleHeader(ws2, 5, mcCols);
+    r = 6;
+    groups.forEach((g) => {
+      writeBand(ws2, r, mcCols.length,
+        `${tonLabel(g.tonnage)}  ·  ${g.count} machine(s)  ·  ${g.plans} plan(s)  ·  ${Math.round(g.loadHrs).toLocaleString('en-IN')} load hrs  ·  avg ${r1(g.avgDays)} days / machine`,
+        GRPFILL, GRPINK);
+      r += 1;
+      g.machines.forEach((m) => {
+        const days = m.loadHrs / 24;
+        writeRow(ws2, r, mcCols, {
+          ton: tonLabel(g.tonnage), machine: m.machine, building: m.building, line: m.line,
+          plans: m.plans, balQty: m.balQty, loadHrs: m.loadHrs, loadDays: r1(days),
+          runningNow: m.running.join(', '),
+          freeFrom: m.plans ? (m.freeAt != null ? fmtIst(m.freeAt) : '-') : 'Now (idle)',
+          noStd: m.noStd
+        }, { bg: m.running.length ? RUNBG : PLAIN, red: (k) => k === 'loadDays' && days > HEAVY_DAYS });
+        r += 1;
+      });
+    });
+
+    // ── Sheet 3: All Plans (flat, sorted by tonnage → machine → queue position) ──
+    const planCols = [
+      { label: 'Tonnage', w: 11, key: 'ton' },
+      { label: 'Machine No', w: 18, key: 'machine' },
+      { label: '#', w: 5, key: 'pos', num: true },
+      { label: 'Plan Id', w: 16, key: 'planId' },
+      { label: 'OR No', w: 14, key: 'orderNo' },
+      { label: 'JC No', w: 14, key: 'jcNo' },
+      { label: 'Mould No', w: 14, key: 'mouldNo' },
+      { label: 'Mould Name', w: 24, key: 'mouldName', wrap: true },
+      { label: 'Client Name', w: 22, key: 'client', wrap: true },
+      { label: 'Total Plan Qty', w: 13, key: 'planQty', num: true },
+      { label: 'Total Bal Qty', w: 13, key: 'balQty', num: true },
+      { label: 'Load Hrs', w: 10, key: 'loadHrs', num: true, fmt: '#,##0.0' },
+      { label: 'Start Date', w: 16, key: 'start', date: 'dd mmm hh:mm' },
+      { label: 'Expected End Date', w: 16, key: 'exp', date: 'dd mmm hh:mm' },
+      { label: 'Time To End', w: 12, key: 'timeToEnd' },
+      { label: 'Status', w: 11, key: 'statusLabel' },
+      { label: 'STD', w: 9, key: 'std' }
+    ];
+    const ws3 = wb.addWorksheet('All Plans', { views: [{ state: 'frozen', xSplit: 2, ySplit: 5 }] });
+    ws3.columns = planCols.map((c) => ({ width: c.w }));
+    writeTitle(ws3, planCols.length, 'ALL PLANS — BY TONNAGE', subLine);
+    styleHeader(ws3, 5, planCols);
+    const sortedPlans = rows
+      .map((p, i) => ({ p, i, t: (machineMap.get(String(p.machine || '').trim()) || {}).tonnage }))
+      .sort((a, b) => (tonIndex.get(a.t) - tonIndex.get(b.t)) || (a.i - b.i));
+    r = 6;
+    sortedPlans.forEach(({ p, t }) => {
+      const st = String(p.status || '').toLowerCase();
+      writeRow(ws3, r, planCols, {
+        ...p,
+        ton: tonLabel(t),
+        loadHrs: Math.max(0, num(p.loadHrs)),
+        statusLabel: st ? st.charAt(0).toUpperCase() + st.slice(1) : '-',
+        std: p.stdMissing ? 'Missing' : 'OK'
+      }, { bg: st === 'running' ? RUNBG : PLAIN, red: (k) => (k === 'balQty' && num(p.balQty) < 0) || (k === 'std' && p.stdMissing) });
+      r += 1;
+    });
+    if (!sortedPlans.length) {
+      ws3.mergeCells(r, 1, r, planCols.length);
+      ws3.getCell(r, 1).value = 'No plans on the Machine Timeline.';
+      ws3.getCell(r, 1).font = { name: FONT, size: 10, italic: true, color: { argb: GREY } };
+      r += 1;
+    }
+    ws3.autoFilter = { from: { row: 5, column: 1 }, to: { row: Math.max(5, r - 1), column: planCols.length } };
+
+    const buf = await wb.xlsx.writeBuffer();
+    const safeFactory = factoryLabel.replace(/[^A-Za-z0-9]+/g, '') || 'All';
+    const fname = `Tonnage_Load_${safeFactory}_${new Date().toISOString().slice(0, 10)}.xlsx`;
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename=${fname}`);
+    res.send(Buffer.from(buf));
+  } catch (e) {
+    console.error('/api/reports/machine-timeline-tonnage.xlsx', e);
     sendServerError(res, e);
   }
 });
