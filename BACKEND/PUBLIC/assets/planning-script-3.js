@@ -2573,33 +2573,56 @@
         // the browser, so we POST the rows to the server which renders the workbook
         // via ExcelJS (colour banding + frozen header + AutoFilter dropdowns).
         let _tlXlsxBusy = false;
+        const fmtDur = (ms) => {
+          if (!Number.isFinite(ms) || ms <= 0) return '0m';
+          const d = Math.floor(ms / 86400000);
+          const h = Math.floor((ms % 86400000) / 3600000);
+          const mi = Math.floor((ms % 3600000) / 60000);
+          if (d > 0) return `${d}d ${h}h`;
+          if (h > 0) return `${h}h ${mi}m`;
+          return `${Math.max(1, mi)}m`;
+        };
+        const timeToEnd = (p) => {
+          const st = (p.status || '').toLowerCase();
+          let ms = 0, label = '';
+          if (st === 'running') {
+            ms = ((p._rippledExpRaw || p._rippledEndRaw) ? (p._rippledExpRaw || p._rippledEndRaw).getTime() : 0) - Date.now();
+            if (ms < 0) { ms = Math.abs(ms); label = 'OD '; }
+          } else if (p._rippledStartRaw && p._rippledEndRaw) {
+            ms = p._rippledEndRaw.getTime() - p._rippledStartRaw.getTime();
+          }
+          return (ms > 0 || label) ? (label + fmtDur(ms)).trim() : '-';
+        };
+        // POST rows to an Excel endpoint and save the returned workbook.
+        const postTimelineXlsx = async (url, payload, fileName) => {
+          const headers = { 'Content-Type': 'application/json' };
+          const token = localStorage.getItem('token');
+          if (token) headers['Authorization'] = `Bearer ${token}`;
+          const factoryId = localStorage.getItem('jpsms_factory_id');
+          if (factoryId) headers['X-Factory-ID'] = factoryId;
+          let uname = '';
+          try { uname = (JSON.parse(localStorage.getItem('user') || '{}') || {}).username || ''; } catch (_) {}
+          if (uname) headers['X-User-Name'] = uname;
+
+          const res = await fetch(url, { method: 'POST', headers, body: JSON.stringify(payload) });
+          if (!res.ok) throw new Error(`Server responded ${res.status}`);
+          const blob = await res.blob();
+          const href = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = href;
+          a.download = fileName;
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          setTimeout(() => URL.revokeObjectURL(href), 4000);
+        };
+
         window.downloadTimelineExcel = async function () {
           if (_tlXlsxBusy) return;
           if (!window.timelineMachines || !window.timelineMachines.length) {
             toast('Open Machine Timeline first, then download.');
             return;
           }
-
-          const fmtDur = (ms) => {
-            if (!Number.isFinite(ms) || ms <= 0) return '0m';
-            const d = Math.floor(ms / 86400000);
-            const h = Math.floor((ms % 86400000) / 3600000);
-            const mi = Math.floor((ms % 3600000) / 60000);
-            if (d > 0) return `${d}d ${h}h`;
-            if (h > 0) return `${h}h ${mi}m`;
-            return `${Math.max(1, mi)}m`;
-          };
-          const timeToEnd = (p) => {
-            const st = (p.status || '').toLowerCase();
-            let ms = 0, label = '';
-            if (st === 'running') {
-              ms = ((p._rippledExpRaw || p._rippledEndRaw) ? (p._rippledExpRaw || p._rippledEndRaw).getTime() : 0) - Date.now();
-              if (ms < 0) { ms = Math.abs(ms); label = 'OD '; }
-            } else if (p._rippledStartRaw && p._rippledEndRaw) {
-              ms = p._rippledEndRaw.getTime() - p._rippledStartRaw.getTime();
-            }
-            return (ms > 0 || label) ? (label + fmtDur(ms)).trim() : '-';
-          };
 
           // Same filter predicate as filterTimeline() so the export matches the view.
           const bVal = (document.getElementById('filt-bldg') || {}).value || '';
@@ -2655,35 +2678,78 @@
           _tlXlsxBusy = true;
           toast('Preparing Excel…');
           try {
-            const headers = { 'Content-Type': 'application/json' };
-            const token = localStorage.getItem('token');
-            if (token) headers['Authorization'] = `Bearer ${token}`;
-            const factoryId = localStorage.getItem('jpsms_factory_id');
-            if (factoryId) headers['X-Factory-ID'] = factoryId;
-            let uname = '';
-            try { uname = (JSON.parse(localStorage.getItem('user') || '{}') || {}).username || ''; } catch (_) {}
-            if (uname) headers['X-User-Name'] = uname;
-
-            const res = await fetch('/api/reports/machine-timeline.xlsx', {
-              method: 'POST',
-              headers,
-              body: JSON.stringify({
-                factory: localStorage.getItem('jpsms_factory_name') || 'All Factories',
-                filterSummary,
-                rows
-              })
-            });
-            if (!res.ok) throw new Error(`Server responded ${res.status}`);
-            const blob = await res.blob();
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `Machine_Timeline_${new Date().toISOString().slice(0, 10)}.xlsx`;
-            document.body.appendChild(a);
-            a.click();
-            a.remove();
-            setTimeout(() => URL.revokeObjectURL(url), 4000);
+            await postTimelineXlsx('/api/reports/machine-timeline.xlsx', {
+              factory: localStorage.getItem('jpsms_factory_name') || 'All Factories',
+              filterSummary,
+              rows
+            }, `Machine_Timeline_${new Date().toISOString().slice(0, 10)}.xlsx`);
             toast(`Downloaded ${rows.length} plan row(s).`);
+          } catch (e) {
+            toast(`Excel download failed: ${e.message || e}`);
+          } finally {
+            _tlXlsxBusy = false;
+          }
+        };
+
+        // ── Tonnage-wise load Excel (ALL plans, on-screen filters ignored) ──
+        // Load = remaining balance time at STD rate (the same _stdBalMs the
+        // timeline ripples with). The server groups machines by tonnage and
+        // writes a summary, a machine-load sheet and every plan.
+        window.downloadTimelineTonnageExcel = async function () {
+          if (_tlXlsxBusy) return;
+          if (!window.timelineMachines || !window.timelineMachines.length) {
+            toast('Open Machine Timeline first, then download.');
+            return;
+          }
+
+          const machines = window.timelineMachines.slice().sort(window.tlMachineSort || (() => 0));
+          const machineRows = [];
+          const planRows = [];
+          machines.forEach(m => {
+            const mPlans = window.timelineGroups[m.code] || [];
+            // Switched-off machines with no plans are not capacity — leave them out.
+            if (m.is_active === false && !mPlans.length) return;
+            const tonnage = Number(String(m.tonnage == null ? '' : m.tonnage).replace(/[^0-9.]/g, '')) || null;
+            machineRows.push({
+              machine: m.code,
+              building: m._finalBuilding || m.building || '',
+              line: m._finalLine || m.line || '',
+              tonnage
+            });
+            mPlans.forEach((p, idx) => {
+              planRows.push({
+                machine: m.code,
+                tonnage,
+                pos: idx + 1,
+                planId: p.planId || p.plan_id || '',
+                orderNo: p.orderNo || p.or_no || '',
+                jcNo: p.jcNo || p.jc_no || p.job_card_no || '',
+                mouldNo: p.mouldNo || p.mould_code || '',
+                mouldName: p.mouldName || p.mould_name || '',
+                client: p.clientName || p.client || '',
+                planQty: Number(p.planQty) || 0,
+                balQty: Number(p.balQty) || 0,
+                loadHrs: Number.isFinite(p._stdBalMs) ? p._stdBalMs / 3600000 : 0,
+                stdMissing: !!p._stdMissing,
+                start: p._rippledStartRaw ? p._rippledStartRaw.toISOString() : null,
+                exp: p._rippledExpRaw ? p._rippledExpRaw.toISOString() : null,
+                timeToEnd: timeToEnd(p),
+                status: (p.status || '').toLowerCase()
+              });
+            });
+          });
+
+          if (!machineRows.length) { toast('No machines to export.'); return; }
+
+          _tlXlsxBusy = true;
+          toast('Preparing Tonnage Load Excel…');
+          try {
+            await postTimelineXlsx('/api/reports/machine-timeline-tonnage.xlsx', {
+              factory: localStorage.getItem('jpsms_factory_name') || 'All Factories',
+              machines: machineRows,
+              rows: planRows
+            }, `Tonnage_Load_${new Date().toISOString().slice(0, 10)}.xlsx`);
+            toast(`Downloaded tonnage load: ${machineRows.length} machine(s), ${planRows.length} plan(s).`);
           } catch (e) {
             toast(`Excel download failed: ${e.message || e}`);
           } finally {
