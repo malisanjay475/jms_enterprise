@@ -135,6 +135,7 @@ function escHtml(value) {
         'shifting_logs.html': 'shifting_module',
         'shifting_summary.html': 'shifting_module',
         'shifting_shift_report.html': 'shifting_module',
+        'shifting_manual_entry.html': 'shifting_module',
         'shifting.html': 'shifting_module',
         'wip.html': 'wip_internal',
         'reports.html': 'reports',
@@ -1436,6 +1437,7 @@ function escHtml(value) {
                 { id: 'shift_reconcile', label: 'Job Reconciliation', icon: 'bi-clipboard-check', href: 'shifting_reports.html?view=reconcile' },
                 { id: 'shift_summary', label: 'Shifting Summary', icon: 'bi-table', href: 'shifting_summary.html' },
                 { id: 'shift_report', label: 'Shift Report', icon: 'bi-file-earmark-bar-graph', href: 'shifting_shift_report.html' },
+                { id: 'shift_manual_entry', label: 'Manual Entry', icon: 'bi-pencil-square', href: 'shifting_manual_entry.html' },
                 { id: 'shift_logs', label: 'Shifting Logs', icon: 'bi-clock-history', href: 'shifting_logs.html' }
             ]
         },
@@ -2382,6 +2384,7 @@ function escHtml(value) {
     'hr_interview_panel.html': 'hr', 'shifting_reports.html': 'shifting_module',
     'shifting_logs.html': 'shifting_module', 'shifting_summary.html': 'shifting_module',
     'shifting_shift_report.html': 'shifting_module',
+    'shifting_manual_entry.html': 'shifting_module',
     'shifting.html': 'shifting_module', 'wip.html': 'wip_internal',
     'reports.html': 'reports', 'users.html': 'users',
     'notifications.html': 'notifications', 'settings.html': 'settings',

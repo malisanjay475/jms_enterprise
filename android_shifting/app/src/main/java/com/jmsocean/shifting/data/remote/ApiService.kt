@@ -32,6 +32,10 @@ interface ApiService {
         @Query("line") line: String? = null
     ): Response<ApiEnvelope>
 
+    /** Manual Entry board: every machine (standard order) with its QC-approved qty to shift. */
+    @GET("api/shifting/machine-board")
+    suspend fun machineBoard(@Query("days") days: Int = 3): Response<ApiEnvelope>
+
     @GET("api/shifting/jobs/{id}/details")
     suspend fun jobDetails(@Path("id") planId: String): Response<ApiEnvelope>
 

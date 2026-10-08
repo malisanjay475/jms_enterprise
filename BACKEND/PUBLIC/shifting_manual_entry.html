@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JMS OCEAN - Manual Entry</title>
+    <link rel="stylesheet" href="/assets/app.css?v=12">
+    <link rel="stylesheet" href="/assets/bootstrap-icons.min.css">
+    <style>
+        .filter-bar {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 14px;
+            align-items: center;
+            padding: 12px 14px;
+            margin-bottom: 16px;
+        }
+
+        .switch {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            cursor: pointer;
+            font-weight: 600;
+            color: #1e293b;
+            user-select: none;
+        }
+
+        .switch input { display: none; }
+
+        .switch .track {
+            width: 44px;
+            height: 24px;
+            border-radius: 12px;
+            background: #cbd5e1;
+            position: relative;
+            transition: background 0.15s;
+        }
+
+        .switch .track::after {
+            content: "";
+            position: absolute;
+            top: 3px;
+            left: 3px;
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            background: #fff;
+            transition: left 0.15s;
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+        }
+
+        .switch input:checked + .track { background: #16a34a; }
+        .switch input:checked + .track::after { left: 23px; }
+
+        .muted { color: #64748b; font-size: 0.8rem; }
+
+        .board-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.85rem;
+            background: #fff;
+        }
+
+        .board-table th,
+        .board-table td {
+            border-bottom: 1px solid #e2e8f0;
+            padding: 8px 10px;
+            text-align: left;
+        }
+
+        .board-table th {
+            background: #f8fafc;
+            color: #64748b;
+            font-weight: 600;
+            text-transform: uppercase;
+            font-size: 0.7rem;
+            position: sticky;
+            top: 0;
+        }
+
+        .board-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+        .board-table tr.line-head td { background: #eef2ff; font-weight: 700; color: #3730a3; font-size: 0.75rem; }
+        .board-table td.approved { font-size: 1rem; font-weight: 800; }
+        .board-table td.approved.zero { color: #94a3b8; font-weight: 600; }
+        .board-table td.approved.has { color: #16a34a; }
+        .board-table button:disabled { opacity: 0.4; cursor: not-allowed; }
+        .machine-name { font-weight: 700; color: #1e293b; }
+        .sub { font-size: 0.72rem; color: #64748b; }
+
+        .pill {
+            display: inline-block;
+            font-size: 0.66rem;
+            font-weight: 700;
+            border-radius: 10px;
+            padding: 1px 8px;
+            margin-left: 6px;
+        }
+
+        .pill.hold { background: #fee2e2; color: #b91c1c; }
+        .pill.run { background: #dcfce7; color: #15803d; }
+        .pill.closed { background: #e2e8f0; color: #475569; }
+
+        .empty-note { padding: 28px; text-align: center; color: #94a3b8; }
+
+        /* Job detail modal */
+        #jobModal .modal-content { width: 820px; max-width: 96%; padding: 22px; }
+        .modal-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
+        .modal-head h3 { margin: 0; font-size: 1.15rem; }
+        .job-choices { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; }
+
+        .job-choice {
+            border: 1px solid #e2e8f0;
+            border-radius: 10px;
+            padding: 10px 12px;
+            cursor: pointer;
+            background: #fff;
+        }
+
+        .job-choice.sel { border: 2px solid #2563eb; background: #f8faff; }
+        .job-choice .t { font-weight: 700; color: #1e293b; }
+        .metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 8px 0; }
+        .metric { background: #f8fafc; border-radius: 8px; padding: 8px 10px; }
+        .metric .l { font-size: 0.66rem; font-weight: 700; color: #64748b; text-transform: uppercase; }
+        .metric .v { font-size: 1.15rem; font-weight: 800; font-variant-numeric: tabular-nums; }
+        .good { color: #16a34a; }
+        .crit { color: #dc2626; }
+        .warn { color: #d97706; }
+        .loc-chip { display: inline-block; font-size: 0.7rem; font-weight: 700; color: #1d4ed8; background: #dbeafe; border-radius: 6px; padding: 1px 7px; margin: 2px 4px 2px 0; }
+        .section { border-top: 1px solid #e2e8f0; margin-top: 12px; padding-top: 10px; }
+        .section h4 { margin: 0 0 6px; font-size: 0.85rem; }
+        .mini-table { width: 100%; border-collapse: collapse; font-size: 0.78rem; }
+        .mini-table th, .mini-table td { padding: 4px 6px; border-bottom: 1px solid #f1f5f9; text-align: left; }
+        .mini-table th { color: #64748b; font-size: 0.66rem; text-transform: uppercase; }
+        .mini-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+        .shift-form { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 10px; align-items: end; }
+        .shift-form label { display: block; font-size: 0.7rem; font-weight: 600; color: #64748b; text-transform: uppercase; margin-bottom: 4px; }
+        .msg { border-radius: 10px; padding: 10px 12px; font-weight: 600; margin: 10px 0; }
+        .msg.ok { background: #dcfce7; color: #166534; }
+        .msg.err { background: #fee2e2; color: #991b1b; }
+
+        @media (max-width: 640px) {
+            .shift-form { grid-template-columns: 1fr; }
+            .metrics { grid-template-columns: repeat(2, 1fr); }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="main-content">
+        <div class="header">
+            <div class="page-title">Manual Entry</div>
+            <div style="font-size:0.9rem; color:#64748b">Machine-wise QC approved quantity waiting to be shifted (jobs of the last 3 days)</div>
+        </div>
+
+        <div class="card filter-bar">
+            <label class="switch" for="approvedOnly">
+                <input type="checkbox" id="approvedOnly" onchange="onToggle()">
+                <span class="track"></span>
+                <span>Only machines with QC approved qty</span>
+            </label>
+            <input type="search" id="search" class="form-control" placeholder="Search machine" style="width:200px" oninput="renderBoard()">
+            <span id="countNote" class="muted"></span>
+            <button onclick="loadBoard()" class="btn btn-outline" style="margin-left:auto"><i class="bi bi-arrow-clockwise"></i> Refresh</button>
+        </div>
+
+        <div id="verifyNote" class="muted" style="display:none; margin:-6px 0 12px"></div>
+
+        <div class="card" style="padding:0; overflow:auto">
+            <div id="board"><div class="empty-note">Loading...</div></div>
+        </div>
+    </div>
+
+    <div id="jobModal" class="modal-overlay" onclick="if (event.target === this) closeJob()">
+        <div class="modal-content">
+            <div class="modal-head">
+                <h3 id="jobTitle">Machine</h3>
+                <button class="btn btn-outline" onclick="closeJob()"><i class="bi bi-x-lg"></i></button>
+            </div>
+            <div id="jobBody"></div>
+        </div>
+    </div>
+
+    <script src="/assets/app.min.js?v=1576"></script>
+    <script>
+        const PREF_KEY = 'shifting_manual_approved_only';
+        const qtyFmt = (v) => Number(v || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 });
+        const kgFmt = (v) => Number(v || 0).toLocaleString('en-IN', { maximumFractionDigits: 3 });
+        const esc = (v) => escHtml(v == null ? '' : v);
+
+        let board = [];
+        let verificationEnforced = true;
+        let locations = [];
+        let current = null; // { machine, planId, avail, message }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            JPSMS.auth.requireAuth();
+            JPSMS.renderShell('shifting');
+            try { document.getElementById('approvedOnly').checked = localStorage.getItem(PREF_KEY) === '1'; } catch (_) { }
+            loadBoard();
+            loadLocations();
+            document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeJob(); });
+        });
+
+        function onToggle() {
+            try { localStorage.setItem(PREF_KEY, document.getElementById('approvedOnly').checked ? '1' : '0'); } catch (_) { }
+            renderBoard();
+        }
+
+        async function loadBoard() {
+            try {
+                const res = await JPSMS.api.get('/shifting/machine-board?days=3');
+                board = res.data || [];
+                verificationEnforced = res.verification_enforced !== false;
+                const note = document.getElementById('verifyNote');
+                note.style.display = verificationEnforced ? 'none' : '';
+                note.textContent = 'QC verification data is not on this server: Approved shows the shop-floor balance (produced - shifted).';
+                renderBoard();
+            } catch (e) {
+                document.getElementById('board').innerHTML = `<div class="empty-note">${esc(e.message || 'Could not load machines')}</div>`;
+            }
+        }
+
+        async function loadLocations() {
+            try {
+                const res = await JPSMS.api.request('/shifting/locations', { skipLoader: true });
+                locations = (res.data || []).map(l => String(typeof l === 'string' ? l : (l && l.name) || '').trim()).filter(Boolean);
+            } catch (_) { locations = []; }
+        }
+
+        function renderBoard() {
+            const onlyApproved = document.getElementById('approvedOnly').checked;
+            const q = document.getElementById('search').value.trim().toLowerCase();
+            const rows = board.filter(m => (!onlyApproved || m.approved_qty > 0) && (!q || m.machine.toLowerCase().includes(q)));
+            const withQty = board.filter(m => m.approved_qty > 0).length;
+            document.getElementById('countNote').textContent = `${rows.length} machines shown · ${withQty} with approved qty`;
+            if (!rows.length) {
+                document.getElementById('board').innerHTML = `<div class="empty-note">${onlyApproved ? 'No machine has QC approved qty waiting to be shifted.' : 'No machines.'}</div>`;
+                return;
+            }
+            let lastLine = null;
+            const body = rows.map(m => {
+                let head = '';
+                if (m.line !== lastLine) {
+                    lastLine = m.line;
+                    head = `<tr class="line-head"><td colspan="4">${esc(m.line || 'No line')}</td></tr>`;
+                }
+                const pills = (m.on_hold ? '<span class="pill hold">QC HOLD</span>' : '');
+                return `${head}<tr>
+                    <td><span class="machine-name">${esc(m.machine)}</span>${pills}
+                        <div class="sub">${esc(m.running_item || (m.jobs ? `${m.jobs} job(s)` : 'No job in the last 3 days'))}</div></td>
+                    <td class="num approved ${m.approved_qty > 0 ? 'has' : 'zero'}">${qtyFmt(m.approved_qty)}</td>
+                    <td class="num sub">${m.on_floor_qty > 0 ? `On floor ${qtyFmt(m.on_floor_qty)}` : ''}</td>
+                    <td style="text-align:right"><button class="btn ${m.approved_qty > 0 ? 'btn-primary' : 'btn-outline'}" ${m.jobs ? '' : 'disabled'}
+                        onclick="openJob(${JSON.stringify(m.machine).replace(/"/g, '&quot;')})"><i class="bi bi-box-arrow-in-right"></i> Open</button></td>
+                </tr>`;
+            }).join('');
+            document.getElementById('board').innerHTML = `<table class="board-table">
+                <thead><tr><th>Machine</th><th class="num">Approved</th><th class="num"></th><th style="text-align:right">Action</th></tr></thead>
+                <tbody>${body}</tbody></table>`;
+        }
+
+        // ── Job detail (same as the Shifting app's Manual Shift) ─────────────
+        function machineRow(machine) { return board.find(m => m.machine === machine); }
+
+        function openJob(machine) {
+            const m = machineRow(machine);
+            if (!m) return;
+            current = { machine, planId: m.best_plan_id != null ? String(m.best_plan_id) : '', avail: null, message: null };
+            document.getElementById('jobTitle').textContent = machine;
+            document.getElementById('jobModal').classList.add('active');
+            renderJob();
+            if (current.planId) loadAvail(current.planId);
+        }
+
+        function closeJob() {
+            document.getElementById('jobModal').classList.remove('active');
+            current = null;
+        }
+
+        function selectJob(planId) {
+            current.planId = String(planId);
+            current.avail = null;
+            current.message = null;
+            renderJob();
+            loadAvail(current.planId);
+        }
+
+        async function loadAvail(planId) {
+            try {
+                const res = await JPSMS.api.request(`/shifting/availability?plan_id=${encodeURIComponent(planId)}`, { skipLoader: true });
+                if (current && current.planId === planId) { current.avail = res.data; renderJob(); }
+            } catch (e) {
+                if (current && current.planId === planId) { current.availError = e.message; renderJob(); }
+            }
+        }
+
+        function statusPill(j) {
+            if (j.on_hold) return '<span class="pill hold">QC HOLD</span>';
+            if (String(j.status).toUpperCase() === 'RUNNING') return '<span class="pill run">Running</span>';
+            return `<span class="pill closed">${esc(j.status || 'Closed')}</span>`;
+        }
+
+        function locChips(list) {
+            if (!list || !list.length) return '<span class="muted">—</span>';
+            return list.map(l => `<span class="loc-chip">${esc(l.location)}: ${qtyFmt(l.qty)}</span>`).join('');
+        }
+
+        function metric(label, value, cls) {
+            return `<div class="metric"><div class="l">${esc(label)}</div><div class="v ${cls || ''}">${value}</div></div>`;
+        }
+
+        function renderJob() {
+            if (!current) return;
+            const m = machineRow(current.machine) || { job_list: [] };
+            const jobs = [...m.job_list].sort((a, b) =>
+                (String(b.status).toUpperCase() === 'RUNNING') - (String(a.status).toUpperCase() === 'RUNNING') || b.approved - a.approved || b.on_floor - a.on_floor);
+            let html = '';
+            if (current.message) html += `<div class="msg ${current.message.ok ? 'ok' : 'err'}">${esc(current.message.text)}</div>`;
+
+            html += `<div class="muted" style="font-weight:700; margin-bottom:6px">Jobs on ${esc(current.machine)}</div><div class="job-choices">`;
+            html += jobs.map(j => `<div class="job-choice ${String(j.plan_id) === current.planId ? 'sel' : ''}" onclick="selectJob('${esc(String(j.plan_id))}')">
+                    <div><span class="t">${esc(j.item_name || j.mould_name || '—')}</span>${statusPill(j)}</div>
+                    <div class="sub">${esc([j.order_no, j.jc_no, j.client_name].filter(Boolean).join(' · '))}</div>
+                    <div class="sub" style="font-weight:600; ${j.approved > 0 ? 'color:#16a34a' : ''}">Produced ${qtyFmt(j.produced)} · Verified ${qtyFmt(j.verified)} · Shifted ${qtyFmt(j.shifted)} · Approved ${qtyFmt(j.approved)}</div>
+                </div>`).join('');
+            html += '</div>';
+
+            const a = current.avail;
+            if (!current.planId) {
+                html += '<div class="empty-note">Pick a job.</div>';
+            } else if (!a) {
+                html += `<div class="empty-note">${esc(current.availError || 'Loading job...')}</div>`;
+            } else {
+                const t = a.totals || {};
+                const hold = a.hold;
+                html += `<div class="card" style="padding:14px">
+                    <div class="muted" style="font-weight:700; font-size:0.66rem">PRODUCTION · QC · SHIFTING</div>
+                    <div style="font-weight:800; font-size:1.05rem">${esc(a.item_name || a.mould_name || '—')}</div>
+                    <div>OR: <b>${esc(a.order_no || '—')}</b> &nbsp; JC: <b>${esc(a.jc_no || '—')}</b></div>
+                    <div>Party: <b>${esc(a.client_name || '—')}</b></div>
+                    <div class="sub">${esc([a.machine, a.plan_code, a.status, `Plan ${qtyFmt(a.plan_qty)}`].filter(Boolean).join(' · '))}</div>
+                    <div class="metrics">
+                        ${metric('Produced', qtyFmt(t.produced))}
+                        ${metric('QC verified', qtyFmt(t.verified), 'good')}
+                        ${metric('Not verified', qtyFmt(t.not_verified), t.not_verified > 0 ? 'crit' : '')}
+                        ${metric('Shifted', qtyFmt(t.shifted), '')}
+                        ${metric('Ready (floor)', qtyFmt(t.ready), t.ready > 0 ? 'good' : '')}
+                        ${metric('On QC hold', hold && hold.count ? (hold.qty > 0 ? qtyFmt(hold.qty) : 'Yes') : '0', hold && hold.count ? 'crit' : '')}
+                    </div>
+                    ${hold && hold.count ? `<div class="crit" style="font-weight:600">QC HOLD on ${esc(a.machine)}: ${esc((hold.reasons || []).join('; ') || 'no reason given')}</div>` : ''}
+                    ${a.verification_enforced ? '' : '<div class="warn sub">QC verification data is not on this server; only production is checked.</div>'}
+                    <div style="margin-top:6px"><b style="font-size:0.8rem">Shifted to</b><div>${locChips(t.by_location)}</div></div>
+                    ${(a.colours || []).length ? `<div class="section"><h4>Colour-wise</h4>
+                        <table class="mini-table"><thead><tr><th>Colour</th><th class="num">Prod</th><th class="num">QC ok</th><th class="num">Not ver.</th><th class="num">Shifted</th><th class="num">Ready</th><th>Shifted to</th></tr></thead><tbody>
+                        ${a.colours.map(c => `<tr><td><b>${esc(c.colour || '—')}</b></td><td class="num">${qtyFmt(c.produced)}</td><td class="num good">${qtyFmt(c.verified)}</td>
+                            <td class="num ${c.not_verified > 0 ? 'crit' : ''}">${qtyFmt(c.not_verified)}</td><td class="num">${qtyFmt(c.shifted)}</td>
+                            <td class="num ${c.ready > 0 ? 'good' : ''}"><b>${qtyFmt(c.ready)}</b></td><td>${locChips(c.by_location)}</td></tr>`).join('')}
+                        </tbody></table></div>` : ''}
+                    ${(a.recent || []).length ? `<div class="section"><h4>Latest shifting</h4>
+                        <table class="mini-table"><tbody>${a.recent.slice(0, 8).map(r => `<tr>
+                            <td class="sub">${esc(r.at ? new Date(r.at).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false }) : '')}</td>
+                            <td>${esc(r.colour || 'Manual')} → ${esc(r.location)}</td><td class="sub">${esc(r.by)}</td>
+                            <td class="num"><b>${qtyFmt(r.qty)} pcs</b>${r.kg > 0 ? ` · ${kgFmt(r.kg)} kg` : ''}</td></tr>`).join('')}</tbody></table></div>` : ''}
+                </div>`;
+
+                const max = maxShiftQty(a);
+                const unit = Number(a.unit_weight_kg) || 0;
+                const last = (() => { try { return localStorage.getItem('shifting_last_location') || ''; } catch (_) { return ''; } })();
+                html += `<div class="card" style="padding:14px; margin-top:12px">
+                    <div style="font-weight:700; margin-bottom:8px">Manual shift <span class="sub">(material without a label) · up to ${qtyFmt(max)} pcs${unit > 0 ? ` · ${kgFmt(unit)} kg/pc` : ''}</span></div>
+                    <div class="shift-form">
+                        <div><label for="sendTo">Send To</label>
+                            <select id="sendTo" class="form-control"><option value="">Select location</option>
+                            ${locations.map(l => `<option ${l.toLowerCase() === last.toLowerCase() ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></div>
+                        <div><label for="weightKg">Weight (kg)</label>
+                            <input id="weightKg" type="number" min="0" step="0.001" class="form-control" ${unit > 0 ? '' : 'disabled placeholder="No mould weight"'} oninput="onWeight(${unit})"></div>
+                        <div><label for="qtyPcs">Quantity (pcs)</label>
+                            <input id="qtyPcs" type="number" min="1" step="1" class="form-control" oninput="onQty(${unit})"></div>
+                    </div>
+                    <button id="shiftBtn" class="btn btn-primary" style="width:100%; margin-top:12px; height:46px; font-weight:700" onclick="doShift()">
+                        <i class="bi bi-box-arrow-right"></i> Shift</button>
+                </div>`;
+            }
+            document.getElementById('jobBody').innerHTML = html;
+        }
+
+        function maxShiftQty(a) {
+            const t = a.totals || {};
+            return a.verification_enforced ? Math.max(Number(t.ready) || 0, 0) : Math.max((Number(t.produced) || 0) - (Number(t.shifted) || 0), 0);
+        }
+
+        function onWeight(unit) {
+            const kg = Number(document.getElementById('weightKg').value) || 0;
+            if (unit > 0) document.getElementById('qtyPcs').value = kg > 0 ? Math.round(kg / unit) : '';
+        }
+
+        function onQty(unit) {
+            const q = Number(document.getElementById('qtyPcs').value) || 0;
+            if (unit > 0) document.getElementById('weightKg').value = q > 0 ? +(q * unit).toFixed(3) : '';
+        }
+
+        async function doShift() {
+            const a = current && current.avail;
+            if (!a) return;
+            const location = document.getElementById('sendTo').value;
+            const quantity = parseInt(document.getElementById('qtyPcs').value, 10) || 0;
+            const weightKg = Number(document.getElementById('weightKg').value) || 0;
+            const max = maxShiftQty(a);
+            const t = a.totals || {};
+            let err = '';
+            if ((Number(t.produced) || 0) <= 0) err = 'No production is entered in DPR for this job.';
+            else if (!location) err = 'Pick where the material is going (Send To).';
+            else if (quantity <= 0) err = 'Enter the weight or the quantity.';
+            else if (quantity > max) err = a.verification_enforced
+                ? `Only ${qtyFmt(max)} QC-verified pcs are ready to shift (not verified ${qtyFmt(t.not_verified)}).`
+                : `Only ${qtyFmt(max)} pcs are on the shop floor for this job.`;
+            if (err) { current.message = { ok: false, text: err }; renderKeepForm(); return; }
+
+            const btn = document.getElementById('shiftBtn');
+            btn.disabled = true;
+            btn.textContent = 'Saving...';
+            try {
+                await JPSMS.api.post('/shifting/entry', {
+                    planId: a.plan_id, machine: a.machine, quantity, toLocation: location,
+                    weightKg: weightKg > 0 ? weightKg : undefined
+                });
+                try { localStorage.setItem('shifting_last_location', location); } catch (_) { }
+                JPSMS.toast(`Shifted ${qtyFmt(quantity)} pcs from ${a.machine} → ${location}`, 'success');
+                current.message = { ok: true, text: `Shifted ${qtyFmt(quantity)} pcs from ${a.machine} → ${location}` };
+                const planId = current.planId;
+                await loadBoard();
+                if (current) { current.avail = null; renderJob(); loadAvail(planId); }
+            } catch (e) {
+                if (current) { current.message = { ok: false, text: e.message || 'Shift failed.' }; renderKeepForm(); }
+            }
+        }
+
+        // Re-render the modal but keep what the user typed.
+        function renderKeepForm() {
+            const keep = ['sendTo', 'weightKg', 'qtyPcs'].map(id => [id, (document.getElementById(id) || {}).value]);
+            renderJob();
+            keep.forEach(([id, v]) => { const el = document.getElementById(id); if (el && v != null) el.value = v; });
+        }
+    </script>
+    <script src="/assets/register-sw.js?v=release63"></script>
+</body>
+
+</html>

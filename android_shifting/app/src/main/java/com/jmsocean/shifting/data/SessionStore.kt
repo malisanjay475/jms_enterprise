@@ -33,6 +33,11 @@ class SessionStore(context: Context) {
         get() = prefs.getInt("job_days", 7)
         set(v) = prefs.edit().putInt("job_days", v).apply()
 
+    /** Manual screen: show only machines with QC approved qty. */
+    var approvedOnly: Boolean
+        get() = prefs.getBoolean("approved_only", false)
+        set(v) = prefs.edit().putBoolean("approved_only", v).apply()
+
     val isLoggedIn: Boolean get() = username.isNotBlank()
 
     /** Clears the login but keeps the shifter's working preferences. */
