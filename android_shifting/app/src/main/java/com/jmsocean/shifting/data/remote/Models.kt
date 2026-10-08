@@ -164,6 +164,20 @@ data class Job(
     val pending: Double get() = ((if (qcApproved > 0) qcApproved else produced) - shifted).coerceAtLeast(0.0)
 }
 
+/** One machine on the Manual Entry board (GET /api/shifting/machine-board). */
+data class MachineApproved(
+    val machine: String,
+    val line: String,
+    /** QC approved and not yet shifted (shop-floor balance when QC verification is off). */
+    val approvedQty: Double,
+    val onFloorQty: Double,
+    val jobs: Int,
+    val runningItem: String,
+    val onHold: Boolean,
+    /** Job the Open button lands on: most approved qty, running first. */
+    val bestPlanId: String
+)
+
 data class JobDetail(
     val planId: String,
     val planCode: String,
