@@ -13,6 +13,7 @@ import com.jmsocean.shifting.data.remote.LineTeam
 import com.jmsocean.shifting.data.remote.LineTeamRequest
 import com.jmsocean.shifting.data.remote.LineTeamStatus
 import com.jmsocean.shifting.data.remote.LoginRequest
+import com.jmsocean.shifting.data.remote.MachineApproved
 import com.jmsocean.shifting.data.remote.ManualEntryRequest
 import com.jmsocean.shifting.data.remote.Network
 import com.jmsocean.shifting.data.remote.QcHold
@@ -184,6 +185,24 @@ class ShiftingRepository(private val session: SessionStore) {
                     onHold = o.bool("on_hold"),
                     clientName = o.str("client_name"),
                     verificationEnforced = o.bool("verification_enforced")
+                )
+            }
+    }
+
+    /** Every machine in the standard order (Line, then machine number) with its QC-approved qty. */
+    suspend fun machineBoard(days: Int = 3): Result<List<MachineApproved>> = runCatching {
+        (call { api.machineBoard(days) } as? JsonArray).orEmpty()
+            .mapNotNull { it as? JsonObject }
+            .map { o ->
+                MachineApproved(
+                    machine = o.str("machine"),
+                    line = o.str("line"),
+                    approvedQty = o.num("approved_qty"),
+                    onFloorQty = o.num("on_floor_qty"),
+                    jobs = o.num("jobs").toInt(),
+                    runningItem = o.str("running_item"),
+                    onHold = o.bool("on_hold"),
+                    bestPlanId = o.str("best_plan_id")
                 )
             }
     }

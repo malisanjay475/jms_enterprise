@@ -9976,161 +9976,233 @@ app.get('/api/shifting/dashboard', async (req, res) => {
 // updated_at is bumped by sync, so recent DPR / label activity is the reliable signal.
 // Totals are aggregated in one query per source table for all listed plans (the old
 // per-row subqueries scanned the label log with TRIM(), ~20 s for 6000+ plans).
+async function shiftingJobRows(req, { days, line }) {
+  await ensureJobCardLabelLogTable();
+  const factoryId = getFactoryId(req);
+  const params = [days];
+  let filters = '';
+
+  if (line) {
+    params.push(line);
+    filters += ` AND (pb.line = $${params.length} OR pb.machine LIKE $${params.length} || '%')`;
+  }
+  if (factoryId) {
+    params.push(factoryId);
+    filters += ` AND (pb.factory_id = $${params.length} OR pb.factory_id IS NULL)`;
+  }
+
+  const plans = await q(
+    `SELECT pb.id AS plan_id, pb.plan_id AS plan_code, pb.machine, pb.line, pb.order_no,
+            pb.item_name, pb.mould_name, pb.mould_code, pb.plan_qty, pb.status,
+            pb.start_date, pb.end_date, pb.factory_id
+       FROM plan_board pb
+      WHERE (
+              UPPER(COALESCE(pb.status, '')) = 'RUNNING'
+           OR (UPPER(COALESCE(pb.status, '')) IN ('COMPLETED', 'CLOSED')
+               AND COALESCE(pb.plan_id, '') <> ''
+               AND (EXISTS (SELECT 1 FROM dpr_hourly dh
+                             WHERE dh.plan_id = pb.plan_id
+                               AND dh.dpr_date >= CURRENT_DATE - $1::int
+                               AND dh.is_deleted IS NOT TRUE)
+                 OR EXISTS (SELECT 1 FROM job_card_label_print_log jl
+                             WHERE jl.plan_id = pb.plan_id
+                               AND jl.printed_at >= CURRENT_DATE - $1::int)))
+            )
+            ${filters}`,
+    params
+  );
+  if (!plans.length) return { rows: [], machineRows: [], verifyEnforced: await shiftingVerificationEnforced(factoryId) };
+
+  const codes = [...new Set(plans.map(p => String(p.plan_code || '').trim()).filter(Boolean))];
+  const ids = plans.map(p => Number(p.plan_id)).filter(Number.isInteger);
+  const orders = [...new Set(plans.map(p => String(p.order_no || '').trim()).filter(Boolean))];
+  const machines = [...new Set(plans.map(p => String(p.machine || '').trim()).filter(Boolean))];
+
+  const [dprRows, labelRows, shiftRows, jcRows, qcRows, machineRows] = await Promise.all([
+    q(`SELECT plan_id, factory_id, COALESCE(SUM(good_qty), 0) AS qty, MAX(dpr_date) AS last_dpr_date
+         FROM dpr_hourly
+        WHERE plan_id = ANY($1::text[]) AND is_deleted IS NOT TRUE
+        GROUP BY plan_id, factory_id`, [codes]),
+    q(`SELECT plan_id, factory_id, COALESCE(SUM(label_qty), 0) AS qty, COUNT(*) AS labels,
+              (ARRAY_AGG(jc_no ORDER BY printed_at DESC, id DESC)
+                 FILTER (WHERE COALESCE(TRIM(jc_no), '') <> ''))[1] AS jc_no
+         FROM job_card_label_print_log
+        WHERE plan_id = ANY($1::text[])
+        GROUP BY plan_id, factory_id`, [codes]),
+    q(`SELECT plan_id, factory_id, COALESCE(SUM(quantity), 0) AS qty, MAX(created_at) AS last_shifted_at
+         FROM shifting_records
+        WHERE plan_id = ANY($1::int[])
+        GROUP BY plan_id, factory_id`, [ids]),
+    orders.length
+      ? q(`SELECT DISTINCT ON (TRIM(COALESCE(or_jr_no, ''))) TRIM(COALESCE(or_jr_no, '')) AS order_no, job_card_no
+             FROM or_jr_report
+            WHERE TRIM(COALESCE(or_jr_no, '')) = ANY($1::text[])
+            ORDER BY TRIM(COALESCE(or_jr_no, '')), job_card_date DESC NULLS LAST, id DESC`, [orders])
+      : [],
+    q(`SELECT TRIM(COALESCE(machine, '')) AS machine, TRIM(COALESCE(mould_name, '')) AS mould_name,
+              TRIM(COALESCE(item_name, '')) AS item_name,
+              SUM(GREATEST(COALESCE(qty_checked, 0) - COALESCE(qty_rejected, 0), 0)) AS qty
+         FROM qc_online_reports
+        WHERE TRIM(COALESCE(machine, '')) = ANY($1::text[])
+        GROUP BY 1, 2, 3`, [machines]),
+    q(`SELECT TRIM(machine) AS machine, line, building FROM machines WHERE COALESCE(is_active, true) = true`)
+  ]);
+
+  // Factory-scope: plan codes repeat across factories (KAN-127). A row counts for a
+  // plan when its factory matches, or either side has no factory.
+  const groupBy = (rows, keyFn) => {
+    const map = new Map();
+    rows.forEach(r => {
+      const k = keyFn(r);
+      if (!map.has(k)) map.set(k, []);
+      map.get(k).push(r);
+    });
+    return map;
+  };
+  const sameFactory = (row, plan) => row.factory_id == null || plan.factory_id == null || Number(row.factory_id) === Number(plan.factory_id);
+  const dprByCode = groupBy(dprRows, r => String(r.plan_id));
+  const labelByCode = groupBy(labelRows, r => String(r.plan_id));
+  const shiftById = groupBy(shiftRows, r => String(r.plan_id));
+  const jcByOrder = new Map(jcRows.map(r => [r.order_no, r.job_card_no]));
+  const qcByKey = new Map(qcRows.map(r => [`${r.machine}|${r.mould_name}|${r.item_name}`, Number(r.qty || 0)]));
+  const latest = (a, b) => (!a ? b : !b ? a : (new Date(a) > new Date(b) ? a : b));
+
+  const rows = plans.map(plan => {
+    const code = String(plan.plan_code || '').trim();
+    const dpr = (dprByCode.get(code) || []).filter(r => sameFactory(r, plan));
+    const labels = (labelByCode.get(code) || []).filter(r => sameFactory(r, plan));
+    const shifts = (shiftById.get(String(plan.plan_id)) || []).filter(r => sameFactory(r, plan));
+    const labelJc = labels.map(r => r.jc_no).find(Boolean);
+    return {
+      ...plan,
+      jc_no: labelJc || jcByOrder.get(String(plan.order_no || '').trim()) || '',
+      total_produced: dpr.reduce((sum, r) => sum + Number(r.qty || 0), 0),
+      total_qc_approved: qcByKey.get(`${String(plan.machine || '').trim()}|${String(plan.mould_name || '').trim()}|${String(plan.item_name || '').trim()}`) || 0,
+      total_shifted: shifts.reduce((sum, r) => sum + Number(r.qty || 0), 0),
+      total_labelled_qty: labels.reduce((sum, r) => sum + Number(r.qty || 0), 0),
+      total_labels_printed: labels.reduce((sum, r) => sum + Number(r.labels || 0), 0),
+      last_dpr_date: dpr.reduce((d, r) => latest(d, r.last_dpr_date), null),
+      last_shifted_at: shifts.reduce((d, r) => latest(d, r.last_shifted_at), null)
+    };
+  });
+
+  // Running first in the standard machine order (Line, then machine number); then
+  // completed jobs, latest production first.
+  const jobWeights = await shiftingUnitWeights(plans.flatMap(p => [p.mould_name, p.mould_code]), factoryId);
+  const [jobAvail, jobHolds, verifyEnforced, clientRows] = await Promise.all([
+    shiftingAvailabilityMap(plans.map(p => ({ pk: p.plan_id, code: p.plan_code })), factoryId),
+    shiftingHoldsByMachine(plans.map(p => p.machine), factoryId),
+    shiftingVerificationEnforced(factoryId),
+    orders.length
+      ? q(`SELECT DISTINCT ON (TRIM(COALESCE(or_jr_no, ''))) TRIM(COALESCE(or_jr_no, '')) AS order_no, client_name
+             FROM or_jr_report
+            WHERE TRIM(COALESCE(or_jr_no, '')) = ANY($1::text[]) AND COALESCE(TRIM(client_name), '') <> ''
+            ORDER BY TRIM(COALESCE(or_jr_no, '')), job_card_date DESC NULLS LAST, id DESC`, [orders])
+      : []
+  ]);
+  const clientByOrder = new Map(clientRows.map(r => [r.order_no, r.client_name]));
+  const lineByMachine = new Map(machineRows.map(m => [String(m.machine || '').trim(), String(m.line || '').trim()]));
+  rows.forEach(r => {
+    r.unit_weight_kg = [r.mould_name, r.mould_code].map(m => jobWeights.get(shiftingMouldKey(m))).find(w => w > 0) || 0;
+    const av = jobAvail.get(String(r.plan_id));
+    r.total_verified = av ? av.verified : 0;
+    r.total_not_verified = av ? av.not_verified : 0;
+    r.ready_qty = av ? av.ready : 0;
+    r.verification_enforced = verifyEnforced;
+    r.hold_qty = (jobHolds.get(String(r.machine || '').trim()) || {}).qty || 0;
+    r.on_hold = jobHolds.has(String(r.machine || '').trim());
+    r.client_name = clientByOrder.get(String(r.order_no || '').trim()) || '';
+    if (!String(r.line || '').trim()) r.line = lineByMachine.get(String(r.machine || '').trim()) || '';
+  });
+
+  const machineOrder = makeMachineOrder(machineRows);
+  const isRunning = r => String(r.status || '').toUpperCase() === 'RUNNING';
+  rows.sort((a, b) => {
+    if (isRunning(a) !== isRunning(b)) return isRunning(a) ? -1 : 1;
+    if (!isRunning(a)) {
+      const ta = a.last_dpr_date ? new Date(a.last_dpr_date).getTime() : 0;
+      const tb = b.last_dpr_date ? new Date(b.last_dpr_date).getTime() : 0;
+      if (ta !== tb) return tb - ta;
+    }
+    return machineOrder(a.machine, b.machine);
+  });
+
+  return { rows, machineRows, verifyEnforced };
+}
+
 app.get('/api/shifting/jobs', async (req, res) => {
   try {
-    await ensureJobCardLabelLogTable();
-    const line = normalizeOptionalText(req.query.line);
-    const factoryId = getFactoryId(req);
     const days = Math.min(Math.max(parseInt(req.query.days, 10) || 7, 1), 90);
-    const params = [days];
-    let filters = '';
-
-    if (line) {
-      params.push(line);
-      filters += ` AND (pb.line = $${params.length} OR pb.machine LIKE $${params.length} || '%')`;
-    }
-    if (factoryId) {
-      params.push(factoryId);
-      filters += ` AND (pb.factory_id = $${params.length} OR pb.factory_id IS NULL)`;
-    }
-
-    const plans = await q(
-      `SELECT pb.id AS plan_id, pb.plan_id AS plan_code, pb.machine, pb.line, pb.order_no,
-              pb.item_name, pb.mould_name, pb.mould_code, pb.plan_qty, pb.status,
-              pb.start_date, pb.end_date, pb.factory_id
-         FROM plan_board pb
-        WHERE (
-                UPPER(COALESCE(pb.status, '')) = 'RUNNING'
-             OR (UPPER(COALESCE(pb.status, '')) IN ('COMPLETED', 'CLOSED')
-                 AND COALESCE(pb.plan_id, '') <> ''
-                 AND (EXISTS (SELECT 1 FROM dpr_hourly dh
-                               WHERE dh.plan_id = pb.plan_id
-                                 AND dh.dpr_date >= CURRENT_DATE - $1::int
-                                 AND dh.is_deleted IS NOT TRUE)
-                   OR EXISTS (SELECT 1 FROM job_card_label_print_log jl
-                               WHERE jl.plan_id = pb.plan_id
-                                 AND jl.printed_at >= CURRENT_DATE - $1::int)))
-              )
-              ${filters}`,
-      params
-    );
-    if (!plans.length) return res.json({ ok: true, data: [], days });
-
-    const codes = [...new Set(plans.map(p => String(p.plan_code || '').trim()).filter(Boolean))];
-    const ids = plans.map(p => Number(p.plan_id)).filter(Number.isInteger);
-    const orders = [...new Set(plans.map(p => String(p.order_no || '').trim()).filter(Boolean))];
-    const machines = [...new Set(plans.map(p => String(p.machine || '').trim()).filter(Boolean))];
-
-    const [dprRows, labelRows, shiftRows, jcRows, qcRows, machineRows] = await Promise.all([
-      q(`SELECT plan_id, factory_id, COALESCE(SUM(good_qty), 0) AS qty, MAX(dpr_date) AS last_dpr_date
-           FROM dpr_hourly
-          WHERE plan_id = ANY($1::text[]) AND is_deleted IS NOT TRUE
-          GROUP BY plan_id, factory_id`, [codes]),
-      q(`SELECT plan_id, factory_id, COALESCE(SUM(label_qty), 0) AS qty, COUNT(*) AS labels,
-                (ARRAY_AGG(jc_no ORDER BY printed_at DESC, id DESC)
-                   FILTER (WHERE COALESCE(TRIM(jc_no), '') <> ''))[1] AS jc_no
-           FROM job_card_label_print_log
-          WHERE plan_id = ANY($1::text[])
-          GROUP BY plan_id, factory_id`, [codes]),
-      q(`SELECT plan_id, factory_id, COALESCE(SUM(quantity), 0) AS qty, MAX(created_at) AS last_shifted_at
-           FROM shifting_records
-          WHERE plan_id = ANY($1::int[])
-          GROUP BY plan_id, factory_id`, [ids]),
-      orders.length
-        ? q(`SELECT DISTINCT ON (TRIM(COALESCE(or_jr_no, ''))) TRIM(COALESCE(or_jr_no, '')) AS order_no, job_card_no
-               FROM or_jr_report
-              WHERE TRIM(COALESCE(or_jr_no, '')) = ANY($1::text[])
-              ORDER BY TRIM(COALESCE(or_jr_no, '')), job_card_date DESC NULLS LAST, id DESC`, [orders])
-        : [],
-      q(`SELECT TRIM(COALESCE(machine, '')) AS machine, TRIM(COALESCE(mould_name, '')) AS mould_name,
-                TRIM(COALESCE(item_name, '')) AS item_name,
-                SUM(GREATEST(COALESCE(qty_checked, 0) - COALESCE(qty_rejected, 0), 0)) AS qty
-           FROM qc_online_reports
-          WHERE TRIM(COALESCE(machine, '')) = ANY($1::text[])
-          GROUP BY 1, 2, 3`, [machines]),
-      q(`SELECT TRIM(machine) AS machine, line, building FROM machines WHERE COALESCE(is_active, true) = true`)
-    ]);
-
-    // Factory-scope: plan codes repeat across factories (KAN-127). A row counts for a
-    // plan when its factory matches, or either side has no factory.
-    const groupBy = (rows, keyFn) => {
-      const map = new Map();
-      rows.forEach(r => {
-        const k = keyFn(r);
-        if (!map.has(k)) map.set(k, []);
-        map.get(k).push(r);
-      });
-      return map;
-    };
-    const sameFactory = (row, plan) => row.factory_id == null || plan.factory_id == null || Number(row.factory_id) === Number(plan.factory_id);
-    const dprByCode = groupBy(dprRows, r => String(r.plan_id));
-    const labelByCode = groupBy(labelRows, r => String(r.plan_id));
-    const shiftById = groupBy(shiftRows, r => String(r.plan_id));
-    const jcByOrder = new Map(jcRows.map(r => [r.order_no, r.job_card_no]));
-    const qcByKey = new Map(qcRows.map(r => [`${r.machine}|${r.mould_name}|${r.item_name}`, Number(r.qty || 0)]));
-    const latest = (a, b) => (!a ? b : !b ? a : (new Date(a) > new Date(b) ? a : b));
-
-    const rows = plans.map(plan => {
-      const code = String(plan.plan_code || '').trim();
-      const dpr = (dprByCode.get(code) || []).filter(r => sameFactory(r, plan));
-      const labels = (labelByCode.get(code) || []).filter(r => sameFactory(r, plan));
-      const shifts = (shiftById.get(String(plan.plan_id)) || []).filter(r => sameFactory(r, plan));
-      const labelJc = labels.map(r => r.jc_no).find(Boolean);
-      return {
-        ...plan,
-        jc_no: labelJc || jcByOrder.get(String(plan.order_no || '').trim()) || '',
-        total_produced: dpr.reduce((sum, r) => sum + Number(r.qty || 0), 0),
-        total_qc_approved: qcByKey.get(`${String(plan.machine || '').trim()}|${String(plan.mould_name || '').trim()}|${String(plan.item_name || '').trim()}`) || 0,
-        total_shifted: shifts.reduce((sum, r) => sum + Number(r.qty || 0), 0),
-        total_labelled_qty: labels.reduce((sum, r) => sum + Number(r.qty || 0), 0),
-        total_labels_printed: labels.reduce((sum, r) => sum + Number(r.labels || 0), 0),
-        last_dpr_date: dpr.reduce((d, r) => latest(d, r.last_dpr_date), null),
-        last_shifted_at: shifts.reduce((d, r) => latest(d, r.last_shifted_at), null)
-      };
-    });
-
-    // Running first in the standard machine order (Line, then machine number); then
-    // completed jobs, latest production first.
-    const jobWeights = await shiftingUnitWeights(plans.flatMap(p => [p.mould_name, p.mould_code]), factoryId);
-    const [jobAvail, jobHolds, verifyEnforced, clientRows] = await Promise.all([
-      shiftingAvailabilityMap(plans.map(p => ({ pk: p.plan_id, code: p.plan_code })), factoryId),
-      shiftingHoldsByMachine(plans.map(p => p.machine), factoryId),
-      shiftingVerificationEnforced(factoryId),
-      orders.length
-        ? q(`SELECT DISTINCT ON (TRIM(COALESCE(or_jr_no, ''))) TRIM(COALESCE(or_jr_no, '')) AS order_no, client_name
-               FROM or_jr_report
-              WHERE TRIM(COALESCE(or_jr_no, '')) = ANY($1::text[]) AND COALESCE(TRIM(client_name), '') <> ''
-              ORDER BY TRIM(COALESCE(or_jr_no, '')), job_card_date DESC NULLS LAST, id DESC`, [orders])
-        : []
-    ]);
-    const clientByOrder = new Map(clientRows.map(r => [r.order_no, r.client_name]));
-    const lineByMachine = new Map(machineRows.map(m => [String(m.machine || '').trim(), String(m.line || '').trim()]));
-    rows.forEach(r => {
-      r.unit_weight_kg = [r.mould_name, r.mould_code].map(m => jobWeights.get(shiftingMouldKey(m))).find(w => w > 0) || 0;
-      const av = jobAvail.get(String(r.plan_id));
-      r.total_verified = av ? av.verified : 0;
-      r.total_not_verified = av ? av.not_verified : 0;
-      r.ready_qty = av ? av.ready : 0;
-      r.verification_enforced = verifyEnforced;
-      r.hold_qty = (jobHolds.get(String(r.machine || '').trim()) || {}).qty || 0;
-      r.on_hold = jobHolds.has(String(r.machine || '').trim());
-      r.client_name = clientByOrder.get(String(r.order_no || '').trim()) || '';
-      if (!String(r.line || '').trim()) r.line = lineByMachine.get(String(r.machine || '').trim()) || '';
-    });
-
-    const machineOrder = makeMachineOrder(machineRows);
-    const isRunning = r => String(r.status || '').toUpperCase() === 'RUNNING';
-    rows.sort((a, b) => {
-      if (isRunning(a) !== isRunning(b)) return isRunning(a) ? -1 : 1;
-      if (!isRunning(a)) {
-        const ta = a.last_dpr_date ? new Date(a.last_dpr_date).getTime() : 0;
-        const tb = b.last_dpr_date ? new Date(b.last_dpr_date).getTime() : 0;
-        if (ta !== tb) return tb - ta;
-      }
-      return machineOrder(a.machine, b.machine);
-    });
-
+    const { rows } = await shiftingJobRows(req, { days, line: normalizeOptionalText(req.query.line) });
     res.json({ ok: true, data: rows, days });
+  } catch (e) {
+    sendServerError(res, e);
+  }
+});
+
+// GET /api/shifting/machine-board?days=3 — Manual Entry board (Shifting app + web page):
+// every active moulding machine in the standard order (Line, then machine number) with
+// the QC-approved qty still waiting to be shifted, summed over its jobs of the last ?days=.
+// approved_qty = QC verified - shifted (capped at the shop-floor balance); a server without
+// QC verification data uses the shop-floor balance (produced - shifted) instead.
+app.get('/api/shifting/machine-board', async (req, res) => {
+  try {
+    const days = Math.min(Math.max(parseInt(req.query.days, 10) || 3, 1), 30);
+    const factoryId = getFactoryId(req);
+    const [{ rows, machineRows, verifyEnforced }, master] = await Promise.all([
+      shiftingJobRows(req, { days, line: null }),
+      q(`SELECT TRIM(machine) AS machine, TRIM(COALESCE(line, '')) AS line, building
+           FROM machines
+          WHERE COALESCE(is_active, TRUE) = TRUE
+            AND COALESCE(NULLIF(TRIM(machine), ''), '') <> ''
+            AND COALESCE(NULLIF(TRIM(machine_process), ''), 'Moulding') = 'Moulding'
+            AND ($1::int IS NULL OR factory_id = $1)`, [factoryId])
+    ]);
+
+    const board = new Map();
+    const entry = (machine, line) => {
+      if (!board.has(machine)) {
+        board.set(machine, {
+          machine, line: line || '', approved_qty: 0, verified_qty: 0, produced_qty: 0, shifted_qty: 0,
+          on_floor_qty: 0, jobs: 0, running_item: '', on_hold: false, best_plan_id: null, job_list: [], _best: -1
+        });
+      }
+      return board.get(machine);
+    };
+    master.forEach(m => entry(m.machine, m.line || String(m.building || '').trim()));
+    rows.forEach(r => {
+      const machine = String(r.machine || '').trim();
+      if (!machine) return;
+      const b = entry(machine, String(r.line || '').trim());
+      if (!b.line) b.line = String(r.line || '').trim();
+      const produced = Number(r.total_produced) || 0;
+      const shifted = Number(r.total_shifted) || 0;
+      const floor = Math.max(produced - shifted, 0);
+      const approved = verifyEnforced ? Math.min(Number(r.ready_qty) || 0, floor) : floor;
+      const running = String(r.status || '').toUpperCase() === 'RUNNING';
+      b.approved_qty += approved;
+      b.verified_qty += Number(r.total_verified) || 0;
+      b.produced_qty += produced;
+      b.shifted_qty += shifted;
+      b.on_floor_qty += floor;
+      b.jobs += 1;
+      b.job_list.push({
+        plan_id: r.plan_id, plan_code: r.plan_code || '', status: r.status || '', order_no: r.order_no || '',
+        jc_no: r.jc_no || '', client_name: r.client_name || '', item_name: r.item_name || '', mould_name: r.mould_name || '',
+        produced: produced, verified: Number(r.total_verified) || 0, shifted, on_floor: floor, approved, on_hold: !!r.on_hold
+      });
+      b.on_hold = b.on_hold || !!r.on_hold;
+      if (running && !b.running_item) b.running_item = String(r.item_name || r.mould_name || '').trim();
+      // Job the Open button lands on: most approved qty, a running job wins a tie.
+      const score = approved * 2 + (running ? 1 : 0);
+      if (score > b._best) { b._best = score; b.best_plan_id = r.plan_id; }
+    });
+
+    const order = makeMachineOrder(machineRows.length ? machineRows : master);
+    const data = [...board.values()]
+      .map(({ _best, ...b }) => b)
+      .sort((a, b) => order(a.machine, b.machine));
+    res.json({ ok: true, data, days, verification_enforced: verifyEnforced });
   } catch (e) {
     sendServerError(res, e);
   }

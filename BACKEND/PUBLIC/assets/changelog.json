@@ -11,8 +11,27 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.101.1",
+  "latest": "1.102.0",
   "versions": [
+    {
+      "version": "1.102.0",
+      "date": "2026-10-08",
+      "title": "Manual Entry: machine-wise QC approved qty",
+      "modules": [
+        {
+          "app": "shifting_module",
+          "changes": [
+            { "type": "feature", "text": "New Shifting Module > Manual Entry page: every machine in line order with its QC approved quantity waiting to be shifted. Turn on 'Only machines with QC approved qty' to hide the rest. Open shows the full job details and lets you shift the material." }
+          ]
+        },
+        {
+          "app": "shifting_supervisor_app",
+          "changes": [
+            { "type": "feature", "text": "Shifting app 1.4.0: the Manual screen opens on a new Machines view with the same list and toggle; Open takes you to the job details and the shift form." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.101.4",
       "date": "2026-10-07",
