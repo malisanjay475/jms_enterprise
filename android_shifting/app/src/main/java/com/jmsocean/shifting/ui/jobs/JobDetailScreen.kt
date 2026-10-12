@@ -43,6 +43,8 @@ import com.jmsocean.shifting.ui.common.AppTopBar
 import com.jmsocean.shifting.ui.common.ErrorCard
 import com.jmsocean.shifting.ui.common.JobAvailabilityCard
 import com.jmsocean.shifting.ui.common.MetricRow
+import com.jmsocean.shifting.ui.common.SfgBlockCard
+import com.jmsocean.shifting.ui.common.packText
 import com.jmsocean.shifting.ui.common.qty
 import com.jmsocean.shifting.ui.theme.Crit
 import com.jmsocean.shifting.ui.theme.Good
@@ -99,6 +101,21 @@ fun JobDetailScreen(onBack: () -> Unit, vm: JobDetailViewModel = viewModel()) {
                 Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text("Manual shift", fontWeight = FontWeight.Bold, fontSize = 15.sp)
                     Text("Use only when the material has no label.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    val a = s.avail
+                    if (a != null && !a.hasSfgStd) {
+                        SfgBlockCard(a.mouldName)
+                        return@Column
+                    }
+                    if (a != null) {
+                        OutlinedTextField(
+                            value = s.packs,
+                            onValueChange = vm::setPacks,
+                            label = { Text("${a.packName.replaceFirstChar { it.uppercase() }}s (${qty(a.sfgStd)} pcs each)") },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
                     OutlinedTextField(
                         value = s.quantity,
                         onValueChange = vm::setQuantity,
@@ -107,7 +124,10 @@ fun JobDetailScreen(onBack: () -> Unit, vm: JobDetailViewModel = viewModel()) {
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         modifier = Modifier.fillMaxWidth()
                     )
-                    val a = s.avail
+                    val qNow = s.quantity.toIntOrNull() ?: 0
+                    if (a != null && qNow > 0) {
+                        Text("= ${packText(qNow.toDouble(), a.sfgStd, a.packName)}", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Good)
+                    }
                     val colours = a?.shiftColours.orEmpty()
                     if (a != null && colours.isNotEmpty()) {
                         Text("Colour", fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)

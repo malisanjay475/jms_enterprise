@@ -67,6 +67,14 @@ fun JobAvailabilityCard(a: Availability) {
                 listOf(a.machine, a.planCode, a.status, "Plan ${qty(a.planQty)}").filter { it.isNotBlank() }.joinToString(" · "),
                 fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+            if (a.hasSfgStd) {
+                Text(
+                    "SFG std ${qty(a.sfgStd)} pcs / ${a.packName}" + if (a.sfgBagSize.isNotBlank()) " (${a.sfgBagSize})" else "",
+                    fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Good
+                )
+            } else {
+                Text("SFG STD NOT SET — manual shift blocked", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Crit)
+            }
             MetricRow(
                 Triple("Produced", qty(a.produced), Color.Unspecified),
                 Triple("QC verified", qty(a.verified), Good),
@@ -77,6 +85,9 @@ fun JobAvailabilityCard(a: Availability) {
                 Triple("Ready (floor)", qty(a.ready), if (a.ready > 0) Good else Color.Unspecified),
                 Triple("On QC hold", if (a.holdCount > 0 && a.holdQty <= 0) "Yes" else qty(a.holdQty), if (a.holdCount > 0) Crit else Color.Unspecified)
             )
+            if (a.hasSfgStd && a.ready > 0) {
+                Text("Ready = ${packText(a.ready, a.sfgStd, a.packName)}", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Good)
+            }
             if (a.holdCount > 0) {
                 Text(
                     "QC HOLD on ${a.machine}: ${a.holdReasons.joinToString("; ").ifBlank { "no reason given" }}",
@@ -106,6 +117,9 @@ fun JobAvailabilityCard(a: Availability) {
                             Text(qty(c.notVerified), Modifier.weight(1f), fontSize = 12.sp, color = if (c.notVerified > 0) Crit else Color.Unspecified)
                             Text(qty(c.shifted), Modifier.weight(1f), fontSize = 12.sp)
                             Text(qty(c.ready), Modifier.weight(1f), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = if (c.ready > 0) Good else Color.Unspecified)
+                        }
+                        if (a.hasSfgStd && c.ready > 0) {
+                            Text("Ready ${packText(c.ready, a.sfgStd, a.packName)}", fontSize = 11.sp, color = Good, fontWeight = FontWeight.SemiBold)
                         }
                         if (c.byLocation.isNotEmpty()) {
                             Row(Modifier.padding(top = 2.dp, bottom = 4.dp)) { LocationChips(c.byLocation) }
