@@ -107,6 +107,20 @@ fun JobDetailScreen(onBack: () -> Unit, vm: JobDetailViewModel = viewModel()) {
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         modifier = Modifier.fillMaxWidth()
                     )
+                    val a = s.avail
+                    val colours = a?.shiftColours.orEmpty()
+                    if (a != null && colours.isNotEmpty()) {
+                        Text("Colour", fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            colours.forEach { c ->
+                                FilterChip(
+                                    selected = c.colour.equals(s.colour, ignoreCase = true),
+                                    onClick = { vm.setColour(c.colour) },
+                                    label = { Text("${c.colour} · ${qty(a.colourMax(c))}") }
+                                )
+                            }
+                        }
+                    }
                     Text("Send To", fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         s.locations.forEach { loc ->

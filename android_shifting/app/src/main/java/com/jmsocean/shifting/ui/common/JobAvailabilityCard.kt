@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -108,6 +109,20 @@ fun JobAvailabilityCard(a: Availability) {
                         }
                         if (c.byLocation.isNotEmpty()) {
                             Row(Modifier.padding(top = 2.dp, bottom = 4.dp)) { LocationChips(c.byLocation) }
+                        }
+                    }
+                }
+                // Older manual shifts saved without a colour: own row, so the rows add up to Shifted.
+                if (a.unassignedShifted > 0) {
+                    Column {
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Text("No colour (manual)", Modifier.weight(2.2f), fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Warn, maxLines = 2)
+                            Spacer(Modifier.weight(3f))
+                            Text(qty(a.unassignedShifted), Modifier.weight(1f), fontSize = 12.sp)
+                            Spacer(Modifier.weight(1f))
+                        }
+                        if (a.unassignedByLocation.isNotEmpty()) {
+                            Row(Modifier.padding(top = 2.dp, bottom = 4.dp)) { LocationChips(a.unassignedByLocation) }
                         }
                     }
                 }
