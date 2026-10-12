@@ -20,6 +20,8 @@ data class JobDetailUiState(
     val avail: Availability? = null,
     val locations: List<String> = emptyList(),
     val location: String = "",
+    /** Colour of the material being shifted (one of the job's produced colours). */
+    val colour: String = "",
     val quantity: String = "",
     val saving: Boolean = false,
     val message: String? = null,
@@ -49,7 +51,7 @@ class JobDetailViewModel(savedState: SavedStateHandle) : ViewModel() {
     fun load() {
         _state.update { it.copy(loading = true, error = null) }
         viewModelScope.launch {
-            repo.availability(planId).onSuccess { a -> _state.update { it.copy(avail = a) } }
+            repo.availability(planId).onSuccess { a -> _state.update { it.copy(avail = a, colour = a.defaultColour(it.colour)) } }
             repo.jobDetail(planId)
                 .onSuccess { j -> _state.update { it.copy(loading = false, job = j) } }
                 .onFailure { e -> _state.update { it.copy(loading = false, error = e.message ?: "Could not load job") } }
@@ -61,6 +63,8 @@ class JobDetailViewModel(savedState: SavedStateHandle) : ViewModel() {
         _state.update { it.copy(location = loc) }
     }
 
+    fun setColour(colour: String) = _state.update { it.copy(colour = colour, message = null) }
+
     fun setQuantity(v: String) = _state.update { it.copy(quantity = v.filter(Char::isDigit).take(7), message = null) }
 
     /** Manual (no-label) shift. The server checks QC hold and the shop-floor balance. */
@@ -68,16 +72,21 @@ class JobDetailViewModel(savedState: SavedStateHandle) : ViewModel() {
         val s = _state.value
         val job = s.job ?: return
         val q = s.quantity.toIntOrNull() ?: 0
+        val a = s.avail
+        val colour = a?.colourNamed(s.colour)
         when {
             q <= 0 -> return fail("Enter the quantity to shift.")
+            a != null && a.shiftColours.size > 1 && colour == null -> return fail("Pick the colour of the material you are shifting.")
             s.location.isBlank() -> return fail("Pick where the material is going (Send To).")
+            a != null && colour != null && q > a.colourMax(colour) ->
+                return fail("Only ${qty(a.colourMax(colour))} pcs of ${colour.colour} are ready to shift.")
             job.floorBalance > 0 && q > job.floorBalance -> return fail("Only ${qty(job.floorBalance)} pcs are on the shop floor.")
         }
         _state.update { it.copy(saving = true, message = null) }
         viewModelScope.launch {
-            repo.manualShift(job.planId.ifBlank { planId }, job.machine, q, s.location)
+            repo.manualShift(job.planId.ifBlank { planId }, job.machine, q, s.location, colour = colour?.colour)
                 .onSuccess {
-                    _state.update { it.copy(saving = false, quantity = "", message = "Shifted ${qty(q.toDouble())} pcs → ${s.location}", messageOk = true) }
+                    _state.update { it.copy(saving = false, quantity = "", message = "Shifted ${qty(q.toDouble())} pcs${colour?.let { " " + it.colour }.orEmpty()} → ${s.location}", messageOk = true) }
                     load()
                 }
                 .onFailure { e -> _state.update { it.copy(saving = false, message = e.message ?: "Shift failed.", messageOk = false) } }

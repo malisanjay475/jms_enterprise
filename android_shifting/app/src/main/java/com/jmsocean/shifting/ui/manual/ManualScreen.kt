@@ -105,11 +105,17 @@ data class ManualUiState(
     val availError: String? = null,
     val locations: List<String> = emptyList(),
     val location: String = "",
+    /** Colour of the material being shifted (one of the job's produced colours). */
+    val colour: String = "",
     val weight: String = "",
     val quantity: String = "",
     val saving: Boolean = false,
     val message: ManualMessage? = null
 ) {
+    /** Most that can be shifted now: of the picked colour, else of the whole job. */
+    val maxQty: Double
+        get() = avail?.let { a -> a.colourNamed(colour)?.let { a.colourMax(it) } ?: a.maxShiftQty } ?: job?.maxShiftQty ?: 0.0
+
     val lines: List<String>
         get() = jobs.map { it.line }.filter { it.isNotBlank() }.distinct()
             .sortedWith(compareBy({ it.substringBefore('-').trim() }, { firstNumber(it) }, { it }))
@@ -197,7 +203,7 @@ class ManualViewModel : ViewModel() {
     fun openMachine(m: MachineApproved) {
         val line = _state.value.jobs.firstOrNull { it.machine == m.machine }?.line?.takeIf { it.isNotBlank() } ?: m.line
         _state.update {
-            it.copy(view = ManualView.FORM, line = line, machine = m.machine, planId = "", avail = null, weight = "", quantity = "", message = null)
+            it.copy(view = ManualView.FORM, line = line, machine = m.machine, planId = "", avail = null, colour = "", weight = "", quantity = "", message = null)
         }
         // The board's job is kept even while the job list is still loading; load() picks it up.
         val planId = m.bestPlanId.ifBlank { _state.value.machineJobs.firstOrNull()?.planId.orEmpty() }
@@ -219,23 +225,29 @@ class ManualViewModel : ViewModel() {
         _state.update { it.copy(availLoading = true, availError = null) }
         availJob = viewModelScope.launch {
             repo.availability(planId)
-                .onSuccess { a -> _state.update { if (it.planId == planId) it.copy(availLoading = false, avail = a) else it } }
+                .onSuccess { a ->
+                    _state.update {
+                        if (it.planId == planId) it.copy(availLoading = false, avail = a, colour = a.defaultColour(it.colour)) else it
+                    }
+                }
                 .onFailure { e -> _state.update { it.copy(availLoading = false, availError = e.message ?: "Could not load the job") } }
         }
     }
 
     fun setLine(line: String) = _state.update {
-        it.copy(line = line, machine = "", planId = "", avail = null, weight = "", quantity = "", message = null)
+        it.copy(line = line, machine = "", planId = "", avail = null, colour = "", weight = "", quantity = "", message = null)
     }
 
     fun setMachine(machine: String) = _state.update {
-        it.copy(machine = machine, planId = "", avail = null, weight = "", quantity = "", message = null)
+        it.copy(machine = machine, planId = "", avail = null, colour = "", weight = "", quantity = "", message = null)
     }
 
     fun selectJob(planId: String) {
-        _state.update { it.copy(planId = planId, avail = null, weight = "", quantity = "", message = null) }
+        _state.update { it.copy(planId = planId, avail = null, colour = "", weight = "", quantity = "", message = null) }
         loadAvailability(planId)
     }
+
+    fun setColour(colour: String) = _state.update { it.copy(colour = colour, message = null) }
 
     fun setLocation(loc: String) {
         app.session.lastLocation = loc
@@ -268,15 +280,18 @@ class ManualViewModel : ViewModel() {
         val job = s.job
         val a = s.avail
         val q = s.quantity.toIntOrNull() ?: 0
-        val max = (a?.maxShiftQty ?: job?.maxShiftQty ?: 0.0).toInt()
+        val max = s.maxQty.toInt()
+        val colour = a?.colourNamed(s.colour)
+        val of = colour?.let { " of ${it.colour}" }.orEmpty()
         val fail: ManualMessage? = when {
             job == null -> ManualMessage(false, "Pick the line, machine and job.")
             a != null && a.produced <= 0 -> ManualMessage(false, "No production is entered in DPR for this job.", "NOT PRODUCED")
+            a != null && a.shiftColours.size > 1 && colour == null -> ManualMessage(false, "Pick the colour of the material you are shifting.")
             s.location.isBlank() -> ManualMessage(false, "Pick where the material is going (Send To).")
             q <= 0 -> ManualMessage(false, "Enter the weight or the quantity.")
             q > max && a?.verificationEnforced == true ->
-                ManualMessage(false, "Only ${qty(max.toDouble())} QC-verified pcs are ready to shift (not verified ${qty(a.notVerified)}).", "NOT QC VERIFIED")
-            q > max -> ManualMessage(false, "Only ${qty(max.toDouble())} pcs are on the shop floor for this job.")
+                ManualMessage(false, "Only ${qty(max.toDouble())} QC-verified pcs$of are ready to shift.", "NOT QC VERIFIED")
+            q > max -> ManualMessage(false, "Only ${qty(max.toDouble())} pcs$of are on the shop floor for this job.")
             else -> null
         }
         if (fail != null || job == null) {
@@ -287,13 +302,13 @@ class ManualViewModel : ViewModel() {
         val weight = s.weight.toDoubleOrNull()?.takeIf { it > 0 }
         _state.update { it.copy(saving = true, message = null) }
         viewModelScope.launch {
-            repo.manualShift(job.planId, job.machine, q, s.location, weight)
+            repo.manualShift(job.planId, job.machine, q, s.location, weight, colour?.colour)
                 .onSuccess {
                     _beep.tryEmit(true)
                     _state.update {
                         it.copy(
                             saving = false, quantity = "", weight = "",
-                            message = ManualMessage(true, "Shifted ${qty(q.toDouble())} pcs from ${job.machine} → ${s.location}")
+                            message = ManualMessage(true, "Shifted ${qty(q.toDouble())} pcs${colour?.let { " " + it.colour }.orEmpty()} from ${job.machine} → ${s.location}")
                         )
                     }
                     load()
@@ -374,6 +389,14 @@ fun ManualScreen(onMenu: () -> Unit, vm: ManualViewModel = viewModel()) {
 
                     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
                         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            val colours = a?.shiftColours.orEmpty()
+                            if (a != null && colours.isNotEmpty()) {
+                                PickerField(
+                                    "Colour", colours.map { it.colour }, s.colour, vm::setColour, Modifier.fillMaxWidth(),
+                                    placeholder = "Select colour",
+                                    optionLabel = { name -> a.colourNamed(name)?.let { "$name · ready ${qty(a.colourMax(it))}" } ?: name }
+                                )
+                            }
                             PickerField("Send To", s.locations, s.location, vm::setLocation, Modifier.fillMaxWidth(), placeholder = "Select location")
                             WeightQtyFields(
                                 weight = s.weight,
@@ -381,7 +404,7 @@ fun ManualScreen(onMenu: () -> Unit, vm: ManualViewModel = viewModel()) {
                                 unitWeightKg = a?.unitWeightKg?.takeIf { it > 0 } ?: job.unitWeightKg,
                                 onWeight = vm::setWeight,
                                 onQuantity = vm::setQuantity,
-                                maxQty = (a?.maxShiftQty ?: job.maxShiftQty).toInt()
+                                maxQty = s.maxQty.toInt()
                             )
                             val q = s.quantity.toIntOrNull() ?: 0
                             Button(
@@ -393,6 +416,7 @@ fun ManualScreen(onMenu: () -> Unit, vm: ManualViewModel = viewModel()) {
                                     when {
                                         s.saving -> "Saving…"
                                         a == null -> "Loading job…"
+                                        a.shiftColours.size > 1 && a.colourNamed(s.colour) == null -> "Pick the colour first"
                                         s.location.isBlank() -> "Pick Send To first"
                                         q <= 0 -> "Enter weight or quantity"
                                         else -> "Shift ${qty(q.toDouble())} pcs → ${s.location}"
