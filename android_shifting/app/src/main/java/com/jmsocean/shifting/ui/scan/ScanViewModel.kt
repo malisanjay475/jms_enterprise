@@ -31,6 +31,7 @@ fun blockTitle(message: String): String = when {
     message.startsWith("NOT PRODUCED", ignoreCase = true) -> "NOT PRODUCED"
     message.startsWith("NOT QC VERIFIED", ignoreCase = true) -> "NOT QC VERIFIED"
     message.startsWith("QC HOLD", ignoreCase = true) -> "QC HOLD"
+    message.startsWith("SFG STD NOT SET", ignoreCase = true) -> "SFG STD NOT SET"
     message.contains("already shifted", ignoreCase = true) -> "ALREADY SHIFTED"
     else -> ""
 }

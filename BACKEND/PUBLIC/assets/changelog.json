@@ -11,8 +11,24 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.102.1",
+  "latest": "1.103.0",
   "versions": [
+    {
+      "version": "1.103.0",
+      "date": "2026-10-12",
+      "title": "Manual Entry by SFG packs",
+      "modules": [
+        {
+          "app": "shifting_module",
+          "changes": [
+            { "type": "feat", "text": "Manual Entry now lists every job pending to shift under each machine, with OR, job card, plan, mould, party, SFG standard and the colour-wise ready quantity." },
+            { "type": "feat", "text": "Approved and on-floor quantities are also shown in SFG packs (for example 276 LD bag + 8 pcs), using the SFG Std Packing and SFG Bag Type from Mould Master." },
+            { "type": "feat", "text": "Manual shifting can be entered as packs, pieces or kg; the other two fill in automatically." },
+            { "type": "fix", "text": "Manual shifting is blocked for a job whose mould has no SFG Std Packing in Mould Master; fill it in Mould Master to shift that job." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.102.1",
       "date": "2026-10-12",

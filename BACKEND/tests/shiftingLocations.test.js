@@ -34,7 +34,11 @@ function createApp({ auth = null, rows = [], plan = null } = {}) {
     if (/SELECT 1 FROM shifting_locations WHERE factory_id = \$1 LIMIT 1/.test(text)) {
       return { rows: table.filter(r => r.factory_id === params[0]).slice(0, 1).map(() => ({ '?column?': 1 })) };
     }
-    if (plan && /SELECT id, plan_id, machine, status, factory_id\s+FROM plan_board/.test(text)) {
+    // Mould Master SFG std (manual shifting needs one).
+    if (/FROM moulds/.test(text) && /sfg_std_packing/.test(text)) {
+      return { rows: [{ n: 'bucket 20l', c: '', sfg_std_packing: '50', bag_type: 'LD bag', bag_size: '27 X 48' }] };
+    }
+    if (plan && /SELECT id, plan_id, machine, status, factory_id[\s\S]*FROM plan_board/.test(text)) {
       return { rows: [plan] };
     }
     if (/INSERT INTO shifting_records/.test(text)) {
@@ -153,7 +157,7 @@ describe('Shifting locations master', () => {
 
   it('manual shift accepts only an active location, saved under its master spelling', async () => {
     process.env.SERVER_TYPE = 'LOCAL';
-    const plan = { id: 7, plan_id: 'PLN-7', machine: 'B -L1-HYD-350-1', status: 'Running', factory_id: 1 };
+    const plan = { id: 7, plan_id: 'PLN-7', machine: 'B -L1-HYD-350-1', status: 'Running', factory_id: 1, mould_name: 'BUCKET 20L' };
     const { app } = createApp({ plan });
 
     const bad = await request(app)

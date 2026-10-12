@@ -10088,7 +10088,10 @@ async function shiftingJobRows(req, { days, line }) {
 
   // Running first in the standard machine order (Line, then machine number); then
   // completed jobs, latest production first.
-  const jobWeights = await shiftingUnitWeights(plans.flatMap(p => [p.mould_name, p.mould_code]), factoryId);
+  const [jobWeights, jobPacking] = await Promise.all([
+    shiftingUnitWeights(plans.flatMap(p => [p.mould_name, p.mould_code]), factoryId),
+    shiftingMouldPacking(plans.flatMap(p => [p.mould_name, p.mould_code]))
+  ]);
   const [jobAvail, jobHolds, verifyEnforced, clientRows] = await Promise.all([
     shiftingAvailabilityMap(plans.map(p => ({ pk: p.plan_id, code: p.plan_code })), factoryId),
     shiftingHoldsByMachine(plans.map(p => p.machine), factoryId),
@@ -10108,6 +10111,15 @@ async function shiftingJobRows(req, { days, line }) {
     r.total_verified = av ? av.verified : 0;
     r.total_not_verified = av ? av.not_verified : 0;
     r.ready_qty = av ? av.ready : 0;
+    // Colour-wise produced / verified / shifted / ready, and shifts saved without a colour.
+    r.colours = av ? [...av.colours.values()].filter(c => c.colour).map(c => ({
+      colour: c.colour, produced: c.produced, verified: c.verified, not_verified: c.not_verified, shifted: c.shifted, ready: c.ready
+    })) : [];
+    r.unassigned_shifted = av && av.unassigned ? av.unassigned.shifted : 0;
+    const pack = shiftingJobPacking(jobPacking, r.mould_name, r.mould_code);
+    r.sfg_std = pack.std;
+    r.sfg_pack_type = pack.pack_type;
+    r.sfg_bag_size = pack.bag_size;
     r.verification_enforced = verifyEnforced;
     r.hold_qty = (jobHolds.get(String(r.machine || '').trim()) || {}).qty || 0;
     r.on_hold = jobHolds.has(String(r.machine || '').trim());
@@ -10189,7 +10201,12 @@ app.get('/api/shifting/machine-board', async (req, res) => {
       b.job_list.push({
         plan_id: r.plan_id, plan_code: r.plan_code || '', status: r.status || '', order_no: r.order_no || '',
         jc_no: r.jc_no || '', client_name: r.client_name || '', item_name: r.item_name || '', mould_name: r.mould_name || '',
-        produced: produced, verified: Number(r.total_verified) || 0, shifted, on_floor: floor, approved, on_hold: !!r.on_hold
+        produced: produced, verified: Number(r.total_verified) || 0, shifted, on_floor: floor, approved, on_hold: !!r.on_hold,
+        // Pending to shift = something still on the shop floor.
+        pending: floor > 0,
+        sfg_std: r.sfg_std || 0, sfg_pack_type: r.sfg_pack_type || '', sfg_bag_size: r.sfg_bag_size || '',
+        unit_weight_kg: r.unit_weight_kg || 0,
+        colours: r.colours || [], unassigned_shifted: r.unassigned_shifted || 0
       });
       b.on_hold = b.on_hold || !!r.on_hold;
       if (running && !b.running_item) b.running_item = String(r.item_name || r.mould_name || '').trim();
@@ -10465,7 +10482,7 @@ app.post('/api/shifting/entry', async (req, res) => {
     }
 
     const planRows = await q(
-      `SELECT id, plan_id, machine, status, factory_id
+      `SELECT id, plan_id, machine, status, factory_id, mould_name, mould_code
          FROM plan_board
         WHERE (CAST(id AS TEXT) = TRIM($1::text) OR TRIM(COALESCE(plan_id, '')) = TRIM($1::text))
           AND ($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL)
@@ -10481,6 +10498,16 @@ app.post('/api/shifting/entry', async (req, res) => {
     const planFactoryId = normalizeFactoryId(plan.factory_id) ?? factoryId ?? null;
     const location = await resolveShiftingLocation(planFactoryId, requestedLocation);
     const wantedColour = shiftingColourKey(req.body?.colour);
+
+    // Manual shifts are entered by SFG standard packs, so the mould needs an SFG std.
+    const pack = shiftingJobPacking(await shiftingMouldPacking([plan.mould_name, plan.mould_code]), plan.mould_name, plan.mould_code);
+    if (!pack.std) {
+      return res.status(409).json({
+        ok: false,
+        code: 'NO_SFG_STD',
+        error: `SFG STD NOT SET: Mould Master has no SFG Std Packing for ${String(plan.mould_name || plan.mould_code || 'this mould').trim()}. Fill it in Mould Master, then shift.`
+      });
+    }
 
     const inserted = await withShiftingLock(`plan:${planPk}`, async (client) => {
       const hold = await findActiveShiftingQcHold({ planPk: plan.id, machine: plan.machine, factoryId: planFactoryId });
@@ -10672,6 +10699,43 @@ async function shiftingUnitWeights(mouldNames, factoryId) {
     [r.n, r.c].forEach(k => { if (k && keys.includes(k) && !map.has(k)) map.set(k, w); });
   });
   return map;
+}
+
+// ── Shifting helpers: SFG standard packing (Mould Master) ──────────────────────
+// sfg_std_packing = pieces in one pack; the pack is the mould's SFG Bag Type as written
+// (LD bag / Crate / Woven bag …). Moulds are company-wide (KAN-114), so no factory filter.
+function parseSfgStd(v) {
+  const m = String(v ?? '').replace(/,/g, '').match(/\d+(\.\d+)?/);
+  const n = m ? Number(m[0]) : 0;
+  return n > 0 ? n : 0;
+}
+
+// Map of lower(mould name / number) -> { std, pack_type, bag_size } for moulds with an SFG std.
+async function shiftingMouldPacking(mouldNames) {
+  const keys = [...new Set((mouldNames || []).map(shiftingMouldKey).filter(Boolean))];
+  const map = new Map();
+  if (!keys.length) return map;
+  const rows = await q(
+    `SELECT LOWER(TRIM(mould_name)) AS n, LOWER(TRIM(mould_number)) AS c,
+            sfg_std_packing, TRIM(COALESCE(sfg_bag_type, '')) AS bag_type, TRIM(COALESCE(sfg_bag_size, '')) AS bag_size
+       FROM moulds
+      WHERE (LOWER(TRIM(mould_name)) = ANY($1::text[]) OR LOWER(TRIM(mould_number)) = ANY($1::text[]))
+        AND NULLIF(TRIM(sfg_std_packing), '') IS NOT NULL`,
+    [keys]
+  );
+  rows.forEach(r => {
+    const std = parseSfgStd(r.sfg_std_packing);
+    if (!std) return;
+    const v = { std, pack_type: r.bag_type, bag_size: r.bag_size };
+    [r.n, r.c].forEach(k => { if (k && keys.includes(k) && !map.has(k)) map.set(k, v); });
+  });
+  return map;
+}
+
+/** SFG packing of a job, by its mould name or mould code: { std, pack_type, bag_size } or nulls. */
+function shiftingJobPacking(map, ...moulds) {
+  const hit = moulds.map(m => map.get(shiftingMouldKey(m))).find(Boolean);
+  return hit || { std: 0, pack_type: '', bag_size: '' };
 }
 
 // ── Shifting availability: produced / QC verified / shifted / ready per job + colour ──
@@ -10889,7 +10953,11 @@ app.get('/api/shifting/availability', async (req, res) => {
     const agg = avail.get(String(plan.id)) || { produced: 0, verified: 0, not_verified: 0, shifted: 0, ready: 0, colours: new Map(), by_location: new Map(), unassigned: { shifted: 0, by_location: new Map() } };
     const locList = (m) => [...(m || new Map()).entries()].map(([location, qty]) => ({ location, qty })).sort((a, b) => b.qty - a.qty);
     const hold = holds.get(String(plan.machine || '').trim()) || null;
-    const weights = await shiftingUnitWeights([plan.mould_name], fid);
+    const [weights, packing] = await Promise.all([
+      shiftingUnitWeights([plan.mould_name], fid),
+      shiftingMouldPacking([plan.mould_name])
+    ]);
+    const pack = shiftingJobPacking(packing, plan.mould_name);
     // Colour plan quantities from the plan's colour split, matched case-insensitively.
     const planByColour = new Map();
     try {
@@ -10914,6 +10982,9 @@ app.get('/api/shifting/availability', async (req, res) => {
         mould_name: plan.mould_name || '',
         plan_qty: Number(plan.plan_qty || 0),
         unit_weight_kg: weights.get(shiftingMouldKey(plan.mould_name)) || 0,
+        // SFG standard (Mould Master): pieces per pack + the pack type. std 0 = not set,
+        // and then manual shifting is blocked (POST /api/shifting/entry).
+        sfg_std: pack.std, sfg_pack_type: pack.pack_type, sfg_bag_size: pack.bag_size,
         verification_enforced: enforced,
         totals: {
           produced: agg.produced, verified: agg.verified, not_verified: agg.not_verified, shifted: agg.shifted, ready: agg.ready,

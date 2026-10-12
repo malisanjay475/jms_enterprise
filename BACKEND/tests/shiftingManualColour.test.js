@@ -16,11 +16,14 @@ const PLAN = { id: 7, plan_id: 'PLN-7', machine: 'B -L1-HYD-350-1', status: 'Run
   order_no: 'JR/1', item_name: 'Bucket 20L', mould_name: 'BUCKET 20L', plan_qty: 25000, colour_details: null };
 
 // dpr: [{ colour, produced, verified, not_verified }]; shifts: [{ colour, location, shifted }]
-function createApp({ dpr = [], shifts = [], enforced = false } = {}) {
+function createApp({ dpr = [], shifts = [], enforced = false, sfg = true } = {}) {
   const inserts = [];
   const handle = async (sql, params = []) => {
     const text = String(sql);
-    if (/SELECT id, plan_id, machine, status, factory_id\s+FROM plan_board/.test(text)) return { rows: [PLAN] };
+    if (/FROM moulds/.test(text) && /sfg_std_packing/.test(text)) {
+      return { rows: sfg ? [{ n: 'bucket 20l', c: '', sfg_std_packing: '50 PCS', bag_type: 'LD bag', bag_size: '27 X 48' }] : [] };
+    }
+    if (/SELECT id, plan_id, machine, status, factory_id[\s\S]*FROM plan_board/.test(text)) return { rows: [PLAN] };
     if (/pb\.colour_details, pb\.factory_id/.test(text)) return { rows: [PLAN] };
     if (/FROM dpr_hourly d\s+LEFT JOIN LATERAL/.test(text)) {
       return { rows: dpr.map(r => ({ ref: 'PLN-7', ...r })) };
@@ -124,5 +127,27 @@ describe('Manual shift colour', () => {
     expect(grey.shifted).toBe(6000);
     expect(grey.ready).toBe(568);
     expect(brown.ready).toBe(7808); // 7960 own, capped at the job's 7808
+  });
+
+  it('blocks a manual shift when the mould has no SFG std', async () => {
+    const { app, inserts } = createApp({ dpr: TWO_COLOURS, sfg: false });
+    const res = await post(app, { quantity: 50, colour: 'Sky Light Grey' });
+    expect(res.status).toBe(409);
+    expect(res.body.code).toBe('NO_SFG_STD');
+    expect(res.body.error).toMatch(/SFG STD NOT SET.*BUCKET 20L/);
+    expect(inserts).toHaveLength(0);
+  });
+
+  it('job panel returns the SFG std and pack type from Mould Master', async () => {
+    const { app } = createApp({ dpr: TWO_COLOURS });
+    const res = await request(app).get('/api/shifting/availability?plan_id=7').set('x-factory-id', '1');
+    expect(res.status).toBe(200);
+    expect(res.body.data).toMatchObject({ sfg_std: 50, sfg_pack_type: 'LD bag', sfg_bag_size: '27 X 48' });
+  });
+
+  it('job panel: a mould without SFG std reads as 0', async () => {
+    const { app } = createApp({ dpr: TWO_COLOURS, sfg: false });
+    const res = await request(app).get('/api/shifting/availability?plan_id=7').set('x-factory-id', '1');
+    expect(res.body.data.sfg_std).toBe(0);
   });
 });
