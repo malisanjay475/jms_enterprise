@@ -11,8 +11,28 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.102.0",
+  "latest": "1.102.1",
   "versions": [
+    {
+      "version": "1.102.1",
+      "date": "2026-10-12",
+      "title": "Manual shifting by colour",
+      "modules": [
+        {
+          "app": "shifting_module",
+          "changes": [
+            { "type": "fix", "text": "Manual shifting now asks for the colour of the material (filled in automatically when the job has only one colour), so the shifted quantity shows under that colour in job details." },
+            { "type": "fix", "text": "Older manual shifts saved without a colour now appear on their own 'No colour (manual)' row, so the colour rows add up to the job's Shifted total." }
+          ]
+        },
+        {
+          "app": "dpr",
+          "changes": [
+            { "type": "fix", "text": "DPR job details: a colour's Ready quantity can no longer be more than the whole job's Ready quantity." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.102.0",
       "date": "2026-10-08",
