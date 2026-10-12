@@ -8,85 +8,8 @@
     <link rel="stylesheet" href="/assets/app.css?v=12">
     <link rel="stylesheet" href="/assets/bootstrap-icons.min.css">
     <style>
-        .filter-bar {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 14px;
-            align-items: center;
-            padding: 12px 14px;
-            margin-bottom: 16px;
-        }
-
-        .switch {
-            display: inline-flex;
-            align-items: center;
-            gap: 10px;
-            cursor: pointer;
-            font-weight: 600;
-            color: #1e293b;
-            user-select: none;
-        }
-
-        .switch input { display: none; }
-
-        .switch .track {
-            width: 44px;
-            height: 24px;
-            border-radius: 12px;
-            background: #cbd5e1;
-            position: relative;
-            transition: background 0.15s;
-        }
-
-        .switch .track::after {
-            content: "";
-            position: absolute;
-            top: 3px;
-            left: 3px;
-            width: 18px;
-            height: 18px;
-            border-radius: 50%;
-            background: #fff;
-            transition: left 0.15s;
-            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
-        }
-
-        .switch input:checked + .track { background: #16a34a; }
-        .switch input:checked + .track::after { left: 23px; }
-
         .muted { color: #64748b; font-size: 0.8rem; }
 
-        .board-table {
-            width: 100%;
-            border-collapse: collapse;
-            font-size: 0.85rem;
-            background: #fff;
-        }
-
-        .board-table th,
-        .board-table td {
-            border-bottom: 1px solid #e2e8f0;
-            padding: 8px 10px;
-            text-align: left;
-        }
-
-        .board-table th {
-            background: #f8fafc;
-            color: #64748b;
-            font-weight: 600;
-            text-transform: uppercase;
-            font-size: 0.7rem;
-            position: sticky;
-            top: 0;
-        }
-
-        .board-table .num { text-align: right; font-variant-numeric: tabular-nums; }
-        .board-table tr.line-head td { background: #eef2ff; font-weight: 700; color: #3730a3; font-size: 0.75rem; }
-        .board-table td.approved { font-size: 1rem; font-weight: 800; }
-        .board-table td.approved.zero { color: #94a3b8; font-weight: 600; }
-        .board-table td.approved.has { color: #16a34a; }
-        .board-table button:disabled { opacity: 0.4; cursor: not-allowed; }
-        .machine-name { font-weight: 700; color: #1e293b; }
         .sub { font-size: 0.72rem; color: #64748b; }
 
         .pill {
@@ -105,22 +28,53 @@
         .empty-note { padding: 28px; text-align: center; color: #94a3b8; }
 
         /* Job detail modal */
-        #jobModal .modal-content { width: 820px; max-width: 96%; padding: 22px; }
+        #jobModal .modal-content { width: 1180px; max-width: 96vw; max-height: 92vh; padding: 18px 20px; display: flex; flex-direction: column; }
+        #jobModal #jobBody { flex: 1 1 auto; min-height: 0; overflow: hidden; }
+        .job-layout { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 16px; height: 100%; min-height: 0; }
+        .job-left { overflow-y: auto; min-height: 0; padding-right: 4px; max-height: calc(92vh - 90px); }
+        .job-right { overflow-y: auto; max-height: calc(92vh - 90px); }
+        .job-tabs { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 6px; margin-bottom: 10px; }
+        .job-tab { flex: 0 0 auto; max-width: 260px; text-align: left; border: 1px solid #e2e8f0; background: #fff; border-radius: 10px; padding: 7px 10px; cursor: pointer; }
+        .job-tab .t { display: block; font-weight: 700; font-size: 0.78rem; color: #0f172a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .job-tab .s { display: block; font-size: 0.7rem; color: #64748b; }
+        .job-tab .s b { color: #15803d; }
+        .job-tab.sel { border: 2px solid #0f766e; background: #f0fdfa; padding: 6px 9px; }
+        .job-hero { border: 1px solid #e2e8f0; border-radius: 12px; padding: 14px; background: #fff; }
+        .job-hero h4 { margin: 0 0 8px; font-size: 1.05rem; font-weight: 800; color: #0f172a; }
+        .info-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+        .info-chip { font-size: 0.74rem; background: #f1f5f9; color: #334155; border-radius: 7px; padding: 3px 8px; }
+        .info-chip b { color: #0f172a; }
+        .info-chip.sfg { background: #ccfbf1; color: #115e59; }
+        .info-chip.nosfg { background: #fee2e2; color: #b91c1c; font-weight: 700; }
+        .metrics6 { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px; margin: 12px 0 4px; }
+        .metrics6 .metric .v { font-size: 1.05rem; }
+        .shift-card { border: 1px solid #99f6e4; border-radius: 12px; background: #fff; padding: 14px; box-shadow: 0 6px 18px rgba(15, 118, 110, 0.08); }
+        .shift-card h4 { margin: 0; font-size: 1rem; font-weight: 800; color: #0f172a; }
+        .shift-card .lim { font-size: 0.76rem; color: #475569; margin: 4px 0 12px; }
+        .shift-card label { display: block; font-size: 0.68rem; font-weight: 800; color: #64748b; text-transform: uppercase; letter-spacing: 0.04em; margin: 10px 0 4px; }
+        .colour-pick { display: flex; flex-direction: column; gap: 6px; }
+        .colour-opt { display: flex; justify-content: space-between; align-items: center; gap: 8px; border: 1px solid #e2e8f0; border-radius: 9px; padding: 8px 10px; cursor: pointer; background: #fff; text-align: left; width: 100%; }
+        .colour-opt:hover { border-color: #5eead4; }
+        .colour-opt.sel { border: 2px solid #0f766e; background: #f0fdfa; padding: 7px 9px; }
+        .colour-opt.zero { opacity: 0.55; }
+        .colour-opt .n { font-weight: 700; color: #0f172a; font-size: 0.82rem; }
+        .colour-opt .q { text-align: right; font-size: 0.78rem; font-weight: 700; color: #15803d; font-variant-numeric: tabular-nums; }
+        .colour-opt .q small { display: block; color: #0f766e; font-weight: 600; font-size: 0.7rem; }
+        .entry3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+        .entry3 input { font-size: 1rem; font-weight: 700; text-align: right; }
+        .btn-big { width: 100%; margin-top: 14px; height: 50px; font-weight: 800; font-size: 1rem; border: 0; border-radius: 10px; background: #0f766e; color: #fff; cursor: pointer; }
+        .btn-big:hover { background: #115e59; }
+        .btn-big:disabled { opacity: 0.6; cursor: wait; }
+        .job-hero .section { overflow-x: auto; }
+        @media (max-width: 900px) {
+            #jobModal .modal-content { padding: 12px; box-sizing: border-box; }
+            .job-layout { grid-template-columns: minmax(0, 1fr); }
+            .job-left, .job-right { max-height: none; overflow: visible; }
+            #jobModal #jobBody { overflow-y: auto; }
+            .metrics6 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+        }
         .modal-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
         .modal-head h3 { margin: 0; font-size: 1.15rem; }
-        .job-choices { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; }
-
-        .job-choice {
-            border: 1px solid #e2e8f0;
-            border-radius: 10px;
-            padding: 10px 12px;
-            cursor: pointer;
-            background: #fff;
-        }
-
-        .job-choice.sel { border: 2px solid #2563eb; background: #f8faff; }
-        .job-choice .t { font-weight: 700; color: #1e293b; }
-        .metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 8px 0; }
         .metric { background: #f8fafc; border-radius: 8px; padding: 8px 10px; }
         .metric .l { font-size: 0.66rem; font-weight: 700; color: #64748b; text-transform: uppercase; }
         .metric .v { font-size: 1.15rem; font-weight: 800; font-variant-numeric: tabular-nums; }
@@ -134,53 +88,126 @@
         .mini-table th, .mini-table td { padding: 4px 6px; border-bottom: 1px solid #f1f5f9; text-align: left; }
         .mini-table th { color: #64748b; font-size: 0.66rem; text-transform: uppercase; }
         .mini-table .num { text-align: right; font-variant-numeric: tabular-nums; }
-        .shift-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; align-items: end; }
-        .board-table tr.job-row td { background: #fcfdff; border-bottom: 1px dashed #e2e8f0; padding-top: 6px; padding-bottom: 6px; cursor: pointer; }
-        .board-table tr.job-row:hover td { background: #f1f5ff; }
-        .job-line { font-size: 0.8rem; font-weight: 700; color: #1e293b; padding-left: 14px; }
-        .job-meta { font-size: 0.72rem; color: #475569; padding-left: 14px; }
-        .sfg-ok { font-size: 0.72rem; font-weight: 700; color: #0f766e; }
-        .sfg-missing { font-size: 0.72rem; font-weight: 800; color: #dc2626; }
-        .col-chip { display: inline-block; font-size: 0.68rem; font-weight: 700; color: #166534; background: #dcfce7; border-radius: 6px; padding: 1px 7px; margin: 2px 4px 2px 0; }
-        .col-chip.zero { color: #64748b; background: #f1f5f9; }
-        .pack-sub { font-size: 0.7rem; color: #0f766e; font-weight: 700; }
+        /* ── Manual Entry board (v2) ───────────────────────────────── */
+        .me-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; margin-bottom: 14px; flex-wrap: wrap; }
+        .me-head .page-title { margin: 0; }
+        .me-sub { font-size: 0.85rem; color: #64748b; margin-top: 2px; }
+
+        .kpi-row { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; margin-bottom: 14px; }
+        .kpi { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 12px 14px; }
+        .kpi .l { font-size: 0.68rem; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; color: #64748b; }
+        .kpi .v { font-size: 1.5rem; font-weight: 800; color: #0f172a; font-variant-numeric: tabular-nums; margin-top: 2px; line-height: 1.2; }
+        .kpi .s { font-size: 0.72rem; color: #64748b; margin-top: 2px; }
+        .kpi.good .v { color: #15803d; }
+        .kpi.crit { border-color: #fecaca; background: #fff7f7; cursor: pointer; }
+        .kpi.crit .v { color: #dc2626; }
+        .kpi.crit:hover { border-color: #f87171; }
+
+        .me-filters { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; padding: 10px 12px; margin-bottom: 14px; }
+        .me-filters .form-control { height: 38px; }
+        .me-filters .grow { flex: 1 1 260px; min-width: 200px; }
+        .me-filters .tools { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+        .btn-ghost { background: #fff; border: 1px solid #e2e8f0; color: #334155; border-radius: 8px; padding: 7px 11px; font-size: 0.8rem; font-weight: 600; cursor: pointer; }
+        .btn-ghost:hover { background: #f8fafc; border-color: #cbd5e1; }
+
+        .grid-wrap { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; overflow: auto; max-height: calc(100vh - 290px); min-height: 320px; box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04); }
+        .board-grid { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 0.8rem; min-width: 1060px; table-layout: fixed; }
+        .board-grid col.c-m { width: 186px; }
+        .board-grid col.c-job { width: 18%; }
+        .board-grid col.c-or { width: 152px; }
+        .board-grid col.c-mould { width: 15%; }
+        .board-grid col.c-sfg { width: 90px; }
+        .board-grid col.c-col { width: 26%; }
+        .board-grid col.c-app { width: 132px; }
+        .board-grid col.c-act { width: 72px; }
+        .clamp2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+        .nowrap { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .board-grid thead th { position: sticky; top: 0; z-index: 4; background: #f8fafc; text-align: left; font-size: 0.64rem; font-weight: 800; letter-spacing: 0.05em; text-transform: uppercase; color: #64748b; padding: 9px 10px; border-bottom: 1px solid #e2e8f0; white-space: nowrap; }
+        .board-grid td { padding: 8px 10px; border-bottom: 1px solid #f1f5f9; vertical-align: top; }
+        .board-grid .r { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+        .board-grid tr.line-row td { position: sticky; top: 33px; z-index: 3; background: #eef2ff; color: #1e3a8a; font-weight: 800; font-size: 0.8rem; padding: 7px 12px; border-bottom: 1px solid #c7d2fe; }
+        .board-grid tr.line-row .t { font-weight: 600; color: #475569; margin-left: 8px; font-size: 0.75rem; }
+        .board-grid tr.line-row .t b { color: #15803d; }
+        .board-grid tbody.m-group td { background: #fff; }
+        .board-grid tbody.m-group.alt td { background: #fbfcfe; }
+        .board-grid tbody.m-group tr:first-child td { border-top: 1px solid #e2e8f0; }
+        .board-grid tbody.m-group.hold td.mcell { box-shadow: inset 3px 0 0 #ef4444; }
+        .board-grid tr.job { cursor: pointer; }
+        .board-grid tr.job:hover td:not(.mcell) { background: #f1f7ff; }
+        .mcell { width: 200px; border-right: 1px solid #eef2f7; }
+        .m-name { display: flex; align-items: center; gap: 6px; font-weight: 800; color: #0f172a; font-size: 0.86rem; line-height: 1.25; white-space: nowrap; }
+        .m-name > span:first-child { overflow: hidden; text-overflow: ellipsis; }
+        .m-name .pill { margin-left: 0; }
+        .m-open { margin-left: auto; flex: 0 0 auto; width: 26px !important; background: #fff; border: 1px solid #ccfbf1; color: #0f766e; border-radius: 6px; width: 26px; height: 24px; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
+        .m-open:hover { background: #f0fdfa; border-color: #5eead4; }
+        .m-line { margin-top: 3px; font-size: 0.74rem; color: #64748b; font-variant-numeric: tabular-nums; }
+        .m-foot { display: flex; align-items: center; gap: 6px; margin-top: 2px; }
+        .m-line b { color: #15803d; font-size: 0.86rem; }
+        .m-line b.zero { color: #94a3b8; font-weight: 600; }
+        .strong { font-weight: 700; color: #0f172a; }
+        .dim { color: #64748b; font-size: 0.74rem; }
+        .big { font-size: 0.98rem; font-weight: 800; }
+        .job-title { font-weight: 700; color: #0f172a; line-height: 1.25; }
+        .pack-sub { font-size: 0.72rem; color: #0f766e; font-weight: 700; }
+        .sfg-ok { font-weight: 700; color: #0f766e; white-space: nowrap; }
+        .sfg-missing { display: inline-block; font-size: 0.7rem; font-weight: 800; color: #b91c1c; background: #fee2e2; border-radius: 6px; padding: 2px 7px; white-space: nowrap; }
+        .colours { display: flex; flex-direction: column; gap: 3px; }
+        .colour-line { display: flex; justify-content: space-between; gap: 8px; white-space: nowrap; min-width: 0; }
+        .colour-line .c { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+        .colour-line .c { display: inline-flex; align-items: center; gap: 6px; color: #334155; }
+        .colour-line .c::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: #22c55e; }
+        .colour-line.zero .c::before { background: #cbd5e1; }
+        .colour-line.zero { color: #94a3b8; }
+        .colour-line .q { font-weight: 700; font-variant-numeric: tabular-nums; }
+        .colour-line.unassigned .c::before { background: #f59e0b; }
+        .btn-shift { background: #0f766e; color: #fff; border: 0; border-radius: 8px; padding: 7px 14px; font-weight: 700; font-size: 0.8rem; cursor: pointer; white-space: nowrap; }
+        .btn-shift:hover { background: #115e59; }
+        .btn-shift.off { background: #e2e8f0; color: #64748b; }
+        .no-jobs { color: #94a3b8; font-size: 0.8rem; }
+
+        @media (max-width: 1100px) { .kpi-row { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+        @media (max-width: 760px) {
+            .kpi-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+            .grid-wrap { max-height: none; }
+        }
+
         .sfg-block { background: #fee2e2; color: #991b1b; border-radius: 10px; padding: 12px; font-weight: 700; }
         .sfg-block .big { font-size: 1.3rem; font-weight: 900; letter-spacing: 0.5px; }
-        .shift-form label { display: block; font-size: 0.7rem; font-weight: 600; color: #64748b; text-transform: uppercase; margin-bottom: 4px; }
         .msg { border-radius: 10px; padding: 10px 12px; font-weight: 600; margin: 10px 0; }
         .msg.ok { background: #dcfce7; color: #166534; }
         .msg.err { background: #fee2e2; color: #991b1b; }
-
-        @media (max-width: 640px) {
-            .shift-form { grid-template-columns: 1fr; }
-            .metrics { grid-template-columns: repeat(2, 1fr); }
-        }
     </style>
 </head>
 
 <body>
     <div class="main-content">
-        <div class="header">
-            <div class="page-title">Manual Entry</div>
-            <div style="font-size:0.9rem; color:#64748b">Machine-wise QC approved quantity waiting to be shifted, with every pending job, colour-wise and in SFG packs (jobs of the last 3 days)</div>
+        <div class="me-head">
+            <div>
+                <div class="page-title">Manual Entry</div>
+                <div class="me-sub">QC approved material waiting to be shifted · jobs of the last 3 days · in pieces and SFG packs</div>
+            </div>
+            <button onclick="loadBoard()" class="btn btn-outline"><i class="bi bi-arrow-clockwise"></i> Refresh</button>
         </div>
 
-        <div class="card filter-bar">
-            <label class="switch" for="approvedOnly">
-                <input type="checkbox" id="approvedOnly" onchange="onToggle()">
-                <span class="track"></span>
-                <span>Only machines with QC approved qty</span>
-            </label>
-            <input type="search" id="search" class="form-control" placeholder="Search machine" style="width:200px" oninput="renderBoard()">
-            <span id="countNote" class="muted"></span>
-            <button onclick="loadBoard()" class="btn btn-outline" style="margin-left:auto"><i class="bi bi-arrow-clockwise"></i> Refresh</button>
+        <div id="kpis" class="kpi-row"></div>
+
+        <div class="card me-filters">
+            <input type="search" id="search" class="form-control grow" placeholder="Search machine, item, OR, JC, mould or party" oninput="renderBoard()">
+            <select id="lineFilter" class="form-control" style="width:150px" onchange="renderBoard()"><option value="">All lines</option></select>
+            <select id="viewFilter" class="form-control" style="width:210px" onchange="onViewChange()">
+                <option value="pending">Pending jobs</option>
+                <option value="ready">Ready to shift (QC approved)</option>
+                <option value="nosfg">SFG std not set</option>
+                <option value="all">All machines</option>
+            </select>
+            <div class="tools">
+                <span id="countNote" class="muted"></span>
+            </div>
         </div>
 
-        <div id="verifyNote" class="muted" style="display:none; margin:-6px 0 12px"></div>
+        <div id="verifyNote" class="muted" style="display:none; margin:-4px 0 12px"></div>
 
-        <div class="card" style="padding:0; overflow:auto">
-            <div id="board"><div class="empty-note">Loading...</div></div>
-        </div>
+        <div class="grid-wrap"><div id="board"><div class="empty-note">Loading...</div></div></div>
     </div>
 
     <div id="jobModal" class="modal-overlay" onclick="if (event.target === this) closeJob()">
@@ -195,7 +222,7 @@
 
     <script src="/assets/app.min.js?v=1576"></script>
     <script>
-        const PREF_KEY = 'shifting_manual_approved_only';
+        const VIEW_KEY = 'shifting_manual_view';
         const qtyFmt = (v) => Number(v || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 });
         const kgFmt = (v) => Number(v || 0).toLocaleString('en-IN', { maximumFractionDigits: 3 });
         const esc = (v) => escHtml(v == null ? '' : v);
@@ -208,15 +235,66 @@
         document.addEventListener('DOMContentLoaded', () => {
             JPSMS.auth.requireAuth();
             JPSMS.renderShell('shifting');
-            try { document.getElementById('approvedOnly').checked = localStorage.getItem(PREF_KEY) === '1'; } catch (_) { }
+            try {
+                const v = localStorage.getItem(VIEW_KEY);
+                if (v && document.querySelector(`#viewFilter option[value="${v}"]`)) document.getElementById('viewFilter').value = v;
+            } catch (_) { }
             loadBoard();
             loadLocations();
             document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeJob(); });
         });
 
-        function onToggle() {
-            try { localStorage.setItem(PREF_KEY, document.getElementById('approvedOnly').checked ? '1' : '0'); } catch (_) { }
+        function onViewChange() {
+            try { localStorage.setItem(VIEW_KEY, document.getElementById('viewFilter').value); } catch (_) { }
             renderBoard();
+        }
+
+        function setView(v) {
+            document.getElementById('viewFilter').value = v;
+            onViewChange();
+        }
+
+        // Jobs still on the shop floor, running first, then the most approved.
+        function pendingJobs(m) {
+            return (m.job_list || []).filter(j => j.pending || j.on_floor > 0)
+                .sort((a, b) => (String(b.status).toUpperCase() === 'RUNNING') - (String(a.status).toUpperCase() === 'RUNNING') || b.approved - a.approved);
+        }
+
+        function jobMatches(j, q) {
+            return [j.item_name, j.mould_name, j.order_no, j.jc_no, j.client_name, j.plan_code]
+                .some(v => String(v || '').toLowerCase().includes(q));
+        }
+
+        function fillLineFilter() {
+            const sel = document.getElementById('lineFilter');
+            const keep = sel.value;
+            const lines = [...new Set(board.map(m => m.line || ''))];
+            sel.innerHTML = '<option value="">All lines</option>' + lines.map(l => `<option value="${esc(l)}">${esc(l || 'No line')}</option>`).join('');
+            if (lines.includes(keep)) sel.value = keep;
+        }
+
+        function renderKpis() {
+            let approved = 0, floor = 0, pending = 0, ready = 0, blocked = 0, machines = 0;
+            board.forEach(m => {
+                approved += Number(m.approved_qty) || 0;
+                floor += Number(m.on_floor_qty) || 0;
+                if (m.approved_qty > 0) machines += 1;
+                pendingJobs(m).forEach(j => {
+                    pending += 1;
+                    if (j.approved > 0) ready += 1;
+                    if (!(Number(j.sfg_std) > 0)) blocked += 1;
+                });
+            });
+            const kpi = (l, v, s, cls, onclick) => `<div class="kpi ${cls || ''}" ${onclick ? `onclick="${onclick}" title="Show these jobs"` : ''}><div class="l">${l}</div><div class="v">${v}</div><div class="s">${s}</div></div>`;
+            document.getElementById('kpis').innerHTML = [
+                kpi('QC approved to shift', qtyFmt(approved), `pcs on ${machines} machine${machines === 1 ? '' : 's'}`, 'good'),
+                kpi('On shop floor', qtyFmt(floor), 'pcs produced, not yet shifted'),
+                kpi('Jobs pending', qtyFmt(pending), 'with material on the floor'),
+                kpi('Ready to shift', qtyFmt(ready), 'jobs with QC approved qty'),
+                blocked
+                    ? kpi('SFG std not set', qtyFmt(blocked), 'jobs blocked for manual shift', 'crit', "setView('nosfg')")
+                    : kpi('SFG std not set', '0', 'every pending job has an SFG std')
+            ].join('');
         }
 
         async function loadBoard() {
@@ -227,6 +305,7 @@
                 const note = document.getElementById('verifyNote');
                 note.style.display = verificationEnforced ? 'none' : '';
                 note.textContent = 'QC verification data is not on this server: Approved shows the shop-floor balance (produced - shifted).';
+                fillLineFilter();
                 renderBoard();
             } catch (e) {
                 document.getElementById('board').innerHTML = `<div class="empty-note">${esc(e.message || 'Could not load machines')}</div>`;
@@ -241,57 +320,109 @@
         }
 
         function renderBoard() {
-            const onlyApproved = document.getElementById('approvedOnly').checked;
+            renderKpis();
+            const view = document.getElementById('viewFilter').value;
+            const line = document.getElementById('lineFilter').value;
             const q = document.getElementById('search').value.trim().toLowerCase();
-            const rows = board.filter(m => (!onlyApproved || m.approved_qty > 0) && (!q || m.machine.toLowerCase().includes(q)));
-            const withQty = board.filter(m => m.approved_qty > 0).length;
-            document.getElementById('countNote').textContent = `${rows.length} machines shown · ${withQty} with approved qty`;
-            if (!rows.length) {
-                document.getElementById('board').innerHTML = `<div class="empty-note">${onlyApproved ? 'No machine has QC approved qty waiting to be shifted.' : 'No machines.'}</div>`;
+
+            // Machines with the jobs to show under each, by view / line / search.
+            const shown = [];
+            board.forEach(m => {
+                if (line && (m.line || '') !== line) return;
+                let jobs = pendingJobs(m);
+                if (view === 'ready') jobs = jobs.filter(j => j.approved > 0);
+                if (view === 'nosfg') jobs = jobs.filter(j => !(Number(j.sfg_std) > 0));
+                const machineHit = !q || m.machine.toLowerCase().includes(q);
+                if (q && !machineHit) jobs = jobs.filter(j => jobMatches(j, q));
+                if (view !== 'all' && !jobs.length) return;
+                if (view === 'all' && q && !machineHit && !jobs.length) return;
+                shown.push({ m, jobs });
+            });
+
+            const jobCount = shown.reduce((n, x) => n + x.jobs.length, 0);
+            document.getElementById('countNote').textContent = `${shown.length} machine${shown.length === 1 ? '' : 's'} · ${jobCount} job${jobCount === 1 ? '' : 's'}`;
+            if (!shown.length) {
+                const why = { pending: 'No job is waiting to be shifted.', ready: 'No job has QC approved qty waiting to be shifted.', nosfg: 'Every pending job has an SFG std.', all: 'No machines.' }[view];
+                document.getElementById('board').innerHTML = `<div class="empty-note">${q ? 'Nothing matches your search.' : why}</div>`;
                 return;
             }
+
+            let body = '';
             let lastLine = null;
-            const body = rows.map(m => {
-                let head = '';
-                if (m.line !== lastLine) {
-                    lastLine = m.line;
-                    head = `<tr class="line-head"><td colspan="4">${esc(m.line || 'No line')}</td></tr>`;
+            let alt = false;
+            shown.forEach((x, i) => {
+                const lineKey = x.m.line || '';
+                if (lineKey !== lastLine) {
+                    lastLine = lineKey;
+                    const inLine = shown.filter(y => (y.m.line || '') === lineKey);
+                    const approved = inLine.reduce((n, y) => n + (Number(y.m.approved_qty) || 0), 0);
+                    const jobs = inLine.reduce((n, y) => n + y.jobs.length, 0);
+                    body += `<tbody><tr class="line-row"><td colspan="8">${esc(lineKey || 'No line')}<span class="t">${inLine.length} machine${inLine.length === 1 ? '' : 's'} · ${jobs} job${jobs === 1 ? '' : 's'} · QC approved <b>${qtyFmt(approved)}</b> pcs</span></td></tr></tbody>`;
+                    alt = false;
                 }
-                const pills = (m.on_hold ? '<span class="pill hold">QC HOLD</span>' : '');
-                const machineArg = JSON.stringify(m.machine).replace(/"/g, '&quot;');
-                // Every job of the machine that still has material on the shop floor.
-                const pending = (m.job_list || []).filter(j => j.pending || j.on_floor > 0)
-                    .sort((a, b) => (String(b.status).toUpperCase() === 'RUNNING') - (String(a.status).toUpperCase() === 'RUNNING') || b.approved - a.approved);
-                const jobRows = pending.map(j => {
-                    const std = Number(j.sfg_std) || 0;
-                    const type = j.sfg_pack_type || '';
-                    const approvedPacks = packText(j.approved, std, type);
-                    const floorPacks = packText(j.on_floor, std, type);
-                    return `<tr class="job-row" onclick="openJob(${machineArg}, ${JSON.stringify(String(j.plan_id)).replace(/"/g, '&quot;')})">
-                        <td>
-                            <div class="job-line">${esc(j.item_name || j.mould_name || '—')}${statusPill(j)}</div>
-                            <div class="job-meta">OR <b>${esc(j.order_no || '—')}</b> · JC <b>${esc(j.jc_no || '—')}</b> · Plan <b>${esc(j.plan_code || j.plan_id)}</b></div>
-                            <div class="job-meta">Mould ${esc(j.mould_name || '—')} · Party ${esc(j.client_name || '—')}</div>
-                            <div class="job-meta">${sfgLine(std, type, j.sfg_bag_size)}</div>
-                            <div class="job-meta">${colourChips(j.colours, std, type, j.unassigned_shifted)}</div>
-                        </td>
-                        <td class="num"><b class="${j.approved > 0 ? 'good' : ''}">${qtyFmt(j.approved)}</b>${approvedPacks ? `<div class="pack-sub">${approvedPacks}</div>` : ''}</td>
-                        <td class="num sub">On floor ${qtyFmt(j.on_floor)}${floorPacks ? `<div class="pack-sub">${floorPacks}</div>` : ''}</td>
-                        <td style="text-align:right"><button class="btn btn-outline" onclick="event.stopPropagation(); openJob(${machineArg}, ${JSON.stringify(String(j.plan_id)).replace(/"/g, '&quot;')})">Shift</button></td>
-                    </tr>`;
-                }).join('');
-                return `${head}<tr>
-                    <td><span class="machine-name">${esc(m.machine)}</span>${pills}
-                        <div class="sub">${esc(m.running_item || (m.jobs ? `${m.jobs} job(s)` : 'No job in the last 3 days'))}${pending.length ? ` · ${pending.length} job(s) pending to shift` : ''}</div></td>
-                    <td class="num approved ${m.approved_qty > 0 ? 'has' : 'zero'}">${qtyFmt(m.approved_qty)}</td>
-                    <td class="num sub">${m.on_floor_qty > 0 ? `On floor ${qtyFmt(m.on_floor_qty)}` : ''}</td>
-                    <td style="text-align:right"><button class="btn ${m.approved_qty > 0 ? 'btn-primary' : 'btn-outline'}" ${m.jobs ? '' : 'disabled'}
-                        onclick="openJob(${machineArg})"><i class="bi bi-box-arrow-in-right"></i> Open</button></td>
-                </tr>${jobRows}`;
+                body += machineGroup(x.m, x.jobs, alt);
+                alt = !alt;
+            });
+            document.getElementById('board').innerHTML = `<table class="board-grid">
+                <colgroup><col class="c-m"><col class="c-job"><col class="c-or"><col class="c-mould"><col class="c-sfg"><col class="c-col"><col class="c-app"><col class="c-act"></colgroup>
+                <thead><tr>
+                    <th>Machine</th><th>Job · plan</th><th>OR · Job card</th><th>Mould · Party</th><th>SFG std</th>
+                    <th>Colour-wise ready</th><th class="r">QC approved</th><th></th>
+                </tr></thead>${body}</table>`;
+        }
+
+        // One machine: its name and totals once on the left, a row per pending job.
+        function machineGroup(m, jobs, alt) {
+            const mArg = JSON.stringify(m.machine).replace(/"/g, '&quot;');
+            const span = Math.max(jobs.length, 1);
+            const mcell = `<td class="mcell" rowspan="${span}">
+                <div class="m-name"><span title="${esc(m.machine)}">${esc(m.machine)}</span></div>
+                <div class="m-line"><b class="${m.approved_qty > 0 ? '' : 'zero'}">${qtyFmt(m.approved_qty)}</b> QC approved</div>
+                <div class="m-foot"><span class="m-line" style="margin-top:0">${qtyFmt(m.on_floor_qty)} on floor</span>
+                    ${m.on_hold ? '<span class="pill hold">QC HOLD</span>' : ''}
+                    ${m.jobs ? `<button class="m-open" title="Open machine" onclick="event.stopPropagation(); openJob(${mArg})"><i class="bi bi-box-arrow-up-right"></i></button>` : ''}</div>
+            </td>`;
+            if (!jobs.length) {
+                return `<tbody class="m-group ${alt ? 'alt' : ''} ${m.on_hold ? 'hold' : ''}"><tr>${mcell}
+                    <td colspan="7" class="no-jobs">${m.jobs ? 'No job waiting to be shifted.' : 'No job in the last 3 days.'}</td></tr></tbody>`;
+            }
+            const rows = jobs.map((j, idx) => {
+                const std = Number(j.sfg_std) || 0;
+                const type = j.sfg_pack_type || '';
+                const pArg = JSON.stringify(String(j.plan_id)).replace(/"/g, '&quot;');
+                const approvedPacks = packText(j.approved, std, type);
+                const floorPacks = packText(j.on_floor, std, type);
+                return `<tr class="job" onclick="openJob(${mArg}, ${pArg})">${idx === 0 ? mcell : ''}
+                    <td>
+                        <div class="job-title clamp2" title="${esc(j.item_name || j.mould_name || '')}">${esc(j.item_name || j.mould_name || '—')}</div>
+                        <div class="dim">${esc(j.plan_code || j.plan_id)} ${statusPill(j)}</div>
+                    </td>
+                    <td><div class="strong nowrap" title="${esc(j.order_no || '')}">${esc(j.order_no || '—')}</div><div class="dim nowrap" title="${esc(j.jc_no || '')}">${esc(j.jc_no || '—')}</div></td>
+                    <td><div class="clamp2" title="${esc(j.mould_name || '')}">${esc(j.mould_name || '—')}</div><div class="dim clamp2" title="${esc(j.client_name || '')}">${esc(j.client_name || '—')}</div></td>
+                    <td>${std > 0
+                        ? `<div class="sfg-ok">${qtyFmt(std)} / ${esc(type || 'pack')}</div>${j.sfg_bag_size ? `<div class="dim">${esc(j.sfg_bag_size)}</div>` : ''}`
+                        : '<span class="sfg-missing">NOT SET</span>'}</td>
+                    <td>${colourLines(j.colours, std, type, j.unassigned_shifted)}</td>
+                    <td class="r"><div class="big ${j.approved > 0 ? 'good' : ''}">${qtyFmt(j.approved)}</div>${approvedPacks ? `<div class="pack-sub">${approvedPacks}</div>` : ''}
+                        <div class="dim" title="${floorPacks ? floorPacks.replace(/&amp;/g, '&') : ''}">${qtyFmt(j.on_floor)} on floor</div></td>
+                    <td class="r"><button class="btn-shift ${std > 0 && j.approved > 0 ? '' : 'off'}" onclick="event.stopPropagation(); openJob(${mArg}, ${pArg})">Shift</button></td>
+                </tr>`;
             }).join('');
-            document.getElementById('board').innerHTML = `<table class="board-table">
-                <thead><tr><th>Machine / pending jobs</th><th class="num">Approved</th><th class="num">On floor</th><th style="text-align:right">Action</th></tr></thead>
-                <tbody>${body}</tbody></table>`;
+            return `<tbody class="m-group ${alt ? 'alt' : ''} ${m.on_hold ? 'hold' : ''}">${rows}</tbody>`;
+        }
+
+        // Colour-wise ready qty, one line per colour, with packs.
+        function colourLines(list, std, type, unassigned) {
+            const lines = (list || []).filter(c => c.colour && Number(c.produced) > 0).map(c => {
+                const ready = Math.max(Number(c.ready) || 0, 0);
+                const packs = packText(ready, std, type);
+                return `<div class="colour-line ${ready > 0 ? '' : 'zero'}" title="${esc(c.colour)}: ${qtyFmt(ready)} ready${packs ? ' = ' + packs.replace(/&amp;/g, '&') : ''}"><span class="c">${esc(c.colour)}</span>
+                    <span class="q">${qtyFmt(ready)}</span></div>`;
+            });
+            if (Number(unassigned) > 0) {
+                lines.push(`<div class="colour-line unassigned"><span class="c">No colour (shifted)</span><span class="q">${qtyFmt(unassigned)}</span></div>`);
+            }
+            return lines.length ? `<div class="colours">${lines.join('')}</div>` : '<span class="dim">—</span>';
         }
 
         // ── Job detail (same as the Shifting app's Manual Shift) ─────────────
@@ -353,17 +484,6 @@
             return `<span class="sfg-ok">SFG std ${qtyFmt(std)} pcs / ${esc(type || 'pack')}${size ? ` (${esc(size)})` : ''}</span>`;
         }
 
-        // Ready qty of each colour as chips, with packs.
-        function colourChips(list, std, type, unassigned) {
-            const chips = (list || []).filter(c => c.colour && Number(c.produced) > 0).map(c => {
-                const ready = Math.max(Number(c.ready) || 0, 0);
-                const packs = packText(ready, std, type);
-                return `<span class="col-chip ${ready > 0 ? '' : 'zero'}">${esc(c.colour)}: ${qtyFmt(ready)}${packs ? ` · ${packs}` : ''}</span>`;
-            });
-            if (Number(unassigned) > 0) chips.push(`<span class="col-chip zero">No colour (manual) shifted ${qtyFmt(unassigned)}</span>`);
-            return chips.join('');
-        }
-
         function locChips(list) {
             if (!list || !list.length) return '<span class="muted">—</span>';
             return list.map(l => `<span class="loc-chip">${esc(l.location)}: ${qtyFmt(l.qty)}</span>`).join('');
@@ -378,52 +498,53 @@
             const m = machineRow(current.machine) || { job_list: [] };
             const jobs = [...m.job_list].sort((a, b) =>
                 (String(b.status).toUpperCase() === 'RUNNING') - (String(a.status).toUpperCase() === 'RUNNING') || b.approved - a.approved || b.on_floor - a.on_floor);
-            let html = '';
-            if (current.message) html += `<div class="msg ${current.message.ok ? 'ok' : 'err'}">${esc(current.message.text)}</div>`;
 
-            html += `<div class="muted" style="font-weight:700; margin-bottom:6px">Jobs on ${esc(current.machine)}</div><div class="job-choices">`;
-            html += jobs.map(j => `<div class="job-choice ${String(j.plan_id) === current.planId ? 'sel' : ''}" onclick="selectJob('${esc(String(j.plan_id))}')">
-                    <div><span class="t">${esc(j.item_name || j.mould_name || '—')}</span>${statusPill(j)}</div>
-                    <div class="sub">${esc([j.order_no, j.jc_no, j.client_name].filter(Boolean).join(' · '))}</div>
-                    <div class="sub">Plan ${esc(j.plan_code || j.plan_id)} · Mould ${esc(j.mould_name || '—')}</div>
-                    <div class="sub">${sfgLine(Number(j.sfg_std) || 0, j.sfg_pack_type, j.sfg_bag_size)}</div>
-                    <div class="sub" style="font-weight:600; ${j.approved > 0 ? 'color:#16a34a' : ''}">Produced ${qtyFmt(j.produced)} · Verified ${qtyFmt(j.verified)} · Shifted ${qtyFmt(j.shifted)} · Approved ${qtyFmt(j.approved)}${packText(j.approved, Number(j.sfg_std) || 0, j.sfg_pack_type) ? ` (${packText(j.approved, Number(j.sfg_std) || 0, j.sfg_pack_type)})` : ''}</div>
-                </div>`).join('');
-            html += '</div>';
+            // Job switcher (only when the machine has more than one job)
+            const tabs = jobs.length > 1 ? `<div class="job-tabs">${jobs.map(j => `<button class="job-tab ${String(j.plan_id) === current.planId ? 'sel' : ''}" onclick="selectJob('${esc(String(j.plan_id))}')">
+                    <span class="t">${esc(j.item_name || j.mould_name || '—')}</span>
+                    <span class="s">${esc(j.plan_code || j.plan_id)} · <b>${qtyFmt(j.approved)}</b> approved</span></button>`).join('')}</div>` : '';
 
             const a = current.avail;
+            let left = tabs;
+            let right = '';
+            if (current.message) right += `<div class="msg ${current.message.ok ? 'ok' : 'err'}" style="margin-top:0">${esc(current.message.text)}</div>`;
+
             if (!current.planId) {
-                html += '<div class="empty-note">Pick a job.</div>';
+                left += '<div class="empty-note">Pick a job.</div>';
             } else if (!a) {
-                html += `<div class="empty-note">${esc(current.availError || 'Loading job...')}</div>`;
+                left += `<div class="empty-note">${esc(current.availError || 'Loading job...')}</div>`;
             } else {
                 const t = a.totals || {};
                 const hold = a.hold;
-                html += `<div class="card" style="padding:14px">
-                    <div class="muted" style="font-weight:700; font-size:0.66rem">PRODUCTION · QC · SHIFTING</div>
-                    <div style="font-weight:800; font-size:1.05rem">${esc(a.item_name || a.mould_name || '—')}</div>
-                    <div>OR: <b>${esc(a.order_no || '—')}</b> &nbsp; JC: <b>${esc(a.jc_no || '—')}</b></div>
-                    <div>Party: <b>${esc(a.client_name || '—')}</b></div>
-                    <div class="sub">${esc([a.machine, a.plan_code, a.status, `Plan ${qtyFmt(a.plan_qty)}`].filter(Boolean).join(' · '))}</div>
-                    <div>Mould: <b>${esc(a.mould_name || '—')}</b></div>
-                    <div>${sfgLine(Number(a.sfg_std) || 0, a.sfg_pack_type, a.sfg_bag_size)}</div>
-                    <div class="metrics">
+                const std = Number(a.sfg_std) || 0;
+                const packName = a.sfg_pack_type || 'pack';
+                const chip = (label, value, cls) => value ? `<span class="info-chip ${cls || ''}">${label} <b>${esc(value)}</b></span>` : '';
+                left += `<div class="job-hero">
+                    <h4>${esc(a.item_name || a.mould_name || '—')} ${statusPill({ status: a.status, on_hold: hold && hold.count })}</h4>
+                    <div class="info-chips">
+                        ${chip('OR', a.order_no)}${chip('JC', a.jc_no)}${chip('Plan', a.plan_code)}${chip('Party', a.client_name)}${chip('Mould', a.mould_name)}
+                        ${std > 0
+                            ? `<span class="info-chip sfg">SFG std <b>${qtyFmt(std)} pcs / ${esc(packName)}</b>${a.sfg_bag_size ? ` · ${esc(a.sfg_bag_size)}` : ''}</span>`
+                            : '<span class="info-chip nosfg">SFG STD NOT SET</span>'}
+                        ${chip('Plan qty', a.plan_qty ? qtyFmt(a.plan_qty) : '')}
+                    </div>
+                    <div class="metrics6">
                         ${metric('Produced', qtyFmt(t.produced))}
                         ${metric('QC verified', qtyFmt(t.verified), 'good')}
                         ${metric('Not verified', qtyFmt(t.not_verified), t.not_verified > 0 ? 'crit' : '')}
                         ${metric('Shifted', qtyFmt(t.shifted), '')}
-                        ${metric('Ready (floor)', qtyFmt(t.ready) + (packText(t.ready, Number(a.sfg_std) || 0, a.sfg_pack_type) ? `<div class="pack-sub">${packText(t.ready, Number(a.sfg_std) || 0, a.sfg_pack_type)}</div>` : ''), t.ready > 0 ? 'good' : '')}
-                        ${metric('On QC hold', hold && hold.count ? (hold.qty > 0 ? qtyFmt(hold.qty) : 'Yes') : '0', hold && hold.count ? 'crit' : '')}
+                        ${metric('Ready', qtyFmt(t.ready) + (packText(t.ready, std, a.sfg_pack_type) ? `<div class="pack-sub">${packText(t.ready, std, a.sfg_pack_type)}</div>` : ''), t.ready > 0 ? 'good' : '')}
+                        ${metric('QC hold', hold && hold.count ? (hold.qty > 0 ? qtyFmt(hold.qty) : 'Yes') : '0', hold && hold.count ? 'crit' : '')}
                     </div>
-                    ${hold && hold.count ? `<div class="crit" style="font-weight:600">QC HOLD on ${esc(a.machine)}: ${esc((hold.reasons || []).join('; ') || 'no reason given')}</div>` : ''}
-                    ${a.verification_enforced ? '' : '<div class="warn sub">QC verification data is not on this server; only production is checked.</div>'}
-                    <div style="margin-top:6px"><b style="font-size:0.8rem">Shifted to</b><div>${locChips(t.by_location)}</div></div>
+                    ${hold && hold.count ? `<div class="crit" style="font-weight:700; margin-top:6px">QC HOLD on ${esc(a.machine)}: ${esc((hold.reasons || []).join('; ') || 'no reason given')}</div>` : ''}
+                    ${a.verification_enforced ? '' : '<div class="warn sub" style="margin-top:6px">QC verification data is not on this server; only production is checked.</div>'}
+                    <div style="margin-top:8px; font-size:0.78rem"><b>Shifted to</b> ${locChips(t.by_location)}</div>
                     ${(a.colours || []).length ? `<div class="section"><h4>Colour-wise</h4>
-                        <table class="mini-table"><thead><tr><th>Colour</th><th class="num">Prod</th><th class="num">QC ok</th><th class="num">Not ver.</th><th class="num">Shifted</th><th class="num">Ready</th><th class="num">Ready packs</th><th>Shifted to</th></tr></thead><tbody>
+                        <table class="mini-table"><thead><tr><th>Colour</th><th class="num">Produced</th><th class="num">QC ok</th><th class="num">Not ver.</th><th class="num">Shifted</th><th class="num">Ready</th><th class="num">Ready packs</th><th>Shifted to</th></tr></thead><tbody>
                         ${a.colours.map(c => `<tr><td><b>${esc(c.colour || '—')}</b></td><td class="num">${qtyFmt(c.produced)}</td><td class="num good">${qtyFmt(c.verified)}</td>
                             <td class="num ${c.not_verified > 0 ? 'crit' : ''}">${qtyFmt(c.not_verified)}</td><td class="num">${qtyFmt(c.shifted)}</td>
                             <td class="num ${c.ready > 0 ? 'good' : ''}"><b>${qtyFmt(c.ready)}</b></td>
-                            <td class="num pack-sub">${packText(c.ready, Number(a.sfg_std) || 0, a.sfg_pack_type) || '—'}</td><td>${locChips(c.by_location)}</td></tr>`).join('')}
+                            <td class="num pack-sub">${packText(c.ready, std, a.sfg_pack_type) || '—'}</td><td>${locChips(c.by_location)}</td></tr>`).join('')}
                         ${a.unassigned && a.unassigned.shifted > 0 ? `<tr><td class="warn"><b>No colour (manual)</b></td><td></td><td></td><td></td>
                             <td class="num">${qtyFmt(a.unassigned.shifted)}</td><td></td><td></td><td>${locChips(a.unassigned.by_location)}</td></tr>` : ''}
                         </tbody></table></div>` : ''}
@@ -434,43 +555,58 @@
                             <td class="num"><b>${qtyFmt(r.qty)} pcs</b>${r.kg > 0 ? ` · ${kgFmt(r.kg)} kg` : ''}</td></tr>`).join('')}</tbody></table></div>` : ''}
                 </div>`;
 
-                const max = maxShiftQty(a);
-                const unit = Number(a.unit_weight_kg) || 0;
-                const shiftColours = producedColours(a);
-                const last = (() => { try { return localStorage.getItem('shifting_last_location') || ''; } catch (_) { return ''; } })();
-                const std = Number(a.sfg_std) || 0;
-                const packName = a.sfg_pack_type || 'pack';
                 if (!(std > 0)) {
-                    html += `<div class="sfg-block" style="margin-top:12px">
+                    right += `<div class="sfg-block">
                         <div class="big">SFG STD NOT SET</div>
                         Mould Master has no SFG Std Packing for <b>${esc(a.mould_name || 'this mould')}</b>. Manual shifting is blocked until it is filled in Mould Master.
                     </div>`;
-                    document.getElementById('jobBody').innerHTML = html;
-                    return;
+                } else {
+                    const max = maxShiftQty(a);
+                    const unit = Number(a.unit_weight_kg) || 0;
+                    const shiftColours = producedColours(a);
+                    const last = (() => { try { return localStorage.getItem('shifting_last_location') || ''; } catch (_) { return ''; } })();
+                    const oneColour = shiftColours.length === 1 ? shiftColours[0].colour : '';
+                    right += `<div class="shift-card">
+                        <h4><i class="bi bi-box-arrow-right"></i> Manual shift</h4>
+                        <div class="lim">Material without a label · up to <b>${qtyFmt(max)}</b> pcs (${packText(max, std, packName) || '0'}) · ${qtyFmt(std)} pcs / ${esc(packName)}${unit > 0 ? ` · ${kgFmt(unit)} kg/pc` : ''}</div>
+                        ${shiftColours.length ? `<label>Colour</label>
+                            <input type="hidden" id="shiftColour" value="${esc(oneColour)}">
+                            <div class="colour-pick">${shiftColours.map(c => {
+                                const cmax = colourMax(a, c);
+                                const packs = packText(cmax, std, packName);
+                                return `<button type="button" class="colour-opt ${c.colour === oneColour ? 'sel' : ''} ${cmax > 0 ? '' : 'zero'}" data-colour="${esc(c.colour)}" onclick="pickColour(this)">
+                                    <span class="n">${esc(c.colour)}</span><span class="q">${qtyFmt(cmax)} ready${packs ? `<small>${packs}</small>` : ''}</span></button>`;
+                            }).join('')}</div>` : ''}
+                        <label for="sendTo">Send to</label>
+                        <select id="sendTo" class="form-control"><option value="">Select location</option>
+                            ${locations.map(l => `<option ${l.toLowerCase() === last.toLowerCase() ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>
+                        <div class="entry3">
+                            <div><label for="packs">${esc(packName)}s</label>
+                                <input id="packs" type="number" min="0" step="1" class="form-control" placeholder="0" oninput="onPacks(${std}, ${unit})"></div>
+                            <div><label for="qtyPcs">Pieces</label>
+                                <input id="qtyPcs" type="number" min="1" step="1" class="form-control" placeholder="0" oninput="onQty(${std}, ${unit})"></div>
+                            <div><label for="weightKg">Kg</label>
+                                <input id="weightKg" type="number" min="0" step="0.001" class="form-control" ${unit > 0 ? 'placeholder="0"' : 'disabled placeholder="—" title="No mould weight"'} oninput="onWeight(${std}, ${unit})"></div>
+                        </div>
+                        <div id="packHint" class="pack-sub" style="margin-top:6px; min-height:1em"></div>
+                        <button id="shiftBtn" class="btn-big" onclick="doShift()"><i class="bi bi-box-arrow-right"></i> Shift</button>
+                    </div>`;
                 }
-                html += `<div class="card" style="padding:14px; margin-top:12px">
-                    <div style="font-weight:700; margin-bottom:8px">Manual shift <span class="sub">(material without a label) · up to ${qtyFmt(max)} pcs (${packText(max, std, packName) || '0'}) · ${qtyFmt(std)} pcs / ${esc(packName)}${unit > 0 ? ` · ${kgFmt(unit)} kg/pc` : ''}</span></div>
-                    <div class="shift-form">
-                        ${shiftColours.length ? `<div><label for="shiftColour">Colour</label>
-                            <select id="shiftColour" class="form-control" onchange="onColour()">
-                            ${shiftColours.length > 1 ? '<option value="">Select colour</option>' : ''}
-                            ${shiftColours.map(c => `<option value="${esc(c.colour)}">${esc(c.colour)} · ready ${qtyFmt(colourMax(a, c))}</option>`).join('')}</select></div>` : ''}
-                        <div><label for="sendTo">Send To</label>
-                            <select id="sendTo" class="form-control"><option value="">Select location</option>
-                            ${locations.map(l => `<option ${l.toLowerCase() === last.toLowerCase() ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></div>
-                        <div><label for="packs">${esc(packName)}s (${qtyFmt(std)} pcs each)</label>
-                            <input id="packs" type="number" min="0" step="1" class="form-control" oninput="onPacks(${std}, ${unit})"></div>
-                        <div><label for="qtyPcs">Quantity (pcs)</label>
-                            <input id="qtyPcs" type="number" min="1" step="1" class="form-control" oninput="onQty(${std}, ${unit})"></div>
-                        <div><label for="weightKg">Weight (kg)</label>
-                            <input id="weightKg" type="number" min="0" step="0.001" class="form-control" ${unit > 0 ? '' : 'disabled placeholder="No mould weight"'} oninput="onWeight(${std}, ${unit})"></div>
-                    </div>
-                    <div id="packHint" class="pack-sub" style="margin-top:6px"></div>
-                    <button id="shiftBtn" class="btn btn-primary" style="width:100%; margin-top:12px; height:46px; font-weight:700" onclick="doShift()">
-                        <i class="bi bi-box-arrow-right"></i> Shift</button>
-                </div>`;
             }
-            document.getElementById('jobBody').innerHTML = html;
+            document.getElementById('jobBody').innerHTML = `<div class="job-layout"><div class="job-left">${left}</div><div class="job-right">${right}</div></div>`;
+        }
+
+        // Colour buttons write the picked colour into the hidden #shiftColour field.
+        function pickColour(btn) {
+            const input = document.getElementById('shiftColour');
+            if (input) input.value = btn.dataset.colour || '';
+            document.querySelectorAll('.colour-opt').forEach(b => b.classList.toggle('sel', b === btn));
+            onColour();
+        }
+
+        function syncColourButtons() {
+            const v = (document.getElementById('shiftColour') || {}).value || '';
+            document.querySelectorAll('.colour-opt').forEach(b => b.classList.toggle('sel', (b.dataset.colour || '') === v));
         }
 
         function maxShiftQty(a) {
@@ -554,7 +690,7 @@
 
             const btn = document.getElementById('shiftBtn');
             btn.disabled = true;
-            btn.textContent = 'Saving...';
+            btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Saving...';
             try {
                 await JPSMS.api.post('/shifting/entry', {
                     planId: a.plan_id, machine: a.machine, quantity, toLocation: location,
@@ -579,6 +715,7 @@
             const keep = ['shiftColour', 'sendTo', 'packs', 'weightKg', 'qtyPcs'].map(id => [id, (document.getElementById(id) || {}).value]);
             renderJob();
             keep.forEach(([id, v]) => { const el = document.getElementById(id); if (el && v != null) el.value = v; });
+            syncColourButtons();
         }
     </script>
     <script src="/assets/register-sw.js?v=release63"></script>
