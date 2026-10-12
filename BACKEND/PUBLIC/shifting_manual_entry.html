@@ -65,13 +65,51 @@
         .btn-big { width: 100%; margin-top: 14px; height: 50px; font-weight: 800; font-size: 1rem; border: 0; border-radius: 10px; background: #0f766e; color: #fff; cursor: pointer; }
         .btn-big:hover { background: #115e59; }
         .btn-big:disabled { opacity: 0.6; cursor: wait; }
-        .job-hero .section { overflow-x: auto; }
+        .job-details .section { overflow-x: auto; }
+        .job-details { border: 1px solid #e2e8f0; border-radius: 12px; padding: 2px 14px 12px; background: #fff; margin-top: 12px; }
+        .job-details > .section:first-child { border-top: 0; }
+        .entry3 input::-webkit-outer-spin-button, .entry3 input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+        .entry3 input { -moz-appearance: textfield; }
+        #jobModal { z-index: 1000001; }
+        body.me-sheet .mobile-sidebar-fab, body.me-sheet .mobile-nav { display: none !important; }
         @media (max-width: 900px) {
             #jobModal .modal-content { padding: 12px; box-sizing: border-box; }
-            .job-layout { grid-template-columns: minmax(0, 1fr); }
-            .job-left, .job-right { max-height: none; overflow: visible; }
-            #jobModal #jobBody { overflow-y: auto; }
+            .job-layout { display: flex; flex-direction: column; gap: 12px; }
+            /* Phone / tablet: tabs, job summary, then the shift form, then colour table + history. */
+            .job-left { display: contents; }
+            .job-layout > *, .job-left > * { flex-shrink: 0; }
+            .job-tabs { order: 1; margin-bottom: 0; }
+            .job-hero { order: 2; }
+            .job-right { order: 3; max-height: none; overflow: visible; }
+            .job-details { order: 4; margin-top: 0; }
+            .job-left > .empty-note { order: 2; }
+            #jobModal #jobBody { overflow-y: auto; -webkit-overflow-scrolling: touch; }
             .metrics6 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+        }
+        @media (max-width: 640px) {
+            /* Full-screen sheet on a phone. */
+            #jobModal.modal-overlay { align-items: stretch; }
+            #jobModal .modal-content { width: 100vw; max-width: 100vw; height: 100dvh; max-height: 100dvh; border-radius: 0; padding: 0; }
+            #jobModal .modal-head { padding: 10px 12px; margin: 0; border-bottom: 1px solid #e2e8f0; background: #fff; }
+            #jobModal .modal-head h3 { font-size: 1.02rem !important; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            /* app.css makes every phone heading 1.5rem !important */
+            #jobModal .job-hero h4 { font-size: 0.98rem !important; }
+            #jobModal .shift-card h4 { font-size: 0.95rem !important; }
+            #jobModal .section h4 { font-size: 0.85rem !important; }
+            #jobModal #jobBody { padding: 12px 12px 0; background: #f8fafc; }
+            .job-tab { max-width: 220px; }
+            .job-hero { padding: 12px; }
+            .job-hero h4 { font-size: 0.98rem; }
+            .metrics6 { gap: 6px; }
+            .metrics6 .metric { padding: 7px 8px; }
+            .metrics6 .metric .v { font-size: 0.95rem; }
+            .shift-card { padding: 12px; box-shadow: none; }
+            .entry3 input, .shift-card select { font-size: 16px; height: 46px; }
+            .colour-opt { padding: 10px; }
+            .colour-opt.sel { padding: 9px; }
+            .shift-go { position: sticky; bottom: 0; margin: 12px -12px -12px; padding: 10px 12px calc(10px + env(safe-area-inset-bottom)); background: #fff; border-top: 1px solid #e2e8f0; border-radius: 0 0 12px 12px; z-index: 2; }
+            .shift-go .btn-big { margin-top: 0; height: 52px; }
+            .job-details { margin-bottom: 16px; }
         }
         .modal-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
         .modal-head h3 { margin: 0; font-size: 1.15rem; }
@@ -138,7 +176,7 @@
         .m-name { display: flex; align-items: center; gap: 6px; font-weight: 800; color: #0f172a; font-size: 0.86rem; line-height: 1.25; white-space: nowrap; }
         .m-name > span:first-child { overflow: hidden; text-overflow: ellipsis; }
         .m-name .pill { margin-left: 0; }
-        .m-open { margin-left: auto; flex: 0 0 auto; width: 26px !important; background: #fff; border: 1px solid #ccfbf1; color: #0f766e; border-radius: 6px; width: 26px; height: 24px; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
+        .m-open { margin-left: auto; flex: 0 0 auto; background: #fff; border: 1px solid #ccfbf1; color: #0f766e; border-radius: 6px; width: 26px; height: 24px; padding: 0; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
         .m-open:hover { background: #f0fdfa; border-color: #5eead4; }
         .m-line { margin-top: 3px; font-size: 0.74rem; color: #64748b; font-variant-numeric: tabular-nums; }
         .m-foot { display: flex; align-items: center; gap: 6px; margin-top: 2px; }
@@ -165,10 +203,69 @@
         .btn-shift.off { background: #e2e8f0; color: #64748b; }
         .no-jobs { color: #94a3b8; font-size: 0.8rem; }
 
+        .me-filters .f-line { width: 150px; }
+        .me-filters .f-view { width: 220px; }
+        .btn-refresh .lbl { margin-left: 4px; }
+
+        /* Phone cards (shown instead of the table below 760 px) */
+        .board-cards { display: none; }
+        .mc-line { position: sticky; top: 0; z-index: 3; display: flex; justify-content: space-between; align-items: baseline; gap: 8px; padding: 8px 4px 6px; margin-top: 6px; background: #f1f5f9; font-weight: 800; color: #1e3a8a; font-size: 0.86rem; }
+        .mc-line span { font-weight: 600; color: #475569; font-size: 0.72rem; text-align: right; }
+        .mc-line span b { color: #15803d; }
+        .mc { background: #fff; border: 1px solid #e2e8f0; border-radius: 14px; margin-bottom: 10px; overflow: hidden; box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05); }
+        .mc.hold { border-left: 4px solid #ef4444; }
+        .mc-head { display: flex; align-items: center; gap: 10px; padding: 11px 12px; cursor: pointer; }
+        .mc-head .nm { flex: 1 1 auto; min-width: 0; }
+        .mc-name { display: flex; align-items: center; gap: 6px; font-weight: 800; color: #0f172a; font-size: 0.95rem; }
+        .mc-name > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .mc-name .pill { margin-left: 0; flex: 0 0 auto; }
+        .mc-sub { font-size: 0.74rem; color: #64748b; margin-top: 1px; }
+        .mc-app { text-align: right; flex: 0 0 auto; }
+        .mc-app b { display: block; font-size: 1.2rem; font-weight: 800; color: #15803d; font-variant-numeric: tabular-nums; line-height: 1.1; }
+        .mc-app b.zero { color: #94a3b8; }
+        .mc-app span { font-size: 0.66rem; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.03em; }
+        .jc { border-top: 1px solid #f1f5f9; padding: 10px 12px 12px; cursor: pointer; }
+        .jc:active { background: #f8fafc; }
+        .jc-top { display: flex; align-items: flex-start; gap: 8px; }
+        .jc-title { flex: 1 1 auto; min-width: 0; font-weight: 700; color: #0f172a; font-size: 0.86rem; line-height: 1.25; }
+        .jc-top .pill { margin: 1px 0 0; flex: 0 0 auto; }
+        .jc-meta { font-size: 0.74rem; color: #475569; margin-top: 3px; overflow-wrap: anywhere; }
+        .jc-meta b { color: #0f172a; }
+        .jc-chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 7px; }
+        .cchip { display: inline-flex; align-items: center; gap: 5px; font-size: 0.72rem; color: #334155; background: #f1f5f9; border-radius: 7px; padding: 3px 8px; max-width: 100%; }
+        .cchip::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: #22c55e; flex: 0 0 auto; }
+        .cchip.zero { color: #94a3b8; }
+        .cchip.zero::before { background: #cbd5e1; }
+        .cchip.unassigned::before { background: #f59e0b; }
+        .cchip b { font-variant-numeric: tabular-nums; }
+        .cchip.sfg { background: #ccfbf1; color: #115e59; font-weight: 700; }
+        .cchip.sfg::before, .cchip.nosfg::before { display: none; }
+        .cchip.nosfg { background: #fee2e2; color: #b91c1c; font-weight: 800; }
+        .jc-foot { display: flex; align-items: flex-end; justify-content: space-between; gap: 10px; margin-top: 9px; }
+        .jc-foot .big { font-size: 1.1rem; }
+        .jc-foot .btn-shift { padding: 10px 22px; font-size: 0.86rem; border-radius: 10px; }
+        .mc .no-jobs { padding: 0 12px 12px; }
+
         @media (max-width: 1100px) { .kpi-row { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
         @media (max-width: 760px) {
-            .kpi-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-            .grid-wrap { max-height: none; }
+            .me-head { flex-wrap: nowrap; align-items: center; margin-bottom: 10px; }
+            .me-sub { font-size: 0.76rem; }
+            .btn-refresh { flex: 0 0 auto; padding: 8px 10px; }
+            .btn-refresh .lbl { display: none; }
+            .kpi-row { display: flex; overflow-x: auto; gap: 8px; margin: 0 -4px 10px; padding: 0 4px 4px; scroll-snap-type: x mandatory; scrollbar-width: none; }
+            .kpi-row::-webkit-scrollbar { display: none; }
+            .kpi { flex: 0 0 42%; scroll-snap-align: start; padding: 9px 11px; border-radius: 11px; }
+            .kpi .l { font-size: 0.6rem; }
+            .kpi .v { font-size: 1.2rem; }
+            .kpi .s { font-size: 0.66rem; }
+            .me-filters { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 10px; margin-bottom: 10px; }
+            .me-filters .grow { grid-column: 1 / -1; min-width: 0; }
+            .me-filters .f-line, .me-filters .f-view { width: 100%; min-width: 0; }
+            .me-filters .form-control { font-size: 16px; height: 42px; }
+            .me-filters .tools { grid-column: 1 / -1; margin-left: 0; }
+            .grid-wrap { max-height: none; min-height: 0; overflow: visible; background: transparent; border: 0; box-shadow: none; border-radius: 0; }
+            .board-desktop { display: none; }
+            .board-cards { display: block; }
         }
 
         .sfg-block { background: #fee2e2; color: #991b1b; border-radius: 10px; padding: 12px; font-weight: 700; }
@@ -186,15 +283,15 @@
                 <div class="page-title">Manual Entry</div>
                 <div class="me-sub">QC approved material waiting to be shifted · jobs of the last 3 days · in pieces and SFG packs</div>
             </div>
-            <button onclick="loadBoard()" class="btn btn-outline"><i class="bi bi-arrow-clockwise"></i> Refresh</button>
+            <button onclick="loadBoard()" class="btn btn-outline btn-refresh" title="Refresh"><i class="bi bi-arrow-clockwise"></i><span class="lbl">Refresh</span></button>
         </div>
 
         <div id="kpis" class="kpi-row"></div>
 
         <div class="card me-filters">
             <input type="search" id="search" class="form-control grow" placeholder="Search machine, item, OR, JC, mould or party" oninput="renderBoard()">
-            <select id="lineFilter" class="form-control" style="width:150px" onchange="renderBoard()"><option value="">All lines</option></select>
-            <select id="viewFilter" class="form-control" style="width:210px" onchange="onViewChange()">
+            <select id="lineFilter" class="form-control f-line" onchange="renderBoard()"><option value="">All lines</option></select>
+            <select id="viewFilter" class="form-control f-view" onchange="onViewChange()">
                 <option value="pending">Pending jobs</option>
                 <option value="ready">Ready to shift (QC approved)</option>
                 <option value="nosfg">SFG std not set</option>
@@ -348,6 +445,7 @@
             }
 
             let body = '';
+            let cards = '';
             let lastLine = null;
             let alt = false;
             shown.forEach((x, i) => {
@@ -357,18 +455,64 @@
                     const inLine = shown.filter(y => (y.m.line || '') === lineKey);
                     const approved = inLine.reduce((n, y) => n + (Number(y.m.approved_qty) || 0), 0);
                     const jobs = inLine.reduce((n, y) => n + y.jobs.length, 0);
-                    body += `<tbody><tr class="line-row"><td colspan="8">${esc(lineKey || 'No line')}<span class="t">${inLine.length} machine${inLine.length === 1 ? '' : 's'} · ${jobs} job${jobs === 1 ? '' : 's'} · QC approved <b>${qtyFmt(approved)}</b> pcs</span></td></tr></tbody>`;
+                    const totals = `${inLine.length} machine${inLine.length === 1 ? '' : 's'} · ${jobs} job${jobs === 1 ? '' : 's'} · QC approved <b>${qtyFmt(approved)}</b> pcs`;
+                    body += `<tbody><tr class="line-row"><td colspan="8">${esc(lineKey || 'No line')}<span class="t">${totals}</span></td></tr></tbody>`;
+                    cards += `<div class="mc-line">${esc(lineKey || 'No line')}<span>${totals}</span></div>`;
                     alt = false;
                 }
                 body += machineGroup(x.m, x.jobs, alt);
+                cards += machineCard(x.m, x.jobs);
                 alt = !alt;
             });
-            document.getElementById('board').innerHTML = `<table class="board-grid">
+            // The table is for desktop; below 760 px CSS shows the cards instead.
+            document.getElementById('board').innerHTML = `<div class="board-cards">${cards}</div><div class="board-desktop"><table class="board-grid">
                 <colgroup><col class="c-m"><col class="c-job"><col class="c-or"><col class="c-mould"><col class="c-sfg"><col class="c-col"><col class="c-app"><col class="c-act"></colgroup>
                 <thead><tr>
                     <th>Machine</th><th>Job · plan</th><th>OR · Job card</th><th>Mould · Party</th><th>SFG std</th>
                     <th>Colour-wise ready</th><th class="r">QC approved</th><th></th>
-                </tr></thead>${body}</table>`;
+                </tr></thead>${body}</table></div>`;
+        }
+
+        // Phone layout: one card per machine, a block per pending job with a big Shift button.
+        function machineCard(m, jobs) {
+            const mArg = JSON.stringify(m.machine).replace(/"/g, '&quot;');
+            const head = `<div class="mc-head" ${m.jobs ? `onclick="openJob(${mArg})"` : ''}>
+                <div class="nm">
+                    <div class="mc-name"><span>${esc(m.machine)}</span>${m.on_hold ? '<span class="pill hold">QC HOLD</span>' : ''}</div>
+                    <div class="mc-sub">${qtyFmt(m.on_floor_qty)} on floor · ${jobs.length} job${jobs.length === 1 ? '' : 's'} pending</div>
+                </div>
+                <div class="mc-app"><b class="${m.approved_qty > 0 ? '' : 'zero'}">${qtyFmt(m.approved_qty)}</b><span>QC approved</span></div>
+            </div>`;
+            if (!jobs.length) {
+                return `<div class="mc ${m.on_hold ? 'hold' : ''}">${head}<div class="no-jobs">${m.jobs ? 'No job waiting to be shifted.' : 'No job in the last 3 days.'}</div></div>`;
+            }
+            const rows = jobs.map(j => {
+                const std = Number(j.sfg_std) || 0;
+                const type = j.sfg_pack_type || '';
+                const pArg = JSON.stringify(String(j.plan_id)).replace(/"/g, '&quot;');
+                const approvedPacks = packText(j.approved, std, type);
+                const chips = [std > 0
+                    ? `<span class="cchip sfg">SFG ${qtyFmt(std)} / ${esc(type || 'pack')}${j.sfg_bag_size ? ` · ${esc(j.sfg_bag_size)}` : ''}</span>`
+                    : '<span class="cchip nosfg">SFG STD NOT SET</span>'];
+                (j.colours || []).filter(c => c.colour && Number(c.produced) > 0).forEach(c => {
+                    const ready = Math.max(Number(c.ready) || 0, 0);
+                    chips.push(`<span class="cchip ${ready > 0 ? '' : 'zero'}">${esc(c.colour)} <b>${qtyFmt(ready)}</b></span>`);
+                });
+                if (Number(j.unassigned_shifted) > 0) chips.push(`<span class="cchip unassigned">No colour shifted <b>${qtyFmt(j.unassigned_shifted)}</b></span>`);
+                return `<div class="jc" onclick="openJob(${mArg}, ${pArg})">
+                    <div class="jc-top"><div class="jc-title">${esc(j.item_name || j.mould_name || '—')}</div>${statusPill(j)}</div>
+                    <div class="jc-meta">OR <b>${esc(j.order_no || '—')}</b> · JC <b>${esc(j.jc_no || '—')}</b> · ${esc(j.plan_code || j.plan_id)}</div>
+                    <div class="jc-meta">${esc(j.mould_name || '—')} · ${esc(j.client_name || '—')}</div>
+                    <div class="jc-chips">${chips.join('')}</div>
+                    <div class="jc-foot">
+                        <div><div class="big ${j.approved > 0 ? 'good' : ''}">${qtyFmt(j.approved)} <span class="dim" style="font-weight:600">pcs approved</span></div>
+                            ${approvedPacks ? `<div class="pack-sub">${approvedPacks}</div>` : ''}
+                            <div class="dim">${qtyFmt(j.on_floor)} on floor</div></div>
+                        <button class="btn-shift ${std > 0 && j.approved > 0 ? '' : 'off'}" onclick="event.stopPropagation(); openJob(${mArg}, ${pArg})">Shift</button>
+                    </div>
+                </div>`;
+            }).join('');
+            return `<div class="mc ${m.on_hold ? 'hold' : ''}">${head}${rows}</div>`;
         }
 
         // One machine: its name and totals once on the left, a row per pending job.
@@ -376,11 +520,10 @@
             const mArg = JSON.stringify(m.machine).replace(/"/g, '&quot;');
             const span = Math.max(jobs.length, 1);
             const mcell = `<td class="mcell" rowspan="${span}">
-                <div class="m-name"><span title="${esc(m.machine)}">${esc(m.machine)}</span></div>
+                <div class="m-name"><span title="${esc(m.machine)}">${esc(m.machine)}</span>${m.on_hold ? '<span class="pill hold">QC HOLD</span>' : ''}</div>
                 <div class="m-line"><b class="${m.approved_qty > 0 ? '' : 'zero'}">${qtyFmt(m.approved_qty)}</b> QC approved</div>
                 <div class="m-foot"><span class="m-line" style="margin-top:0">${qtyFmt(m.on_floor_qty)} on floor</span>
-                    ${m.on_hold ? '<span class="pill hold">QC HOLD</span>' : ''}
-                    ${m.jobs ? `<button class="m-open" title="Open machine" onclick="event.stopPropagation(); openJob(${mArg})"><i class="bi bi-box-arrow-up-right"></i></button>` : ''}</div>
+                    ${m.jobs ?`<button class="m-open" title="Open machine" onclick="event.stopPropagation(); openJob(${mArg})"><i class="bi bi-box-arrow-up-right"></i></button>` : ''}</div>
             </td>`;
             if (!jobs.length) {
                 return `<tbody class="m-group ${alt ? 'alt' : ''} ${m.on_hold ? 'hold' : ''}"><tr>${mcell}
@@ -432,21 +575,24 @@
             const m = machineRow(machine);
             if (!m) return;
             const pick = planId != null ? String(planId) : (m.best_plan_id != null ? String(m.best_plan_id) : '');
-            current = { machine, planId: pick, avail: null, message: null };
+            current = { machine, planId: pick, avail: null, availError: null, message: null };
             document.getElementById('jobTitle').textContent = machine;
             document.getElementById('jobModal').classList.add('active');
+            document.body.classList.add('me-sheet');
             renderJob();
             if (current.planId) loadAvail(current.planId);
         }
 
         function closeJob() {
             document.getElementById('jobModal').classList.remove('active');
+            document.body.classList.remove('me-sheet');
             current = null;
         }
 
         function selectJob(planId) {
             current.planId = String(planId);
             current.avail = null;
+            current.availError = null;
             current.message = null;
             renderJob();
             loadAvail(current.planId);
@@ -539,7 +685,8 @@
                     ${hold && hold.count ? `<div class="crit" style="font-weight:700; margin-top:6px">QC HOLD on ${esc(a.machine)}: ${esc((hold.reasons || []).join('; ') || 'no reason given')}</div>` : ''}
                     ${a.verification_enforced ? '' : '<div class="warn sub" style="margin-top:6px">QC verification data is not on this server; only production is checked.</div>'}
                     <div style="margin-top:8px; font-size:0.78rem"><b>Shifted to</b> ${locChips(t.by_location)}</div>
-                    ${(a.colours || []).length ? `<div class="section"><h4>Colour-wise</h4>
+                </div>`;
+                const details = `${(a.colours || []).length ? `<div class="section"><h4>Colour-wise</h4>
                         <table class="mini-table"><thead><tr><th>Colour</th><th class="num">Produced</th><th class="num">QC ok</th><th class="num">Not ver.</th><th class="num">Shifted</th><th class="num">Ready</th><th class="num">Ready packs</th><th>Shifted to</th></tr></thead><tbody>
                         ${a.colours.map(c => `<tr><td><b>${esc(c.colour || '—')}</b></td><td class="num">${qtyFmt(c.produced)}</td><td class="num good">${qtyFmt(c.verified)}</td>
                             <td class="num ${c.not_verified > 0 ? 'crit' : ''}">${qtyFmt(c.not_verified)}</td><td class="num">${qtyFmt(c.shifted)}</td>
@@ -552,8 +699,8 @@
                         <table class="mini-table"><tbody>${a.recent.slice(0, 8).map(r => `<tr>
                             <td class="sub">${esc(r.at ? new Date(r.at).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false }) : '')}</td>
                             <td>${esc(r.colour || 'Manual')} → ${esc(r.location)}</td><td class="sub">${esc(r.by)}</td>
-                            <td class="num"><b>${qtyFmt(r.qty)} pcs</b>${r.kg > 0 ? ` · ${kgFmt(r.kg)} kg` : ''}</td></tr>`).join('')}</tbody></table></div>` : ''}
-                </div>`;
+                            <td class="num"><b>${qtyFmt(r.qty)} pcs</b>${r.kg > 0 ? ` · ${kgFmt(r.kg)} kg` : ''}</td></tr>`).join('')}</tbody></table></div>` : ''}`;
+                if (details) left += `<div class="job-details">${details}</div>`;
 
                 if (!(std > 0)) {
                     right += `<div class="sfg-block">
@@ -582,14 +729,14 @@
                             ${locations.map(l => `<option ${l.toLowerCase() === last.toLowerCase() ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>
                         <div class="entry3">
                             <div><label for="packs">${esc(packName)}s</label>
-                                <input id="packs" type="number" min="0" step="1" class="form-control" placeholder="0" oninput="onPacks(${std}, ${unit})"></div>
+                                <input id="packs" type="number" inputmode="numeric" min="0" step="1" class="form-control" placeholder="0" oninput="onPacks(${std}, ${unit})"></div>
                             <div><label for="qtyPcs">Pieces</label>
-                                <input id="qtyPcs" type="number" min="1" step="1" class="form-control" placeholder="0" oninput="onQty(${std}, ${unit})"></div>
+                                <input id="qtyPcs" type="number" inputmode="numeric" min="1" step="1" class="form-control" placeholder="0" oninput="onQty(${std}, ${unit})"></div>
                             <div><label for="weightKg">Kg</label>
-                                <input id="weightKg" type="number" min="0" step="0.001" class="form-control" ${unit > 0 ? 'placeholder="0"' : 'disabled placeholder="—" title="No mould weight"'} oninput="onWeight(${std}, ${unit})"></div>
+                                <input id="weightKg" type="number" inputmode="decimal" min="0" step="0.001" class="form-control" ${unit > 0 ? 'placeholder="0"' : 'disabled placeholder="—" title="No mould weight"'} oninput="onWeight(${std}, ${unit})"></div>
                         </div>
                         <div id="packHint" class="pack-sub" style="margin-top:6px; min-height:1em"></div>
-                        <button id="shiftBtn" class="btn-big" onclick="doShift()"><i class="bi bi-box-arrow-right"></i> Shift</button>
+                        <div class="shift-go"><button id="shiftBtn" class="btn-big" onclick="doShift()"><i class="bi bi-box-arrow-right"></i> Shift</button></div>
                     </div>`;
                 }
             }

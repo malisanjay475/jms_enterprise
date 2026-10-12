@@ -23,7 +23,8 @@
           "changes": [
             { "type": "improvement", "text": "Manual Entry has a new layout: totals at the top, one table with each machine shown once and its pending jobs beside it, and line headers with line totals." },
             { "type": "improvement", "text": "Search now finds machine, item, OR, job card, mould or party, and new filters show one line, only jobs ready to shift, or only jobs whose SFG std is not set." },
-            { "type": "improvement", "text": "The job view is wider: job details on the left and the shift form always visible on the right, with the colour picked by tapping its row." }
+            { "type": "improvement", "text": "The job view is wider: job details on the left and the shift form always visible on the right, with the colour picked by tapping its row." },
+            { "type": "improvement", "text": "On a phone, Manual Entry shows a card per machine with its pending jobs and a big Shift button, and the job opens full screen with the shift form right under the job summary." }
           ]
         }
       ]
