@@ -227,8 +227,16 @@ data class Availability(
     val recent: List<AvailEntry> = emptyList(),
     /** Shifted with no colour (older manual shifts): counted for the job, shown on its own row. */
     val unassignedShifted: Double = 0.0,
-    val unassignedByLocation: List<LocQty> = emptyList()
+    val unassignedByLocation: List<LocQty> = emptyList(),
+    /** SFG standard from Mould Master: pcs per pack (0 = not set → manual shift blocked). */
+    val sfgStd: Double = 0.0,
+    /** Pack name as written in Mould Master's SFG Bag Type (LD bag / Crate / Woven bag …). */
+    val sfgPackType: String = "",
+    val sfgBagSize: String = ""
 ) {
+    val hasSfgStd: Boolean get() = sfgStd > 0
+    val packName: String get() = sfgPackType.ifBlank { "pack" }
+
     val maxShiftQty: Double get() = if (verificationEnforced) ready else (produced - shifted).coerceAtLeast(0.0)
 
     /** Colours with production on this job — manually shifted material is one of these. */

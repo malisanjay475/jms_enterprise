@@ -61,7 +61,10 @@ import com.jmsocean.shifting.ui.common.JobAvailabilityCard
 import com.jmsocean.shifting.ui.common.MetricRow
 import com.jmsocean.shifting.ui.common.Pill
 import com.jmsocean.shifting.ui.common.PickerField
-import com.jmsocean.shifting.ui.common.WeightQtyFields
+import com.jmsocean.shifting.ui.common.PackQtyFields
+import com.jmsocean.shifting.ui.common.SfgBlockCard
+import com.jmsocean.shifting.ui.common.packText
+import com.jmsocean.shifting.ui.common.packsForQty
 import com.jmsocean.shifting.ui.common.cleanDecimal
 import com.jmsocean.shifting.ui.common.kgForQty
 import com.jmsocean.shifting.ui.common.qty
@@ -109,6 +112,8 @@ data class ManualUiState(
     val colour: String = "",
     val weight: String = "",
     val quantity: String = "",
+    /** Full SFG packs (LD bag / crate …); packs, quantity and weight fill each other. */
+    val packs: String = "",
     val saving: Boolean = false,
     val message: ManualMessage? = null
 ) {
@@ -203,7 +208,7 @@ class ManualViewModel : ViewModel() {
     fun openMachine(m: MachineApproved) {
         val line = _state.value.jobs.firstOrNull { it.machine == m.machine }?.line?.takeIf { it.isNotBlank() } ?: m.line
         _state.update {
-            it.copy(view = ManualView.FORM, line = line, machine = m.machine, planId = "", avail = null, colour = "", weight = "", quantity = "", message = null)
+            it.copy(view = ManualView.FORM, line = line, machine = m.machine, planId = "", avail = null, colour = "", weight = "", quantity = "", packs = "", message = null)
         }
         // The board's job is kept even while the job list is still loading; load() picks it up.
         val planId = m.bestPlanId.ifBlank { _state.value.machineJobs.firstOrNull()?.planId.orEmpty() }
@@ -235,15 +240,15 @@ class ManualViewModel : ViewModel() {
     }
 
     fun setLine(line: String) = _state.update {
-        it.copy(line = line, machine = "", planId = "", avail = null, colour = "", weight = "", quantity = "", message = null)
+        it.copy(line = line, machine = "", planId = "", avail = null, colour = "", weight = "", quantity = "", packs = "", message = null)
     }
 
     fun setMachine(machine: String) = _state.update {
-        it.copy(machine = machine, planId = "", avail = null, colour = "", weight = "", quantity = "", message = null)
+        it.copy(machine = machine, planId = "", avail = null, colour = "", weight = "", quantity = "", packs = "", message = null)
     }
 
     fun selectJob(planId: String) {
-        _state.update { it.copy(planId = planId, avail = null, colour = "", weight = "", quantity = "", message = null) }
+        _state.update { it.copy(planId = planId, avail = null, colour = "", weight = "", quantity = "", packs = "", message = null) }
         loadAvailability(planId)
     }
 
@@ -256,13 +261,19 @@ class ManualViewModel : ViewModel() {
 
     private fun unitWeight(): Double = _state.value.avail?.unitWeightKg?.takeIf { it > 0 } ?: _state.value.job?.unitWeightKg ?: 0.0
 
+    private fun sfgStd(): Double = _state.value.avail?.sfgStd ?: 0.0
+
+    private fun packsText(q: Int): String = packsForQty(q, sfgStd()).takeIf { it > 0 }?.toString().orEmpty()
+
     fun setWeight(v: String) {
         val clean = cleanDecimal(v)
         val unit = unitWeight()
         _state.update {
+            val q = if (unit > 0) qtyForKg(clean.toDoubleOrNull() ?: 0.0, unit) else it.quantity.toIntOrNull() ?: 0
             it.copy(
                 weight = clean, message = null,
-                quantity = if (unit > 0) qtyForKg(clean.toDoubleOrNull() ?: 0.0, unit).takeIf { q -> q > 0 }?.toString().orEmpty() else it.quantity
+                quantity = if (unit > 0) q.takeIf { n -> n > 0 }?.toString().orEmpty() else it.quantity,
+                packs = packsText(q)
             )
         }
     }
@@ -270,8 +281,24 @@ class ManualViewModel : ViewModel() {
     fun setQuantity(v: String) {
         val clean = v.filter(Char::isDigit).take(7)
         val unit = unitWeight()
+        val q = clean.toIntOrNull() ?: 0
         _state.update {
-            it.copy(quantity = clean, message = null, weight = if (unit > 0) kgForQty(clean.toIntOrNull() ?: 0, unit) else it.weight)
+            it.copy(quantity = clean, message = null, weight = if (unit > 0) kgForQty(q, unit) else it.weight, packs = packsText(q))
+        }
+    }
+
+    /** Number of full SFG packs; quantity = packs × SFG std, weight follows. */
+    fun setPacks(v: String) {
+        val clean = v.filter(Char::isDigit).take(5)
+        val std = sfgStd()
+        val q = if (std > 0) ((clean.toIntOrNull() ?: 0) * std).toInt() else 0
+        val unit = unitWeight()
+        _state.update {
+            it.copy(
+                packs = clean, message = null,
+                quantity = q.takeIf { n -> n > 0 }?.toString().orEmpty(),
+                weight = if (unit > 0) kgForQty(q, unit) else it.weight
+            )
         }
     }
 
@@ -285,10 +312,12 @@ class ManualViewModel : ViewModel() {
         val of = colour?.let { " of ${it.colour}" }.orEmpty()
         val fail: ManualMessage? = when {
             job == null -> ManualMessage(false, "Pick the line, machine and job.")
+            a != null && !a.hasSfgStd ->
+                ManualMessage(false, "Mould Master has no SFG Std Packing for ${a.mouldName.ifBlank { "this mould" }}. Fill it in Mould Master, then shift.", "SFG STD NOT SET")
             a != null && a.produced <= 0 -> ManualMessage(false, "No production is entered in DPR for this job.", "NOT PRODUCED")
             a != null && a.shiftColours.size > 1 && colour == null -> ManualMessage(false, "Pick the colour of the material you are shifting.")
             s.location.isBlank() -> ManualMessage(false, "Pick where the material is going (Send To).")
-            q <= 0 -> ManualMessage(false, "Enter the weight or the quantity.")
+            q <= 0 -> ManualMessage(false, "Enter the packs, the quantity or the weight.")
             q > max && a?.verificationEnforced == true ->
                 ManualMessage(false, "Only ${qty(max.toDouble())} QC-verified pcs$of are ready to shift.", "NOT QC VERIFIED")
             q > max -> ManualMessage(false, "Only ${qty(max.toDouble())} pcs$of are on the shop floor for this job.")
@@ -307,8 +336,13 @@ class ManualViewModel : ViewModel() {
                     _beep.tryEmit(true)
                     _state.update {
                         it.copy(
-                            saving = false, quantity = "", weight = "",
-                            message = ManualMessage(true, "Shifted ${qty(q.toDouble())} pcs${colour?.let { " " + it.colour }.orEmpty()} from ${job.machine} → ${s.location}")
+                            saving = false, quantity = "", weight = "", packs = "",
+                            message = ManualMessage(
+                                true,
+                                "Shifted ${qty(q.toDouble())} pcs" +
+                                    (a?.let { packText(q.toDouble(), it.sfgStd, it.packName) }?.takeIf { it.isNotBlank() }?.let { " ($it)" } ?: "") +
+                                    "${colour?.let { " " + it.colour }.orEmpty()} from ${job.machine} → ${s.location}"
+                            )
                         )
                     }
                     load()
@@ -387,7 +421,9 @@ fun ManualScreen(onMenu: () -> Unit, vm: ManualViewModel = viewModel()) {
                     s.availError?.let { Text(it, color = MaterialTheme.colorScheme.error, fontSize = 13.sp) }
                     a?.let { JobAvailabilityCard(it) }
 
-                    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+                    if (a != null && !a.hasSfgStd) {
+                        SfgBlockCard(a.mouldName)
+                    } else Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
                         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                             val colours = a?.shiftColours.orEmpty()
                             if (a != null && colours.isNotEmpty()) {
@@ -398,14 +434,20 @@ fun ManualScreen(onMenu: () -> Unit, vm: ManualViewModel = viewModel()) {
                                 )
                             }
                             PickerField("Send To", s.locations, s.location, vm::setLocation, Modifier.fillMaxWidth(), placeholder = "Select location")
-                            WeightQtyFields(
-                                weight = s.weight,
-                                quantity = s.quantity,
-                                unitWeightKg = a?.unitWeightKg?.takeIf { it > 0 } ?: job.unitWeightKg,
-                                onWeight = vm::setWeight,
-                                onQuantity = vm::setQuantity,
-                                maxQty = s.maxQty.toInt()
-                            )
+                            if (a != null) {
+                                PackQtyFields(
+                                    packs = s.packs,
+                                    weight = s.weight,
+                                    quantity = s.quantity,
+                                    sfgStd = a.sfgStd,
+                                    packName = a.packName,
+                                    unitWeightKg = a.unitWeightKg.takeIf { it > 0 } ?: job.unitWeightKg,
+                                    onPacks = vm::setPacks,
+                                    onWeight = vm::setWeight,
+                                    onQuantity = vm::setQuantity,
+                                    maxQty = s.maxQty.toInt()
+                                )
+                            }
                             val q = s.quantity.toIntOrNull() ?: 0
                             Button(
                                 onClick = { vm.shift() },

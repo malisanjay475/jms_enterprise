@@ -261,6 +261,7 @@ class ShiftingRepository(private val session: SessionStore) {
             },
             byLocation = t.arr("by_location").map { LocQty(it.str("location"), it.num("qty")) },
             unassignedShifted = (o["unassigned"] as? JsonObject)?.num("shifted") ?: 0.0,
+            sfgStd = o.num("sfg_std"), sfgPackType = o.str("sfg_pack_type"), sfgBagSize = o.str("sfg_bag_size"),
             unassignedByLocation = (o["unassigned"] as? JsonObject)?.arr("by_location").orEmpty()
                 .map { LocQty(it.str("location"), it.num("qty")) },
             recent = o.arr("recent").map {

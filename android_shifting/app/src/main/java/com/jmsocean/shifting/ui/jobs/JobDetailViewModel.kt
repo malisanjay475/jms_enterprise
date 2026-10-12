@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.jmsocean.shifting.ShiftingApp
 import com.jmsocean.shifting.data.remote.Availability
 import com.jmsocean.shifting.data.remote.JobDetail
+import com.jmsocean.shifting.ui.common.packsForQty
 import com.jmsocean.shifting.ui.common.qty
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -23,6 +24,8 @@ data class JobDetailUiState(
     /** Colour of the material being shifted (one of the job's produced colours). */
     val colour: String = "",
     val quantity: String = "",
+    /** Full SFG packs; packs and quantity fill each other. */
+    val packs: String = "",
     val saving: Boolean = false,
     val message: String? = null,
     val messageOk: Boolean = true
@@ -65,7 +68,16 @@ class JobDetailViewModel(savedState: SavedStateHandle) : ViewModel() {
 
     fun setColour(colour: String) = _state.update { it.copy(colour = colour, message = null) }
 
-    fun setQuantity(v: String) = _state.update { it.copy(quantity = v.filter(Char::isDigit).take(7), message = null) }
+    fun setQuantity(v: String) = _state.update {
+        val clean = v.filter(Char::isDigit).take(7)
+        it.copy(quantity = clean, packs = packsForQty(clean.toIntOrNull() ?: 0, it.avail?.sfgStd ?: 0.0).takeIf { p -> p > 0 }?.toString().orEmpty(), message = null)
+    }
+
+    fun setPacks(v: String) = _state.update {
+        val clean = v.filter(Char::isDigit).take(5)
+        val q = ((clean.toIntOrNull() ?: 0) * (it.avail?.sfgStd ?: 0.0)).toInt()
+        it.copy(packs = clean, quantity = q.takeIf { n -> n > 0 }?.toString().orEmpty(), message = null)
+    }
 
     /** Manual (no-label) shift. The server checks QC hold and the shop-floor balance. */
     fun shift() {
@@ -75,7 +87,8 @@ class JobDetailViewModel(savedState: SavedStateHandle) : ViewModel() {
         val a = s.avail
         val colour = a?.colourNamed(s.colour)
         when {
-            q <= 0 -> return fail("Enter the quantity to shift.")
+            a != null && !a.hasSfgStd -> return fail("SFG STD NOT SET: fill SFG Std Packing for this mould in Mould Master, then shift.")
+            q <= 0 -> return fail("Enter the packs or the quantity to shift.")
             a != null && a.shiftColours.size > 1 && colour == null -> return fail("Pick the colour of the material you are shifting.")
             s.location.isBlank() -> return fail("Pick where the material is going (Send To).")
             a != null && colour != null && q > a.colourMax(colour) ->
@@ -86,7 +99,7 @@ class JobDetailViewModel(savedState: SavedStateHandle) : ViewModel() {
         viewModelScope.launch {
             repo.manualShift(job.planId.ifBlank { planId }, job.machine, q, s.location, colour = colour?.colour)
                 .onSuccess {
-                    _state.update { it.copy(saving = false, quantity = "", message = "Shifted ${qty(q.toDouble())} pcs${colour?.let { " " + it.colour }.orEmpty()} → ${s.location}", messageOk = true) }
+                    _state.update { it.copy(saving = false, quantity = "", packs = "", message = "Shifted ${qty(q.toDouble())} pcs${colour?.let { " " + it.colour }.orEmpty()} → ${s.location}", messageOk = true) }
                     load()
                 }
                 .onFailure { e -> _state.update { it.copy(saving = false, message = e.message ?: "Shift failed.", messageOk = false) } }
