@@ -357,6 +357,8 @@
                         ${a.colours.map(c => `<tr><td><b>${esc(c.colour || '—')}</b></td><td class="num">${qtyFmt(c.produced)}</td><td class="num good">${qtyFmt(c.verified)}</td>
                             <td class="num ${c.not_verified > 0 ? 'crit' : ''}">${qtyFmt(c.not_verified)}</td><td class="num">${qtyFmt(c.shifted)}</td>
                             <td class="num ${c.ready > 0 ? 'good' : ''}"><b>${qtyFmt(c.ready)}</b></td><td>${locChips(c.by_location)}</td></tr>`).join('')}
+                        ${a.unassigned && a.unassigned.shifted > 0 ? `<tr><td class="warn"><b>No colour (manual)</b></td><td></td><td></td><td></td>
+                            <td class="num">${qtyFmt(a.unassigned.shifted)}</td><td></td><td>${locChips(a.unassigned.by_location)}</td></tr>` : ''}
                         </tbody></table></div>` : ''}
                     ${(a.recent || []).length ? `<div class="section"><h4>Latest shifting</h4>
                         <table class="mini-table"><tbody>${a.recent.slice(0, 8).map(r => `<tr>
@@ -367,10 +369,15 @@
 
                 const max = maxShiftQty(a);
                 const unit = Number(a.unit_weight_kg) || 0;
+                const shiftColours = producedColours(a);
                 const last = (() => { try { return localStorage.getItem('shifting_last_location') || ''; } catch (_) { return ''; } })();
                 html += `<div class="card" style="padding:14px; margin-top:12px">
                     <div style="font-weight:700; margin-bottom:8px">Manual shift <span class="sub">(material without a label) · up to ${qtyFmt(max)} pcs${unit > 0 ? ` · ${kgFmt(unit)} kg/pc` : ''}</span></div>
                     <div class="shift-form">
+                        ${shiftColours.length ? `<div><label for="shiftColour">Colour</label>
+                            <select id="shiftColour" class="form-control" onchange="onColour()">
+                            ${shiftColours.length > 1 ? '<option value="">Select colour</option>' : ''}
+                            ${shiftColours.map(c => `<option value="${esc(c.colour)}">${esc(c.colour)} · ready ${qtyFmt(colourMax(a, c))}</option>`).join('')}</select></div>` : ''}
                         <div><label for="sendTo">Send To</label>
                             <select id="sendTo" class="form-control"><option value="">Select location</option>
                             ${locations.map(l => `<option ${l.toLowerCase() === last.toLowerCase() ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></div>
@@ -391,6 +398,32 @@
             return a.verification_enforced ? Math.max(Number(t.ready) || 0, 0) : Math.max((Number(t.produced) || 0) - (Number(t.shifted) || 0), 0);
         }
 
+        // Colours with production on this job — the shifted material's colour is picked from these.
+        function producedColours(a) {
+            return (a.colours || []).filter(c => c.colour && Number(c.produced) > 0);
+        }
+
+        // Most of one colour that can be shifted (never more than the whole job allows).
+        function colourMax(a, c) {
+            const own = a.verification_enforced
+                ? Math.max(Number(c.ready) || 0, 0)
+                : Math.max((Number(c.produced) || 0) - (Number(c.shifted) || 0), 0);
+            return Math.min(own, maxShiftQty(a));
+        }
+
+        function selectedColour(a) {
+            const el = document.getElementById('shiftColour');
+            const v = el ? el.value : '';
+            return producedColours(a).find(c => c.colour === v) || null;
+        }
+
+        function onColour() {
+            const a = current && current.avail;
+            const c = a && selectedColour(a);
+            const q = document.getElementById('qtyPcs');
+            if (c && q && !q.value) q.placeholder = `up to ${qtyFmt(colourMax(a, c))}`;
+        }
+
         function onWeight(unit) {
             const kg = Number(document.getElementById('weightKg').value) || 0;
             if (unit > 0) document.getElementById('qtyPcs').value = kg > 0 ? Math.round(kg / unit) : '';
@@ -407,14 +440,17 @@
             const location = document.getElementById('sendTo').value;
             const quantity = parseInt(document.getElementById('qtyPcs').value, 10) || 0;
             const weightKg = Number(document.getElementById('weightKg').value) || 0;
-            const max = maxShiftQty(a);
             const t = a.totals || {};
+            const colours = producedColours(a);
+            const colour = selectedColour(a);
+            const max = colour ? colourMax(a, colour) : maxShiftQty(a);
             let err = '';
             if ((Number(t.produced) || 0) <= 0) err = 'No production is entered in DPR for this job.';
+            else if (colours.length > 1 && !colour) err = 'Pick the colour of the material you are shifting.';
             else if (!location) err = 'Pick where the material is going (Send To).';
             else if (quantity <= 0) err = 'Enter the weight or the quantity.';
             else if (quantity > max) err = a.verification_enforced
-                ? `Only ${qtyFmt(max)} QC-verified pcs are ready to shift (not verified ${qtyFmt(t.not_verified)}).`
+                ? `Only ${qtyFmt(max)} QC-verified pcs${colour ? ' of ' + colour.colour : ''} are ready to shift.`
                 : `Only ${qtyFmt(max)} pcs are on the shop floor for this job.`;
             if (err) { current.message = { ok: false, text: err }; renderKeepForm(); return; }
 
@@ -424,11 +460,13 @@
             try {
                 await JPSMS.api.post('/shifting/entry', {
                     planId: a.plan_id, machine: a.machine, quantity, toLocation: location,
+                    colour: colour ? colour.colour : undefined,
                     weightKg: weightKg > 0 ? weightKg : undefined
                 });
                 try { localStorage.setItem('shifting_last_location', location); } catch (_) { }
-                JPSMS.toast(`Shifted ${qtyFmt(quantity)} pcs from ${a.machine} → ${location}`, 'success');
-                current.message = { ok: true, text: `Shifted ${qtyFmt(quantity)} pcs from ${a.machine} → ${location}` };
+                const what = `${qtyFmt(quantity)} pcs${colour ? ' ' + colour.colour : ''}`;
+                JPSMS.toast(`Shifted ${what} from ${a.machine} → ${location}`, 'success');
+                current.message = { ok: true, text: `Shifted ${what} from ${a.machine} → ${location}` };
                 const planId = current.planId;
                 await loadBoard();
                 if (current) { current.avail = null; renderJob(); loadAvail(planId); }
@@ -439,7 +477,7 @@
 
         // Re-render the modal but keep what the user typed.
         function renderKeepForm() {
-            const keep = ['sendTo', 'weightKg', 'qtyPcs'].map(id => [id, (document.getElementById(id) || {}).value]);
+            const keep = ['shiftColour', 'sendTo', 'weightKg', 'qtyPcs'].map(id => [id, (document.getElementById(id) || {}).value]);
             renderJob();
             keep.forEach(([id, v]) => { const el = document.getElementById(id); if (el && v != null) el.value = v; });
         }

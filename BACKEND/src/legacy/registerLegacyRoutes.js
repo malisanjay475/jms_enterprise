@@ -10450,6 +10450,8 @@ function currentShiftSlot(now = new Date()) {
 
 // POST /api/shifting/entry — manual shift (no label). The quantity is capped at the
 // plan's shop-floor balance (produced - already shifted), and a QC hold blocks it.
+// Optional `colour` (a colour produced on the job); a job with one produced colour gets it
+// automatically, so the shift shows under that colour in the job's colour-wise table.
 app.post('/api/shifting/entry', async (req, res) => {
   try {
     const { planId, toLocation, date, shift, supervisor } = req.body || {};
@@ -10478,10 +10480,24 @@ app.post('/api/shifting/entry', async (req, res) => {
     const planCode = String(plan.plan_id || '').trim();
     const planFactoryId = normalizeFactoryId(plan.factory_id) ?? factoryId ?? null;
     const location = await resolveShiftingLocation(planFactoryId, requestedLocation);
+    const wantedColour = shiftingColourKey(req.body?.colour);
 
     const inserted = await withShiftingLock(`plan:${planPk}`, async (client) => {
       const hold = await findActiveShiftingQcHold({ planPk: plan.id, machine: plan.machine, factoryId: planFactoryId });
       if (hold) throw shiftingHttpError(409, describeShiftingQcHold(hold));
+
+      // Colour of the shifted material: the one picked, or the job's only produced colour.
+      // Saved with DPR's spelling so the job panel shows it under that colour.
+      const avail = (await shiftingAvailabilityMap([{ pk: plan.id, code: planCode }], planFactoryId)).get(planPk);
+      const producedColours = avail ? [...avail.colours.values()].filter(c => c.colour && c.produced > 0) : [];
+      let colour = '';
+      if (wantedColour) {
+        const c = producedColours.find(x => shiftingColourKey(x.colour) === wantedColour);
+        if (!c) throw shiftingHttpError(400, `Colour "${String(req.body.colour).trim()}" has no production entered in DPR for this job.`);
+        colour = c.colour;
+      } else if (producedColours.length === 1) {
+        colour = producedColours[0].colour;
+      }
 
       const totals = await client.query(
         `SELECT
@@ -10501,15 +10517,15 @@ app.post('/api/shifting/entry', async (req, res) => {
       if (quantity > balance) {
         throw shiftingHttpError(400, `Cannot shift ${quantity}: only ${balance} left on the shop floor (produced ${produced}, already shifted ${shifted}).`);
       }
-      const block = await shiftingBlockReason({ planPk: plan.id, planCode, colour: '', quantity, factoryId: planFactoryId });
+      const block = await shiftingBlockReason({ planPk: plan.id, planCode, colour, quantity, factoryId: planFactoryId });
       if (block) throw shiftingHttpError(block.status, block.message);
 
       const result = await client.query(
         `INSERT INTO shifting_records (
            machine_code, plan_id, quantity, from_location, to_location, shift_date, shift_type,
-           shifted_by, created_at, factory_id, scan_mode, weight_kg
+           shifted_by, created_at, factory_id, scan_mode, weight_kg, colour
          )
-         VALUES ($1, $2, $3, 'Machine', $4, $5, $6, $7, NOW(), $8, 'MANUAL', $9)
+         VALUES ($1, $2, $3, 'Machine', $4, $5, $6, $7, NOW(), $8, 'MANUAL', $9, $10)
          RETURNING *`,
         [
           plan.machine || normalizeOptionalText(req.body?.machine) || null,
@@ -10523,7 +10539,8 @@ app.post('/api/shifting/entry', async (req, res) => {
           (req.auth && req.auth.username) || normalizeOptionalText(supervisor) || getRequestUsername(req) || 'Supervisor',
           planFactoryId,
           // Optional weight from the Shifting app (kg <-> pcs from the mould's std weight).
-          Number(req.body?.weightKg) > 0 ? Number(req.body.weightKg) : null
+          Number(req.body?.weightKg) > 0 ? Number(req.body.weightKg) : null,
+          colour || null
         ]
       );
       return result.rows[0] || null;
@@ -10696,7 +10713,11 @@ async function shiftingAvailabilityMap(plans, factoryId) {
     const code = String(p.code || '').trim();
     if (pk) keyByRef.set(pk, pk);
     if (code) keyByRef.set(code, pk || code);
-    out.set(pk || code, { produced: 0, verified: 0, not_verified: 0, shifted: 0, ready: 0, colours: new Map(), by_location: new Map() });
+    out.set(pk || code, {
+      produced: 0, verified: 0, not_verified: 0, shifted: 0, ready: 0, colours: new Map(), by_location: new Map(),
+      // Shifted with no colour (manual entries saved before colour was asked, or by old apps).
+      unassigned: { shifted: 0, by_location: new Map() }
+    });
   });
   const refs = [...keyByRef.keys()];
   const pkInts = list.map(p => Number(p.pk)).filter(Number.isInteger);
@@ -10751,16 +10772,21 @@ async function shiftingAvailabilityMap(plans, factoryId) {
     const shifted = Number(r.shifted) || 0;
     agg.shifted += shifted;
     agg.by_location.set(r.location, (agg.by_location.get(r.location) || 0) + shifted);
-    // Manual entries carry no colour: they only reduce the job total.
     if (String(r.colour || '').trim()) {
       const c = colourOf(agg, r.colour);
       c.shifted += shifted;
       c.by_location.set(r.location, (c.by_location.get(r.location) || 0) + shifted);
+    } else {
+      // No colour on the record: counted for the job, kept apart from the colour rows.
+      agg.unassigned.shifted += shifted;
+      agg.unassigned.by_location.set(r.location, (agg.unassigned.by_location.get(r.location) || 0) + shifted);
     }
   });
   out.forEach(agg => {
     agg.ready = Math.max(agg.verified - agg.shifted, 0);
-    agg.colours.forEach(c => { c.ready = Math.max(c.verified - c.shifted, 0); });
+    // Colour-less shifts can't be placed under a colour, so a colour's Ready is also
+    // capped at the job's Ready (otherwise the colour rows add up to more than the job).
+    agg.colours.forEach(c => { c.ready = Math.min(Math.max(c.verified - c.shifted, 0), agg.ready); });
   });
   return out;
 }
@@ -10860,7 +10886,7 @@ app.get('/api/shifting/availability', async (req, res) => {
           WHERE plan_id = $1 AND ($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL)
           ORDER BY created_at DESC LIMIT 15`, [plan.id, fid])
     ]);
-    const agg = avail.get(String(plan.id)) || { produced: 0, verified: 0, not_verified: 0, shifted: 0, ready: 0, colours: new Map(), by_location: new Map() };
+    const agg = avail.get(String(plan.id)) || { produced: 0, verified: 0, not_verified: 0, shifted: 0, ready: 0, colours: new Map(), by_location: new Map(), unassigned: { shifted: 0, by_location: new Map() } };
     const locList = (m) => [...(m || new Map()).entries()].map(([location, qty]) => ({ location, qty })).sort((a, b) => b.qty - a.qty);
     const hold = holds.get(String(plan.machine || '').trim()) || null;
     const weights = await shiftingUnitWeights([plan.mould_name], fid);
@@ -10899,6 +10925,7 @@ app.get('/api/shifting/availability', async (req, res) => {
           at: r.created_at
         })),
         hold: hold ? { qty: hold.qty, count: hold.count, reasons: hold.reasons } : null,
+        unassigned: { shifted: agg.unassigned.shifted, by_location: locList(agg.unassigned.by_location) },
         colours: colourKeys.map(k => {
           const c = agg.colours.get(k) || { colour: '', produced: 0, verified: 0, not_verified: 0, shifted: 0, ready: 0, by_location: new Map() };
           return { ...c, colour: c.colour || k, plan_qty: planByColour.get(k) || 0, by_location: locList(c.by_location) };
