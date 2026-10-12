@@ -27,9 +27,13 @@ const PLANS = [
   { plan_id: 12, plan_code: 'P12', machine: 'B-L1-M-10', line: 'B -L1', order_no: 'OR-2', item_name: 'Lid', mould_name: 'LID', mould_code: 'LID', plan_qty: 500, status: 'Running', factory_id: null }
 ];
 
-function createApp({ verified = true } = {}) {
+function createApp({ verified = true, colours = false } = {}) {
   const handle = async (sql) => {
     const text = String(sql);
+    // Mould Master SFG std: BKT is packed 40 pcs per LD bag; LID has none.
+    if (/FROM moulds/.test(text) && /sfg_std_packing/.test(text)) {
+      return { rows: [{ n: 'bkt', c: 'bkt', sfg_std_packing: '40', bag_type: 'LD bag', bag_size: '27 X 48' }] };
+    }
     if (/machine_process/.test(text) && /FROM machines/.test(text)) return { rows: MASTER };
     if (/SELECT TRIM\(machine\) AS machine, line, building FROM machines/.test(text)) return { rows: MASTER };
     if (/FROM plan_board pb/.test(text) && /pb\.mould_code/.test(text)) return { rows: PLANS };
@@ -37,7 +41,12 @@ function createApp({ verified = true } = {}) {
     if (/FROM dpr_hourly d/.test(text) && /LEFT JOIN LATERAL/.test(text)) {
       return {
         rows: [
-          { ref: 'P11', colour: '', produced: 500, verified: verified ? 300 : 0, not_verified: verified ? 200 : 500 },
+          ...(colours
+            ? [
+              { ref: 'P11', colour: 'Red', produced: 300, verified: verified ? 200 : 0, not_verified: verified ? 100 : 300 },
+              { ref: 'P11', colour: 'Blue', produced: 200, verified: verified ? 100 : 0, not_verified: verified ? 100 : 200 }
+            ]
+            : [{ ref: 'P11', colour: '', produced: 500, verified: verified ? 300 : 0, not_verified: verified ? 200 : 500 }]),
           { ref: 'P12', colour: '', produced: 100, verified: 0, not_verified: 100 }
         ]
       };
@@ -86,5 +95,24 @@ describe('GET /api/shifting/machine-board', () => {
     expect(res.body.days).toBe(3);
     const p11 = res.body.data.find(r => r.plan_id === 11);
     expect(p11).toMatchObject({ total_produced: 500, total_shifted: 100, total_verified: 300, ready_qty: 200 });
+  });
+
+  it('lists each job with its SFG std, pending flag and colour-wise ready qty', async () => {
+    const res = await request(createApp({ colours: true })).get('/api/shifting/machine-board?days=3');
+    expect(res.status).toBe(200);
+    const byMachine = Object.fromEntries(res.body.data.map(m => [m.machine, m]));
+    const bkt = byMachine['B-L1-M-2'].job_list[0];
+    expect(bkt).toMatchObject({
+      plan_id: 11, plan_code: 'P11', mould_name: 'BKT', order_no: 'OR-1',
+      sfg_std: 40, sfg_pack_type: 'LD bag', sfg_bag_size: '27 X 48', pending: true, unassigned_shifted: 100
+    });
+    // The 100 shifted pcs carry no colour, so each colour's Ready stays its verified qty
+    // (capped at the job's Ready of 200).
+    expect(bkt.colours).toEqual([
+      { colour: 'Red', produced: 300, verified: 200, not_verified: 100, shifted: 0, ready: 200 },
+      { colour: 'Blue', produced: 200, verified: 100, not_verified: 100, shifted: 0, ready: 100 }
+    ]);
+    const lid = byMachine['B-L1-M-10'].job_list[0];
+    expect(lid).toMatchObject({ sfg_std: 0, sfg_pack_type: '', pending: true });
   });
 });
