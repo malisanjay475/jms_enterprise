@@ -260,6 +260,9 @@ class ShiftingRepository(private val session: SessionStore) {
                 )
             },
             byLocation = t.arr("by_location").map { LocQty(it.str("location"), it.num("qty")) },
+            unassignedShifted = (o["unassigned"] as? JsonObject)?.num("shifted") ?: 0.0,
+            unassignedByLocation = (o["unassigned"] as? JsonObject)?.arr("by_location").orEmpty()
+                .map { LocQty(it.str("location"), it.num("qty")) },
             recent = o.arr("recent").map {
                 AvailEntry(
                     qty = it.num("qty"), kg = it.num("kg"), location = it.str("location"), colour = it.str("colour"),
@@ -269,10 +272,16 @@ class ShiftingRepository(private val session: SessionStore) {
         )
     }
 
-    suspend fun manualShift(planId: String, machine: String, quantity: Int, toLocation: String, weightKg: Double? = null): Result<Unit> = runCatching {
+    suspend fun manualShift(
+        planId: String, machine: String, quantity: Int, toLocation: String,
+        weightKg: Double? = null, colour: String? = null
+    ): Result<Unit> = runCatching {
         call {
             api.manualEntry(
-                ManualEntryRequest(planId = planId, quantity = quantity, toLocation = toLocation, machine = machine, weightKg = weightKg)
+                ManualEntryRequest(
+                    planId = planId, quantity = quantity, toLocation = toLocation, machine = machine,
+                    weightKg = weightKg, colour = colour?.takeIf { it.isNotBlank() }
+                )
             )
         }
         Unit

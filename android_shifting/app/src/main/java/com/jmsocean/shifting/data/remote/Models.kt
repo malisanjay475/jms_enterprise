@@ -43,7 +43,9 @@ data class ManualEntryRequest(
     val quantity: Int,
     val toLocation: String,
     val machine: String? = null,
-    val weightKg: Double? = null
+    val weightKg: Double? = null,
+    // Colour of the shifted material (a colour produced on the job). Older servers ignore it.
+    val colour: String? = null
 )
 
 @Serializable
@@ -222,9 +224,28 @@ data class Availability(
     val colours: List<AvailColour>,
     /** Shifted qty per destination (whole job). */
     val byLocation: List<LocQty> = emptyList(),
-    val recent: List<AvailEntry> = emptyList()
+    val recent: List<AvailEntry> = emptyList(),
+    /** Shifted with no colour (older manual shifts): counted for the job, shown on its own row. */
+    val unassignedShifted: Double = 0.0,
+    val unassignedByLocation: List<LocQty> = emptyList()
 ) {
     val maxShiftQty: Double get() = if (verificationEnforced) ready else (produced - shifted).coerceAtLeast(0.0)
+
+    /** Colours with production on this job — manually shifted material is one of these. */
+    val shiftColours: List<AvailColour> get() = colours.filter { it.colour.isNotBlank() && it.produced > 0 }
+
+    fun colourNamed(name: String): AvailColour? =
+        if (name.isBlank()) null else shiftColours.firstOrNull { it.colour.equals(name.trim(), ignoreCase = true) }
+
+    /** Most of one colour that can be shifted — never more than the whole job allows. */
+    fun colourMax(c: AvailColour): Double {
+        val own = if (verificationEnforced) c.ready else c.produced - c.shifted
+        return minOf(own, maxShiftQty).coerceAtLeast(0.0)
+    }
+
+    /** Colour to preselect: the previous pick if still produced, else the job's only colour. */
+    fun defaultColour(previous: String): String =
+        colourNamed(previous)?.colour ?: shiftColours.singleOrNull()?.colour.orEmpty()
 }
 
 data class AvailColour(

@@ -32,6 +32,10 @@
         const hold = d.hold;
         const colours = d.colours || [];
         const recent = d.recent || [];
+        // Shifts saved without a colour (older manual entries) get their own row, so the
+        // colour rows add up to the job's Shifted figure.
+        const un = d.unassigned || {};
+        const unRow = Number(un.shifted) > 0;
         // The plan's colour split often uses short names that don't match DPR colours.
         const showPlan = colours.some(c => c.plan_qty > 0);
         const th = 'padding:6px 8px; text-align:right; font-size:0.7rem; color:#475569; font-weight:800; text-transform:uppercase; border-bottom:1px solid #e2e8f0; white-space:nowrap';
@@ -76,6 +80,14 @@
                             <td style="${td}; color:${c.ready > 0 ? '#047857' : '#0f172a'}">${fmt(c.ready)}</td>
                             <td style="${td}; text-align:left; white-space:normal">${locChips(c.by_location)}</td>
                         </tr>`).join('') : `<tr><td colspan="${showPlan ? 8 : 7}" style="padding:10px; color:#94a3b8; text-align:center">No production entered yet.</td></tr>`}
+                        ${unRow ? `<tr style="background:#fffbeb">
+                            <td style="${td}; text-align:left; color:#92400e" title="Manual shifts saved without a colour">No colour (manual)</td>
+                            ${showPlan ? `<td style="${td}"></td>` : ''}
+                            <td style="${td}"></td><td style="${td}"></td><td style="${td}"></td>
+                            <td style="${td}; color:#1d4ed8">${fmt(un.shifted)}</td>
+                            <td style="${td}"></td>
+                            <td style="${td}; text-align:left; white-space:normal">${locChips(un.by_location)}</td>
+                        </tr>` : ''}
                     </tbody>
                 </table>
             </div>
