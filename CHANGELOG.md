@@ -13,6 +13,10 @@ part of your PR. On release, the `[Unreleased]` items move under the new version
 
 ## [Unreleased]
 
+### Changed
+- Planning (v1.103.1): the Planner role can now use Restore on the Complete Production Plan list
+  (previously superadmin and PPC managers only).
+
 ### Fixed
 - Scheduled backup (v1.101.5): every run since 28-Sep failed at the 60-min SSH timeout. The DB dump reached
   Google Drive each time, but the per-file uploads mirror (3.4 GB, throttled, no time limit) never
