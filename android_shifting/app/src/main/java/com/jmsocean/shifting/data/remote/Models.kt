@@ -177,8 +177,50 @@ data class MachineApproved(
     val runningItem: String,
     val onHold: Boolean,
     /** Job the Open button lands on: most approved qty, running first. */
-    val bestPlanId: String
-)
+    val bestPlanId: String,
+    /** The machine's jobs of the last days (board `job_list`). */
+    val jobList: List<BoardJob> = emptyList()
+) {
+    /** Jobs with material still on the shop floor: running first, then the most approved. */
+    val pendingJobs: List<BoardJob>
+        get() = jobList.filter { it.pending || it.onFloor > 0 }
+            .sortedWith(compareBy({ !it.isRunning }, { -it.approved }))
+}
+
+/** One job on the Manual Entry board, with its SFG std and colour-wise ready qty. */
+data class BoardJob(
+    val planId: String,
+    val planCode: String,
+    val status: String,
+    val orderNo: String,
+    val jcNo: String,
+    val clientName: String,
+    val itemName: String,
+    val mouldName: String,
+    val produced: Double,
+    val verified: Double,
+    val shifted: Double,
+    val onFloor: Double,
+    /** QC approved and not yet shifted (shop-floor balance when QC verification is off). */
+    val approved: Double,
+    val onHold: Boolean,
+    val pending: Boolean,
+    val sfgStd: Double,
+    val sfgPackType: String,
+    val sfgBagSize: String,
+    val colours: List<BoardColour>,
+    val unassignedShifted: Double
+) {
+    val isRunning: Boolean get() = status.equals("running", ignoreCase = true)
+    val hasSfgStd: Boolean get() = sfgStd > 0
+    val packName: String get() = sfgPackType.ifBlank { "pack" }
+    val title: String get() = itemName.ifBlank { mouldName }.ifBlank { "—" }
+
+    fun matches(q: String): Boolean =
+        listOf(itemName, mouldName, orderNo, jcNo, clientName, planCode).any { it.contains(q, ignoreCase = true) }
+}
+
+data class BoardColour(val colour: String, val produced: Double, val ready: Double)
 
 data class JobDetail(
     val planId: String,

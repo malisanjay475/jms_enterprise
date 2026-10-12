@@ -5,6 +5,8 @@ import com.jmsocean.shifting.data.remote.AvailColour
 import com.jmsocean.shifting.data.remote.AvailEntry
 import com.jmsocean.shifting.data.remote.LocQty
 import com.jmsocean.shifting.data.remote.Availability
+import com.jmsocean.shifting.data.remote.BoardColour
+import com.jmsocean.shifting.data.remote.BoardJob
 import com.jmsocean.shifting.data.remote.ColourRow
 import com.jmsocean.shifting.data.remote.Job
 import com.jmsocean.shifting.data.remote.JobDetail
@@ -202,7 +204,31 @@ class ShiftingRepository(private val session: SessionStore) {
                     jobs = o.num("jobs").toInt(),
                     runningItem = o.str("running_item"),
                     onHold = o.bool("on_hold"),
-                    bestPlanId = o.str("best_plan_id")
+                    bestPlanId = o.str("best_plan_id"),
+                    jobList = o.arr("job_list").map { j ->
+                        BoardJob(
+                            planId = j.str("plan_id"),
+                            planCode = j.str("plan_code"),
+                            status = j.str("status"),
+                            orderNo = j.str("order_no"),
+                            jcNo = j.str("jc_no"),
+                            clientName = j.str("client_name"),
+                            itemName = j.str("item_name"),
+                            mouldName = j.str("mould_name"),
+                            produced = j.num("produced"),
+                            verified = j.num("verified"),
+                            shifted = j.num("shifted"),
+                            onFloor = j.num("on_floor"),
+                            approved = j.num("approved"),
+                            onHold = j.bool("on_hold"),
+                            pending = j.bool("pending"),
+                            sfgStd = j.num("sfg_std"),
+                            sfgPackType = j.str("sfg_pack_type"),
+                            sfgBagSize = j.str("sfg_bag_size"),
+                            colours = j.arr("colours").map { c -> BoardColour(c.str("colour"), c.num("produced"), c.num("ready")) },
+                            unassignedShifted = j.num("unassigned_shifted")
+                        )
+                    }
                 )
             }
     }
