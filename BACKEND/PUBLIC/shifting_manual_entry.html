@@ -134,7 +134,18 @@
         .mini-table th, .mini-table td { padding: 4px 6px; border-bottom: 1px solid #f1f5f9; text-align: left; }
         .mini-table th { color: #64748b; font-size: 0.66rem; text-transform: uppercase; }
         .mini-table .num { text-align: right; font-variant-numeric: tabular-nums; }
-        .shift-form { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 10px; align-items: end; }
+        .shift-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; align-items: end; }
+        .board-table tr.job-row td { background: #fcfdff; border-bottom: 1px dashed #e2e8f0; padding-top: 6px; padding-bottom: 6px; cursor: pointer; }
+        .board-table tr.job-row:hover td { background: #f1f5ff; }
+        .job-line { font-size: 0.8rem; font-weight: 700; color: #1e293b; padding-left: 14px; }
+        .job-meta { font-size: 0.72rem; color: #475569; padding-left: 14px; }
+        .sfg-ok { font-size: 0.72rem; font-weight: 700; color: #0f766e; }
+        .sfg-missing { font-size: 0.72rem; font-weight: 800; color: #dc2626; }
+        .col-chip { display: inline-block; font-size: 0.68rem; font-weight: 700; color: #166534; background: #dcfce7; border-radius: 6px; padding: 1px 7px; margin: 2px 4px 2px 0; }
+        .col-chip.zero { color: #64748b; background: #f1f5f9; }
+        .pack-sub { font-size: 0.7rem; color: #0f766e; font-weight: 700; }
+        .sfg-block { background: #fee2e2; color: #991b1b; border-radius: 10px; padding: 12px; font-weight: 700; }
+        .sfg-block .big { font-size: 1.3rem; font-weight: 900; letter-spacing: 0.5px; }
         .shift-form label { display: block; font-size: 0.7rem; font-weight: 600; color: #64748b; text-transform: uppercase; margin-bottom: 4px; }
         .msg { border-radius: 10px; padding: 10px 12px; font-weight: 600; margin: 10px 0; }
         .msg.ok { background: #dcfce7; color: #166534; }
@@ -151,7 +162,7 @@
     <div class="main-content">
         <div class="header">
             <div class="page-title">Manual Entry</div>
-            <div style="font-size:0.9rem; color:#64748b">Machine-wise QC approved quantity waiting to be shifted (jobs of the last 3 days)</div>
+            <div style="font-size:0.9rem; color:#64748b">Machine-wise QC approved quantity waiting to be shifted, with every pending job, colour-wise and in SFG packs (jobs of the last 3 days)</div>
         </div>
 
         <div class="card filter-bar">
@@ -247,27 +258,50 @@
                     head = `<tr class="line-head"><td colspan="4">${esc(m.line || 'No line')}</td></tr>`;
                 }
                 const pills = (m.on_hold ? '<span class="pill hold">QC HOLD</span>' : '');
+                const machineArg = JSON.stringify(m.machine).replace(/"/g, '&quot;');
+                // Every job of the machine that still has material on the shop floor.
+                const pending = (m.job_list || []).filter(j => j.pending || j.on_floor > 0)
+                    .sort((a, b) => (String(b.status).toUpperCase() === 'RUNNING') - (String(a.status).toUpperCase() === 'RUNNING') || b.approved - a.approved);
+                const jobRows = pending.map(j => {
+                    const std = Number(j.sfg_std) || 0;
+                    const type = j.sfg_pack_type || '';
+                    const approvedPacks = packText(j.approved, std, type);
+                    const floorPacks = packText(j.on_floor, std, type);
+                    return `<tr class="job-row" onclick="openJob(${machineArg}, ${JSON.stringify(String(j.plan_id)).replace(/"/g, '&quot;')})">
+                        <td>
+                            <div class="job-line">${esc(j.item_name || j.mould_name || '—')}${statusPill(j)}</div>
+                            <div class="job-meta">OR <b>${esc(j.order_no || '—')}</b> · JC <b>${esc(j.jc_no || '—')}</b> · Plan <b>${esc(j.plan_code || j.plan_id)}</b></div>
+                            <div class="job-meta">Mould ${esc(j.mould_name || '—')} · Party ${esc(j.client_name || '—')}</div>
+                            <div class="job-meta">${sfgLine(std, type, j.sfg_bag_size)}</div>
+                            <div class="job-meta">${colourChips(j.colours, std, type, j.unassigned_shifted)}</div>
+                        </td>
+                        <td class="num"><b class="${j.approved > 0 ? 'good' : ''}">${qtyFmt(j.approved)}</b>${approvedPacks ? `<div class="pack-sub">${approvedPacks}</div>` : ''}</td>
+                        <td class="num sub">On floor ${qtyFmt(j.on_floor)}${floorPacks ? `<div class="pack-sub">${floorPacks}</div>` : ''}</td>
+                        <td style="text-align:right"><button class="btn btn-outline" onclick="event.stopPropagation(); openJob(${machineArg}, ${JSON.stringify(String(j.plan_id)).replace(/"/g, '&quot;')})">Shift</button></td>
+                    </tr>`;
+                }).join('');
                 return `${head}<tr>
                     <td><span class="machine-name">${esc(m.machine)}</span>${pills}
-                        <div class="sub">${esc(m.running_item || (m.jobs ? `${m.jobs} job(s)` : 'No job in the last 3 days'))}</div></td>
+                        <div class="sub">${esc(m.running_item || (m.jobs ? `${m.jobs} job(s)` : 'No job in the last 3 days'))}${pending.length ? ` · ${pending.length} job(s) pending to shift` : ''}</div></td>
                     <td class="num approved ${m.approved_qty > 0 ? 'has' : 'zero'}">${qtyFmt(m.approved_qty)}</td>
                     <td class="num sub">${m.on_floor_qty > 0 ? `On floor ${qtyFmt(m.on_floor_qty)}` : ''}</td>
                     <td style="text-align:right"><button class="btn ${m.approved_qty > 0 ? 'btn-primary' : 'btn-outline'}" ${m.jobs ? '' : 'disabled'}
-                        onclick="openJob(${JSON.stringify(m.machine).replace(/"/g, '&quot;')})"><i class="bi bi-box-arrow-in-right"></i> Open</button></td>
-                </tr>`;
+                        onclick="openJob(${machineArg})"><i class="bi bi-box-arrow-in-right"></i> Open</button></td>
+                </tr>${jobRows}`;
             }).join('');
             document.getElementById('board').innerHTML = `<table class="board-table">
-                <thead><tr><th>Machine</th><th class="num">Approved</th><th class="num"></th><th style="text-align:right">Action</th></tr></thead>
+                <thead><tr><th>Machine / pending jobs</th><th class="num">Approved</th><th class="num">On floor</th><th style="text-align:right">Action</th></tr></thead>
                 <tbody>${body}</tbody></table>`;
         }
 
         // ── Job detail (same as the Shifting app's Manual Shift) ─────────────
         function machineRow(machine) { return board.find(m => m.machine === machine); }
 
-        function openJob(machine) {
+        function openJob(machine, planId) {
             const m = machineRow(machine);
             if (!m) return;
-            current = { machine, planId: m.best_plan_id != null ? String(m.best_plan_id) : '', avail: null, message: null };
+            const pick = planId != null ? String(planId) : (m.best_plan_id != null ? String(m.best_plan_id) : '');
+            current = { machine, planId: pick, avail: null, message: null };
             document.getElementById('jobTitle').textContent = machine;
             document.getElementById('jobModal').classList.add('active');
             renderJob();
@@ -302,6 +336,34 @@
             return `<span class="pill closed">${esc(j.status || 'Closed')}</span>`;
         }
 
+        // "156 LD bag + 8 pcs" for a quantity at the SFG std (pieces per pack).
+        function packText(qty, std, type) {
+            const q = Math.max(Number(qty) || 0, 0);
+            if (!(std > 0) || q <= 0) return '';
+            const full = Math.floor(q / std);
+            const loose = Math.round(q - full * std);
+            const pack = type || 'pack';
+            if (!full) return `${qtyFmt(loose)} pcs (less than 1 ${esc(pack)})`;
+            return `${qtyFmt(full)} ${esc(pack)}${loose ? ` + ${qtyFmt(loose)} pcs` : ''}`;
+        }
+
+        // SFG std line of a job: "SFG std 50 pcs / LD bag (27 X 48)", or red when not set.
+        function sfgLine(std, type, size) {
+            if (!(std > 0)) return '<span class="sfg-missing">SFG STD NOT SET — manual shift blocked</span>';
+            return `<span class="sfg-ok">SFG std ${qtyFmt(std)} pcs / ${esc(type || 'pack')}${size ? ` (${esc(size)})` : ''}</span>`;
+        }
+
+        // Ready qty of each colour as chips, with packs.
+        function colourChips(list, std, type, unassigned) {
+            const chips = (list || []).filter(c => c.colour && Number(c.produced) > 0).map(c => {
+                const ready = Math.max(Number(c.ready) || 0, 0);
+                const packs = packText(ready, std, type);
+                return `<span class="col-chip ${ready > 0 ? '' : 'zero'}">${esc(c.colour)}: ${qtyFmt(ready)}${packs ? ` · ${packs}` : ''}</span>`;
+            });
+            if (Number(unassigned) > 0) chips.push(`<span class="col-chip zero">No colour (manual) shifted ${qtyFmt(unassigned)}</span>`);
+            return chips.join('');
+        }
+
         function locChips(list) {
             if (!list || !list.length) return '<span class="muted">—</span>';
             return list.map(l => `<span class="loc-chip">${esc(l.location)}: ${qtyFmt(l.qty)}</span>`).join('');
@@ -323,7 +385,9 @@
             html += jobs.map(j => `<div class="job-choice ${String(j.plan_id) === current.planId ? 'sel' : ''}" onclick="selectJob('${esc(String(j.plan_id))}')">
                     <div><span class="t">${esc(j.item_name || j.mould_name || '—')}</span>${statusPill(j)}</div>
                     <div class="sub">${esc([j.order_no, j.jc_no, j.client_name].filter(Boolean).join(' · '))}</div>
-                    <div class="sub" style="font-weight:600; ${j.approved > 0 ? 'color:#16a34a' : ''}">Produced ${qtyFmt(j.produced)} · Verified ${qtyFmt(j.verified)} · Shifted ${qtyFmt(j.shifted)} · Approved ${qtyFmt(j.approved)}</div>
+                    <div class="sub">Plan ${esc(j.plan_code || j.plan_id)} · Mould ${esc(j.mould_name || '—')}</div>
+                    <div class="sub">${sfgLine(Number(j.sfg_std) || 0, j.sfg_pack_type, j.sfg_bag_size)}</div>
+                    <div class="sub" style="font-weight:600; ${j.approved > 0 ? 'color:#16a34a' : ''}">Produced ${qtyFmt(j.produced)} · Verified ${qtyFmt(j.verified)} · Shifted ${qtyFmt(j.shifted)} · Approved ${qtyFmt(j.approved)}${packText(j.approved, Number(j.sfg_std) || 0, j.sfg_pack_type) ? ` (${packText(j.approved, Number(j.sfg_std) || 0, j.sfg_pack_type)})` : ''}</div>
                 </div>`).join('');
             html += '</div>';
 
@@ -341,24 +405,27 @@
                     <div>OR: <b>${esc(a.order_no || '—')}</b> &nbsp; JC: <b>${esc(a.jc_no || '—')}</b></div>
                     <div>Party: <b>${esc(a.client_name || '—')}</b></div>
                     <div class="sub">${esc([a.machine, a.plan_code, a.status, `Plan ${qtyFmt(a.plan_qty)}`].filter(Boolean).join(' · '))}</div>
+                    <div>Mould: <b>${esc(a.mould_name || '—')}</b></div>
+                    <div>${sfgLine(Number(a.sfg_std) || 0, a.sfg_pack_type, a.sfg_bag_size)}</div>
                     <div class="metrics">
                         ${metric('Produced', qtyFmt(t.produced))}
                         ${metric('QC verified', qtyFmt(t.verified), 'good')}
                         ${metric('Not verified', qtyFmt(t.not_verified), t.not_verified > 0 ? 'crit' : '')}
                         ${metric('Shifted', qtyFmt(t.shifted), '')}
-                        ${metric('Ready (floor)', qtyFmt(t.ready), t.ready > 0 ? 'good' : '')}
+                        ${metric('Ready (floor)', qtyFmt(t.ready) + (packText(t.ready, Number(a.sfg_std) || 0, a.sfg_pack_type) ? `<div class="pack-sub">${packText(t.ready, Number(a.sfg_std) || 0, a.sfg_pack_type)}</div>` : ''), t.ready > 0 ? 'good' : '')}
                         ${metric('On QC hold', hold && hold.count ? (hold.qty > 0 ? qtyFmt(hold.qty) : 'Yes') : '0', hold && hold.count ? 'crit' : '')}
                     </div>
                     ${hold && hold.count ? `<div class="crit" style="font-weight:600">QC HOLD on ${esc(a.machine)}: ${esc((hold.reasons || []).join('; ') || 'no reason given')}</div>` : ''}
                     ${a.verification_enforced ? '' : '<div class="warn sub">QC verification data is not on this server; only production is checked.</div>'}
                     <div style="margin-top:6px"><b style="font-size:0.8rem">Shifted to</b><div>${locChips(t.by_location)}</div></div>
                     ${(a.colours || []).length ? `<div class="section"><h4>Colour-wise</h4>
-                        <table class="mini-table"><thead><tr><th>Colour</th><th class="num">Prod</th><th class="num">QC ok</th><th class="num">Not ver.</th><th class="num">Shifted</th><th class="num">Ready</th><th>Shifted to</th></tr></thead><tbody>
+                        <table class="mini-table"><thead><tr><th>Colour</th><th class="num">Prod</th><th class="num">QC ok</th><th class="num">Not ver.</th><th class="num">Shifted</th><th class="num">Ready</th><th class="num">Ready packs</th><th>Shifted to</th></tr></thead><tbody>
                         ${a.colours.map(c => `<tr><td><b>${esc(c.colour || '—')}</b></td><td class="num">${qtyFmt(c.produced)}</td><td class="num good">${qtyFmt(c.verified)}</td>
                             <td class="num ${c.not_verified > 0 ? 'crit' : ''}">${qtyFmt(c.not_verified)}</td><td class="num">${qtyFmt(c.shifted)}</td>
-                            <td class="num ${c.ready > 0 ? 'good' : ''}"><b>${qtyFmt(c.ready)}</b></td><td>${locChips(c.by_location)}</td></tr>`).join('')}
+                            <td class="num ${c.ready > 0 ? 'good' : ''}"><b>${qtyFmt(c.ready)}</b></td>
+                            <td class="num pack-sub">${packText(c.ready, Number(a.sfg_std) || 0, a.sfg_pack_type) || '—'}</td><td>${locChips(c.by_location)}</td></tr>`).join('')}
                         ${a.unassigned && a.unassigned.shifted > 0 ? `<tr><td class="warn"><b>No colour (manual)</b></td><td></td><td></td><td></td>
-                            <td class="num">${qtyFmt(a.unassigned.shifted)}</td><td></td><td>${locChips(a.unassigned.by_location)}</td></tr>` : ''}
+                            <td class="num">${qtyFmt(a.unassigned.shifted)}</td><td></td><td></td><td>${locChips(a.unassigned.by_location)}</td></tr>` : ''}
                         </tbody></table></div>` : ''}
                     ${(a.recent || []).length ? `<div class="section"><h4>Latest shifting</h4>
                         <table class="mini-table"><tbody>${a.recent.slice(0, 8).map(r => `<tr>
@@ -371,8 +438,18 @@
                 const unit = Number(a.unit_weight_kg) || 0;
                 const shiftColours = producedColours(a);
                 const last = (() => { try { return localStorage.getItem('shifting_last_location') || ''; } catch (_) { return ''; } })();
+                const std = Number(a.sfg_std) || 0;
+                const packName = a.sfg_pack_type || 'pack';
+                if (!(std > 0)) {
+                    html += `<div class="sfg-block" style="margin-top:12px">
+                        <div class="big">SFG STD NOT SET</div>
+                        Mould Master has no SFG Std Packing for <b>${esc(a.mould_name || 'this mould')}</b>. Manual shifting is blocked until it is filled in Mould Master.
+                    </div>`;
+                    document.getElementById('jobBody').innerHTML = html;
+                    return;
+                }
                 html += `<div class="card" style="padding:14px; margin-top:12px">
-                    <div style="font-weight:700; margin-bottom:8px">Manual shift <span class="sub">(material without a label) · up to ${qtyFmt(max)} pcs${unit > 0 ? ` · ${kgFmt(unit)} kg/pc` : ''}</span></div>
+                    <div style="font-weight:700; margin-bottom:8px">Manual shift <span class="sub">(material without a label) · up to ${qtyFmt(max)} pcs (${packText(max, std, packName) || '0'}) · ${qtyFmt(std)} pcs / ${esc(packName)}${unit > 0 ? ` · ${kgFmt(unit)} kg/pc` : ''}</span></div>
                     <div class="shift-form">
                         ${shiftColours.length ? `<div><label for="shiftColour">Colour</label>
                             <select id="shiftColour" class="form-control" onchange="onColour()">
@@ -381,11 +458,14 @@
                         <div><label for="sendTo">Send To</label>
                             <select id="sendTo" class="form-control"><option value="">Select location</option>
                             ${locations.map(l => `<option ${l.toLowerCase() === last.toLowerCase() ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></div>
-                        <div><label for="weightKg">Weight (kg)</label>
-                            <input id="weightKg" type="number" min="0" step="0.001" class="form-control" ${unit > 0 ? '' : 'disabled placeholder="No mould weight"'} oninput="onWeight(${unit})"></div>
+                        <div><label for="packs">${esc(packName)}s (${qtyFmt(std)} pcs each)</label>
+                            <input id="packs" type="number" min="0" step="1" class="form-control" oninput="onPacks(${std}, ${unit})"></div>
                         <div><label for="qtyPcs">Quantity (pcs)</label>
-                            <input id="qtyPcs" type="number" min="1" step="1" class="form-control" oninput="onQty(${unit})"></div>
+                            <input id="qtyPcs" type="number" min="1" step="1" class="form-control" oninput="onQty(${std}, ${unit})"></div>
+                        <div><label for="weightKg">Weight (kg)</label>
+                            <input id="weightKg" type="number" min="0" step="0.001" class="form-control" ${unit > 0 ? '' : 'disabled placeholder="No mould weight"'} oninput="onWeight(${std}, ${unit})"></div>
                     </div>
+                    <div id="packHint" class="pack-sub" style="margin-top:6px"></div>
                     <button id="shiftBtn" class="btn btn-primary" style="width:100%; margin-top:12px; height:46px; font-weight:700" onclick="doShift()">
                         <i class="bi bi-box-arrow-right"></i> Shift</button>
                 </div>`;
@@ -424,14 +504,31 @@
             if (c && q && !q.value) q.placeholder = `up to ${qtyFmt(colourMax(a, c))}`;
         }
 
-        function onWeight(unit) {
-            const kg = Number(document.getElementById('weightKg').value) || 0;
-            if (unit > 0) document.getElementById('qtyPcs').value = kg > 0 ? Math.round(kg / unit) : '';
+        // Packs, pieces and kg are linked: changing one fills the other two.
+        function setLinked(pcs, std, unit, from) {
+            const packsEl = document.getElementById('packs');
+            const qtyEl = document.getElementById('qtyPcs');
+            const kgEl = document.getElementById('weightKg');
+            if (from !== 'pcs') qtyEl.value = pcs > 0 ? pcs : '';
+            if (from !== 'packs' && packsEl) packsEl.value = pcs > 0 && std > 0 ? Math.floor(pcs / std) : '';
+            if (from !== 'kg' && unit > 0 && kgEl) kgEl.value = pcs > 0 ? +(pcs * unit).toFixed(3) : '';
+            const hint = document.getElementById('packHint');
+            if (hint) hint.textContent = pcs > 0 && std > 0 ? `= ${packText(pcs, std, (current && current.avail && current.avail.sfg_pack_type) || 'pack').replace(/&amp;/g, '&')}` : '';
         }
 
-        function onQty(unit) {
-            const q = Number(document.getElementById('qtyPcs').value) || 0;
-            if (unit > 0) document.getElementById('weightKg').value = q > 0 ? +(q * unit).toFixed(3) : '';
+        function onPacks(std, unit) {
+            const packs = Math.max(parseInt(document.getElementById('packs').value, 10) || 0, 0);
+            setLinked(packs * std, std, unit, 'packs');
+        }
+
+        function onQty(std, unit) {
+            const q = Math.max(parseInt(document.getElementById('qtyPcs').value, 10) || 0, 0);
+            setLinked(q, std, unit, 'pcs');
+        }
+
+        function onWeight(std, unit) {
+            const kg = Number(document.getElementById('weightKg').value) || 0;
+            if (unit > 0) setLinked(kg > 0 ? Math.round(kg / unit) : 0, std, unit, 'kg');
         }
 
         async function doShift() {
@@ -445,10 +542,11 @@
             const colour = selectedColour(a);
             const max = colour ? colourMax(a, colour) : maxShiftQty(a);
             let err = '';
-            if ((Number(t.produced) || 0) <= 0) err = 'No production is entered in DPR for this job.';
+            if (!(Number(a.sfg_std) > 0)) err = 'SFG STD NOT SET: fill SFG Std Packing for this mould in Mould Master before shifting.';
+            else if ((Number(t.produced) || 0) <= 0) err = 'No production is entered in DPR for this job.';
             else if (colours.length > 1 && !colour) err = 'Pick the colour of the material you are shifting.';
             else if (!location) err = 'Pick where the material is going (Send To).';
-            else if (quantity <= 0) err = 'Enter the weight or the quantity.';
+            else if (quantity <= 0) err = 'Enter the packs, the quantity or the weight.';
             else if (quantity > max) err = a.verification_enforced
                 ? `Only ${qtyFmt(max)} QC-verified pcs${colour ? ' of ' + colour.colour : ''} are ready to shift.`
                 : `Only ${qtyFmt(max)} pcs are on the shop floor for this job.`;
@@ -464,7 +562,8 @@
                     weightKg: weightKg > 0 ? weightKg : undefined
                 });
                 try { localStorage.setItem('shifting_last_location', location); } catch (_) { }
-                const what = `${qtyFmt(quantity)} pcs${colour ? ' ' + colour.colour : ''}`;
+                const packs = packText(quantity, Number(a.sfg_std) || 0, a.sfg_pack_type).replace(/&amp;/g, '&');
+                const what = `${qtyFmt(quantity)} pcs${packs ? ` (${packs})` : ''}${colour ? ' ' + colour.colour : ''}`;
                 JPSMS.toast(`Shifted ${what} from ${a.machine} → ${location}`, 'success');
                 current.message = { ok: true, text: `Shifted ${what} from ${a.machine} → ${location}` };
                 const planId = current.planId;
@@ -477,7 +576,7 @@
 
         // Re-render the modal but keep what the user typed.
         function renderKeepForm() {
-            const keep = ['shiftColour', 'sendTo', 'weightKg', 'qtyPcs'].map(id => [id, (document.getElementById(id) || {}).value]);
+            const keep = ['shiftColour', 'sendTo', 'packs', 'weightKg', 'qtyPcs'].map(id => [id, (document.getElementById(id) || {}).value]);
             renderJob();
             keep.forEach(([id, v]) => { const el = document.getElementById(id); if (el && v != null) el.value = v; });
         }
