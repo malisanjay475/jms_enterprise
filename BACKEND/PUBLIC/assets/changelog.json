@@ -11,7 +11,7 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.105.0",
+  "latest": "1.106.0",
   "versions": [
     {
       "version": "1.106.0",
@@ -32,6 +32,22 @@
             {
               "type": "feat",
               "text": "New buttons narrow the whole page to one building or one line - the chart, the machine list and the counts all follow. GROUP turns the headings off for a plain list."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.105.1",
+      "date": "2026-10-13",
+      "title": "Pulse in the Analyze menu",
+      "modules": [
+        {
+          "app": "analyze",
+          "changes": [
+            {
+              "type": "improvement",
+              "text": "Pulse Live Tracker is now the first item under Analyze in the menu, so you no longer need to type its address."
             }
           ]
         }
