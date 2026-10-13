@@ -119,9 +119,10 @@ function escHtml(value) {
         'dpr.html': 'dpr',
         'dpr_daily_report.html': 'dpr',
         'job_summary.html': 'dpr',
-        // Pulse reads the same DPR + plan data, so DPR access governs it rather
-        // than a new permission nobody has been granted yet.
-        'pulse.html': 'dpr',
+        // Pulse sits under the Analyze menu, so Analyze access governs it. The
+        // nav hides a sub-item whose href the user cannot open, so this has to
+        // match the menu it lives in or the link would show and then deny.
+        'pulse.html': 'analyze',
         'purchase_orders.html': 'purchase',
         'purchase_vendors.html': 'purchase',
         'purchase_grn.html': 'purchase',
@@ -1306,6 +1307,7 @@ function escHtml(value) {
             icon: 'bi-bar-chart-fill',
             href: 'analyze.html',
             items: [
+                { id: 'ana_pulse', label: 'Pulse Live Tracker', icon: 'bi-activity', href: 'pulse.html' },
                 { id: 'ana_order', label: 'Order Analyze', icon: 'bi-cart', href: 'analyze.html?view=order' },
                 { id: 'ana_mould', label: 'Mould Analyze', icon: 'bi-diagram-3', href: 'analyze.html?view=mould' },
                 { id: 'ana_sup', label: 'Supervisor Analyze', icon: 'bi-person-badge', href: 'analyze.html?view=supervisor' },

@@ -11,8 +11,24 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.105.0",
+  "latest": "1.105.1",
   "versions": [
+    {
+      "version": "1.105.1",
+      "date": "2026-10-13",
+      "title": "Pulse in the Analyze menu",
+      "modules": [
+        {
+          "app": "analyze",
+          "changes": [
+            {
+              "type": "improvement",
+              "text": "Pulse Live Tracker is now the first item under Analyze in the menu, so you no longer need to type its address."
+            }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.105.0",
       "date": "2026-10-13",
