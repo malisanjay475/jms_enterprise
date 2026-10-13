@@ -301,6 +301,10 @@ function registerRoutes(app, deps) {
   const { registerPulseRoutes } = require('../modules/pulse/registerPulseRoutes');
   registerPulseRoutes(app, pool);
 
+  // Order Tracker (order wise / machine wise progress behind PUBLIC/order_tracker.html)
+  const { registerOrderTrackerRoutes } = require('../modules/orderTracker/registerOrderTrackerRoutes');
+  registerOrderTrackerRoutes(app, pool);
+
   return registerLegacyRoutes({ app, pool, config, services });
 }
 

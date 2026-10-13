@@ -11,8 +11,32 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.106.0",
+  "latest": "1.107.0",
   "versions": [
+    {
+      "version": "1.107.0",
+      "date": "2026-10-13",
+      "title": "Order Tracker",
+      "modules": [
+        {
+          "app": "planning",
+          "changes": [
+            {
+              "type": "feat",
+              "text": "New Order Tracker page (Planning Board > Order Tracker): every open order with complete sets made, the mould holding it back, the machines it runs on, its start, target and expected end date."
+            },
+            {
+              "type": "feat",
+              "text": "Open an order to see it mould wise (consumption ratio, pieces made, balance, rate, start, completed and expected end date) and job card wise (complete sets per job card), plus a daily production chart."
+            },
+            {
+              "type": "feat",
+              "text": "Machine wise view: what each machine is running now, progress, expected end, the jobs queued next and when the machine will be free. The page refreshes every 60 seconds."
+            }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.106.0",
       "date": "2026-10-13",
