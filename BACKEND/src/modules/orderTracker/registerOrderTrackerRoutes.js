@@ -30,6 +30,9 @@ const { getFactoryId } = require('../../app/requestContext');
 const { sendServerError } = require('../../app/httpErrors');
 
 const RATE_DAYS = 3;
+/* the factory runs on IST; an ERP target date means the end of that day there */
+const TZ = '+05:30';
+const TARGET_DAY_END = 'T23:59:59' + TZ;
 const MAX_ORDERS = 400;
 
 const num = v => {
@@ -133,7 +136,7 @@ const MACHINES_SQL = `
 
 /* ------------------------------------------------------- order engine --- */
 
-async function loadOrders(pool, orderNos, factoryId) {
+async function loadOrders(pool, orderNos, factoryId, sched) {
   if (!orderNos.length) return [];
   const p = [orderNos, factoryId];
   const [jc, bom, plans, dpr] = await Promise.all([
@@ -155,11 +158,12 @@ async function loadOrders(pool, orderNos, factoryId) {
     bomRows: bomBy.get(orderNo) || [],
     planRows: planBy.get(orderNo) || [],
     dprRows: dprBy.get(orderNo) || [],
-    mouldStd
+    mouldStd,
+    sched
   })).filter(Boolean);
 }
 
-function buildOrder(orderNo, { jcRows, bomRows, planRows, dprRows, mouldStd }) {
+function buildOrder(orderNo, { jcRows, bomRows, planRows, dprRows, mouldStd, sched }) {
   if (!jcRows.length && !planRows.length) return null;
   const head = jcRows[0] || {};
   const orderQty = num(head.jr_qty) || num(head.or_qty) || Math.max(0, ...bomRows.map(b => num(b.jr_qty)));
@@ -196,6 +200,8 @@ function buildOrder(orderNo, { jcRows, bomRows, planRows, dprRows, mouldStd }) {
   const allDates = [...new Set(dprRows.map(d => d.dpr_date))].sort();
   const recentFrom = allDates.length ? allDates[Math.max(0, allDates.length - RATE_DAYS)] : null;
   const today = new Date().toISOString().slice(0, 10);
+  const target = jcRows.map(r => r.planned_comp_date).filter(Boolean).sort().pop() || null;
+  const targetEndMs = target ? new Date(target.slice(0, 10) + TARGET_DAY_END).getTime() : null;
 
   const mouldList = [...moulds.entries()].map(([k, m]) => {
     const rows = dprRows.filter(d => mouldKeyOfDpr(d) === k);
@@ -236,11 +242,42 @@ function buildOrder(orderNo, { jcRows, bomRows, planRows, dprRows, mouldStd }) {
     const lanes = Math.max(1, machinesNow.length);
     const hoursLeft = balance > 0 && rate > 0 ? balance / (rate * lanes) : (balance === 0 ? 0 : null);
     const plannedEnd = pending.map(p => p.end_date).filter(Boolean).sort().pop() || null;
+
+    /* where the mould sits in its machine's queue (plan sequence) */
+    const queued = pending.filter(p => p.status !== 'RUNNING')
+      .map(p => ({ p, q: sched && sched.get(String(p.plan_id)) }))
+      .filter(x => x.q)
+      .sort((a, b) => String(a.q.start_eta || '9').localeCompare(String(b.q.start_eta || '9')))[0] || null;
+
     let eta = null, etaBasis = null;
     if (status === 'COMPLETE') { eta = completedOn; etaBasis = 'done'; }
     else if (status === 'RUNNING' && hoursLeft != null) { eta = addHours(hoursLeft); etaBasis = liveRate ? 'live rate' : 'std rate'; }
+    else if (queued && queued.q.start_eta && hoursLeft != null) {
+      eta = new Date(new Date(queued.q.start_eta).getTime() + hoursLeft * 3600000).toISOString(); etaBasis = 'machine queue';
+    }
     else if (plannedEnd) { eta = new Date(plannedEnd).toISOString(); etaBasis = 'plan end'; }
     else if (hoursLeft != null) { eta = addHours(hoursLeft); etaBasis = 'if started now'; }
+
+    /* start plan: the latest moment this mould can start (or must be running)
+       and still give the order its sets by the target date */
+    const firstRunMs = daily.length ? new Date(daily[0].date + 'T00:00:00' + TZ).getTime() : null;
+    const startedMs = running.length ? (firstRunMs || Date.now()) : null;
+    const expStartMs = status === 'RUNNING' ? startedMs : (queued && queued.q.start_eta ? new Date(queued.q.start_eta).getTime() : null);
+    const mustStartMs = targetEndMs && balance > 0 && hoursLeft != null ? targetEndMs - hoursLeft * 3600000 : null;
+    const etaMs = eta && status !== 'COMPLETE' ? new Date(eta).getTime() : null;
+    let startState, slackHours = null;
+    if (status === 'COMPLETE') startState = 'DONE';
+    else if (!targetEndMs) startState = 'NO_TARGET';
+    else if (status === 'RUNNING') {
+      slackHours = etaMs ? (targetEndMs - etaMs) / 3600000 : null;
+      startState = slackHours == null ? 'RUNNING' : slackHours >= 0 ? 'ON_TRACK' : 'FINISH_LATE';
+    } else if (expStartMs && mustStartMs) {
+      slackHours = (mustStartMs - expStartMs) / 3600000;
+      startState = slackHours >= 0 ? 'ON_TIME' : 'START_LATE';
+    } else if (mustStartMs) {
+      slackHours = (mustStartMs - Date.now()) / 3600000;
+      startState = slackHours >= 0 ? 'NEEDS_MACHINE' : 'OVERDUE';
+    } else startState = 'NO_RATE';
 
     return {
       mould_no: m.mould_no, mould_name: m.mould_name, items: m.items, ratio: m.ratio,
@@ -255,12 +292,23 @@ function buildOrder(orderNo, { jcRows, bomRows, planRows, dprRows, mouldStd }) {
       last_date: daily.length ? daily[daily.length - 1].date : null,
       completed_on: completedOn, hours_left: hoursLeft == null ? null : +hoursLeft.toFixed(1),
       eta, eta_basis: etaBasis, daily,
+      started_at: startedMs ? new Date(startedMs).toISOString() : (daily.length ? daily[0].date : null),
+      expected_start: expStartMs ? new Date(expStartMs).toISOString() : null,
+      must_start_by: mustStartMs ? new Date(mustStartMs).toISOString() : null,
+      start_state: startState, slack_hours: slackHours == null ? null : +slackHours.toFixed(1),
+      queue: queued ? { machine: queued.q.machine, position: queued.q.queue_pos, plan_id: queued.p.plan_id } : null,
       plans: plansOf.map(p => ({
         plan_id: p.plan_id, machine: stripPrefix(p.machine), status: p.status, plan_qty: num(p.plan_qty),
         job_card_no: p.job_card_no, start_date: p.start_date, end_date: p.end_date, completed_at: p.completed_at
       }))
     };
   });
+
+  /* ---- start sequence: the mould that must start first gets 1 ---- */
+  mouldList.filter(m => m.status !== 'COMPLETE')
+    .sort((a, b) => String(a.must_start_by || '9').localeCompare(String(b.must_start_by || '9')) || (a.pct - b.pct))
+    .forEach((m, i) => { m.start_seq = i + 1; });
+  mouldList.forEach(m => { if (m.start_seq == null) m.start_seq = null; });
 
   /* ---- sets: the bottleneck mould decides ---- */
   const withRatio = mouldList.filter(m => m.ratio > 0);
@@ -297,7 +345,6 @@ function buildOrder(orderNo, { jcRows, bomRows, planRows, dprRows, mouldStd }) {
   const expectedEnd = complete
     ? mouldList.map(m => m.completed_on).filter(Boolean).sort().pop() || null
     : (etas.length && etas.every(Boolean) ? etas.sort().pop() : null);
-  const target = jcRows.map(r => r.planned_comp_date).filter(Boolean).sort().pop() || null;
   const runningMachines = [...new Set(mouldList.flatMap(m => m.machines))];
   const delayed = !complete && target && expectedEnd && expectedEnd.slice(0, 10) > target.slice(0, 10);
 
@@ -316,6 +363,11 @@ function buildOrder(orderNo, { jcRows, bomRows, planRows, dprRows, mouldStd }) {
     target_date: target, expected_end: expectedEnd,
     eta_unknown_reason: !complete && !expectedEnd ? 'Some moulds are not running or planned on a machine yet' : null,
     delayed: !!delayed, unlinked_qty: unlinked,
+    late_starts: mouldList.filter(m => ['START_LATE', 'OVERDUE', 'FINISH_LATE'].includes(m.start_state)).length,
+    next_start: (() => {
+      const n = mouldList.filter(m => !['COMPLETE', 'RUNNING'].includes(m.status)).sort((a, b) => a.start_seq - b.start_seq)[0];
+      return n ? { mould_no: n.mould_no, mould_name: n.mould_name, must_start_by: n.must_start_by, expected_start: n.expected_start, start_state: n.start_state, machine: n.queue && n.queue.machine } : null;
+    })(),
     moulds: mouldList, job_cards: jobCards
   };
 }
@@ -325,11 +377,110 @@ const slim = o => {
   return {
     ...rest,
     moulds: moulds.map(m => ({ mould_no: m.mould_no, mould_name: m.mould_name, ratio: m.ratio, pct: m.pct,
-      produced: m.produced, required: m.required, status: m.status, machines: m.machines, eta: m.eta }))
+      produced: m.produced, required: m.required, status: m.status, machines: m.machines, eta: m.eta,
+      start_seq: m.start_seq, start_state: m.start_state, must_start_by: m.must_start_by, expected_start: m.expected_start }))
   };
 };
 
 /* ------------------------------------------------------------- routes --- */
+
+/* Every moulding machine with its running job and queue, each job carrying
+   start_eta / eta chained through the queue in plan sequence. */
+async function buildMachineBoard(pool, factoryId) {
+  const [machines, plans] = await Promise.all([
+    pool.query(MACHINES_SQL, [factoryId]),
+    pool.query(`
+      SELECT pb.id, pb.plan_id, pb.machine, TRIM(pb.order_no) AS order_no,
+             TRIM(COALESCE(pb.mould_code, '')) AS mould_code, pb.mould_name, pb.item_name,
+             COALESCE(pb.plan_qty, 0) AS plan_qty, UPPER(COALESCE(pb.status, '')) AS status,
+             NULLIF(TRIM(pb.job_card_no), '') AS job_card_no, pb.seq, pb.start_date, pb.end_date
+        FROM plan_board pb
+       WHERE UPPER(COALESCE(pb.status, '')) IN ('RUNNING', 'PLANNED', 'PENDING', 'ON HOLD', 'HOLD')
+         AND COALESCE(TRIM(pb.machine), '') <> ''
+         AND ($1::int IS NULL OR pb.factory_id = $1 OR pb.factory_id IS NULL)`, [factoryId])
+  ]);
+  const planCodes = plans.rows.map(p => String(p.plan_id || '')).filter(Boolean);
+  const [made, recent] = planCodes.length ? await Promise.all([
+    pool.query(`SELECT plan_id, SUM(good_qty) AS good, MAX(dpr_date)::text AS last_date,
+                       MIN(dpr_date)::text AS first_date
+                  FROM (SELECT DISTINCT ON (machine, hour_slot, plan_id, dpr_date, shift, COALESCE(colour, ''))
+                               plan_id, dpr_date, COALESCE(good_qty, 0) AS good_qty
+                          FROM dpr_hourly
+                         WHERE is_deleted IS NOT TRUE AND plan_id = ANY($1::text[])
+                         ORDER BY machine, hour_slot, plan_id, dpr_date, shift, COALESCE(colour, ''), id DESC) x
+                 GROUP BY plan_id`, [planCodes]),
+    pool.query(`SELECT plan_id, SUM(good_qty) AS good, COUNT(*) FILTER (WHERE good_qty > 0) AS hrs,
+                       SUM(good_qty) FILTER (WHERE dpr_date = CURRENT_DATE) AS today
+                  FROM dpr_hourly
+                 WHERE is_deleted IS NOT TRUE AND plan_id = ANY($1::text[])
+                   AND dpr_date >= CURRENT_DATE - ${RATE_DAYS}
+                 GROUP BY plan_id`, [planCodes])
+  ]) : [{ rows: [] }, { rows: [] }];
+  const madeBy = new Map(made.rows.map(r => [String(r.plan_id), r]));
+  const rateBy = new Map(recent.rows.map(r => [String(r.plan_id), r]));
+  const codes = [...new Set(plans.rows.map(p => p.mould_code).filter(Boolean))];
+  const std = new Map(codes.length ? (await pool.query(MOULD_SQL, [codes, factoryId])).rows.map(m => [key(m.code), m]) : []);
+
+  const job = p => {
+    const m = madeBy.get(String(p.plan_id)) || {};
+    const r = rateBy.get(String(p.plan_id)) || {};
+    const s = std.get(key(p.mould_code)) || {};
+    const produced = num(m.good), planQty = num(p.plan_qty);
+    const live = num(r.hrs) > 0 ? num(r.good) / num(r.hrs) : 0;
+    const rate = live || num(s.pcs_per_hour) || (num(s.cycle_time) > 0 ? 3600 / num(s.cycle_time) * (num(s.no_of_cav) || 1) : 0);
+    const balance = Math.max(0, planQty - produced);
+    const hours = balance > 0 && rate > 0 ? balance / rate : (balance === 0 ? 0 : null);
+    return {
+      plan_id: p.plan_id, status: p.status, order_no: p.order_no, job_card_no: p.job_card_no,
+      mould_no: p.mould_code, mould_name: p.mould_name || p.mould_code, item_name: p.item_name,
+      plan_qty: planQty, produced, balance, pct: planQty > 0 ? Math.min(100, +(produced / planQty * 100).toFixed(1)) : 0,
+      today_qty: num(r.today), rate_pph: Math.round(rate), rate_basis: live ? 'live' : (rate ? 'std' : null),
+      hours_left: hours == null ? null : +hours.toFixed(1),
+      first_date: m.first_date || null, last_date: m.last_date || null,
+      plan_start: p.start_date, plan_end: p.end_date
+    };
+  };
+
+  const byMachine = new Map();
+  plans.rows.forEach(p => {
+    const k = key(stripPrefix(p.machine));
+    (byMachine.get(k) || byMachine.set(k, []).get(k)).push(p);
+  });
+  const sorter = machineSorter(machines.rows);
+  const data = machines.rows.map(mc => mc.machine).sort(sorter).map(name => {
+    const mc = machines.rows.find(x => x.machine === name);
+    const list = (byMachine.get(key(name)) || []).slice().sort((a, b) =>
+      (a.status === 'RUNNING' ? 0 : 1) - (b.status === 'RUNNING' ? 0 : 1) || (num(a.seq) - num(b.seq)));
+    const running = list.filter(p => p.status === 'RUNNING').map(job);
+    const queue = list.filter(p => p.status !== 'RUNNING').map(job);
+    /* the machine is free once its running jobs and its queue are done */
+    /* the machine is free once its running jobs and its queue are done; a job
+       with no known rate breaks the chain, so later queue times stay unknown */
+    let clock = Math.max(0, ...running.map(j => j.hours_left || 0));
+    let known = running.every(j => j.hours_left != null);
+    running.forEach((j, i) => { j.queue_pos = 0; j.start_eta = null; j.eta = addHours(j.hours_left); });
+    queue.forEach((j, i) => {
+      j.queue_pos = i + 1;
+      j.start_eta = known ? addHours(clock) : null;
+      if (known && j.hours_left != null) { clock += j.hours_left; j.eta = addHours(clock); } else { known = false; j.eta = null; }
+    });
+    return {
+      machine: name, line: mc.line || mc.building || '', tonnage: mc.tonnage || null,
+      state: running.length ? 'RUNNING' : (queue.length ? 'QUEUED' : 'IDLE'),
+      running, queue, free_at: running.length || queue.length ? addHours(clock) : null,
+      today_qty: running.concat(queue).reduce((s, j) => s + j.today_qty, 0)
+    };
+  });
+  return data;
+}
+
+/* plan_id -> its place on the machine board (machine, queue position, start / end) */
+async function queueSchedule(pool, factoryId) {
+  const board = await buildMachineBoard(pool, factoryId);
+  const map = new Map();
+  board.forEach(m => m.running.concat(m.queue).forEach(j => map.set(String(j.plan_id), { ...j, machine: m.machine })));
+  return map;
+}
 
 function registerOrderTrackerRoutes(app, pool) {
   /* GET /api/order-tracker/orders?scope=running|open|all&days=120&q= */
@@ -356,7 +507,7 @@ function registerOrderTrackerRoutes(app, pool) {
         if (search) params.push(`%${search}%`);
       }
       const orderNos = (await pool.query(sql, params)).rows.map(r => r.order_no);
-      const orders = await loadOrders(pool, orderNos, factoryId);
+      const orders = await loadOrders(pool, orderNos, factoryId, await queueSchedule(pool, factoryId));
       /* open scope hides orders already complete in production */
       const data = (scope === 'open' ? orders.filter(o => o.status !== 'COMPLETE') : orders).map(slim);
       res.json({ ok: true, scope, server_time: new Date().toISOString(), data });
@@ -371,7 +522,8 @@ function registerOrderTrackerRoutes(app, pool) {
     try {
       const orderNo = String(req.query.order_no || '').trim();
       if (!orderNo) return res.status(400).json({ ok: false, error: 'order_no is required' });
-      const [order] = await loadOrders(pool, [orderNo], getFactoryId(req) || null);
+      const factoryId = getFactoryId(req) || null;
+      const [order] = await loadOrders(pool, [orderNo], factoryId, await queueSchedule(pool, factoryId));
       if (!order) return res.status(404).json({ ok: false, error: 'Order not found' });
       res.json({ ok: true, server_time: new Date().toISOString(), data: order });
     } catch (e) {
@@ -383,84 +535,7 @@ function registerOrderTrackerRoutes(app, pool) {
   /* GET /api/order-tracker/machines - each machine's current job and queue */
   app.get('/api/order-tracker/machines', async (req, res) => {
     try {
-      const factoryId = getFactoryId(req) || null;
-      const [machines, plans] = await Promise.all([
-        pool.query(MACHINES_SQL, [factoryId]),
-        pool.query(`
-          SELECT pb.id, pb.plan_id, pb.machine, TRIM(pb.order_no) AS order_no,
-                 TRIM(COALESCE(pb.mould_code, '')) AS mould_code, pb.mould_name, pb.item_name,
-                 COALESCE(pb.plan_qty, 0) AS plan_qty, UPPER(COALESCE(pb.status, '')) AS status,
-                 NULLIF(TRIM(pb.job_card_no), '') AS job_card_no, pb.seq, pb.start_date, pb.end_date
-            FROM plan_board pb
-           WHERE UPPER(COALESCE(pb.status, '')) IN ('RUNNING', 'PLANNED', 'PENDING', 'ON HOLD', 'HOLD')
-             AND COALESCE(TRIM(pb.machine), '') <> ''
-             AND ($1::int IS NULL OR pb.factory_id = $1 OR pb.factory_id IS NULL)`, [factoryId])
-      ]);
-      const planCodes = plans.rows.map(p => String(p.plan_id || '')).filter(Boolean);
-      const [made, recent] = planCodes.length ? await Promise.all([
-        pool.query(`SELECT plan_id, SUM(good_qty) AS good, MAX(dpr_date)::text AS last_date,
-                           MIN(dpr_date)::text AS first_date
-                      FROM (SELECT DISTINCT ON (machine, hour_slot, plan_id, dpr_date, shift, COALESCE(colour, ''))
-                                   plan_id, dpr_date, COALESCE(good_qty, 0) AS good_qty
-                              FROM dpr_hourly
-                             WHERE is_deleted IS NOT TRUE AND plan_id = ANY($1::text[])
-                             ORDER BY machine, hour_slot, plan_id, dpr_date, shift, COALESCE(colour, ''), id DESC) x
-                     GROUP BY plan_id`, [planCodes]),
-        pool.query(`SELECT plan_id, SUM(good_qty) AS good, COUNT(*) FILTER (WHERE good_qty > 0) AS hrs,
-                           SUM(good_qty) FILTER (WHERE dpr_date = CURRENT_DATE) AS today
-                      FROM dpr_hourly
-                     WHERE is_deleted IS NOT TRUE AND plan_id = ANY($1::text[])
-                       AND dpr_date >= CURRENT_DATE - ${RATE_DAYS}
-                     GROUP BY plan_id`, [planCodes])
-      ]) : [{ rows: [] }, { rows: [] }];
-      const madeBy = new Map(made.rows.map(r => [String(r.plan_id), r]));
-      const rateBy = new Map(recent.rows.map(r => [String(r.plan_id), r]));
-      const codes = [...new Set(plans.rows.map(p => p.mould_code).filter(Boolean))];
-      const std = new Map(codes.length ? (await pool.query(MOULD_SQL, [codes, factoryId])).rows.map(m => [key(m.code), m]) : []);
-
-      const job = p => {
-        const m = madeBy.get(String(p.plan_id)) || {};
-        const r = rateBy.get(String(p.plan_id)) || {};
-        const s = std.get(key(p.mould_code)) || {};
-        const produced = num(m.good), planQty = num(p.plan_qty);
-        const live = num(r.hrs) > 0 ? num(r.good) / num(r.hrs) : 0;
-        const rate = live || num(s.pcs_per_hour) || (num(s.cycle_time) > 0 ? 3600 / num(s.cycle_time) * (num(s.no_of_cav) || 1) : 0);
-        const balance = Math.max(0, planQty - produced);
-        const hours = balance > 0 && rate > 0 ? balance / rate : (balance === 0 ? 0 : null);
-        return {
-          plan_id: p.plan_id, status: p.status, order_no: p.order_no, job_card_no: p.job_card_no,
-          mould_no: p.mould_code, mould_name: p.mould_name || p.mould_code, item_name: p.item_name,
-          plan_qty: planQty, produced, balance, pct: planQty > 0 ? Math.min(100, +(produced / planQty * 100).toFixed(1)) : 0,
-          today_qty: num(r.today), rate_pph: Math.round(rate), rate_basis: live ? 'live' : (rate ? 'std' : null),
-          hours_left: hours == null ? null : +hours.toFixed(1),
-          first_date: m.first_date || null, last_date: m.last_date || null,
-          plan_start: p.start_date, plan_end: p.end_date
-        };
-      };
-
-      const byMachine = new Map();
-      plans.rows.forEach(p => {
-        const k = key(stripPrefix(p.machine));
-        (byMachine.get(k) || byMachine.set(k, []).get(k)).push(p);
-      });
-      const sorter = machineSorter(machines.rows);
-      const data = machines.rows.map(mc => mc.machine).sort(sorter).map(name => {
-        const mc = machines.rows.find(x => x.machine === name);
-        const list = (byMachine.get(key(name)) || []).slice().sort((a, b) =>
-          (a.status === 'RUNNING' ? 0 : 1) - (b.status === 'RUNNING' ? 0 : 1) || (num(a.seq) - num(b.seq)));
-        const running = list.filter(p => p.status === 'RUNNING').map(job);
-        const queue = list.filter(p => p.status !== 'RUNNING').map(job);
-        /* the machine is free once its running jobs and its queue are done */
-        let clock = Math.max(0, ...running.map(j => j.hours_left || 0));
-        running.forEach(j => { j.eta = addHours(j.hours_left); });
-        queue.forEach(j => { if (j.hours_left != null) { clock += j.hours_left; j.eta = addHours(clock); } else j.eta = null; });
-        return {
-          machine: name, line: mc.line || mc.building || '', tonnage: mc.tonnage || null,
-          state: running.length ? 'RUNNING' : (queue.length ? 'QUEUED' : 'IDLE'),
-          running, queue, free_at: running.length || queue.length ? addHours(clock) : null,
-          today_qty: running.concat(queue).reduce((s, j) => s + j.today_qty, 0)
-        };
-      });
+      const data = await buildMachineBoard(pool, getFactoryId(req) || null);
       res.json({ ok: true, server_time: new Date().toISOString(), data });
     } catch (e) {
       console.error('[order-tracker/machines]', e);
