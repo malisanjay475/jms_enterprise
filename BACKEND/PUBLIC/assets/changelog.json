@@ -11,8 +11,36 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.103.2",
+  "latest": "1.104.0",
   "versions": [
+    {
+      "version": "1.104.0",
+      "date": "2026-10-13",
+      "title": "Pulse live tracker",
+      "modules": [
+        {
+          "app": "dpr",
+          "changes": [
+            {
+              "type": "feat",
+              "text": "New Pulse page shows every machine live for the shift in progress: the job it is running, how far it has got against plan, and whether it is ahead or behind."
+            },
+            {
+              "type": "feat",
+              "text": "Each machine carries a plain state - Down, Changeover, Starved, Reject Spike, Slipping, Catching Up, On Track, Ahead or No Plan - and the machines that need you are listed first."
+            },
+            {
+              "type": "feat",
+              "text": "One chart draws every machine's output curve against plan for the shift; clicking a machine anywhere on the page highlights its curve and opens its detail."
+            },
+            {
+              "type": "feat",
+              "text": "Open Pulse with ?tv=1 for a wall screen: bigger type and fixed line order, so machines stay where the operators expect them."
+            }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.103.2",
       "date": "2026-10-12",

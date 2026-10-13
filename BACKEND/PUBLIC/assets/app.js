@@ -119,6 +119,9 @@ function escHtml(value) {
         'dpr.html': 'dpr',
         'dpr_daily_report.html': 'dpr',
         'job_summary.html': 'dpr',
+        // Pulse reads the same DPR + plan data, so DPR access governs it rather
+        // than a new permission nobody has been granted yet.
+        'pulse.html': 'dpr',
         'purchase_orders.html': 'purchase',
         'purchase_vendors.html': 'purchase',
         'purchase_grn.html': 'purchase',
