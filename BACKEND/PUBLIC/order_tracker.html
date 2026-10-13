@@ -11,503 +11,720 @@
     <script src="/assets/vendor/jsdelivr/chart.js"></script>
     <style>
         :root {
-            --ot-bg: #f4f6fa; --ot-card: #fff; --ot-line: #e3e8ef; --ot-ink: #101828; --ot-mute: #667085;
-            --ot-blue: #2563eb; --ot-blue-bg: #eff4ff;
-            --ot-green: #079455; --ot-green-bg: #ecfdf3;
-            --ot-amber: #dc6803; --ot-amber-bg: #fffaeb;
-            --ot-red: #d92d20; --ot-red-bg: #fef3f2;
-            --ot-grey: #98a2b3; --ot-grey-bg: #f2f4f7;
+            --bg: #f5f7fb; --card: #fff; --line: #e4e9f0; --line2: #f0f3f7;
+            --ink: #0f172a; --ink2: #334155; --mute: #64748b; --faint: #94a3b8;
+            --blue: #2563eb; --blue-bg: #eef4ff; --blue-br: #c7d7fe;
+            --green: #059669; --green-bg: #ecfdf5; --green-br: #a7f3d0;
+            --amber: #d97706; --amber-bg: #fffbeb; --amber-br: #fde68a;
+            --red: #dc2626; --red-bg: #fef2f2; --red-br: #fecaca;
+            --grey-bg: #f1f5f9;
+            --r: 14px;
         }
-        .ot { padding: 18px 22px 40px; background: var(--ot-bg); min-height: 100vh; color: var(--ot-ink); font-variant-numeric: tabular-nums; }
-        .ot-head { display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; margin-bottom: 16px; }
-        .ot-title { font-family: 'Outfit', sans-serif; font-size: 1.6rem; font-weight: 800; margin: 0; letter-spacing: -.3px; }
-        .ot-sub { color: var(--ot-mute); font-size: .85rem; margin-top: 2px; }
-        .ot-live { display: inline-flex; align-items: center; gap: 6px; font-size: .8rem; color: var(--ot-mute); }
-        .ot-live .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ot-green); box-shadow: 0 0 0 0 rgba(7,148,85,.5); animation: otPing 2s infinite; }
-        .ot-live.off .dot { background: var(--ot-grey); animation: none; }
-        @keyframes otPing { 0% { box-shadow: 0 0 0 0 rgba(7,148,85,.45); } 80%, 100% { box-shadow: 0 0 0 8px rgba(7,148,85,0); } }
+        .ot { padding: 20px 24px 48px; background: var(--bg); min-height: 100vh; color: var(--ink); font-variant-numeric: tabular-nums; font-size: 14px; }
+        .ot * { box-sizing: border-box; }
+        .muted { color: var(--mute); }
+        .small { font-size: 12px; }
+        .b { font-weight: 700; }
+        .nowrap { white-space: nowrap; }
 
-        .ot-seg { display: inline-flex; background: #e9edf3; border-radius: 12px; padding: 4px; }
-        .ot-seg button { border: 0; background: transparent; padding: 8px 16px; border-radius: 9px; font-weight: 600; color: var(--ot-mute); font-size: .9rem; }
-        .ot-seg button.on { background: #fff; color: var(--ot-ink); box-shadow: 0 1px 3px rgba(16,24,40,.12); }
-        .ot-btn { border: 1px solid var(--ot-line); background: #fff; border-radius: 10px; padding: 8px 12px; font-weight: 600; font-size: .85rem; color: var(--ot-ink); }
-        .ot-btn:hover { background: #f9fafb; }
+        /* ---------- header ---------- */
+        .hd { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 18px; }
+        .hd h1 { font-family: 'Outfit', sans-serif; font-size: 26px; font-weight: 800; margin: 0; letter-spacing: -.4px; display: flex; align-items: center; gap: 10px; }
+        .hd h1 .ic { width: 38px; height: 38px; border-radius: 11px; background: var(--ink); color: #fff; display: grid; place-items: center; font-size: 18px; }
+        .hd .sub { color: var(--mute); font-size: 13px; margin-top: 4px; }
+        .hd .tools { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+        .live { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; color: var(--mute); }
+        .live i { width: 8px; height: 8px; border-radius: 50%; background: var(--green); animation: ping 2s infinite; }
+        .live.off i { background: var(--faint); animation: none; }
+        @keyframes ping { 0% { box-shadow: 0 0 0 0 rgba(5,150,105,.45); } 80%, 100% { box-shadow: 0 0 0 8px rgba(5,150,105,0); } }
+        .seg { display: inline-flex; background: #e8edf3; border-radius: 12px; padding: 4px; }
+        .seg button { border: 0; background: none; padding: 8px 16px; border-radius: 9px; font-weight: 600; font-size: 13px; color: var(--mute); display: inline-flex; gap: 6px; align-items: center; }
+        .seg button.on { background: #fff; color: var(--ink); box-shadow: 0 1px 3px rgba(15,23,42,.12); }
+        .btn { border: 1px solid var(--line); background: #fff; border-radius: 10px; padding: 8px 13px; font-weight: 600; font-size: 13px; color: var(--ink); display: inline-flex; gap: 6px; align-items: center; cursor: pointer; }
+        .btn:hover { background: #f8fafc; }
 
-        .ot-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 16px; }
-        .ot-kpi { background: var(--ot-card); border: 1px solid var(--ot-line); border-radius: 14px; padding: 14px 16px; }
-        .ot-kpi .l { font-size: .75rem; color: var(--ot-mute); font-weight: 600; text-transform: uppercase; letter-spacing: .4px; }
-        .ot-kpi .v { font-size: 1.6rem; font-weight: 800; margin-top: 4px; }
-        .ot-kpi .s { font-size: .78rem; color: var(--ot-mute); }
+        /* ---------- kpis ---------- */
+        .kpis { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 18px; }
+        .kpi { background: var(--card); border: 1px solid var(--line); border-radius: var(--r); padding: 14px 16px; display: flex; gap: 12px; align-items: center; cursor: default; }
+        .kpi[data-f] { cursor: pointer; }
+        .kpi[data-f]:hover { border-color: var(--blue-br); }
+        .kpi .ic { width: 40px; height: 40px; border-radius: 11px; display: grid; place-items: center; font-size: 18px; flex: none; }
+        .kpi .v { font-size: 24px; font-weight: 800; line-height: 1.1; }
+        .kpi .l { font-size: 12px; color: var(--mute); font-weight: 600; }
+        .t-blue { background: var(--blue-bg); color: var(--blue); }
+        .t-green { background: var(--green-bg); color: var(--green); }
+        .t-amber { background: var(--amber-bg); color: var(--amber); }
+        .t-red { background: var(--red-bg); color: var(--red); }
+        .t-grey { background: var(--grey-bg); color: var(--ink2); }
 
-        .ot-bar { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
-        .ot-bar input, .ot-bar select { border: 1px solid var(--ot-line); border-radius: 10px; padding: 8px 12px; font-size: .9rem; background: #fff; }
-        .ot-bar input { min-width: 260px; flex: 1; max-width: 420px; }
-        .ot-chip { border: 1px solid var(--ot-line); background: #fff; border-radius: 999px; padding: 5px 12px; font-size: .8rem; font-weight: 600; color: var(--ot-mute); cursor: pointer; }
-        .ot-chip.on { background: var(--ot-ink); color: #fff; border-color: var(--ot-ink); }
+        /* ---------- toolbar ---------- */
+        .bar { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 14px; }
+        .search { position: relative; flex: 1; min-width: 240px; max-width: 440px; }
+        .search i { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: var(--faint); }
+        .search input { width: 100%; border: 1px solid var(--line); border-radius: 10px; padding: 9px 12px 9px 34px; font-size: 14px; background: #fff; }
+        .bar select { border: 1px solid var(--line); border-radius: 10px; padding: 9px 12px; font-size: 13px; background: #fff; font-weight: 600; }
+        .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+        .chip { border: 1px solid var(--line); background: #fff; border-radius: 999px; padding: 6px 13px; font-size: 12px; font-weight: 600; color: var(--mute); cursor: pointer; }
+        .chip.on { background: var(--ink); color: #fff; border-color: var(--ink); }
+        .chip .n { opacity: .7; margin-left: 4px; }
 
-        .ot-panel { background: var(--ot-card); border: 1px solid var(--ot-line); border-radius: 14px; overflow: hidden; }
-        table.ot-t { width: 100%; border-collapse: collapse; font-size: .86rem; }
-        .ot-t th { background: #f9fafb; color: var(--ot-mute); font-weight: 600; font-size: .74rem; text-transform: uppercase; letter-spacing: .3px; padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--ot-line); white-space: nowrap; }
-        .ot-t td { padding: 11px 12px; border-bottom: 1px solid #f0f2f5; vertical-align: middle; }
-        .ot-t tbody tr.click { cursor: pointer; }
-        .ot-t tbody tr.click:hover { background: #f8faff; }
-        .ot-t .r { text-align: right; }
-        .ot-t .strong { font-weight: 700; }
-        .ot-mute { color: var(--ot-mute); font-size: .78rem; }
+        /* ---------- shared bits ---------- */
+        .pill { display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px; border-radius: 999px; font-size: 11px; font-weight: 700; white-space: nowrap; border: 1px solid transparent; }
+        .pill::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+        .s-RUNNING { background: var(--blue-bg); color: var(--blue); border-color: var(--blue-br); }
+        .s-COMPLETE { background: var(--green-bg); color: var(--green); border-color: var(--green-br); }
+        .s-PAUSED, .s-PLANNED, .s-QUEUED, .s-IN_PROGRESS { background: var(--amber-bg); color: var(--amber); border-color: var(--amber-br); }
+        .s-NOT_STARTED, .s-NOT_PLANNED, .s-IDLE { background: var(--grey-bg); color: var(--ink2); border-color: var(--line); }
+        .s-LATE { background: var(--red-bg); color: var(--red); border-color: var(--red-br); }
+        .track { height: 8px; background: #e9eef5; border-radius: 99px; overflow: hidden; }
+        .track > i { display: block; height: 100%; border-radius: 99px; background: var(--blue); transition: width .5s; }
+        .track.g > i { background: var(--green); }
+        .track.a > i { background: var(--amber); }
+        .track.thin { height: 5px; }
+        .mc { display: inline-block; background: var(--grey-bg); border: 1px solid var(--line); border-radius: 7px; padding: 2px 8px; font-size: 11px; font-weight: 700; color: var(--ink2); margin: 2px 4px 2px 0; white-space: nowrap; }
+        .otc { background: var(--card); border: 1px solid var(--line); border-radius: var(--r); }
+        .empty { padding: 48px 20px; text-align: center; color: var(--mute); }
+        .empty i { font-size: 30px; display: block; margin-bottom: 8px; color: var(--faint); }
+        a.lnk { color: var(--blue); font-weight: 700; text-decoration: none; cursor: pointer; }
+        a.lnk:hover { text-decoration: underline; }
 
-        .ot-prog { height: 8px; background: #edf0f5; border-radius: 99px; overflow: hidden; min-width: 120px; }
-        .ot-prog > i { display: block; height: 100%; border-radius: 99px; background: var(--ot-blue); transition: width .5s; }
-        .ot-prog.g > i { background: var(--ot-green); }
-        .ot-prog.a > i { background: var(--ot-amber); }
-        .ot-pips { display: flex; gap: 3px; margin-top: 5px; }
-        .ot-pips span { flex: 1; height: 4px; border-radius: 2px; background: #edf0f5; position: relative; overflow: hidden; }
-        .ot-pips span i { position: absolute; inset: 0 auto 0 0; background: var(--ot-blue); }
-        .ot-pips span.done i { background: var(--ot-green); }
+        /* ---------- order list ---------- */
+        .olist { display: flex; flex-direction: column; gap: 10px; }
+        .orow { display: grid; grid-template-columns: minmax(200px, 1.1fr) minmax(260px, 1.6fr) minmax(210px, 1fr) 120px; gap: 18px; align-items: center; padding: 14px 18px; cursor: pointer; transition: border-color .15s, box-shadow .15s; border-left: 4px solid var(--line); }
+        .orow:hover { border-color: var(--blue-br); box-shadow: 0 4px 14px rgba(15,23,42,.06); }
+        .orow.RUNNING { border-left-color: var(--blue); }
+        .orow.COMPLETE { border-left-color: var(--green); }
+        .orow.PAUSED { border-left-color: var(--amber); }
+        .orow.late { border-left-color: var(--red); }
+        .orow .no { font-weight: 800; font-size: 15px; }
+        .orow .prod { font-weight: 600; color: var(--ink2); margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .sets { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; }
+        .sets .big { font-size: 16px; font-weight: 800; }
+        .mbars { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 6px 10px; margin-top: 9px; }
+        .mbar .nm { font-size: 11px; color: var(--mute); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: flex; justify-content: space-between; gap: 4px; }
+        .mbar.neck .nm { color: var(--amber); font-weight: 700; }
+        .dates { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+        .dates .l { font-size: 10px; text-transform: uppercase; letter-spacing: .4px; color: var(--faint); font-weight: 700; }
+        .dates .v { font-weight: 700; font-size: 13px; margin-top: 2px; }
+        .dates .v.late { color: var(--red); }
+        .orow .right { text-align: right; display: flex; flex-direction: column; gap: 6px; align-items: flex-end; }
 
-        .ot-badge { display: inline-flex; align-items: center; gap: 4px; padding: 3px 9px; border-radius: 999px; font-size: .72rem; font-weight: 700; white-space: nowrap; }
-        .b-RUNNING { background: var(--ot-blue-bg); color: var(--ot-blue); }
-        .b-COMPLETE { background: var(--ot-green-bg); color: var(--ot-green); }
-        .b-PAUSED, .b-QUEUED, .b-PLANNED, .b-IN_PROGRESS { background: var(--ot-amber-bg); color: var(--ot-amber); }
-        .b-NOT_STARTED, .b-NOT_PLANNED, .b-IDLE { background: var(--ot-grey-bg); color: #475467; }
-        .b-LATE { background: var(--ot-red-bg); color: var(--ot-red); }
-        .ot-mc { display: inline-block; background: #f2f4f7; border-radius: 6px; padding: 2px 7px; font-size: .74rem; font-weight: 600; margin: 1px 2px 1px 0; }
+        /* ---------- order detail page ---------- */
+        .crumb { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
+        .dhero { display: grid; grid-template-columns: 260px 1fr; gap: 16px; margin-bottom: 16px; }
+        .ringc { padding: 18px; text-align: center; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+        .ringc svg { width: 160px; height: 160px; }
+        .facts { padding: 18px 20px; }
+        .facts h2 { margin: 0; font-size: 22px; font-weight: 800; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+        .fgrid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px 18px; margin-top: 16px; }
+        .fgrid .l { font-size: 11px; text-transform: uppercase; letter-spacing: .4px; color: var(--faint); font-weight: 700; }
+        .fgrid .v { font-weight: 700; margin-top: 3px; }
+        .note { display: flex; gap: 10px; align-items: flex-start; border-radius: 11px; padding: 10px 13px; font-size: 13px; margin-top: 12px; border: 1px solid; }
+        .note.a { background: var(--amber-bg); border-color: var(--amber-br); color: #92400e; }
+        .note.r { background: var(--red-bg); border-color: var(--red-br); color: #991b1b; }
+        .note.i { background: var(--blue-bg); border-color: var(--blue-br); color: #1e3a8a; }
+        .sec { margin-top: 22px; }
+        .sech { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; gap: 10px; flex-wrap: wrap; }
+        .sech h3 { margin: 0; font-size: 16px; font-weight: 800; display: flex; align-items: center; gap: 8px; }
 
-        /* ---- order detail drawer ---- */
-        .ot-scrim { position: fixed; inset: 0; background: rgba(16,24,40,.35); z-index: 1050; display: none; }
-        .ot-drawer { position: fixed; top: 0; right: 0; bottom: 0; width: min(1100px, 96vw); background: var(--ot-bg); z-index: 1060; transform: translateX(100%); transition: transform .25s ease; overflow-y: auto; box-shadow: -12px 0 40px rgba(16,24,40,.18); }
-        .ot-drawer.open { transform: none; }
-        .ot-dh { position: sticky; top: 0; z-index: 2; background: #fff; border-bottom: 1px solid var(--ot-line); padding: 16px 22px; display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
-        .ot-db { padding: 18px 22px 40px; }
-        .ot-sec { font-weight: 800; font-size: 1rem; margin: 22px 0 10px; display: flex; align-items: center; gap: 8px; }
-        .ot-hero { display: grid; grid-template-columns: 220px 1fr; gap: 16px; }
-        .ot-ring { background: #fff; border: 1px solid var(--ot-line); border-radius: 14px; padding: 16px; text-align: center; }
-        .ot-ring svg { width: 150px; height: 150px; }
-        .ot-dates { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
-        .ot-date { background: #fff; border: 1px solid var(--ot-line); border-radius: 12px; padding: 11px 13px; }
-        .ot-date .l { font-size: .72rem; color: var(--ot-mute); font-weight: 600; text-transform: uppercase; }
-        .ot-date .v { font-weight: 700; margin-top: 3px; }
-        .ot-moulds { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
-        .ot-mould { background: #fff; border: 1px solid var(--ot-line); border-radius: 14px; padding: 14px; position: relative; }
-        .ot-mould.neck { border-color: var(--ot-amber); box-shadow: 0 0 0 3px var(--ot-amber-bg); }
-        .ot-mould .nm { font-weight: 700; padding-right: 90px; }
-        .ot-mould .tag { position: absolute; top: 12px; right: 12px; }
-        .ot-grid2 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px 10px; margin-top: 10px; font-size: .82rem; }
-        .ot-grid2 b { display: block; font-size: .95rem; }
-        .ot-alert { background: var(--ot-amber-bg); color: #93370d; border: 1px solid #fedf89; border-radius: 12px; padding: 10px 14px; font-size: .85rem; margin-top: 12px; }
-        .ot-alert.red { background: var(--ot-red-bg); color: #912018; border-color: #fecdca; }
+        /* start plan */
+        .seqn { width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; font-weight: 800; font-size: 13px; background: var(--ink); color: #fff; }
+        .seqn.done { background: var(--green); }
+        .seqn.run { background: var(--blue); }
+        .st { display: inline-flex; flex-direction: column; gap: 2px; }
+        .st .t { font-weight: 800; font-size: 12px; display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+        .st .d { font-size: 11px; color: var(--mute); }
+        .st.good .t { color: var(--green); }
+        .st.run .t { color: var(--blue); }
+        .st.warn .t { color: var(--amber); }
+        .st.bad .t { color: var(--red); }
+        .st.grey .t { color: var(--mute); }
+        .flow { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 12px 16px; border-bottom: 1px solid var(--line2); font-size: 12px; }
+        .flow .stp { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line); border-radius: 999px; padding: 4px 10px 4px 4px; font-weight: 700; background: #fff; }
+        .flow .stp .seqn { width: 20px; height: 20px; font-size: 11px; }
+        .flow .stp.bad { border-color: var(--red-br); background: var(--red-bg); }
+        .flow .stp.warn { border-color: var(--amber-br); background: var(--amber-bg); }
+        .flow .arr { color: var(--faint); }
+        .gmust { position: absolute; top: 3px; width: 11px; height: 11px; margin-left: -5px; transform: rotate(45deg); background: #fff; border: 2px solid var(--red); border-radius: 2px; z-index: 1; }
+        .nextl { grid-column: 1 / -1; margin-top: 8px; font-size: 12px; display: flex; gap: 6px; align-items: baseline; }
+        .nextl.bad { color: var(--red); } .nextl.warn { color: var(--amber); } .nextl.good { color: var(--green); } .nextl.run, .nextl.grey { color: var(--mute); }
 
-        /* ---- machine wise ---- */
-        .ot-line { font-weight: 800; color: var(--ot-mute); font-size: .8rem; text-transform: uppercase; letter-spacing: .6px; margin: 18px 0 8px; }
-        .ot-machines { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 12px; }
-        .ot-mac { background: #fff; border: 1px solid var(--ot-line); border-radius: 14px; padding: 13px 14px; border-top: 4px solid var(--ot-grey); }
-        .ot-mac.RUNNING { border-top-color: var(--ot-blue); }
-        .ot-mac.QUEUED { border-top-color: var(--ot-amber); }
-        .ot-mac .hd { display: flex; justify-content: space-between; align-items: center; }
-        .ot-mac .nm { font-weight: 800; }
-        .ot-job { margin-top: 10px; padding: 10px; background: #f9fafb; border-radius: 10px; }
-        .ot-job a { color: var(--ot-blue); font-weight: 700; text-decoration: none; cursor: pointer; }
-        .ot-q { margin-top: 8px; border-top: 1px dashed var(--ot-line); padding-top: 8px; font-size: .8rem; }
-        .ot-q div { display: flex; justify-content: space-between; gap: 8px; padding: 2px 0; }
-        .ot-empty { padding: 40px; text-align: center; color: var(--ot-mute); }
-        @media (max-width: 760px) { .ot-hero { grid-template-columns: 1fr; } .ot-bar input { min-width: 0; } .ot-hide-sm { display: none; } }
+        /* gantt */
+        .gantt { padding: 16px 18px 12px; }
+        .grow { display: grid; grid-template-columns: 220px 1fr; gap: 14px; align-items: center; min-height: 34px; }
+        .grow .gl { font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .gtrack { position: relative; height: 22px; background: repeating-linear-gradient(90deg, transparent 0, transparent calc(var(--d) - 1px), var(--line2) calc(var(--d) - 1px), var(--line2) var(--d)); border-radius: 6px; }
+        .gbar { position: absolute; top: 3px; height: 16px; border-radius: 5px; background: var(--blue); min-width: 4px; }
+        .gbar.g { background: var(--green); }
+        .gbar.f { background: repeating-linear-gradient(135deg, #bfdbfe 0 6px, #dbeafe 6px 12px); border: 1px dashed var(--blue); }
+        .gbar.fa { background: repeating-linear-gradient(135deg, #fde68a 0 6px, #fef3c7 6px 12px); border: 1px dashed var(--amber); }
+        .gline { position: absolute; top: -4px; bottom: -4px; width: 2px; }
+        .gline.today { background: var(--ink); }
+        .gline.target { background: var(--red); }
+        .gaxis { display: grid; grid-template-columns: 220px 1fr; gap: 14px; margin-top: 6px; }
+        .gaxis .ticks { position: relative; height: 16px; font-size: 10px; color: var(--faint); }
+        .gaxis .ticks span { position: absolute; transform: translateX(-50%); white-space: nowrap; }
+        .glegend { display: flex; gap: 16px; flex-wrap: wrap; font-size: 11px; color: var(--mute); margin-top: 10px; }
+        .glegend b { display: inline-block; width: 14px; height: 8px; border-radius: 2px; vertical-align: middle; margin-right: 5px; }
+
+        /* tables */
+        .tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
+        .tbl th { background: #f8fafc; color: var(--mute); font-weight: 700; font-size: 11px; text-transform: uppercase; letter-spacing: .4px; padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--line); white-space: nowrap; }
+        .tbl td { padding: 12px; border-bottom: 1px solid var(--line2); vertical-align: middle; }
+        .tbl tr:last-child td { border-bottom: 0; }
+        .tbl .r { text-align: right; }
+        .tbl tr.neck td { background: #fffdf5; }
+        .tbl tr.neck td:first-child { box-shadow: inset 3px 0 0 var(--amber); }
+        .scroll { overflow-x: auto; }
+
+        /* job cards */
+        .jcs { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 12px; }
+        .jc { padding: 16px; }
+        .jc .top { display: flex; justify-content: space-between; gap: 10px; align-items: flex-start; }
+        .jc .no { font-weight: 800; }
+        .jc .meta { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 12px 0; font-size: 12px; }
+        .jc .meta .v { font-weight: 700; font-size: 13px; }
+        .jcm { display: grid; grid-template-columns: 1fr 90px 110px; gap: 10px; align-items: center; padding: 6px 0; border-top: 1px solid var(--line2); font-size: 12px; }
+        .jcm .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+
+        /* ---------- machine wise ---------- */
+        .lineh { display: flex; align-items: center; gap: 10px; margin: 22px 0 10px; }
+        .lineh h4 { margin: 0; font-size: 13px; font-weight: 800; text-transform: uppercase; letter-spacing: .6px; color: var(--ink2); }
+        .lineh .cnt { font-size: 12px; color: var(--mute); }
+        .lineh hr { flex: 1; border: 0; border-top: 1px solid var(--line); margin: 0; }
+        .macs { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 12px; }
+        .mac { padding: 14px 16px; border-top: 4px solid var(--line); display: flex; flex-direction: column; }
+        .mac.RUNNING { border-top-color: var(--blue); }
+        .mac.QUEUED { border-top-color: var(--amber); }
+        .mac .mh { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+        .mac .mn { font-weight: 800; font-size: 15px; }
+        .job { margin-top: 12px; }
+        .job .ord { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; }
+        .job .mould { font-weight: 700; margin: 4px 0 8px; }
+        .job .nums { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 10px; font-size: 11px; color: var(--mute); }
+        .job .nums b { display: block; color: var(--ink); font-size: 13px; }
+        .queue { margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--line); }
+        .queue .qh { font-size: 11px; font-weight: 800; color: var(--mute); letter-spacing: .4px; margin-bottom: 6px; }
+        .queue .qi { display: grid; grid-template-columns: 18px 1fr auto; gap: 8px; font-size: 12px; padding: 4px 0; align-items: center; }
+        .queue .qi .k { width: 18px; height: 18px; border-radius: 50%; background: var(--grey-bg); font-size: 10px; font-weight: 800; display: grid; place-items: center; color: var(--mute); }
+        .mac .free { margin-top: auto; padding-top: 10px; font-size: 12px; color: var(--mute); }
+
+        @media (max-width: 1200px) { .kpis { grid-template-columns: repeat(3, 1fr); } .orow { grid-template-columns: 1fr 1.4fr; } .orow .dates { grid-column: 1; } .fgrid { grid-template-columns: repeat(2, 1fr); } }
+        @media (max-width: 760px) {
+            .ot { padding: 14px 12px 40px; }
+            .kpis { grid-template-columns: repeat(2, 1fr); }
+            .orow { grid-template-columns: 1fr; gap: 12px; } .orow .right { flex-direction: row; align-items: center; justify-content: flex-start; }
+            .dhero { grid-template-columns: 1fr; }
+            .grow, .gaxis { grid-template-columns: 110px 1fr; }
+            .jcs, .macs { grid-template-columns: 1fr; }
+        }
     </style>
 </head>
 
 <body>
     <div class="ot">
-        <div class="ot-head">
+        <div class="hd">
             <div>
-                <h1 class="ot-title"><i class="bi bi-diagram-3"></i> Order Tracker</h1>
-                <div class="ot-sub"><span id="ot-factory"></span> · Live production progress, order wise and machine wise</div>
+                <h1><span class="ic"><i class="bi bi-diagram-3"></i></span>Order Tracker</h1>
+                <div class="sub"><span id="fac"></span> · live production progress by order and by machine</div>
             </div>
-            <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-                <span class="ot-live" id="ot-live"><span class="dot"></span><span id="ot-updated">Loading…</span></span>
-                <div class="ot-seg">
+            <div class="tools">
+                <span class="live" id="live"><i></i><span id="upd">Loading…</span></span>
+                <div class="seg" id="seg">
                     <button data-view="orders" class="on"><i class="bi bi-receipt"></i> Order wise</button>
-                    <button data-view="machines"><i class="bi bi-gear-wide-connected"></i> Machine wise</button>
+                    <button data-view="machines"><i class="bi bi-cpu"></i> Machine wise</button>
                 </div>
-                <button class="ot-btn" id="ot-refresh"><i class="bi bi-arrow-clockwise"></i> Refresh</button>
+                <button class="btn" id="refresh"><i class="bi bi-arrow-clockwise"></i> Refresh</button>
             </div>
         </div>
 
-        <div class="ot-kpis" id="ot-kpis"></div>
-
-        <!-- ORDER WISE -->
+        <!-- ORDER LIST -->
         <section id="v-orders">
-            <div class="ot-bar">
-                <input id="ot-q" type="search" placeholder="Search order, job card, product or client…">
-                <select id="ot-scope">
+            <div class="kpis" id="okpis"></div>
+            <div class="bar">
+                <div class="search"><i class="bi bi-search"></i><input id="q" type="search" placeholder="Order, job card, product or client"></div>
+                <select id="scope" title="Which orders to load">
                     <option value="open">Open orders</option>
                     <option value="running">Running on machines</option>
-                    <option value="all">All (incl. complete)</option>
+                    <option value="all">All, incl. complete</option>
                 </select>
-                <span class="ot-chip on" data-f="">All</span>
-                <span class="ot-chip" data-f="RUNNING">Running</span>
-                <span class="ot-chip" data-f="PAUSED">Paused</span>
-                <span class="ot-chip" data-f="NOT_STARTED">Not started</span>
-                <span class="ot-chip" data-f="LATE">Late</span>
-                <span class="ot-chip" data-f="COMPLETE">Complete</span>
+                <select id="sort" title="Sort">
+                    <option value="end">Sort: expected end</option>
+                    <option value="pct">Sort: least complete</option>
+                    <option value="date">Sort: newest order</option>
+                </select>
+                <div class="chips" id="ochips"></div>
             </div>
-            <div class="ot-panel" style="overflow-x:auto">
-                <table class="ot-t">
-                    <thead>
-                        <tr>
-                            <th>Order</th><th>Product / Client</th><th class="r">Order Qty</th><th>Sets made</th>
-                            <th class="r ot-hide-sm">JCs</th><th class="ot-hide-sm">Machines</th><th>Started</th>
-                            <th>Target</th><th>Expected end</th><th>Status</th>
-                        </tr>
-                    </thead>
-                    <tbody id="ot-orders"><tr><td colspan="10" class="ot-empty">Loading…</td></tr></tbody>
-                </table>
-            </div>
+            <div class="olist" id="olist"><div class="otc empty">Loading orders…</div></div>
         </section>
+
+        <!-- ORDER DETAIL -->
+        <section id="v-detail" style="display:none"></section>
 
         <!-- MACHINE WISE -->
         <section id="v-machines" style="display:none">
-            <div class="ot-bar">
-                <input id="ot-mq" type="search" placeholder="Search machine, order, mould…">
-                <span class="ot-chip on" data-m="">All</span>
-                <span class="ot-chip" data-m="RUNNING">Running</span>
-                <span class="ot-chip" data-m="QUEUED">Queued only</span>
-                <span class="ot-chip" data-m="IDLE">Idle</span>
+            <div class="kpis" id="mkpis"></div>
+            <div class="bar">
+                <div class="search"><i class="bi bi-search"></i><input id="mq" type="search" placeholder="Machine, order, job card or mould"></div>
+                <div class="chips" id="mchips"></div>
             </div>
-            <div id="ot-machines"><div class="ot-empty">Loading…</div></div>
+            <div id="mlist"><div class="otc empty">Loading machines…</div></div>
         </section>
     </div>
-
-    <div class="ot-scrim" id="ot-scrim"></div>
-    <aside class="ot-drawer" id="ot-drawer" aria-label="Order detail"></aside>
 
     <script src="/assets/app.min.js?v=1576"></script>
     <script>
         (function () {
             const REFRESH_MS = 60000;
-            const S = { view: 'orders', orders: [], machines: [], filter: '', mfilter: '', openOrder: null, chart: null, timer: null };
+            const S = { view: 'orders', orders: [], machines: [], ofilter: '', mfilter: '', order: null, detail: null, chart: null, chartMode: 'cum' };
             const $ = id => document.getElementById(id);
             const esc = v => String(v == null ? '' : v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-            const n0 = v => Number(v || 0).toLocaleString('en-IN');
+            const n0 = v => Math.round(Number(v || 0)).toLocaleString('en-IN');
             const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-            /* date-only strings stay as they are; timestamps are shown in local time */
+            const todayStr = () => new Date().toLocaleDateString('en-CA');
+            /* YYYY-MM-DD from a date-only string or a timestamp (local time) */
+            const day = v => !v ? '' : (/^\d{4}-\d{2}-\d{2}$/.test(v) ? v : new Date(v).toLocaleDateString('en-CA'));
+            const dayMs = v => { const d = day(v); return d ? new Date(d + 'T00:00:00').getTime() : null; };
             function fd(v, withTime) {
                 if (!v) return '—';
                 const s = String(v);
-                if (/^\d{4}-\d{2}-\d{2}$/.test(s)) { const [y, m, d] = s.split('-'); return `${+d} ${MON[+m - 1]} ${y.slice(2)}`; }
-                const d = new Date(s); if (isNaN(d)) return '—';
-                const out = `${d.getDate()} ${MON[d.getMonth()]} ${String(d.getFullYear()).slice(2)}`;
-                return withTime ? `${out}, ${d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}` : out;
+                const d = /^\d{4}-\d{2}-\d{2}$/.test(s) ? new Date(s + 'T00:00:00') : new Date(s);
+                if (isNaN(d)) return '—';
+                let out = `${d.getDate()} ${MON[d.getMonth()]}`;
+                if (d.getFullYear() !== new Date().getFullYear()) out += ` ${String(d.getFullYear()).slice(2)}`;
+                if (withTime && !/^\d{4}-\d{2}-\d{2}$/.test(s)) out += `, ${d.toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' })}`;
+                return out;
             }
-            const day = v => (v ? (/^\d{4}-\d{2}-\d{2}$/.test(v) ? v : new Date(v).toLocaleDateString('en-CA')) : '');
-            const hrs = h => h == null ? '—' : h < 1 ? `${Math.round(h * 60)} min` : h < 48 ? `${h.toFixed(1)} h` : `${(h / 24).toFixed(1)} days`;
-            const label = s => ({ NOT_STARTED: 'Not started', NOT_PLANNED: 'Not planned', IN_PROGRESS: 'In progress' }[s] || (s ? s[0] + s.slice(1).toLowerCase() : ''));
-            const badge = s => `<span class="ot-badge b-${esc(s)}">${esc(label(s))}</span>`;
-            const prog = (pct, cls) => `<div class="ot-prog ${cls || ''}"><i style="width:${Math.min(100, pct || 0)}%"></i></div>`;
-            const isLate = o => o.delayed || (o.status !== 'COMPLETE' && o.target_date && day(o.target_date) < new Date().toLocaleDateString('en-CA'));
+            const hrs = h => h == null ? '—' : h < 1 ? `${Math.max(1, Math.round(h * 60))} min` : h < 48 ? `${h.toFixed(1)} h` : `${(h / 24).toFixed(1)} days`;
+            const LABEL = { NOT_STARTED: 'Not started', NOT_PLANNED: 'No machine', IN_PROGRESS: 'In progress', RUNNING: 'Running', COMPLETE: 'Complete', PAUSED: 'Paused', PLANNED: 'Planned', QUEUED: 'Queued', IDLE: 'Idle', LATE: 'Late' };
+            const pill = s => `<span class="pill s-${esc(s)}">${esc(LABEL[s] || s)}</span>`;
+            const track = (pct, cls) => `<div class="track ${cls || ''}"><i style="width:${Math.max(0, Math.min(100, pct || 0))}%"></i></div>`;
+            const isLate = o => o.status !== 'COMPLETE' && (o.delayed || (o.target_date && day(o.target_date) < todayStr()));
+            const short = s => String(s || '').replace(/\s+/g, ' ').trim();
+            /* how a mould stands against the order's target: tone, headline, detail */
+            const slack = h => h == null ? '' : (Math.abs(h) < 24 ? Math.round(Math.abs(h)) + ' h' : (Math.abs(h) / 24).toFixed(1) + ' days');
+            function startInfo(m) {
+                switch (m.start_state) {
+                    case 'DONE': return { tone: 'good', ic: 'bi-check-circle-fill', t: 'Done', d: 'completed ' + fd(m.completed_on) };
+                    case 'ON_TRACK': return { tone: 'run', ic: 'bi-play-circle-fill', t: 'Running, on time', d: slack(m.slack_hours) + ' to spare' };
+                    case 'FINISH_LATE': return { tone: 'bad', ic: 'bi-exclamation-octagon-fill', t: 'Running, finishes late', d: slack(m.slack_hours) + ' after target' };
+                    case 'RUNNING': return { tone: 'run', ic: 'bi-play-circle-fill', t: 'Running', d: 'no rate yet' };
+                    case 'ON_TIME': return { tone: 'good', ic: 'bi-calendar-check', t: 'Starts on time', d: slack(m.slack_hours) + ' before must-start' };
+                    case 'START_LATE': return { tone: 'bad', ic: 'bi-alarm-fill', t: 'Will start late', d: slack(m.slack_hours) + ' after must-start' };
+                    case 'NEEDS_MACHINE': return { tone: 'warn', ic: 'bi-cpu', t: 'Needs a machine', d: 'start within ' + slack(m.slack_hours) };
+                    case 'OVERDUE': return { tone: 'bad', ic: 'bi-exclamation-triangle-fill', t: 'Should have started', d: slack(m.slack_hours) + ' ago, no machine' };
+                    case 'NO_TARGET': return { tone: 'grey', ic: 'bi-dash-circle', t: 'No target date', d: 'set it in ERP' };
+                    default: return { tone: 'grey', ic: 'bi-question-circle', t: 'No rate', d: 'no standard or DPR rate' };
+                }
+            }
+            const stHtml = m => { const i = startInfo(m); return `<span class="st ${i.tone}"><span class="t"><i class="bi ${i.ic}"></i>${i.t}</span><span class="d">${esc(i.d)}</span></span>`; };
 
             function stamp(ok) {
-                $('ot-live').classList.toggle('off', !ok);
-                $('ot-updated').textContent = ok ? `Updated ${new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })} · auto every 60 s` : 'Could not refresh';
+                $('live').classList.toggle('off', !ok);
+                $('upd').textContent = ok ? `Updated ${new Date().toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' })} · refreshes every minute` : 'Could not refresh, retrying';
             }
+            const kpi = (ic, tone, v, l, f) => `<div class="kpi" ${f != null ? `data-f="${f}"` : ''}><div class="ic t-${tone}"><i class="bi ${ic}"></i></div><div><div class="v">${v}</div><div class="l">${l}</div></div></div>`;
 
-            /* ----------------------------------------------------- orders --- */
+            /* ================================================== ORDER LIST */
             async function loadOrders() {
-                const scope = $('ot-scope').value;
-                const q = $('ot-q').value.trim();
-                const res = await JPSMS.api.request(`/order-tracker/orders?scope=${scope}${q ? '&q=' + encodeURIComponent(q) : ''}`, { skipLoader: true });
+                const q = $('q').value.trim();
+                const res = await JPSMS.api.request(`/order-tracker/orders?scope=${$('scope').value}${q ? '&q=' + encodeURIComponent(q) : ''}`, { skipLoader: true });
                 S.orders = res.data || [];
                 renderOrders();
             }
 
+            const OFILTERS = [['', 'All'], ['RUNNING', 'Running'], ['LATE', 'Late'], ['LATESTART', 'Mould late'], ['PAUSED', 'Paused'], ['NOT_STARTED', 'Not started'], ['UNSCHED', 'No end date'], ['COMPLETE', 'Complete']];
+            const omatch = (o, f) => !f || (f === 'LATE' ? isLate(o) : f === 'LATESTART' ? o.late_starts > 0 : f === 'UNSCHED' ? (o.status !== 'COMPLETE' && !o.expected_end) : o.status === f);
+
+            function nextLine(o) {
+                const n = o.next_start;
+                if (!n) return '';
+                const i = startInfo(n);
+                const when = n.must_start_by ? 'must start by <b>' + fd(n.must_start_by, true) + '</b>' : 'no target date';
+                return `<div class="nextl ${i.tone}"><i class="bi ${i.ic}"></i><span>Next: <b>${esc(short(n.mould_name))}</b> ${when}${n.machine ? ' · queued on ' + esc(n.machine) : ' · no machine yet'}</span></div>`;
+            }
+
             function renderOrders() {
-                const f = S.filter;
-                const rows = S.orders.filter(o => !f || (f === 'LATE' ? isLate(o) : o.status === f));
-                kpisOrders();
-                if (!rows.length) { $('ot-orders').innerHTML = `<tr><td colspan="10" class="ot-empty">No orders match.</td></tr>`; return; }
-                $('ot-orders').innerHTML = rows.map(o => {
+                const O = S.orders;
+                const machines = new Set(O.flatMap(o => o.running_machines)).size;
+                $('okpis').innerHTML = [
+                    kpi('bi-receipt', 'grey', O.length, 'Orders in view', ''),
+                    kpi('bi-play-circle', 'blue', O.filter(o => o.status === 'RUNNING').length, `Running · ${machines} machine${machines === 1 ? "" : "s"}`, 'RUNNING'),
+                    kpi('bi-box-seam', 'green', n0(O.reduce((s, o) => s + o.sets_made, 0)), `Sets made of ${n0(O.reduce((s, o) => s + o.order_qty, 0))}`, null),
+                    kpi('bi-alarm', 'red', O.filter(isLate).length, 'Late or at risk', 'LATE'),
+                    kpi('bi-hourglass-split', 'amber', O.filter(o => o.late_starts > 0).length, 'Orders with a late mould', 'LATESTART')
+                ].join('');
+                $('ochips').innerHTML = OFILTERS.map(([f, l]) => `<span class="chip ${S.ofilter === f ? 'on' : ''}" data-of="${f}">${l}<span class="n">${O.filter(o => omatch(o, f)).length}</span></span>`).join('');
+
+                const sort = $('sort').value;
+                const rows = O.filter(o => omatch(o, S.ofilter)).sort((a, b) =>
+                    sort === 'pct' ? a.pct - b.pct
+                        : sort === 'date' ? String(b.order_date || '').localeCompare(String(a.order_date || ''))
+                            : (Number(isLate(b)) - Number(isLate(a))) || String(a.expected_end || '9999').localeCompare(String(b.expected_end || '9999')));
+                if (!rows.length) { $('olist').innerHTML = `<div class="otc empty"><i class="bi bi-inboxes"></i>No orders match these filters.</div>`; return; }
+
+                $('olist').innerHTML = rows.map(o => {
                     const late = isLate(o);
-                    const pips = o.moulds.map(m => `<span class="${m.status === 'COMPLETE' ? 'done' : ''}" title="${esc(m.mould_name)} · ${m.pct}%"><i style="width:${m.pct}%"></i></span>`).join('');
-                    return `<tr class="click" data-order="${esc(o.order_no)}">
-                        <td><div class="strong">${esc(o.order_no)}</div><div class="ot-mute">${fd(o.order_date)}</div></td>
-                        <td><div>${esc(o.product_name)}</div><div class="ot-mute">${esc(o.client_name)}</div></td>
-                        <td class="r strong">${n0(o.order_qty)}</td>
-                        <td style="min-width:190px">
-                            <div style="display:flex;justify-content:space-between;font-size:.8rem"><b>${n0(o.sets_made)} / ${n0(o.order_qty)}</b><span class="ot-mute">${o.pct}%</span></div>
-                            ${prog(o.pct, o.status === 'COMPLETE' ? 'g' : late ? 'a' : '')}
-                            <div class="ot-pips">${pips}</div>
-                            ${o.bottleneck ? `<div class="ot-mute" style="margin-top:3px"><i class="bi bi-exclamation-triangle"></i> Waiting on ${esc(o.bottleneck.mould_name)}</div>` : ''}
-                        </td>
-                        <td class="r ot-hide-sm">${o.jc_count}</td>
-                        <td class="ot-hide-sm">${o.running_machines.map(m => `<span class="ot-mc">${esc(m)}</span>`).join('') || '<span class="ot-mute">—</span>'}</td>
-                        <td>${fd(o.start_date)}</td>
-                        <td>${fd(o.target_date)}</td>
-                        <td>${o.expected_end ? `<b>${fd(o.expected_end, o.status !== 'COMPLETE')}</b>` : `<span class="ot-mute" title="${esc(o.eta_unknown_reason)}">Not scheduled</span>`}</td>
-                        <td>${badge(o.status)} ${late ? badge('LATE') : ''}</td>
-                    </tr>`;
+                    const neck = o.bottleneck && o.bottleneck.mould_no;
+                    const bars = o.moulds.map(m => `<div class="mbar ${m.mould_no === neck ? 'neck' : ''}" title="${esc(m.mould_name)} · ${n0(m.produced)} / ${n0(m.required)} pcs">
+                            <div class="nm"><span>${esc(short(m.mould_name))}</span><span>${Math.round(m.pct)}%</span></div>
+                            ${track(m.pct, 'thin ' + (m.status === 'COMPLETE' ? 'g' : m.mould_no === neck ? 'a' : ''))}</div>`).join('');
+                    return `<div class="otc orow ${o.status} ${late ? 'late' : ''}" data-order="${esc(o.order_no)}">
+                        <div>
+                            <div class="no">${esc(o.order_no)}</div>
+                            <div class="prod" title="${esc(o.product_name)}">${esc(o.product_name) || '—'}</div>
+                            <div class="muted small">${esc(o.client_name)}${o.order_date ? ' · ' + fd(o.order_date) : ''} · ${o.jc_count} JC</div>
+                        </div>
+                        <div>
+                            <div class="sets"><span><span class="big">${n0(o.sets_made)}</span> <span class="muted">/ ${n0(o.order_qty)} sets</span></span><span class="b">${Math.round(o.pct)}%</span></div>
+                            ${track(o.pct, o.status === 'COMPLETE' ? 'g' : late ? 'a' : '')}
+                            <div class="mbars">${bars}</div>
+                        </div>
+                        <div class="dates">
+                            <div><div class="l">Started</div><div class="v">${fd(o.start_date)}</div></div>
+                            <div><div class="l">Target</div><div class="v">${fd(o.target_date)}</div></div>
+                            <div><div class="l">${o.status === 'COMPLETE' ? 'Finished' : 'Expected'}</div><div class="v ${late ? 'late' : ''}">${o.expected_end ? fd(o.expected_end, o.status !== 'COMPLETE') : '<span class="muted">Not set</span>'}</div></div>
+                            ${nextLine(o)}
+                        </div>
+                        <div class="right">
+                            <div>${pill(o.status)}${late ? ' ' + pill('LATE') : ''}</div>
+                            <div>${o.running_machines.slice(0, 3).map(m => `<span class="mc">${esc(m)}</span>`).join('')}${o.running_machines.length > 3 ? `<span class="muted small">+${o.running_machines.length - 3}</span>` : ''}</div>
+                        </div>
+                    </div>`;
                 }).join('');
             }
 
-            function kpisOrders() {
-                const o = S.orders;
-                const running = o.filter(x => x.status === 'RUNNING').length;
-                const late = o.filter(isLate).length;
-                const sets = o.reduce((s, x) => s + x.sets_made, 0), qty = o.reduce((s, x) => s + x.order_qty, 0);
-                const unsched = o.filter(x => x.status !== 'COMPLETE' && !x.expected_end).length;
-                const machines = new Set(o.flatMap(x => x.running_machines)).size;
-                $('ot-kpis').innerHTML = [
-                    ['Orders', o.length, 'in this view'],
-                    ['Running', running, `on ${machines} machines`],
-                    ['Sets made', n0(sets), `of ${n0(qty)} ordered`],
-                    ['Late / at risk', late, 'expected end after target'],
-                    ['Not scheduled', unsched, 'a mould has no machine']
-                ].map(k => `<div class="ot-kpi"><div class="l">${k[0]}</div><div class="v">${k[1]}</div><div class="s">${k[2]}</div></div>`).join('');
-            }
-
-            /* ------------------------------------------------ order detail --- */
-            async function openOrder(orderNo, silent) {
-                S.openOrder = orderNo;
+            /* ================================================ ORDER DETAIL */
+            async function openOrder(no, silent) {
+                S.order = no;
                 if (!silent) {
-                    $('ot-drawer').innerHTML = `<div class="ot-empty">Loading ${esc(orderNo)}…</div>`;
-                    $('ot-scrim').style.display = 'block';
-                    requestAnimationFrame(() => $('ot-drawer').classList.add('open'));
+                    show('detail');
+                    $('v-detail').innerHTML = `<div class="otc empty">Loading ${esc(no)}…</div>`;
+                    history.replaceState(null, '', `?order=${encodeURIComponent(no)}`);
+                    window.scrollTo(0, 0);
                 }
                 try {
-                    const res = await JPSMS.api.request(`/order-tracker/order?order_no=${encodeURIComponent(orderNo)}`, { skipLoader: true });
-                    if (S.openOrder === orderNo) renderDetail(res.data);
-                } catch (e) { if (!silent) $('ot-drawer').innerHTML = `<div class="ot-empty">Could not load this order.</div>`; }
+                    const res = await JPSMS.api.request(`/order-tracker/order?order_no=${encodeURIComponent(no)}`, { skipLoader: true });
+                    if (S.order === no) { S.detail = res.data; renderDetail(); }
+                } catch (e) { if (!silent) $('v-detail').innerHTML = `<div class="otc empty"><i class="bi bi-exclamation-circle"></i>Could not load ${esc(no)}.</div>`; }
             }
             function closeOrder() {
-                S.openOrder = null;
-                $('ot-drawer').classList.remove('open');
-                $('ot-scrim').style.display = 'none';
+                S.order = null; S.detail = null;
                 if (S.chart) { S.chart.destroy(); S.chart = null; }
+                history.replaceState(null, '', location.pathname + (S.view === 'machines' ? '?view=machines' : ''));
+                show(S.view);
             }
 
-            function ring(pct) {
-                const r = 62, c = 2 * Math.PI * r, off = c * (1 - Math.min(100, pct) / 100);
-                return `<svg viewBox="0 0 150 150"><circle cx="75" cy="75" r="${r}" fill="none" stroke="#edf0f5" stroke-width="14"/>
-                    <circle cx="75" cy="75" r="${r}" fill="none" stroke="${pct >= 100 ? '#079455' : '#2563eb'}" stroke-width="14" stroke-linecap="round"
-                        stroke-dasharray="${c}" stroke-dashoffset="${off}" transform="rotate(-90 75 75)"/>
-                    <text x="75" y="72" text-anchor="middle" font-size="26" font-weight="800" fill="#101828">${pct}%</text>
-                    <text x="75" y="94" text-anchor="middle" font-size="11" fill="#667085">sets complete</text></svg>`;
+            function ring(pct, done) {
+                const r = 66, c = 2 * Math.PI * r, p = Math.max(0, Math.min(100, pct));
+                return `<svg viewBox="0 0 160 160"><circle cx="80" cy="80" r="${r}" fill="none" stroke="#e9eef5" stroke-width="14"/>
+                    <circle cx="80" cy="80" r="${r}" fill="none" stroke="${done ? '#059669' : '#2563eb'}" stroke-width="14" stroke-linecap="round"
+                    stroke-dasharray="${c}" stroke-dashoffset="${c * (1 - p / 100)}" transform="rotate(-90 80 80)"/>
+                    <text x="80" y="78" text-anchor="middle" font-size="30" font-weight="800" fill="#0f172a">${Math.round(p)}%</text>
+                    <text x="80" y="100" text-anchor="middle" font-size="12" fill="#64748b">sets complete</text></svg>`;
             }
 
-            function renderDetail(o) {
-                const late = isLate(o);
+            /* one bar per mould: actual run (solid) + forecast to expected end (hatched) */
+            function gantt(o) {
+                const now = Date.now();
+                const pts = [dayMs(o.start_date), dayMs(o.target_date), now];
+                o.moulds.forEach(m => { pts.push(dayMs(m.first_date), dayMs(m.completed_on), m.eta ? new Date(m.eta).getTime() : null, m.must_start_by ? new Date(m.must_start_by).getTime() : null); });
+                const xs = pts.filter(Boolean);
+                let lo = Math.min(...xs), hi = Math.max(...xs);
+                lo -= 86400000; hi += 86400000;
+                const span = hi - lo, days = Math.max(1, Math.round(span / 86400000));
+                const x = t => ((t - lo) / span * 100).toFixed(2) + '%';
+                const w = (a, b) => (Math.max(0, b - a) / span * 100).toFixed(2) + '%';
+                const step = Math.max(1, Math.ceil(days / 8));
+                const ticks = [];
+                for (let t = dayMs(new Date(lo).toISOString()); t <= hi; t += step * 86400000) if (t >= lo) ticks.push(`<span style="left:${x(t)}">${fd(new Date(t).toLocaleDateString('en-CA'))}</span>`);
+                const lines = `<div class="gline today" style="left:${x(now)}" title="Today"></div>` + (o.target_date ? `<div class="gline target" style="left:${x(dayMs(o.target_date) + 86399000)}" title="Target ${fd(o.target_date)}"></div>` : '');
+                const rows = o.moulds.map(m => {
+                    const s = dayMs(m.first_date), done = m.status === 'COMPLETE';
+                    const actualEnd = done ? dayMs(m.completed_on) + 86400000 : (dayMs(m.last_date) ? Math.min(now, dayMs(m.last_date) + 86400000) : null);
+                    const eta = !done && m.eta ? new Date(m.eta).getTime() : null;
+                    let bars = '';
+                    if (s && actualEnd) bars += `<div class="gbar ${done ? 'g' : ''}" style="left:${x(s)};width:${w(s, actualEnd)}" title="Produced ${fd(m.first_date)} – ${done ? fd(m.completed_on) : fd(m.last_date)}"></div>`;
+                    if (eta) { const from = m.status !== 'RUNNING' && m.expected_start ? new Date(m.expected_start).getTime() : Math.max(actualEnd || now, now); bars += `<div class="gbar ${m.status === 'RUNNING' ? 'f' : 'fa'}" style="left:${x(from)};width:${w(from, eta)}" title="Expected end ${fd(m.eta, true)} (${esc(m.eta_basis)})"></div>`; }
+                    const must = m.must_start_by && !done && m.status !== 'RUNNING' ? `<div class="gmust" style="left:${x(new Date(m.must_start_by).getTime())}" title="Must start by ${fd(m.must_start_by, true)}"></div>` : '';
+                    return `<div class="grow"><div class="gl" title="${esc(m.mould_name)}"><span class="muted">${m.start_seq ? m.start_seq + '. ' : '✓ '}</span>${esc(short(m.mould_name))}</div><div class="gtrack" style="--d:${(100 / days).toFixed(3)}%">${bars}${lines}${must}</div></div>`;
+                }).join('');
+                return `<div class="otc gantt">${rows}
+                    <div class="gaxis"><div></div><div class="ticks">${ticks.join('')}</div></div>
+                    <div class="glegend"><span><b style="background:var(--blue)"></b>Produced</span><span><b style="background:var(--green)"></b>Mould complete</span>
+                    <span><b style="background:#dbeafe;border:1px dashed var(--blue)"></b>Forecast, running</span><span><b style="background:#fef3c7;border:1px dashed var(--amber)"></b>Forecast, not on a machine now</span>
+                    <span><b style="background:#fff;border:2px solid var(--red);width:9px;height:9px;transform:rotate(45deg)"></b>Must start by</span><span><b style="background:var(--ink);width:3px"></b>Today</span>${o.target_date ? '<span><b style="background:var(--red);width:3px"></b>Target</span>' : ''}</div></div>`;
+            }
+
+            /* which mould starts when, in the order they must start to finish on time */
+            function startPlan(o) {
+                const ms = o.moulds.slice().sort((a, b) => (a.start_seq || 99) - (b.start_seq || 99));
+                const flow = ms.filter(m => m.start_seq).map(m => {
+                    const i = startInfo(m);
+                    return `<span class="stp ${i.tone === 'bad' ? 'bad' : i.tone === 'warn' ? 'warn' : ''}"><span class="seqn ${m.status === 'RUNNING' ? 'run' : ''}">${m.start_seq}</span>${esc(short(m.mould_name))}</span>`;
+                }).join('<i class="bi bi-chevron-right arr"></i>');
+                const neck = o.bottleneck && o.bottleneck.mould_no;
+                const rows = ms.map(m => {
+                    const done = m.status === 'COMPLETE', run = m.status === 'RUNNING';
+                    const where = run ? m.machines.map(x => `<span class="mc">${esc(x)}</span>`).join('')
+                        : m.queue ? `<span class="mc">${esc(m.queue.machine)}</span><div class="muted small">#${m.queue.position} in machine queue</div>`
+                            : done ? '<span class="muted">—</span>' : '<span class="muted">Not planned</span>';
+                    const started = done || run
+                        ? `<b>${fd(m.started_at || m.first_date)}</b><div class="muted small">started</div>`
+                        : m.expected_start ? `<b>${fd(m.expected_start, true)}</b><div class="muted small">expected start</div>` : '<span class="muted">Not scheduled</span>';
+                    const must = done || run ? '<span class="muted">—</span>' : m.must_start_by
+                        ? `<b style="color:var(--red)">${fd(m.must_start_by, true)}</b><div class="muted small">must start by</div>` : '<span class="muted">—</span>';
+                    const end = done ? `<b style="color:var(--green)">${fd(m.completed_on)}</b>`
+                        : m.eta ? `<b>${fd(m.eta, true)}</b><div class="muted small">${esc(m.eta_basis)}</div>` : '<span class="muted">—</span>';
+                    return `<tr class="${m.mould_no === neck ? 'neck' : ''}">
+                        <td><span class="seqn ${done ? 'done' : run ? 'run' : ''}">${done ? '<i class="bi bi-check"></i>' : m.start_seq}</span></td>
+                        <td style="min-width:190px"><div class="b">${esc(m.mould_name)}</div><div class="muted small">×${m.ratio} per set · ${n0(m.balance)} of ${n0(m.required)} pcs left</div></td>
+                        <td>${where}</td>
+                        <td class="r nowrap">${done ? '—' : hrs(m.hours_left)}<div class="muted small">${m.rate_pph ? n0(m.rate_pph) + '/h ' + (m.rate_basis === 'live' ? 'live' : 'std') : ''}</div></td>
+                        <td class="nowrap">${started}</td>
+                        <td class="nowrap">${must}</td>
+                        <td class="nowrap">${end}</td>
+                        <td>${stHtml(m)}</td></tr>`;
+                }).join('');
+                return `<div class="sec"><div class="sech"><h3><i class="bi bi-signpost-split"></i> Start plan</h3>
+                    <span class="muted small">Must start by = target ${o.target_date ? fd(o.target_date) : '(none)'} minus the hours still needed (pieces left ÷ rate). Updates live.</span></div>
+                    <div class="otc">${flow ? '<div class="flow"><span class="muted b">Start order</span>' + flow + '</div>' : ''}
+                    <div class="scroll"><table class="tbl"><thead><tr><th>#</th><th>Mould</th><th>Machine</th><th class="r">Time needed</th><th>Started / starts</th><th>Must start by</th><th>Expected end</th><th>On time?</th></tr></thead>
+                    <tbody>${rows || '<tr><td colspan="8" class="empty">No moulds.</td></tr>'}</tbody></table></div></div></div>`;
+            }
+
+            function renderDetail() {
+                const o = S.detail; if (!o) return;
+                const late = isLate(o), done = o.status === 'COMPLETE';
                 const neck = o.bottleneck ? o.bottleneck.mould_no : null;
-                const moulds = o.moulds.map(m => `
-                    <div class="ot-mould ${m.mould_no === neck ? 'neck' : ''}">
-                        <span class="tag">${badge(m.status)}</span>
-                        <div class="nm">${esc(m.mould_name)}</div>
-                        <div class="ot-mute">${esc(m.mould_no)} · ratio <b>${m.ratio}</b> pcs / set${m.mould_no === neck ? ' · <b style="color:#dc6803">bottleneck</b>' : ''}</div>
-                        <div style="margin-top:10px;display:flex;justify-content:space-between;font-size:.8rem"><b>${n0(m.produced)} / ${n0(m.required)} pcs</b><span class="ot-mute">${m.pct}%</span></div>
-                        ${prog(m.pct, m.status === 'COMPLETE' ? 'g' : '')}
-                        <div class="ot-grid2">
-                            <div><span class="ot-mute">Balance</span><b>${n0(m.balance)}</b></div>
-                            <div><span class="ot-mute">= Sets</span><b>${n0(m.sets_equiv)}</b></div>
-                            <div><span class="ot-mute">Today</span><b>${n0(m.today_qty)}</b></div>
-                            <div><span class="ot-mute">Rate</span><b>${m.rate_pph ? n0(m.rate_pph) + '/h' : '—'}</b><span class="ot-mute">${m.rate_basis || ''}</span></div>
-                            <div><span class="ot-mute">Started</span><b>${fd(m.first_date)}</b></div>
-                            <div><span class="ot-mute">${m.status === 'COMPLETE' ? 'Completed' : 'Expected end'}</span><b>${m.status === 'COMPLETE' ? fd(m.completed_on) : fd(m.eta, true)}</b><span class="ot-mute">${m.status === 'COMPLETE' ? '' : esc(m.eta_basis || 'no machine yet')}</span></div>
-                        </div>
-                        <div style="margin-top:8px">${(m.machines.length ? m.machines : m.all_machines).map(x => `<span class="ot-mc">${esc(x)}</span>`).join('') || '<span class="ot-mute">No machine planned</span>'}
-                            ${m.hours_left ? `<span class="ot-mute"> · ${hrs(m.hours_left)} left</span>` : ''}</div>
-                        ${m.items.length > 1 ? `<div class="ot-mute" style="margin-top:6px">${m.items.length} colours / items</div>` : ''}
-                    </div>`).join('');
+                const notes = [];
+                if (o.bottleneck) notes.push(`<div class="note a"><i class="bi bi-hourglass-split"></i><div>Complete sets are held back by <b>${esc(o.bottleneck.mould_name)}</b>. This mould decides when the order finishes.</div></div>`);
+                if (late && o.expected_end) notes.push(`<div class="note r"><i class="bi bi-alarm"></i><div>Expected to finish <b>${fd(o.expected_end, true)}</b>, after the target of <b>${fd(o.target_date)}</b>.</div></div>`);
+                if (o.eta_unknown_reason) notes.push(`<div class="note r"><i class="bi bi-calendar-x"></i><div>${esc(o.eta_unknown_reason)}, so the order's end date can't be worked out yet.</div></div>`);
+                if (o.jc_qty && o.jc_qty < o.order_qty) notes.push(`<div class="note i"><i class="bi bi-info-circle"></i><div>Job cards cover <b>${n0(o.jc_qty)}</b> of ${n0(o.order_qty)} ordered. <b>${n0(o.order_qty - o.jc_qty)}</b> still need a job card.</div></div>`);
+                if (o.unlinked_qty) notes.push(`<div class="note i"><i class="bi bi-link-45deg"></i><div>${n0(o.unlinked_qty)} pcs were booked in DPR without a job card number. They count for the order, not for any job card.</div></div>`);
 
-                const jcHead = o.moulds.map(m => `<th class="r">${esc(m.mould_name)}<div class="ot-mute" style="text-transform:none">×${m.ratio}</div></th>`).join('');
-                const jcs = o.job_cards.map(j => `<tr>
-                    <td><b>${esc(j.job_card_no)}</b><div class="ot-mute">${fd(j.job_card_date)}</div></td>
-                    <td class="r strong">${n0(j.qty)}</td>
-                    <td style="min-width:150px"><b>${n0(j.sets_made)} / ${n0(j.qty)}</b> <span class="ot-mute">${j.pct}%</span>${prog(j.pct, j.status === 'COMPLETE' ? 'g' : '')}</td>
-                    ${j.moulds.map(m => `<td class="r"><b>${n0(m.produced)}</b><div class="ot-mute">of ${n0(m.required)} · ${n0(m.sets_equiv)} sets</div></td>`).join('')}
-                    <td>${fd(j.actual_start)}<div class="ot-mute">plan ${fd(j.planned_start)}</div></td>
-                    <td>${fd(j.last_production)}</td>
-                    <td>${fd(j.planned_comp_date)}</td>
-                    <td>${badge(j.status)}</td></tr>`).join('');
+                const mouldRows = o.moulds.map(m => {
+                    const mDone = m.status === 'COMPLETE';
+                    const mach = (m.machines.length ? m.machines : m.all_machines.filter(x => x && x.length > 1));
+                    return `<tr class="${m.mould_no === neck ? 'neck' : ''}">
+                        <td style="min-width:200px"><div class="b">${esc(m.mould_name)}</div><div class="muted small">${esc(m.mould_no)}${m.items.length > 1 ? ` · ${m.items.length} colours` : ''}${m.mould_no === neck ? ' · <b style="color:var(--amber)">bottleneck</b>' : ''}</div></td>
+                        <td class="r b">×${m.ratio}</td>
+                        <td class="r">${n0(m.required)}</td>
+                        <td class="r b">${n0(m.produced)}</td>
+                        <td class="r">${n0(m.balance)}</td>
+                        <td class="r">${n0(m.sets_equiv)}</td>
+                        <td style="min-width:130px"><div class="small muted" style="text-align:right">${m.pct}%</div>${track(m.pct, mDone ? 'g' : m.mould_no === neck ? 'a' : '')}</td>
+                        <td>${mach.map(x => `<span class="mc">${esc(x)}</span>`).join('') || '<span class="muted">—</span>'}</td>
+                        <td class="r nowrap">${m.rate_pph ? n0(m.rate_pph) + '/h' : '—'}<div class="muted small">${m.rate_basis === 'live' ? 'last 3 days' : m.rate_basis === 'std' ? 'standard' : ''}</div></td>
+                        <td class="r">${n0(m.today_qty)}</td>
+                        <td class="nowrap">${fd(m.first_date)}</td>
+                        <td class="nowrap">${mDone ? `<span class="b" style="color:var(--green)">${fd(m.completed_on)}</span>` : m.eta ? `<span class="b">${fd(m.eta, true)}</span><div class="muted small">${m.eta_basis === 'if started now' ? 'if restarted now' : esc(m.eta_basis)}${m.hours_left ? ' · ' + hrs(m.hours_left) + ' left' : ''}</div>` : '<span class="muted">No machine</span>'}</td>
+                        <td>${pill(m.status)}</td></tr>`;
+                }).join('');
+
+                const jcs = o.job_cards.map(j => `<div class="otc jc">
+                        <div class="top"><div><div class="no">${esc(j.job_card_no)}</div><div class="muted small">issued ${fd(j.job_card_date)}${j.erp_status ? ' · ERP: ' + esc(j.erp_status) : ''}</div></div>${pill(j.status)}</div>
+                        <div class="sets" style="margin-top:12px"><span><span class="big">${n0(j.sets_made)}</span> <span class="muted">/ ${n0(j.qty)} sets</span></span><span class="b">${Math.round(j.pct)}%</span></div>
+                        ${track(j.pct, j.status === 'COMPLETE' ? 'g' : '')}
+                        <div class="meta">
+                            <div><div class="muted">Started</div><div class="v">${fd(j.actual_start)}</div><div class="muted">plan ${fd(j.planned_start)}</div></div>
+                            <div><div class="muted">Last production</div><div class="v">${fd(j.last_production)}</div></div>
+                            <div><div class="muted">Target</div><div class="v">${fd(j.planned_comp_date)}</div><div class="muted">plan end ${fd(j.planned_end)}</div></div>
+                        </div>
+                        ${j.moulds.map(m => `<div class="jcm"><div class="nm" title="${esc(m.mould_name)}">${esc(short(m.mould_name))} <span class="muted">×${m.ratio}</span></div>
+                            <div class="r small" style="text-align:right"><b>${n0(m.produced)}</b> <span class="muted">/ ${n0(m.required)}</span></div>
+                            ${track(m.required ? m.produced / m.required * 100 : 0, 'thin ' + (m.balance === 0 && m.required ? 'g' : ''))}</div>`).join('')}
+                    </div>`).join('');
 
                 const plans = o.moulds.flatMap(m => m.plans.map(p => ({ ...p, mould: m.mould_name })));
 
-                $('ot-drawer').innerHTML = `
-                    <div class="ot-dh">
-                        <div>
-                            <div class="ot-mute">ORDER</div>
-                            <div class="ot-title" style="font-size:1.35rem">${esc(o.order_no)} ${badge(o.status)} ${late ? badge('LATE') : ''}</div>
-                            <div class="ot-sub">${esc(o.product_name)} · ${esc(o.client_name)}${o.item_code ? " · item " + esc(o.item_code) : ""}</div>
-                        </div>
-                        <button class="ot-btn" id="ot-close"><i class="bi bi-x-lg"></i></button>
-                    </div>
-                    <div class="ot-db">
-                        <div class="ot-hero">
-                            <div class="ot-ring">${ring(o.pct)}<div><b>${n0(o.sets_made)}</b> of <b>${n0(o.order_qty)}</b> sets</div><div class="ot-mute">${n0(o.sets_balance)} sets to go</div></div>
-                            <div>
-                                <div class="ot-dates">
-                                    <div class="ot-date"><div class="l">Order date</div><div class="v">${fd(o.order_date)}</div></div>
-                                    <div class="ot-date"><div class="l">Production started</div><div class="v">${fd(o.start_date)}</div></div>
-                                    <div class="ot-date"><div class="l">Last production</div><div class="v">${fd(o.last_date)}</div></div>
-                                    <div class="ot-date"><div class="l">Target (ERP)</div><div class="v">${fd(o.target_date)}</div></div>
-                                    <div class="ot-date" style="${late ? 'border-color:#fecdca;background:#fef3f2' : ''}"><div class="l">${o.status === 'COMPLETE' ? 'Finished' : 'Expected end'}</div><div class="v">${o.expected_end ? fd(o.expected_end, o.status !== 'COMPLETE') : 'Not scheduled'}</div></div>
-                                    <div class="ot-date"><div class="l">Moulds done</div><div class="v">${o.moulds_complete} / ${o.mould_count}</div></div>
-                                    <div class="ot-date"><div class="l">Job cards</div><div class="v">${o.jc_count} · ${n0(o.jc_qty)} qty</div></div>
-                                    <div class="ot-date"><div class="l">Running on</div><div class="v">${o.running_machines.map(esc).join(', ') || '—'}</div></div>
-                                </div>
-                                ${o.bottleneck ? `<div class="ot-alert"><i class="bi bi-hourglass-split"></i> Complete sets are limited by <b>${esc(o.bottleneck.mould_name)}</b>. Speeding up this mould finishes the order sooner.</div>` : ''}
-                                ${o.eta_unknown_reason ? `<div class="ot-alert red"><i class="bi bi-calendar-x"></i> ${esc(o.eta_unknown_reason)}, so the order end date cannot be worked out.</div>` : ''}
-                                ${o.jc_qty && o.jc_qty < o.order_qty ? `<div class="ot-alert"><i class="bi bi-info-circle"></i> Job cards cover ${n0(o.jc_qty)} of ${n0(o.order_qty)} ordered. ${n0(o.order_qty - o.jc_qty)} still need a job card.</div>` : ''}
-                                ${o.unlinked_qty ? `<div class="ot-mute" style="margin-top:8px">${n0(o.unlinked_qty)} pcs were booked in DPR without a job card number; they count for the order but not for a job card.</div>` : ''}
+                $('v-detail').innerHTML = `
+                    <div class="crumb"><button class="btn" id="back"><i class="bi bi-arrow-left"></i> All orders</button>
+                        <span class="muted small">Order Tracker / <b style="color:var(--ink)">${esc(o.order_no)}</b></span></div>
+
+                    <div class="dhero">
+                        <div class="otc ringc">${ring(o.pct, done)}
+                            <div style="margin-top:6px"><b style="font-size:18px">${n0(o.sets_made)}</b> <span class="muted">of ${n0(o.order_qty)} sets</span></div>
+                            <div class="muted small">${done ? 'Order complete' : n0(o.sets_balance) + ' sets to go'}</div></div>
+                        <div class="otc facts">
+                            <h2>${esc(o.order_no)} ${pill(o.status)} ${late ? pill('LATE') : ''}</h2>
+                            <div class="muted" style="margin-top:4px">${esc(o.product_name)}${o.client_name ? ' · ' + esc(o.client_name) : ''}${o.item_code ? ' · item ' + esc(o.item_code) : ''}</div>
+                            <div class="fgrid">
+                                <div><div class="l">Order date</div><div class="v">${fd(o.order_date)}</div></div>
+                                <div><div class="l">Production started</div><div class="v">${fd(o.start_date)}</div></div>
+                                <div><div class="l">Target (ERP)</div><div class="v">${fd(o.target_date)}</div></div>
+                                <div><div class="l">${done ? 'Finished' : 'Expected end'}</div><div class="v" style="${late ? 'color:var(--red)' : done ? 'color:var(--green)' : ''}">${o.expected_end ? fd(o.expected_end, !done) : 'Not set'}</div></div>
+                                <div><div class="l">Moulds complete</div><div class="v">${o.moulds_complete} of ${o.mould_count}</div></div>
+                                <div><div class="l">Job cards</div><div class="v">${o.jc_count} · ${n0(o.jc_qty)} qty</div></div>
+                                <div><div class="l">Last production</div><div class="v">${fd(o.last_date)}</div></div>
+                                <div><div class="l">Running on</div><div class="v">${o.running_machines.map(m => `<span class="mc">${esc(m)}</span>`).join('') || '—'}</div></div>
                             </div>
+                            ${notes.join('')}
                         </div>
+                    </div>
 
-                        <div class="ot-sec"><i class="bi bi-boxes"></i> Mould wise</div>
-                        <div class="ot-moulds">${moulds || '<div class="ot-empty">No mould BOM for this order.</div>'}</div>
+                    ${startPlan(o)}
 
-                        <div class="ot-sec"><i class="bi bi-card-checklist"></i> Job card wise</div>
-                        <div class="ot-panel" style="overflow-x:auto"><table class="ot-t"><thead><tr>
-                            <th>Job card</th><th class="r">Qty</th><th>Sets made</th>${jcHead}<th>Started</th><th>Last prod.</th><th>Target</th><th>Status</th>
-                        </tr></thead><tbody>${jcs || '<tr><td colspan="20" class="ot-empty">No job cards yet.</td></tr>'}</tbody></table></div>
+                    <div class="sec"><div class="sech"><h3><i class="bi bi-bar-chart-steps"></i> Timeline</h3><span class="muted small">Actual production and forecast to finish, per mould</span></div>${gantt(o)}</div>
 
-                        <div class="ot-sec"><i class="bi bi-bar-chart-line"></i> Daily production by mould</div>
-                        <div class="ot-panel" style="padding:14px;height:300px"><canvas id="ot-chart"></canvas></div>
+                    <div class="sec"><div class="sech"><h3><i class="bi bi-boxes"></i> Mould wise</h3><span class="muted small">Ratio = pieces of that mould in one finished set</span></div>
+                        <div class="otc scroll"><table class="tbl"><thead><tr>
+                            <th>Mould</th><th class="r">Ratio</th><th class="r">Required</th><th class="r">Made</th><th class="r">Balance</th><th class="r">= Sets</th><th>Progress</th>
+                            <th>Machine</th><th class="r">Rate</th><th class="r">Today</th><th>Started</th><th>Completed / expected</th><th>Status</th>
+                        </tr></thead><tbody>${mouldRows || '<tr><td colspan="13" class="empty">No mould list for this order.</td></tr>'}</tbody></table></div></div>
 
-                        <div class="ot-sec"><i class="bi bi-calendar-week"></i> Machine plans</div>
-                        <div class="ot-panel" style="overflow-x:auto"><table class="ot-t"><thead><tr>
-                            <th>Plan</th><th>Mould</th><th>Machine</th><th>Job card</th><th class="r">Plan qty</th><th>Start</th><th>End / completed</th><th>Status</th>
-                        </tr></thead><tbody>${plans.map(p => `<tr><td>${esc(p.plan_id)}</td><td>${esc(p.mould)}</td><td>${esc(p.machine)}</td><td>${esc(p.job_card_no || '—')}</td>
-                            <td class="r">${n0(p.plan_qty)}</td><td>${fd(p.start_date)}</td><td>${fd(p.completed_at || p.end_date)}</td><td>${badge(p.status === 'COMPLETED' || p.status === 'CLOSED' ? 'COMPLETE' : p.status)}</td></tr>`).join('') || '<tr><td colspan="8" class="ot-empty">Not planned on any machine.</td></tr>'}</tbody></table></div>
-                    </div>`;
-                $('ot-close').onclick = closeOrder;
-                drawChart(o);
+                    <div class="sec"><div class="sech"><h3><i class="bi bi-card-checklist"></i> Job card wise</h3><span class="muted small">Sets made per job card, from DPR booked against it</span></div>
+                        <div class="jcs">${jcs || '<div class="otc empty">No job cards yet.</div>'}</div></div>
+
+                    <div class="sec"><div class="sech"><h3><i class="bi bi-graph-up"></i> Production by day</h3>
+                        <div class="seg" id="cmode"><button data-c="cum" class="${S.chartMode === 'cum' ? 'on' : ''}">Cumulative %</button><button data-c="daily" class="${S.chartMode === 'daily' ? 'on' : ''}">Daily pcs</button></div></div>
+                        <div class="otc" style="padding:16px;height:320px"><canvas id="chart"></canvas></div></div>
+
+                    <div class="sec"><div class="sech"><h3><i class="bi bi-calendar-week"></i> Machine plans</h3></div>
+                        <div class="otc scroll"><table class="tbl"><thead><tr><th>Plan</th><th>Mould</th><th>Machine</th><th>Job card</th><th class="r">Plan qty</th><th>Start</th><th>Completed</th><th>Status</th></tr></thead>
+                        <tbody>${plans.map(p => `<tr><td class="b">${esc(p.plan_id)}</td><td>${esc(p.mould)}</td><td><span class="mc">${esc(p.machine)}</span></td><td>${esc(p.job_card_no || '—')}</td>
+                            <td class="r">${n0(p.plan_qty)}</td><td>${fd(p.start_date)}</td><td>${fd(p.completed_at)}</td><td>${pill(['COMPLETED', 'CLOSED'].includes(p.status) ? 'COMPLETE' : p.status === 'RUNNING' ? 'RUNNING' : 'PLANNED')}</td></tr>`).join('') || '<tr><td colspan="8" class="empty">Not planned on any machine.</td></tr>'}</tbody></table></div></div>`;
+
+                $('back').onclick = closeOrder;
+                document.querySelectorAll('#cmode button').forEach(b => b.onclick = () => { S.chartMode = b.dataset.c; document.querySelectorAll('#cmode button').forEach(x => x.classList.toggle('on', x === b)); drawChart(); });
+                drawChart();
             }
 
-            function drawChart(o) {
+            function drawChart() {
+                const o = S.detail;
                 if (S.chart) { S.chart.destroy(); S.chart = null; }
-                if (typeof Chart === 'undefined') return;
+                if (!o || typeof Chart === 'undefined' || !$('chart')) return;
                 const dates = [...new Set(o.moulds.flatMap(m => m.daily.map(d => d.date)))].sort();
-                if (!dates.length) { $('ot-chart').parentElement.innerHTML = '<div class="ot-empty">No production booked yet.</div>'; return; }
-                const colors = ['#2563eb', '#079455', '#dc6803', '#7a5af8', '#e31b54', '#0e9384', '#ca8504', '#475467'];
-                S.chart = new Chart($('ot-chart'), {
-                    type: 'bar',
-                    data: {
-                        labels: dates.map(d => fd(d)),
-                        datasets: o.moulds.map((m, i) => {
-                            const by = new Map(m.daily.map(d => [d.date, d.qty]));
-                            return { label: `${m.mould_name} (×${m.ratio})`, data: dates.map(d => by.get(d) || 0), backgroundColor: colors[i % colors.length], borderRadius: 4 };
-                        })
-                    },
-                    options: { maintainAspectRatio: false, animation: false, plugins: { legend: { position: 'bottom' } }, scales: { y: { beginAtZero: true, title: { display: true, text: 'Good pcs' } } } }
+                if (!dates.length) { $('chart').parentElement.innerHTML = '<div class="empty"><i class="bi bi-bar-chart"></i>No production booked yet.</div>'; return; }
+                const colors = ['#2563eb', '#059669', '#d97706', '#7c3aed', '#db2777', '#0891b2', '#65a30d', '#475569'];
+                const cum = S.chartMode === 'cum';
+                const sets = o.moulds.map((m, i) => {
+                    const by = new Map(m.daily.map(d => [d.date, d.qty]));
+                    let run = 0;
+                    const data = dates.map(d => { run += by.get(d) || 0; return cum ? (m.required ? +(run / m.required * 100).toFixed(1) : 0) : (by.get(d) || 0); });
+                    const c = colors[i % colors.length];
+                    return cum
+                        ? { label: `${short(m.mould_name)} (×${m.ratio})`, data, borderColor: c, backgroundColor: c, tension: .25, pointRadius: 2, borderWidth: 2.5 }
+                        : { label: `${short(m.mould_name)} (×${m.ratio})`, data, backgroundColor: c, borderRadius: 4 };
+                });
+                S.chart = new Chart($('chart'), {
+                    type: cum ? 'line' : 'bar',
+                    data: { labels: dates.map(d => fd(d)), datasets: sets },
+                    options: {
+                        maintainAspectRatio: false, animation: false, interaction: { mode: 'index', intersect: false },
+                        plugins: { legend: { position: 'bottom', labels: { usePointStyle: true, boxWidth: 8 } },
+                            tooltip: { callbacks: { label: c => `${c.dataset.label}: ${cum ? c.parsed.y + '%' : n0(c.parsed.y) + ' pcs'}` } } },
+                        scales: { y: { beginAtZero: true, max: cum ? 100 : undefined, ticks: { callback: v => cum ? v + '%' : n0(v) } }, x: { grid: { display: false } } }
+                    }
                 });
             }
 
-            /* --------------------------------------------------- machines --- */
+            /* ================================================ MACHINE WISE */
             async function loadMachines() {
                 const res = await JPSMS.api.request('/order-tracker/machines', { skipLoader: true });
                 S.machines = res.data || [];
                 renderMachines();
             }
 
-            function jobBlock(j) {
-                return `<div class="ot-job">
-                    <div style="display:flex;justify-content:space-between;gap:8px">
-                        <div><a data-order="${esc(j.order_no)}">${esc(j.order_no || '—')}</a> <span class="ot-mute">${esc(j.job_card_no || '')}</span></div>
-                        <span class="ot-mute">${esc(j.plan_id)}</span>
+            function jobHtml(j) {
+                return `<div class="job">
+                    <div class="ord"><span><a class="lnk" data-order="${esc(j.order_no)}">${esc(j.order_no || '—')}</a> <span class="muted">${esc(j.job_card_no || '')}</span></span><span class="muted">${esc(j.plan_id)}</span></div>
+                    <div class="mould">${esc(j.mould_name)}</div>
+                    <div class="sets"><span><b>${n0(j.produced)}</b> <span class="muted">/ ${n0(j.plan_qty)} pcs</span></span><span class="b">${Math.round(j.pct)}%</span></div>
+                    ${track(j.pct)}
+                    <div class="nums">
+                        <div>Today<b>${n0(j.today_qty)}</b></div>
+                        <div>Rate<b>${j.rate_pph ? n0(j.rate_pph) + '/h' : '—'}</b></div>
+                        <div>Expected end<b>${fd(j.eta, true)}</b></div>
                     </div>
-                    <div style="font-weight:600;margin:3px 0 6px">${esc(j.mould_name)}</div>
-                    <div style="display:flex;justify-content:space-between;font-size:.8rem"><b>${n0(j.produced)} / ${n0(j.plan_qty)}</b><span class="ot-mute">${j.pct}%</span></div>
-                    ${prog(j.pct)}
-                    <div class="ot-grid2">
-                        <div><span class="ot-mute">Today</span><b>${n0(j.today_qty)}</b></div>
-                        <div><span class="ot-mute">Rate</span><b>${j.rate_pph ? n0(j.rate_pph) + '/h' : '—'}</b></div>
-                        <div><span class="ot-mute">Expected end</span><b>${fd(j.eta, true)}</b></div>
-                    </div>
-                    <div class="ot-mute" style="margin-top:4px">Started ${fd(j.first_date)} · ${hrs(j.hours_left)} left</div>
+                    <div class="muted small" style="margin-top:6px">Started ${fd(j.first_date)} · ${hrs(j.hours_left)} left · ${n0(j.balance)} pcs to go</div>
                 </div>`;
             }
 
+            const MFILTERS = [['', 'All'], ['RUNNING', 'Running'], ['QUEUED', 'Queued only'], ['IDLE', 'Idle']];
             function renderMachines() {
-                const q = $('ot-mq').value.trim().toLowerCase();
-                const f = S.mfilter;
-                const list = S.machines.filter(m => (!f || m.state === f) && (!q || JSON.stringify([m.machine, m.line, m.running, m.queue]).toLowerCase().includes(q)));
-                kpisMachines();
-                if (!list.length) { $('ot-machines').innerHTML = '<div class="ot-empty">No machines match.</div>'; return; }
-                let html = '', line = null, open = false;
-                list.forEach(m => {
-                    if (m.line !== line) {
-                        if (open) html += '</div>';
-                        line = m.line; open = true;
-                        html += `<div class="ot-line">${esc(line || 'No line')}</div><div class="ot-machines">`;
-                    }
-                    html += `<div class="ot-mac ${m.state}">
-                        <div class="hd"><div><span class="nm">${esc(m.machine)}</span>${m.tonnage ? ` <span class="ot-mute">${esc(m.tonnage)} T</span>` : ''}</div>${badge(m.state)}</div>
-                        ${m.running.map(jobBlock).join('') || '<div class="ot-mute" style="margin-top:10px">Nothing running.</div>'}
-                        ${m.queue.length ? `<div class="ot-q"><div class="ot-mute" style="font-weight:700">NEXT (${m.queue.length})</div>${m.queue.slice(0, 4).map(j => `
-                            <div><span><a data-order="${esc(j.order_no)}" style="color:var(--ot-blue);cursor:pointer">${esc(j.order_no)}</a> · ${esc(j.mould_name)} · ${n0(j.balance)} pcs</span><span class="ot-mute">${j.eta ? 'done ' + fd(j.eta, true) : '—'}</span></div>`).join('')}
-                            ${m.queue.length > 4 ? `<div class="ot-mute">+${m.queue.length - 4} more</div>` : ''}</div>` : ''}
-                        ${m.free_at ? `<div class="ot-mute" style="margin-top:8px"><i class="bi bi-flag"></i> Machine free ${fd(m.free_at, true)}</div>` : ''}
-                    </div>`;
-                });
-                if (open) html += '</div>';
-                $('ot-machines').innerHTML = html;
+                const M = S.machines;
+                const run = M.filter(m => m.state === 'RUNNING');
+                $('mkpis').innerHTML = [
+                    kpi('bi-cpu', 'grey', M.length, 'Moulding machines', ''),
+                    kpi('bi-play-circle', 'blue', run.length, `Running · ${M.length ? Math.round(run.length / M.length * 100) : 0}% in use`, 'RUNNING'),
+                    kpi('bi-receipt', 'green', new Set(run.flatMap(m => m.running.map(j => j.order_no))).size, 'Orders running', null),
+                    kpi('bi-hourglass', 'amber', M.filter(m => m.state === 'QUEUED').length, 'Queued, not running', 'QUEUED'),
+                    kpi('bi-pause-circle', 'red', M.filter(m => m.state === 'IDLE').length, 'Idle, nothing planned', 'IDLE')
+                ].join('');
+                $('mchips').innerHTML = MFILTERS.map(([f, l]) => `<span class="chip ${S.mfilter === f ? 'on' : ''}" data-mf="${f}">${l}<span class="n">${M.filter(m => !f || m.state === f).length}</span></span>`).join('');
+
+                const q = $('mq').value.trim().toLowerCase();
+                const list = M.filter(m => (!S.mfilter || m.state === S.mfilter) && (!q || JSON.stringify([m.machine, m.running, m.queue]).toLowerCase().includes(q)));
+                if (!list.length) { $('mlist').innerHTML = '<div class="otc empty"><i class="bi bi-cpu"></i>No machines match.</div>'; return; }
+                const lines = [];
+                list.forEach(m => { const l = m.line || 'No line'; let g = lines.find(x => x.l === l); if (!g) lines.push(g = { l, items: [] }); g.items.push(m); });
+                $('mlist').innerHTML = lines.map(g => `
+                    <div class="lineh"><h4>${esc(g.l)}</h4><span class="cnt">${g.items.filter(m => m.state === 'RUNNING').length} of ${g.items.length} running</span><hr></div>
+                    <div class="macs">${g.items.map(m => `<div class="otc mac ${m.state}">
+                        <div class="mh"><div><span class="mn">${esc(m.machine)}</span>${m.tonnage ? ` <span class="muted small">${esc(m.tonnage)} T</span>` : ''}</div>${pill(m.state)}</div>
+                        ${m.running.map(jobHtml).join('') || `<div class="muted small" style="margin-top:12px">${m.queue.length ? 'Nothing running. Next job is waiting.' : 'Nothing running or planned.'}</div>`}
+                        ${m.queue.length ? `<div class="queue"><div class="qh">UP NEXT · ${m.queue.length}</div>${m.queue.slice(0, 4).map((j, i) => `
+                            <div class="qi"><span class="k">${i + 1}</span><span><a class="lnk" data-order="${esc(j.order_no)}">${esc(j.order_no)}</a> · ${esc(short(j.mould_name))} <span class="muted">· ${n0(j.balance)} pcs</span></span><span class="muted nowrap">${j.eta ? fd(j.eta, true) : '—'}</span></div>`).join('')}
+                            ${m.queue.length > 4 ? `<div class="muted small">+${m.queue.length - 4} more</div>` : ''}</div>` : ''}
+                        ${m.free_at ? `<div class="free"><i class="bi bi-flag"></i> Free from <b>${fd(m.free_at, true)}</b></div>` : ''}
+                    </div>`).join('')}</div>`).join('');
             }
 
-            function kpisMachines() {
-                const m = S.machines;
-                const run = m.filter(x => x.state === 'RUNNING');
-                const orders = new Set(run.flatMap(x => x.running.map(j => j.order_no)));
-                $('ot-kpis').innerHTML = [
-                    ['Machines', m.length, 'moulding'],
-                    ['Running', run.length, `${m.length ? Math.round(run.length / m.length * 100) : 0}% utilised`],
-                    ['Orders running', orders.size, 'across all machines'],
-                    ['Idle', m.filter(x => x.state === 'IDLE').length, 'no job planned'],
-                    ['Good pcs today', n0(m.reduce((s, x) => s + x.today_qty, 0)), 'on planned jobs']
-                ].map(k => `<div class="ot-kpi"><div class="l">${k[0]}</div><div class="v">${k[1]}</div><div class="s">${k[2]}</div></div>`).join('');
+            /* ====================================================== WIRING */
+            function show(v) {
+                $('v-orders').style.display = v === 'orders' ? '' : 'none';
+                $('v-machines').style.display = v === 'machines' ? '' : 'none';
+                $('v-detail').style.display = v === 'detail' ? '' : 'none';
             }
 
-            /* ------------------------------------------------------ wiring --- */
             async function refresh() {
                 try {
-                    if (S.view === 'orders') await loadOrders(); else await loadMachines();
-                    if (S.openOrder) openOrder(S.openOrder, true);
+                    if (S.order) await openOrder(S.order, true);
+                    else if (S.view === 'orders') await loadOrders();
+                    else await loadMachines();
                     stamp(true);
                 } catch (e) { stamp(false); }
             }
 
             function setView(v) {
-                S.view = v;
-                document.querySelectorAll('.ot-seg button').forEach(b => b.classList.toggle('on', b.dataset.view === v));
-                $('v-orders').style.display = v === 'orders' ? '' : 'none';
-                $('v-machines').style.display = v === 'machines' ? '' : 'none';
-                try { localStorage.setItem('ot_view', v); } catch (e) { /* ignore */ }
+                S.view = v; S.order = null; S.detail = null;
+                document.querySelectorAll('#seg button').forEach(b => b.classList.toggle('on', b.dataset.view === v));
+                try { localStorage.setItem('ot_view', v); } catch (e) { /* private mode */ }
+                history.replaceState(null, '', location.pathname + (v === 'machines' ? '?view=machines' : ''));
+                show(v);
                 refresh();
             }
 
             document.addEventListener('DOMContentLoaded', () => {
                 if (window.JPSMS && JPSMS.renderShell) JPSMS.renderShell();
-                try { $('ot-factory').textContent = localStorage.getItem('jpsms_factory_name') || 'All factories'; } catch (e) { /* ignore */ }
+                try { $('fac').textContent = localStorage.getItem('jpsms_factory_name') || 'All factories'; } catch (e) { $('fac').textContent = ''; }
 
-                document.querySelectorAll('.ot-seg button').forEach(b => b.onclick = () => setView(b.dataset.view));
-                $('ot-refresh').onclick = refresh;
-                $('ot-scope').onchange = refresh;
-                let t; $('ot-q').oninput = () => { clearTimeout(t); t = setTimeout(refresh, 400); };
-                $('ot-mq').oninput = renderMachines;
-                document.querySelectorAll('[data-f]').forEach(c => c.onclick = () => {
-                    document.querySelectorAll('[data-f]').forEach(x => x.classList.toggle('on', x === c));
-                    S.filter = c.dataset.f; renderOrders();
-                });
-                document.querySelectorAll('[data-m]').forEach(c => c.onclick = () => {
-                    document.querySelectorAll('[data-m]').forEach(x => x.classList.toggle('on', x === c));
-                    S.mfilter = c.dataset.m; renderMachines();
-                });
+                document.querySelectorAll('#seg button').forEach(b => b.onclick = () => setView(b.dataset.view));
+                $('refresh').onclick = refresh;
+                $('scope').onchange = refresh;
+                $('sort').onchange = renderOrders;
+                let t; $('q').oninput = () => { clearTimeout(t); t = setTimeout(refresh, 400); };
+                $('mq').oninput = renderMachines;
                 document.addEventListener('click', e => {
-                    const el = e.target.closest('[data-order]');
-                    if (el && el.dataset.order) openOrder(el.dataset.order);
+                    const of = e.target.closest('[data-of]');
+                    if (of) { S.ofilter = of.dataset.of; renderOrders(); return; }
+                    const mf = e.target.closest('[data-mf]');
+                    if (mf) { S.mfilter = mf.dataset.mf; renderMachines(); return; }
+                    const k = e.target.closest('.kpi[data-f]');
+                    if (k) { if (S.view === 'orders') { S.ofilter = k.dataset.f; renderOrders(); } else { S.mfilter = k.dataset.f; renderMachines(); } return; }
+                    const o = e.target.closest('[data-order]');
+                    if (o && o.dataset.order) openOrder(o.dataset.order);
                 });
-                $('ot-scrim').onclick = closeOrder;
-                document.addEventListener('keydown', e => { if (e.key === 'Escape') closeOrder(); });
+                document.addEventListener('keydown', e => { if (e.key === 'Escape' && S.order) closeOrder(); });
 
-                const params = new URLSearchParams(location.search);
-                let v = params.get('view');
+                const p = new URLSearchParams(location.search);
+                let v = p.get('view');
                 if (!v) { try { v = localStorage.getItem('ot_view'); } catch (e) { /* ignore */ } }
                 setView(v === 'machines' ? 'machines' : 'orders');
-                if (params.get('order')) openOrder(params.get('order'));
-                S.timer = setInterval(() => { if (!document.hidden) refresh(); }, REFRESH_MS);
+                if (p.get('order')) openOrder(p.get('order'));
+                setInterval(() => { if (!document.hidden) refresh(); }, REFRESH_MS);
             });
         })();
     </script>

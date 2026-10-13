@@ -60,4 +60,37 @@ describe('order tracker set maths', () => {
     expect(o.expected_end).toBeNull();
     expect(o.eta_unknown_reason).toBeTruthy();
   });
+
+  test('start plan: must-start date, start order and late starts', () => {
+    const H = 3600000, now = Date.now();
+    const target = new Date(now + 48 * H).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+    const build = startEtaH => buildOrder('003', {
+      jcRows: [{ order_no: '003', jr_qty: 100, job_card_no: 'JC', prod_plan_qty: 100, planned_comp_date: target }],
+      bomRows: [{ mould_no: 'LID', mould_name: 'LID', item_qty: 100, jr_qty: 100 },
+        { mould_no: 'HANDLE', mould_name: 'HANDLE', item_qty: 200, jr_qty: 100 }],
+      planRows: [{ plan_id: 'L', mould_code: 'LID', machine: 'M-1', status: 'RUNNING' },
+        { plan_id: 'H', mould_code: 'HANDLE', machine: 'M-2', status: 'PLANNED' }],
+      dprRows: [],
+      /* 10 pcs/h standard: LID needs 10 h, HANDLE (ratio 2) needs 20 h */
+      mouldStd: new Map([['LID', { pcs_per_hour: 10 }], ['HANDLE', { pcs_per_hour: 10 }]]),
+      sched: new Map([['H', { machine: 'M-2', queue_pos: 2, start_eta: new Date(now + startEtaH * H).toISOString() }]])
+    });
+
+    const ok = build(5);
+    const lid = ok.moulds.find(m => m.mould_no === 'LID');
+    const handle = ok.moulds.find(m => m.mould_no === 'HANDLE');
+    expect(lid.start_state).toBe('ON_TRACK');
+    expect(handle.queue).toEqual({ machine: 'M-2', position: 2, plan_id: 'H' });
+    expect(handle.start_state).toBe('ON_TIME');
+    expect(handle.eta_basis).toBe('machine queue');
+    /* HANDLE needs twice the hours, so it has to start before LID */
+    expect(handle.start_seq).toBe(1);
+    expect(lid.start_seq).toBe(2);
+    expect(new Date(handle.must_start_by) < new Date(lid.must_start_by)).toBe(true);
+    expect(ok.next_start.mould_no).toBe('HANDLE');
+
+    const late = build(60).moulds.find(m => m.mould_no === 'HANDLE');
+    expect(late.start_state).toBe('START_LATE');
+    expect(late.slack_hours).toBeLessThan(0);
+  });
 });
