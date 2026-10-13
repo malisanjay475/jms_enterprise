@@ -11,8 +11,36 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.104.0",
+  "latest": "1.105.0",
   "versions": [
+    {
+      "version": "1.105.0",
+      "date": "2026-10-13",
+      "title": "Pulse hover focus",
+      "modules": [
+        {
+          "app": "dpr",
+          "changes": [
+            {
+              "type": "feat",
+              "text": "In Pulse, resting on any machine now pulls it forward: the rest of the page fades back and that machine's output curve is drawn across the whole chart."
+            },
+            {
+              "type": "feat",
+              "text": "A card opens beside it with the figures behind the state - rate against standard, pace, reject percent, manpower, downtime, quantity done and expected finish - with its shift curve."
+            },
+            {
+              "type": "feat",
+              "text": "A new strip along the top of the chart puts every machine on one line, behind plan to the left and ahead to the right, so the whole floor reads at a glance."
+            },
+            {
+              "type": "feat",
+              "text": "Click a machine to pin it: it stays in focus with its card open when you move the pointer away. Click it again, or press Escape, to go back to hover."
+            }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.104.0",
       "date": "2026-10-13",
