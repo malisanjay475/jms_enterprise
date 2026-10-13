@@ -1,0 +1,626 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <title>JMS OCEAN - Pulse</title>
+    <style>
+        :root {
+            --bg: #f6f8fb;
+            --panel: #ffffff;
+            --line: #e4eaf1;
+            --hair: #eff3f8;
+            --ink: #0d1626;
+            --mute: #5d6b80;
+            --faint: #9dabbd;
+
+            --g: #0f9d58; --g-ink: #0b7a44; --g-bg: #f0faf4; --g-br: #c7e9d6;
+            --r: #e03b48; --r-ink: #c22734; --r-bg: #fdf2f3; --r-br: #f6d2d6;
+            --a: #d9870d; --a-bg: #fdf8ee; --a-br: #f3e0bd;
+            --b: #2f6bdb; --b-bg: #f1f5fe; --b-br: #cfdefa;
+            --n: #8794a8; --n-bg: #f7f9fc; --n-br: #e4eaf1;
+        }
+
+        * { box-sizing: border-box; }
+
+        body {
+            margin: 0; background: var(--bg); color: var(--ink);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            font-variant-numeric: tabular-nums;
+            font-size: 11px;
+        }
+
+        /* ===================== top bar ===================== */
+        .top {
+            position: sticky; top: 0; z-index: 40;
+            background: rgba(255, 255, 255, .96);
+            border-bottom: 1px solid var(--line);
+            padding: 6px 12px; display: flex; align-items: center; gap: 11px; flex-wrap: wrap;
+        }
+        .brand { font-size: 14px; font-weight: 800; letter-spacing: 2.6px; }
+        .brand i {
+            display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--g);
+            margin-right: 6px; vertical-align: middle; animation: beat 1.6s ease-in-out infinite;
+        }
+        @keyframes beat { 0%,100% { transform: scale(1); opacity: 1 } 50% { transform: scale(1.55); opacity: .45 } }
+        .sub { font-size: 9px; font-weight: 800; letter-spacing: 1.2px; color: var(--faint); text-transform: uppercase }
+        .counts { display: flex; gap: 4px; flex-wrap: wrap }
+        .count { border: 1px solid var(--line); border-radius: 4px; padding: 2px 6px; font-size: 8.5px; font-weight: 800; letter-spacing: .5px; color: var(--mute) }
+        .count b { font-size: 12px; margin-right: 3px }
+        .count.r { color: var(--r-ink); background: var(--r-bg); border-color: var(--r-br) }
+        .count.a { color: var(--a); background: var(--a-bg); border-color: var(--a-br) }
+        .count.g { color: var(--g-ink); background: var(--g-bg); border-color: var(--g-br) }
+        .clock { margin-left: auto; font-size: 15px; font-weight: 800 }
+        .modes { display: flex; gap: 3px }
+        .modes a { font-size: 8.5px; font-weight: 800; letter-spacing: .6px; color: var(--mute); text-decoration: none; border: 1px solid var(--line); border-radius: 4px; padding: 3px 7px }
+        .modes a:hover { border-color: var(--ink); color: var(--ink) }
+
+        .mock { margin: 6px 12px 0; font-size: 8.5px; font-weight: 800; letter-spacing: .6px; color: var(--a); background: var(--a-bg); border: 1px solid var(--a-br); border-radius: 4px; padding: 3px 7px }
+
+        /* ===================== 3-column shell ===================== */
+        .shell {
+            display: grid;
+            grid-template-columns: minmax(0, 1.15fr) minmax(300px, .62fr) minmax(330px, .88fr);
+            gap: 8px; padding: 8px 12px 30px; align-items: start;
+        }
+
+        .cap {
+            font-size: 8.5px; font-weight: 800; letter-spacing: 1.5px; text-transform: uppercase;
+            color: var(--ink); margin: 0 0 5px; display: flex; align-items: center; gap: 7px;
+        }
+        .cap em { font-style: normal; font-weight: 600; letter-spacing: .2px; text-transform: none; color: var(--faint); font-size: 9.5px }
+        .cap .sp { margin-left: auto; color: var(--faint); font-weight: 700; letter-spacing: .6px }
+
+        .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px }
+
+        /* ===================== FAN (left) ===================== */
+        .fan { display: flex; overflow: hidden }
+        .fan-names { width: 124px; border-right: 1px solid var(--hair); padding: 4px 0; max-height: 620px; overflow-y: auto; flex: none }
+        .nrow {
+            display: flex; align-items: center; gap: 4px; padding: 1px 6px; cursor: pointer;
+            font-size: 9.5px; line-height: 15px; border-left: 2px solid transparent;
+        }
+        .nrow:hover { background: var(--hair) }
+        .nrow.sel { background: #eef2f7; border-left-color: var(--ink); font-weight: 800 }
+        .nrow .nm { font-weight: 700; letter-spacing: .2px }
+        .nrow .vr { margin-left: auto; font-weight: 800 }
+        .fan-plot { flex: 1; min-width: 0; padding: 4px 2px 0 }
+        .fan-plot svg { display: block; width: 100%; height: 596px }
+
+        /* ===================== dense middle ===================== */
+        .dense { display: grid; grid-template-columns: repeat(auto-fill, minmax(138px, 1fr)); gap: 4px; max-height: 640px; overflow-y: auto }
+        .dcard {
+            border: 1px solid var(--line); border-radius: 6px; background: #fff; padding: 4px 5px 3px;
+            cursor: pointer; overflow: hidden;
+        }
+        .dcard:hover { border-color: var(--ink) }
+        .dcard.sel { box-shadow: inset 0 0 0 2px var(--ink) }
+        .d-r1 { display: flex; align-items: center; gap: 4px }
+        .d-r1 .nm { font-size: 10.5px; font-weight: 800; letter-spacing: .2px }
+        .d-r1 .dot { width: 6px; height: 6px; border-radius: 50%; margin-left: auto }
+        .d-tag { font-size: 7.5px; font-weight: 800; letter-spacing: .7px; margin-top: 1px }
+        .d-r3 { display: flex; align-items: baseline; margin-top: 2px }
+        .d-r3 .v { font-size: 12px; font-weight: 800 }
+        .d-r3 .q { margin-left: auto; font-size: 8.5px; color: var(--faint) }
+        .d-jc { font-size: 8px; color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+
+        /* ===================== expanded cards (right) ===================== */
+        .blk {
+            font-size: 8.5px; font-weight: 800; letter-spacing: 1.3px; padding: 4px 8px; border-radius: 5px;
+            display: flex; justify-content: space-between; margin: 0 0 6px;
+        }
+        .blk.bad { color: var(--r-ink); background: var(--r-bg); border: 1px solid var(--r-br) }
+        .blk.good { color: var(--g-ink); background: var(--g-bg); border: 1px solid var(--g-br) }
+
+        .xcard { border: 1px solid var(--line); border-radius: 8px; overflow: hidden; margin-bottom: 6px; cursor: pointer; background: #fff }
+        .xcard:hover { border-color: var(--ink) }
+        .x-body { display: flex; gap: 7px; padding: 7px 8px 5px }
+        .x-left { width: 96px; flex: none }
+        .x-badge {
+            display: block; text-align: center; font-size: 9px; font-weight: 800; letter-spacing: .8px;
+            color: #fff; border-radius: 4px; padding: 4px 0; margin-bottom: 4px;
+        }
+        .x-nm { font-size: 14px; font-weight: 800; letter-spacing: .3px }
+        .x-jc { font-size: 8.5px; color: var(--faint); margin-top: 1px; line-height: 1.25 }
+        .x-var { font-size: 17px; font-weight: 800; margin-top: 3px; line-height: 1 }
+        .x-right { flex: 1; min-width: 0 }
+        .x-note { font-size: 8.5px; font-weight: 800; letter-spacing: .7px; margin-bottom: 2px }
+        .x-right svg { display: block; width: 100%; height: 56px }
+
+        .frow { display: grid; grid-template-columns: repeat(6, 1fr); border-top: 1px solid var(--line) }
+        .fcell { text-align: center; padding: 3px 0 4px; border-right: 1px solid var(--hair) }
+        .fcell:last-child { border-right: 0 }
+        .fcell u { display: block; font-size: 7.5px; font-weight: 800; letter-spacing: .8px; color: var(--faint); text-decoration: none }
+        .fcell s { display: block; font-size: 11.5px; font-weight: 800; text-decoration: none; margin-top: 1px }
+        .fcell s.bad { color: var(--r-ink) } .fcell s.warn { color: var(--a) } .fcell s.ok { color: var(--g-ink) }
+
+        .chips { display: flex; flex-wrap: wrap; gap: 3px }
+        .chip { border: 1px solid var(--g-br); background: var(--g-bg); color: var(--g-ink); border-radius: 4px; padding: 2px 6px; font-size: 9px; font-weight: 700; cursor: pointer }
+        .chip.grey { border-color: var(--n-br); background: var(--n-bg); color: var(--n) }
+        .chip:hover { border-color: var(--ink) }
+
+        /* ===================== TV ===================== */
+        body.tv .shell { grid-template-columns: 1fr }
+        body.tv .col-fan, body.tv .col-x { display: none }
+        body.tv .dense { grid-template-columns: repeat(4, 1fr); max-height: none; gap: 8px }
+        body.tv .dcard { padding: 10px 12px }
+        body.tv .d-r1 .nm { font-size: 20px } body.tv .d-tag { font-size: 12px }
+        body.tv .d-r3 .v { font-size: 22px } body.tv .d-jc { font-size: 12px }
+        body.tv .brand { font-size: 22px } body.tv .clock { font-size: 22px }
+
+        @media (max-width: 1150px) { .shell { grid-template-columns: 1fr } .fan-plot svg { height: 420px } }
+    </style>
+</head>
+
+<body>
+    <div class="top">
+        <div class="brand"><i></i>PULSE</div>
+        <div class="sub" id="sub">Day shift &middot; 13 Oct</div>
+        <div class="counts" id="counts"></div>
+        <div class="modes"><a href="?tv=1">TV</a><a href="?">Desk</a></div>
+        <div class="clock" id="clock">--:--</div>
+    </div>
+
+    <div class="mock">MOCKUP &middot; generated sample data, not live.</div>
+
+    <div class="shell">
+        <!-- LEFT: fan -->
+        <div class="col-fan">
+            <div class="cap">FLOW <em>every machine, cumulative output vs plan</em>
+                <span class="sp" id="flowNote"></span></div>
+            <div class="panel fan">
+                <div class="fan-names" id="fanNames"></div>
+                <div class="fan-plot"><svg id="fan" viewBox="0 0 640 596" preserveAspectRatio="none"></svg></div>
+            </div>
+        </div>
+
+        <!-- MIDDLE: dense queue -->
+        <div class="col-dense">
+            <div class="cap">MACHINES <em>worst first</em><span class="sp" id="denseNote"></span></div>
+            <div class="dense" id="dense"></div>
+        </div>
+
+        <!-- RIGHT: expanded -->
+        <div class="col-x">
+            <div class="cap">DETAIL<span class="sp">behind above &middot; running below</span></div>
+            <div id="xbad"></div>
+            <div id="xgood"></div>
+        </div>
+    </div>
+
+    <script>
+        /* =========================================================
+           PULSE - machine-wise live job tracker (MOCKUP)
+           loadMock() is the only seam: replace it with a fetch of
+           /api/machines/live-tracker and everything else stands.
+           ========================================================= */
+
+        var ST = {
+            DOWN:       { rank: 0, label: 'DOWN',         c: '#e03b48', bg: '#fdf2f3', br: '#f6d2d6' },
+            CHANGEOVER: { rank: 1, label: 'CHANGEOVER',   c: '#e03b48', bg: '#fdf2f3', br: '#f6d2d6' },
+            STARVED:    { rank: 2, label: 'STARVED',      c: '#d9870d', bg: '#fdf8ee', br: '#f3e0bd' },
+            REJECT:     { rank: 3, label: 'REJECT SPIKE', c: '#d9870d', bg: '#fdf8ee', br: '#f3e0bd' },
+            SLIPPING:   { rank: 4, label: 'SLIPPING',     c: '#d9870d', bg: '#fdf8ee', br: '#f3e0bd' },
+            CATCHING:   { rank: 5, label: 'CATCHING UP',  c: '#2f6bdb', bg: '#f1f5fe', br: '#cfdefa' },
+            ONTRACK:    { rank: 6, label: 'ON TRACK',     c: '#0f9d58', bg: '#f0faf4', br: '#c7e9d6' },
+            AHEAD:      { rank: 7, label: 'AHEAD',        c: '#0f9d58', bg: '#f0faf4', br: '#c7e9d6' },
+            NOPLAN:     { rank: 8, label: 'NO PLAN',      c: '#8794a8', bg: '#f7f9fc', br: '#e4eaf1' }
+        };
+
+        var PRODUCTS = ['Crate Lid 5L', 'Bin 20L Body', 'Handle Grip', 'Cap 38mm', 'Tray Insert', 'Drum Lid', 'Spacer Ring', 'Pallet Foot'];
+        var REASONS = ['Maintenance', 'Man Power Shortage', 'Mould Maintenance', 'Mould Trial'];
+        var SLOTS = 8, DONE_SLOTS = 6, START_HR = 8;
+
+        var _s = 20261013;
+        function rnd() { _s = (_s * 1103515245 + 12345) % 2147483648; return _s / 2147483648 }
+        function pick(a) { return a[Math.floor(rnd() * a.length)] }
+        function btw(lo, hi) { return lo + rnd() * (hi - lo) }
+
+        function loadMock() {
+            var out = [], lines = [[1, 8], [2, 9], [3, 7]], jc = 2380;
+            lines.forEach(function (L) {
+                for (var i = 1; i <= L[1]; i++) {
+                    var m = { line: L[0], no: i, name: 'L' + L[0] + '-M' + String(i).padStart(2, '0') };
+                    var roll = rnd();
+                    m.std = Math.round(btw(260, 520) / 10) * 10;
+                    m.planQty = m.std * SLOTS;
+                    m.stdMan = 3 + Math.round(rnd());
+                    m.man = m.stdMan; m.dt = 0;
+                    m.rej = +btw(.4, 2.1).toFixed(1);
+                    m.jc = 'JC-' + (jc += 7);
+                    m.product = pick(PRODUCTS);
+
+                    if (roll < .09) { m.state = 'NOPLAN'; m.jc = null; m.product = null; m.rate = 0; m.dt = DONE_SLOTS * 60; m.rej = 0 }
+                    else if (roll < .19) { m.state = 'DOWN'; m.rate = 0; m.dt = Math.round(btw(20, 95)); m.reason = pick(REASONS) }
+                    else if (roll < .25) { m.state = 'CHANGEOVER'; m.rate = 0; m.dt = Math.round(btw(25, 70)); m.reason = 'Mould Changeover'; m.nextJc = 'JC-' + (jc + 60) }
+                    else if (roll < .34) { m.state = 'STARVED'; m.man = m.stdMan - 1; m.rate = Math.round(m.std * btw(.62, .78)); m.dt = Math.round(btw(0, 25)) }
+                    else if (roll < .42) { m.state = 'REJECT'; m.rej = +btw(4.5, 8.2).toFixed(1); m.rate = Math.round(m.std * btw(.88, 1.02)) }
+                    else if (roll < .53) { m.state = 'SLIPPING'; m.rate = Math.round(m.std * btw(.70, .86)); m.dt = Math.round(btw(5, 30)) }
+                    else if (roll < .63) { m.state = 'CATCHING'; m.rate = Math.round(m.std * btw(1.05, 1.18)); m.dt = Math.round(btw(15, 45)) }
+                    else if (roll < .86) { m.state = 'ONTRACK'; m.rate = Math.round(m.std * btw(.97, 1.03)) }
+                    else { m.state = 'AHEAD'; m.rate = Math.round(m.std * btw(1.06, 1.2)) }
+
+                    series(m);
+                    m.pct = Math.round(m.done / m.planQty * 100);
+                    m.variance = +(m.cum[DONE_SLOTS - 1] - 100).toFixed(1);
+                    m.eta = m.rate > 0 ? etaFor(m.planQty - m.done, m.rate) : null;
+                    out.push(m);
+                }
+            });
+            return out;
+        }
+
+        function series(m) {
+            var hourly = [], cum = [], tot = 0;
+            for (var h = 0; h < DONE_SLOTS; h++) {
+                var q;
+                if (m.state === 'NOPLAN') q = 0;
+                else if (m.state === 'DOWN' && h >= DONE_SLOTS - 2) q = Math.round(m.std * btw(0, .12));
+                else if (m.state === 'CHANGEOVER' && h >= DONE_SLOTS - 1) q = 0;
+                else if (m.state === 'CATCHING') q = Math.round(m.std * (h < 3 ? btw(.45, .7) : btw(1.05, 1.22)));
+                else if (m.state === 'SLIPPING') q = Math.round(m.std * (h < 3 ? btw(.95, 1.05) : btw(.62, .8)));
+                else if (m.state === 'STARVED') q = Math.round(m.std * btw(.6, .8));
+                else if (m.state === 'AHEAD') q = Math.round(m.std * btw(1.05, 1.22));
+                else if (m.state === 'ONTRACK') q = Math.round(m.std * btw(.94, 1.06));
+                else q = Math.round(m.std * btw(.82, 1.02));
+                hourly.push(q); tot += q;
+                cum.push(+(tot / (m.std * (h + 1)) * 100).toFixed(1));
+            }
+            m.hourly = hourly; m.done = tot; m.cum = cum;
+        }
+
+        function etaFor(rem, rate) {
+            if (rem <= 0) return 'done';
+            var t = new Date(); t.setMinutes(t.getMinutes() + Math.round(rem / rate * 60));
+            return String(t.getHours()).padStart(2, '0') + ':' + String(t.getMinutes()).padStart(2, '0');
+        }
+
+        var M = [], sel = null;
+        var qs = new URLSearchParams(location.search);
+        var isTv = qs.get('tv') === '1';
+        var useMock = qs.get('mock') === '1';
+        if (isTv) document.body.classList.add('tv');
+
+        /* the server returns machines already in Line-then-number order, so
+           "line order" is simply the order it sent them in */
+        function byLine(a, b) { return a.ord - b.ord }
+        function bySev(a, b) { return ST[a.state].rank - ST[b.state].rank || a.variance - b.variance || byLine(a, b) }
+        function get(n) { return M.filter(function (x) { return x.name === n })[0] }
+        function vtxt(m) { return m.state === 'NOPLAN' ? '—' : (m.variance > 0 ? '+' : '') + m.variance + '%' }
+
+        /* smooth path through points */
+        function smooth(pts) {
+            if (!pts.length) return '';
+            var d = 'M' + pts[0][0].toFixed(1) + ' ' + pts[0][1].toFixed(1);
+            for (var i = 1; i < pts.length; i++) {
+                var p0 = pts[i - 1], p1 = pts[i], mx = (p0[0] + p1[0]) / 2;
+                d += ' C' + mx.toFixed(1) + ' ' + p0[1].toFixed(1) + ',' + mx.toFixed(1) + ' ' + p1[1].toFixed(1)
+                    + ',' + p1[0].toFixed(1) + ' ' + p1[1].toFixed(1);
+            }
+            return d;
+        }
+
+        /* ---------- left: fan ---------- */
+        function renderFan() {
+            var W = 640, H = 596, L = 6, R = 58, T = 10, B = 18;
+            var pw = W - L - R, ph = H - T - B, lo = 35, hi = 145;
+            /* elapsed hours take most of the width; hours still to come are a
+               narrow band on the right, so the curves are not squeezed */
+            function X(i) {
+                var last = DONE_SLOTS - 1, split = .84;
+                return i <= last ? L + i / last * pw * split
+                    : L + pw * split + (i - last) / ((SLOTS - 1) - last) * pw * (1 - split);
+            }
+            function Y(v) { return T + (1 - (Math.max(lo, Math.min(hi, v)) - lo) / (hi - lo)) * ph }
+
+            var s = '';
+            [40, 60, 80, 100, 120, 140].forEach(function (g) {
+                var on = g === 100;
+                s += '<line x1="' + L + '" y1="' + Y(g) + '" x2="' + (W - R) + '" y2="' + Y(g) + '" stroke="'
+                    + (on ? '#b9c6d8' : '#f0f4f9') + '" stroke-width="1"' + (on ? ' stroke-dasharray="3 3"' : '') + '/>'
+                    + '<text x="' + (W - R + 4) + '" y="' + (Y(g) + 3) + '" font-size="8" fill="#b9c4d2" font-weight="700">' + g + '</text>';
+            });
+            for (var h = 0; h < SLOTS; h++) {
+                s += '<text x="' + X(h) + '" y="' + (H - 5) + '" font-size="7.5" fill="#c0cad7" text-anchor="middle">'
+                    + String(START_HR + h).padStart(2, '0') + '</text>';
+            }
+            /* now band */
+            s += '<rect x="' + X(DONE_SLOTS - 1) + '" y="' + T + '" width="' + (X(SLOTS - 1) - X(DONE_SLOTS - 1))
+                + '" height="' + ph + '" fill="#f4f7fb"/>'
+                + '<line x1="' + X(DONE_SLOTS - 1) + '" y1="' + T + '" x2="' + X(DONE_SLOTS - 1) + '" y2="' + (T + ph)
+                + '" stroke="#0d1626" stroke-opacity=".22" stroke-width="1"/>';
+
+            function pts(m) { return m.cum.map(function (v, i) { return [X(i), Y(v)] }) }
+
+            M.forEach(function (m) {
+                if (m.state === 'NOPLAN' || m.name === sel) return;
+                var st = ST[m.state];
+                s += '<path class="ln" data-m="' + m.name + '" d="' + smooth(pts(m)) + '" fill="none" stroke="' + st.c
+                    + '" stroke-width="1.3" stroke-opacity=".38" style="cursor:pointer"><title>' + m.name + ' ' + st.label
+                    + ' ' + vtxt(m) + '</title></path>';
+            });
+
+            /* end tags: 4 worst, 3 best */
+            var ok = M.filter(function (m) { return m.state !== 'NOPLAN' })
+                .sort(function (a, b) { return a.cum[DONE_SLOTS - 1] - b.cum[DONE_SLOTS - 1] });
+            ok.slice(0, 4).concat(ok.slice(-3)).forEach(function (m) {
+                var st = ST[m.state], v = m.cum[DONE_SLOTS - 1];
+                s += '<circle cx="' + X(DONE_SLOTS - 1) + '" cy="' + Y(v) + '" r="2.4" fill="' + st.c + '"/>'
+                    + '<text x="' + (X(DONE_SLOTS - 1) + 5) + '" y="' + (Y(v) + 3) + '" font-size="8" font-weight="800" fill="'
+                    + st.c + '">' + m.name + '</text>';
+            });
+
+            var m2 = get(sel);
+            if (m2 && m2.state !== 'NOPLAN') {
+                var p = pts(m2);
+                s += '<path d="' + smooth(p) + ' L' + X(DONE_SLOTS - 1) + ' ' + Y(lo) + ' L' + X(0) + ' ' + Y(lo)
+                    + ' Z" fill="' + ST[m2.state].c + '" fill-opacity=".08"/>'
+                    + '<path d="' + smooth(p) + '" fill="none" stroke="#0d1626" stroke-width="2.4"/>';
+                p.forEach(function (q, i) {
+                    s += '<circle cx="' + q[0] + '" cy="' + q[1] + '" r="2.8" fill="#fff" stroke="#0d1626" stroke-width="1.5"><title>'
+                        + (START_HR + i) + ':00 — ' + m2.cum[i] + '% of plan</title></circle>';
+                });
+            }
+            document.getElementById('fan').innerHTML = s;
+
+            /* name column */
+            var sorted = M.slice().sort(bySev);
+            document.getElementById('fanNames').innerHTML = sorted.map(function (m) {
+                var st = ST[m.state];
+                return '<div class="nrow' + (m.name === sel ? ' sel' : '') + '" data-m="' + m.name + '">'
+                    + '<span style="width:5px;height:5px;border-radius:50%;background:' + st.c + ';flex:none"></span>'
+                    + '<span class="nm">' + m.name + '</span>'
+                    + '<span class="vr" style="color:' + st.c + '">' + vtxt(m) + '</span></div>';
+            }).join('');
+
+            var worst = sorted[0];
+            document.getElementById('flowNote').textContent = '100 = on plan · worst ' + worst.name + ' ' + vtxt(worst);
+        }
+
+        /* ---------- middle: dense ---------- */
+        function miniLine(m, w, h) {
+            if (m.state === 'NOPLAN') return '<svg width="' + w + '" height="' + h + '"></svg>';
+            var lo = 35, hi = 145;
+            function X(i) {
+                var last = DONE_SLOTS - 1, split = .84;
+                return i <= last ? i / last * w * split
+                    : w * split + (i - last) / ((SLOTS - 1) - last) * w * (1 - split);
+            }
+            function Y(v) { return (1 - (Math.max(lo, Math.min(hi, v)) - lo) / (hi - lo)) * (h - 2) + 1 }
+            var p = m.cum.map(function (v, i) { return [X(i), Y(v)] });
+            var st = ST[m.state];
+            return '<svg width="' + w + '" height="' + h + '" viewBox="0 0 ' + w + ' ' + h + '" preserveAspectRatio="none">'
+                + '<line x1="0" y1="' + Y(100) + '" x2="' + w + '" y2="' + Y(100) + '" stroke="#c6d2e0" stroke-width="1" stroke-dasharray="2 2"/>'
+                + '<path d="' + smooth(p) + ' L' + X(DONE_SLOTS - 1) + ' ' + h + ' L0 ' + h + ' Z" fill="' + st.c + '" fill-opacity=".10"/>'
+                + '<path d="' + smooth(p) + '" fill="none" stroke="' + st.c + '" stroke-width="1.5"/>'
+                + '<circle cx="' + X(DONE_SLOTS - 1) + '" cy="' + Y(m.cum[DONE_SLOTS - 1]) + '" r="2" fill="' + st.c + '"/></svg>';
+        }
+
+        function renderDense() {
+            var list = M.slice().sort(isTv ? byLine : bySev);
+            document.getElementById('denseNote').textContent = list.length + ' machines';
+            document.getElementById('dense').innerHTML = list.map(function (m) {
+                var st = ST[m.state];
+                return '<div class="dcard' + (m.name === sel ? ' sel' : '') + '" data-m="' + m.name + '" style="background:' + st.bg + '">'
+                    + '<div class="d-r1"><span class="nm">' + m.name + '</span><span class="dot" style="background:' + st.c + '"></span></div>'
+                    + '<div class="d-tag" style="color:' + st.c + '">' + st.label + '</div>'
+                    + miniLine(m, 150, 30)
+                    + '<div class="d-r3"><span class="v" style="color:' + st.c + '">' + vtxt(m) + '</span>'
+                    + '<span class="q">' + (m.rate ? m.rate + '/hr' : 'stopped') + '</span></div>'
+                    + '<div class="d-jc">' + (m.jc ? m.jc + ' · ' + m.product : 'no plan') + '</div>'
+                    + '</div>';
+            }).join('');
+        }
+
+        /* ---------- right: expanded ---------- */
+        function fcell(l, v, c) { return '<div class="fcell"><u>' + l + '</u><s class="' + c + '">' + v + '</s></div>' }
+
+        function frow(m) {
+            return '<div class="frow">'
+                + fcell('RATE', m.rate || '--', m.rate === 0 ? 'bad' : (m.rate < m.std * .9 ? 'warn' : 'ok'))
+                + fcell('STD', m.std, '')
+                + fcell('REJ%', m.rej || '--', m.rej >= 4 ? 'bad' : (m.rej >= 2.5 ? 'warn' : ''))
+                + fcell('MAN', m.man + '/' + m.stdMan, m.man < m.stdMan ? 'bad' : '')
+                + fcell('DT', m.dt ? m.dt + 'm' : '0', m.dt >= 30 ? 'bad' : (m.dt ? 'warn' : ''))
+                + fcell('ETA', m.eta || '--', '')
+                + '</div>';
+        }
+
+        function note(m) {
+            if (m.state === 'DOWN') return (m.reason || 'STOPPED').toUpperCase() + (m.dt ? ' · ' + m.dt + ' MIN' : '');
+            if (m.state === 'CHANGEOVER') return 'MOULD CHANGEOVER' + (m.nextJc ? ' TO ' + m.nextJc : '')
+                + (m.dt ? ' · ' + m.dt + ' MIN' : '');
+            if (m.state === 'STARVED') return (m.stdMan - m.man) + ' OPERATOR SHORT';
+            if (m.state === 'REJECT') return 'REJECT ' + m.rej + '% VS 2.0% STD';
+            if (m.state === 'SLIPPING') return 'RATE ' + m.rate + ' VS ' + m.std + ' STD';
+            if (m.state === 'CATCHING') return 'BEHIND QTY, RATE ABOVE STD';
+            if (m.state === 'NOPLAN') return 'NO PLAN THIS SHIFT';
+            return 'ON PLAN';
+        }
+
+        /* bigger chart with plan line + value tags, like the reference card */
+        function cardChart(m, w, h) {
+            if (m.state === 'NOPLAN') return '';
+            var lo = 35, hi = 145, R = 30;
+            function X(i) {
+                var last = DONE_SLOTS - 1, split = .84, pw = w - R;
+                return i <= last ? i / last * pw * split
+                    : pw * split + (i - last) / ((SLOTS - 1) - last) * pw * (1 - split);
+            }
+            function Y(v) { return (1 - (Math.max(lo, Math.min(hi, v)) - lo) / (hi - lo)) * (h - 14) + 7 }
+            var st = ST[m.state], p = m.cum.map(function (v, i) { return [X(i), Y(v)] });
+            var s = '';
+            [80, 100, 120].forEach(function (g) {
+                s += '<line x1="0" y1="' + Y(g) + '" x2="' + (w - R) + '" y2="' + Y(g) + '" stroke="'
+                    + (g === 100 ? '#b9c6d8' : '#eef2f7') + '" stroke-width="1" stroke-dasharray="2 2"/>'
+                    + '<text x="' + (w - R + 3) + '" y="' + (Y(g) + 3) + '" font-size="7.5" fill="#b9c4d2" font-weight="700">' + g + '</text>';
+            });
+            s += '<rect x="' + X(DONE_SLOTS - 1) + '" y="4" width="' + (X(SLOTS - 1) - X(DONE_SLOTS - 1)) + '" height="' + (h - 8) + '" fill="#f5f8fb"/>';
+            s += '<path d="' + smooth(p) + ' L' + X(DONE_SLOTS - 1) + ' ' + (h - 4) + ' L0 ' + (h - 4) + ' Z" fill="' + st.c + '" fill-opacity=".10"/>';
+            s += '<path d="' + smooth(p) + '" fill="none" stroke="' + st.c + '" stroke-width="1.8"/>';
+            var last = m.cum[DONE_SLOTS - 1];
+            s += '<circle cx="' + X(DONE_SLOTS - 1) + '" cy="' + Y(last) + '" r="2.6" fill="' + st.c + '"/>'
+                + '<text x="' + (X(DONE_SLOTS - 1) + 4) + '" y="' + (Y(last) - 4) + '" font-size="8.5" font-weight="800" fill="'
+                + st.c + '">' + Math.round(last) + '</text>';
+            return '<svg viewBox="0 0 ' + w + ' ' + h + '" preserveAspectRatio="none">' + s + '</svg>';
+        }
+
+        function xcard(m) {
+            var st = ST[m.state];
+            return '<div class="xcard" data-m="' + m.name + '" style="background:' + st.bg + ';border-color:' + st.br + '">'
+                + '<div class="x-body"><div class="x-left">'
+                + '<span class="x-badge" style="background:' + st.c + '">' + st.label + '</span>'
+                + '<div class="x-nm">' + m.name + '</div>'
+                + '<div class="x-jc">' + (m.jc ? m.jc + '<br>' + m.product : 'no job card') + '</div>'
+                + '<div class="x-var" style="color:' + st.c + '">' + vtxt(m) + '</div>'
+                /* shift leads; job-card progress is the secondary figure */
+                + (m.jobPct === null || m.jobPct === undefined ? ''
+                    : '<div class="x-jc">JC ' + m.jobPct + '% · '
+                    + Number(m.jobDone || 0).toLocaleString() + '/' + Number(m.jobQty || 0).toLocaleString() + '</div>')
+                + '</div>'
+                + '<div class="x-right"><div class="x-note" style="color:' + st.c + '">' + note(m) + '</div>'
+                + cardChart(m, 240, 56) + '</div></div>'
+                + frow(m) + '</div>';
+        }
+
+        function renderX() {
+            var bad = M.filter(function (m) { return ST[m.state].rank <= 4 }).sort(bySev);
+            var good = M.filter(function (m) { return ST[m.state].rank > 4 && m.state !== 'NOPLAN' }).sort(bySev);
+            var none = M.filter(function (m) { return m.state === 'NOPLAN' });
+            var s = get(sel);
+
+            /* selected always shown first, whatever its state */
+            var badTop = s && ST[s.state].rank <= 4 ? [s].concat(bad.filter(function (m) { return m !== s })) : bad;
+
+            document.getElementById('xbad').innerHTML =
+                '<div class="blk bad"><span>BEHIND &amp; DOWN</span><span>' + bad.length + '</span></div>'
+                + badTop.slice(0, 6).map(xcard).join('');
+
+            document.getElementById('xgood').innerHTML =
+                '<div class="blk good" style="margin-top:10px"><span>RUNNING WELL</span><span>' + good.length + '</span></div>'
+                + (s && ST[s.state].rank > 4 ? xcard(s) : '')
+                + '<div class="chips">' + good.concat(none).map(function (m) {
+                    return '<span class="chip' + (m.state === 'NOPLAN' ? ' grey' : '') + '" data-m="' + m.name + '"><b>'
+                        + m.name + '</b> ' + (m.state === 'NOPLAN' ? 'no plan' : vtxt(m)) + '</span>';
+                }).join('') + '</div>';
+        }
+
+        function renderCounts() {
+            function n(a) { return M.filter(function (m) { return a.indexOf(m.state) >= 0 }).length }
+            var dt = M.reduce(function (s, m) { return s + m.dt }, 0);
+            document.getElementById('counts').innerHTML =
+                '<div class="count g"><b>' + n(['ONTRACK', 'AHEAD', 'CATCHING']) + '</b>RUNNING</div>'
+                + '<div class="count r"><b>' + n(['DOWN', 'CHANGEOVER']) + '</b>DOWN</div>'
+                + '<div class="count a"><b>' + n(['STARVED', 'REJECT', 'SLIPPING']) + '</b>AT RISK</div>'
+                + '<div class="count"><b>' + n(['NOPLAN']) + '</b>NO PLAN</div>'
+                + '<div class="count"><b>' + dt + '</b>DT MIN</div>';
+        }
+
+        function renderAll() { renderCounts(); renderFan(); renderDense(); renderX(); }
+
+        document.addEventListener('click', function (e) {
+            var t = e.target, el = null;
+            while (t && t !== document) {
+                if (t.getAttribute && t.getAttribute('data-m')) { el = t; break }
+                t = t.parentNode;
+            }
+            if (!el) return;
+            sel = el.getAttribute('data-m');
+            renderAll();
+        });
+
+        function tick() {
+            var d = new Date();
+            document.getElementById('clock').textContent =
+                String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+        }
+
+        /* ---------- live data ----------
+           Maps one /api/machines/live-tracker row onto the shape the renderers
+           use. A machine with no standard rate has no curve and no variance,
+           so it is shown as NO PLAN rather than as a machine at 0%. */
+        function fromApi(r, i) {
+            var cum = (r.cum || []).filter(function (v) { return v !== null && v !== undefined });
+            var m = {
+                ord: i,
+                name: r.machine,
+                line: r.line,
+                state: cum.length ? r.state : 'NOPLAN',
+                variance: r.variance === null || r.variance === undefined ? 0 : r.variance,
+                cum: cum.length ? cum : [100],
+                rate: r.rate || 0,
+                std: r.std_rate || 0,
+                rej: r.reject_pct || 0,
+                man: r.act_manpower,
+                stdMan: r.std_manpower,
+                dt: r.downtime_min || 0,
+                done: r.done || 0,
+                planQty: r.shift_plan_qty || 0,
+                jc: r.job_card_no || r.plan_id || null,
+                product: r.product || null,
+                jobPct: r.job_pct,
+                jobDone: r.job_done,
+                jobQty: r.job_qty,
+                reason: r.stop_reason,
+                remarks: r.remarks,
+                eta: null
+            };
+            /* the charts index the curve by slot, so a machine whose rate is
+               only known for part of the shift carries its last value forward
+               rather than dropping off the plot */
+            while (m.cum.length < DONE_SLOTS) m.cum.push(m.cum[m.cum.length - 1]);
+            /* nothing booked on the machine: don't dress a bare plan id up as a job */
+            if (m.state === 'NOPLAN' || !m.product) { m.jc = null; m.product = null; }
+            if (m.man === null || m.man === undefined) m.man = '--';
+            if (m.stdMan === null || m.stdMan === undefined) m.stdMan = '--';
+            if (r.eta_min) {
+                var t = new Date(); t.setMinutes(t.getMinutes() + r.eta_min);
+                m.eta = String(t.getHours()).padStart(2, '0') + ':' + String(t.getMinutes()).padStart(2, '0');
+            }
+            return m;
+        }
+
+        function applyMock() {
+            M = loadMock().map(function (m, i) { m.ord = i; return m; });
+            DONE_SLOTS = 6; SLOTS = 8; START_HR = 8;
+            document.querySelector('.mock').style.display = '';
+        }
+
+        function boot() {
+            if (useMock) { applyMock(); start(); return; }
+            fetch('/api/machines/live-tracker', { credentials: 'same-origin' })
+                .then(function (r) { return r.json() })
+                .then(function (j) {
+                    if (!j || !j.ok || !j.data || !j.data.length) throw new Error('no data');
+                    SLOTS = j.slots.length;
+                    DONE_SLOTS = Math.max(1, j.elapsed);
+                    START_HR = j.shift === 'Night' ? 20 : 8;
+                    M = j.data.map(fromApi);
+                    document.querySelector('.mock').style.display = 'none';
+                    document.getElementById('sub').textContent = j.shift + ' shift · ' + j.date;
+                    start();
+                })
+                .catch(function (e) {
+                    /* no server, or nothing booked yet this shift - fall back to
+                       the sample data so the page still shows something */
+                    console.warn('[pulse] live data unavailable, showing sample:', e.message);
+                    applyMock(); start();
+                });
+        }
+
+        function start() {
+            if (!M.length) return;
+            if (!sel || !get(sel)) sel = M.slice().sort(bySev)[0].name;
+            renderAll();
+        }
+
+        tick(); setInterval(tick, 10000);
+        boot();
+        /* refresh the live view every 60s; DPR data only moves hourly, and the
+           machine counters are read on the next poll either way */
+        if (!useMock) setInterval(boot, 60000);
+    </script>
+</body>
+
+</html>
