@@ -13,6 +13,10 @@ part of your PR. On release, the `[Unreleased]` items move under the new version
 
 ## [Unreleased]
 
+### Fixed
+- Order Tracker (v1.107.1): order detail drawer was cut off when the list was scrolled (the app shell
+  wraps the page in a transformed container); the drawer now moves to the top level of the page.
+
 ### Added
 - Order Tracker (v1.107.0): new order_tracker.html + /api/order-tracker/{orders,order,machines}. Order wise
   (complete sets via mould consumption ratio, bottleneck mould, job card wise sets, expected end

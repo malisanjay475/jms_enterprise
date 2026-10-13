@@ -11,8 +11,24 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.107.0",
+  "latest": "1.107.1",
   "versions": [
+    {
+      "version": "1.107.1",
+      "date": "2026-10-13",
+      "title": "Order Tracker detail fix",
+      "modules": [
+        {
+          "app": "planning",
+          "changes": [
+            {
+              "type": "fix",
+              "text": "Order Tracker: the order detail panel now covers the full screen; before, it was cut off part way down when the order list was scrolled."
+            }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.107.0",
       "date": "2026-10-13",

@@ -73,8 +73,8 @@
         .ot-mc { display: inline-block; background: #f2f4f7; border-radius: 6px; padding: 2px 7px; font-size: .74rem; font-weight: 600; margin: 1px 2px 1px 0; }
 
         /* ---- order detail drawer ---- */
-        .ot-scrim { position: fixed; inset: 0; background: rgba(16,24,40,.35); z-index: 1050; display: none; }
-        .ot-drawer { position: fixed; top: 0; right: 0; bottom: 0; width: min(1100px, 96vw); background: var(--ot-bg); z-index: 1060; transform: translateX(100%); transition: transform .25s ease; overflow-y: auto; box-shadow: -12px 0 40px rgba(16,24,40,.18); }
+        .ot-scrim { position: fixed; inset: 0; background: rgba(16,24,40,.35); z-index: 2050; display: none; }
+        .ot-drawer { position: fixed; top: 0; right: 0; bottom: 0; height: 100vh; width: min(1100px, 96vw); background: var(--ot-bg); z-index: 2060; opacity: 1 !important; transform: translateX(100%); transition: transform .25s ease; overflow-y: auto; box-shadow: -12px 0 40px rgba(16,24,40,.18); }
         .ot-drawer.open { transform: none; }
         .ot-dh { position: sticky; top: 0; z-index: 2; background: #fff; border-bottom: 1px solid var(--ot-line); padding: 16px 22px; display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
         .ot-db { padding: 18px 22px 40px; }
@@ -480,6 +480,14 @@
 
             document.addEventListener('DOMContentLoaded', () => {
                 if (window.JPSMS && JPSMS.renderShell) JPSMS.renderShell();
+                /* the shell wraps the page in an animated (transformed) container, which
+                   turns position:fixed into "fixed to that container" and cut the drawer
+                   off at the container's height - keep the drawer at the top level */
+                ['ot-scrim', 'ot-drawer'].forEach(id => {
+                    const el = $(id);
+                    el.classList.remove('motion-target', 'motion-visible');
+                    document.body.appendChild(el);
+                });
                 try { $('ot-factory').textContent = localStorage.getItem('jpsms_factory_name') || 'All factories'; } catch (e) { /* ignore */ }
 
                 document.querySelectorAll('.ot-seg button').forEach(b => b.onclick = () => setView(b.dataset.view));
