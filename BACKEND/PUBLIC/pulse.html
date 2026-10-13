@@ -88,6 +88,43 @@
         .fan-plot { flex: 1; min-width: 0; padding: 4px 2px 0 }
         .fan-plot svg { display: block; width: 100%; height: 596px }
 
+        /* ===== building / line filter bar ===== */
+        .filters {
+            display: flex; align-items: center; gap: 4px; flex-wrap: wrap;
+            padding: 7px 12px 0;
+        }
+        .fl-lbl {
+            font-size: 8px; font-weight: 800; letter-spacing: 1.2px; color: var(--faint);
+            margin: 0 3px 0 8px;
+        }
+        .fl-lbl:first-child { margin-left: 0 }
+        .fb {
+            font: inherit; font-size: 9.5px; font-weight: 700; letter-spacing: .3px;
+            border: 1px solid var(--line); background: #fff; color: var(--mute);
+            border-radius: 5px; padding: 3px 9px; cursor: pointer;
+        }
+        .fb:hover { border-color: var(--ink); color: var(--ink) }
+        .fb.on { background: var(--ink); border-color: var(--ink); color: #fff }
+        .fb.grp-t { margin-left: 10px; letter-spacing: .9px }
+
+        /* group header inside the machine queue */
+        .grp {
+            grid-column: 1 / -1; display: flex; align-items: center; gap: 6px;
+            padding: 7px 2px 3px; border-bottom: 1px solid var(--hair); margin-bottom: 2px;
+        }
+        .grp .b { font-size: 9px; font-weight: 800; letter-spacing: 1.2px; color: var(--ink) }
+        .grp .l { font-size: 9px; font-weight: 800; letter-spacing: .8px; color: var(--mute) }
+        .grp .n { font-size: 8.5px; color: var(--faint); font-weight: 700 }
+        .grp .tl { margin-left: auto; display: flex; gap: 3px }
+        .grp .t {
+            font-style: normal; font-size: 8.5px; font-weight: 800; border-radius: 3px;
+            padding: 1px 5px; min-width: 16px; text-align: center;
+        }
+        .grp .t.r { background: var(--r-bg); color: var(--r-ink) }
+        .grp .t.a { background: var(--a-bg); color: var(--a) }
+        .grp .t.g { background: var(--g-bg); color: var(--g-ink) }
+        .grp .t.n { background: var(--n-bg); color: var(--n) }
+
         /* ===== scatter strip across the top of the flow panel ===== */
         .scat { border-bottom: 1px solid var(--hair); padding: 2px 0 0; position: relative }
         .scat svg { display: block; width: 100%; height: 56px }
@@ -213,6 +250,8 @@
 
     <div class="mock">MOCKUP &middot; generated sample data, not live.</div>
 
+    <div class="filters" id="filters"></div>
+
     <div id="hover"></div>
 
     <div class="shell">
@@ -279,7 +318,13 @@
             var out = [], lines = [[1, 8], [2, 9], [3, 7]], jc = 2380;
             lines.forEach(function (L) {
                 for (var i = 1; i <= L[1]; i++) {
-                    var m = { line: L[0], no: i, name: 'L' + L[0] + '-M' + String(i).padStart(2, '0') };
+                    /* lines 1-2 sit in building B, line 3 in building C, so the
+                       grouping and the building filter have something to show */
+                    var bld = L[0] <= 2 ? 'B' : 'C';
+                    var m = {
+                        building: bld, line: bld + ' -L' + L[0], no: i,
+                        name: bld + ' -L' + L[0] + '-M' + String(i).padStart(2, '0')
+                    };
                     var roll = rnd();
                     m.std = Math.round(btw(260, 520) / 10) * 10;
                     m.planQty = m.std * SLOTS;
@@ -340,9 +385,80 @@
         var useMock = qs.get('mock') === '1';
         if (isTv) document.body.classList.add('tv');
 
-        /* the server returns machines already in Line-then-number order, so
+        /* the server returns machines already in Building-Line-number order, so
            "line order" is simply the order it sent them in */
         function byLine(a, b) { return a.ord - b.ord }
+
+        /* ---------- building / line filter ----------
+           Factory comes from the app-wide switcher (a header on the request);
+           building and line narrow what is already on the page. */
+        var fBuilding = '', fLine = '', groupOn = true;
+
+        function visible() {
+            return M.filter(function (m) {
+                if (fBuilding && (m.building || '—') !== fBuilding) return false;
+                if (fLine && (m.line || '—') !== fLine) return false;
+                return true;
+            });
+        }
+
+        function uniq(key, within) {
+            var seen = {}, out = [];
+            M.forEach(function (m) {
+                if (within && (m.building || '—') !== within) return;
+                var v = m[key] || '—';
+                if (!seen[v]) { seen[v] = 1; out.push(v); }
+            });
+            return out.sort(function (a, b) {
+                return String(a).localeCompare(String(b), undefined, { numeric: true });
+            });
+        }
+
+        function renderFilters() {
+            var buildings = uniq('building');
+            var lines = uniq('line', fBuilding);
+            /* a single unnamed building is not worth a row of buttons */
+            var showB = buildings.length > 1 || (buildings.length === 1 && buildings[0] !== '—');
+
+            var html = '';
+            if (showB) {
+                html += '<span class="fl-lbl">BUILDING</span>'
+                    + '<button class="fb' + (fBuilding ? '' : ' on') + '" data-b="">All</button>'
+                    + buildings.map(function (b) {
+                        return '<button class="fb' + (fBuilding === b ? ' on' : '') + '" data-b="' + b + '">' + b + '</button>';
+                    }).join('');
+            }
+            html += '<span class="fl-lbl">LINE</span>'
+                + '<button class="fb' + (fLine ? '' : ' on') + '" data-l="">All</button>'
+                + lines.map(function (l) {
+                    return '<button class="fb' + (fLine === l ? ' on' : '') + '" data-l="' + l + '">' + l + '</button>';
+                }).join('');
+            html += '<button class="fb grp-t' + (groupOn ? ' on' : '') + '" data-g="1">GROUP</button>';
+            document.getElementById('filters').innerHTML = html;
+        }
+
+        document.addEventListener('click', function (e) {
+            var b = e.target;
+            if (!b || b.tagName !== 'BUTTON' || !b.classList.contains('fb')) return;
+            if (b.hasAttribute('data-b')) {
+                fBuilding = b.getAttribute('data-b');
+                fLine = ''; /* the old line may not be in the new building */
+            } else if (b.hasAttribute('data-l')) {
+                fLine = b.getAttribute('data-l');
+            } else if (b.hasAttribute('data-g')) {
+                groupOn = !groupOn;
+            }
+            /* keep the selection sensible when it falls outside the filter */
+            if (!visible().some(function (m) { return m.name === sel })) {
+                var v = visible();
+                sel = v.length ? v.slice().sort(bySev)[0].name : null;
+            }
+            if (pinned && !visible().some(function (m) { return m.name === pinned })) {
+                pinned = null; setHot(null);
+            }
+            renderAll();
+            markHot();
+        });
         function bySev(a, b) { return ST[a.state].rank - ST[b.state].rank || a.variance - b.variance || byLine(a, b) }
         function get(n) { return M.filter(function (x) { return x.name === n })[0] }
         function vtxt(m) { return m.state === 'NOPLAN' ? '—' : (m.variance > 0 ? '+' : '') + m.variance + '%' }
@@ -368,7 +484,7 @@
             [-30, -20, -10, 10].forEach(function (g) {
                 s += '<line x1="' + X(g) + '" y1="12" x2="' + X(g) + '" y2="' + (H - 12) + '" stroke="#f2f6fa" stroke-width="1"/>';
             });
-            M.forEach(function (m) {
+            visible().forEach(function (m) {
                 if (m.state === 'NOPLAN') return;
                 var st = ST[m.state], isHot = m.name === hot, isSel = m.name === sel;
                 /* spread the dots vertically so overlapping variances stay readable */
@@ -417,7 +533,7 @@
             /* while one machine is focused the rest recede, so a single curve
                reads across the whole plot */
             var dim = hot ? .07 : .38;
-            M.forEach(function (m) {
+            visible().forEach(function (m) {
                 if (m.state === 'NOPLAN' || m.name === sel || m.name === hot) return;
                 var st = ST[m.state];
                 s += '<path class="ln" data-m="' + m.name + '" d="' + smooth(pts(m)) + '" fill="none" stroke="' + st.c
@@ -426,7 +542,7 @@
             });
 
             /* end tags: 4 worst, 3 best */
-            var ok = M.filter(function (m) { return m.state !== 'NOPLAN' })
+            var ok = visible().filter(function (m) { return m.state !== 'NOPLAN' })
                 .sort(function (a, b) { return a.cum[DONE_SLOTS - 1] - b.cum[DONE_SLOTS - 1] });
             if (!hot) {
                 ok.slice(0, 4).concat(ok.slice(-3)).forEach(function (m) {
@@ -467,7 +583,7 @@
             document.getElementById('fan').innerHTML = s;
 
             /* name column */
-            var sorted = M.slice().sort(bySev);
+            var sorted = visible().sort(bySev);
             document.getElementById('fanNames').innerHTML = sorted.map(function (m) {
                 var st = ST[m.state];
                 return '<div class="nrow' + (m.name === sel ? ' sel' : '') + '" data-m="' + m.name + '">'
@@ -499,19 +615,68 @@
                 + '<circle cx="' + X(DONE_SLOTS - 1) + '" cy="' + Y(m.cum[DONE_SLOTS - 1]) + '" r="2" fill="' + st.c + '"/></svg>';
         }
 
+        function dcardHtml(m) {
+            var st = ST[m.state];
+            return '<div class="dcard' + (m.name === sel ? ' sel' : '') + '" data-m="' + m.name + '" style="background:' + st.bg + '">'
+                + '<div class="d-r1"><span class="nm">' + m.name + '</span><span class="dot" style="background:' + st.c + '"></span></div>'
+                + '<div class="d-tag" style="color:' + st.c + '">' + st.label + '</div>'
+                + miniLine(m, 150, 30)
+                + '<div class="d-r3"><span class="v" style="color:' + st.c + '">' + vtxt(m) + '</span>'
+                + '<span class="q">' + (m.rate ? m.rate + '/hr' : 'stopped') + '</span></div>'
+                + '<div class="d-jc">' + (m.jc ? m.jc + ' · ' + m.product : 'no plan') + '</div>'
+                + '</div>';
+        }
+
+        /* counts for one group of machines, used on the group headers */
+        function tally(list) {
+            var t = { down: 0, risk: 0, ok: 0, noplan: 0 };
+            list.forEach(function (m) {
+                var r = ST[m.state].rank;
+                if (m.state === 'NOPLAN') t.noplan++;
+                else if (r <= 1) t.down++;
+                else if (r <= 4) t.risk++;
+                else t.ok++;
+            });
+            return t;
+        }
+
+        function tallyHtml(t) {
+            var out = '';
+            if (t.down) out += '<i class="t r">' + t.down + '</i>';
+            if (t.risk) out += '<i class="t a">' + t.risk + '</i>';
+            if (t.ok) out += '<i class="t g">' + t.ok + '</i>';
+            if (t.noplan) out += '<i class="t n">' + t.noplan + '</i>';
+            return out;
+        }
+
         function renderDense() {
-            var list = M.slice().sort(isTv ? byLine : bySev);
-            document.getElementById('denseNote').textContent = list.length + ' machines';
-            document.getElementById('dense').innerHTML = list.map(function (m) {
-                var st = ST[m.state];
-                return '<div class="dcard' + (m.name === sel ? ' sel' : '') + '" data-m="' + m.name + '" style="background:' + st.bg + '">'
-                    + '<div class="d-r1"><span class="nm">' + m.name + '</span><span class="dot" style="background:' + st.c + '"></span></div>'
-                    + '<div class="d-tag" style="color:' + st.c + '">' + st.label + '</div>'
-                    + miniLine(m, 150, 30)
-                    + '<div class="d-r3"><span class="v" style="color:' + st.c + '">' + vtxt(m) + '</span>'
-                    + '<span class="q">' + (m.rate ? m.rate + '/hr' : 'stopped') + '</span></div>'
-                    + '<div class="d-jc">' + (m.jc ? m.jc + ' · ' + m.product : 'no plan') + '</div>'
-                    + '</div>';
+            var list = visible().sort(isTv ? byLine : bySev);
+            document.getElementById('denseNote').textContent =
+                list.length + (list.length === M.length ? ' machines' : ' of ' + M.length);
+
+            /* Grouped by building then line when the view is not narrowed to a
+               single line - that is what "line wise" means on the floor, and it
+               is also the only way a multi-building factory reads properly. */
+            if (!groupOn || fLine) {
+                document.getElementById('dense').innerHTML = list.map(dcardHtml).join('');
+                return;
+            }
+
+            var order = [], byKey = {};
+            list.slice().sort(byLine).forEach(function (m) {
+                var k = (m.building || '—') + '\u0000' + (m.line || '—');
+                if (!byKey[k]) { byKey[k] = []; order.push(k); }
+                byKey[k].push(m);
+            });
+
+            document.getElementById('dense').innerHTML = order.map(function (k) {
+                var parts = k.split('\u0000');
+                var grp = byKey[k].sort(isTv ? byLine : bySev);
+                return '<div class="grp"><span class="b">' + parts[0] + '</span>'
+                    + '<span class="l">' + parts[1] + '</span>'
+                    + '<span class="n">' + grp.length + '</span>'
+                    + '<span class="tl">' + tallyHtml(tally(grp)) + '</span></div>'
+                    + grp.map(dcardHtml).join('');
             }).join('');
         }
 
@@ -587,9 +752,10 @@
         }
 
         function renderX() {
-            var bad = M.filter(function (m) { return ST[m.state].rank <= 4 }).sort(bySev);
-            var good = M.filter(function (m) { return ST[m.state].rank > 4 && m.state !== 'NOPLAN' }).sort(bySev);
-            var none = M.filter(function (m) { return m.state === 'NOPLAN' });
+            var vis = visible();
+            var bad = vis.filter(function (m) { return ST[m.state].rank <= 4 }).sort(bySev);
+            var good = vis.filter(function (m) { return ST[m.state].rank > 4 && m.state !== 'NOPLAN' }).sort(bySev);
+            var none = vis.filter(function (m) { return m.state === 'NOPLAN' });
             var s = get(sel);
 
             /* selected always shown first, whatever its state */
@@ -609,8 +775,9 @@
         }
 
         function renderCounts() {
-            function n(a) { return M.filter(function (m) { return a.indexOf(m.state) >= 0 }).length }
-            var dt = M.reduce(function (s, m) { return s + m.dt }, 0);
+            var vis = visible();
+            function n(a) { return vis.filter(function (m) { return a.indexOf(m.state) >= 0 }).length }
+            var dt = vis.reduce(function (s, m) { return s + m.dt }, 0);
             document.getElementById('counts').innerHTML =
                 '<div class="count g"><b>' + n(['ONTRACK', 'AHEAD', 'CATCHING']) + '</b>RUNNING</div>'
                 + '<div class="count r"><b>' + n(['DOWN', 'CHANGEOVER']) + '</b>DOWN</div>'
@@ -619,7 +786,7 @@
                 + '<div class="count"><b>' + dt + '</b>DT MIN</div>';
         }
 
-        function renderAll() { renderCounts(); renderScat(); renderFan(); renderDense(); renderX(); }
+        function renderAll() { renderFilters(); renderCounts(); renderScat(); renderFan(); renderDense(); renderX(); }
 
         /* ---------- hover focus ----------
            Hovering any machine anywhere on the page pulls it forward: the rest
@@ -797,6 +964,7 @@
                 ord: i,
                 name: r.machine,
                 line: r.line,
+                building: r.building || '',
                 state: cum.length ? r.state : 'NOPLAN',
                 variance: r.variance === null || r.variance === undefined ? 0 : r.variance,
                 cum: cum.length ? cum : [100],
@@ -838,9 +1006,30 @@
             document.querySelector('.mock').style.display = '';
         }
 
+        /* The rest of the app carries its factory context in localStorage and
+           sends it as a header on every call; Pulse has to do the same or it
+           would quietly show whichever factory the server defaults to. */
+        function apiHeaders() {
+            var h = {};
+            try {
+                var fid = localStorage.getItem('jpsms_factory_id');
+                if (fid) h['X-Factory-ID'] = fid;
+                var u = JSON.parse(localStorage.getItem('user') || '{}');
+                if (u && u.username) h['X-User-Name'] = u.username;
+            } catch (e) { /* private mode, or no session yet */ }
+            return h;
+        }
+
+        function factoryLabel() {
+            try {
+                return localStorage.getItem('jpsms_factory_name')
+                    || localStorage.getItem('jpsms_write_factory_name') || '';
+            } catch (e) { return '' }
+        }
+
         function boot() {
             if (useMock) { applyMock(); start(); return; }
-            fetch('/api/machines/live-tracker', { credentials: 'same-origin' })
+            fetch('/api/machines/live-tracker', { credentials: 'same-origin', headers: apiHeaders() })
                 .then(function (r) { return r.json() })
                 .then(function (j) {
                     if (!j || !j.ok || !j.data || !j.data.length) throw new Error('no data');
@@ -849,7 +1038,9 @@
                     START_HR = j.shift === 'Night' ? 20 : 8;
                     M = j.data.map(fromApi);
                     document.querySelector('.mock').style.display = 'none';
-                    document.getElementById('sub').textContent = j.shift + ' shift · ' + j.date;
+                    var fac = factoryLabel();
+                    document.getElementById('sub').textContent =
+                        (fac ? fac + ' · ' : '') + j.shift + ' shift · ' + j.date;
                     start();
                 })
                 .catch(function (e) {
@@ -862,7 +1053,7 @@
 
         function start() {
             if (!M.length) return;
-            if (!sel || !get(sel)) sel = M.slice().sort(bySev)[0].name;
+            if (!sel || !get(sel)) { var v0 = visible(); sel = (v0.length ? v0 : M).slice().sort(bySev)[0].name; }
             renderAll();
             /* a pinned machine must survive the 60s refresh, with fresh figures */
             if (pinned && get(pinned)) {

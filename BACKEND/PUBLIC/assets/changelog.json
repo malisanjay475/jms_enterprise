@@ -14,6 +14,30 @@
   "latest": "1.105.0",
   "versions": [
     {
+      "version": "1.106.0",
+      "date": "2026-10-13",
+      "title": "Pulse by factory, building and line",
+      "modules": [
+        {
+          "app": "analyze",
+          "changes": [
+            {
+              "type": "fix",
+              "text": "Pulse now follows the factory you have selected, like every other page, and shows that factory's name in its header. Before this it showed whichever factory the server picked."
+            },
+            {
+              "type": "feat",
+              "text": "Machines are grouped by building and line, with a count of down, at risk, running and no-plan machines on each line heading."
+            },
+            {
+              "type": "feat",
+              "text": "New buttons narrow the whole page to one building or one line - the chart, the machine list and the counts all follow. GROUP turns the headings off for a plain list."
+            }
+          ]
+        }
+      ]
+    },
+    {
       "version": "1.105.0",
       "date": "2026-10-13",
       "title": "Pulse hover focus",
