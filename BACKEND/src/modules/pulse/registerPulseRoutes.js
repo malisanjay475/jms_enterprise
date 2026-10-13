@@ -13,7 +13,7 @@
  *   - plan_board        which job card is on the machine, and its job quantity
  *   - moulds            pcs_per_hour (the standard rate) and manpower (std)
  *   - std_actual        man_act, the manpower actually on the machine this shift
- *   - machines          the active machine list and its line, for ordering
+ *   - machines          the active machine list with its building and line
  *
  * Two progress bases are returned per machine, because they answer different
  * questions and supervisors and planners each want one:
@@ -88,18 +88,18 @@ function currentShiftWindow(now) {
   };
 }
 
-/* Line, then machine number - the standard DPR Compliance order. */
+/* Building, then line, then machine number - the standard DPR Compliance
+   order, extended so a multi-building factory groups the way the floor does. */
 function machineSort(a, b) {
-  const line = String(a.line || '').localeCompare(String(b.line || ''), undefined, { numeric: true });
-  if (line) return line;
-  return String(a.machine || '').localeCompare(String(b.machine || ''), undefined, { numeric: true });
+  const cmp = (x, y) => String(x || '').localeCompare(String(y || ''), undefined, { numeric: true });
+  return cmp(a.building, b.building) || cmp(a.line, b.line) || cmp(a.machine, b.machine);
 }
 
 const key = (s) => String(s || '').trim().toUpperCase();
 const num = (v) => (v === null || v === undefined || v === '' ? 0 : Number(v) || 0);
 
 const MACHINES_SQL = `
-  SELECT machine, line
+  SELECT machine, line, building
     FROM machines
    WHERE COALESCE(is_active, TRUE) = TRUE
      AND COALESCE(NULLIF(TRIM(machine_process), ''), 'Moulding') = 'Moulding'
@@ -213,7 +213,7 @@ function buildTracker(rows, win) {
   const seen = new Set(machines.map((r) => key(r.machine)));
   const list = machines.slice();
   for (const k of hourlyByMachine.keys()) {
-    if (!seen.has(k)) { list.push({ machine: k, line: '' }); seen.add(k); }
+    if (!seen.has(k)) { list.push({ machine: k, line: '', building: '' }); seen.add(k); }
   }
 
   const out = list.sort(machineSort).map((row) => {
@@ -265,6 +265,7 @@ function buildTracker(rows, win) {
     const m = {
       machine: row.machine,
       line: row.line || '',
+      building: row.building || '',
       /* shift basis - drives the state, the variance and the curve */
       std_rate: stdRate,
       shift_plan_qty: stdRate > 0 ? stdRate * win.slots.length : 0,
