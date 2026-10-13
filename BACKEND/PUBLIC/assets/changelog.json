@@ -32,6 +32,10 @@
             {
               "type": "feat",
               "text": "A new strip along the top of the chart puts every machine on one line, behind plan to the left and ahead to the right, so the whole floor reads at a glance."
+            },
+            {
+              "type": "feat",
+              "text": "Click a machine to pin it: it stays in focus with its card open when you move the pointer away. Click it again, or press Escape, to go back to hover."
             }
           ]
         }
