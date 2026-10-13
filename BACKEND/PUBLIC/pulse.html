@@ -276,11 +276,15 @@
             return String(t.getHours()).padStart(2, '0') + ':' + String(t.getMinutes()).padStart(2, '0');
         }
 
-        var M = loadMock(), sel = null;
-        var isTv = new URLSearchParams(location.search).get('tv') === '1';
+        var M = [], sel = null;
+        var qs = new URLSearchParams(location.search);
+        var isTv = qs.get('tv') === '1';
+        var useMock = qs.get('mock') === '1';
         if (isTv) document.body.classList.add('tv');
 
-        function byLine(a, b) { return a.line - b.line || a.no - b.no }
+        /* the server returns machines already in Line-then-number order, so
+           "line order" is simply the order it sent them in */
+        function byLine(a, b) { return a.ord - b.ord }
         function bySev(a, b) { return ST[a.state].rank - ST[b.state].rank || a.variance - b.variance || byLine(a, b) }
         function get(n) { return M.filter(function (x) { return x.name === n })[0] }
         function vtxt(m) { return m.state === 'NOPLAN' ? '—' : (m.variance > 0 ? '+' : '') + m.variance + '%' }
@@ -424,8 +428,9 @@
         }
 
         function note(m) {
-            if (m.state === 'DOWN') return m.reason.toUpperCase() + ' · ' + m.dt + ' MIN';
-            if (m.state === 'CHANGEOVER') return 'CHANGEOVER TO ' + m.nextJc + ' · ' + m.dt + ' MIN (STD 30)';
+            if (m.state === 'DOWN') return (m.reason || 'STOPPED').toUpperCase() + (m.dt ? ' · ' + m.dt + ' MIN' : '');
+            if (m.state === 'CHANGEOVER') return 'MOULD CHANGEOVER' + (m.nextJc ? ' TO ' + m.nextJc : '')
+                + (m.dt ? ' · ' + m.dt + ' MIN' : '');
             if (m.state === 'STARVED') return (m.stdMan - m.man) + ' OPERATOR SHORT';
             if (m.state === 'REJECT') return 'REJECT ' + m.rej + '% VS 2.0% STD';
             if (m.state === 'SLIPPING') return 'RATE ' + m.rate + ' VS ' + m.std + ' STD';
@@ -468,7 +473,12 @@
                 + '<span class="x-badge" style="background:' + st.c + '">' + st.label + '</span>'
                 + '<div class="x-nm">' + m.name + '</div>'
                 + '<div class="x-jc">' + (m.jc ? m.jc + '<br>' + m.product : 'no job card') + '</div>'
-                + '<div class="x-var" style="color:' + st.c + '">' + vtxt(m) + '</div></div>'
+                + '<div class="x-var" style="color:' + st.c + '">' + vtxt(m) + '</div>'
+                /* shift leads; job-card progress is the secondary figure */
+                + (m.jobPct === null || m.jobPct === undefined ? ''
+                    : '<div class="x-jc">JC ' + m.jobPct + '% · '
+                    + Number(m.jobDone || 0).toLocaleString() + '/' + Number(m.jobQty || 0).toLocaleString() + '</div>')
+                + '</div>'
                 + '<div class="x-right"><div class="x-note" style="color:' + st.c + '">' + note(m) + '</div>'
                 + cardChart(m, 240, 56) + '</div></div>'
                 + frow(m) + '</div>';
@@ -526,8 +536,90 @@
                 String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
         }
 
-        sel = M.slice().sort(bySev)[0].name;
-        renderAll(); tick(); setInterval(tick, 10000);
+        /* ---------- live data ----------
+           Maps one /api/machines/live-tracker row onto the shape the renderers
+           use. A machine with no standard rate has no curve and no variance,
+           so it is shown as NO PLAN rather than as a machine at 0%. */
+        function fromApi(r, i) {
+            var cum = (r.cum || []).filter(function (v) { return v !== null && v !== undefined });
+            var m = {
+                ord: i,
+                name: r.machine,
+                line: r.line,
+                state: cum.length ? r.state : 'NOPLAN',
+                variance: r.variance === null || r.variance === undefined ? 0 : r.variance,
+                cum: cum.length ? cum : [100],
+                rate: r.rate || 0,
+                std: r.std_rate || 0,
+                rej: r.reject_pct || 0,
+                man: r.act_manpower,
+                stdMan: r.std_manpower,
+                dt: r.downtime_min || 0,
+                done: r.done || 0,
+                planQty: r.shift_plan_qty || 0,
+                jc: r.job_card_no || r.plan_id || null,
+                product: r.product || null,
+                jobPct: r.job_pct,
+                jobDone: r.job_done,
+                jobQty: r.job_qty,
+                reason: r.stop_reason,
+                remarks: r.remarks,
+                eta: null
+            };
+            /* the charts index the curve by slot, so a machine whose rate is
+               only known for part of the shift carries its last value forward
+               rather than dropping off the plot */
+            while (m.cum.length < DONE_SLOTS) m.cum.push(m.cum[m.cum.length - 1]);
+            /* nothing booked on the machine: don't dress a bare plan id up as a job */
+            if (m.state === 'NOPLAN' || !m.product) { m.jc = null; m.product = null; }
+            if (m.man === null || m.man === undefined) m.man = '--';
+            if (m.stdMan === null || m.stdMan === undefined) m.stdMan = '--';
+            if (r.eta_min) {
+                var t = new Date(); t.setMinutes(t.getMinutes() + r.eta_min);
+                m.eta = String(t.getHours()).padStart(2, '0') + ':' + String(t.getMinutes()).padStart(2, '0');
+            }
+            return m;
+        }
+
+        function applyMock() {
+            M = loadMock().map(function (m, i) { m.ord = i; return m; });
+            DONE_SLOTS = 6; SLOTS = 8; START_HR = 8;
+            document.querySelector('.mock').style.display = '';
+        }
+
+        function boot() {
+            if (useMock) { applyMock(); start(); return; }
+            fetch('/api/machines/live-tracker', { credentials: 'same-origin' })
+                .then(function (r) { return r.json() })
+                .then(function (j) {
+                    if (!j || !j.ok || !j.data || !j.data.length) throw new Error('no data');
+                    SLOTS = j.slots.length;
+                    DONE_SLOTS = Math.max(1, j.elapsed);
+                    START_HR = j.shift === 'Night' ? 20 : 8;
+                    M = j.data.map(fromApi);
+                    document.querySelector('.mock').style.display = 'none';
+                    document.getElementById('sub').textContent = j.shift + ' shift · ' + j.date;
+                    start();
+                })
+                .catch(function (e) {
+                    /* no server, or nothing booked yet this shift - fall back to
+                       the sample data so the page still shows something */
+                    console.warn('[pulse] live data unavailable, showing sample:', e.message);
+                    applyMock(); start();
+                });
+        }
+
+        function start() {
+            if (!M.length) return;
+            if (!sel || !get(sel)) sel = M.slice().sort(bySev)[0].name;
+            renderAll();
+        }
+
+        tick(); setInterval(tick, 10000);
+        boot();
+        /* refresh the live view every 60s; DPR data only moves hourly, and the
+           machine counters are read on the next poll either way */
+        if (!useMock) setInterval(boot, 60000);
     </script>
 </body>
 

@@ -297,6 +297,10 @@ function registerRoutes(app, deps) {
   const { registerMachineDataRoutes } = require('../modules/machineData/registerMachineDataRoutes');
   registerMachineDataRoutes(app, pool);
 
+  // Pulse (machine-wise live job tracker behind PUBLIC/pulse.html)
+  const { registerPulseRoutes } = require('../modules/pulse/registerPulseRoutes');
+  registerPulseRoutes(app, pool);
+
   return registerLegacyRoutes({ app, pool, config, services });
 }
 
