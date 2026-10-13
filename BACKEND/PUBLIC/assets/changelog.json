@@ -11,8 +11,56 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.105.1",
+  "latest": "1.107.0",
   "versions": [
+    {
+      "version": "1.107.0",
+      "date": "2026-10-13",
+      "title": "Order Tracker",
+      "modules": [
+        {
+          "app": "planning",
+          "changes": [
+            {
+              "type": "feat",
+              "text": "New Order Tracker page (Planning Board > Order Tracker): every open order with complete sets made, the mould holding it back, the machines it runs on, its start, target and expected end date."
+            },
+            {
+              "type": "feat",
+              "text": "Open an order to see it mould wise (consumption ratio, pieces made, balance, rate, start, completed and expected end date) and job card wise (complete sets per job card), plus a daily production chart."
+            },
+            {
+              "type": "feat",
+              "text": "Machine wise view: what each machine is running now, progress, expected end, the jobs queued next and when the machine will be free. The page refreshes every 60 seconds."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.106.0",
+      "date": "2026-10-13",
+      "title": "Pulse by factory, building and line",
+      "modules": [
+        {
+          "app": "analyze",
+          "changes": [
+            {
+              "type": "fix",
+              "text": "Pulse now follows the factory you have selected, like every other page, and shows that factory's name in its header. Before this it showed whichever factory the server picked."
+            },
+            {
+              "type": "feat",
+              "text": "Machines are grouped by building and line, with a count of down, at risk, running and no-plan machines on each line heading."
+            },
+            {
+              "type": "feat",
+              "text": "New buttons narrow the whole page to one building or one line - the chart, the machine list and the counts all follow. GROUP turns the headings off for a plain list."
+            }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.105.1",
       "date": "2026-10-13",

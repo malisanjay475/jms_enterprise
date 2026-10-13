@@ -17,7 +17,7 @@ const WIN = {
 
 function rows(over) {
   return Object.assign({
-    machines: [{ machine: 'L1-M01', line: 'B -L1' }],
+    machines: [{ machine: 'L1-M01', line: 'B -L1', building: 'B' }],
     hourly: [],
     plans: [],
     moulds: [{ mould_number: 'MLD-1', mould_name: 'Crate Lid', pcs_per_hour: 100, manpower: 4 }],
@@ -122,6 +122,26 @@ describe('pulse live tracker', () => {
     expect(m.std_rate).toBe(0);
     expect(m.variance).toBe(null);
     expect(m.state).toBe('NOPLAN');
+  });
+
+  it('returns the building and line so the page can group by them', () => {
+    const [m] = buildTracker(rows({ hourly: [hour('08-09', 100)] }), WIN);
+    expect(m.building).toBe('B');
+    expect(m.line).toBe('B -L1');
+  });
+
+  it('orders machines by building, then line, then machine number', () => {
+    const out = buildTracker(rows({
+      machines: [
+        { machine: 'C-L1-M02', line: 'C -L1', building: 'C' },
+        { machine: 'B-L2-M01', line: 'B -L2', building: 'B' },
+        { machine: 'C-L1-M01', line: 'C -L1', building: 'C' },
+        { machine: 'B-L1-M10', line: 'B -L1', building: 'B' },
+        { machine: 'B-L1-M02', line: 'B -L1', building: 'B' }
+      ]
+    }), WIN);
+    expect(out.map((m) => m.machine))
+      .toEqual(['B-L1-M02', 'B-L1-M10', 'B-L2-M01', 'C-L1-M01', 'C-L1-M02']);
   });
 
   it('still lists a machine that produced but is missing from the machine master', () => {
