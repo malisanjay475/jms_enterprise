@@ -13,6 +13,11 @@ part of your PR. On release, the `[Unreleased]` items move under the new version
 
 ## [Unreleased]
 
+### Added
+- Order Tracker (v1.107.0): new order_tracker.html + /api/order-tracker/{orders,order,machines}. Order wise
+  (complete sets via mould consumption ratio, bottleneck mould, job card wise sets, expected end
+  from live rate) and machine wise (running job, queue, machine free time).
+
 ### Changed
 - Planning (v1.103.1): the Planner role can now use Restore on the Complete Production Plan list
   (previously superadmin and PPC managers only).

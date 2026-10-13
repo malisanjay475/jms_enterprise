@@ -114,6 +114,7 @@ function escHtml(value) {
         '/': 'dashboard',
         'index.html': 'dashboard',
         'planning.html': 'planning',
+        'order_tracker.html': 'planning',
         'analyze.html': 'analyze',
         'raw_material_jobwise.html': 'raw_material',
         'dpr.html': 'dpr',
@@ -1290,6 +1291,7 @@ function escHtml(value) {
             href: 'planning.html',
             items: [
                 { id: 'plan_create', label: 'Create Plan', icon: 'bi-plus-circle', href: 'planning.html?action=create' },
+                { id: 'plan_order_tracker', label: 'Order Tracker', icon: 'bi-diagram-3', href: 'order_tracker.html' },
                 { id: 'plan_master', label: 'Master Plan', icon: 'bi-table', href: 'planning.html?view=master' },
                 { id: 'plan_timeline', label: 'Machine Timeline', icon: 'bi-clock-history', href: 'planning.html?view=timeline' },
                 { id: 'plan_excel_timeline', label: 'Excel View Timeline', icon: 'bi-grid-3x3-gap-fill', href: 'planning.html?view=excel_timeline' },
@@ -2380,7 +2382,7 @@ function escHtml(value) {
   window.JPSMS = window.JPSMS || {};
   window.JPSMS._pathAppMap = {
     '': 'dashboard', '/': 'dashboard', 'index.html': 'dashboard',
-    'planning.html': 'planning', 'analyze.html': 'analyze',
+    'planning.html': 'planning', 'order_tracker.html': 'planning', 'analyze.html': 'analyze',
     'raw_material_jobwise.html': 'raw_material', 'dpr.html': 'dpr',
     'dpr_daily_report.html': 'dpr', 'job_summary.html': 'dpr',
     'purchase_orders.html': 'purchase', 'purchase_vendors.html': 'purchase',
