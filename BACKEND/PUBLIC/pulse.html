@@ -123,6 +123,15 @@
         #hover .h-row b { font-weight: 800 }
         #hover .h-chart { margin-top: 5px }
         #hover .h-chart svg { display: block; width: 100%; height: 86px }
+        #hover .h-pin {
+            margin-top: 4px; text-align: center; font-size: 7.5px; font-weight: 800;
+            letter-spacing: .9px; color: var(--faint);
+        }
+        #hover .h-pin.on { color: var(--ink) }
+        /* a pinned card is held open, so it must look deliberate, not stuck */
+        body.pinned #hover { border-color: var(--ink); box-shadow: 0 10px 30px rgba(13, 22, 38, .22) }
+        body.pinned .dcard.hot, body.pinned .xcard.hot { box-shadow: 0 0 0 2px var(--ink) }
+
         #hover .h-foot {
             display: flex; justify-content: space-between; margin-top: 5px; padding-top: 4px;
             border-top: 1px solid var(--line); font-size: 8.5px; font-weight: 700; color: var(--faint);
@@ -325,7 +334,7 @@
             return String(t.getHours()).padStart(2, '0') + ':' + String(t.getMinutes()).padStart(2, '0');
         }
 
-        var M = [], sel = null, hot = null;
+        var M = [], sel = null, hot = null, pinned = null;
         var qs = new URLSearchParams(location.search);
         var isTv = qs.get('tv') === '1';
         var useMock = qs.get('mock') === '1';
@@ -432,14 +441,16 @@
                area, with its name at the end of the curve */
             var mh = hot ? get(hot) : null;
             if (mh && mh.state !== 'NOPLAN' && mh.name !== sel) {
-                var ph = pts(mh), st = ST[mh.state];
-                s += '<path d="' + smooth(ph) + ' L' + X(DONE_SLOTS - 1) + ' ' + Y(lo) + ' L' + X(0) + ' ' + Y(lo)
-                    + ' Z" fill="' + st.c + '" fill-opacity=".10"/>'
-                    + '<path d="' + smooth(ph) + '" fill="none" stroke="' + st.c + '" stroke-width="2.6"/>'
+                /* NB: do not name these `ph` - that is the plot height above,
+                   and `var` would hoist the shadow over the whole function. */
+                var hotPts = pts(mh), hotSt = ST[mh.state];
+                s += '<path d="' + smooth(hotPts) + ' L' + X(DONE_SLOTS - 1) + ' ' + Y(lo) + ' L' + X(0) + ' ' + Y(lo)
+                    + ' Z" fill="' + hotSt.c + '" fill-opacity=".10"/>'
+                    + '<path d="' + smooth(hotPts) + '" fill="none" stroke="' + hotSt.c + '" stroke-width="2.6"/>'
                     + '<circle cx="' + X(DONE_SLOTS - 1) + '" cy="' + Y(mh.cum[DONE_SLOTS - 1]) + '" r="3.4" fill="#fff" stroke="'
-                    + st.c + '" stroke-width="2"/>'
+                    + hotSt.c + '" stroke-width="2"/>'
                     + '<text x="' + (X(DONE_SLOTS - 1) + 7) + '" y="' + (Y(mh.cum[DONE_SLOTS - 1]) + 3)
-                    + '" font-size="9" font-weight="800" fill="' + st.c + '">' + mh.name + ' ' + vtxt(mh) + '</text>';
+                    + '" font-size="9" font-weight="800" fill="' + hotSt.c + '">' + mh.name + ' ' + vtxt(mh) + '</text>';
             }
 
             var m2 = get(sel);
@@ -641,7 +652,9 @@
                 + '<div class="h-chart">' + cardChart(m, 266, 86) + '</div>'
                 + '<div class="h-foot"><span>SHIFT ' + Number(m.done || 0).toLocaleString() + ' / '
                 + Number(m.planQty || 0).toLocaleString() + '</span><span>'
-                + (m.jobPct === null || m.jobPct === undefined ? 'NO JOB CARD' : 'JC ' + m.jobPct + '%') + '</span></div>';
+                + (m.jobPct === null || m.jobPct === undefined ? 'NO JOB CARD' : 'JC ' + m.jobPct + '%') + '</span></div>'
+                + '<div class="h-pin' + (pinned === m.name ? ' on' : '') + '">'
+                + (pinned === m.name ? '● PINNED · CLICK AGAIN TO RELEASE' : 'CLICK TO PIN') + '</div>';
         }
 
         function placeHover(el) {
@@ -671,9 +684,12 @@
                 });
             });
             document.body.classList.toggle('focusing', !!hot);
+            document.body.classList.toggle('pinned', !!pinned);
         }
 
         function setHot(name, el) {
+            /* a pinned machine owns the focus until it is unpinned */
+            if (pinned && name !== pinned) return;
             if (hot === name) { if (el) placeHover(el); return; }
             hot = name;
             if (!name) {
@@ -708,7 +724,7 @@
         });
 
         document.addEventListener('mouseout', function (e) {
-            if (isTv || !hot) return;
+            if (isTv || !hot || pinned) return;
             var el = targetOf(e);
             if (!el) return;
             var to = e.relatedTarget;
@@ -721,7 +737,7 @@
 
         /* a curve is not a box, so hovering one anchors the card to the plot */
         document.addEventListener('mousemove', function (e) {
-            if (isTv || !hot) return;
+            if (isTv || !hot || pinned) return;
             if (e.target && e.target.classList && e.target.classList.contains('ln')) {
                 hoverEl.style.left = Math.min(e.pageX + 14,
                     window.pageXOffset + document.documentElement.clientWidth - 296) + 'px';
@@ -729,16 +745,40 @@
             }
         });
 
+        /* Click pins the focus so it survives the pointer leaving; clicking the
+           same machine again releases it and hover takes over. Clicking a
+           different machine moves the pin. */
         document.addEventListener('click', function (e) {
-            var t = e.target, el = null;
-            while (t && t !== document) {
-                if (t.getAttribute && t.getAttribute('data-m')) { el = t; break }
-                t = t.parentNode;
-            }
+            var el = targetOf(e);
             if (!el) return;
-            sel = el.getAttribute('data-m');
+            var name = el.getAttribute('data-m');
+            var anchor = el.closest ? (el.closest('.dcard, .xcard, .nrow, .chip') || el) : el;
+
+            if (pinned === name) {
+                pinned = null;
+                sel = name;
+                renderAll();
+                /* the pointer is still on it, so hand straight back to hover */
+                hot = null;
+                setHot(name, anchor);
+                return;
+            }
+
+            pinned = name;
+            sel = name;
+            hot = name;
             renderAll();
-            markHot(); /* renderAll rebuilt the cards, so re-apply the focus */
+            hoverEl.innerHTML = hoverHtml(get(name));
+            markHot();
+            placeHover(anchor);
+        });
+
+        /* Esc releases a pinned machine, for anyone driving this by keyboard. */
+        document.addEventListener('keydown', function (e) {
+            if (e.key === 'Escape' && pinned) {
+                pinned = null;
+                setHot(null);
+            }
         });
 
         function tick() {
@@ -824,6 +864,17 @@
             if (!M.length) return;
             if (!sel || !get(sel)) sel = M.slice().sort(bySev)[0].name;
             renderAll();
+            /* a pinned machine must survive the 60s refresh, with fresh figures */
+            if (pinned && get(pinned)) {
+                hot = pinned;
+                hoverEl.innerHTML = hoverHtml(get(pinned));
+                markHot();
+                var anchor = document.querySelector('.dcard[data-m="' + pinned + '"]');
+                if (anchor) placeHover(anchor);
+            } else {
+                if (pinned) pinned = null; /* the machine is gone from the feed */
+                markHot();
+            }
         }
 
         tick(); setInterval(tick, 10000);
