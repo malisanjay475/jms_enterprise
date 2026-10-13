@@ -6,31 +6,26 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <title>JMS OCEAN - Pulse</title>
     <link rel="stylesheet" href="/assets/app.css?v=12">
-    <link rel="stylesheet" href="/assets/bootstrap-icons.min.css">
     <style>
         :root {
-            --bg: #f1f5f9;
-            --card: #ffffff;
-            --line: #e2e8f0;
-            --ink: #0f172a;
-            --mute: #64748b;
-            --faint: #94a3b8;
+            --bg: #ffffff;
+            --panel: #fcfdfe;
+            --line: #e6ebf2;
+            --hair: #eef2f7;
+            --ink: #0b1220;
+            --mute: #5b6b82;
+            --faint: #9aa8bb;
 
-            --red: #dc2626;
-            --red-bg: #fef2f2;
-            --red-br: #fecaca;
-            --amber: #d97706;
-            --amber-bg: #fffbeb;
-            --amber-br: #fde68a;
-            --blue: #2563eb;
-            --blue-bg: #eff6ff;
-            --blue-br: #bfdbfe;
-            --green: #15803d;
-            --green-bg: #f0fdf4;
-            --green-br: #bbf7d0;
-            --grey: #64748b;
-            --grey-bg: #f8fafc;
-            --grey-br: #e2e8f0;
+            --red: #d32f3b;
+            --red-bg: #fdf3f4;
+            --amber: #c2710c;
+            --amber-bg: #fdf8ef;
+            --green: #137a43;
+            --green-bg: #f1faf5;
+            --blue: #1d5fd0;
+            --blue-bg: #f1f6fe;
+            --grey: #7b89a0;
+            --grey-bg: #f7f9fb;
         }
 
         * { box-sizing: border-box; }
@@ -41,350 +36,270 @@
             color: var(--ink);
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
             font-variant-numeric: tabular-nums;
+            font-size: 12px;
         }
 
-        /* ---------- header strip ---------- */
+        /* ===== header ===== */
         .top {
-            background: var(--card);
+            position: sticky; top: 0; z-index: 30;
+            background: rgba(255, 255, 255, .95);
+            backdrop-filter: blur(6px);
             border-bottom: 1px solid var(--line);
-            padding: 10px 16px;
-            position: sticky;
-            top: 0;
-            z-index: 20;
+            padding: 7px 14px;
+            display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
         }
 
-        .top-row {
-            display: flex;
-            align-items: center;
-            gap: 14px;
-            flex-wrap: wrap;
-        }
-
-        .brand {
-            font-size: 20px;
-            font-weight: 800;
-            letter-spacing: 2px;
-        }
-
-        .brand .dot {
-            display: inline-block;
-            width: 9px;
-            height: 9px;
-            border-radius: 50%;
-            background: var(--green);
-            margin-right: 7px;
-            vertical-align: middle;
+        .brand { font-size: 15px; font-weight: 800; letter-spacing: 2.5px; }
+        .brand i {
+            display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+            background: var(--green); margin-right: 6px; vertical-align: middle;
             animation: beat 1.6s ease-in-out infinite;
         }
+        @keyframes beat { 0%,100% { transform: scale(1); opacity: 1 } 50% { transform: scale(1.5); opacity: .5 } }
 
-        @keyframes beat {
-            0%, 100% { transform: scale(1); opacity: 1; }
-            50% { transform: scale(1.45); opacity: .55; }
-        }
-
-        .shift-tag {
-            font-size: 12px;
-            font-weight: 700;
-            letter-spacing: 1px;
-            color: var(--mute);
-            text-transform: uppercase;
-        }
-
-        .clock { font-size: 20px; font-weight: 700; margin-left: auto; }
-
-        .counts { display: flex; gap: 8px; flex-wrap: wrap; }
-
+        .sub { font-size: 10px; font-weight: 700; letter-spacing: 1.1px; color: var(--faint); text-transform: uppercase; }
+        .counts { display: flex; gap: 5px; flex-wrap: wrap; }
         .count {
-            border: 1px solid var(--line);
-            border-radius: 8px;
-            padding: 4px 10px;
-            font-size: 12px;
-            font-weight: 700;
-            background: var(--grey-bg);
+            border: 1px solid var(--line); border-radius: 5px; padding: 2px 7px;
+            font-size: 9.5px; font-weight: 700; letter-spacing: .5px; color: var(--mute);
         }
+        .count b { font-size: 13px; margin-right: 3px; }
+        .count.r { color: var(--red); background: var(--red-bg); border-color: #f6d8db }
+        .count.a { color: var(--amber); background: var(--amber-bg); border-color: #f5e2c4 }
+        .count.g { color: var(--green); background: var(--green-bg); border-color: #cdeadb }
+        .clock { margin-left: auto; font-size: 16px; font-weight: 800; letter-spacing: .5px; }
+        .modes { display: flex; gap: 4px }
+        .modes a {
+            font-size: 9.5px; font-weight: 700; letter-spacing: .5px; color: var(--mute);
+            text-decoration: none; border: 1px solid var(--line); border-radius: 5px; padding: 3px 8px;
+        }
+        .modes a:hover { border-color: var(--ink); color: var(--ink) }
 
-        .count b { font-size: 15px; margin-right: 4px; }
-        .count.r { color: var(--red); border-color: var(--red-br); background: var(--red-bg); }
-        .count.a { color: var(--amber); border-color: var(--amber-br); background: var(--amber-bg); }
-        .count.g { color: var(--green); border-color: var(--green-br); background: var(--green-bg); }
+        /* ===== band scaffold ===== */
+        .band { padding: 0 14px; margin-top: 14px; }
+        .band-h {
+            display: flex; align-items: center; gap: 9px;
+            font-size: 10px; font-weight: 800; letter-spacing: 1.6px; text-transform: uppercase;
+            color: var(--ink); margin-bottom: 6px;
+        }
+        .band-h em { font-style: normal; font-weight: 600; letter-spacing: .2px; color: var(--faint); text-transform: none; font-size: 10.5px; }
+        .band-h .spacer { margin-left: auto }
+        .band-h .n { color: var(--faint); font-weight: 700 }
 
-        /* ---------- line strip ---------- */
-        .strip { display: flex; gap: 18px; margin-top: 10px; flex-wrap: wrap; }
-        .line-wrap { display: flex; align-items: center; gap: 7px; }
-        .line-lbl { font-size: 11px; font-weight: 800; color: var(--mute); letter-spacing: 1px; }
-        .seg-row { display: flex; gap: 2px; }
+        .panel { border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
 
-        .seg {
-            width: 16px;
-            height: 22px;
-            border-radius: 3px;
+        /* ===== scatter ===== */
+        .scatter { position: relative; }
+        .scatter svg { display: block; width: 100%; height: 132px; }
+        .scat-tag {
+            position: absolute; top: 7px; font-size: 9.5px; font-weight: 800; letter-spacing: 1px;
+        }
+        .scat-tag.l { left: 12px; color: var(--red) }
+        .scat-tag.r { right: 12px; color: var(--green) }
+
+        /* ===== attention chips ===== */
+        .setups { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 6px; }
+        .setup {
+            border: 1px solid var(--line); border-left: 3px solid var(--grey); border-radius: 7px;
+            padding: 6px 8px; background: #fff; cursor: pointer; display: flex; gap: 8px; align-items: center;
+        }
+        .setup:hover { border-color: var(--ink) }
+        .setup .nm { font-size: 12px; font-weight: 800; letter-spacing: .3px }
+        .setup .st { font-size: 9px; font-weight: 800; letter-spacing: .6px; margin-top: 1px }
+        .setup .spark { margin-left: auto }
+
+        /* ===== machine grid (sectors) ===== */
+        .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(168px, 1fr)); gap: 5px; }
+        .tile {
+            border: 1px solid var(--line); border-radius: 6px; padding: 5px 7px; background: #fff;
             cursor: pointer;
-            border: 1px solid transparent;
         }
+        .tile:hover { border-color: var(--ink) }
+        .tile.sel { box-shadow: inset 0 0 0 2px var(--ink) }
+        .tile-r1 { display: flex; align-items: baseline; gap: 6px }
+        .tile-r1 .nm { font-size: 11.5px; font-weight: 800; letter-spacing: .3px }
+        .tile-r1 .vr { margin-left: auto; font-size: 11.5px; font-weight: 800 }
+        .tile-r2 { display: flex; align-items: center; gap: 5px; margin-top: 3px }
+        .minibar { flex: 1; height: 5px; border-radius: 3px; background: var(--hair); overflow: hidden; position: relative }
+        .minibar i { position: absolute; top: 0; bottom: 0; border-radius: 3px }
+        .minibar u { position: absolute; top: -2px; bottom: -2px; width: 1px; background: var(--faint) }
+        .tile-r3 { font-size: 9.5px; color: var(--faint); margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
 
-        .seg:hover { outline: 2px solid var(--ink); outline-offset: 1px; }
-        .seg.sel { outline: 2px solid var(--ink); outline-offset: 1px; }
+        /* ===== flow ===== */
+        .flow-wrap { display: grid; grid-template-columns: minmax(0, 1fr) 260px; gap: 10px; }
+        .flow { position: relative; padding: 8px 10px 4px }
+        .flow svg { display: block; width: 100%; height: 300px }
+        .flow-legend { display: flex; gap: 14px; font-size: 9.5px; color: var(--mute); padding: 2px 2px 6px }
+        .flow-legend i { display: inline-block; width: 14px; height: 2px; vertical-align: 3px; margin-right: 4px }
 
-        /* ---------- layout ---------- */
-        .wrap {
-            display: grid;
-            grid-template-columns: minmax(0, 1.5fr) minmax(230px, .85fr) minmax(290px, 1fr);
-            gap: 12px;
-            padding: 12px 16px 40px;
-            align-items: start;
-        }
-
-        .col-head {
-            font-size: 11px;
-            font-weight: 800;
-            letter-spacing: 1.4px;
-            color: var(--mute);
-            text-transform: uppercase;
-            margin: 0 0 8px;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-
-        .col-head .hint { font-weight: 600; letter-spacing: 0; color: var(--faint); text-transform: none; }
-
-        /* ---------- generic card ---------- */
-        .card {
-            background: var(--card);
-            border: 1px solid var(--line);
-            border-left: 4px solid var(--grey);
-            border-radius: 10px;
-            padding: 10px 12px;
-            margin-bottom: 8px;
-        }
-
-        .pill {
-            display: inline-block;
-            font-size: 10px;
-            font-weight: 800;
-            letter-spacing: .8px;
-            padding: 3px 8px;
-            border-radius: 20px;
-            color: #fff;
-            white-space: nowrap;
-        }
-
-        .mc { font-size: 15px; font-weight: 800; letter-spacing: .4px; }
-        .jc { font-size: 12px; color: var(--mute); margin-top: 2px; }
-        .jc b { color: var(--ink); font-weight: 700; }
-
-        .bar {
-            height: 7px;
-            border-radius: 4px;
-            background: #e9eef5;
-            overflow: hidden;
-            margin: 8px 0 6px;
-        }
-
-        .bar > i { display: block; height: 100%; border-radius: 4px; }
+        .detail { padding: 9px 11px }
+        .detail .dm { font-size: 19px; font-weight: 800; letter-spacing: .4px }
+        .detail .dj { font-size: 10.5px; color: var(--mute); margin-top: 2px }
+        .detail .dj b { color: var(--ink) }
+        .detail .dp { font-size: 27px; font-weight: 800; line-height: 1.05; margin-top: 6px }
+        .detail .dq { font-size: 10px; color: var(--faint) }
+        .reason { margin-top: 7px; border-radius: 6px; padding: 5px 8px; font-size: 10.5px; font-weight: 700; background: #fff }
 
         /* fixed six-field row */
-        .fields {
-            display: grid;
-            grid-template-columns: repeat(6, 1fr);
-            gap: 2px;
-            border-top: 1px dashed var(--line);
-            padding-top: 7px;
-            margin-top: 7px;
+        .fields { display: grid; grid-template-columns: repeat(6, 1fr); gap: 1px; border-top: 1px solid var(--hair); margin-top: 7px; padding-top: 5px }
+        .f { text-align: center }
+        .f u { display: block; font-size: 8px; letter-spacing: .6px; color: var(--faint); font-weight: 800; text-decoration: none }
+        .f s { display: block; font-size: 12px; font-weight: 800; text-decoration: none; margin-top: 1px }
+        .f s.bad { color: var(--red) } .f s.warn { color: var(--amber) } .f s.ok { color: var(--green) }
+
+        /* ===== ranked cards ===== */
+        .rank-h {
+            font-size: 9px; font-weight: 800; letter-spacing: 1.3px; color: var(--faint);
+            margin: 9px 0 5px; display: flex; align-items: center; gap: 7px;
+        }
+        .rank-h:after { content: ""; flex: 1; height: 1px; background: var(--hair) }
+
+        .cards { display: grid; gap: 6px }
+        .cards.big { grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)) }
+        .cards.mid { grid-template-columns: repeat(auto-fill, minmax(245px, 1fr)) }
+
+        .mcard {
+            border: 1px solid var(--line); border-left: 3px solid var(--grey); border-radius: 7px;
+            background: #fff; padding: 7px 9px; cursor: pointer;
+        }
+        .mcard:hover { border-color: var(--ink) }
+        .mcard .hd { display: flex; align-items: center; gap: 6px }
+        .mcard .nm { font-size: 13px; font-weight: 800; letter-spacing: .3px }
+        .mcard .jb { font-size: 9.5px; color: var(--faint); margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+        .mcard .body { display: flex; gap: 8px; align-items: flex-end; margin-top: 5px }
+        .mcard .bigpct { font-size: 18px; font-weight: 800; line-height: 1 }
+        .mcard .chartcell { margin-left: auto }
+
+        .pill {
+            margin-left: auto; font-size: 8.5px; font-weight: 800; letter-spacing: .7px;
+            padding: 2px 6px; border-radius: 10px; color: #fff; white-space: nowrap;
         }
 
-        .f { text-align: center; }
-        .f u { display: block; font-size: 9px; letter-spacing: .7px; color: var(--faint); text-decoration: none; font-weight: 700; }
-        .f s { display: block; font-size: 13px; font-weight: 700; text-decoration: none; margin-top: 1px; }
-        .f s.bad { color: var(--red); }
-        .f s.warn { color: var(--amber); }
-        .f s.ok { color: var(--green); }
-
-        /* ---------- left: selected machine ---------- */
-        .sel-card { padding: 14px 16px; }
-        .sel-top { display: flex; align-items: flex-start; gap: 12px; }
-        .sel-mc { font-size: 26px; font-weight: 800; letter-spacing: .5px; }
-        .sel-jc { font-size: 14px; color: var(--mute); margin-top: 3px; }
-        .sel-jc b { color: var(--ink); }
-        .sel-right { margin-left: auto; text-align: right; }
-        .sel-pct { font-size: 32px; font-weight: 800; line-height: 1; }
-        .sel-qty { font-size: 12px; color: var(--mute); margin-top: 3px; }
-
-        .reason {
-            margin-top: 10px;
-            border-radius: 8px;
-            padding: 8px 11px;
-            font-size: 13px;
-            font-weight: 600;
-        }
-
-        .chart-box { margin-top: 14px; }
-        .chart {
-            display: flex;
-            align-items: flex-end;
-            gap: 4px;
-            height: 150px;
-            border-bottom: 1px solid var(--line);
-            padding-bottom: 2px;
-        }
-
-        .slot { flex: 1; display: flex; flex-direction: column; justify-content: flex-end; height: 100%; position: relative; }
-        .slot .val { height: 0; border-radius: 3px 3px 0 0; background: var(--green); }
-        .slot.under .val { background: var(--amber); }
-        .slot.dt .val { background: repeating-linear-gradient(45deg, #fca5a5, #fca5a5 4px, #fecaca 4px, #fecaca 8px); }
-        .slot .std { position: absolute; left: 0; right: 0; border-top: 2px dashed var(--faint); }
-        .hrs { display: flex; gap: 4px; margin-top: 4px; }
-        .hrs span { flex: 1; text-align: center; font-size: 9px; color: var(--faint); font-weight: 700; }
-        .legend { margin-top: 8px; font-size: 11px; color: var(--mute); display: flex; gap: 14px; flex-wrap: wrap; }
-        .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: -1px; }
-
-        /* ---------- middle: queue ---------- */
-        .queue { max-height: calc(100vh - 190px); overflow-y: auto; padding-right: 2px; }
-        .q-card { padding: 8px 10px; cursor: pointer; }
-        .q-card:hover { border-color: var(--ink); }
-        .q-card.sel { box-shadow: 0 0 0 2px var(--ink); }
-        .q-top { display: flex; align-items: center; gap: 6px; }
-        .q-top .mc { font-size: 13px; }
-        .q-top .pill { margin-left: auto; font-size: 9px; padding: 2px 6px; }
-        .q-sub { font-size: 11px; color: var(--mute); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        .q-mini { display: flex; justify-content: space-between; font-size: 11px; margin-top: 5px; color: var(--mute); }
-        .q-mini b { color: var(--ink); }
-
-        /* ---------- right: split blocks ---------- */
-        .block-head {
-            font-size: 11px;
-            font-weight: 800;
-            letter-spacing: 1.2px;
-            padding: 6px 10px;
-            border-radius: 7px;
-            margin: 0 0 8px;
-            display: flex;
-            justify-content: space-between;
-        }
-
-        .block-head.bad { background: var(--red-bg); color: var(--red); border: 1px solid var(--red-br); }
-        .block-head.good { background: var(--green-bg); color: var(--green); border: 1px solid var(--green-br); }
-        .divider { height: 1px; background: var(--line); margin: 16px 0; }
-
-        .chips { display: flex; flex-wrap: wrap; gap: 6px; }
-
+        .chips { display: flex; flex-wrap: wrap; gap: 4px }
         .chip {
-            border: 1px solid var(--green-br);
-            background: var(--green-bg);
-            color: var(--green);
-            border-radius: 7px;
-            padding: 5px 9px;
-            font-size: 11px;
-            font-weight: 700;
-            cursor: pointer;
+            border: 1px solid #cdeadb; background: var(--green-bg); color: var(--green);
+            border-radius: 5px; padding: 3px 7px; font-size: 10px; font-weight: 700; cursor: pointer;
+        }
+        .chip.grey { border-color: var(--line); background: var(--grey-bg); color: var(--grey) }
+        .chip:hover { border-color: var(--ink) }
+
+        .foot { height: 40px }
+
+        .mock {
+            margin: 8px 14px 0; font-size: 9.5px; font-weight: 800; letter-spacing: .6px;
+            color: var(--amber); background: var(--amber-bg); border: 1px solid #f5e2c4;
+            border-radius: 5px; padding: 4px 8px;
         }
 
-        .chip:hover { border-color: var(--ink); }
-        .chip.grey { border-color: var(--grey-br); background: var(--grey-bg); color: var(--grey); }
-        .chip b { font-weight: 800; }
+        /* ===== TV mode ===== */
+        body.tv .flow-wrap { grid-template-columns: minmax(0, 1fr) }
+        body.tv .detail, body.tv .setups-band, body.tv .rank-band { display: none }
+        body.tv .grid { grid-template-columns: repeat(4, 1fr) }
+        body.tv .tile-r1 .nm { font-size: 19px }
+        body.tv .tile-r1 .vr { font-size: 19px }
+        body.tv .tile-r3 { font-size: 13px }
+        body.tv .brand { font-size: 22px } body.tv .clock { font-size: 24px }
+        body.tv .flow svg { height: 340px }
 
-        /* ---------- TV mode ---------- */
-        body.tv { background: #fff; }
-        body.tv .wrap { grid-template-columns: repeat(4, 1fr); padding: 14px; }
-        body.tv .col-a, body.tv .col-c, body.tv .col-head { display: none; }
-        body.tv .queue { max-height: none; overflow: visible; display: contents; }
-        body.tv .col-b { display: contents; }
-        body.tv .q-card { padding: 12px 14px; cursor: default; }
-        body.tv .q-top .mc { font-size: 22px; }
-        body.tv .q-top .pill { font-size: 13px; padding: 4px 10px; }
-        body.tv .q-sub { font-size: 15px; }
-        body.tv .q-mini { font-size: 15px; }
-        body.tv .brand { font-size: 28px; }
-        body.tv .clock { font-size: 28px; }
-
-        /* ---------- phone ---------- */
-        @media (max-width: 1100px) {
-            .wrap { grid-template-columns: 1fr; }
-            .queue { max-height: none; }
-            .col-a { order: 1; } .col-c { order: 2; } .col-b { order: 3; }
+        @media (max-width: 1000px) {
+            .flow-wrap { grid-template-columns: 1fr }
+            .cards.big, .cards.mid { grid-template-columns: 1fr }
         }
-
-        .mock-note {
-            margin: 0 16px 10px;
-            font-size: 11px;
-            color: var(--amber);
-            background: var(--amber-bg);
-            border: 1px solid var(--amber-br);
-            border-radius: 7px;
-            padding: 6px 10px;
-            font-weight: 700;
-        }
-
-        .modebar { margin-left: 8px; display: flex; gap: 6px; }
-        .modebar a {
-            font-size: 11px; font-weight: 700; color: var(--mute); text-decoration: none;
-            border: 1px solid var(--line); border-radius: 6px; padding: 4px 9px; background: var(--card);
-        }
-        .modebar a:hover { border-color: var(--ink); color: var(--ink); }
     </style>
 </head>
 
 <body>
     <div class="top">
-        <div class="top-row">
-            <div class="brand"><span class="dot"></span>PULSE</div>
-            <div class="shift-tag" id="shiftTag">Day shift &middot; 13 Oct</div>
-            <div class="counts" id="counts"></div>
-            <div class="modebar">
-                <a href="?tv=1">TV mode</a>
-                <a href="?">Desk mode</a>
+        <div class="brand"><i></i>PULSE</div>
+        <div class="sub" id="sub">Day shift &middot; 13 Oct</div>
+        <div class="counts" id="counts"></div>
+        <div class="modes"><a href="?tv=1">TV</a><a href="?">Desk</a></div>
+        <div class="clock" id="clock">--:--</div>
+    </div>
+
+    <div class="mock">MOCKUP &middot; generated sample data, not live.</div>
+
+    <!-- 1. FLOOR MAP (scatter) -->
+    <div class="band">
+        <div class="band-h">FLOOR <em>every machine &middot; behind left, ahead right</em>
+            <span class="spacer"></span><span class="n" id="floorNote"></span></div>
+        <div class="panel scatter">
+            <div class="scat-tag l">&#9660; BEHIND PLAN</div>
+            <div class="scat-tag r">AHEAD PLAN &#9650;</div>
+            <svg id="scatter" viewBox="0 0 1000 132" preserveAspectRatio="none"></svg>
+        </div>
+    </div>
+
+    <!-- 2. ATTENTION -->
+    <div class="band setups-band">
+        <div class="band-h">NEEDS ATTENTION <em>click to inspect</em><span class="spacer"></span>
+            <span class="n" id="setupNote"></span></div>
+        <div class="setups" id="setups"></div>
+    </div>
+
+    <!-- 3. MACHINE GRID -->
+    <div class="band">
+        <div class="band-h">MACHINES <em>line order</em><span class="spacer"></span><span class="n" id="gridNote"></span></div>
+        <div class="grid" id="grid"></div>
+    </div>
+
+    <!-- 4. FLOW -->
+    <div class="band">
+        <div class="band-h">FLOW <em>cumulative output vs plan, hour by hour</em>
+            <span class="spacer"></span><span class="n">100% = on plan</span></div>
+        <div class="flow-wrap">
+            <div class="panel flow">
+                <svg id="flow" viewBox="0 0 1000 300"></svg>
+                <div class="flow-legend">
+                    <span><i style="background:var(--green)"></i>at or above plan</span>
+                    <span><i style="background:var(--amber)"></i>behind plan</span>
+                    <span><i style="background:var(--red)"></i>stopped / down</span>
+                    <span><i style="background:var(--ink);height:3px"></i>selected machine</span>
+                </div>
             </div>
-            <div class="clock" id="clock">--:--</div>
-        </div>
-        <div class="strip" id="strip"></div>
-    </div>
-
-    <div class="mock-note">MOCKUP &middot; sample data, not live. Layout review only.</div>
-
-    <div class="wrap">
-        <div class="col-a">
-            <h2 class="col-head">Selected machine <span class="hint">click any card or line segment</span></h2>
-            <div id="selected"></div>
-        </div>
-
-        <div class="col-b">
-            <h2 class="col-head">All machines <span class="hint">worst first</span></h2>
-            <div class="queue" id="queue"></div>
-        </div>
-
-        <div class="col-c">
-            <h2 class="col-head">Needs attention</h2>
-            <div id="attention"></div>
+            <div class="panel detail" id="detail"></div>
         </div>
     </div>
+
+    <!-- 5. RANKED -->
+    <div class="band rank-band">
+        <div class="band-h">BEHIND <em>worst first</em><span class="spacer"></span><span class="n" id="behindNote"></span></div>
+        <div id="behind"></div>
+
+        <div class="band-h" style="margin-top:16px">RUNNING WELL<span class="spacer"></span><span class="n" id="aheadNote"></span></div>
+        <div class="chips" id="ahead"></div>
+    </div>
+
+    <div class="foot"></div>
 
     <script>
-        /* ============================================================
-           PULSE - shop floor live tracker (MOCKUP)
-           All data below is generated. Replace loadMock() with a fetch
-           of /api/machines/live-tracker once the endpoint exists.
-           ============================================================ */
+        /* =========================================================
+           PULSE - machine-wise live job tracker (MOCKUP)
+           Chart-first layout. All data generated in loadMock();
+           that function is the single seam to replace with a fetch
+           of /api/machines/live-tracker.
+           ========================================================= */
 
         var STATES = {
-            DOWN:        { rank: 0, label: 'DOWN',         color: 'var(--red)',   bg: 'var(--red-bg)',   br: 'var(--red-br)' },
-            CHANGEOVER:  { rank: 1, label: 'CHANGEOVER',   color: 'var(--red)',   bg: 'var(--red-bg)',   br: 'var(--red-br)' },
-            STARVED:     { rank: 2, label: 'STARVED',      color: 'var(--amber)', bg: 'var(--amber-bg)', br: 'var(--amber-br)' },
-            REJECT:      { rank: 3, label: 'REJECT SPIKE', color: 'var(--amber)', bg: 'var(--amber-bg)', br: 'var(--amber-br)' },
-            SLIPPING:    { rank: 4, label: 'SLIPPING',     color: 'var(--amber)', bg: 'var(--amber-bg)', br: 'var(--amber-br)' },
-            CATCHING:    { rank: 5, label: 'CATCHING UP',  color: 'var(--blue)',  bg: 'var(--blue-bg)',  br: 'var(--blue-br)' },
-            ONTRACK:     { rank: 6, label: 'ON TRACK',     color: 'var(--green)', bg: 'var(--green-bg)', br: 'var(--green-br)' },
-            AHEAD:       { rank: 7, label: 'AHEAD',        color: 'var(--green)', bg: 'var(--green-bg)', br: 'var(--green-br)' },
-            NOPLAN:      { rank: 8, label: 'NO PLAN',      color: 'var(--grey)',  bg: 'var(--grey-bg)',  br: 'var(--grey-br)' }
+            DOWN:       { rank: 0, label: 'DOWN',         c: '#d32f3b', bg: '#fdf3f4' },
+            CHANGEOVER: { rank: 1, label: 'CHANGEOVER',   c: '#d32f3b', bg: '#fdf3f4' },
+            STARVED:    { rank: 2, label: 'STARVED',      c: '#c2710c', bg: '#fdf8ef' },
+            REJECT:     { rank: 3, label: 'REJECT SPIKE', c: '#c2710c', bg: '#fdf8ef' },
+            SLIPPING:   { rank: 4, label: 'SLIPPING',     c: '#c2710c', bg: '#fdf8ef' },
+            CATCHING:   { rank: 5, label: 'CATCHING UP',  c: '#1d5fd0', bg: '#f1f6fe' },
+            ONTRACK:    { rank: 6, label: 'ON TRACK',     c: '#137a43', bg: '#f1faf5' },
+            AHEAD:      { rank: 7, label: 'AHEAD',        c: '#137a43', bg: '#f1faf5' },
+            NOPLAN:     { rank: 8, label: 'NO PLAN',      c: '#7b89a0', bg: '#f7f9fb' }
         };
 
         var PRODUCTS = ['Crate Lid 5L', 'Bin 20L Body', 'Handle Grip', 'Cap 38mm', 'Tray Insert', 'Drum Lid', 'Spacer Ring', 'Pallet Foot'];
         var DOWN_REASONS = ['Maintenance', 'Man Power Shortage', 'Mould Maintenance', 'Mould Trial'];
+        var ELAPSED = 6, SHIFT_HRS = 8, START_HR = 8;
 
-        /* deterministic pseudo-random so the mock looks the same each reload */
         var _seed = 20261013;
         function rnd() { _seed = (_seed * 1103515245 + 12345) % 2147483648; return _seed / 2147483648; }
         function pick(a) { return a[Math.floor(rnd() * a.length)]; }
-        function between(lo, hi) { return lo + rnd() * (hi - lo); }
+        function btw(lo, hi) { return lo + rnd() * (hi - lo); }
 
         function loadMock() {
             var out = [], lines = [[1, 8], [2, 9], [3, 7]], jc = 2380;
@@ -392,242 +307,315 @@
                 for (var i = 1; i <= L[1]; i++) {
                     var m = { line: L[0], no: i, name: 'L' + L[0] + '-M' + String(i).padStart(2, '0') };
                     var roll = rnd();
-                    m.std = Math.round(between(260, 520) / 10) * 10;
-                    m.planQty = Math.round(m.std * 8 / 100) * 100;
+                    m.std = Math.round(btw(260, 520) / 10) * 10;
+                    m.planQty = m.std * SHIFT_HRS;
                     m.stdMan = 3 + Math.round(rnd());
                     m.man = m.stdMan;
                     m.dt = 0;
-                    m.rej = +between(0.4, 2.1).toFixed(1);
+                    m.rej = +btw(0.4, 2.1).toFixed(1);
                     m.jc = 'JC-' + (jc += 7);
                     m.product = pick(PRODUCTS);
-                    m.elapsed = 6;
 
-                    if (roll < 0.09) {
-                        m.state = 'NOPLAN'; m.jc = null; m.product = null; m.rate = 0; m.done = 0; m.dt = 360; m.rej = 0;
-                    } else if (roll < 0.18) {
-                        m.state = 'DOWN'; m.rate = 0; m.dt = Math.round(between(20, 95));
-                        m.reason = pick(DOWN_REASONS); m.done = Math.round(m.std * 4 * between(.7, 1));
-                    } else if (roll < 0.24) {
-                        m.state = 'CHANGEOVER'; m.rate = 0; m.dt = Math.round(between(25, 70));
-                        m.reason = 'Mould Changeover'; m.nextJc = 'JC-' + (jc + 60);
-                        m.done = Math.round(m.std * 4 * between(.6, .9));
-                    } else if (roll < 0.33) {
-                        m.state = 'STARVED'; m.man = m.stdMan - 1; m.rate = Math.round(m.std * between(.62, .78));
-                        m.dt = Math.round(between(0, 25)); m.done = Math.round(m.rate * m.elapsed);
-                    } else if (roll < 0.41) {
-                        m.state = 'REJECT'; m.rej = +between(4.5, 8.2).toFixed(1);
-                        m.rate = Math.round(m.std * between(.88, 1.02)); m.done = Math.round(m.rate * m.elapsed);
-                    } else if (roll < 0.52) {
-                        m.state = 'SLIPPING'; m.rate = Math.round(m.std * between(.70, .86));
-                        m.dt = Math.round(between(5, 30)); m.done = Math.round(m.rate * m.elapsed);
-                    } else if (roll < 0.63) {
-                        m.state = 'CATCHING'; m.rate = Math.round(m.std * between(1.05, 1.18));
-                        m.dt = Math.round(between(15, 45)); m.done = Math.round(m.rate * m.elapsed * .82);
-                    } else if (roll < 0.86) {
-                        m.state = 'ONTRACK'; m.rate = Math.round(m.std * between(.97, 1.03));
-                        m.done = Math.round(m.rate * m.elapsed);
-                    } else {
-                        m.state = 'AHEAD'; m.rate = Math.round(m.std * between(1.06, 1.2));
-                        m.done = Math.round(m.rate * m.elapsed);
-                    }
+                    if (roll < 0.09) { m.state = 'NOPLAN'; m.jc = null; m.product = null; m.rate = 0; m.dt = ELAPSED * 60; m.rej = 0; }
+                    else if (roll < 0.19) { m.state = 'DOWN'; m.rate = 0; m.dt = Math.round(btw(20, 95)); m.reason = pick(DOWN_REASONS); }
+                    else if (roll < 0.25) { m.state = 'CHANGEOVER'; m.rate = 0; m.dt = Math.round(btw(25, 70)); m.reason = 'Mould Changeover'; m.nextJc = 'JC-' + (jc + 60); }
+                    else if (roll < 0.34) { m.state = 'STARVED'; m.man = m.stdMan - 1; m.rate = Math.round(m.std * btw(.62, .78)); m.dt = Math.round(btw(0, 25)); }
+                    else if (roll < 0.42) { m.state = 'REJECT'; m.rej = +btw(4.5, 8.2).toFixed(1); m.rate = Math.round(m.std * btw(.88, 1.02)); }
+                    else if (roll < 0.53) { m.state = 'SLIPPING'; m.rate = Math.round(m.std * btw(.70, .86)); m.dt = Math.round(btw(5, 30)); }
+                    else if (roll < 0.63) { m.state = 'CATCHING'; m.rate = Math.round(m.std * btw(1.05, 1.18)); m.dt = Math.round(btw(15, 45)); }
+                    else if (roll < 0.86) { m.state = 'ONTRACK'; m.rate = Math.round(m.std * btw(.97, 1.03)); }
+                    else { m.state = 'AHEAD'; m.rate = Math.round(m.std * btw(1.06, 1.2)); }
 
-                    m.pct = m.planQty ? Math.min(100, Math.round(m.done / m.planQty * 100)) : 0;
+                    buildSeries(m);
+                    m.pct = Math.round(m.done / m.planQty * 100);
+                    m.variance = +(m.cumPct[ELAPSED - 1] - 100).toFixed(1);
                     m.eta = m.rate > 0 ? etaFor(m.planQty - m.done, m.rate) : null;
-                    m.hourly = makeHourly(m);
                     out.push(m);
                 }
             });
             return out;
         }
 
-        function etaFor(remaining, rate) {
-            if (remaining <= 0) return 'done';
-            var mins = Math.round(remaining / rate * 60);
-            var t = new Date(); t.setMinutes(t.getMinutes() + mins);
+        /* hourly qty + cumulative % of plan-to-date */
+        function buildSeries(m) {
+            var hourly = [], cum = 0, cumPct = [];
+            for (var h = 0; h < ELAPSED; h++) {
+                var q;
+                if (m.state === 'NOPLAN') q = 0;
+                else if (m.state === 'DOWN' && h >= ELAPSED - 2) q = Math.round(m.std * btw(0, .12));
+                else if (m.state === 'CHANGEOVER' && h >= ELAPSED - 1) q = 0;
+                else if (m.state === 'CATCHING') q = Math.round(m.std * (h < 3 ? btw(.45, .7) : btw(1.05, 1.22)));
+                else if (m.state === 'SLIPPING') q = Math.round(m.std * (h < 3 ? btw(.95, 1.05) : btw(.62, .8)));
+                else if (m.state === 'STARVED') q = Math.round(m.std * btw(.6, .8));
+                else if (m.state === 'AHEAD') q = Math.round(m.std * btw(1.05, 1.22));
+                else if (m.state === 'ONTRACK') q = Math.round(m.std * btw(.94, 1.06));
+                else q = Math.round(m.std * btw(.82, 1.02));
+                hourly.push(q);
+                cum += q;
+                cumPct.push(+(cum / (m.std * (h + 1)) * 100).toFixed(1));
+            }
+            m.hourly = hourly; m.done = cum; m.cumPct = cumPct;
+        }
+
+        function etaFor(rem, rate) {
+            if (rem <= 0) return 'done';
+            var t = new Date(); t.setMinutes(t.getMinutes() + Math.round(rem / rate * 60));
             return String(t.getHours()).padStart(2, '0') + ':' + String(t.getMinutes()).padStart(2, '0');
         }
 
-        function makeHourly(m) {
-            var slots = [], base = m.std;
-            for (var h = 0; h < 8; h++) {
-                if (h >= m.elapsed) { slots.push({ qty: null, std: base }); continue; }
-                var q;
-                if (m.state === 'NOPLAN') q = 0;
-                else if (m.state === 'DOWN' && h >= m.elapsed - 2) q = 0;
-                else if (m.state === 'CHANGEOVER' && h >= m.elapsed - 1) q = 0;
-                else q = Math.round(base * between(
-                    (m.state === 'ONTRACK' || m.state === 'AHEAD') ? .95 : .62,
-                    m.state === 'AHEAD' ? 1.2 : 1.05));
-                slots.push({ qty: q, std: base });
-            }
-            return slots;
-        }
-
-        /* ---------------- rendering ---------------- */
         var MACHINES = loadMock();
-        var selectedName = null;
-
-        function byLineThenNo(a, b) { return a.line - b.line || a.no - b.no; }
-        function bySeverity(a, b) {
-            return STATES[a.state].rank - STATES[b.state].rank || byLineThenNo(a, b);
-        }
-
+        var sel = null;
         var isTv = new URLSearchParams(location.search).get('tv') === '1';
         if (isTv) document.body.classList.add('tv');
 
-        function pillHtml(m) {
-            var s = STATES[m.state];
-            return '<span class="pill" style="background:' + s.color + '">' + s.label + '</span>';
+        function byLine(a, b) { return a.line - b.line || a.no - b.no; }
+        function bySev(a, b) { return STATES[a.state].rank - STATES[b.state].rank || a.variance - b.variance || byLine(a, b); }
+        function get(n) { return MACHINES.filter(function (m) { return m.name === n })[0]; }
+        /* a machine with no plan has no variance to show */
+        function vtxt(m) { return m.state === 'NOPLAN' ? '—' : (m.variance > 0 ? '+' : '') + m.variance + '%'; }
+
+        /* ---------- small chart helpers ---------- */
+
+        /* sparkline of hourly qty vs std, as tiny bars */
+        function spark(m, w, h) {
+            if (!m.hourly.length) return '';
+            var peak = Math.max.apply(null, m.hourly.concat([m.std])) * 1.1 || 1;
+            var bw = w / SHIFT_HRS, bars = '';
+            for (var i = 0; i < SHIFT_HRS; i++) {
+                var x = i * bw + .6, bwid = bw - 1.2;
+                if (i >= ELAPSED) { bars += '<rect x="' + x + '" y="' + (h - 2) + '" width="' + bwid + '" height="2" fill="#eef2f7"/>'; continue; }
+                var q = m.hourly[i], bh = Math.max(1.5, q / peak * h);
+                var c = q === 0 ? '#f0b8bc' : (q < m.std * .9 ? '#e9a948' : '#5bb98a');
+                bars += '<rect x="' + x + '" y="' + (h - bh) + '" width="' + bwid + '" height="' + bh + '" fill="' + c + '" rx="1"/>';
+            }
+            var sy = h - (m.std / peak * h);
+            bars += '<line x1="0" y1="' + sy + '" x2="' + w + '" y2="' + sy + '" stroke="#9aa8bb" stroke-width="1" stroke-dasharray="2 2"/>';
+            return '<svg width="' + w + '" height="' + h + '" viewBox="0 0 ' + w + ' ' + h + '">' + bars + '</svg>';
         }
 
-        function f(label, val, cls) {
-            return '<div class="f"><u>' + label + '</u><s class="' + cls + '">' + val + '</s></div>';
-        }
+        /* ---------- band 1: scatter ---------- */
+        function renderScatter() {
+            var W = 1000, H = 132, mid = H / 2;
+            var lo = -45, hi = 25;
+            function xOf(v) { return (Math.max(lo, Math.min(hi, v)) - lo) / (hi - lo) * (W - 60) + 30; }
 
-        function fieldsHtml(m) {
-            var rateCls = m.rate === 0 ? 'bad' : (m.rate < m.std * .9 ? 'warn' : 'ok');
-            var rejCls = m.rej >= 4 ? 'bad' : (m.rej >= 2.5 ? 'warn' : '');
-            var manCls = m.man < m.stdMan ? 'bad' : '';
-            var dtCls = m.dt >= 30 ? 'bad' : (m.dt > 0 ? 'warn' : '');
-            return '<div class="fields">'
-                + f('RATE', m.rate ? m.rate : '--', rateCls)
-                + f('STD', m.std, '')
-                + f('REJ%', m.rej ? m.rej : '--', rejCls)
-                + f('MAN', m.man + '/' + m.stdMan, manCls)
-                + f('DT', m.dt ? m.dt + 'm' : '0', dtCls)
-                + f('ETA', m.eta || '--', '')
-                + '</div>';
-        }
+            var s = '<line x1="30" y1="' + mid + '" x2="' + (W - 30) + '" y2="' + mid + '" stroke="#eef2f7" stroke-width="1"/>';
+            /* zero line */
+            s += '<line x1="' + xOf(0) + '" y1="14" x2="' + xOf(0) + '" y2="' + (H - 14) + '" stroke="#c9d4e2" stroke-width="1" stroke-dasharray="3 3"/>';
+            s += '<text x="' + (xOf(0) + 4) + '" y="20" font-size="9" fill="#9aa8bb" font-weight="700">ON PLAN</text>';
 
-        function barHtml(m) {
-            var s = STATES[m.state];
-            return '<div class="bar"><i style="width:' + m.pct + '%;background:' + s.color + '"></i></div>';
-        }
-
-        function renderCounts() {
-            var down = MACHINES.filter(function (m) { return ['DOWN', 'CHANGEOVER'].indexOf(m.state) >= 0; }).length;
-            var warn = MACHINES.filter(function (m) { return ['STARVED', 'REJECT', 'SLIPPING'].indexOf(m.state) >= 0; }).length;
-            var ok = MACHINES.filter(function (m) { return ['ONTRACK', 'AHEAD', 'CATCHING'].indexOf(m.state) >= 0; }).length;
-            var np = MACHINES.filter(function (m) { return m.state === 'NOPLAN'; }).length;
-            var dt = MACHINES.reduce(function (s, m) { return s + m.dt; }, 0);
-            document.getElementById('counts').innerHTML =
-                '<div class="count g"><b>' + ok + '</b>RUNNING</div>' +
-                '<div class="count r"><b>' + down + '</b>DOWN</div>' +
-                '<div class="count a"><b>' + warn + '</b>AT RISK</div>' +
-                '<div class="count"><b>' + np + '</b>NO PLAN</div>' +
-                '<div class="count"><b>' + dt + '</b>DT MIN</div>';
-        }
-
-        function renderStrip() {
-            var html = '';
-            [1, 2, 3].forEach(function (ln) {
-                var segs = MACHINES.filter(function (m) { return m.line === ln; }).sort(byLineThenNo)
-                    .map(function (m) {
-                        var s = STATES[m.state];
-                        return '<div class="seg' + (m.name === selectedName ? ' sel' : '') + '" title="' + m.name + ' - ' + s.label
-                            + '" style="background:' + s.color + '" data-m="' + m.name + '"></div>';
-                    }).join('');
-                html += '<div class="line-wrap"><span class="line-lbl">LINE ' + ln + '</span><div class="seg-row">' + segs + '</div></div>';
+            [-30, -15, 15].forEach(function (g) {
+                s += '<line x1="' + xOf(g) + '" y1="24" x2="' + xOf(g) + '" y2="' + (H - 24) + '" stroke="#f4f7fa" stroke-width="1"/>';
+                s += '<text x="' + xOf(g) + '" y="' + (H - 6) + '" font-size="8.5" fill="#c3ccd9" text-anchor="middle">' + g + '%</text>';
             });
-            document.getElementById('strip').innerHTML = html;
+
+            /* one dot per machine, jittered on Y by line */
+            MACHINES.forEach(function (m, i) {
+                var st = STATES[m.state];
+                var y = 28 + ((m.line - 1) * 26) + ((m.no % 3) * 7);
+                var x = xOf(m.variance);
+                var r = m.name === sel ? 6 : 4;
+                s += '<circle class="dot" data-m="' + m.name + '" cx="' + x + '" cy="' + y + '" r="' + r + '" fill="' + st.c
+                    + '" fill-opacity="' + (m.state === 'NOPLAN' ? .35 : .85) + '" stroke="'
+                    + (m.name === sel ? '#0b1220' : '#fff') + '" stroke-width="' + (m.name === sel ? 2 : 1) + '" style="cursor:pointer">'
+                    + '<title>' + m.name + ' - ' + st.label + ' - ' + (m.variance > 0 ? '+' : '') + m.variance + '%</title></circle>';
+            });
+
+            var planned = MACHINES.filter(function (m) { return m.state !== 'NOPLAN' });
+            var worst = planned.slice().sort(function (a, b) { return a.variance - b.variance })[0];
+            var best = planned.slice().sort(function (a, b) { return b.variance - a.variance })[0];
+            document.getElementById('floorNote').textContent =
+                'worst ' + worst.name + ' ' + vtxt(worst) + '  ·  best ' + best.name + ' ' + vtxt(best);
+            document.getElementById('scatter').innerHTML = s;
         }
 
-        function renderSelected() {
-            var m = MACHINES.filter(function (x) { return x.name === selectedName; })[0];
-            if (!m) { document.getElementById('selected').innerHTML = ''; return; }
-            var s = STATES[m.state];
-
-            var peak = Math.max.apply(null, m.hourly.map(function (h) { return Math.max(h.qty || 0, h.std); })) * 1.15;
-            var bars = m.hourly.map(function (h) {
-                if (h.qty === null) return '<div class="slot"><div class="std" style="bottom:' + (h.std / peak * 100) + '%"></div></div>';
-                var cls = h.qty === 0 ? 'dt' : (h.qty < h.std * .9 ? 'under' : '');
-                var ht = h.qty === 0 ? 8 : (h.qty / peak * 100);
-                return '<div class="slot ' + cls + '"><div class="std" style="bottom:' + (h.std / peak * 100) + '%"></div>'
-                    + '<div class="val" style="height:' + ht + '%" title="' + h.qty + ' pcs"></div></div>';
+        /* ---------- band 2: attention ---------- */
+        function renderSetups() {
+            var bad = MACHINES.slice().sort(bySev).filter(function (m) { return STATES[m.state].rank <= 4 }).slice(0, 8);
+            document.getElementById('setupNote').textContent = bad.length + ' of ' + MACHINES.length;
+            document.getElementById('setups').innerHTML = bad.map(function (m) {
+                var st = STATES[m.state];
+                return '<div class="setup" data-m="' + m.name + '" style="border-left-color:' + st.c + ';background:' + st.bg + '">'
+                    + '<div><div class="nm">' + m.name + '</div>'
+                    + '<div class="st" style="color:' + st.c + '">' + st.label + '</div></div>'
+                    + '<div class="spark">' + spark(m, 60, 24) + '</div></div>';
             }).join('');
-            var hrs = m.hourly.map(function (h, i) { return '<span>' + (8 + i) + '</span>'; }).join('');
-
-            var reason = '';
-            if (m.state === 'DOWN') reason = m.reason + ' &middot; down ' + m.dt + ' min';
-            else if (m.state === 'CHANGEOVER') reason = 'Mould changeover to ' + m.nextJc + ' &middot; ' + m.dt + ' min elapsed (std 30)';
-            else if (m.state === 'STARVED') reason = 'Running ' + (m.stdMan - m.man) + ' operator short &middot; rate ' + Math.round((1 - m.rate / m.std) * 100) + '% below std';
-            else if (m.state === 'REJECT') reason = 'Reject ' + m.rej + '% against 2.0% std &middot; check QC memo';
-            else if (m.state === 'SLIPPING') reason = 'Rate dropped to ' + m.rate + '/hr against ' + m.std + ' std';
-            else if (m.state === 'CATCHING') reason = 'Behind on qty but running ' + Math.round((m.rate / m.std - 1) * 100) + '% above std';
-            else if (m.state === 'NOPLAN') reason = 'No plan on this machine this shift';
-
-            document.getElementById('selected').innerHTML =
-                '<div class="card sel-card" style="border-left-color:' + s.color + ';background:' + s.bg + '">'
-                + '<div class="sel-top"><div>'
-                + '<div class="sel-mc">' + m.name + ' ' + pillHtml(m) + '</div>'
-                + '<div class="sel-jc">' + (m.jc ? '<b>' + m.jc + '</b> &middot; ' + m.product : 'Idle &mdash; no job card') + '</div>'
-                + '</div><div class="sel-right">'
-                + '<div class="sel-pct" style="color:' + s.color + '">' + m.pct + '%</div>'
-                + '<div class="sel-qty">' + m.done.toLocaleString() + ' / ' + m.planQty.toLocaleString() + ' pcs</div>'
-                + '</div></div>'
-                + barHtml(m)
-                + (reason ? '<div class="reason" style="background:#fff;border:1px solid ' + s.br + ';color:' + s.color + '">' + reason + '</div>' : '')
-                + fieldsHtml(m)
-                + '<div class="chart-box"><div class="chart">' + bars + '</div><div class="hrs">' + hrs + '</div>'
-                + '<div class="legend"><span><i style="background:var(--green)"></i>at or above std</span>'
-                + '<span><i style="background:var(--amber)"></i>below std</span>'
-                + '<span><i style="background:#fca5a5"></i>stopped</span>'
-                + '<span>- - - std per hour</span></div></div>'
-                + '</div>';
         }
 
-        function renderQueue() {
-            var list = MACHINES.slice().sort(isTv ? byLineThenNo : bySeverity);
-            document.getElementById('queue').innerHTML = list.map(function (m) {
-                var s = STATES[m.state];
-                return '<div class="card q-card' + (m.name === selectedName ? ' sel' : '') + '" data-m="' + m.name + '"'
-                    + ' style="border-left-color:' + s.color + ';background:' + s.bg + '">'
-                    + '<div class="q-top"><span class="mc">' + m.name + '</span>' + pillHtml(m) + '</div>'
-                    + '<div class="q-sub">' + (m.jc ? m.jc + ' &middot; ' + m.product : '&mdash;') + '</div>'
-                    + barHtml(m)
-                    + '<div class="q-mini"><span><b>' + m.pct + '%</b> of plan</span>'
-                    + '<span>' + (m.rate ? m.rate + '/hr' : 'stopped') + '</span></div>'
-                    + (isTv ? fieldsHtml(m) : '')
+        /* ---------- band 3: machine grid ---------- */
+        function renderGrid() {
+            var list = MACHINES.slice().sort(byLine);
+            document.getElementById('gridNote').textContent = list.length + ' machines';
+            document.getElementById('grid').innerHTML = list.map(function (m) {
+                var st = STATES[m.state];
+                var pct = Math.max(0, Math.min(100, m.pct));
+                var planned = Math.round(ELAPSED / SHIFT_HRS * 100);
+                return '<div class="tile' + (m.name === sel ? ' sel' : '') + '" data-m="' + m.name + '" style="background:' + st.bg + '">'
+                    + '<div class="tile-r1"><span class="nm">' + m.name + '</span>'
+                    + '<span class="vr" style="color:' + st.c + '">' + vtxt(m) + '</span></div>'
+                    + '<div class="tile-r2"><div class="minibar"><i style="left:0;width:' + pct + '%;background:' + st.c + '"></i>'
+                    + '<u style="left:' + planned + '%"></u></div>' + spark(m, 46, 14) + '</div>'
+                    + '<div class="tile-r3">' + (m.jc ? m.jc + ' · ' + m.product : 'no plan') + '</div>'
                     + '</div>';
             }).join('');
         }
 
-        function renderAttention() {
-            var bad = MACHINES.filter(function (m) { return STATES[m.state].rank <= 4; }).sort(bySeverity);
-            var good = MACHINES.filter(function (m) { return STATES[m.state].rank > 4; }).sort(bySeverity);
+        /* ---------- band 4: flow ---------- */
+        function renderFlow() {
+            var W = 1000, H = 300, L = 34, R = 74, T = 12, B = 22;
+            var pw = W - L - R, ph = H - T - B;
+            var lo = 40, hi = 140;
+            function x(h) { return L + (h / (SHIFT_HRS - 1)) * pw; }
+            function y(v) { return T + (1 - (Math.max(lo, Math.min(hi, v)) - lo) / (hi - lo)) * ph; }
 
-            var badHtml = bad.map(function (m) {
-                var s = STATES[m.state];
-                return '<div class="card q-card" data-m="' + m.name + '" style="border-left-color:' + s.color + ';background:' + s.bg + '">'
-                    + '<div class="q-top"><span class="mc">' + m.name + '</span>' + pillHtml(m) + '</div>'
-                    + '<div class="jc">' + (m.jc ? '<b>' + m.jc + '</b> &middot; ' + m.product : 'no job card') + '</div>'
-                    + barHtml(m) + fieldsHtml(m) + '</div>';
+            var s = '';
+            [40, 60, 80, 100, 120, 140].forEach(function (g) {
+                var strong = g === 100;
+                s += '<line x1="' + L + '" y1="' + y(g) + '" x2="' + (W - R) + '" y2="' + y(g) + '" stroke="'
+                    + (strong ? '#c9d4e2' : '#f1f5f9') + '" stroke-width="1"' + (strong ? ' stroke-dasharray="4 3"' : '') + '/>';
+                s += '<text x="' + (L - 6) + '" y="' + (y(g) + 3) + '" font-size="8.5" fill="#b6c1d0" text-anchor="end">' + g + '</text>';
+            });
+            for (var h = 0; h < SHIFT_HRS; h++) {
+                s += '<text x="' + x(h) + '" y="' + (H - 7) + '" font-size="8.5" fill="#b6c1d0" text-anchor="middle">'
+                    + String(START_HR + h).padStart(2, '0') + ':00</text>';
+            }
+            /* "now" marker */
+            s += '<line x1="' + x(ELAPSED - 1) + '" y1="' + T + '" x2="' + x(ELAPSED - 1) + '" y2="' + (T + ph) + '" stroke="#0b1220" stroke-width="1" stroke-opacity=".25"/>';
+
+            function pathOf(m) {
+                return m.cumPct.map(function (v, i) { return (i ? 'L' : 'M') + x(i).toFixed(1) + ' ' + y(v).toFixed(1) }).join(' ');
+            }
+
+            /* background lines */
+            MACHINES.forEach(function (m) {
+                if (m.name === sel || m.state === 'NOPLAN') return;
+                var st = STATES[m.state];
+                s += '<path class="ln" data-m="' + m.name + '" d="' + pathOf(m) + '" fill="none" stroke="' + st.c
+                    + '" stroke-width="1.4" stroke-opacity=".42" stroke-linejoin="round" style="cursor:pointer"><title>'
+                    + m.name + ' ' + st.label + '</title></path>';
+            });
+
+            /* end labels for the 5 worst and 3 best, so the chart stays readable */
+            var sorted = MACHINES.filter(function (m) { return m.state !== 'NOPLAN' })
+                .sort(function (a, b) { return a.cumPct[ELAPSED - 1] - b.cumPct[ELAPSED - 1] });
+            var tagged = sorted.slice(0, 5).concat(sorted.slice(-3));
+            tagged.forEach(function (m) {
+                var st = STATES[m.state], v = m.cumPct[ELAPSED - 1];
+                s += '<circle cx="' + x(ELAPSED - 1) + '" cy="' + y(v) + '" r="2.6" fill="' + st.c + '"/>';
+                s += '<text x="' + (x(ELAPSED - 1) + 6) + '" y="' + (y(v) + 3) + '" font-size="9" font-weight="700" fill="' + st.c + '">'
+                    + m.name + ' ' + Math.round(v) + '</text>';
+            });
+
+            /* selected on top, thick + shaded */
+            var m = get(sel);
+            if (m && m.state !== 'NOPLAN') {
+                var area = pathOf(m) + ' L' + x(ELAPSED - 1) + ' ' + y(lo) + ' L' + x(0) + ' ' + y(lo) + ' Z';
+                s += '<path d="' + area + '" fill="' + STATES[m.state].c + '" fill-opacity=".07"/>';
+                s += '<path d="' + pathOf(m) + '" fill="none" stroke="#0b1220" stroke-width="2.6" stroke-linejoin="round"/>';
+                m.cumPct.forEach(function (v, i) {
+                    s += '<circle cx="' + x(i) + '" cy="' + y(v) + '" r="3" fill="#fff" stroke="#0b1220" stroke-width="1.6"><title>'
+                        + (START_HR + i) + ':00 - ' + v + '% of plan</title></circle>';
+                });
+            }
+            document.getElementById('flow').innerHTML = s;
+        }
+
+        /* ---------- band 4b: detail ---------- */
+        function fcell(l, v, c) { return '<div class="f"><u>' + l + '</u><s class="' + c + '">' + v + '</s></div>' }
+
+        function fieldsHtml(m) {
+            return '<div class="fields">'
+                + fcell('RATE', m.rate || '--', m.rate === 0 ? 'bad' : (m.rate < m.std * .9 ? 'warn' : 'ok'))
+                + fcell('STD', m.std, '')
+                + fcell('REJ%', m.rej || '--', m.rej >= 4 ? 'bad' : (m.rej >= 2.5 ? 'warn' : ''))
+                + fcell('MAN', m.man + '/' + m.stdMan, m.man < m.stdMan ? 'bad' : '')
+                + fcell('DT', m.dt ? m.dt + 'm' : '0', m.dt >= 30 ? 'bad' : (m.dt ? 'warn' : ''))
+                + fcell('ETA', m.eta || '--', '')
+                + '</div>';
+        }
+
+        function reasonOf(m) {
+            if (m.state === 'DOWN') return m.reason + ' · down ' + m.dt + ' min';
+            if (m.state === 'CHANGEOVER') return 'Changeover to ' + m.nextJc + ' · ' + m.dt + ' min elapsed (std 30)';
+            if (m.state === 'STARVED') return (m.stdMan - m.man) + ' operator short · ' + Math.round((1 - m.rate / m.std) * 100) + '% below std rate';
+            if (m.state === 'REJECT') return 'Reject ' + m.rej + '% against 2.0% std · check QC memo';
+            if (m.state === 'SLIPPING') return 'Rate fell to ' + m.rate + '/hr against ' + m.std + ' std';
+            if (m.state === 'CATCHING') return 'Behind on qty, running ' + Math.round((m.rate / m.std - 1) * 100) + '% above std';
+            if (m.state === 'NOPLAN') return 'No plan on this machine this shift';
+            return '';
+        }
+
+        function renderDetail() {
+            var m = get(sel); if (!m) return;
+            var st = STATES[m.state], rs = reasonOf(m);
+            document.getElementById('detail').innerHTML =
+                '<div class="hd" style="display:flex;align-items:center"><span class="dm">' + m.name + '</span>'
+                + '<span class="pill" style="background:' + st.c + '">' + st.label + '</span></div>'
+                + '<div class="dj">' + (m.jc ? '<b>' + m.jc + '</b> · ' + m.product : 'idle — no job card') + '</div>'
+                + '<div class="dp" style="color:' + st.c + '">' + vtxt(m) + '</div>'
+                + '<div class="dq">' + m.done.toLocaleString() + ' / ' + m.planQty.toLocaleString() + ' pcs · ' + m.pct + '% of shift plan</div>'
+                + (rs ? '<div class="reason" style="color:' + st.c + ';border:1px solid ' + st.c + '33">' + rs + '</div>' : '')
+                + fieldsHtml(m)
+                + '<div style="margin-top:8px">' + spark(m, 232, 46) + '</div>';
+        }
+
+        /* ---------- band 5: ranked ---------- */
+        function renderRanked() {
+            var bad = MACHINES.filter(function (m) { return STATES[m.state].rank <= 4 }).sort(bySev);
+            var good = MACHINES.filter(function (m) { return STATES[m.state].rank > 4 }).sort(bySev);
+            document.getElementById('behindNote').textContent = bad.length;
+            document.getElementById('aheadNote').textContent = good.length;
+
+            function card(m, big) {
+                var st = STATES[m.state];
+                return '<div class="mcard" data-m="' + m.name + '" style="border-left-color:' + st.c + ';background:' + st.bg + '">'
+                    + '<div class="hd"><span class="nm">' + m.name + '</span>'
+                    + '<span class="pill" style="background:' + st.c + '">' + st.label + '</span></div>'
+                    + '<div class="jb">' + (m.jc ? m.jc + ' · ' + m.product : 'no job card') + '</div>'
+                    + '<div class="body"><div><div class="bigpct" style="color:' + st.c + '">'
+                    + vtxt(m) + '</div>'
+                    + '<div class="jb">' + m.done.toLocaleString() + ' / ' + m.planQty.toLocaleString() + '</div></div>'
+                    + '<div class="chartcell">' + spark(m, big ? 150 : 96, big ? 40 : 30) + '</div></div>'
+                    + (big ? fieldsHtml(m) : '')
+                    + '</div>';
+            }
+
+            var top = bad.slice(0, 4), rest = bad.slice(4);
+            document.getElementById('behind').innerHTML =
+                (top.length ? '<div class="rank-h">RANK 1-' + top.length + '</div><div class="cards big">'
+                    + top.map(function (m) { return card(m, true) }).join('') + '</div>' : '')
+                + (rest.length ? '<div class="rank-h">RANK ' + (top.length + 1) + '-' + bad.length + '</div><div class="cards mid">'
+                    + rest.map(function (m) { return card(m, false) }).join('') + '</div>' : '');
+
+            document.getElementById('ahead').innerHTML = good.map(function (m) {
+                return '<span class="chip' + (m.state === 'NOPLAN' ? ' grey' : '') + '" data-m="' + m.name + '"><b>'
+                    + m.name + '</b> ' + (m.state === 'NOPLAN' ? 'no plan' : vtxt(m)) + '</span>';
             }).join('');
+        }
 
-            var goodHtml = good.map(function (m) {
-                var cls = m.state === 'NOPLAN' ? 'chip grey' : 'chip';
-                return '<span class="' + cls + '" data-m="' + m.name + '"><b>' + m.name + '</b> '
-                    + (m.state === 'NOPLAN' ? 'no plan' : m.pct + '%') + '</span>';
-            }).join('');
-
-            document.getElementById('attention').innerHTML =
-                '<div class="block-head bad"><span>DOWN &amp; AT RISK</span><span>' + bad.length + '</span></div>'
-                + badHtml
-                + '<div class="divider"></div>'
-                + '<div class="block-head good"><span>RUNNING WELL</span><span>' + good.length + '</span></div>'
-                + '<div class="chips">' + goodHtml + '</div>';
+        function renderCounts() {
+            function n(arr) { return MACHINES.filter(function (m) { return arr.indexOf(m.state) >= 0 }).length }
+            var dt = MACHINES.reduce(function (s, m) { return s + m.dt }, 0);
+            document.getElementById('counts').innerHTML =
+                '<div class="count g"><b>' + n(['ONTRACK', 'AHEAD', 'CATCHING']) + '</b>RUNNING</div>'
+                + '<div class="count r"><b>' + n(['DOWN', 'CHANGEOVER']) + '</b>DOWN</div>'
+                + '<div class="count a"><b>' + n(['STARVED', 'REJECT', 'SLIPPING']) + '</b>AT RISK</div>'
+                + '<div class="count"><b>' + n(['NOPLAN']) + '</b>NO PLAN</div>'
+                + '<div class="count"><b>' + dt + '</b>DT MIN</div>';
         }
 
         function renderAll() {
-            renderCounts(); renderStrip(); renderSelected(); renderQueue(); renderAttention();
+            renderCounts(); renderScatter(); renderSetups(); renderGrid();
+            renderFlow(); renderDetail(); renderRanked();
         }
 
         document.addEventListener('click', function (e) {
-            var el = e.target.closest('[data-m]');
+            var el = e.target.closest ? e.target.closest('[data-m]') : null;
+            if (!el && e.target.parentNode && e.target.parentNode.getAttribute)
+                el = e.target.parentNode.getAttribute('data-m') ? e.target.parentNode : null;
             if (!el) return;
-            selectedName = el.getAttribute('data-m');
+            sel = el.getAttribute('data-m');
             renderAll();
-            if (window.innerWidth <= 1100) window.scrollTo({ top: 0, behavior: 'smooth' });
         });
 
         function tick() {
@@ -636,10 +624,8 @@
                 String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
         }
 
-        selectedName = MACHINES.slice().sort(bySeverity)[0].name;
-        renderAll();
-        tick();
-        setInterval(tick, 10000);
+        sel = MACHINES.slice().sort(bySev)[0].name;
+        renderAll(); tick(); setInterval(tick, 10000);
     </script>
 </body>
 
