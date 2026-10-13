@@ -88,6 +88,46 @@
         .fan-plot { flex: 1; min-width: 0; padding: 4px 2px 0 }
         .fan-plot svg { display: block; width: 100%; height: 596px }
 
+        /* ===== scatter strip across the top of the flow panel ===== */
+        .scat { border-bottom: 1px solid var(--hair); padding: 2px 0 0; position: relative }
+        .scat svg { display: block; width: 100%; height: 56px }
+        .scat .tag { position: absolute; top: 4px; font-size: 7.5px; font-weight: 800; letter-spacing: .7px }
+        .scat .tag.l { left: 8px; color: var(--r-ink) }
+        .scat .tag.r { right: 8px; color: var(--g-ink) }
+
+        /* ===== hover focus: everything else recedes ===== */
+        body.focusing .dcard:not(.hot),
+        body.focusing .xcard:not(.hot),
+        body.focusing .nrow:not(.hot),
+        body.focusing .chip:not(.hot) { opacity: .16 }
+        .dcard, .xcard, .nrow, .chip { transition: opacity .12s ease }
+        .dcard.hot, .xcard.hot { border-color: var(--ink); box-shadow: 0 0 0 1px var(--ink) }
+
+        #hover {
+            position: absolute; z-index: 60; width: 286px; display: none;
+            background: #fff; border: 1px solid var(--line); border-radius: 10px;
+            box-shadow: 0 10px 30px rgba(13, 22, 38, .16); padding: 8px 10px 7px;
+            pointer-events: none;
+        }
+        #hover .h-top { display: flex; align-items: center; gap: 6px }
+        #hover .h-nm { font-size: 14px; font-weight: 800; letter-spacing: .3px }
+        #hover .h-jc { font-size: 8.5px; color: var(--faint); margin-top: 1px }
+        #hover .h-var { font-size: 20px; font-weight: 800; margin: 3px 0 1px; line-height: 1 }
+        #hover .h-note { font-size: 8.5px; font-weight: 800; letter-spacing: .6px; margin-bottom: 4px }
+        #hover .h-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 10px; margin: 4px 0 2px }
+        #hover .h-row {
+            display: flex; justify-content: space-between; font-size: 9.5px;
+            padding: 2px 0; border-bottom: 1px solid var(--hair);
+        }
+        #hover .h-row u { text-decoration: none; color: var(--faint); font-weight: 700; letter-spacing: .5px }
+        #hover .h-row b { font-weight: 800 }
+        #hover .h-chart { margin-top: 5px }
+        #hover .h-chart svg { display: block; width: 100%; height: 86px }
+        #hover .h-foot {
+            display: flex; justify-content: space-between; margin-top: 5px; padding-top: 4px;
+            border-top: 1px solid var(--line); font-size: 8.5px; font-weight: 700; color: var(--faint);
+        }
+
         /* ===================== dense middle ===================== */
         .dense { display: grid; grid-template-columns: repeat(auto-fill, minmax(138px, 1fr)); gap: 4px; max-height: 640px; overflow-y: auto }
         .dcard {
@@ -164,14 +204,23 @@
 
     <div class="mock">MOCKUP &middot; generated sample data, not live.</div>
 
+    <div id="hover"></div>
+
     <div class="shell">
         <!-- LEFT: fan -->
         <div class="col-fan">
             <div class="cap">FLOW <em>every machine, cumulative output vs plan</em>
                 <span class="sp" id="flowNote"></span></div>
-            <div class="panel fan">
-                <div class="fan-names" id="fanNames"></div>
-                <div class="fan-plot"><svg id="fan" viewBox="0 0 640 596" preserveAspectRatio="none"></svg></div>
+            <div class="panel">
+                <div class="scat">
+                    <div class="tag l">&#9660; BEHIND</div>
+                    <div class="tag r">AHEAD &#9650;</div>
+                    <svg id="scat" viewBox="0 0 760 56" preserveAspectRatio="none"></svg>
+                </div>
+                <div class="fan">
+                    <div class="fan-names" id="fanNames"></div>
+                    <div class="fan-plot"><svg id="fan" viewBox="0 0 640 596" preserveAspectRatio="none"></svg></div>
+                </div>
             </div>
         </div>
 
@@ -276,7 +325,7 @@
             return String(t.getHours()).padStart(2, '0') + ':' + String(t.getMinutes()).padStart(2, '0');
         }
 
-        var M = [], sel = null;
+        var M = [], sel = null, hot = null;
         var qs = new URLSearchParams(location.search);
         var isTv = qs.get('tv') === '1';
         var useMock = qs.get('mock') === '1';
@@ -299,6 +348,29 @@
                     + ',' + p1[0].toFixed(1) + ' ' + p1[1].toFixed(1);
             }
             return d;
+        }
+
+        /* ---------- scatter strip: every machine as one dot ---------- */
+        function renderScat() {
+            var W = 760, H = 56, lo = -40, hi = 20;
+            function X(v) { return (Math.max(lo, Math.min(hi, v)) - lo) / (hi - lo) * (W - 40) + 20 }
+            var s = '<line x1="' + X(0) + '" y1="8" x2="' + X(0) + '" y2="' + (H - 8)
+                + '" stroke="#c6d2e0" stroke-width="1" stroke-dasharray="3 3"/>';
+            [-30, -20, -10, 10].forEach(function (g) {
+                s += '<line x1="' + X(g) + '" y1="12" x2="' + X(g) + '" y2="' + (H - 12) + '" stroke="#f2f6fa" stroke-width="1"/>';
+            });
+            M.forEach(function (m) {
+                if (m.state === 'NOPLAN') return;
+                var st = ST[m.state], isHot = m.name === hot, isSel = m.name === sel;
+                /* spread the dots vertically so overlapping variances stay readable */
+                var y = 14 + (m.ord % 5) * 7;
+                s += '<circle data-m="' + m.name + '" cx="' + X(m.variance) + '" cy="' + y + '" r="'
+                    + (isHot ? 5 : (isSel ? 4.5 : 3.2)) + '" fill="' + st.c
+                    + '" fill-opacity="' + (hot && !isHot ? .14 : .85) + '" stroke="'
+                    + (isHot || isSel ? '#0d1626' : '#fff') + '" stroke-width="' + (isHot || isSel ? 1.6 : 1)
+                    + '" style="cursor:pointer"><title>' + m.name + ' ' + st.label + ' ' + vtxt(m) + '</title></circle>';
+            });
+            document.getElementById('scat').innerHTML = s;
         }
 
         /* ---------- left: fan ---------- */
@@ -333,23 +405,42 @@
 
             function pts(m) { return m.cum.map(function (v, i) { return [X(i), Y(v)] }) }
 
+            /* while one machine is focused the rest recede, so a single curve
+               reads across the whole plot */
+            var dim = hot ? .07 : .38;
             M.forEach(function (m) {
-                if (m.state === 'NOPLAN' || m.name === sel) return;
+                if (m.state === 'NOPLAN' || m.name === sel || m.name === hot) return;
                 var st = ST[m.state];
                 s += '<path class="ln" data-m="' + m.name + '" d="' + smooth(pts(m)) + '" fill="none" stroke="' + st.c
-                    + '" stroke-width="1.3" stroke-opacity=".38" style="cursor:pointer"><title>' + m.name + ' ' + st.label
+                    + '" stroke-width="1.3" stroke-opacity="' + dim + '" style="cursor:pointer"><title>' + m.name + ' ' + st.label
                     + ' ' + vtxt(m) + '</title></path>';
             });
 
             /* end tags: 4 worst, 3 best */
             var ok = M.filter(function (m) { return m.state !== 'NOPLAN' })
                 .sort(function (a, b) { return a.cum[DONE_SLOTS - 1] - b.cum[DONE_SLOTS - 1] });
-            ok.slice(0, 4).concat(ok.slice(-3)).forEach(function (m) {
-                var st = ST[m.state], v = m.cum[DONE_SLOTS - 1];
-                s += '<circle cx="' + X(DONE_SLOTS - 1) + '" cy="' + Y(v) + '" r="2.4" fill="' + st.c + '"/>'
-                    + '<text x="' + (X(DONE_SLOTS - 1) + 5) + '" y="' + (Y(v) + 3) + '" font-size="8" font-weight="800" fill="'
-                    + st.c + '">' + m.name + '</text>';
-            });
+            if (!hot) {
+                ok.slice(0, 4).concat(ok.slice(-3)).forEach(function (m) {
+                    var st = ST[m.state], v = m.cum[DONE_SLOTS - 1];
+                    s += '<circle cx="' + X(DONE_SLOTS - 1) + '" cy="' + Y(v) + '" r="2.4" fill="' + st.c + '"/>'
+                        + '<text x="' + (X(DONE_SLOTS - 1) + 5) + '" y="' + (Y(v) + 3) + '" font-size="8" font-weight="800" fill="'
+                        + st.c + '">' + m.name + '</text>';
+                });
+            }
+
+            /* the focused machine is drawn last, dark and thick, over a shaded
+               area, with its name at the end of the curve */
+            var mh = hot ? get(hot) : null;
+            if (mh && mh.state !== 'NOPLAN' && mh.name !== sel) {
+                var ph = pts(mh), st = ST[mh.state];
+                s += '<path d="' + smooth(ph) + ' L' + X(DONE_SLOTS - 1) + ' ' + Y(lo) + ' L' + X(0) + ' ' + Y(lo)
+                    + ' Z" fill="' + st.c + '" fill-opacity=".10"/>'
+                    + '<path d="' + smooth(ph) + '" fill="none" stroke="' + st.c + '" stroke-width="2.6"/>'
+                    + '<circle cx="' + X(DONE_SLOTS - 1) + '" cy="' + Y(mh.cum[DONE_SLOTS - 1]) + '" r="3.4" fill="#fff" stroke="'
+                    + st.c + '" stroke-width="2"/>'
+                    + '<text x="' + (X(DONE_SLOTS - 1) + 7) + '" y="' + (Y(mh.cum[DONE_SLOTS - 1]) + 3)
+                    + '" font-size="9" font-weight="800" fill="' + st.c + '">' + mh.name + ' ' + vtxt(mh) + '</text>';
+            }
 
             var m2 = get(sel);
             if (m2 && m2.state !== 'NOPLAN') {
@@ -517,7 +608,126 @@
                 + '<div class="count"><b>' + dt + '</b>DT MIN</div>';
         }
 
-        function renderAll() { renderCounts(); renderFan(); renderDense(); renderX(); }
+        function renderAll() { renderCounts(); renderScat(); renderFan(); renderDense(); renderX(); }
+
+        /* ---------- hover focus ----------
+           Hovering any machine anywhere on the page pulls it forward: the rest
+           of the page recedes, its curve is drawn bold across the fan, and a
+           card opens with the figures behind the state. */
+        var hoverEl = document.getElementById('hover');
+
+        function hrow(label, val) {
+            return '<div class="h-row"><u>' + label + '</u><b>' + val + '</b></div>';
+        }
+
+        function hoverHtml(m) {
+            var st = ST[m.state];
+            var pace = m.std ? Math.round(m.rate / m.std * 100) + '%' : '--';
+            return '<div class="h-top"><span class="h-nm">' + m.name + '</span>'
+                + '<span class="pill" style="background:' + st.c + '">' + st.label + '</span></div>'
+                + '<div class="h-jc">' + (m.jc ? m.jc + ' · ' + m.product : 'no job card') + '</div>'
+                + '<div class="h-var" style="color:' + st.c + '">' + vtxt(m) + '</div>'
+                + '<div class="h-note" style="color:' + st.c + '">' + note(m) + '</div>'
+                + '<div class="h-grid">'
+                + hrow('RATE', m.rate ? m.rate + '/hr' : 'stopped')
+                + hrow('STD', (m.std || '--') + '/hr')
+                + hrow('PACE', pace)
+                + hrow('REJ%', m.rej || '--')
+                + hrow('MAN', m.man + '/' + m.stdMan)
+                + hrow('DT', m.dt ? m.dt + 'm' : '0')
+                + hrow('DONE', Number(m.done || 0).toLocaleString())
+                + hrow('ETA', m.eta || '--')
+                + '</div>'
+                + '<div class="h-chart">' + cardChart(m, 266, 86) + '</div>'
+                + '<div class="h-foot"><span>SHIFT ' + Number(m.done || 0).toLocaleString() + ' / '
+                + Number(m.planQty || 0).toLocaleString() + '</span><span>'
+                + (m.jobPct === null || m.jobPct === undefined ? 'NO JOB CARD' : 'JC ' + m.jobPct + '%') + '</span></div>';
+        }
+
+        function placeHover(el) {
+            var r = el.getBoundingClientRect();
+            var w = 286, pad = 10;
+            var left = r.left + window.pageXOffset;
+            var top = r.bottom + window.pageYOffset + 6;
+            /* keep it on screen: flip above when it would run off the bottom,
+               and pull it back inside the right edge */
+            if (left + w + pad > window.pageXOffset + document.documentElement.clientWidth) {
+                left = window.pageXOffset + document.documentElement.clientWidth - w - pad;
+            }
+            if (left < pad) left = pad;
+            hoverEl.style.left = left + 'px';
+            hoverEl.style.top = top + 'px';
+            hoverEl.style.display = 'block';
+            var h = hoverEl.offsetHeight;
+            if (r.bottom + h + 16 > document.documentElement.clientHeight) {
+                hoverEl.style.top = Math.max(window.pageYOffset + pad, r.top + window.pageYOffset - h - 6) + 'px';
+            }
+        }
+
+        function markHot() {
+            ['.dcard', '.xcard', '.nrow', '.chip'].forEach(function (s) {
+                [].forEach.call(document.querySelectorAll(s), function (el) {
+                    el.classList.toggle('hot', !!hot && el.getAttribute('data-m') === hot);
+                });
+            });
+            document.body.classList.toggle('focusing', !!hot);
+        }
+
+        function setHot(name, el) {
+            if (hot === name) { if (el) placeHover(el); return; }
+            hot = name;
+            if (!name) {
+                hoverEl.style.display = 'none';
+                document.body.classList.remove('focusing');
+                markHot(); renderScat(); renderFan();
+                return;
+            }
+            var m = get(name);
+            if (!m) return;
+            hoverEl.innerHTML = hoverHtml(m);
+            markHot(); renderScat(); renderFan();
+            if (el) placeHover(el);
+        }
+
+        function targetOf(e) {
+            var t = e.target;
+            while (t && t !== document) {
+                if (t.getAttribute && t.getAttribute('data-m')) return t;
+                t = t.parentNode;
+            }
+            return null;
+        }
+
+        document.addEventListener('mouseover', function (e) {
+            if (isTv) return;
+            var el = targetOf(e);
+            if (!el) return;
+            /* anchor the card to the tile, not to a one-pixel-wide curve */
+            var anchor = el.closest ? (el.closest('.dcard, .xcard, .nrow, .chip') || el) : el;
+            setHot(el.getAttribute('data-m'), anchor.getBoundingClientRect ? anchor : el);
+        });
+
+        document.addEventListener('mouseout', function (e) {
+            if (isTv || !hot) return;
+            var el = targetOf(e);
+            if (!el) return;
+            var to = e.relatedTarget;
+            while (to && to !== document) {
+                if (to.getAttribute && to.getAttribute('data-m') === hot) return;
+                to = to.parentNode;
+            }
+            setHot(null);
+        });
+
+        /* a curve is not a box, so hovering one anchors the card to the plot */
+        document.addEventListener('mousemove', function (e) {
+            if (isTv || !hot) return;
+            if (e.target && e.target.classList && e.target.classList.contains('ln')) {
+                hoverEl.style.left = Math.min(e.pageX + 14,
+                    window.pageXOffset + document.documentElement.clientWidth - 296) + 'px';
+                hoverEl.style.top = (e.pageY + 14) + 'px';
+            }
+        });
 
         document.addEventListener('click', function (e) {
             var t = e.target, el = null;
@@ -528,6 +738,7 @@
             if (!el) return;
             sel = el.getAttribute('data-m');
             renderAll();
+            markHot(); /* renderAll rebuilt the cards, so re-apply the focus */
         });
 
         function tick() {
