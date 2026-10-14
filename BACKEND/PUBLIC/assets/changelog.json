@@ -11,8 +11,21 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.113.0",
+  "latest": "1.114.0",
   "versions": [
+    {
+      "version": "1.114.0",
+      "date": "2026-10-14",
+      "title": "Remarks required to complete a plan",
+      "modules": [
+        {
+          "app": "planning",
+          "changes": [
+            { "type": "feat", "text": "Completing a production plan now needs Remarks — the Complete Plan popup will not save until you type a remark." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.113.0",
       "date": "2026-10-14",

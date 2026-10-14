@@ -163,9 +163,9 @@
               <!-- Remarks -->
               <div>
                 <div style="font-size:0.7rem;font-weight:700;color:#374151;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px;">
-                  <i class="bi bi-chat-left-text"></i> Remarks / Notes
+                  <i class="bi bi-chat-left-text"></i> Remarks / Notes <span style="color:#dc2626;">*</span>
                 </div>
-                <textarea id="cpmRemarks" rows="2" placeholder="Enter completion notes (optional)..."
+                <textarea id="cpmRemarks" rows="2" placeholder="Enter completion remarks (required)..."
                   style="width:100%;padding:10px;border:1px solid #d1d5db;border-radius:8px;font-size:0.9rem;box-sizing:border-box;resize:vertical;"></textarea>
               </div>
             </div>
@@ -313,10 +313,15 @@
     window.submitCompletePlan = async function () {
       const id          = window.cpCurrentPlanId;
       const completedQty = document.getElementById('cpmProduced').value;
-      const remarks     = document.getElementById('cpmRemarks').value;
+      const remarks     = document.getElementById('cpmRemarks').value.trim();
       const user        = (window.JPSMS && window.JPSMS.store && window.JPSMS.store.me)
                           ? window.JPSMS.store.me.username : 'Unknown';
       if (!id) return;
+      if (!remarks) {
+        alert('Remarks are required to complete a plan.');
+        document.getElementById('cpmRemarks').focus();
+        return;
+      }
       if (!confirm('Mark this plan as COMPLETE?')) return;
 
       const btn = document.getElementById('btnConfirmComplete');
@@ -346,7 +351,7 @@
           try {
             await api.post('/planning/complete', {
               id: ex.id, completed_qty: ex.qty,
-              remarks: (remarks ? remarks + ' (batch)' : 'Batch complete'), user
+              remarks: remarks + ' (batch)', user
             });
           } catch (e2) { console.warn('Related plan complete failed:', ex.id, e2.message); }
         }

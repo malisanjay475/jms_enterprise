@@ -12999,6 +12999,7 @@ app.post('/api/planning/complete', async (req, res) => {
   try {
     const { id, completed_qty, remarks, user } = req.body;
     if (!id) return res.json({ ok: false, error: 'Missing ID' });
+    if (!String(remarks || '').trim()) return res.json({ ok: false, error: 'Remarks are required to complete a plan' });
 
     // Update status, timestamps, and details.
     // CRITICAL: bump updated_at (and last_updated_at) so the completion is a fresh
