@@ -224,14 +224,17 @@ data class ShiftTeamAddRequest(
 data class StdValues(
     val std_weight: Double? = null,
     val std_cycle_time: Double? = null,
-    val std_cavity: Int? = null
+    val std_cavity: Int? = null,
+    /** Runner STD weight from the mould master (moulds.runner_weight). */
+    val std_runner_weight: Double? = null
 )
 
 @Serializable
 data class JobSetupRow(
     val act_weight: Double? = null,
     val act_cycle_time: Double? = null,
-    val act_cavity: Int? = null
+    val act_cavity: Int? = null,
+    val act_runner_weight: Double? = null
 )
 
 @Serializable
@@ -257,6 +260,8 @@ data class JobSetupSaveRequest(
     val act_cycle_time: Double? = null,
     val std_cavity: Int? = null,
     val act_cavity: Int? = null,
+    val std_runner_weight: Double? = null,
+    val act_runner_weight: Double? = null,
     /** 1 = 1st half (shift start), 2 = 2nd half (mid-shift). Without it the server saves 1st half. */
     val setup_period: Int = 1
 )

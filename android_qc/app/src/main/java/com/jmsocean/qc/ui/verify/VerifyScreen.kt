@@ -626,7 +626,8 @@ private fun HoldDialog(
     onConfirm: (reason: String, qty: Int?, remarks: String, photos: List<File>) -> Unit
 ) {
     var reason by remember { mutableStateOf("") }
-    var qty by remember { mutableStateOf("") }
+    // Qty on hold starts at this entry's produced (good) qty; QC can change it.
+    var qty by remember { mutableStateOf((slot.qc_good_qty ?: slot.sup_good_qty)?.takeIf { it > 0 }?.toString() ?: "") }
     var remarks by remember { mutableStateOf("") }
     var photos by remember { mutableStateOf<List<File>>(emptyList()) }
     val ctx = LocalContext.current
@@ -662,7 +663,7 @@ private fun HoldDialog(
                 Spacer(Modifier.size(8.dp))
                 OutlinedTextField(
                     value = qty, onValueChange = { qty = it.filter(Char::isDigit) },
-                    label = { Text("Qty on hold (optional)") }, singleLine = true,
+                    label = { Text("Qty on hold") }, singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     modifier = Modifier.fillMaxWidth()
                 )

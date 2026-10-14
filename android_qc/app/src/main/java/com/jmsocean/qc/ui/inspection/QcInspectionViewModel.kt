@@ -70,6 +70,7 @@ data class QcInspectUiState(
     val stdWeight: String = "", val actWeight: String = "",
     val stdCT: String = "", val actCT: String = "",
     val stdCavity: String = "", val actCavity: String = "",
+    val stdRunner: String = "", val actRunner: String = "",
     val setupPeriod: String = "1st half",
     /** Saved actuals per half (1 / 2) for this job & shift, from the server. */
     val savedSetups: Map<Int, com.jmsocean.qc.data.remote.JobSetupRow> = emptyMap(),
@@ -168,11 +169,13 @@ class QcInspectionViewModel : ViewModel() {
                             stdWeight = r.std?.std_weight?.toString() ?: it.stdWeight,
                             stdCT = r.std?.std_cycle_time?.toString() ?: it.stdCT,
                             stdCavity = r.std?.std_cavity?.toString() ?: it.stdCavity,
+                            stdRunner = r.std?.std_runner_weight?.toString() ?: it.stdRunner,
                             savedSetups = saved,
                             setupPeriod = period,
                             actWeight = row?.act_weight?.toString() ?: "",
                             actCT = row?.act_cycle_time?.toString() ?: "",
-                            actCavity = row?.act_cavity?.toString() ?: ""
+                            actCavity = row?.act_cavity?.toString() ?: "",
+                            actRunner = row?.act_runner_weight?.toString() ?: ""
                         )
                     }
                 }
@@ -189,6 +192,7 @@ class QcInspectionViewModel : ViewModel() {
     fun setActWeight(v: String) = _state.update { it.copy(actWeight = v) }
     fun setActCT(v: String) = _state.update { it.copy(actCT = v) }
     fun setActCavity(v: String) = _state.update { it.copy(actCavity = v.filter(Char::isDigit)) }
+    fun setActRunner(v: String) = _state.update { it.copy(actRunner = v) }
     /** Switch half; show that half's saved actuals (blank if not saved yet). */
     fun setPeriod(v: String) = _state.update {
         val row = it.savedSetups[periodNo(v)]
@@ -196,7 +200,8 @@ class QcInspectionViewModel : ViewModel() {
             setupPeriod = v,
             actWeight = row?.act_weight?.toString() ?: "",
             actCT = row?.act_cycle_time?.toString() ?: "",
-            actCavity = row?.act_cavity?.toString() ?: ""
+            actCavity = row?.act_cavity?.toString() ?: "",
+            actRunner = row?.act_runner_weight?.toString() ?: ""
         )
     }
 
@@ -220,11 +225,13 @@ class QcInspectionViewModel : ViewModel() {
                 stdWeight = s.stdWeight.toDoubleOrNull(), actWeight = s.actWeight.toDoubleOrNull(),
                 stdCT = s.stdCT.toDoubleOrNull(), actCT = s.actCT.toDoubleOrNull(),
                 stdCavity = s.stdCavity.toIntOrNull(), actCavity = s.actCavity.toIntOrNull(),
+                stdRunner = s.stdRunner.toDoubleOrNull(), actRunner = s.actRunner.toDoubleOrNull(),
                 setupPeriod = periodNo(s.setupPeriod)
             ).onSuccess {
                 val row = com.jmsocean.qc.data.remote.JobSetupRow(
                     act_weight = s.actWeight.toDoubleOrNull(), act_cycle_time = s.actCT.toDoubleOrNull(),
-                    act_cavity = s.actCavity.toIntOrNull()
+                    act_cavity = s.actCavity.toIntOrNull(),
+                    act_runner_weight = s.actRunner.toDoubleOrNull()
                 )
                 _state.update {
                     it.copy(savingSetup = false, setupMsg = "Setup saved (${s.setupPeriod}).",
