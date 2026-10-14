@@ -3955,6 +3955,11 @@
                 <div style="text-align:right;color:${(job.balance_qty||0)<=0?'#15803d':'#ea580c'};">${(job.balance_qty||0).toLocaleString()}</div>
               </div>
             </div>
+            ${String(job.status||'').toUpperCase()==='COMPLETED' && (job.remarks||job.completed_by||job.completed_at) ? `
+            <div style="margin-top:8px;padding:7px 9px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;font-size:0.72rem;color:#334155;">
+              <div style="font-weight:700;"><i class="bi bi-chat-left-text"></i> Remarks: <span style="font-weight:500;font-style:italic;">${job.remarks ? safe(job.remarks) : '<span style="color:#94a3b8;">no remark</span>'}</span></div>
+              ${(job.completed_by||job.completed_at) ? `<div style="font-size:0.64rem;color:#64748b;margin-top:2px;">Completed${job.completed_by ? ' by ' + safe(job.completed_by) : ''}${job.completed_at ? ' · ' + safe(new Date(job.completed_at).toLocaleString('en-GB',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})) : ''}</div>` : ''}
+            </div>` : ''}
             <div style="margin-top:10px;padding-top:8px;border-top:1px dashed #f1f5f9;text-align:right;">
               <span style="font-size:0.72rem;color:#2563eb;font-weight:700;">📊 View Details →</span>
             </div>`;

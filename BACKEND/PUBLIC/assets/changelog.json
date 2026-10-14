@@ -11,8 +11,21 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.118.0",
+  "latest": "1.119.0",
   "versions": [
+    {
+      "version": "1.119.0",
+      "date": "2026-10-14",
+      "title": "Supervisor app shows completion remarks",
+      "modules": [
+        {
+          "app": "supervisor_app",
+          "changes": [
+            { "type": "feat", "text": "In the Moulding Supervisor App, View Entries > All Jobs now shows the remark entered when a plan was completed, with who completed it and when." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.118.0",
       "date": "2026-10-14",
