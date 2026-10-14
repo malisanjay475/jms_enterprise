@@ -14,7 +14,7 @@ part of your PR. On release, the `[Unreleased]` items move under the new version
 ## [Unreleased]
 
 ### Added
-- NPD (1.118.2): full screen viewer on the same page. Product images (thumbnail or gallery) open full size with zoom (buttons, mouse wheel, pinch, double-click), drag to move, rotate, fit / 1:1 and previous / next. PDF trial reports open inside the page; Word / Excel reports offer a download.
+- NPD (v1.118.2): full screen viewer on the same page. Product images (thumbnail or gallery) open full size with zoom (buttons, mouse wheel, pinch, double-click), drag to move, rotate, fit / 1:1 and previous / next. PDF trial reports open inside the page; Word / Excel reports offer a download.
 
 ### Added
 - NPD (v1.118.1): product image thumbnail in the Product column (latest photo after trial, placeholder when none; click opens the trial report / images window).
