@@ -112,37 +112,89 @@ function removeFile(filePath) {
   fs.promises.unlink(full).catch(() => {});
 }
 
+/* NPD replicates between MAIN and every LOCAL (services/sync.service.js), so rows
+   are identified by sync_id, never the per-server serial id: a file links to its
+   product by product_sync_id. sync.service calls this before its schema sweep so
+   the tables exist (with their sync triggers) even where NPD was never opened. */
+async function ensureNpdSchema(pool) {
+  /* one string = one implicit transaction, so the lock holds until the end and
+     several workers starting together don't race on CREATE / ALTER */
+  await pool.query(`
+    SELECT pg_advisory_xact_lock(hashtext('npd_schema'));
+    CREATE EXTENSION IF NOT EXISTS pgcrypto;
+    CREATE TABLE IF NOT EXISTS npd_products (
+      id SERIAL PRIMARY KEY,
+      sr_no TEXT,
+      product_name TEXT NOT NULL,
+      stages JSONB NOT NULL DEFAULT '{}'::jsonb,
+      status TEXT NOT NULL DEFAULT '',
+      remarks TEXT NOT NULL DEFAULT '',
+      created_by TEXT,
+      updated_by TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE TABLE IF NOT EXISTS npd_files (
+      id SERIAL PRIMARY KEY,
+      product_id INTEGER,
+      kind TEXT NOT NULL,
+      file_path TEXT NOT NULL,
+      original_name TEXT,
+      uploaded_by TEXT,
+      uploaded_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    ALTER TABLE npd_products ADD COLUMN IF NOT EXISTS sync_id UUID DEFAULT gen_random_uuid();
+    UPDATE npd_products SET sync_id = gen_random_uuid() WHERE sync_id IS NULL;
+    CREATE UNIQUE INDEX IF NOT EXISTS uq_sync_id_npd_products ON npd_products(sync_id);
+    ALTER TABLE npd_files ADD COLUMN IF NOT EXISTS sync_id UUID DEFAULT gen_random_uuid();
+    ALTER TABLE npd_files ADD COLUMN IF NOT EXISTS product_sync_id UUID;
+    ALTER TABLE npd_files ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+    UPDATE npd_files SET sync_id = gen_random_uuid() WHERE sync_id IS NULL;
+    CREATE UNIQUE INDEX IF NOT EXISTS uq_sync_id_npd_files ON npd_files(sync_id);
+    /* v1.115 linked files by the serial product_id with a cascading FK: fill the
+       sync link once, then drop the FK (a file can arrive before its product) */
+    UPDATE npd_files f SET product_sync_id = p.sync_id
+      FROM npd_products p WHERE f.product_sync_id IS NULL AND f.product_id = p.id;
+    ALTER TABLE npd_files DROP CONSTRAINT IF EXISTS npd_files_product_id_fkey;
+    ALTER TABLE npd_files ALTER COLUMN product_id DROP NOT NULL;
+    CREATE INDEX IF NOT EXISTS idx_npd_files_product_sync ON npd_files(product_sync_id);
+
+    /* Sr No: MAIN and a LOCAL can both hand out the same next number while apart.
+       MAIN decides: a row arriving with a number another product already has gets
+       the next free one, and updated_at moves so the new number syncs back out. */
+    CREATE OR REPLACE FUNCTION npd_unique_sr_no() RETURNS trigger AS $$
+    BEGIN
+      PERFORM pg_advisory_xact_lock(hashtext('npd_sr_no'));
+      IF NEW.sr_no IS NOT NULL AND EXISTS (
+           SELECT 1 FROM npd_products
+            WHERE sr_no = NEW.sr_no AND sync_id IS DISTINCT FROM NEW.sync_id) THEN
+        NEW.sr_no := (SELECT (COALESCE(MAX(NULLIF(regexp_replace(sr_no, '[^0-9]', '', 'g'), '')::bigint), 0) + 1)::text
+                        FROM npd_products);
+        NEW.updated_at := NOW();
+      END IF;
+      RETURN NEW;
+    END $$ LANGUAGE plpgsql;
+    DROP TRIGGER IF EXISTS trg_npd_unique_sr_no ON npd_products;
+    ${String(process.env.SERVER_TYPE || '').toUpperCase() === 'LOCAL' ? '' : `
+    CREATE TRIGGER trg_npd_unique_sr_no BEFORE INSERT OR UPDATE OF sr_no ON npd_products
+      FOR EACH ROW EXECUTE FUNCTION npd_unique_sr_no();
+    /* duplicates already here: the oldest keeps its number, the others are renumbered */
+    UPDATE npd_products p SET sr_no = p.sr_no
+     WHERE EXISTS (SELECT 1 FROM npd_products o WHERE o.sr_no = p.sr_no AND o.id < p.id);`}
+  `);
+}
+
 function registerNpdRoutes(app, pool) {
   let ready = null;
   function ensureTables() {
-    if (!ready) {
-      ready = pool.query(`
-        CREATE TABLE IF NOT EXISTS npd_products (
-          id SERIAL PRIMARY KEY,
-          sr_no TEXT,
-          product_name TEXT NOT NULL,
-          stages JSONB NOT NULL DEFAULT '{}'::jsonb,
-          status TEXT NOT NULL DEFAULT '',
-          remarks TEXT NOT NULL DEFAULT '',
-          created_by TEXT,
-          updated_by TEXT,
-          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-        );
-        CREATE TABLE IF NOT EXISTS npd_files (
-          id SERIAL PRIMARY KEY,
-          product_id INTEGER NOT NULL REFERENCES npd_products(id) ON DELETE CASCADE,
-          kind TEXT NOT NULL,
-          file_path TEXT NOT NULL,
-          original_name TEXT,
-          uploaded_by TEXT,
-          uploaded_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-        );
-        CREATE INDEX IF NOT EXISTS idx_npd_files_product ON npd_files(product_id);
-      `).catch(err => { ready = null; throw err; });
-    }
+    if (!ready) ready = ensureNpdSchema(pool).catch(err => { ready = null; throw err; });
     return ready;
   }
+  /* LOCAL: send the change to MAIN now instead of waiting for the next cycle */
+  const pushNow = () => {
+    if (String(process.env.SERVER_TYPE || '').toUpperCase() !== 'LOCAL') return;
+    try { require('../../../services/sync.service').triggerSync(); } catch (_) { /* sync not loaded */ }
+  };
 
   async function sessionUser(req) {
     const username = getRequestUsername(req);
@@ -165,17 +217,18 @@ function registerNpdRoutes(app, pool) {
       const u = await sessionUser(req);
       const [products, files] = await Promise.all([
         pool.query('SELECT * FROM npd_products ORDER BY id'),
-        pool.query('SELECT id, product_id, kind, file_path, original_name, uploaded_by, uploaded_at FROM npd_files ORDER BY id')
+        pool.query('SELECT id, product_sync_id, kind, file_path, original_name, uploaded_by, uploaded_at FROM npd_files ORDER BY uploaded_at, id')
       ]);
       const byProduct = new Map();
       files.rows.forEach(f => {
-        if (!byProduct.has(f.product_id)) byProduct.set(f.product_id, []);
-        byProduct.get(f.product_id).push({ ...f, url: `/uploads/npd/${path.basename(f.file_path)}` });
+        const k = String(f.product_sync_id);
+        if (!byProduct.has(k)) byProduct.set(k, []);
+        byProduct.get(k).push({ ...f, url: `/uploads/npd/${path.basename(f.file_path)}` });
       });
       res.json({
         ok: true,
         can_edit: canEdit(u),
-        data: products.rows.map(p => ({ ...p, files: byProduct.get(p.id) || [] }))
+        data: products.rows.map(p => ({ ...p, files: byProduct.get(String(p.sync_id)) || [] }))
       });
     } catch (err) { sendServerError(res, err); }
   });
@@ -190,9 +243,9 @@ function registerNpdRoutes(app, pool) {
       const q = clean(req.query.q, 100).toLowerCase();
       const [products, files] = await Promise.all([
         pool.query('SELECT * FROM npd_products ORDER BY id'),
-        pool.query('SELECT product_id, kind, COUNT(*)::int AS n FROM npd_files GROUP BY product_id, kind')
+        pool.query('SELECT product_sync_id, kind, COUNT(*)::int AS n FROM npd_files GROUP BY product_sync_id, kind')
       ]);
-      const count = new Map(files.rows.map(f => [`${f.product_id}:${f.kind}`, f.n]));
+      const count = new Map(files.rows.map(f => [`${f.product_sync_id}:${f.kind}`, f.n]));
       const rows = products.rows.filter(p =>
         (!status || (p.status || 'No status') === status) &&
         (!q || `${p.product_name} ${p.sr_no || ''}`.toLowerCase().includes(q)));
@@ -243,7 +296,7 @@ function registerNpdRoutes(app, pool) {
           if (s.type === 'date') vals.push(v ? new Date(v + 'T00:00:00Z') : null);
           else vals.push((STATE_STYLE[v] || STATE_STYLE.pending).text);
         });
-        vals.push(p.status || '', p.remarks || '', count.get(`${p.id}:report`) || 0, count.get(`${p.id}:image`) || 0,
+        vals.push(p.status || '', p.remarks || '', count.get(`${p.sync_id}:report`) || 0, count.get(`${p.sync_id}:image`) || 0,
           p.updated_by || '', p.updated_at ? new Date(p.updated_at) : null);
         const r = ws.addRow(vals);
         r.eachCell({ includeEmpty: true }, (c, col) => {
@@ -305,6 +358,7 @@ function registerNpdRoutes(app, pool) {
         [name, JSON.stringify(cleanStages(req.body?.stages)),
           PRODUCT_STATUSES.has(status) ? status : '', clean(req.body?.remarks, 2000), u.username]
       );
+      pushNow();
       res.json({ ok: true, data: { ...r.rows[0], files: [] } });
     } catch (err) { sendServerError(res, err); }
   });
@@ -337,6 +391,7 @@ function registerNpdRoutes(app, pool) {
       const r = await pool.query(
         `UPDATE npd_products SET ${sets.join(', ')}, updated_at = NOW() WHERE id = $${vals.length} RETURNING *`, vals);
       if (!r.rows.length) return res.status(404).json({ ok: false, error: 'Product not found' });
+      pushNow();
       res.json({ ok: true, data: r.rows[0] });
     } catch (err) { sendServerError(res, err); }
   });
@@ -347,10 +402,12 @@ function registerNpdRoutes(app, pool) {
       const u = await requireEditor(req, res);
       if (!u) return;
       const id = parseInt(req.params.id, 10);
-      const files = await pool.query('SELECT file_path FROM npd_files WHERE product_id = $1', [id]);
-      const r = await pool.query('DELETE FROM npd_products WHERE id = $1', [id]);
+      const r = await pool.query('DELETE FROM npd_products WHERE id = $1 RETURNING sync_id', [id]);
       if (!r.rowCount) return res.status(404).json({ ok: false, error: 'Product not found' });
+      /* row by row (not a cascade) so each file's deletion is recorded for sync too */
+      const files = await pool.query('DELETE FROM npd_files WHERE product_sync_id = $1 RETURNING file_path', [r.rows[0].sync_id]);
       files.rows.forEach(f => removeFile(f.file_path));
+      pushNow();
       res.json({ ok: true });
     } catch (err) { sendServerError(res, err); }
   });
@@ -371,7 +428,7 @@ function registerNpdRoutes(app, pool) {
     try {
       const id = parseInt(req.params.id, 10);
       if (!saved.length) return res.status(400).json({ ok: false, error: 'No file, or file type not allowed' });
-      const exists = await pool.query('SELECT 1 FROM npd_products WHERE id = $1', [id]);
+      const exists = await pool.query('SELECT sync_id FROM npd_products WHERE id = $1', [id]);
       if (!exists.rows.length) {
         saved.forEach(f => removeFile(f.filename));
         return res.status(404).json({ ok: false, error: 'Product not found' });
@@ -379,11 +436,18 @@ function registerNpdRoutes(app, pool) {
       const out = [];
       for (const f of saved) {
         const r = await pool.query(
-          `INSERT INTO npd_files (product_id, kind, file_path, original_name, uploaded_by)
-           VALUES ($1, $2, $3, $4, $5) RETURNING id, product_id, kind, file_path, original_name, uploaded_by, uploaded_at`,
-          [id, req.params.kind, f.filename, clean(f.originalname, 255), req.npdUser.username]);
+          `INSERT INTO npd_files (product_id, product_sync_id, kind, file_path, original_name, uploaded_by)
+           VALUES ($1, $2, $3, $4, $5, $6)
+           RETURNING id, product_sync_id, kind, file_path, original_name, uploaded_by, uploaded_at`,
+          [id, exists.rows[0].sync_id, req.params.kind, f.filename, clean(f.originalname, 255), req.npdUser.username]);
         out.push({ ...r.rows[0], url: `/uploads/npd/${f.filename}` });
       }
+      /* LOCAL: the file itself goes to MAIN right away (the 30-min upload sweep is the fallback) */
+      const pushFile = app.locals && app.locals.pushUploadFileToMain;
+      if (typeof pushFile === 'function') {
+        saved.forEach(f => pushFile('npd', f.filename).catch(e => console.warn('[NPD] file push failed:', e.message)));
+      }
+      pushNow();
       res.json({ ok: true, data: out });
     } catch (err) {
       saved.forEach(f => removeFile(f.filename));
@@ -399,9 +463,10 @@ function registerNpdRoutes(app, pool) {
       const r = await pool.query('DELETE FROM npd_files WHERE id = $1 RETURNING file_path', [parseInt(req.params.fileId, 10)]);
       if (!r.rows.length) return res.status(404).json({ ok: false, error: 'File not found' });
       removeFile(r.rows[0].file_path);
+      pushNow();
       res.json({ ok: true });
     } catch (err) { sendServerError(res, err); }
   });
 }
 
-module.exports = { registerNpdRoutes, STAGES };
+module.exports = { registerNpdRoutes, ensureNpdSchema, STAGES };

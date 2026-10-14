@@ -14,6 +14,9 @@ part of your PR. On release, the `[Unreleased]` items move under the new version
 ## [Unreleased]
 
 ### Added
+- NPD (v1.120.0): NPD Tracker syncs both ways between MAIN and the factory LOCAL servers. Products, stages, status, remarks, trial reports and images added, edited or deleted on either side reach the other (LOCAL changes are pushed at once; MAIN changes arrive on the next pull, about 5 min). Rows are keyed by sync_id and files link to their product by product_sync_id. MAIN settles Sr No clashes (a product arriving with a number already in use gets the next free one, which syncs back). NPD trial reports (PDF / Word / Excel) may now travel in the upload sync, only in uploads/npd.
+
+### Added
 - NPD (v1.119.2): Export Excel button on the NPD Tracker. Downloads the products shown (status tile + search) with every stage colour coded like the page, real dates, status, remarks, trial report / image counts and last update; header frozen, filters on.
 
 ### Added
