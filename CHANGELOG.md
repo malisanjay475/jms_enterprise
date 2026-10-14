@@ -13,6 +13,9 @@ part of your PR. On release, the `[Unreleased]` items move under the new version
 
 ## [Unreleased]
 
+### Added
+- NPD (v1.117.2): product image thumbnail in the Product column (latest photo after trial, placeholder when none; click opens the trial report / images window).
+
 ### Changed
 - NPD (v1.117.1): Sr No is given automatically when a product is added (next number after the highest one); it is no longer typed in or edited.
 
