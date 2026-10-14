@@ -172,6 +172,19 @@
 
         <!-- HOLDS -->
         <div id="view-holds" class="hidden">
+            <div class="legend" style="flex-wrap:wrap;gap:10px">
+                <label>Show
+                    <select id="hold-status" class="form-input" onchange="loadHolds()">
+                        <option value="ALL">Active + placed on these dates</option>
+                        <option value="ACTIVE">Active holds only</option>
+                        <option value="RELEASED">Release history</option>
+                    </select>
+                </label>
+                <label>From <input type="date" id="hold-from" class="form-input" onchange="loadHolds()"></label>
+                <label>To <input type="date" id="hold-to" class="form-input" onchange="loadHolds()"></label>
+                <button class="btn btn-outline small" id="hold-excel" onclick="downloadHoldsExcel()"><i class="bi bi-file-earmark-excel"></i> Download Excel</button>
+                <span style="margin-left:auto" id="hold-summary"></span>
+            </div>
             <div id="holds-container"></div>
         </div>
 
@@ -257,7 +270,8 @@
             switchView(VIEWS[params.get('view')] ? params.get('view') : 'dashboard');
         });
 
-        function applyFilters() { loadView(true); }
+        // A new date also resets the Hold tab's own From / To to that date.
+        function applyFilters() { $('hold-from').value = $('hold-to').value = ''; loadView(true); }
 
         function switchView(view) {
             currentView = view;
@@ -291,7 +305,7 @@
             $('hold-badge').classList.toggle('hidden', !active);
             if (currentView === 'compliance') renderCompliance();
             else if (currentView === 'onlineqc') renderOnlineQC();
-            else if (currentView === 'holds') renderHolds();
+            else if (currentView === 'holds') loadHolds();
             else renderDashboard();
         }
 
@@ -556,27 +570,80 @@
         }
 
         /* ================= Holds ================= */
+        // Hold register from /qc/holds/report: mould, OR/JC No, QC team, release history.
+        let HOLDS = [];
+        function holdQuery() {
+            const d = $('filter-date').value;
+            if (!$('hold-from').value) $('hold-from').value = d;
+            if (!$('hold-to').value) $('hold-to').value = d;
+            return new URLSearchParams({ from: $('hold-from').value, to: $('hold-to').value, status: $('hold-status').value });
+        }
+        async function loadHolds() {
+            if (currentView !== 'holds') return;
+            $('holds-container').innerHTML = '<div class="q-empty">Loading…</div>';
+            try {
+                const res = await JPSMS.api.get(`/qc/holds/report?${holdQuery()}`);
+                if (!res.ok) throw new Error(res.error || 'Could not load holds');
+                HOLDS = res.rows || [];
+                renderHolds();
+            } catch (e) {
+                $('holds-container').innerHTML = `<div class="q-empty" style="color:var(--q-bad)">${esc(e.message)}</div>`;
+            }
+        }
         function renderHolds() {
-            const names = new Set(visibleMachines().map(m => m.machine));
-            const mcFilter = $('filter-machine').value !== 'All Machines' || $('filter-line').value;
-            const list = OV.holds.filter(h => !mcFilter || names.has(h.machine));
-            if (!list.length) { $('holds-container').innerHTML = '<div class="q-empty">No active holds, and none placed on this date. 👍</div>'; return; }
+            const line = $('filter-line').value, mc = $('filter-machine').value;
+            const lineOf = new Map(((OV && OV.machines) || []).map(m => [m.machine, m.line]));
+            const list = HOLDS.filter(h => (!line || (h.line || lineOf.get(h.machine)) === line) && (mc === 'All Machines' || h.machine === mc));
+            const act = list.filter(h => h.status === 'ACTIVE').length;
+            $('hold-summary').innerHTML = `<b>${list.length}</b> hold${list.length === 1 ? '' : 's'} · <span style="color:var(--q-bad)">${act} active</span> · <span style="color:#047857">${list.length - act} released</span>`;
+            if (!list.length) {
+                $('holds-container').innerHTML = `<div class="q-empty">${$('hold-status').value === 'RELEASED' ? 'No holds released for these dates.' : 'No active holds, and none placed on these dates. 👍'}</div>`;
+                return;
+            }
             const user = (JPSMS.auth.getUser && JPSMS.auth.getUser()) || {};
             const canRelease = ['quality', 'quality_manager', 'quality_supervisor', 'qc_supervisor', 'quality_ass__manager', 'admin', 'superadmin'].includes(String(user.role_code || '').toLowerCase());
+            const sub = v => v ? `<div class="mc-sub">${esc(v)}</div>` : '';
             $('holds-container').innerHTML = `<div class="q-scroll"><table class="q-table"><thead><tr>
-                <th>Status</th><th>Machine</th><th>Date / Shift</th><th>Job card</th><th>Qty</th><th>Reason</th><th>Photos</th><th>Held by</th><th>Released</th><th></th></tr></thead><tbody>
+                <th>Status</th><th>Machine</th><th>Date / Shift</th><th>JC No / OR No</th><th>Mould</th><th>Qty</th><th>Reason</th><th>Photos</th><th>Held by / QC Supervisor</th><th>Released</th><th></th></tr></thead><tbody>
                 ${list.map(h => `<tr>
                     <td>${h.status === 'ACTIVE' ? '<span class="tag bad">ON HOLD</span>' : '<span class="tag ok">Released</span>'}</td>
-                    <td class="mc">${esc(h.machine)}</td>
+                    <td class="mc">${esc(h.machine)}${sub(h.line)}</td>
                     <td style="white-space:nowrap">${esc(fmtDate(h.dpr_date))} · ${esc(h.shift || '')}${h.slot ? ` · ${esc(h.slot)}` : ''}</td>
-                    <td>${esc(h.job_card_no || '—')}</td>
+                    <td style="white-space:nowrap"><div>${esc(h.job_card_no || '—')}</div>${sub(h.or_no ? 'OR ' + h.or_no : '')}</td>
+                    <td style="white-space:normal;min-width:150px"><div style="font-weight:600">${esc(h.mould_name || '—')}</div>${sub([h.mould_code, h.colour].filter(Boolean).join(' · '))}</td>
                     <td>${esc(h.qty_on_hold ?? '—')}</td>
                     <td><div style="font-weight:600">${esc(h.reason || '')}</div>${h.remarks ? `<div class="mc-sub" style="white-space:normal">${esc(h.remarks)}</div>` : ''}</td>
                     <td>${holdPhotos(h.image_urls)}</td>
-                    <td style="white-space:nowrap">${esc(h.hold_by || '')}<div class="mc-sub">${esc(fmtTime(h.hold_at))}</div></td>
-                    <td style="white-space:nowrap">${h.released_at ? `${esc(h.released_by || '')}<div class="mc-sub">${esc(fmtTime(h.released_at))}</div>${h.release_remarks ? `<div class="mc-sub">${esc(h.release_remarks)}</div>` : ''}` : '—'}</td>
+                    <td style="white-space:nowrap">${esc(h.hold_by || '')}<div class="mc-sub">${esc(fmtTime(h.hold_at))}</div>${h.qc_supervisor ? `<div class="mc-sub">Sup: ${esc(h.qc_supervisor)}</div>` : ''}${h.qc_incharge ? `<div class="mc-sub">Inc: ${esc(h.qc_incharge)}</div>` : ''}</td>
+                    <td style="white-space:nowrap">${h.released_at ? `${esc(h.released_by || '')}<div class="mc-sub">${esc(fmtTime(h.released_at))}</div>${h.release_remarks ? `<div class="mc-sub" style="white-space:normal">${esc(h.release_remarks)}</div>` : ''}` : '—'}</td>
                     <td>${h.status === 'ACTIVE' && canRelease ? `<button class="btn btn-outline small" onclick="releaseHold(${Number(h.id)})">Release</button>` : ''}</td>
                 </tr>`).join('')}</tbody></table></div>`;
+        }
+
+        async function downloadHoldsExcel() {
+            const qs = holdQuery(); qs.set('format', 'xlsx');
+            const headers = {};
+            const token = localStorage.getItem('token');
+            if (token) headers['Authorization'] = `Bearer ${token}`;
+            try { const u = JSON.parse(localStorage.getItem('user') || '{}'); if (u && u.username) headers['X-User-Name'] = u.username; } catch (_) { }
+            const factoryId = localStorage.getItem('jpsms_factory_id');
+            if (factoryId) headers['X-Factory-ID'] = factoryId;
+            const btn = $('hold-excel'); btn.disabled = true;
+            try {
+                const res = await fetch(`/api/qc/holds/report?${qs}`, { headers, credentials: 'same-origin' });
+                if (!res.ok) {
+                    let msg = `Download failed (${res.status})`;
+                    try { const j = await res.json(); if (j && j.error) msg = j.error; } catch (_) { }
+                    throw new Error(msg);
+                }
+                const blob = await res.blob();
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(blob);
+                a.download = `QC_Holds_${qs.get('from')}${qs.get('to') !== qs.get('from') ? '_to_' + qs.get('to') : ''}.xlsx`;
+                document.body.appendChild(a); a.click(); a.remove();
+                setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+            } catch (e) { alert(e.message || 'Excel download failed'); }
+            finally { btn.disabled = false; }
         }
 
         // Hold photos from the QC app: small thumbnails, tap to open full size.

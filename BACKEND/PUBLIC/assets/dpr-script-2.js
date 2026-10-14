@@ -363,7 +363,8 @@
                 // [label, STD, actual column, out-of-line test]
                 ['Weight', pick('std_weight'), 'act_weight', (s, a) => s > 0 && Math.abs(a - s) / s > 0.10],
                 ['Cycle time', pick('std_cycle_time'), 'act_cycle_time', (s, a) => s > 0 && a > s * 1.10],
-                ['Cavity', pick('std_cavity'), 'act_cavity', (s, a) => s > 0 && a < s]
+                ['Cavity', pick('std_cavity'), 'act_cavity', (s, a) => s > 0 && a < s],
+                ['Runner weight', pick('std_runner_weight'), 'act_runner_weight', (s, a) => s > 0 && Math.abs(a - s) / s > 0.10]
             ];
             const cell = (h, key, s, off) => {
                 const a = num(h && h[key]);
