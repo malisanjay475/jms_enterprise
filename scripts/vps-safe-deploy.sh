@@ -209,6 +209,12 @@ backup_before_deploy() {
 
   printf '%s\n' "${backup_dir}/${backup_name}" > "$DEPLOY_META_DIR/last_database_backup"
   echo "[deploy] database backup saved to ${backup_dir}/${backup_name}"
+
+  # Every deploy adds a ~130 MB dump and nothing removed them (94 dumps = 12 GB
+  # on 14-Oct-2026). Keep the newest KEEP_DEPLOY_BACKUPS for this environment;
+  # the 30-minute dumps in /opt/jms-backups cover anything older.
+  local keep="${KEEP_DEPLOY_BACKUPS:-5}"
+  ls -1t "$backup_dir/${DEPLOY_ENVIRONMENT:-production}-"*.dump 2>/dev/null     | tail -n +"$((keep + 1))"     | while read -r old; do rm -f "$old" && echo "[deploy] pruned old backup $(basename "$old")"; done
 }
 
 write_env_file "$APP_IMAGE"
