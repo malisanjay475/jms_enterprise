@@ -13,6 +13,15 @@ part of your PR. On release, the `[Unreleased]` items move under the new version
 
 ## [Unreleased]
 
+### Changed
+- Planning (v1.112.1): deactivated moulds are no longer offered in the order mould list or the alternative-mould
+  picker. Moulds that already have a plan still show. DPR follows automatically (its moulds come from plans).
+
+### Added
+- Mould Master (v1.112.0): Admin / Superadmin can deactivate (and re-activate) a mould with the toggle in the
+  Actions column. Deactivated moulds are hidden from the Mould Master list for all other roles; admins still see
+  them with an INACTIVE badge. Logged in mould history.
+
 ### Fixed
 - Order Tracker (v1.110.2): consumption ratio from plan_board, then moulds master, then ERP BOM (JR/JGUI/2627/3903 showed
   ×240 and an end date in 2045); ratio mismatch / implausible ratio warnings; sets-per-day pace tiles; per-mould
