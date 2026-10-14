@@ -173,17 +173,20 @@ function registerNpdRoutes(app, pool) {
       const name = clean(req.body?.product_name, 300);
       if (!name) return res.status(400).json({ ok: false, error: 'Product name is required' });
       const status = clean(req.body?.status, 40);
+      /* Sr No is automatic: one more than the highest number used so far. */
       const r = await pool.query(
         `INSERT INTO npd_products (sr_no, product_name, stages, status, remarks, created_by, updated_by)
-         VALUES ($1, $2, $3, $4, $5, $6, $6) RETURNING *`,
-        [clean(req.body?.sr_no, 40), name, JSON.stringify(cleanStages(req.body?.stages)),
+         VALUES ((SELECT (COALESCE(MAX(NULLIF(regexp_replace(sr_no, '[^0-9]', '', 'g'), '')::bigint), 0) + 1)::text
+                    FROM npd_products),
+                 $1, $2, $3, $4, $5, $5) RETURNING *`,
+        [name, JSON.stringify(cleanStages(req.body?.stages)),
           PRODUCT_STATUSES.has(status) ? status : '', clean(req.body?.remarks, 2000), u.username]
       );
       res.json({ ok: true, data: { ...r.rows[0], files: [] } });
     } catch (err) { sendServerError(res, err); }
   });
 
-  /* Partial update: any of sr_no, product_name, status, remarks, stages (merged). */
+  /* Partial update: any of product_name, status, remarks, stages (merged). */
   app.put('/api/npd/products/:id', async (req, res) => {
     try {
       await ensureTables();
@@ -194,7 +197,6 @@ function registerNpdRoutes(app, pool) {
       const sets = [];
       const vals = [];
       const add = (sql, v) => { vals.push(v); sets.push(sql.replace('?', '$' + vals.length)); };
-      if (b.sr_no !== undefined) add('sr_no = ?', clean(b.sr_no, 40));
       if (b.product_name !== undefined) {
         const name = clean(b.product_name, 300);
         if (!name) return res.status(400).json({ ok: false, error: 'Product name is required' });
