@@ -88,6 +88,25 @@
         .gal .im img { width: 100%; height: 100%; object-fit: cover; cursor: zoom-in; }
         .gal .im button { position: absolute; top: 6px; right: 6px; border: 0; border-radius: 6px; background: rgba(255,255,255,.9); color: #b91c1c; cursor: pointer; padding: 2px 6px; }
         .none { color: var(--mute); font-size: 12px; }
+        /* full screen viewer: images zoom / pan, PDFs open inline */
+        .vw { position: fixed; inset: 0; z-index: 3000; background: rgba(2, 6, 23, .94); display: none; flex-direction: column; color: #e2e8f0; }
+        .vw.on { display: flex; }
+        .vw .vbar { display: flex; align-items: center; gap: 8px; padding: 10px 14px; background: rgba(15, 23, 42, .85); flex-wrap: wrap; }
+        .vw .vname { flex: 1; min-width: 120px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .vw .vname small { color: #94a3b8; font-weight: 600; margin-left: 8px; }
+        .vw .vb { border: 1px solid rgba(148, 163, 184, .35); background: rgba(30, 41, 59, .9); color: #e2e8f0; border-radius: 9px; height: 34px; min-width: 34px; padding: 0 10px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; cursor: pointer; font-size: 13px; text-decoration: none; }
+        .vw .vb:hover { background: #334155; }
+        .vw .vpct { min-width: 52px; text-align: center; font-variant-numeric: tabular-nums; font-size: 13px; }
+        .vw .vstage { flex: 1; position: relative; overflow: hidden; touch-action: none; display: grid; place-items: center; }
+        .vw .vstage img { position: absolute; left: 0; top: 0; transform-origin: 0 0; max-width: none; user-select: none; -webkit-user-drag: none; cursor: grab; }
+        .vw .vstage img.drag { cursor: grabbing; }
+        .vw .vstage iframe { width: 100%; height: 100%; border: 0; background: #fff; }
+        .vw .vnone { text-align: center; color: #cbd5e1; }
+        .vw .vnone i { font-size: 54px; display: block; margin-bottom: 10px; }
+        .vw .vnav { position: absolute; top: 50%; transform: translateY(-50%); width: 44px; height: 64px; border: 0; border-radius: 10px; background: rgba(30, 41, 59, .75); color: #fff; font-size: 22px; cursor: pointer; z-index: 2; }
+        .vw .vnav.l { left: 12px; }
+        .vw .vnav.r { right: 12px; }
+        .vw .zoom-only { display: inline-flex; gap: 8px; align-items: center; }
         @media (max-width: 700px) { .npd { padding: 14px 10px 80px; } .g .c1 { min-width: 200px; max-width: 200px; } .wrap { max-height: none; } }
     </style>
 </head>
@@ -150,6 +169,28 @@
                 <h4>Product Images After Trial <span class="ed"><input type="file" id="imgFile" multiple hidden accept="image/*"><button class="btn sm" onclick="document.getElementById('imgFile').click()"><i class="bi bi-camera"></i> Upload Images</button></span></h4>
                 <div class="gal" id="imgList"></div>
             </div>
+        </div>
+    </div>
+
+    <!-- full screen viewer -->
+    <div class="vw" id="viewer" aria-modal="true" role="dialog">
+        <div class="vbar">
+            <div class="vname" id="vName"></div>
+            <span class="zoom-only" id="vZoom">
+                <button class="vb" data-z="out" title="Zoom out (-)"><i class="bi bi-zoom-out"></i></button>
+                <span class="vpct" id="vPct">100%</span>
+                <button class="vb" data-z="in" title="Zoom in (+)"><i class="bi bi-zoom-in"></i></button>
+                <button class="vb" data-z="fit" title="Fit to screen (0)"><i class="bi bi-arrows-angle-contract"></i> Fit</button>
+                <button class="vb" data-z="one" title="Actual size (1)">1:1</button>
+                <button class="vb" data-z="rot" title="Rotate (R)"><i class="bi bi-arrow-clockwise"></i></button>
+            </span>
+            <a class="vb" id="vOpen" target="_blank" rel="noopener" title="Open in new tab"><i class="bi bi-box-arrow-up-right"></i></a>
+            <a class="vb" id="vDown" download title="Download"><i class="bi bi-download"></i></a>
+            <button class="vb" id="vClose" title="Close (Esc)"><i class="bi bi-x-lg"></i></button>
+        </div>
+        <div class="vstage" id="vStage">
+            <button class="vnav l" id="vPrev" title="Previous"><i class="bi bi-chevron-left"></i></button>
+            <button class="vnav r" id="vNext" title="Next"><i class="bi bi-chevron-right"></i></button>
         </div>
     </div>
 
@@ -237,7 +278,7 @@
                     const reps = p.files.filter(f => f.kind === 'report').length, imgs = p.files.filter(f => f.kind === 'image').length;
                     /* latest product photo after trial, else a placeholder; click opens the files */
                     const img = p.files.filter(f => f.kind === 'image').pop();
-                    const thumb = `<span class="thumb" data-files="${p.id}" title="${img ? 'Product images' : 'No product image yet'}">${img ? `<img src="${esc(img.url)}" alt="" loading="lazy">` : '<i class="bi bi-image"></i>'}</span>`;
+                    const thumb = `<span class="thumb" ${img ? `data-thumb="${p.id}"` : `data-files="${p.id}"`}title="${img ? 'Product images' : 'No product image yet'}">${img ? `<img src="${esc(img.url)}" alt="" loading="lazy">` : '<i class="bi bi-image"></i>'}</span>`;
                     const name = S.canEdit
                         ? `<input class="inp" style="width:100%;padding:4px 6px;font-weight:700" data-id="${p.id}" data-f="product_name" value="${esc(p.product_name)}">`
                         : `<div class="nm">${esc(p.product_name)}</div>`;
@@ -278,6 +319,12 @@
                 }
             });
             $('grid').addEventListener('click', async e => {
+                const th = e.target.closest('[data-thumb]');
+                if (th) {
+                    const p = S.rows.find(r => r.id === Number(th.dataset.thumb));
+                    const imgs = p ? p.files.filter(x => x.kind === 'image') : [];
+                    if (imgs.length) return openViewer(imgs, imgs.length - 1, p.product_name);
+                }
                 const f = e.target.closest('[data-files]');
                 if (f) return openFiles(Number(f.dataset.files));
                 const d = e.target.closest('[data-del]');
@@ -316,9 +363,9 @@
                 const by = f => `<span class="none">${esc(f.uploaded_by || '')} · ${new Date(f.uploaded_at).toLocaleDateString('en-GB')}</span>`;
                 const del = f => S.canEdit ? `<button class="btn sm danger" data-fdel="${f.id}" title="Delete"><i class="bi bi-trash"></i></button>` : '';
                 const reps = p.files.filter(f => f.kind === 'report');
-                $('repList').innerHTML = reps.length ? reps.map(f => `<div class="fitem"><i class="bi bi-file-earmark-text"></i><a href="${esc(f.url)}" target="_blank" rel="noopener">${esc(f.original_name || 'report')}</a>${by(f)}${del(f)}</div>`).join('') : '<div class="none">No trial report uploaded.</div>';
+                $('repList').innerHTML = reps.length ? reps.map(f => `<div class="fitem"><i class="bi bi-file-earmark-text"></i><a href="${esc(f.url)}" data-view="report" data-fid="${f.id}">${esc(f.original_name || 'report')}</a>${by(f)}${del(f)}</div>`).join('') : '<div class="none">No trial report uploaded.</div>';
                 const imgs = p.files.filter(f => f.kind === 'image');
-                $('imgList').innerHTML = imgs.length ? imgs.map(f => `<div class="im"><a href="${esc(f.url)}" target="_blank" rel="noopener"><img src="${esc(f.url)}" alt="${esc(f.original_name || '')}" loading="lazy"></a>${S.canEdit ? `<button data-fdel="${f.id}" title="Delete"><i class="bi bi-trash"></i></button>` : ''}</div>`).join('') : '<div class="none">No product images uploaded.</div>';
+                $('imgList').innerHTML = imgs.length ? imgs.map(f => `<div class="im"><a href="${esc(f.url)}" data-view="image" data-fid="${f.id}"><img src="${esc(f.url)}" alt="${esc(f.original_name || '')}" loading="lazy"></a>${S.canEdit ? `<button data-fdel="${f.id}" title="Delete"><i class="bi bi-trash"></i></button>` : ''}</div>`).join('') : '<div class="none">No product images uploaded.</div>';
             }
             async function uploadFiles(input, kind) {
                 const files = [...input.files];
@@ -337,6 +384,13 @@
             $('repFile').onchange = e => uploadFiles(e.target, 'report');
             $('imgFile').onchange = e => uploadFiles(e.target, 'image');
             $('fileModal').addEventListener('click', async e => {
+                const v = e.target.closest('[data-view]');
+                if (v) {
+                    e.preventDefault();
+                    const p = S.rows.find(r => r.id === S.open);
+                    const list = p.files.filter(f => f.kind === v.dataset.view);
+                    return openViewer(list, Math.max(0, list.findIndex(f => f.id === Number(v.dataset.fid))), p.product_name);
+                }
                 const b = e.target.closest('[data-fdel]');
                 if (!b || !confirm('Delete this file?')) return;
                 e.preventDefault();
@@ -348,7 +402,158 @@
                 } catch (err) { }
             });
 
+            /* ---------- full screen viewer ---------- */
+            const IMG_RE = /\.(jpe?g|png|webp|gif)$/i;
+            const kindOf = f => IMG_RE.test(f.url) ? 'image' : /\.pdf$/i.test(f.url) ? 'pdf' : 'other';
+            const V = { list: [], i: 0, title: '', img: null, s: 1, x: 0, y: 0, rot: 0, ptrs: new Map(), pinch: null, drag: null };
+            const stage = $('vStage');
+            const clearStage = () => stage.querySelectorAll('img, iframe, .vnone').forEach(el => el.remove());
+            function openViewer(list, i, title) {
+                if (!list.length) return;
+                V.list = list; V.i = i; V.title = title || '';
+                $('viewer').classList.add('on');
+                document.body.style.overflow = 'hidden';
+                showItem();
+            }
+            function closeViewer() {
+                $('viewer').classList.remove('on');
+                document.body.style.overflow = '';
+                clearStage();
+            }
+            function showItem() {
+                const f = V.list[V.i], k = kindOf(f);
+                clearStage();
+                $('vName').innerHTML = `${esc(V.title)} <small>${esc(f.original_name || '')}${V.list.length > 1 ? ` · ${V.i + 1} / ${V.list.length}` : ''}</small>`;
+                $('vOpen').href = f.url;
+                $('vDown').href = f.url;
+                $('vDown').setAttribute('download', f.original_name || '');
+                $('vPrev').style.display = $('vNext').style.display = V.list.length > 1 ? '' : 'none';
+                $('vZoom').style.display = k === 'image' ? '' : 'none';
+                V.img = null;
+                if (k === 'image') {
+                    const im = new Image();
+                    im.alt = f.original_name || '';
+                    im.draggable = false;
+                    im.onload = () => { V.rot = 0; fit(); };
+                    im.src = f.url;
+                    stage.appendChild(im);
+                    V.img = im;
+                } else if (k === 'pdf') {
+                    const fr = document.createElement('iframe');
+                    fr.src = f.url;
+                    fr.title = f.original_name || 'Trial report';
+                    stage.appendChild(fr);
+                } else {
+                    const ext = (f.url.split('.').pop() || '').toUpperCase();
+                    stage.insertAdjacentHTML('beforeend', `<div class="vnone"><i class="bi bi-file-earmark-text"></i>${esc(ext)} files cannot be shown in the browser.<br><br><a class="vb" href="${esc(f.url)}" download="${esc(f.original_name || '')}" style="display:inline-flex"><i class="bi bi-download"></i> Download to open</a></div>`);
+                }
+            }
+            /* size of the image as drawn (width / height swap at 90 and 270 degrees) */
+            const dims = () => { const w = V.img.naturalWidth, h = V.img.naturalHeight; return V.rot % 180 ? [h, w] : [w, h]; };
+            function apply() {
+                if (!V.img) return;
+                const w = V.img.naturalWidth, h = V.img.naturalHeight, [dw, dh] = dims();
+                /* rotate about the image centre, then scale + move the rotated box */
+                V.img.style.transform = `translate(${V.x}px, ${V.y}px) scale(${V.s}) translate(${dw / 2}px, ${dh / 2}px) rotate(${V.rot}deg) translate(${-w / 2}px, ${-h / 2}px)`;
+                $('vPct').textContent = Math.round(V.s * 100) + '%';
+            }
+            function fit() {
+                if (!V.img || !V.img.naturalWidth) return;
+                const r = stage.getBoundingClientRect(), [w, h] = dims();
+                V.s = Math.min((r.width - 40) / w, (r.height - 40) / h, 1);
+                V.x = (r.width - w * V.s) / 2;
+                V.y = (r.height - h * V.s) / 2;
+                apply();
+            }
+            /* zoom by factor f keeping stage point (cx, cy) still; default the centre */
+            function zoomAt(f, cx, cy) {
+                if (!V.img) return;
+                const r = stage.getBoundingClientRect();
+                if (cx == null) { cx = r.width / 2; cy = r.height / 2; }
+                const ns = Math.min(10, Math.max(0.05, V.s * f));
+                V.x = cx - (cx - V.x) * ns / V.s;
+                V.y = cy - (cy - V.y) * ns / V.s;
+                V.s = ns;
+                apply();
+            }
+            const rotate = () => { V.rot = (V.rot + 90) % 360; fit(); };
+            const step = d => { V.i = (V.i + d + V.list.length) % V.list.length; showItem(); };
+            document.querySelectorAll('#vZoom [data-z]').forEach(b => b.onclick = () => {
+                const z = b.dataset.z;
+                if (z === 'in') zoomAt(1.25);
+                else if (z === 'out') zoomAt(0.8);
+                else if (z === 'fit') fit();
+                else if (z === 'one') zoomAt(1 / V.s);
+                else if (z === 'rot') rotate();
+            });
+            $('vClose').onclick = closeViewer;
+            $('vPrev').onclick = () => step(-1);
+            $('vNext').onclick = () => step(1);
+            const local = e => { const r = stage.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
+            stage.addEventListener('wheel', e => {
+                if (!V.img) return;
+                e.preventDefault();
+                const [x, y] = local(e);
+                zoomAt(Math.exp(-e.deltaY * 0.0015), x, y);
+            }, { passive: false });
+            stage.addEventListener('dblclick', e => {
+                if (!V.img || e.target !== V.img) return;
+                const [x, y] = local(e);
+                if (V.s < 1.5) zoomAt(2.5 / V.s, x, y); else fit();
+            });
+            /* one finger / mouse drags, two fingers pinch-zoom */
+            stage.addEventListener('pointerdown', e => {
+                if (!V.img || e.target.closest('.vnav')) return;
+                stage.setPointerCapture(e.pointerId);
+                V.ptrs.set(e.pointerId, local(e));
+                if (V.ptrs.size === 2) {
+                    const [a, b] = [...V.ptrs.values()];
+                    V.pinch = Math.hypot(a[0] - b[0], a[1] - b[1]);
+                    V.drag = null;
+                } else {
+                    V.drag = { p: local(e), x: V.x, y: V.y };
+                    V.img.classList.add('drag');
+                }
+            });
+            stage.addEventListener('pointermove', e => {
+                if (!V.ptrs.has(e.pointerId)) return;
+                V.ptrs.set(e.pointerId, local(e));
+                if (V.pinch && V.ptrs.size === 2) {
+                    const [a, b] = [...V.ptrs.values()], d = Math.hypot(a[0] - b[0], a[1] - b[1]);
+                    zoomAt(d / V.pinch, (a[0] + b[0]) / 2, (a[1] + b[1]) / 2);
+                    V.pinch = d;
+                } else if (V.drag) {
+                    const p = local(e);
+                    V.x = V.drag.x + p[0] - V.drag.p[0];
+                    V.y = V.drag.y + p[1] - V.drag.p[1];
+                    apply();
+                }
+            });
+            const pointerUp = e => {
+                V.ptrs.delete(e.pointerId);
+                if (V.ptrs.size < 2) V.pinch = null;
+                if (!V.ptrs.size) { V.drag = null; if (V.img) V.img.classList.remove('drag'); }
+            };
+            stage.addEventListener('pointerup', pointerUp);
+            stage.addEventListener('pointercancel', pointerUp);
+            window.addEventListener('resize', () => { if ($('viewer').classList.contains('on')) fit(); });
+            document.addEventListener('keydown', e => {
+                if (!$('viewer').classList.contains('on')) return;
+                const k = e.key;
+                if (k === 'Escape') closeViewer();
+                else if (k === 'ArrowLeft' && V.list.length > 1) step(-1);
+                else if (k === 'ArrowRight' && V.list.length > 1) step(1);
+                else if (k === '+' || k === '=') zoomAt(1.25);
+                else if (k === '-') zoomAt(0.8);
+                else if (k === '0') fit();
+                else if (k === '1') zoomAt(1 / V.s);
+                else if (k === 'r' || k === 'R') rotate();
+            });
+
             if (window.JPSMS && JPSMS.renderShell) JPSMS.renderShell();
+            /* the shell moves the page into .main-content, which has a transform, so a
+               position:fixed overlay inside it would not cover the sidebar */
+            ['viewer', 'fileModal', 'addModal'].forEach(id => document.body.appendChild($(id)));
             load();
         })();
     </script>
