@@ -11,8 +11,21 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.111.0",
+  "latest": "1.111.1",
   "versions": [
+    {
+      "version": "1.111.1",
+      "date": "2026-10-14",
+      "title": "Runner weight on the QC Supervisor page",
+      "modules": [
+        {
+          "app": "quality",
+          "changes": [
+            { "type": "feature", "text": "QC Supervisor page: the job setup now shows Runner Weight STD (from the Mould Master) and lets you enter the Actual, with the % difference." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.111.0",
       "date": "2026-10-14",
