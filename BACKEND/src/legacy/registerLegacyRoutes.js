@@ -29245,9 +29245,10 @@ ORDER BY sort_order ASC, seq ASC, updated_at ASC
 // PPC roles may grant extra qty beyond the 10% colour over-production cap.
 // Reuses the normalized PPC approval-role set (ppc_*/planning_* variants,
 // admin, superadmin) plus plain 'planner'.
+// Only Superadmin, Admin and Sr. PPC Manager may grant extra qty (keep in sync with EQA_ROLES in timeline_patch.js).
 function canGrantExtraQty(roleCode) {
   const role = normalizeApprovalRoleCode(roleCode);
-  return role === 'planner' || isPpcApprovalRole({ role_code: role });
+  return ['superadmin', 'admin', 'sr_ppc_manager', 'senior_ppc_manager'].includes(role);
 }
 
 // Returns { COLOUR_UPPER: { extra: total, grants: [{allowed_by, allowed_role, extra_qty, remarks, allowed_at}] } }
@@ -29619,7 +29620,7 @@ app.post('/api/extra-qty/allow', async (req, res) => {
     if (!u.length) return res.status(403).json({ ok: false, error: 'User not found' });
     const role = String(u[0].role_code || '').toLowerCase();
     if (!canGrantExtraQty(role)) {
-      return res.status(403).json({ ok: false, error: 'PPC / Planner / Admin access required' });
+      return res.status(403).json({ ok: false, error: 'Only Superadmin / Admin / Sr. PPC Manager can allow extra qty' });
     }
 
     // ── Accidental-double guard ──────────────────────────────────────────

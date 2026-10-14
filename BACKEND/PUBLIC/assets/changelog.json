@@ -11,8 +11,21 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.110.0",
+  "latest": "1.110.1",
   "versions": [
+    {
+      "version": "1.110.1",
+      "date": "2026-10-14",
+      "title": "Extra Allowed Qty — restricted roles",
+      "modules": [
+        {
+          "app": "planning",
+          "changes": [
+            { "type": "security", "text": "Only Superadmin, Admin and Sr. PPC Manager can now allow Extra Qty on the Machine Timeline; Planner, PPC Manager and PPC Ass. Manager no longer see the Allow button." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.110.0",
       "date": "2026-10-14",

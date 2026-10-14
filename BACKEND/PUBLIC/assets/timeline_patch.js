@@ -742,7 +742,8 @@
     };
 
     /* ── Extra Qty Allowances (PPC override of 10% colour cap) ────────── */
-    const EQA_ROLES = ['planner', 'superadmin', 'admin', 'sr_ppc_manager', 'ppc_manager', 'ppc_ass_manager'];
+    // Only Superadmin, Admin and Sr. PPC Manager may grant extra qty (keep in sync with canGrantExtraQty).
+    const EQA_ROLES = ['superadmin', 'admin', 'sr_ppc_manager'];
     function _eqaUser() {
         try { return (window.JPSMS && window.JPSMS.auth.getUser()) || {}; } catch (_) { return {}; }
     }
