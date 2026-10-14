@@ -180,7 +180,18 @@ async function ensureNpdSchema(pool) {
       FOR EACH ROW EXECUTE FUNCTION npd_unique_sr_no();
     /* duplicates already here: the oldest keeps its number, the others are renumbered */
     UPDATE npd_products p SET sr_no = p.sr_no
-     WHERE EXISTS (SELECT 1 FROM npd_products o WHERE o.sr_no = p.sr_no AND o.id < p.id);`}
+     WHERE EXISTS (SELECT 1 FROM npd_products o WHERE o.sr_no = p.sr_no AND o.id < p.id);
+    /* A LOCAL pulls only rows changed since its last pull (one watermark for all
+       tables), so products made before NPD joined sync never reached it. Mark them
+       changed once; every LOCAL then pulls the whole list on its next cycle. */
+    CREATE TABLE IF NOT EXISTS server_config (key TEXT PRIMARY KEY, value TEXT);
+    DO $$
+    BEGIN
+      INSERT INTO server_config (key, value) VALUES ('NPD_SYNC_RESEND_V1', NOW()::text);
+      UPDATE npd_products SET updated_at = NOW();
+      UPDATE npd_files SET updated_at = NOW();
+    EXCEPTION WHEN unique_violation THEN NULL; /* already done */
+    END $$;`}
   `);
 }
 
