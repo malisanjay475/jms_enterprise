@@ -134,4 +134,30 @@ describe('order tracker set maths', () => {
     expect(o.process.current).toBe('moulding');
     expect(o.job_cards[0].process.stages.map(x => x.name)).toEqual(['Moulding', 'Shifting', 'Printing / TUF', 'Packing', 'Warehouse']);
   });
+
+  test('ratio: plan board first, impossible BOM ratio flagged (JR/3903, x240)', () => {
+    const target = new Date(Date.now() + 17 * 864e5).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+    const build = planRatio => buildOrder('JR/3903', {
+      jcRows: [{ order_no: 'JR/3903', jr_qty: 100000, job_card_no: 'JC/1', prod_plan_qty: 100000, planned_comp_date: target }],
+      bomRows: [{ mould_no: 'BODY', mould_name: 'FILO BASKET BODY', item_qty: 24000000, jr_qty: 100000 }],
+      planRows: [{ id: 9, plan_id: 'P9', mould_code: 'BODY', machine: 'C -L3-OM-150-1', status: 'RUNNING', consumption_ratio_qty: planRatio }],
+      dprRows: [{ plan_id: 'P9', mould_no: 'BODY', jobcard_no: 'JC/1', machine: 'C -L3-OM-150-1', dpr_date: '2026-10-13', good: 31659, reject: 0, run_hours: 200 }],
+      mouldStd: new Map(), board: []
+    });
+    const withPlan = build(1);
+    const body = withPlan.moulds[0];
+    expect([body.ratio, body.ratio_source, body.ratio_bom]).toEqual([1, 'plan', 240]);
+    expect(body.required).toBe(100000);
+    expect(withPlan.sets_made).toBe(31659);
+    expect(body.ratio_suspect).toBe(false);          /* x1 itself is fine */
+    expect(body.ratio_mismatch).toBe(true);          /* the BOM disagrees with the plan */
+    /* the late finish comes first; the BOM mismatch is a warning after it */
+    expect(withPlan.suggestions[0].level).toBe('bad');
+    expect(withPlan.suggestions.find(t => t.title === 'Check the data').level).toBe('warn');
+    expect(withPlan.pace.need_sets_per_day).toBeGreaterThan(0);
+
+    const bomOnly = build(null).moulds[0];
+    expect([bomOnly.ratio, bomOnly.ratio_source, bomOnly.ratio_suspect]).toEqual([240, 'ERP BOM', true]);
+    expect(withPlan.suggestions.some(t => /machines/.test(t.text))).toBe(true); /* real advice, not 'ratio looks wrong' */
+  });
 });

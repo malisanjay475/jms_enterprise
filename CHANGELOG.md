@@ -13,6 +13,11 @@ part of your PR. On release, the `[Unreleased]` items move under the new version
 
 ## [Unreleased]
 
+### Fixed
+- Order Tracker (v1.110.2): consumption ratio from plan_board, then moulds master, then ERP BOM (JR/JGUI/2627/3903 showed
+  ×240 and an end date in 2045); ratio mismatch / implausible ratio warnings; sets-per-day pace tiles; per-mould
+  cycle / cavity / std / live / needed rate; machine advice capped to free machines; journey labels no longer overlap.
+
 ### Added
 - Order Tracker (v1.110.0): verdict (on time / at risk / late), current process and per-job-card process stages from
   the OR-JR stage fields + shifted qty, suggestions from the live machine board, mould sequence cards with qty.
