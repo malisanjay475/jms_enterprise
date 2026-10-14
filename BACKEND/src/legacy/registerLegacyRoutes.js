@@ -17121,6 +17121,7 @@ app.get('/api/planning/completed', async (req, res) => {
           o.client_name AS "clientName",
           pb.plan_qty AS "planQty",
           pb.completed_by AS "completedBy", pb.completed_at AS "completedAt",
+          pb.remarks AS "remarks",
           ojr.job_card_no AS "jcNo",
           COALESCE(dpr.qty, 0) AS "producedQty",
           m.cycle_time AS "stdCycle", m.no_of_cav AS "stdCav",
