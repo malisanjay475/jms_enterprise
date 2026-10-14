@@ -12999,7 +12999,15 @@ app.post('/api/planning/complete', async (req, res) => {
   try {
     const { id, completed_qty, remarks, user } = req.body;
     if (!id) return res.json({ ok: false, error: 'Missing ID' });
-    if (!String(remarks || '').trim()) return res.json({ ok: false, error: 'Remarks are required to complete a plan' });
+    // Remarks are mandatory only when a balance is pending (completed qty < plan qty).
+    // A missing/invalid completed_qty counts as pending.
+    if (!String(remarks || '').trim()) {
+      const pr = await q('SELECT plan_qty FROM plan_board WHERE id::text = $1::text', [String(id)]);
+      const planQty = Number(pr && pr[0] ? pr[0].plan_qty : 0) || 0;
+      const doneQty = Number(completed_qty);
+      const balPending = !Number.isFinite(doneQty) || completed_qty === '' || completed_qty == null || planQty - doneQty > 0;
+      if (balPending) return res.json({ ok: false, error: 'Balance is pending — Remarks are required to complete this plan' });
+    }
 
     // Update status, timestamps, and details.
     // CRITICAL: bump updated_at (and last_updated_at) so the completion is a fresh

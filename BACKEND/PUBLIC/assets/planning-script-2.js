@@ -163,9 +163,9 @@
               <!-- Remarks -->
               <div>
                 <div style="font-size:0.7rem;font-weight:700;color:#374151;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px;">
-                  <i class="bi bi-chat-left-text"></i> Remarks / Notes <span style="color:#dc2626;">*</span>
+                  <i class="bi bi-chat-left-text"></i> Remarks / Notes <span style="color:#dc2626;text-transform:none;letter-spacing:0;">* required when balance is pending</span>
                 </div>
-                <textarea id="cpmRemarks" rows="2" placeholder="Enter completion remarks (required)..."
+                <textarea id="cpmRemarks" rows="2" placeholder="Why is balance pending? (required when balance is pending)"
                   style="width:100%;padding:10px;border:1px solid #d1d5db;border-radius:8px;font-size:0.9rem;box-sizing:border-box;resize:vertical;"></textarea>
               </div>
             </div>
@@ -262,7 +262,7 @@
             const rs    = _cpmStatusStyle(r.status);
             const rMach = r.machine || r.machineName || '—';
             return `
-              <div data-related-id="${r.id}"
+              <div data-related-id="${r.id}" data-plan-qty="${rQty}"
                 style="background:${rs.bg};border:1px solid ${rs.border};border-radius:10px;padding:10px 14px;">
                 <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;gap:8px;flex-wrap:wrap;">
                   <div>
@@ -317,8 +317,17 @@
       const user        = (window.JPSMS && window.JPSMS.store && window.JPSMS.store.me)
                           ? window.JPSMS.store.me.username : 'Unknown';
       if (!id) return;
-      if (!remarks) {
-        alert('Remarks are required to complete a plan.');
+      // Remarks are mandatory only when a balance is pending (entered qty < plan qty),
+      // on this plan or on any related plan being completed together.
+      const planQty = Number(document.getElementById('cpmPlanQty').value || 0);
+      let balPending = planQty - Number(completedQty || 0) > 0;
+      document.querySelectorAll('#cpmRelatedBody [data-related-id]').forEach(row => {
+        const inp = row.querySelector('input[type=number]');
+        if (inp && inp.value !== '' && Number(inp.value) > 0
+            && Number(row.dataset.planQty || 0) - Number(inp.value) > 0) balPending = true;
+      });
+      if (balPending && !remarks) {
+        alert('Balance is pending — Remarks are required to complete this plan.');
         document.getElementById('cpmRemarks').focus();
         return;
       }
@@ -351,7 +360,7 @@
           try {
             await api.post('/planning/complete', {
               id: ex.id, completed_qty: ex.qty,
-              remarks: remarks + ' (batch)', user
+              remarks: (remarks ? remarks + ' (batch)' : ''), user
             });
           } catch (e2) { console.warn('Related plan complete failed:', ex.id, e2.message); }
         }
