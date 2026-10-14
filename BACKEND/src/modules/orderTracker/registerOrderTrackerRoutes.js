@@ -30,6 +30,8 @@ const { getFactoryId } = require('../../app/requestContext');
 const { sendServerError } = require('../../app/httpErrors');
 
 const RATE_DAYS = 3;
+/* a set needing more pieces of one mould than this is almost certainly a data error */
+const MAX_SANE_RATIO = 24;
 /* the factory runs on IST; an ERP target date means the end of that day there */
 const TZ = '+05:30';
 const TARGET_DAY_END = 'T23:59:59' + TZ;
@@ -134,7 +136,7 @@ const SHIFT_SQL = `
 
 const MOULD_SQL = `
   SELECT TRIM(mould_number) AS code, TRIM(mould_name) AS name,
-         COALESCE(pcs_per_hour, 0) AS pcs_per_hour, cycle_time, no_of_cav
+         COALESCE(pcs_per_hour, 0) AS pcs_per_hour, cycle_time, no_of_cav, consumption_ratio_qty
     FROM moulds
    WHERE TRIM(mould_number) = ANY($1::text[])
      AND ($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL)`;
@@ -188,24 +190,32 @@ function buildOrder(orderNo, { jcRows, bomRows, planRows, dprRows, mouldStd, sch
   const planById = new Map();
   planRows.forEach(p => { planById.set(String(p.plan_id), p); planById.set(String(p.id), p); });
 
-  /* ---- moulds: BOM first, then any planned mould missing from the BOM ---- */
+  /* ---- moulds: BOM first, then any planned mould missing from the BOM ----
+     Consumption ratio (pieces of the mould per finished set), most trusted
+     first: the plan board (what Planning used), the mould master, then the
+     ERP BOM total / JR qty. The BOM figure is kept to flag a mismatch. */
   const moulds = new Map();
   bomRows.forEach(b => {
     const jr = num(b.jr_qty) || orderQty;
     moulds.set(key(b.mould_no), {
       mould_no: b.mould_no, mould_name: b.mould_name || b.mould_no,
-      ratio: jr > 0 ? +(num(b.item_qty) / jr).toFixed(3) : 1,
+      bomRatio: jr > 0 ? +(num(b.item_qty) / jr).toFixed(3) : null,
       cycle: num(b.cycle_time), cavity: num(b.cavity) || 1, items: b.items || []
     });
   });
   planRows.forEach(p => {
     const k = key(p.mould_code || p.mould_name);
     if (k && !moulds.has(k)) {
-      moulds.set(k, {
-        mould_no: p.mould_code || p.mould_name, mould_name: p.mould_name || p.mould_code,
-        ratio: num(p.consumption_ratio_qty) || 1, cycle: 0, cavity: 1, items: []
-      });
+      moulds.set(k, { mould_no: p.mould_code || p.mould_name, mould_name: p.mould_name || p.mould_code, bomRatio: null, cycle: 0, cavity: 1, items: [] });
     }
+  });
+  moulds.forEach((m, k) => {
+    const planRatio = Math.max(0, ...planRows.filter(p => key(p.mould_code || p.mould_name) === k).map(p => num(p.consumption_ratio_qty)));
+    const masterRatio = num(mouldStd.get(k) && mouldStd.get(k).consumption_ratio_qty);
+    if (planRatio > 0) { m.ratio = planRatio; m.ratioSource = 'plan'; }
+    else if (masterRatio > 0) { m.ratio = masterRatio; m.ratioSource = 'mould master'; }
+    else if (m.bomRatio > 0) { m.ratio = m.bomRatio; m.ratioSource = 'ERP BOM'; }
+    else { m.ratio = 1; m.ratioSource = 'assumed'; }
   });
 
   const mouldKeyOfDpr = d => {
@@ -320,6 +330,16 @@ function buildOrder(orderNo, { jcRows, bomRows, planRows, dprRows, mouldStd, sch
       start_state: startState, slack_hours: slackHours == null ? null : +slackHours.toFixed(1),
       queue: queued ? { machine: queued.q.machine, position: queued.q.queue_pos, plan_id: queued.p.plan_id } : null,
       shifted: shiftedQty, closed_short: closedShort,
+      ratio_source: m.ratioSource, ratio_bom: m.bomRatio,
+      /* suspect = the ratio in use is implausible; mismatch = the ERP BOM disagrees with it */
+      ratio_suspect: m.ratio > MAX_SANE_RATIO,
+      ratio_mismatch: m.bomRatio > 0 && Math.abs(m.bomRatio - m.ratio) / m.ratio > 0.05,
+      cycle_time: num(std && std.cycle_time) || m.cycle || null, cavity: num(std && std.no_of_cav) || m.cavity || null,
+      std_pph: Math.round(stdRate) || null, live_pph: liveRate ? Math.round(liveRate) : null,
+      /* what it must do to make the target, against what it does now */
+      need_pph: targetEndMs && balance > 0 && targetEndMs > Date.now() ? Math.ceil(balance / ((targetEndMs - Date.now()) / 3600000)) : null,
+      run_pph: status === 'RUNNING' ? Math.round(rate * lanes) : 0,
+      lanes,
       scheduled: status === 'COMPLETE' || status === 'RUNNING' || !!(queued && queued.q.start_eta),
       plan_start: plansOf.map(p => p.start_date).filter(Boolean).map(d => new Date(d).toISOString()).sort()[0] || null,
       plan_end: plansOf.map(p => p.end_date).filter(Boolean).map(d => new Date(d).toISOString()).sort().pop() || null,
@@ -429,6 +449,25 @@ function buildOrder(orderNo, { jcRows, bomRows, planRows, dprRows, mouldStd, sch
     plan_end: jcRows.map(r => r.mld_end_date).filter(Boolean).sort().pop() || null,
     completed_on: complete ? expectedEnd : null,
     earliest_end: expectedEnd ? null : earliestEnd,
+    pace: (() => {
+      const tgtMs = target ? new Date(target.slice(0, 10) + TARGET_DAY_END).getTime() : null;
+      const daysLeft = tgtMs ? (tgtMs - Date.now()) / 86400000 : null;
+      const setsLeft = Math.max(0, orderQty - setsMade);
+      /* sets per day the moulds on machines can make now: the slowest one decides */
+      const caps = mouldList.filter(m => m.status !== 'COMPLETE').map(m => m.ratio > 0 ? (m.run_pph || 0) * 24 / m.ratio : 0);
+      return {
+        days_left: daysLeft == null ? null : +daysLeft.toFixed(1),
+        sets_left: setsLeft,
+        need_sets_per_day: daysLeft > 0 && setsLeft ? Math.ceil(setsLeft / daysLeft) : null,
+        now_sets_per_day: caps.length ? Math.floor(Math.min(...caps)) : null
+      };
+    })(),
+    data_warnings: mouldList.filter(m => m.ratio_suspect || m.ratio_mismatch).map(m => ({
+      level: m.ratio_suspect ? 'bad' : 'warn',
+      text: m.ratio_suspect
+        ? `${m.mould_name}: ratio ×${m.ratio} from ${m.ratio_source} cannot be right. Fix the consumption ratio; every date and quantity for this mould depends on it.`
+        : `${m.mould_name}: the ERP BOM gives ×${m.ratio_bom} per set, the ${m.ratio_source} says ×${m.ratio}. Using ×${m.ratio}; correct the BOM in ERP if ×${m.ratio} is right.`
+    })),
     eta_unknown_reason: !complete && !expectedEnd
       ? (open.filter(m => !m.scheduled).map(m => m.mould_name).join(', ') || 'A mould') + ' not on a machine yet' : null,
     delayed: !!delayed, unlinked_qty: unlinked,
@@ -536,7 +575,7 @@ function suggest(o, board) {
     const ton = Math.max(0, ...(m.all_machines || []).map(tonOf));
     const fit = ton ? idle.filter(x => num(x.tonnage) >= ton * 0.9 && num(x.tonnage) <= ton * 1.6) : [];
     if (fit.length) return { list: fit.slice(0, 3).map(x => x.machine), why: `free now, ${ton} T class` };
-    if (idle.length) return { list: idle.slice(0, 3).map(x => x.machine), why: 'free now (check the mould fits)' };
+    if (idle.length) return { list: idle.slice(0, 3).map(x => x.machine), why: 'free now; check the mould fits' };
     const soon = machines.filter(x => x.free_at).sort((a, b) => String(a.free_at).localeCompare(String(b.free_at))).slice(0, 2);
     return { list: soon.map(x => `${x.machine} (free ${fmtD(x.free_at)})`), why: 'no machine is free now; these free up first' };
   };
@@ -559,8 +598,12 @@ function suggest(o, board) {
         const p = pickFor(m);
         out.push({ level: 'bad', mould: m.mould_name,
           title: `${m.mould_name} finishes ${fmtH(-m.slack_hours)} after target`,
-          text: need && need > 1
-            ? `Needs ${fmtH(hrs)} on ${m.machines.length} machine(s) but only ${fmtH(left)} remain. Run it on ${need} machines${p.list.length ? ', add ' + p.list.slice(0, need - m.machines.length).join(', ') + ' (' + p.why + ')' : ''}, or ask for a later date.`
+          text: m.ratio_suspect
+            ? `Needs ${fmtH(hrs)} at ×${m.ratio} per set, which looks wrong. Check the consumption ratio first.`
+            : need && need > 1 && need - m.machines.length <= p.list.length
+            ? `Needs ${fmtH(hrs)} on ${m.machines.length} machine(s) but only ${fmtH(left)} remain. Run it on ${need} machines: add ${p.list.slice(0, need - m.machines.length).join(', ')} (${p.why}).`
+            : need && need > 1
+            ? `Needs ${fmtH(hrs)} but only ${fmtH(left)} remain: it would take ${need} machines and only ${p.list.length} are free. Ask for a later date, or split the order.`
             : `Target can no longer be met on the current rate (${m.rate_pph}/h). Speed up the cycle, add a machine${p.list.length ? ' (' + p.list.join(', ') + ')' : ''} or move the date.` });
       } else if (m.start_state === 'ON_TRACK') {
         out.push({ level: 'good', mould: m.mould_name, title: `${m.mould_name} is running on ${m.machines.join(', ')}`, text: `Ends ${fmtD(m.eta)}, ${fmtH(m.slack_hours)} before target. Keep it running.` });
@@ -593,6 +636,7 @@ function suggest(o, board) {
         text: `Complete sets wait for ${neck.mould_name}. If ${neck.mould_name} fits ${m.machines.join(', ')}, run it there first, then go back to ${m.mould_name}.` });
     });
   }
+  (o.data_warnings || []).forEach(w => out.unshift({ level: w.level, title: 'Check the data', text: w.text }));
   const rank = { bad: 0, warn: 1, good: 2 };
   return out.sort((a, b) => rank[a.level] - rank[b.level]);
 }
