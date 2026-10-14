@@ -13,6 +13,9 @@ part of your PR. On release, the `[Unreleased]` items move under the new version
 
 ## [Unreleased]
 
+### Fixed
+- NPD (v..1): NPD Tracker now shows the app sidebar and header like every other page.
+
 ### Added
 - NPD (v1.115.0): new **NPD** menu with the NPD Tracker (`npd.html`), built from the NPD tracking sheet. One row per new
   product with every launch stage (mould received → trials → QC → packing / BOM / ERP → mass production → costing →
