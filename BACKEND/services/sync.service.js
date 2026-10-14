@@ -2,7 +2,7 @@
 const express = require('express');
 const rateLimit = require('express-rate-limit');
 const multer = require('multer');
-const { allowedExtension, PRIVATE_UPLOAD_DIRS } = require('../src/app/uploadSafety');
+const { allowedExtension, syncableUploadExtension, PRIVATE_UPLOAD_DIRS } = require('../src/app/uploadSafety');
 const { ensureUniqueIndex } = require('../src/db/indexUtils');
 const { sendServerError } = require('../src/app/httpErrors');
 
@@ -177,6 +177,8 @@ const SYNC_ALL = [
     'mould_verify_notes',
     'moulds',
     'notifications',
+    'npd_files',
+    'npd_products',
     'operator_history',
     'org_units',
     'org_departments',
@@ -416,6 +418,10 @@ const CONFLICT_KEYS = {
     // ON CONFLICT (target_user, type, title, created_at) which matched no index
     // on servers where uq_sync_conflict_notifications was never created (42P10).
     notifications: 'sync_id',
+    // NPD tracker (src/modules/npd): authored on MAIN and on any LOCAL, so sync_id keys;
+    // files link to their product by product_sync_id. No factory_id: every server gets all.
+    npd_products: 'sync_id',
+    npd_files: 'sync_id',
     order_completion_history: 'factory_id, order_no, action_type, changed_at',
     raw_material_issues: 'factory_id, plan_id, created_at',
     wip_stock_movements: 'factory_id, source_type, source_ref, movement_type, created_at',
@@ -570,7 +576,7 @@ const GLOBAL_MASTER_TABLES = new Set([
     'erp_mould_item'
 ]);
 
-const SYNC_ID_REQUIRED_TABLES = ['notifications', 'dpr_reasons', 'assembly_plans', 'assembly_scans', 'maintenance_tickets', 'maintenance_worklogs', 'org_units', 'org_departments', 'org_grades', 'org_designations', 'org_people', 'mould_verify_notes', 'qc_online_reports', 'qc_issue_memos', 'qc_training_sheets', 'qc_deviations', 'qc_job_checks', 'plan_audit_logs', 'mould_audit_logs', 'machine_status_logs', 'operator_history', 'plan_job_card_approval_history', 'jobs_queue', 'planning_drops', 'shifting_records', 'wip_inventory', 'wip_outward_logs', 'grinding_logs', 'qc_shift_team', 'qc_holds', 'qc_material_issues', 'qc_verifications'];
+const SYNC_ID_REQUIRED_TABLES = ['notifications', 'dpr_reasons', 'assembly_plans', 'assembly_scans', 'maintenance_tickets', 'maintenance_worklogs', 'org_units', 'org_departments', 'org_grades', 'org_designations', 'org_people', 'mould_verify_notes', 'qc_online_reports', 'qc_issue_memos', 'qc_training_sheets', 'qc_deviations', 'qc_job_checks', 'plan_audit_logs', 'mould_audit_logs', 'machine_status_logs', 'operator_history', 'plan_job_card_approval_history', 'jobs_queue', 'planning_drops', 'shifting_records', 'wip_inventory', 'wip_outward_logs', 'grinding_logs', 'qc_shift_team', 'qc_holds', 'qc_material_issues', 'qc_verifications', 'npd_products', 'npd_files'];
 
 // Deterministic sync_id backfill seeds for tables converted to a surrogate UUID key.
 // The same physical row already exists on MAIN AND on its factory's LOCAL (LOCAL pushed
@@ -636,7 +642,8 @@ const SYNC_SCHEMA_READY_KEY = 'SYNC_SCHEMA_READY_VERSION';
 // 2026-10-05: shifting_locations master (MAIN-only writer, id key, pulled by LOCAL).
 // 2026-10-05: shifting_line_teams (Shifting app team) replicates, natural key like qc_line_teams.
 // 2026-10-06: qc_verifications replicate (sync_id; linked to dpr_hourly by dpr_global_id).
-const SYNC_SCHEMA_READY_VERSION = '2026-10-06-qc-verifications-v11';
+// 2026-10-14: npd_products / npd_files replicate both ways (sync_id; files by product_sync_id).
+const SYNC_SCHEMA_READY_VERSION = '2026-10-14-npd-v12';
 
 // "Sync token" columns: app-schema UNIQUE columns that carry a per-row identity
 // token (a UUID) MAIN considers authoritative, but which a LOCAL row may have been
@@ -855,7 +862,8 @@ function safeUploadTarget(folder, filename) {
     const safeFolder = String(folder || '').replace(/[^a-zA-Z0-9_-]/g, '');
     const safeFilename = String(filename || '').replace(/[^a-zA-Z0-9_.\-]/g, '');
     if (!safeFolder || !safeFilename || safeFilename.startsWith('.')) return null;
-    if (!allowedExtension(safeFilename)) return null;
+    // media anywhere; NPD trial reports (PDF / Word / Excel) only in uploads/npd
+    if (!syncableUploadExtension(safeFolder, safeFilename)) return null;
     if (PRIVATE_UPLOAD_DIRS.some((d) => d.prefix === `/uploads/${safeFolder.toLowerCase()}/`)) return null;
     return { folder: safeFolder, filename: safeFilename };
 }
@@ -1372,6 +1380,13 @@ async function resyncIdKeyedSequences() {
 }
 
 async function ensureSyncRuntimeSchema(config = {}) {
+    // NPD tables are otherwise created on first page use; make them exist before the sweep
+    // below, which skips (and never revisits) a missing table.
+    try {
+        await require('../src/modules/npd/registerNpdRoutes').ensureNpdSchema(pool);
+    } catch (e) {
+        console.warn('[Sync] NPD schema ensure failed:', e.message);
+    }
     await resyncIdKeyedSequences();
     await ensureSyncTouchFunctions();
 
