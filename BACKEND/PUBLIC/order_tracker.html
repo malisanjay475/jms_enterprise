@@ -347,6 +347,26 @@
         .sdates b { display: block; font-size: 12px; color: var(--ink); }
         .shortb { margin-top: 8px; background: var(--red-bg); color: #991b1b; border-radius: 8px; padding: 6px 9px; font-size: 12px; font-weight: 700; }
         @media (max-width: 900px) { .pipe { grid-template-columns: 1fr; gap: 14px; } .stg .bar { display: none; } .verdict { flex-wrap: wrap; } .verdict .proc { margin-left: 0; text-align: left; } }
+        .qtiles { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; margin: 0 0 10px; }
+        .qtile { background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; position: relative; overflow: hidden; }
+        .qtile::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--blue); opacity: .55; }
+        .qtile.bad::before { background: var(--red); opacity: 1; }
+        .qtile .l { font-size: 10px; text-transform: uppercase; letter-spacing: .5px; color: var(--faint); font-weight: 800; }
+        .qtile .v { font-size: 22px; font-weight: 800; margin-top: 2px; letter-spacing: -.3px; }
+        .qtile .s { font-size: 11px; color: var(--mute); }
+        .mism { margin-top: 8px; background: var(--amber-bg); color: #92400e; border-radius: 8px; padding: 6px 9px; font-size: 12px; font-weight: 600; }
+        .src { display: inline-block; font-size: 10px; font-weight: 700; padding: 0 6px; border-radius: 5px; background: var(--grey-bg); color: var(--mute); }
+        .mrate { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 10px; font-size: 11px; }
+        .mrate span { display: block; color: var(--mute); }
+        .mrate b { font-size: 12px; }
+        .pace { margin-top: 10px; padding: 8px 10px; border-radius: 9px; font-size: 12px; }
+        .pace.ok { background: var(--green-bg); } .pace.bad { background: var(--red-bg); }
+        .pace .pl { display: flex; justify-content: space-between; gap: 8px; }
+        .pace .pt { height: 5px; background: rgba(15,23,42,.08); border-radius: 9px; margin-top: 6px; overflow: hidden; }
+        .pace .pt i { display: block; height: 100%; border-radius: 9px; }
+        .pace.ok .pt i { background: var(--green); } .pace.bad .pt i { background: var(--red); }
+        @media (max-width: 1100px) { .qtiles { grid-template-columns: repeat(3, 1fr); } }
+        @media (max-width: 760px) { .qtiles { grid-template-columns: repeat(2, 1fr); } }
         @media (max-width: 1100px) { .dtiles { grid-template-columns: repeat(3, 1fr); } }
         @media (max-width: 760px) { .dtiles { grid-template-columns: repeat(2, 1fr); } .hsets { text-align: left; } .journey { margin-left: 18px; margin-right: 18px; } }
 
@@ -592,6 +612,8 @@
                 ].filter(p => ts(p.v) != null);
                 if (!done) pts.push({ k: 'Today', v: new Date(now).toISOString(), t: 'today' });
                 if (pts.length < 2) return '';
+                const tgtCap = endOfDay(o.target_date) ? endOfDay(o.target_date) + 60 * 86400000 : Infinity;
+                pts.forEach(p => { if (ts(p.v) > tgtCap) { p.real = p.v; p.v = new Date(tgtCap).toISOString(); } });
                 const xs = pts.map(p => ts(p.v)); const lo = Math.min(...xs), hi = Math.max(...xs), span = Math.max(1, hi - lo);
                 const pos = t => 4 + (t - lo) / span * 92;
                 /* events on the same day share one marker, so labels never stack */
@@ -604,8 +626,17 @@
                 });
                 const sorted = byDay;
                 /* labels alternate above / below so close dates do not collide */
-                const marks = sorted.map((p, i) => `<div class="jm ${p.t} ${i % 2 ? 'dn' : 'up'} ${pos(ts(p.v)) < 15 ? 'edgeL' : pos(ts(p.v)) > 85 ? 'edgeR' : ''}" style="left:${pos(ts(p.v))}%">
-                        <span class="lab"><b>${p.k}</b>${p.t === 'today' ? 'now' : fd(p.v, p.time)}</span><span class="pin"></span></div>`).join('');
+                /* each label goes above or below the line, whichever side has room; a label
+                   that fits on neither side is merged into its neighbour */
+                const GAP = 11, lastAt = { up: -99, dn: -99 }, placed = [];
+                sorted.forEach(p => {
+                    const x = pos(ts(p.v));
+                    const side = x - lastAt.up >= GAP ? 'up' : x - lastAt.dn >= GAP ? 'dn' : null;
+                    if (side) { lastAt[side] = x; placed.push({ ...p, side, x }); }
+                    else { const prev = placed[placed.length - 1]; prev.k += ' · ' + p.k; prev.extra = (prev.extra || []).concat(fd(p.v, p.time)); }
+                });
+                const marks = placed.map(p => `<div class="jm ${p.t} ${p.side} ${p.x < 12 ? 'edgeL' : p.x > 88 ? 'edgeR' : ''}" style="left:${p.x}%">
+                        <span class="lab"><b>${p.k}</b>${p.t === 'today' ? 'now' : (p.real ? '→ ' : '') + fd(p.real || p.v, p.time)}${p.extra ? ' / ' + p.extra.join(' / ') : ''}</span><span class="pin"></span></div>`).join('');
                 const startT = ts(o.start_date), nowT = done ? ts(o.completed_on) : now;
                 const prog = startT ? `<div class="jprog" style="left:${pos(startT)}%;width:${Math.max(0, pos(nowT || now) - pos(startT))}%"></div>` : '';
                 const endT = ts(o.expected_end), tgtT = endOfDay(o.target_date);
@@ -773,11 +804,21 @@
                     const tone = m.closed_short || ['START_LATE', 'OVERDUE', 'FINISH_LATE'].includes(m.start_state) ? 'bad' : m.start_state === 'NEEDS_MACHINE' ? 'warn' : '';
                     return `<div class="seqc ${m.status} ${tone}">
                         <div class="hd2"><span class="sq ${done ? 'done' : run ? 'run' : ''}">${done ? '<i class="bi bi-check"></i>' : m.start_seq}</span>
-                            <div style="flex:1"><div class="nm2">${esc(m.mould_name)}</div><div class="muted small">×${m.ratio} per set · ${esc(where)}</div></div></div>
+                            <div style="flex:1"><div class="nm2">${esc(m.mould_name)}</div><div class="muted small">×${m.ratio} per set <span class="src">${esc(m.ratio_source || '')}</span> · ${esc(where)}</div></div></div>
+                        ${m.ratio_suspect ? `<div class="shortb"><i class="bi bi-exclamation-octagon"></i> Ratio ×${m.ratio} cannot be right: fix the consumption ratio</div>` : m.ratio_mismatch ? `<div class="mism"><i class="bi bi-info-circle"></i> ERP BOM says ×${m.ratio_bom}; using ×${m.ratio} from ${esc(m.ratio_source)}</div>` : ''}
                         <div class="qty"><div><b>${n0(m.required)}</b><span>Need</span></div><div><b>${n0(m.produced)}</b><span>Made</span></div>
                             <div class="${m.balance ? 'bal' : ''}"><b>${n0(m.balance)}</b><span>Balance</span></div><div><b>${n0(m.shifted)}</b><span>Shifted</span></div></div>
                         <div style="display:flex;justify-content:space-between;font-size:12px"><span class="muted">= ${n0(m.sets_equiv)} sets</span><b>${pf(m.pct)}</b></div>
                         ${track(m.pct, done ? 'g' : tone === 'bad' ? 'a' : '')}
+                        <div class="mrate">
+                            <div><span>Cycle</span><b>${m.cycle_time ? m.cycle_time + ' s' : '—'}</b></div>
+                            <div><span>Cavity</span><b>${m.cavity || '—'}</b></div>
+                            <div><span>Std</span><b>${m.std_pph ? n0(m.std_pph) + '/h' : '—'}</b></div>
+                            <div><span>Live</span><b>${m.live_pph ? n0(m.live_pph) + '/h' : '—'}</b></div>
+                        </div>
+                        ${m.need_pph && !done ? `<div class="pace ${m.run_pph >= m.need_pph ? 'ok' : 'bad'}">
+                            <div class="pl"><span>Needs <b>${n0(m.need_pph)}/h</b> to make the target</span><span>${m.run_pph ? 'running ' + n0(m.run_pph) + '/h' : 'not running'}</span></div>
+                            <div class="pt"><i style="width:${Math.min(100, m.run_pph / m.need_pph * 100)}%"></i></div></div>` : ''}
                         <div class="sdates">
                             <div>Start<b>${m.first_date ? fd(m.first_date) : m.expected_start ? '○ ' + fd(m.expected_start, true) : '—'}</b></div>
                             <div>Must start<b style="color:var(--red)">${done || run || m.first_date ? '—' : m.must_start_by ? fd(m.must_start_by, true) : '—'}</b></div>
@@ -788,6 +829,19 @@
                 });
                 return `<div class="sec"><div class="sech"><h3><i class="bi bi-sort-numeric-down"></i> Mould sequence</h3><span class="muted small">In the order the moulds must start · all quantities in pieces</span></div>
                     <div class="seqw">${cards.join('<div class="seqa"><i class="bi bi-chevron-right"></i></div>')}</div></div>`;
+            }
+
+            function qtyTiles(o) {
+                const p = o.pace || {};
+                const behind = p.need_sets_per_day && p.now_sets_per_day != null && p.now_sets_per_day < p.need_sets_per_day;
+                return [
+                    ['Order qty', n0(o.order_qty), 'sets'],
+                    ['Job cards', n0(o.jc_qty), `${o.jc_count} job card${o.jc_count === 1 ? '' : 's'}${o.jc_qty < o.order_qty ? ' · ' + n0(o.order_qty - o.jc_qty) + ' without JC' : ''}`],
+                    ['Sets made', n0(o.sets_made), pf(o.pct) + ' of order'],
+                    ['Sets to go', n0(o.sets_balance), p.days_left != null ? (p.days_left > 0 ? p.days_left + ' days to target' : 'target passed') : 'no target'],
+                    ['Needed / day', p.need_sets_per_day ? n0(p.need_sets_per_day) : '—', 'sets per day to make the target'],
+                    ['Making / day', p.now_sets_per_day != null ? n0(p.now_sets_per_day) : '—', behind ? '<b style="color:var(--red)">too slow for the target</b>' : 'at the current machines and rates']
+                ].map(t => `<div class="qtile ${t[0] === 'Making / day' && behind ? 'bad' : ''}"><div class="l">${t[0]}</div><div class="v">${t[1]}</div><div class="s">${t[2]}</div></div>`).join('');
             }
 
             function renderDetail() {
@@ -825,6 +879,7 @@
                     </div>
 
                     ${verdictHtml(o)}
+                    <div class="qtiles">${qtyTiles(o)}</div>
                     <div class="dtiles">${tiles}</div>
                     ${adviceHtml(o)}
                     ${processHtml(o)}
