@@ -13,6 +13,14 @@ part of your PR. On release, the `[Unreleased]` items move under the new version
 
 ## [Unreleased]
 
+### Added
+- NPD (v1.115.0): new **NPD** menu with the NPD Tracker (`npd.html`), built from the NPD tracking sheet. One row per new
+  product with every launch stage (mould received → trials → QC → packing / BOM / ERP → mass production → costing →
+  launch). Stage cells are Pending (blue), In Progress (yellow), Complete (green) or N/A (red); planned job card
+  start / completion, launch and dispatch are dates. Overall status dropdown (Hold / Launched / Delayed / On Schedule /
+  Cancelled) with filter tiles, remarks, trial report upload and product images after trial. Everyone with access can
+  view; only PPC Ass. Manager, PPC Manager and Sr. PPC Manager (and admins) can add, edit, upload or delete.
+
 ### Changed
 - Docs (v1.112.3): CLAUDE.md documents the `production` environment approval step before the production deploy runs.
 
