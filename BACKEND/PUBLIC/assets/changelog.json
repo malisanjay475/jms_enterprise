@@ -11,8 +11,21 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.111.1",
+  "latest": "1.111.2",
   "versions": [
+    {
+      "version": "1.111.2",
+      "date": "2026-10-14",
+      "title": "QC Hold screen redesign",
+      "modules": [
+        {
+          "app": "quality",
+          "changes": [
+            { "type": "improvement", "text": "Quality > Hold looks cleaner: All / On hold / Release history switch, summary cards (on hold, released, qty on hold, machines on hold), a red or green stripe per row and a clearer Release button." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.111.1",
       "date": "2026-10-14",
