@@ -48,6 +48,13 @@ describe('order tracker set maths', () => {
     const lid = o.moulds.find(m => m.mould_no === 'LID');
     expect([lid.status, lid.completed_on]).toEqual(['COMPLETE', '2026-10-11']);
     expect(o.expected_end).not.toBeNull();
+    /* job cards fill first in, first out: JC1 is done when every mould has
+       made JC1's pieces (Lid 10 Oct, Handle 11 Oct, Btm 12 Oct) */
+    expect(jc1.completed_on).toBe('2026-10-12');
+    expect(jc1.moulds.map(m => m.done_on)).toEqual(['2026-10-10', '2026-10-11', '2026-10-12']);
+    expect(jc2.completed_on).toBeNull();
+    expect(jc2.moulds.find(m => m.mould_no === 'LID').done_on).toBe('2026-10-11');
+    expect(jc2.expected_end).not.toBeNull();
   });
 
   test('a mould with no machine leaves the end date unknown', () => {
