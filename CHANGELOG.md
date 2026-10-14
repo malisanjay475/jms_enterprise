@@ -13,6 +13,10 @@ part of your PR. On release, the `[Unreleased]` items move under the new version
 
 ## [Unreleased]
 
+### Changed
+- Planning (v1.112.1): deactivated moulds are no longer offered in the order mould list or the alternative-mould
+  picker. Moulds that already have a plan still show. DPR follows automatically (its moulds come from plans).
+
 ### Added
 - Mould Master (v1.112.0): Admin / Superadmin can deactivate (and re-activate) a mould with the toggle in the
   Actions column. Deactivated moulds are hidden from the Mould Master list for all other roles; admins still see

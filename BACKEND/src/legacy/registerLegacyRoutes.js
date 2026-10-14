@@ -14110,6 +14110,7 @@ async function getPlanningOrderMouldBundle(queryFn, orderNo, factoryId) {
       NULLIF(TRIM(COALESCE(m.secondary_machine, '')), '') AS "secondaryMachine",
       NULLIF(TRIM(COALESCE(m.moulding_sqn, '')), '') AS "mouldingSqn",
       m.consumption_ratio_qty AS "consumptionRatioQty",
+      m.is_active AS "masterIsActive",
       d.id AS drop_id,
       pb.plan_id AS existing_plan_id,
       pb.status AS existing_plan_status,
@@ -14139,7 +14140,8 @@ async function getPlanningOrderMouldBundle(queryFn, orderNo, factoryId) {
         mm.primary_machine,
         mm.secondary_machine,
         mm.moulding_sqn,
-        mm.consumption_ratio_qty
+        mm.consumption_ratio_qty,
+        mm.is_active
       FROM moulds mm
       WHERE ($2::int IS NULL OR mm.factory_id = $2 OR mm.factory_id IS NULL)
         AND (
@@ -14186,7 +14188,10 @@ async function getPlanningOrderMouldBundle(queryFn, orderNo, factoryId) {
       r.mould_no,
       r.mould_name
   `, [orderNo, factoryId]);
-  const rows = Array.isArray(rawRows) ? rawRows : (Array.isArray(rawRows?.rows) ? rawRows.rows : []);
+  // Deactivated moulds (Mould Master, admin-only toggle) are not offered for new
+  // planning. Rows that already have a plan stay so existing work keeps showing.
+  const rows = (Array.isArray(rawRows) ? rawRows : (Array.isArray(rawRows?.rows) ? rawRows.rows : []))
+    .filter(row => row.masterIsActive !== false || !!row.existing_plan_id);
 
   const moulds = sortPlanningMouldRows(rows.map((row) => {
     const mouldingSqnValue = parseMouldingSequenceValue(row.mouldingSqn);
@@ -16557,6 +16562,7 @@ app.get('/api/planning/moulds/alternatives', async (req, res) => {
         AND ($2::text = '' OR LEFT(TRIM(COALESCE(s.or_jr_date::text, '')), 10) = TRIM($2))
         AND regexp_replace(TRIM(COALESCE(s.mould_no, '')), '\\s+\\d+$', '') = TRIM($4)
         AND ($5::int IS NULL OR s.factory_id = $5 OR s.factory_id IS NULL)
+        AND (m.is_active IS NOT FALSE OR TRIM(COALESCE(s.mould_no, '')) = TRIM($3))
       ORDER BY
         TRIM(COALESCE(s.mould_no, '')),
         CASE WHEN TRIM(COALESCE(s.mould_no, '')) = TRIM($3) THEN 0 ELSE 1 END,
