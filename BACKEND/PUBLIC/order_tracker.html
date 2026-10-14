@@ -146,6 +146,8 @@
         .flow .stp.warn { border-color: var(--amber-br); background: var(--amber-bg); }
         .flow .arr { color: var(--faint); }
         .gmust { position: absolute; top: 3px; width: 11px; height: 11px; margin-left: -5px; transform: rotate(45deg); background: #fff; border: 2px solid var(--red); border-radius: 2px; z-index: 1; }
+        .vrow { grid-column: 1 / -1; margin-top: 6px; }
+        .vrow:empty { display: none; }
         .nextl { grid-column: 1 / -1; margin-top: 8px; font-size: 12px; display: flex; gap: 6px; align-items: baseline; }
         .nextl.bad { color: var(--red); } .nextl.warn { color: var(--amber); } .nextl.good { color: var(--green); } .nextl.run, .nextl.grey { color: var(--mute); }
 
@@ -208,6 +210,87 @@
         .queue .qi { display: grid; grid-template-columns: 18px 1fr auto; gap: 8px; font-size: 12px; padding: 4px 0; align-items: center; }
         .queue .qi .k { width: 18px; height: 18px; border-radius: 50%; background: var(--grey-bg); font-size: 10px; font-weight: 800; display: grid; place-items: center; color: var(--mute); }
         .mac .free { margin-top: auto; padding-top: 10px; font-size: 12px; color: var(--mute); }
+
+        /* ---------- detail: hero band with the order journey ---------- */
+        .hero { background: linear-gradient(135deg, #0b1b36 0%, #12305e 60%, #1d4ed8 140%); color: #fff; border-radius: 18px; padding: 22px 26px 14px; margin-bottom: 14px; box-shadow: 0 10px 30px rgba(15,23,42,.18); }
+        .hero.late { background: linear-gradient(135deg, #2a0f14 0%, #5b1720 60%, #b91c1c 150%); }
+        .hero.done { background: linear-gradient(135deg, #062a1f 0%, #0b4a35 60%, #059669 150%); }
+        .htop { display: flex; justify-content: space-between; gap: 24px; flex-wrap: wrap; align-items: flex-start; }
+        .hno { font-size: 24px; font-weight: 800; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; letter-spacing: -.3px; }
+        .hsub { color: rgba(255,255,255,.72); margin-top: 5px; }
+        .hsets { min-width: 260px; text-align: right; }
+        .hsets .big { font-size: 34px; font-weight: 800; line-height: 1; }
+        .hsets .of { color: rgba(255,255,255,.7); font-weight: 600; }
+        .hsets .small { color: rgba(255,255,255,.7); margin-top: 6px; }
+        .hbar { height: 8px; background: rgba(255,255,255,.18); border-radius: 99px; overflow: hidden; margin-top: 10px; }
+        .hbar i { display: block; height: 100%; background: #fff; border-radius: 99px; }
+        .hero .pill { background: rgba(255,255,255,.14); color: #fff; border-color: rgba(255,255,255,.25); }
+        .journey { position: relative; height: 92px; margin: 18px 6px 0; }
+        .jline { position: absolute; left: 0; right: 0; top: 46px; height: 2px; background: rgba(255,255,255,.22); }
+        .jprog { position: absolute; top: 45px; height: 4px; background: #93c5fd; border-radius: 4px; }
+        .jlate { position: absolute; top: 44px; height: 6px; background: repeating-linear-gradient(135deg, #f87171 0 5px, #fca5a5 5px 10px); border-radius: 4px; }
+        .jm { position: absolute; top: 0; height: 92px; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; }
+        .jm .pin { position: absolute; top: 41px; width: 12px; height: 12px; border-radius: 50%; background: #fff; border: 3px solid #fff; }
+        .jm .lab { position: absolute; white-space: nowrap; font-size: 12px; text-align: center; color: rgba(255,255,255,.85); line-height: 1.25; }
+        .jm .lab b { display: block; font-size: 10px; text-transform: uppercase; letter-spacing: .5px; color: rgba(255,255,255,.55); font-weight: 700; }
+        .jm.up .lab { bottom: 58px; }
+        .jm.dn .lab { top: 58px; }
+        .jm.plan .pin { background: transparent; border-color: rgba(255,255,255,.6); }
+        .jm.act .pin { background: #60a5fa; border-color: #fff; }
+        .jm.exp .pin { background: #0b1b36; border-color: #93c5fd; }
+        .jm.late .pin { background: #fff; border-color: #f87171; }
+        .jm.target .pin { background: #f87171; border-color: #fff; border-radius: 3px; transform: rotate(45deg); }
+        .jm.today .pin { width: 4px; height: 26px; top: 34px; border-radius: 2px; border: 0; background: #fff; }
+        .jm.today .lab, .jm.target .lab, .jm.exp .lab, .jm.late .lab { color: #fff; font-weight: 700; }
+
+        .dtiles { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin-bottom: 4px; }
+        .dtile { background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; }
+        .dtile .l { font-size: 10px; text-transform: uppercase; letter-spacing: .5px; color: var(--faint); font-weight: 800; }
+        .dtile .v { font-size: 17px; font-weight: 800; margin-top: 4px; }
+        .dtile .s { font-size: 11px; color: var(--mute); margin-top: 2px; }
+
+        /* dates: actual = solid dot, expected = hollow dot, planned = plain */
+        .dt { display: inline-flex; align-items: center; gap: 6px; font-weight: 700; white-space: nowrap; }
+        .dt i { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+        .dt.act i { background: var(--ink); }
+        .dt.exp { color: var(--blue); }
+        .dt.exp i { border: 2px solid var(--blue); width: 9px; height: 9px; }
+        .dt.plan { font-weight: 500; color: var(--ink2); }
+        .must { color: var(--red); white-space: nowrap; }
+        .var { display: inline-flex; align-items: center; gap: 4px; font-weight: 800; font-size: 12px; white-space: nowrap; padding: 2px 8px; border-radius: 6px; }
+        .var.late { color: var(--red); background: var(--red-bg); }
+        .var.early { color: var(--green); background: var(--green-bg); }
+        .var.ok { color: var(--green); }
+        .dtile .var { font-size: 15px; padding: 0; background: none; }
+
+        .dates-t td { padding: 10px 12px; white-space: nowrap; }
+        .dates-t td.nm { white-space: normal; min-width: 240px; }
+        .dates-t tr.grp td { background: #f8fafc; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .5px; color: var(--ink2); padding: 8px 12px; border-top: 1px solid var(--line); }
+        .dates-t tr.lvl0 td { background: #fbfcff; }
+        .dates-t tr.lvl0 .nm .b { font-size: 15px; }
+        .dates-t tr.lvl1 td.nm { padding-left: 26px; }
+        .dates-t tr.neck td { background: #fffdf5; }
+        .dates-t tr.neck td.nm { box-shadow: inset 3px 0 0 var(--amber); }
+        .sq { display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; background: var(--ink); color: #fff; font-size: 11px; font-weight: 800; margin-right: 8px; vertical-align: -4px; }
+        .sq.run { background: var(--blue); }
+        .sq.done { background: var(--green); }
+
+        .grid-t td.cell { min-width: 130px; }
+        .grid-t td.cell .track { margin: 5px 0 4px; }
+        .grid-t td.cell.ok { background: #f6fdf9; }
+        .gtxt { color: var(--green); font-weight: 700; }
+
+        .gplan { position: absolute; top: 1px; height: 20px; border: 1.5px dashed #94a3b8; border-radius: 6px; background: rgba(148,163,184,.08); }
+        .grow.l0 .gl { font-weight: 800; }
+        .grow.l1 .gl { color: var(--ink2); }
+        .grow.l2 .gl { color: var(--ink2); font-weight: 500; }
+        .grow.l0 { border-bottom: 1px solid var(--line2); padding-bottom: 6px; margin-bottom: 4px; }
+        .lg-plan { border: 1.5px dashed #94a3b8; background: transparent !important; }
+        .lg-f { background: #dbeafe; border: 1px dashed var(--blue); }
+        .lg-fa { background: #fef3c7; border: 1px dashed var(--amber); }
+        .lg-must { background: #fff; border: 2px solid var(--red); width: 9px !important; height: 9px !important; transform: rotate(45deg); }
+        @media (max-width: 1100px) { .dtiles { grid-template-columns: repeat(3, 1fr); } }
+        @media (max-width: 760px) { .dtiles { grid-template-columns: repeat(2, 1fr); } .hsets { text-align: left; } .journey { margin-left: 18px; margin-right: 18px; } }
 
         @media (max-width: 1200px) { .kpis { grid-template-columns: repeat(3, 1fr); } .orow { grid-template-columns: 1fr 1.4fr; } .orow .dates { grid-column: 1; } .fgrid { grid-template-columns: repeat(2, 1fr); } }
         @media (max-width: 760px) {
@@ -384,6 +467,7 @@
                             <div><div class="l">Started</div><div class="v">${fd(o.start_date)}</div></div>
                             <div><div class="l">Target</div><div class="v">${fd(o.target_date)}</div></div>
                             <div><div class="l">${o.status === 'COMPLETE' ? 'Finished' : 'Expected'}</div><div class="v ${late ? 'late' : ''}">${o.expected_end ? fd(o.expected_end, o.status !== 'COMPLETE') : '<span class="muted">Not set</span>'}</div></div>
+                            <div class="vrow">${o.target_date && (o.expected_end || o.completed_on) ? variance(o.status === 'COMPLETE' ? o.completed_on : o.expected_end, o.target_date) + ' <span class="muted small">vs target</span>' : ''}</div>
                             ${nextLine(o)}
                         </div>
                         <div class="right">
@@ -415,176 +499,214 @@
                 show(S.view);
             }
 
-            function ring(pct, done) {
-                const r = 66, c = 2 * Math.PI * r, p = Math.max(0, Math.min(100, pct));
-                return `<svg viewBox="0 0 160 160"><circle cx="80" cy="80" r="${r}" fill="none" stroke="#e9eef5" stroke-width="14"/>
-                    <circle cx="80" cy="80" r="${r}" fill="none" stroke="${done ? '#059669' : '#2563eb'}" stroke-width="14" stroke-linecap="round"
-                    stroke-dasharray="${c}" stroke-dashoffset="${c * (1 - p / 100)}" transform="rotate(-90 80 80)"/>
-                    <text x="80" y="78" text-anchor="middle" font-size="30" font-weight="800" fill="#0f172a">${Math.round(p)}%</text>
-                    <text x="80" y="100" text-anchor="middle" font-size="12" fill="#64748b">sets complete</text></svg>`;
+            /* ---------- date helpers for the detail page ---------- */
+            const ts = v => { if (!v) return null; const s = String(v); const t = /^\d{4}-\d{2}-\d{2}$/.test(s) ? new Date(s + 'T12:00:00').getTime() : new Date(s).getTime(); return isNaN(t) ? null : t; };
+            const endOfDay = v => { if (!v) return null; const s = String(v); return /^\d{4}-\d{2}-\d{2}$/.test(s) ? new Date(s + 'T23:59:00').getTime() : ts(s); };
+            /* end vs planned end, in days: + late, - early */
+            function variance(endV, planV) {
+                const e = ts(endV), p = endOfDay(planV);
+                if (e == null || p == null) return '<span class="muted">—</span>';
+                const d = (e - p) / 86400000;
+                if (Math.abs(d) < 0.5) return '<span class="var ok"><i class="bi bi-check2"></i>On time</span>';
+                const txt = Math.abs(d) < 1.5 ? Math.round(Math.abs(d) * 24) + ' h' : Math.round(Math.abs(d)) + ' days';
+                return d > 0 ? `<span class="var late"><i class="bi bi-arrow-up-right"></i>${txt} late</span>` : `<span class="var early"><i class="bi bi-arrow-down-left"></i>${txt} early</span>`;
+            }
+            /* a date cell: actual (solid dot) or expected (hollow dot) */
+            const dAct = (v, time) => v ? `<span class="dt act" title="Actual"><i></i>${fd(v, time)}</span>` : '';
+            const dExp = (v, time) => v ? `<span class="dt exp" title="Expected"><i></i>${fd(v, time)}</span>` : '';
+            const dPlan = (v, time) => v ? `<span class="dt plan">${fd(v, time)}</span>` : '<span class="muted">—</span>';
+            const dash = '<span class="muted">—</span>';
+
+            /* ---------- hero: the order's journey on one line ---------- */
+            function journey(o) {
+                const now = Date.now(), done = o.status === 'COMPLETE';
+                const pts = [
+                    { k: 'Ordered', v: o.order_date, t: 'base' },
+                    { k: 'Plan start', v: o.plan_start, t: 'plan' },
+                    { k: 'Started', v: o.start_date, t: 'act' },
+                    { k: done ? 'Finished' : 'Expected end', v: done ? o.completed_on : o.expected_end, t: done ? 'act' : (isLate(o) ? 'late' : 'exp'), time: !done },
+                    { k: 'Target', v: o.target_date, t: 'target' }
+                ].filter(p => ts(p.v) != null);
+                if (!done) pts.push({ k: 'Today', v: new Date(now).toISOString(), t: 'today' });
+                if (pts.length < 2) return '';
+                const xs = pts.map(p => ts(p.v)); const lo = Math.min(...xs), hi = Math.max(...xs), span = Math.max(1, hi - lo);
+                const pos = t => 4 + (t - lo) / span * 92;
+                const sorted = pts.slice().sort((a, b) => ts(a.v) - ts(b.v));
+                /* labels alternate above / below so close dates do not collide */
+                const marks = sorted.map((p, i) => `<div class="jm ${p.t} ${i % 2 ? 'dn' : 'up'}" style="left:${pos(ts(p.v))}%">
+                        <span class="lab"><b>${p.k}</b>${p.t === 'today' ? 'now' : fd(p.v, p.time)}</span><span class="pin"></span></div>`).join('');
+                const startT = ts(o.start_date), nowT = done ? ts(o.completed_on) : now;
+                const prog = startT ? `<div class="jprog" style="left:${pos(startT)}%;width:${Math.max(0, pos(nowT || now) - pos(startT))}%"></div>` : '';
+                const endT = ts(o.expected_end), tgtT = endOfDay(o.target_date);
+                const lateSeg = !done && endT && tgtT && endT > tgtT ? `<div class="jlate" style="left:${pos(tgtT)}%;width:${pos(endT) - pos(tgtT)}%"></div>` : '';
+                return `<div class="journey"><div class="jline"></div>${prog}${lateSeg}${marks}</div>`;
             }
 
-            /* one bar per mould: actual run (solid) + forecast to expected end (hatched) */
+            /* ---------- the master dates table ---------- */
+            function datesTable(o) {
+                const done = o.status === 'COMPLETE';
+                const mustFirst = o.moulds.map(m => m.must_start_by).filter(Boolean).sort()[0];
+                const row = (cls, name, sub, planStart, start, must, planEnd, end, varHtml, pct, status) => `<tr class="${cls}">
+                    <td class="nm"><div class="b">${name}</div>${sub ? `<div class="muted small">${sub}</div>` : ''}</td>
+                    <td>${planStart}</td><td>${start}</td><td>${must}</td><td>${planEnd}</td><td>${end}</td><td>${varHtml}</td>
+                    <td style="min-width:110px">${pct == null ? '' : `<div class="small b" style="text-align:right">${Math.round(pct)}%</div>${track(pct, 'thin ' + (pct >= 100 ? 'g' : ''))}`}</td>
+                    <td>${status}</td></tr>`;
+                const grp = (ic, label, n) => `<tr class="grp"><td colspan="9"><i class="bi ${ic}"></i> ${label}${n != null ? ` <span class="muted">· ${n}</span>` : ''}</td></tr>`;
+
+                const orderEnd = done ? dAct(o.completed_on) : (o.expected_end ? dExp(o.expected_end, true) : '<span class="muted">Not set</span>');
+                let html = grp('bi-receipt', 'Order') + row('lvl0', esc(o.order_no), `${n0(o.sets_made)} / ${n0(o.order_qty)} sets`,
+                    dPlan(o.plan_start), o.start_date ? dAct(o.start_date) : dash, mustFirst && !o.start_date ? `<b class="must">${fd(mustFirst, true)}</b>` : dash,
+                    dPlan(o.target_date), orderEnd, variance(done ? o.completed_on : o.expected_end, o.target_date), o.pct, pill(o.status) + (isLate(o) ? ' ' + pill('LATE') : ''));
+
+                html += grp('bi-card-checklist', 'Job cards', o.job_cards.length);
+                html += o.job_cards.map(j => {
+                    const jDone = j.status === 'COMPLETE' || j.completed_on;
+                    const end = j.completed_on ? dAct(j.completed_on) : j.expected_end ? dExp(j.expected_end, true) : '<span class="muted">Not set</span>';
+                    return row('lvl1', esc(j.job_card_no), `issued ${fd(j.job_card_date)} · ${n0(j.sets_made)} / ${n0(j.qty)} sets`,
+                        dPlan(j.planned_start), j.actual_start ? dAct(j.actual_start) : dash, dash,
+                        dPlan(j.planned_comp_date || j.planned_end), end, variance(j.completed_on || j.expected_end, j.planned_comp_date || j.planned_end),
+                        j.pct, pill(jDone ? 'COMPLETE' : j.status));
+                }).join('') || '<tr><td colspan="9" class="muted small" style="padding-left:28px">No job cards yet</td></tr>';
+
+                html += grp('bi-boxes', 'Moulds, in start order', o.moulds.length);
+                html += o.moulds.slice().sort((a, b) => (a.start_seq || 99) - (b.start_seq || 99)).map(m => {
+                    const mDone = m.status === 'COMPLETE', run = m.status === 'RUNNING';
+                    const start = m.first_date ? dAct(m.first_date) : m.expected_start ? dExp(m.expected_start, true) : '<span class="muted">Not scheduled</span>';
+                    const must = mDone || run || m.first_date ? dash : m.must_start_by ? `<b class="must">${fd(m.must_start_by, true)}</b>` : dash;
+                    const end = mDone ? dAct(m.completed_on) : m.eta ? dExp(m.eta, true) : '<span class="muted">Not set</span>';
+                    const seq = mDone ? '<span class="sq done"><i class="bi bi-check"></i></span>' : `<span class="sq ${run ? 'run' : ''}">${m.start_seq || '·'}</span>`;
+                    const where = run ? m.machines.join(', ') : m.queue ? `${m.queue.machine} (#${m.queue.position} in queue)` : (mDone ? m.all_machines.filter(x => x && x.length > 1).join(', ') : 'no machine');
+                    return row('lvl1' + (o.bottleneck && o.bottleneck.mould_no === m.mould_no ? ' neck' : ''),
+                        `${seq}${esc(m.mould_name)}`, `×${m.ratio} per set · ${n0(m.produced)} / ${n0(m.required)} pcs · ${esc(where)}${m.rate_pph ? ' · ' + n0(m.rate_pph) + '/h' : ''}`,
+                        dPlan(m.plan_start), start, must, dPlan(o.target_date), end, variance(mDone ? m.completed_on : m.eta, o.target_date), m.pct, stHtml(m));
+                }).join('');
+
+                const plans = o.moulds.flatMap(m => m.plans.map(p => ({ ...p, mould: m.mould_name })));
+                if (plans.length) {
+                    html += grp('bi-cpu', 'Machine plans', plans.length);
+                    html += plans.map(p => {
+                        const pDone = ['COMPLETED', 'CLOSED'].includes(p.status);
+                        return row('lvl1', `${esc(p.machine)}`, `${esc(p.plan_id)} · ${esc(short(p.mould))} · ${n0(p.plan_qty)} pcs${p.job_card_no ? ' · ' + esc(p.job_card_no) : ''}`,
+                            dPlan(p.start_date), dash, dash, dPlan(p.end_date), pDone ? dAct(p.completed_at) : dash,
+                            pDone && p.end_date ? variance(p.completed_at, p.end_date) : dash, null,
+                            pill(pDone ? 'COMPLETE' : p.status === 'RUNNING' ? 'RUNNING' : 'PLANNED'));
+                    }).join('');
+                }
+                return `<div class="otc scroll"><table class="tbl dates-t"><thead><tr>
+                    <th>What</th><th>Planned start</th><th>Started / starts</th><th>Must start by</th><th>Planned end</th><th>Ended / ends</th><th>Early / late</th><th>Done</th><th>Status</th>
+                    </tr></thead><tbody>${html}</tbody></table></div>`;
+            }
+
+            /* ---------- timeline: plan window, actual, forecast ---------- */
             function gantt(o) {
                 const now = Date.now();
-                const pts = [dayMs(o.start_date), dayMs(o.target_date), now];
-                o.moulds.forEach(m => { pts.push(dayMs(m.first_date), dayMs(m.completed_on), m.eta ? new Date(m.eta).getTime() : null, m.must_start_by ? new Date(m.must_start_by).getTime() : null); });
-                const xs = pts.filter(Boolean);
-                let lo = Math.min(...xs), hi = Math.max(...xs);
-                lo -= 86400000; hi += 86400000;
+                const rows = [];
+                rows.push({ lvl: 0, name: 'Order', planS: o.plan_start, planE: o.target_date, actS: o.start_date, actE: o.status === 'COMPLETE' ? o.completed_on : (o.last_date || null), eta: o.status === 'COMPLETE' ? null : o.expected_end, fs: null, must: null, done: o.status === 'COMPLETE' });
+                o.job_cards.forEach(j => rows.push({ lvl: 1, name: j.job_card_no, planS: j.planned_start, planE: j.planned_comp_date || j.planned_end, actS: j.actual_start, actE: j.completed_on || j.last_production, eta: j.completed_on ? null : j.expected_end, fs: null, must: null, done: !!j.completed_on }));
+                o.moulds.slice().sort((a, b) => (a.start_seq || 99) - (b.start_seq || 99)).forEach(m => rows.push({
+                    lvl: 2, name: (m.start_seq ? m.start_seq + '. ' : '✓ ') + short(m.mould_name), planS: m.plan_start, planE: null,
+                    actS: m.first_date, actE: m.status === 'COMPLETE' ? m.completed_on : m.last_date, eta: m.status === 'COMPLETE' ? null : m.eta,
+                    fs: m.status !== 'RUNNING' && m.expected_start ? m.expected_start : null, must: m.status === 'RUNNING' || m.first_date ? null : m.must_start_by,
+                    done: m.status === 'COMPLETE', queued: m.status !== 'RUNNING'
+                }));
+                const xs = [now, endOfDay(o.target_date)];
+                rows.forEach(r => [r.planS, r.planE, r.actS, r.actE, r.eta, r.must, r.fs].forEach(v => { const t = ts(v); if (t) xs.push(t); }));
+                const valid = xs.filter(Boolean);
+                let lo = Math.min(...valid) - 86400000, hi = Math.max(...valid) + 86400000;
                 const span = hi - lo, days = Math.max(1, Math.round(span / 86400000));
                 const x = t => ((t - lo) / span * 100).toFixed(2) + '%';
                 const w = (a, b) => (Math.max(0, b - a) / span * 100).toFixed(2) + '%';
-                const step = Math.max(1, Math.ceil(days / 8));
+                const step = Math.max(1, Math.ceil(days / 9));
                 const ticks = [];
-                for (let t = dayMs(new Date(lo).toISOString()); t <= hi; t += step * 86400000) if (t >= lo) ticks.push(`<span style="left:${x(t)}">${fd(new Date(t).toLocaleDateString('en-CA'))}</span>`);
-                const lines = `<div class="gline today" style="left:${x(now)}" title="Today"></div>` + (o.target_date ? `<div class="gline target" style="left:${x(dayMs(o.target_date) + 86399000)}" title="Target ${fd(o.target_date)}"></div>` : '');
-                const rows = o.moulds.map(m => {
-                    const s = dayMs(m.first_date), done = m.status === 'COMPLETE';
-                    const actualEnd = done ? dayMs(m.completed_on) + 86400000 : (dayMs(m.last_date) ? Math.min(now, dayMs(m.last_date) + 86400000) : null);
-                    const eta = !done && m.eta ? new Date(m.eta).getTime() : null;
+                for (let t = new Date(new Date(lo).toDateString()).getTime() + 86400000; t <= hi; t += step * 86400000) ticks.push(`<span style="left:${x(t)}">${fd(new Date(t).toLocaleDateString('en-CA'))}</span>`);
+                const tgt = endOfDay(o.target_date);
+                const lines = `<div class="gline today" style="left:${x(now)}"></div>` + (tgt ? `<div class="gline target" style="left:${x(tgt)}"></div>` : '');
+                const body = rows.map(r => {
                     let bars = '';
-                    if (s && actualEnd) bars += `<div class="gbar ${done ? 'g' : ''}" style="left:${x(s)};width:${w(s, actualEnd)}" title="Produced ${fd(m.first_date)} – ${done ? fd(m.completed_on) : fd(m.last_date)}"></div>`;
-                    if (eta) { const from = m.status !== 'RUNNING' && m.expected_start ? new Date(m.expected_start).getTime() : Math.max(actualEnd || now, now); bars += `<div class="gbar ${m.status === 'RUNNING' ? 'f' : 'fa'}" style="left:${x(from)};width:${w(from, eta)}" title="Expected end ${fd(m.eta, true)} (${esc(m.eta_basis)})"></div>`; }
-                    const must = m.must_start_by && !done && m.status !== 'RUNNING' ? `<div class="gmust" style="left:${x(new Date(m.must_start_by).getTime())}" title="Must start by ${fd(m.must_start_by, true)}"></div>` : '';
-                    return `<div class="grow"><div class="gl" title="${esc(m.mould_name)}"><span class="muted">${m.start_seq ? m.start_seq + '. ' : '✓ '}</span>${esc(short(m.mould_name))}</div><div class="gtrack" style="--d:${(100 / days).toFixed(3)}%">${bars}${lines}${must}</div></div>`;
+                    const ps = ts(r.planS), pe = endOfDay(r.planE);
+                    if (ps && pe && pe > ps) bars += `<div class="gplan" style="left:${x(ps)};width:${w(ps, pe)}" title="Planned ${fd(r.planS)} – ${fd(r.planE)}"></div>`;
+                    const as = ts(r.actS), ae = r.actE ? Math.min(now, endOfDay(r.actE)) : null;
+                    if (as && ae) bars += `<div class="gbar ${r.done ? 'g' : ''}" style="left:${x(as)};width:${w(as, ae)}" title="Actual ${fd(r.actS)} – ${fd(r.actE)}"></div>`;
+                    const et = ts(r.eta);
+                    if (et) { const from = r.fs ? ts(r.fs) : Math.max(ae || now, now); bars += `<div class="gbar ${r.queued && r.lvl === 2 ? 'fa' : 'f'}" style="left:${x(from)};width:${w(from, et)}" title="Expected ${fd(r.eta, true)}"></div>`; }
+                    if (r.must) bars += `<div class="gmust" style="left:${x(ts(r.must))}" title="Must start by ${fd(r.must, true)}"></div>`;
+                    return `<div class="grow l${r.lvl}"><div class="gl" title="${esc(r.name)}">${esc(r.name)}</div><div class="gtrack" style="--d:${(100 / days).toFixed(3)}%">${bars}${lines}</div></div>`;
                 }).join('');
-                return `<div class="otc gantt">${rows}
+                return `<div class="otc gantt">${body}
                     <div class="gaxis"><div></div><div class="ticks">${ticks.join('')}</div></div>
-                    <div class="glegend"><span><b style="background:var(--blue)"></b>Produced</span><span><b style="background:var(--green)"></b>Mould complete</span>
-                    <span><b style="background:#dbeafe;border:1px dashed var(--blue)"></b>Forecast, running</span><span><b style="background:#fef3c7;border:1px dashed var(--amber)"></b>Forecast, not on a machine now</span>
-                    <span><b style="background:#fff;border:2px solid var(--red);width:9px;height:9px;transform:rotate(45deg)"></b>Must start by</span><span><b style="background:var(--ink);width:3px"></b>Today</span>${o.target_date ? '<span><b style="background:var(--red);width:3px"></b>Target</span>' : ''}</div></div>`;
+                    <div class="glegend"><span><b class="lg-plan"></b>Planned</span><span><b style="background:var(--blue)"></b>Actual</span><span><b style="background:var(--green)"></b>Complete</span>
+                    <span><b class="lg-f"></b>Forecast</span><span><b class="lg-fa"></b>Forecast, waiting for machine</span><span><b class="lg-must"></b>Must start by</span>
+                    <span><b style="background:var(--ink);width:3px"></b>Today</span><span><b style="background:var(--red);width:3px"></b>Target</span></div></div>`;
             }
 
-            /* which mould starts when, in the order they must start to finish on time */
-            function startPlan(o) {
-                const ms = o.moulds.slice().sort((a, b) => (a.start_seq || 99) - (b.start_seq || 99));
-                const flow = ms.filter(m => m.start_seq).map(m => {
-                    const i = startInfo(m);
-                    return `<span class="stp ${i.tone === 'bad' ? 'bad' : i.tone === 'warn' ? 'warn' : ''}"><span class="seqn ${m.status === 'RUNNING' ? 'run' : ''}">${m.start_seq}</span>${esc(short(m.mould_name))}</span>`;
-                }).join('<i class="bi bi-chevron-right arr"></i>');
-                const neck = o.bottleneck && o.bottleneck.mould_no;
-                const rows = ms.map(m => {
-                    const done = m.status === 'COMPLETE', run = m.status === 'RUNNING';
-                    const where = run ? m.machines.map(x => `<span class="mc">${esc(x)}</span>`).join('')
-                        : m.queue ? `<span class="mc">${esc(m.queue.machine)}</span><div class="muted small">#${m.queue.position} in machine queue</div>`
-                            : done ? '<span class="muted">—</span>' : '<span class="muted">Not planned</span>';
-                    const started = done || run
-                        ? `<b>${fd(m.started_at || m.first_date)}</b><div class="muted small">started</div>`
-                        : m.expected_start ? `<b>${fd(m.expected_start, true)}</b><div class="muted small">expected start</div>` : '<span class="muted">Not scheduled</span>';
-                    const must = done || run ? '<span class="muted">—</span>' : m.must_start_by
-                        ? `<b style="color:var(--red)">${fd(m.must_start_by, true)}</b><div class="muted small">must start by</div>` : '<span class="muted">—</span>';
-                    const end = done ? `<b style="color:var(--green)">${fd(m.completed_on)}</b>`
-                        : m.eta ? `<b>${fd(m.eta, true)}</b><div class="muted small">${esc(m.eta_basis)}</div>` : '<span class="muted">—</span>';
-                    return `<tr class="${m.mould_no === neck ? 'neck' : ''}">
-                        <td><span class="seqn ${done ? 'done' : run ? 'run' : ''}">${done ? '<i class="bi bi-check"></i>' : m.start_seq}</span></td>
-                        <td style="min-width:190px"><div class="b">${esc(m.mould_name)}</div><div class="muted small">×${m.ratio} per set · ${n0(m.balance)} of ${n0(m.required)} pcs left</div></td>
-                        <td>${where}</td>
-                        <td class="r nowrap">${done ? '—' : hrs(m.hours_left)}<div class="muted small">${m.rate_pph ? n0(m.rate_pph) + '/h ' + (m.rate_basis === 'live' ? 'live' : 'std') : ''}</div></td>
-                        <td class="nowrap">${started}</td>
-                        <td class="nowrap">${must}</td>
-                        <td class="nowrap">${end}</td>
-                        <td>${stHtml(m)}</td></tr>`;
-                }).join('');
-                return `<div class="sec"><div class="sech"><h3><i class="bi bi-signpost-split"></i> Start plan</h3>
-                    <span class="muted small">Must start by = target ${o.target_date ? fd(o.target_date) : '(none)'} minus the hours still needed (pieces left ÷ rate). Updates live.</span></div>
-                    <div class="otc">${flow ? '<div class="flow"><span class="muted b">Start order</span>' + flow + '</div>' : ''}
-                    <div class="scroll"><table class="tbl"><thead><tr><th>#</th><th>Mould</th><th>Machine</th><th class="r">Time needed</th><th>Started / starts</th><th>Must start by</th><th>Expected end</th><th>On time?</th></tr></thead>
-                    <tbody>${rows || '<tr><td colspan="8" class="empty">No moulds.</td></tr>'}</tbody></table></div></div></div>`;
+            /* ---------- job card x mould grid: pieces + the date each was done / will be done ---------- */
+            function jcGrid(o) {
+                if (!o.job_cards.length) return '<div class="otc empty"><i class="bi bi-card-checklist"></i>No job cards yet.</div>';
+                const head = o.moulds.map(m => `<th class="r">${esc(short(m.mould_name))}<div class="muted" style="text-transform:none;font-weight:600">×${m.ratio} per set</div></th>`).join('');
+                const body = o.job_cards.map(j => `<tr>
+                    <td class="nm"><div class="b">${esc(j.job_card_no)}</div><div class="muted small">${n0(j.qty)} sets · ${n0(j.sets_made)} made</div></td>
+                    ${j.moulds.map(m => {
+                        const ok = m.done_on;
+                        return `<td class="r cell ${ok ? 'ok' : ''}"><div><b>${n0(m.produced)}</b> <span class="muted">/ ${n0(m.required)}</span></div>
+                            ${track(m.required ? m.produced / m.required * 100 : 0, 'thin ' + (ok ? 'g' : ''))}
+                            <div class="small ${ok ? 'gtxt' : 'muted'}">${ok ? '✓ ' + fd(m.done_on) : m.eta ? '→ ' + fd(m.eta, true) : 'not scheduled'}</div></td>`;
+                    }).join('')}
+                    <td class="nowrap">${j.completed_on ? dAct(j.completed_on) : j.expected_end ? dExp(j.expected_end, true) : dash}</td></tr>`).join('');
+                return `<div class="otc scroll"><table class="tbl grid-t"><thead><tr><th>Job card</th>${head}<th>Job card done</th></tr></thead><tbody>${body}</tbody></table></div>`;
             }
 
             function renderDetail() {
                 const o = S.detail; if (!o) return;
                 const late = isLate(o), done = o.status === 'COMPLETE';
-                const neck = o.bottleneck ? o.bottleneck.mould_no : null;
                 const notes = [];
-                if (o.bottleneck) notes.push(`<div class="note a"><i class="bi bi-hourglass-split"></i><div>Complete sets are held back by <b>${esc(o.bottleneck.mould_name)}</b>. This mould decides when the order finishes.</div></div>`);
-                if (late && o.expected_end) notes.push(`<div class="note r"><i class="bi bi-alarm"></i><div>Expected to finish <b>${fd(o.expected_end, true)}</b>, after the target of <b>${fd(o.target_date)}</b>.</div></div>`);
-                if (o.eta_unknown_reason) notes.push(`<div class="note r"><i class="bi bi-calendar-x"></i><div>${esc(o.eta_unknown_reason)}, so the order's end date can't be worked out yet.</div></div>`);
-                if (o.jc_qty && o.jc_qty < o.order_qty) notes.push(`<div class="note i"><i class="bi bi-info-circle"></i><div>Job cards cover <b>${n0(o.jc_qty)}</b> of ${n0(o.order_qty)} ordered. <b>${n0(o.order_qty - o.jc_qty)}</b> still need a job card.</div></div>`);
-                if (o.unlinked_qty) notes.push(`<div class="note i"><i class="bi bi-link-45deg"></i><div>${n0(o.unlinked_qty)} pcs were booked in DPR without a job card number. They count for the order, not for any job card.</div></div>`);
+                if (o.bottleneck) notes.push(`<div class="note a"><i class="bi bi-hourglass-split"></i><div>Complete sets are held back by <b>${esc(o.bottleneck.mould_name)}</b>.</div></div>`);
+                if (o.next_start && o.next_start.must_start_by) {
+                    const i = startInfo(o.next_start);
+                    notes.push(`<div class="note ${i.tone === 'bad' ? 'r' : i.tone === 'warn' ? 'a' : 'i'}"><i class="bi ${i.ic}"></i><div>Next to start: <b>${esc(o.next_start.mould_name)}</b>, must start by <b>${fd(o.next_start.must_start_by, true)}</b>${o.next_start.expected_start ? `, expected ${fd(o.next_start.expected_start, true)} on ${esc(o.next_start.machine)}` : ', no machine yet'}.</div></div>`);
+                }
+                if (o.eta_unknown_reason) notes.push(`<div class="note r"><i class="bi bi-calendar-x"></i><div>${esc(o.eta_unknown_reason)}, so the end date can't be worked out yet.</div></div>`);
+                if (o.jc_qty && o.jc_qty < o.order_qty) notes.push(`<div class="note i"><i class="bi bi-info-circle"></i><div>Job cards cover <b>${n0(o.jc_qty)}</b> of ${n0(o.order_qty)} ordered; <b>${n0(o.order_qty - o.jc_qty)}</b> still need a job card.</div></div>`);
+                if (o.unlinked_qty) notes.push(`<div class="note i"><i class="bi bi-link-45deg"></i><div>${n0(o.unlinked_qty)} pcs booked in DPR without a job card number count for the order, not for a job card.</div></div>`);
 
-                const mouldRows = o.moulds.map(m => {
-                    const mDone = m.status === 'COMPLETE';
-                    const mach = (m.machines.length ? m.machines : m.all_machines.filter(x => x && x.length > 1));
-                    return `<tr class="${m.mould_no === neck ? 'neck' : ''}">
-                        <td style="min-width:200px"><div class="b">${esc(m.mould_name)}</div><div class="muted small">${esc(m.mould_no)}${m.items.length > 1 ? ` · ${m.items.length} colours` : ''}${m.mould_no === neck ? ' · <b style="color:var(--amber)">bottleneck</b>' : ''}</div></td>
-                        <td class="r b">×${m.ratio}</td>
-                        <td class="r">${n0(m.required)}</td>
-                        <td class="r b">${n0(m.produced)}</td>
-                        <td class="r">${n0(m.balance)}</td>
-                        <td class="r">${n0(m.sets_equiv)}</td>
-                        <td style="min-width:130px"><div class="small muted" style="text-align:right">${m.pct}%</div>${track(m.pct, mDone ? 'g' : m.mould_no === neck ? 'a' : '')}</td>
-                        <td>${mach.map(x => `<span class="mc">${esc(x)}</span>`).join('') || '<span class="muted">—</span>'}</td>
-                        <td class="r nowrap">${m.rate_pph ? n0(m.rate_pph) + '/h' : '—'}<div class="muted small">${m.rate_basis === 'live' ? 'last 3 days' : m.rate_basis === 'std' ? 'standard' : ''}</div></td>
-                        <td class="r">${n0(m.today_qty)}</td>
-                        <td class="nowrap">${fd(m.first_date)}</td>
-                        <td class="nowrap">${mDone ? `<span class="b" style="color:var(--green)">${fd(m.completed_on)}</span>` : m.eta ? `<span class="b">${fd(m.eta, true)}</span><div class="muted small">${m.eta_basis === 'if started now' ? 'if restarted now' : esc(m.eta_basis)}${m.hours_left ? ' · ' + hrs(m.hours_left) + ' left' : ''}</div>` : '<span class="muted">No machine</span>'}</td>
-                        <td>${pill(m.status)}</td></tr>`;
-                }).join('');
-
-                const jcs = o.job_cards.map(j => `<div class="otc jc">
-                        <div class="top"><div><div class="no">${esc(j.job_card_no)}</div><div class="muted small">issued ${fd(j.job_card_date)}${j.erp_status ? ' · ERP: ' + esc(j.erp_status) : ''}</div></div>${pill(j.status)}</div>
-                        <div class="sets" style="margin-top:12px"><span><span class="big">${n0(j.sets_made)}</span> <span class="muted">/ ${n0(j.qty)} sets</span></span><span class="b">${Math.round(j.pct)}%</span></div>
-                        ${track(j.pct, j.status === 'COMPLETE' ? 'g' : '')}
-                        <div class="meta">
-                            <div><div class="muted">Started</div><div class="v">${fd(j.actual_start)}</div><div class="muted">plan ${fd(j.planned_start)}</div></div>
-                            <div><div class="muted">Last production</div><div class="v">${fd(j.last_production)}</div></div>
-                            <div><div class="muted">Target</div><div class="v">${fd(j.planned_comp_date)}</div><div class="muted">plan end ${fd(j.planned_end)}</div></div>
-                        </div>
-                        ${j.moulds.map(m => `<div class="jcm"><div class="nm" title="${esc(m.mould_name)}">${esc(short(m.mould_name))} <span class="muted">×${m.ratio}</span></div>
-                            <div class="r small" style="text-align:right"><b>${n0(m.produced)}</b> <span class="muted">/ ${n0(m.required)}</span></div>
-                            ${track(m.required ? m.produced / m.required * 100 : 0, 'thin ' + (m.balance === 0 && m.required ? 'g' : ''))}</div>`).join('')}
-                    </div>`).join('');
-
-                const plans = o.moulds.flatMap(m => m.plans.map(p => ({ ...p, mould: m.mould_name })));
+                const daysLeft = !done && o.expected_end ? (ts(o.expected_end) - Date.now()) / 86400000 : null;
+                const tiles = [
+                    ['Planned start', fd(o.plan_start), 'ERP mould start'],
+                    ['Actual start', fd(o.start_date), o.start_date ? 'first DPR entry' : 'not started'],
+                    ['Target', fd(o.target_date), 'ERP completion date'],
+                    [done ? 'Finished' : 'Expected end', done ? fd(o.completed_on) : o.expected_end ? fd(o.expected_end, true) : 'Not set', done ? 'all sets made' : (daysLeft != null ? (daysLeft < 1 ? Math.max(1, Math.round(daysLeft * 24)) + ' h from now' : daysLeft.toFixed(1) + ' days from now') : 'a mould has no machine')],
+                    ['Early / late', variance(done ? o.completed_on : o.expected_end, o.target_date), 'against target']
+                ].map(t => `<div class="dtile"><div class="l">${t[0]}</div><div class="v">${t[1]}</div><div class="s">${t[2]}</div></div>`).join('');
 
                 $('v-detail').innerHTML = `
                     <div class="crumb"><button class="btn" id="back"><i class="bi bi-arrow-left"></i> All orders</button>
-                        <span class="muted small">Order Tracker / <b style="color:var(--ink)">${esc(o.order_no)}</b></span></div>
+                        <span class="muted small">Order Tracker / <b style="color:var(--ink)">${esc(o.order_no)}</b></span>
+                        <span class="muted small" style="margin-left:auto"><span class="dt act"><i></i>actual</span> &nbsp; <span class="dt exp"><i></i>expected</span> &nbsp; plain = planned</span></div>
 
-                    <div class="dhero">
-                        <div class="otc ringc">${ring(o.pct, done)}
-                            <div style="margin-top:6px"><b style="font-size:18px">${n0(o.sets_made)}</b> <span class="muted">of ${n0(o.order_qty)} sets</span></div>
-                            <div class="muted small">${done ? 'Order complete' : n0(o.sets_balance) + ' sets to go'}</div></div>
-                        <div class="otc facts">
-                            <h2>${esc(o.order_no)} ${pill(o.status)} ${late ? pill('LATE') : ''}</h2>
-                            <div class="muted" style="margin-top:4px">${esc(o.product_name)}${o.client_name ? ' · ' + esc(o.client_name) : ''}${o.item_code ? ' · item ' + esc(o.item_code) : ''}</div>
-                            <div class="fgrid">
-                                <div><div class="l">Order date</div><div class="v">${fd(o.order_date)}</div></div>
-                                <div><div class="l">Production started</div><div class="v">${fd(o.start_date)}</div></div>
-                                <div><div class="l">Target (ERP)</div><div class="v">${fd(o.target_date)}</div></div>
-                                <div><div class="l">${done ? 'Finished' : 'Expected end'}</div><div class="v" style="${late ? 'color:var(--red)' : done ? 'color:var(--green)' : ''}">${o.expected_end ? fd(o.expected_end, !done) : 'Not set'}</div></div>
-                                <div><div class="l">Moulds complete</div><div class="v">${o.moulds_complete} of ${o.mould_count}</div></div>
-                                <div><div class="l">Job cards</div><div class="v">${o.jc_count} · ${n0(o.jc_qty)} qty</div></div>
-                                <div><div class="l">Last production</div><div class="v">${fd(o.last_date)}</div></div>
-                                <div><div class="l">Running on</div><div class="v">${o.running_machines.map(m => `<span class="mc">${esc(m)}</span>`).join('') || '—'}</div></div>
+                    <div class="hero ${late ? 'late' : done ? 'done' : ''}">
+                        <div class="htop">
+                            <div>
+                                <div class="hno">${esc(o.order_no)} ${pill(o.status)} ${late ? pill('LATE') : ''}</div>
+                                <div class="hsub">${esc(o.product_name)}${o.client_name ? ' · ' + esc(o.client_name) : ''}${o.item_code ? ' · item ' + esc(o.item_code) : ''}</div>
                             </div>
-                            ${notes.join('')}
+                            <div class="hsets"><div><span class="big">${n0(o.sets_made)}</span><span class="of"> / ${n0(o.order_qty)} sets</span></div>
+                                <div class="hbar"><i style="width:${Math.min(100, o.pct)}%"></i></div>
+                                <div class="small">${Math.round(o.pct)}% · ${o.moulds_complete}/${o.mould_count} moulds done · ${o.jc_count} job cards</div></div>
                         </div>
+                        ${journey(o)}
                     </div>
 
-                    ${startPlan(o)}
+                    <div class="dtiles">${tiles}</div>
+                    ${notes.join('')}
 
-                    <div class="sec"><div class="sech"><h3><i class="bi bi-bar-chart-steps"></i> Timeline</h3><span class="muted small">Actual production and forecast to finish, per mould</span></div>${gantt(o)}</div>
+                    <div class="sec"><div class="sech"><h3><i class="bi bi-calendar-range"></i> All dates</h3><span class="muted small">Order, job cards, moulds and machine plans: planned, actual and expected</span></div>${datesTable(o)}</div>
 
-                    <div class="sec"><div class="sech"><h3><i class="bi bi-boxes"></i> Mould wise</h3><span class="muted small">Ratio = pieces of that mould in one finished set</span></div>
-                        <div class="otc scroll"><table class="tbl"><thead><tr>
-                            <th>Mould</th><th class="r">Ratio</th><th class="r">Required</th><th class="r">Made</th><th class="r">Balance</th><th class="r">= Sets</th><th>Progress</th>
-                            <th>Machine</th><th class="r">Rate</th><th class="r">Today</th><th>Started</th><th>Completed / expected</th><th>Status</th>
-                        </tr></thead><tbody>${mouldRows || '<tr><td colspan="13" class="empty">No mould list for this order.</td></tr>'}</tbody></table></div></div>
+                    <div class="sec"><div class="sech"><h3><i class="bi bi-bar-chart-steps"></i> Timeline</h3><span class="muted small">Outline = planned · solid = actual · striped = forecast</span></div>${gantt(o)}</div>
 
-                    <div class="sec"><div class="sech"><h3><i class="bi bi-card-checklist"></i> Job card wise</h3><span class="muted small">Sets made per job card, from DPR booked against it</span></div>
-                        <div class="jcs">${jcs || '<div class="otc empty">No job cards yet.</div>'}</div></div>
+                    <div class="sec"><div class="sech"><h3><i class="bi bi-grid-3x3-gap"></i> Job card × mould</h3><span class="muted small">Pieces made per job card, with the date each was done or is expected (first in, first out)</span></div>${jcGrid(o)}</div>
 
                     <div class="sec"><div class="sech"><h3><i class="bi bi-graph-up"></i> Production by day</h3>
                         <div class="seg" id="cmode"><button data-c="cum" class="${S.chartMode === 'cum' ? 'on' : ''}">Cumulative %</button><button data-c="daily" class="${S.chartMode === 'daily' ? 'on' : ''}">Daily pcs</button></div></div>
-                        <div class="otc" style="padding:16px;height:320px"><canvas id="chart"></canvas></div></div>
-
-                    <div class="sec"><div class="sech"><h3><i class="bi bi-calendar-week"></i> Machine plans</h3></div>
-                        <div class="otc scroll"><table class="tbl"><thead><tr><th>Plan</th><th>Mould</th><th>Machine</th><th>Job card</th><th class="r">Plan qty</th><th>Start</th><th>Completed</th><th>Status</th></tr></thead>
-                        <tbody>${plans.map(p => `<tr><td class="b">${esc(p.plan_id)}</td><td>${esc(p.mould)}</td><td><span class="mc">${esc(p.machine)}</span></td><td>${esc(p.job_card_no || '—')}</td>
-                            <td class="r">${n0(p.plan_qty)}</td><td>${fd(p.start_date)}</td><td>${fd(p.completed_at)}</td><td>${pill(['COMPLETED', 'CLOSED'].includes(p.status) ? 'COMPLETE' : p.status === 'RUNNING' ? 'RUNNING' : 'PLANNED')}</td></tr>`).join('') || '<tr><td colspan="8" class="empty">Not planned on any machine.</td></tr>'}</tbody></table></div></div>`;
+                        <div class="otc" style="padding:16px;height:300px"><canvas id="chart"></canvas></div></div>`;
 
                 $('back').onclick = closeOrder;
                 document.querySelectorAll('#cmode button').forEach(b => b.onclick = () => { S.chartMode = b.dataset.c; document.querySelectorAll('#cmode button').forEach(x => x.classList.toggle('on', x === b)); drawChart(); });

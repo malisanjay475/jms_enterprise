@@ -11,8 +11,36 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.108.0",
+  "latest": "1.109.0",
   "versions": [
+    {
+      "version": "1.109.0",
+      "date": "2026-10-14",
+      "title": "Order Tracker: every start and end date",
+      "modules": [
+        {
+          "app": "planning",
+          "changes": [
+            {
+              "type": "feat",
+              "text": "Each order page now opens with its journey on one line: ordered, planned start, started, today, expected end and target date."
+            },
+            {
+              "type": "feat",
+              "text": "New All dates table: for the order, every job card, every mould and every machine plan, the planned start, actual or expected start, must-start time, planned end, actual or expected end, and how many days early or late."
+            },
+            {
+              "type": "feat",
+              "text": "Job cards now get their own finish date: the day each job card was completed, or when it is expected to complete, mould by mould."
+            },
+            {
+              "type": "improvement",
+              "text": "The timeline shows the planned window, actual production and the forecast for the order, each job card and each mould; order rows show early or late against the target."
+            }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.108.0",
       "date": "2026-10-13",

@@ -297,6 +297,12 @@ function buildOrder(orderNo, { jcRows, bomRows, planRows, dprRows, mouldStd, sch
       must_start_by: mustStartMs ? new Date(mustStartMs).toISOString() : null,
       start_state: startState, slack_hours: slackHours == null ? null : +slackHours.toFixed(1),
       queue: queued ? { machine: queued.q.machine, position: queued.q.queue_pos, plan_id: queued.p.plan_id } : null,
+      plan_start: plansOf.map(p => p.start_date).filter(Boolean).map(d => new Date(d).toISOString()).sort()[0] || null,
+      plan_end: plansOf.map(p => p.end_date).filter(Boolean).map(d => new Date(d).toISOString()).sort().pop() || null,
+      /* forecast basis for job cards: pieces per hour over all machines, and from when */
+      rate_all_pph: rate > 0 ? +(rate * lanes).toFixed(2) : 0,
+      /* same basis as eta: running or not yet on a machine = from now, queued = its queue start */
+      forecast_from: expStartMs && status !== 'RUNNING' ? new Date(expStartMs).toISOString() : (eta && status !== 'COMPLETE' ? new Date().toISOString() : null),
       plans: plansOf.map(p => ({
         plan_id: p.plan_id, machine: stripPrefix(p.machine), status: p.status, plan_qty: num(p.plan_qty),
         job_card_no: p.job_card_no, start_date: p.start_date, end_date: p.end_date, completed_at: p.completed_at
@@ -315,17 +321,43 @@ function buildOrder(orderNo, { jcRows, bomRows, planRows, dprRows, mouldStd, sch
   const setsMade = withRatio.length ? Math.min(orderQty || Infinity, ...withRatio.map(m => m.sets_equiv)) : 0;
   const bottleneck = withRatio.slice().sort((a, b) => (a.sets_equiv - b.sets_equiv) || ((b.hours_left || 0) - (a.hours_left || 0)))[0] || null;
 
-  /* ---- job cards: sets per JC from production booked against that JC ---- */
-  const jobCards = jcRows.filter(r => r.job_card_no).map(r => {
+  /* ---- job cards ----
+     Sets per JC come from production booked against that JC. Dates treat each
+     mould's output as filling the job cards in issue order (first in, first
+     out): JC k is done on a mould when the mould's total output reaches the
+     pieces needed by JC 1..k, and its forecast is the time to reach that. */
+  const fifoNeed = new Map();
+  const jcSorted = jcRows.filter(r => r.job_card_no)
+    .slice().sort((a, b) => String(a.job_card_date || '9').localeCompare(String(b.job_card_date || '9')));
+  mouldList.forEach(m => {
+    let cum = 0;
+    jcSorted.forEach(r => { cum += Math.round(num(r.prod_plan_qty) * m.ratio); fifoNeed.set(r.job_card_no + '|' + m.mould_no, cum); });
+  });
+  const reachDate = (m, need) => {
+    let run = 0;
+    for (const d of m.daily) { run += d.qty; if (run >= need) return d.date; }
+    return null;
+  };
+  const jobCards = jcSorted.map(r => {
     const qty = num(r.prod_plan_qty);
     const perMould = mouldList.map(m => {
       const k = key(m.mould_no);
       const made = dprRows.filter(d => d.jobcard_no === r.job_card_no && mouldKeyOfDpr(d) === k)
         .reduce((s, d) => s + num(d.good), 0);
       const need = Math.round(qty * m.ratio);
+      const cumNeed = fifoNeed.get(r.job_card_no + '|' + m.mould_no) || 0;
+      const doneOn = cumNeed > 0 && m.produced >= cumNeed ? reachDate(m, cumNeed) : null;
+      let eta = null;
+      if (!doneOn && cumNeed > 0 && m.forecast_from && m.rate_all_pph > 0) {
+        const from = Math.max(Date.now(), new Date(m.forecast_from).getTime());
+        eta = new Date(from + (cumNeed - m.produced) / m.rate_all_pph * 3600000).toISOString();
+      }
       return { mould_no: m.mould_no, mould_name: m.mould_name, ratio: m.ratio, required: need, produced: made,
-        balance: Math.max(0, need - made), sets_equiv: m.ratio > 0 ? Math.floor(made / m.ratio) : 0 };
+        balance: Math.max(0, need - made), sets_equiv: m.ratio > 0 ? Math.floor(made / m.ratio) : 0,
+        done_on: doneOn, eta };
     });
+    const allDone = perMould.length > 0 && perMould.every(x => x.done_on);
+    const ends = perMould.map(x => x.done_on || x.eta);
     const sets = perMould.length ? Math.min(qty, ...perMould.map(x => x.sets_equiv)) : 0;
     const dates = dprRows.filter(d => d.jobcard_no === r.job_card_no).map(d => d.dpr_date).sort();
     return {
@@ -334,6 +366,8 @@ function buildOrder(orderNo, { jcRows, bomRows, planRows, dprRows, mouldStd, sch
       status: qty > 0 && sets >= qty ? 'COMPLETE' : (dates.length ? 'IN_PROGRESS' : 'NOT_STARTED'),
       planned_start: r.mld_start_date, planned_end: r.mld_end_date, planned_comp_date: r.planned_comp_date,
       actual_start: dates[0] || r.actual_start_date || null, last_production: dates[dates.length - 1] || null,
+      completed_on: allDone ? perMould.map(x => x.done_on).sort().pop() : null,
+      expected_end: allDone ? null : (ends.length && ends.every(Boolean) ? ends.map(x => new Date(x.length === 10 ? x + 'T23:59:00' + TZ : x).toISOString()).sort().pop() : null),
       erp_status: r.mld_status, moulds: perMould
     };
   });
@@ -361,6 +395,9 @@ function buildOrder(orderNo, { jcRows, bomRows, planRows, dprRows, mouldStd, sch
     status: complete ? 'COMPLETE' : runningMachines.length ? 'RUNNING' : (mouldList.some(m => m.produced > 0) ? 'PAUSED' : 'NOT_STARTED'),
     start_date: allDates[0] || null, last_date: allDates[allDates.length - 1] || null,
     target_date: target, expected_end: expectedEnd,
+    plan_start: jcRows.map(r => r.mld_start_date).filter(Boolean).sort()[0] || null,
+    plan_end: jcRows.map(r => r.mld_end_date).filter(Boolean).sort().pop() || null,
+    completed_on: complete ? expectedEnd : null,
     eta_unknown_reason: !complete && !expectedEnd ? 'Some moulds are not running or planned on a machine yet' : null,
     delayed: !!delayed, unlinked_qty: unlinked,
     late_starts: mouldList.filter(m => ['START_LATE', 'OVERDUE', 'FINISH_LATE'].includes(m.start_state)).length,
