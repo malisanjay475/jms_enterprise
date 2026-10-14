@@ -11,8 +11,34 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.114.0",
+  "latest": "1.117.0",
   "versions": [
+    {
+      "version": "1.117.0",
+      "date": "2026-10-14",
+      "title": "Colour over-production limit now 2%",
+      "modules": [
+        {
+          "app": "dpr",
+          "changes": [
+            { "type": "improvement", "text": "Each colour can now be produced only up to 2% over its plan qty (was 10%); anything more needs Extra Qty allowed by Superadmin, Admin or Sr. PPC Manager from the Machine Timeline." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.116.0",
+      "date": "2026-10-14",
+      "title": "Completion remarks only needed when balance is pending",
+      "modules": [
+        {
+          "app": "planning",
+          "changes": [
+            { "type": "improvement", "text": "When completing a plan, Remarks are now required only if a balance is pending (the quantity entered is less than the plan quantity); a fully produced plan can be completed without a remark." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.114.0",
       "date": "2026-10-14",

@@ -7959,7 +7959,7 @@ app.post('/api/dpr/submit', async (req, res) => {
     }
 
     // [NEW] COLOUR OVER-PRODUCTION CAP — cumulative good qty for a colour may not
-    // exceed 110% of that colour's planned qty. Mirrors the browser-side check so a
+    // exceed 102% of that colour's planned qty. Mirrors the browser-side check so a
     // stale cached PWA bundle can't bypass it. Produced is recomputed from the DB
     // rather than trusting anything the client sent.
     // Skipped when the colour isn't in the plan (unplanned / "Other") or the plan has
@@ -8021,7 +8021,7 @@ app.post('/api/dpr/submit', async (req, res) => {
               lastGrantBy = gRows[0]?.last_by || '';
             } catch (gErr) { console.error('dpr/submit extra-qty lookup', gErr.message); }
 
-            const cap = Math.floor(planQty * 1.10) + extraAllowed;
+            const cap = Math.floor(planQty * 1.02) + extraAllowed;
             const total = produced + toNum(GoodQty);
             if (total > cap) {
               const remaining = Math.max(0, cap - produced);
@@ -12999,7 +12999,15 @@ app.post('/api/planning/complete', async (req, res) => {
   try {
     const { id, completed_qty, remarks, user } = req.body;
     if (!id) return res.json({ ok: false, error: 'Missing ID' });
-    if (!String(remarks || '').trim()) return res.json({ ok: false, error: 'Remarks are required to complete a plan' });
+    // Remarks are mandatory only when a balance is pending (completed qty < plan qty).
+    // A missing/invalid completed_qty counts as pending.
+    if (!String(remarks || '').trim()) {
+      const pr = await q('SELECT plan_qty FROM plan_board WHERE id::text = $1::text', [String(id)]);
+      const planQty = Number(pr && pr[0] ? pr[0].plan_qty : 0) || 0;
+      const doneQty = Number(completed_qty);
+      const balPending = !Number.isFinite(doneQty) || completed_qty === '' || completed_qty == null || planQty - doneQty > 0;
+      if (balPending) return res.json({ ok: false, error: 'Balance is pending — Remarks are required to complete this plan' });
+    }
 
     // Update status, timestamps, and details.
     // CRITICAL: bump updated_at (and last_updated_at) so the completion is a fresh
@@ -29303,7 +29311,7 @@ ORDER BY sort_order ASC, seq ASC, updated_at ASC
 });
 
 // ── Extra Qty Allowances ─────────────────────────────────────────────
-// PPC roles may grant extra qty beyond the 10% colour over-production cap.
+// PPC roles may grant extra qty beyond the 2% colour over-production cap.
 // Reuses the normalized PPC approval-role set (ppc_*/planning_* variants,
 // admin, superadmin) plus plain 'planner'.
 // Only Superadmin, Admin and Sr. PPC Manager may grant extra qty (keep in sync with EQA_ROLES in timeline_patch.js).
@@ -29660,7 +29668,7 @@ AND
 });
 
 /* ============================================================
-   EXTRA QTY ALLOWANCES (PPC override of 10% colour cap)
+   EXTRA QTY ALLOWANCES (PPC override of 2% colour cap)
 ============================================================ */
 
 // POST /api/extra-qty/allow — grant extra qty for a plan+colour (role-gated)
