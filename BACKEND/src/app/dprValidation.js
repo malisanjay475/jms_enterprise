@@ -4,7 +4,7 @@
 //
 // Before this, /api/dpr/submit and /api/dpr/edit stored whatever numbers arrived. A
 // negative good quantity lowered a colour's "produced" total, which also let later
-// entries get past the 110% over-production cap, and downtime had no upper bound per
+// entries get past the 102% over-production cap, and downtime had no upper bound per
 // hourly slot. Limits were checked against every live entry on factory-1 (24-Sep-2026,
 // 320,011 rows): no quantity was ever negative and every quick-action type caps at
 // 60 minutes, so real entries are not affected (the only two misses were one -1 and
