@@ -81,7 +81,20 @@ function createPrivateUploadGuard(authMiddleware) {
   };
 }
 
+// Files that may travel between servers (LOCAL -> MAIN upload sync). Media everywhere;
+// NPD trial reports also come as PDF / Word / Excel, which are inert when served (no
+// script) but are only allowed in that one folder.
+const NPD_DOC_EXTS = new Set(['.pdf', '.doc', '.docx', '.xls', '.xlsx', '.csv']);
+function syncableUploadExtension(folder, filename) {
+  const media = allowedExtension(filename);
+  if (media) return media;
+  if (String(folder || '').toLowerCase() !== 'npd') return null;
+  return allowedExtension(filename, NPD_DOC_EXTS);
+}
+
 module.exports = {
+  NPD_DOC_EXTS,
+  syncableUploadExtension,
   IMAGE_EXTS,
   VIDEO_EXTS,
   MEDIA_EXTS,

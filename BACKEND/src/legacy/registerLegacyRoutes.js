@@ -45,7 +45,7 @@ const { sendServerError, safeError } = require('../app/httpErrors');
 const BACKEND_ROOT = path.resolve(__dirname, '..', '..');
 const STATIC_PUBLIC_DIR_NAME = fs.existsSync(path.join(BACKEND_ROOT, 'PUBLIC', 'index.html')) ? 'PUBLIC' : 'public';
 const STATIC_PUBLIC_DIR = path.join(BACKEND_ROOT, STATIC_PUBLIC_DIR_NAME);
-const { extensionForUpload } = require('../app/uploadSafety');
+const { extensionForUpload, syncableUploadExtension } = require('../app/uploadSafety');
 
 // QC image uploads — disk storage so images are served as static files from PUBLIC/uploads/qc-images/
 const _qcImgDir = path.join(STATIC_PUBLIC_DIR, 'uploads', 'qc-images');
@@ -126,6 +126,8 @@ const registerInterviewPanelRoutes = require('../modules/interviewPanel/register
 
 module.exports = function registerLegacyRoutes({ app, pool, config, services }) {
   const { aiService, syncService, updaterService } = services;
+  // Modules outside this file (NPD uploads) send a just-saved file to MAIN with this.
+  if (isLocalServer()) app.locals.pushUploadFileToMain = pushUploadFileToMain;
 
   aiService.init(config.geminiApiKey);
   const hrPerformanceRuntime = registerHrPerformanceRoutes({ app, pool, config, services }) || {};
@@ -4454,7 +4456,8 @@ async function pushAllUploadsToMain() {
   if (pushAllUploadsToMain.running) return;
   pushAllUploadsToMain.running = true;
   try {
-    // Media files directly inside uploads/<folder>/ (images and videos; no SVG/HTML).
+    // Media files directly inside uploads/<folder>/ (images and videos; no SVG/HTML), plus
+    // NPD trial reports (PDF / Word / Excel) in uploads/npd.
     // Sub-folders such as qc-images/.thumbs are skipped — MAIN builds its own thumbnails.
     const files = [];
     let folders = [];
@@ -4464,7 +4467,7 @@ async function pushAllUploadsToMain() {
       let entries = [];
       try { entries = fs.readdirSync(path.join(uploadsDir, d.name), { withFileTypes: true }); } catch (_) { continue; }
       for (const e of entries) {
-        if (e.isFile() && !e.name.startsWith('.') && extensionForUpload(e.name, '')) {
+        if (e.isFile() && !e.name.startsWith('.') && syncableUploadExtension(d.name, e.name)) {
           files.push({ folder: d.name, filename: e.name, full: path.join(uploadsDir, d.name, e.name) });
         }
       }
