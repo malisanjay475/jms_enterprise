@@ -14,6 +14,9 @@ part of your PR. On release, the `[Unreleased]` items move under the new version
 ## [Unreleased]
 
 ### Added
+- NPD (v1.119.2): Export Excel button on the NPD Tracker. Downloads the products shown (status tile + search) with every stage colour coded like the page, real dates, status, remarks, trial report / image counts and last update; header frozen, filters on.
+
+### Added
 - NPD (v1.119.1): full screen viewer on the same page. Product images (thumbnail or gallery) open full size with zoom (buttons, mouse wheel, pinch, double-click), drag to move, rotate, fit / 1:1 and previous / next. PDF trial reports open inside the page; Word / Excel reports offer a download.
 
 ### Added

@@ -121,6 +121,7 @@
             <div class="tools">
                 <span class="ro-note" id="roNote"></span>
                 <button class="btn" id="refresh"><i class="bi bi-arrow-clockwise"></i> Refresh</button>
+                <button class="btn" id="exportBtn" title="Download the products shown as an Excel file"><i class="bi bi-file-earmark-excel" style="color:#15803d"></i> Export Excel</button>
                 <button class="btn pri" id="addBtn" style="display:none"><i class="bi bi-plus-lg"></i> Add Product</button>
             </div>
         </div>
@@ -338,6 +339,31 @@
             $('tiles').addEventListener('click', e => { const t = e.target.closest('[data-f]'); if (t) { S.fstat = t.dataset.f; render(); } });
             $('q').addEventListener('input', e => { S.q = e.target.value.trim(); render(); });
             $('refresh').onclick = load;
+            /* Excel of the rows shown (status tile + search), built on the server with colours */
+            $('exportBtn').onclick = async () => {
+                const b = $('exportBtn');
+                b.disabled = true;
+                try {
+                    const headers = {};
+                    const token = localStorage.getItem('token');
+                    if (token) headers.Authorization = `Bearer ${token}`;
+                    const u = JSON.parse(localStorage.getItem('user') || '{}');
+                    if (u.username) headers['X-User-Name'] = u.username;
+                    const qs = new URLSearchParams({ status: S.fstat, q: S.q });
+                    const res = await fetch(`/api/npd/export.xlsx?${qs}`, { headers });
+                    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Export failed');
+                    const blob = await res.blob();
+                    const name = (res.headers.get('Content-Disposition') || '').match(/filename="([^"]+)"/);
+                    const a = document.createElement('a');
+                    a.href = URL.createObjectURL(blob);
+                    a.download = name ? name[1] : 'NPD_Tracker.xlsx';
+                    document.body.appendChild(a);
+                    a.click();
+                    a.remove();
+                    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+                } catch (e) { toast(e.message || 'Export failed', 'error'); }
+                finally { b.disabled = false; }
+            };
 
             document.querySelectorAll('[data-close]').forEach(b => b.onclick = () => $(b.dataset.close).classList.remove('on'));
             $('addBtn').onclick = () => { $('aName').value = ''; $('addModal').classList.add('on'); $('aName').focus(); };
