@@ -1488,6 +1488,20 @@
                 </div>
             </div>
 
+            <!-- Runner weight -->
+            <div style="font-weight:700;font-size:13px;margin-bottom:6px">Runner Weight (kg)</div>
+            <div class="setup-row" style="margin-bottom:14px">
+                <div class="setup-std">
+                    <small>STD (Master)</small>
+                    <span id="setup-std-runner" style="font-size:16px;font-weight:700">—</span>
+                </div>
+                <div class="setup-act">
+                    <small>Actual (QC)</small>
+                    <input type="number" step="0.001" id="setup-act-runner" placeholder="0.000" inputmode="decimal" oninput="calcVariance('runner')">
+                    <div id="setup-var-runner" style="margin-top:2px;font-size:12px"></div>
+                </div>
+            </div>
+
             <button class="primary" style="width:100%" onclick="saveJobSetup()">Save Setup</button>
             <div id="setup-msg" class="muted" style="font-size:13px;margin-top:6px;text-align:center"></div>
         </div>
@@ -1610,7 +1624,7 @@
             onclick="event.stopPropagation()">
     </div>
 
-  <script src="/assets/QCSupervisor-script-1.js?v=release70"></script>
+  <script src="/assets/QCSupervisor-script-1.js?v=release71"></script>
   <script src="/assets/register-sw.js?v=release70"></script>
 
 </body>
