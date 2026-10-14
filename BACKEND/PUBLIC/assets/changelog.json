@@ -70,6 +70,22 @@
       ]
     },
     {
+      "version": "1.107.1",
+      "date": "2026-10-14",
+      "title": "Server backup clean-up",
+      "modules": [
+        {
+          "app": "all",
+          "changes": [
+            {
+              "type": "improvement",
+              "text": "Server backups no longer pile up duplicate copies, freeing about 25 GB of disk."
+            }
+          ]
+        }
+      ]
+    },
+    {
       "version": "1.107.0",
       "date": "2026-10-13",
       "title": "Order Tracker",

@@ -13,6 +13,12 @@ part of your PR. On release, the `[Unreleased]` items move under the new version
 
 ## [Unreleased]
 
+### Fixed
+- VPS backup disk growth (v1.107.1): deploy safety dumps in `.deploy/backups` are pruned to the newest 5
+  per environment (`KEEP_DEPLOY_BACKUPS`); `vps-cron-setup.sh` no longer installs the 02:05 uploads
+  tarball job that duplicated the 6-hourly `scheduled-backup.yml` archive, and removes its leftovers;
+  `KEEP_UPLOAD_TARS` default 4 → 2.
+
 ### Added
 - Order Tracker (v1.109.0): dates for everything. Order journey band, All dates table (order / job cards / moulds /
   machine plans: planned, actual, expected, must-start, early/late), job card completion + forecast per mould
