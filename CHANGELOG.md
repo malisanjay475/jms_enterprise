@@ -13,6 +13,9 @@ part of your PR. On release, the `[Unreleased]` items move under the new version
 
 ## [Unreleased]
 
+### Changed
+- NPD (v1.116.1): Sr No is given automatically when a product is added (next number after the highest one); it is no longer typed in or edited.
+
 ### Fixed
 - NPD (v1.115.1): NPD Tracker now shows the app sidebar and header like every other page.
 
