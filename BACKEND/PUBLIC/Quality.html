@@ -214,6 +214,8 @@
                 </label>
                 <label>From <input type="date" id="hold-from" class="form-input" onchange="loadHolds()"></label>
                 <label>To <input type="date" id="hold-to" class="form-input" onchange="loadHolds()"></label>
+                <label>Line <select id="hold-line" class="form-input" onchange="renderHolds()"><option value="">All Lines</option></select></label>
+                <label>Machine <select id="hold-machine" class="form-input" onchange="renderHolds()"><option value="">All Machines</option></select></label>
                 <button class="h-xl" id="hold-excel" onclick="downloadHoldsExcel()"><i class="bi bi-file-earmark-excel"></i> Download Excel</button>
             </div>
             <div class="h-kpis" id="hold-summary"></div>
@@ -309,6 +311,8 @@
             currentView = view;
             document.querySelectorAll('.q-tab').forEach(b => b.classList.toggle('active', b.dataset.view === view));
             Object.keys(VIEWS).forEach(v => $('view-' + v).classList.toggle('hidden', v !== view));
+            // Hold has its own filter bar (From / To / Line / Machine) — hide the page one there.
+            document.querySelector('.q-filters').classList.toggle('hidden', view === 'holds');
             $('page-title').textContent = VIEWS[view][0];
             $('page-sub').textContent = VIEWS[view][1];
             const u = new URL(location.href); u.searchParams.set('view', view); history.replaceState(null, '', u);
@@ -628,9 +632,18 @@
             loadHolds();
         }
         function renderHolds() {
-            const line = $('filter-line').value, mc = $('filter-machine').value;
-            const lineOf = new Map(((OV && OV.machines) || []).map(m => [m.machine, m.line]));
-            const list = HOLDS.filter(h => (!line || (h.line || lineOf.get(h.machine)) === line) && (mc === 'All Machines' || h.machine === mc));
+            // Line / Machine lists come from the holds loaded, so every option has holds.
+            const fill = (id, all, vals) => {
+                const sel = $(id), keep = sel.value;
+                sel.innerHTML = `<option value="">${all}</option>` + vals.map(v => `<option${v === keep ? ' selected' : ''}>${esc(v)}</option>`).join('');
+                if (!vals.includes(keep)) sel.value = '';
+            };
+            const byNum = (a, b) => a.localeCompare(b, undefined, { numeric: true });
+            fill('hold-line', 'All Lines', [...new Set(HOLDS.map(h => h.line).filter(Boolean))].sort(byNum));
+            const line = $('hold-line').value;
+            fill('hold-machine', 'All Machines', [...new Set(HOLDS.filter(h => !line || h.line === line).map(h => h.machine))].sort(byNum));
+            const mc = $('hold-machine').value;
+            const list = HOLDS.filter(h => (!line || h.line === line) && (!mc || h.machine === mc));
             const active = list.filter(h => h.status === 'ACTIVE');
             const qty = active.reduce((t, h) => t + (Number(h.qty_on_hold) || 0), 0);
             const kpi = (icon, bg, fg, v, l) => `<div class="h-kpi"><i class="bi ${icon}" style="background:${bg};color:${fg}"></i><div><div class="v">${v}</div><div class="l">${l}</div></div></div>`;
