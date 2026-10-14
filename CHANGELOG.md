@@ -14,6 +14,9 @@ part of your PR. On release, the `[Unreleased]` items move under the new version
 ## [Unreleased]
 
 ### Changed
+- Docs (v1.112.3): CLAUDE.md documents the `production` environment approval step before the production deploy runs.
+
+### Changed
 - Planning (v1.112.1): deactivated moulds are no longer offered in the order mould list or the alternative-mould
   picker. Moulds that already have a plan still show. DPR follows automatically (its moulds come from plans).
 
