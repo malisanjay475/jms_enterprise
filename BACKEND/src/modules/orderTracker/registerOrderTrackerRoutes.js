@@ -71,7 +71,12 @@ const JC_SQL = `
          job_card_date::text AS job_card_date, item_code, product_name, client_name,
          prod_plan_qty, planned_comp_date::text AS planned_comp_date,
          mld_start_date::text AS mld_start_date, mld_end_date::text AS mld_end_date,
-         actual_mld_start_date::text AS actual_start_date, mld_status
+         actual_mld_start_date::text AS actual_start_date, mld_status,
+         rev_mld_end_date::text AS rev_mld_end_date,
+         shift_status, shift_comp_date::text AS shift_comp_date,
+         prt_tuf_status, prt_tuf_end_date::text AS prt_tuf_end_date, rev_ptd_tuf_end_date::text AS rev_prt_end_date,
+         pack_status, pack_end_date::text AS pack_end_date, rev_pak_end_date::text AS rev_pack_end_date,
+         wh_status, wh_rec_date::text AS wh_rec_date
     FROM or_jr_report
    WHERE TRIM(or_jr_no) = ANY($1::text[])
      AND ($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL)
@@ -120,6 +125,13 @@ const DPR_SQL = `
     ) x
    GROUP BY 1, 2, 3, 4, 5, 6`;
 
+/* moulded pieces moved on from the machine (Shifting), per plan */
+const SHIFT_SQL = `
+  SELECT plan_id, COALESCE(SUM(quantity), 0) AS qty, MAX(created_at) AS last_at
+    FROM shifting_records
+   WHERE plan_id = ANY($1::int[])
+   GROUP BY plan_id`;
+
 const MOULD_SQL = `
   SELECT TRIM(mould_number) AS code, TRIM(mould_name) AS name,
          COALESCE(pcs_per_hour, 0) AS pcs_per_hour, cycle_time, no_of_cav
@@ -136,12 +148,16 @@ const MACHINES_SQL = `
 
 /* ------------------------------------------------------- order engine --- */
 
-async function loadOrders(pool, orderNos, factoryId, sched) {
+async function loadOrders(pool, orderNos, factoryId, sched, board) {
   if (!orderNos.length) return [];
   const p = [orderNos, factoryId];
   const [jc, bom, plans, dpr] = await Promise.all([
     pool.query(JC_SQL, p), pool.query(BOM_SQL, p), pool.query(PLAN_SQL, p), pool.query(DPR_SQL, p)
   ]);
+  const planIds = plans.rows.map(r => Number(r.id)).filter(Number.isInteger);
+  const shifted = planIds.length
+    ? (await pool.query(SHIFT_SQL, [planIds]).catch(() => ({ rows: [] }))).rows : [];
+  const shiftByPlan = new Map(shifted.map(r => [String(r.plan_id), r]));
   const mouldCodes = [...new Set(bom.rows.map(b => b.mould_no).concat(plans.rows.map(r => r.mould_code)).filter(Boolean))];
   const moulds = mouldCodes.length ? (await pool.query(MOULD_SQL, [mouldCodes, factoryId])).rows : [];
   const mouldStd = new Map();
@@ -159,11 +175,13 @@ async function loadOrders(pool, orderNos, factoryId, sched) {
     planRows: planBy.get(orderNo) || [],
     dprRows: dprBy.get(orderNo) || [],
     mouldStd,
-    sched
+    sched,
+    board,
+    shiftByPlan
   })).filter(Boolean);
 }
 
-function buildOrder(orderNo, { jcRows, bomRows, planRows, dprRows, mouldStd, sched }) {
+function buildOrder(orderNo, { jcRows, bomRows, planRows, dprRows, mouldStd, sched, board, shiftByPlan }) {
   if (!jcRows.length && !planRows.length) return null;
   const head = jcRows[0] || {};
   const orderQty = num(head.jr_qty) || num(head.or_qty) || Math.max(0, ...bomRows.map(b => num(b.jr_qty)));
@@ -231,6 +249,10 @@ function buildOrder(orderNo, { jcRows, bomRows, planRows, dprRows, mouldStd, sch
     const machinesNow = [...new Set(running.map(p => stripPrefix(p.machine)))];
     const balance = Math.max(0, required - produced);
 
+    const shiftedQty = plansOf.reduce((sum, p) => sum + num(shiftByPlan && shiftByPlan.get(String(p.id)) && shiftByPlan.get(String(p.id)).qty), 0);
+    /* every plan for the mould is closed but the pieces are not all made */
+    const closedShort = balance > 0 && produced > 0 && plansOf.length > 0 && !pending.length;
+
     let status;
     if (required > 0 && balance === 0) status = 'COMPLETE';
     else if (running.length) status = 'RUNNING';
@@ -297,6 +319,8 @@ function buildOrder(orderNo, { jcRows, bomRows, planRows, dprRows, mouldStd, sch
       must_start_by: mustStartMs ? new Date(mustStartMs).toISOString() : null,
       start_state: startState, slack_hours: slackHours == null ? null : +slackHours.toFixed(1),
       queue: queued ? { machine: queued.q.machine, position: queued.q.queue_pos, plan_id: queued.p.plan_id } : null,
+      shifted: shiftedQty, closed_short: closedShort,
+      scheduled: status === 'COMPLETE' || status === 'RUNNING' || !!(queued && queued.q.start_eta),
       plan_start: plansOf.map(p => p.start_date).filter(Boolean).map(d => new Date(d).toISOString()).sort()[0] || null,
       plan_end: plansOf.map(p => p.end_date).filter(Boolean).map(d => new Date(d).toISOString()).sort().pop() || null,
       /* forecast basis for job cards: pieces per hour over all machines, and from when */
@@ -358,6 +382,7 @@ function buildOrder(orderNo, { jcRows, bomRows, planRows, dprRows, mouldStd, sch
     });
     const allDone = perMould.length > 0 && perMould.every(x => x.done_on);
     const ends = perMould.map(x => x.done_on || x.eta);
+    const jcScheduled = perMould.every(x => x.done_on || (mouldList.find(m => m.mould_no === x.mould_no) || {}).scheduled);
     const sets = perMould.length ? Math.min(qty, ...perMould.map(x => x.sets_equiv)) : 0;
     const dates = dprRows.filter(d => d.jobcard_no === r.job_card_no).map(d => d.dpr_date).sort();
     return {
@@ -367,22 +392,27 @@ function buildOrder(orderNo, { jcRows, bomRows, planRows, dprRows, mouldStd, sch
       planned_start: r.mld_start_date, planned_end: r.mld_end_date, planned_comp_date: r.planned_comp_date,
       actual_start: dates[0] || r.actual_start_date || null, last_production: dates[dates.length - 1] || null,
       completed_on: allDone ? perMould.map(x => x.done_on).sort().pop() : null,
-      expected_end: allDone ? null : (ends.length && ends.every(Boolean) ? ends.map(x => new Date(x.length === 10 ? x + 'T23:59:00' + TZ : x).toISOString()).sort().pop() : null),
+      expected_end: allDone || !jcScheduled ? null : (ends.length && ends.every(Boolean) ? ends.map(x => new Date(x.length === 10 ? x + 'T23:59:00' + TZ : x).toISOString()).sort().pop() : null),
+      earliest_end: allDone || jcScheduled ? null : (ends.length && ends.every(Boolean) ? ends.map(x => new Date(x.length === 10 ? x + 'T23:59:00' + TZ : x).toISOString()).sort().pop() : null),
+      process: processStages(r, perMould, mouldList, allDone ? perMould.map(x => x.done_on).sort().pop() : null, sets, qty, orderQty),
       erp_status: r.mld_status, moulds: perMould
     };
   });
   const unlinked = dprRows.filter(d => !d.jobcard_no).reduce((s, d) => s + num(d.good), 0);
 
   /* ---- order dates ---- */
-  const etas = mouldList.filter(m => m.status !== 'COMPLETE').map(m => m.eta);
+  const open = mouldList.filter(m => m.status !== 'COMPLETE');
   const complete = orderQty > 0 && setsMade >= orderQty;
+  const allScheduled = open.every(m => m.scheduled && m.eta);
   const expectedEnd = complete
     ? mouldList.map(m => m.completed_on).filter(Boolean).sort().pop() || null
-    : (etas.length && etas.every(Boolean) ? etas.sort().pop() : null);
+    : (open.length && allScheduled ? open.map(m => m.eta).sort().pop() : null);
+  /* if every waiting mould were put on a machine right now */
+  const earliestEnd = complete || !open.length || !open.every(m => m.eta) ? null : open.map(m => m.eta).sort().pop();
   const runningMachines = [...new Set(mouldList.flatMap(m => m.machines))];
   const delayed = !complete && target && expectedEnd && expectedEnd.slice(0, 10) > target.slice(0, 10);
 
-  return {
+  const order = {
     order_no: orderNo, order_date: head.order_date || null,
     client_name: head.client_name || '', product_name: head.product_name || (planRows[0] && planRows[0].item_name) || '',
     item_code: head.item_code || '', order_qty: orderQty,
@@ -398,7 +428,9 @@ function buildOrder(orderNo, { jcRows, bomRows, planRows, dprRows, mouldStd, sch
     plan_start: jcRows.map(r => r.mld_start_date).filter(Boolean).sort()[0] || null,
     plan_end: jcRows.map(r => r.mld_end_date).filter(Boolean).sort().pop() || null,
     completed_on: complete ? expectedEnd : null,
-    eta_unknown_reason: !complete && !expectedEnd ? 'Some moulds are not running or planned on a machine yet' : null,
+    earliest_end: expectedEnd ? null : earliestEnd,
+    eta_unknown_reason: !complete && !expectedEnd
+      ? (open.filter(m => !m.scheduled).map(m => m.mould_name).join(', ') || 'A mould') + ' not on a machine yet' : null,
     delayed: !!delayed, unlinked_qty: unlinked,
     late_starts: mouldList.filter(m => ['START_LATE', 'OVERDUE', 'FINISH_LATE'].includes(m.start_state)).length,
     next_start: (() => {
@@ -407,12 +439,169 @@ function buildOrder(orderNo, { jcRows, bomRows, planRows, dprRows, mouldStd, sch
     })(),
     moulds: mouldList, job_cards: jobCards
   };
+  order.process = orderProcess(jobCards);
+  order.verdict = verdictOf(order);
+  order.suggestions = suggest(order, board);
+  return order;
+}
+
+/* ---------------------------------------------------- process stages --- */
+
+const STAGE_DONE = /complet|done|yes|close|receiv|finish/i;
+const STAGE_WIP = /process|progress|running|partial|start|wip/i;
+const stageState = (status, actualDate) => {
+  if (actualDate || STAGE_DONE.test(status || '')) return 'DONE';
+  if (STAGE_WIP.test(status || '')) return 'IN_PROGRESS';
+  return 'PENDING';
+};
+
+/* Moulding -> Shifting -> Printing / TUF -> Packing -> Warehouse for one job
+   card, from the OR-JR stage fields (ERP) plus our own moulding / shifting. */
+function processStages(r, perMould, mouldList, mouldDoneOn, setsMade, jcQty, orderQty) {
+  /* counted in sets: the slowest mould decides, so one mould over-producing cannot hide another one short */
+  const made = setsMade;
+  const need = jcQty;
+  const made_pcs = perMould.reduce((s, m) => s + m.produced, 0);
+  const shiftedSets = mouldList.length && mouldList.every(m => m.ratio > 0)
+    ? Math.min(...mouldList.map(m => Math.floor((m.shifted || 0) / m.ratio))) : 0;
+  const mouldState = mouldDoneOn ? 'DONE' : (made > 0 ? 'IN_PROGRESS' : stageState(r.mld_status));
+  const stages = [
+    { key: 'moulding', name: 'Moulding', state: mouldState, erp_status: r.mld_status || null,
+      plan_start: r.mld_start_date, plan_end: r.mld_end_date, revised_end: r.rev_mld_end_date,
+      actual_start: r.actual_start_date, actual_end: mouldDoneOn, qty_done: made, qty_need: need, unit: 'sets', pcs_done: made_pcs },
+    { key: 'shifting', name: 'Shifting', state: stageState(r.shift_status, r.shift_comp_date), erp_status: r.shift_status || null,
+      plan_end: null, revised_end: null, actual_end: r.shift_comp_date, qty_done: shiftedSets, qty_need: orderQty, unit: 'sets (whole order)' },
+    { key: 'printing', name: 'Printing / TUF', state: stageState(r.prt_tuf_status), erp_status: r.prt_tuf_status || null,
+      plan_end: r.prt_tuf_end_date, revised_end: r.rev_prt_end_date, actual_end: null },
+    { key: 'packing', name: 'Packing', state: stageState(r.pack_status), erp_status: r.pack_status || null,
+      plan_end: r.pack_end_date, revised_end: r.rev_pack_end_date, actual_end: null },
+    { key: 'warehouse', name: 'Warehouse', state: stageState(r.wh_status, r.wh_rec_date), erp_status: r.wh_status || null,
+      plan_end: null, revised_end: null, actual_end: r.wh_rec_date }
+  ];
+  /* a later stage being done means the earlier ones are too */
+  for (let i = stages.length - 1; i > 0; i--) if (stages[i].state === 'DONE') stages.slice(0, i).forEach(x => { if (x.state !== 'DONE') x.state = 'DONE'; });
+  const current = stages.find(x => x.state !== 'DONE');
+  return { current: current ? current.key : 'done', current_name: current ? current.name : 'Delivered to warehouse', stages };
+}
+
+/* order level: the least advanced job card decides */
+function orderProcess(jobCards) {
+  if (!jobCards.length) return { current: 'moulding', current_name: 'Moulding', by_job_card: [] };
+  const order = ['moulding', 'shifting', 'printing', 'packing', 'warehouse', 'done'];
+  const least = jobCards.map(j => j.process).sort((a, b) => order.indexOf(a.current) - order.indexOf(b.current))[0];
+  return { current: least.current, current_name: least.current_name,
+    by_job_card: jobCards.map(j => ({ job_card_no: j.job_card_no, current: j.process.current, current_name: j.process.current_name })) };
+}
+
+/* ----------------------------------------------------- verdict + advice --- */
+
+const fmtH = h => h == null ? '?' : h < 1 ? Math.max(1, Math.round(h * 60)) + ' min' : h < 48 ? h.toFixed(1) + ' h' : (h / 24).toFixed(1) + ' days';
+const fmtD = iso => {
+  if (!iso) return '?';
+  const d = new Date(String(iso).length === 10 ? iso + 'T12:00:00' + TZ : iso);
+  return d.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' });
+};
+
+function verdictOf(o) {
+  if (o.status === 'COMPLETE') return { code: 'DONE', text: 'All sets made', detail: o.completed_on ? 'finished ' + fmtD(o.completed_on) : '' };
+  const tgt = o.target_date ? new Date(o.target_date.slice(0, 10) + TARGET_DAY_END).getTime() : null;
+  if (!tgt) return { code: 'NO_TARGET', text: 'No target date', detail: 'set the job completion date in ERP' };
+  const short = o.moulds.filter(m => m.closed_short);
+  if (!o.expected_end) {
+    const earliest = o.earliest_end ? new Date(o.earliest_end).getTime() : null;
+    if (earliest && earliest <= tgt) {
+      return { code: 'AT_RISK', text: 'Can still be on time', detail: `only if ${o.eta_unknown_reason.replace(' not on a machine yet', '')} goes on a machine soon${short.length ? ' (plan closed short)' : ''}`, hours: (tgt - earliest) / 3600000 };
+    }
+    return { code: 'LATE', text: 'Will be late', detail: o.eta_unknown_reason + (earliest ? '; even if started now it ends ' + fmtD(o.earliest_end) : '') };
+  }
+  const h = (tgt - new Date(o.expected_end).getTime()) / 3600000;
+  if (h < 0) return { code: 'LATE', text: 'Will be late', detail: fmtH(-h) + ' after target', hours: h };
+  if (o.late_starts > 0) return { code: 'AT_RISK', text: 'At risk', detail: o.late_starts + ' mould(s) starting late', hours: h };
+  return { code: 'ON_TIME', text: 'On time', detail: fmtH(h) + ' before target', hours: h };
+}
+
+/* What to do so the order finishes on time. Uses the live machine board:
+   machines that are free now, and machines that ran the mould before. */
+function suggest(o, board) {
+  const out = [];
+  if (o.status === 'COMPLETE') return out;
+  const tgt = o.target_date ? new Date(o.target_date.slice(0, 10) + TARGET_DAY_END).getTime() : null;
+  const machines = board || [];
+  const idle = machines.filter(m => m.state === 'IDLE');
+  const tonOf = name => { const m = machines.find(x => key(x.machine) === key(name)); return m ? num(m.tonnage) : 0; };
+  const pickFor = m => {
+    const used = new Set((m.all_machines || []).map(key));
+    const known = idle.filter(x => used.has(key(x.machine)));
+    if (known.length) return { list: known.slice(0, 3).map(x => x.machine), why: 'free now and ran this mould before' };
+    const ton = Math.max(0, ...(m.all_machines || []).map(tonOf));
+    const fit = ton ? idle.filter(x => num(x.tonnage) >= ton * 0.9 && num(x.tonnage) <= ton * 1.6) : [];
+    if (fit.length) return { list: fit.slice(0, 3).map(x => x.machine), why: `free now, ${ton} T class` };
+    if (idle.length) return { list: idle.slice(0, 3).map(x => x.machine), why: 'free now (check the mould fits)' };
+    const soon = machines.filter(x => x.free_at).sort((a, b) => String(a.free_at).localeCompare(String(b.free_at))).slice(0, 2);
+    return { list: soon.map(x => `${x.machine} (free ${fmtD(x.free_at)})`), why: 'no machine is free now; these free up first' };
+  };
+  const neckSets = o.bottleneck ? (o.moulds.find(m => m.mould_no === o.bottleneck.mould_no) || {}).sets_equiv : null;
+
+  o.moulds.filter(m => m.status !== 'COMPLETE').sort((a, b) => (a.start_seq || 99) - (b.start_seq || 99)).forEach(m => {
+    const hrs = m.hours_left;
+    const setsShort = m.ratio > 0 ? Math.ceil(m.balance / m.ratio) : m.balance;
+    if (m.closed_short) {
+      const p = pickFor(m);
+      out.push({ level: 'bad', mould: m.mould_name,
+        title: `${m.mould_name}: plan closed ${m.balance.toLocaleString('en-IN')} pcs short`,
+        text: `That is ${setsShort.toLocaleString('en-IN')} sets (×${m.ratio}). About ${fmtH(hrs)} of moulding${m.rate_pph ? ' at ' + m.rate_pph + '/h' : ''}. Plan ${m.balance.toLocaleString('en-IN')} pcs${p.list.length ? ' on ' + p.list.join(', ') + ' (' + p.why + ')' : ''}, or close the order ${setsShort.toLocaleString('en-IN')} sets short.` });
+      return;
+    }
+    if (m.status === 'RUNNING') {
+      if (m.start_state === 'FINISH_LATE' && tgt && hrs) {
+        const left = (tgt - Date.now()) / 3600000;
+        const need = left > 0 ? Math.ceil(hrs / left) : null;
+        const p = pickFor(m);
+        out.push({ level: 'bad', mould: m.mould_name,
+          title: `${m.mould_name} finishes ${fmtH(-m.slack_hours)} after target`,
+          text: need && need > 1
+            ? `Needs ${fmtH(hrs)} on ${m.machines.length} machine(s) but only ${fmtH(left)} remain. Run it on ${need} machines${p.list.length ? ', add ' + p.list.slice(0, need - m.machines.length).join(', ') + ' (' + p.why + ')' : ''}, or ask for a later date.`
+            : `Target can no longer be met on the current rate (${m.rate_pph}/h). Speed up the cycle, add a machine${p.list.length ? ' (' + p.list.join(', ') + ')' : ''} or move the date.` });
+      } else if (m.start_state === 'ON_TRACK') {
+        out.push({ level: 'good', mould: m.mould_name, title: `${m.mould_name} is running on ${m.machines.join(', ')}`, text: `Ends ${fmtD(m.eta)}, ${fmtH(m.slack_hours)} before target. Keep it running.` });
+      }
+      return;
+    }
+    if (m.queue) {
+      if (m.start_state === 'START_LATE') {
+        const p = pickFor(m);
+        out.push({ level: 'bad', mould: m.mould_name,
+          title: `${m.mould_name} starts ${fmtH(-m.slack_hours)} too late`,
+          text: `It is #${m.queue.position} in the queue on ${m.queue.machine} and starts ${fmtD(m.expected_start)}, but must start by ${fmtD(m.must_start_by)}. Move it up the queue on ${m.queue.machine}${p.list.length ? ', or start it on ' + p.list.join(', ') + ' (' + p.why + ')' : ''}.` });
+      } else {
+        out.push({ level: 'good', mould: m.mould_name, title: `${m.mould_name} is queued on ${m.queue.machine}`, text: `Starts ${fmtD(m.expected_start)}, must start by ${fmtD(m.must_start_by)}. No action needed yet.` });
+      }
+      return;
+    }
+    const p = pickFor(m);
+    out.push({ level: m.start_state === 'OVERDUE' ? 'bad' : 'warn', mould: m.mould_name,
+      title: `Put ${m.mould_name} on a machine${m.must_start_by ? ' by ' + fmtD(m.must_start_by) : ''}`,
+      text: `${m.balance.toLocaleString('en-IN')} pcs left (${setsShort.toLocaleString('en-IN')} sets × ${m.ratio}), about ${fmtH(hrs)}.${p.list.length ? ' Suggested: ' + p.list.join(', ') + ' (' + p.why + ').' : ''}` });
+  });
+
+  /* a running mould far ahead of the bottleneck while the bottleneck waits */
+  const neck = o.bottleneck && o.moulds.find(m => m.mould_no === o.bottleneck.mould_no);
+  if (neck && neck.status !== 'RUNNING' && neck.status !== 'COMPLETE') {
+    o.moulds.filter(m => m.status === 'RUNNING' && m.mould_no !== neck.mould_no && m.sets_equiv - neckSets > 0).forEach(m => {
+      out.push({ level: 'warn', mould: m.mould_name,
+        title: `${m.mould_name} is ${(m.sets_equiv - neckSets).toLocaleString('en-IN')} sets ahead of ${neck.mould_name}`,
+        text: `Complete sets wait for ${neck.mould_name}. If ${neck.mould_name} fits ${m.machines.join(', ')}, run it there first, then go back to ${m.mould_name}.` });
+    });
+  }
+  const rank = { bad: 0, warn: 1, good: 2 };
+  return out.sort((a, b) => rank[a.level] - rank[b.level]);
 }
 
 const slim = o => {
-  const { moulds, job_cards, ...rest } = o;
+  const { moulds, job_cards, suggestions, ...rest } = o;
   return {
     ...rest,
+    action_count: (suggestions || []).filter(x => x.level !== 'good').length,
     moulds: moulds.map(m => ({ mould_no: m.mould_no, mould_name: m.mould_name, ratio: m.ratio, pct: m.pct,
       produced: m.produced, required: m.required, status: m.status, machines: m.machines, eta: m.eta,
       start_seq: m.start_seq, start_state: m.start_state, must_start_by: m.must_start_by, expected_start: m.expected_start }))
@@ -516,7 +705,7 @@ async function queueSchedule(pool, factoryId) {
   const board = await buildMachineBoard(pool, factoryId);
   const map = new Map();
   board.forEach(m => m.running.concat(m.queue).forEach(j => map.set(String(j.plan_id), { ...j, machine: m.machine })));
-  return map;
+  return { map, board };
 }
 
 function registerOrderTrackerRoutes(app, pool) {
@@ -544,7 +733,8 @@ function registerOrderTrackerRoutes(app, pool) {
         if (search) params.push(`%${search}%`);
       }
       const orderNos = (await pool.query(sql, params)).rows.map(r => r.order_no);
-      const orders = await loadOrders(pool, orderNos, factoryId, await queueSchedule(pool, factoryId));
+      const q = await queueSchedule(pool, factoryId);
+      const orders = await loadOrders(pool, orderNos, factoryId, q.map, q.board);
       /* open scope hides orders already complete in production */
       const data = (scope === 'open' ? orders.filter(o => o.status !== 'COMPLETE') : orders).map(slim);
       res.json({ ok: true, scope, server_time: new Date().toISOString(), data });
@@ -560,7 +750,8 @@ function registerOrderTrackerRoutes(app, pool) {
       const orderNo = String(req.query.order_no || '').trim();
       if (!orderNo) return res.status(400).json({ ok: false, error: 'order_no is required' });
       const factoryId = getFactoryId(req) || null;
-      const [order] = await loadOrders(pool, [orderNo], factoryId, await queueSchedule(pool, factoryId));
+      const q = await queueSchedule(pool, factoryId);
+      const [order] = await loadOrders(pool, [orderNo], factoryId, q.map, q.board);
       if (!order) return res.status(404).json({ ok: false, error: 'Order not found' });
       res.json({ ok: true, server_time: new Date().toISOString(), data: order });
     } catch (e) {
