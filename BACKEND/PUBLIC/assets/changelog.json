@@ -11,8 +11,30 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.110.2",
+  "latest": "1.111.0",
   "versions": [
+    {
+      "version": "1.111.0",
+      "date": "2026-10-14",
+      "title": "QC Hold register, release history and runner weight",
+      "modules": [
+        {
+          "app": "quality",
+          "changes": [
+            { "type": "feature", "text": "QC app: when you place a HOLD, the Qty on hold is filled in automatically with the hour's produced qty (you can still change it); if left blank the server takes it from the DPR entry." },
+            { "type": "feature", "text": "Quality > Hold now shows Release history (pick From / To dates), with JC No, OR No, Mould name, Mould code, colour and the line's QC Supervisor / Incharge for every hold." },
+            { "type": "feature", "text": "Quality > Hold has a Download Excel button for the holds shown." },
+            { "type": "feature", "text": "QC app One-time Setup now asks for the Actual Runner Weight next to the STD runner weight from the Mould Master (QC app 1.9.0)." }
+          ]
+        },
+        {
+          "app": "dpr",
+          "changes": [
+            { "type": "feature", "text": "DPR Compliance (QC) and the job QC setup panel flag Runner weight when the Actual is off the Mould Master STD." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.110.2",
       "date": "2026-10-14",
