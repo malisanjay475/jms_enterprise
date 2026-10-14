@@ -2839,9 +2839,9 @@
             if (infoEl) infoEl.textContent = `${itemName || jcNo} · ${machine} · ${shift} shift · ${date}`;
 
             // Reset fields
-            ['setup-act-weight','setup-act-ct','setup-act-cav'].forEach(id => { const e = el(id); if (e) e.value = ''; });
-            ['setup-std-weight','setup-std-ct','setup-std-cav'].forEach(id => { const e = el(id); if (e) e.textContent = '—'; });
-            ['setup-var-weight','setup-var-ct','setup-var-cav'].forEach(id => { const e = el(id); if (e) e.textContent = ''; });
+            ['setup-act-weight','setup-act-ct','setup-act-cav','setup-act-runner'].forEach(id => { const e = el(id); if (e) e.value = ''; });
+            ['setup-std-weight','setup-std-ct','setup-std-cav','setup-std-runner'].forEach(id => { const e = el(id); if (e) e.textContent = '—'; });
+            ['setup-var-weight','setup-var-ct','setup-var-cav','setup-var-runner'].forEach(id => { const e = el(id); if (e) e.textContent = ''; });
             const msgEl = el('setup-msg'); if (msgEl) msgEl.textContent = '';
 
             document.getElementById('modal-qc-setup').classList.remove('hidden');
@@ -2858,10 +2858,12 @@
                         setStd('setup-std-weight', std.std_weight);
                         setStd('setup-std-ct', std.std_cycle_time);
                         setStd('setup-std-cav', std.std_cavity);
+                        setStd('setup-std-runner', std.std_runner_weight);
                         _setupJobCtx.std = std;
                         if (setup.act_weight   != null) { setAct('setup-act-weight', setup.act_weight);   calcVariance('weight'); }
                         if (setup.act_cycle_time != null) { setAct('setup-act-ct', setup.act_cycle_time); calcVariance('ct'); }
                         if (setup.act_cavity   != null) { setAct('setup-act-cav', setup.act_cavity);     calcVariance('cav'); }
+                        if (setup.act_runner_weight != null) { setAct('setup-act-runner', setup.act_runner_weight); calcVariance('runner'); }
                     }
                 })
                 .catch(() => {});
@@ -2872,7 +2874,8 @@
             const map = {
                 weight: { stdKey: 'std_weight',    actId: 'setup-act-weight', varId: 'setup-var-weight' },
                 ct:     { stdKey: 'std_cycle_time', actId: 'setup-act-ct',    varId: 'setup-var-ct'     },
-                cav:    { stdKey: 'std_cavity',     actId: 'setup-act-cav',   varId: 'setup-var-cav'    }
+                cav:    { stdKey: 'std_cavity',     actId: 'setup-act-cav',   varId: 'setup-var-cav'    },
+                runner: { stdKey: 'std_runner_weight', actId: 'setup-act-runner', varId: 'setup-var-runner' }
             };
             const m = map[type]; if (!m) return;
             const stdVal = parseFloat(std[m.stdKey]);
@@ -2903,7 +2906,8 @@
                         shift: ctx.shift,
                         std_weight: std.std_weight, act_weight: el('setup-act-weight')?.value,
                         std_cycle_time: std.std_cycle_time, act_cycle_time: el('setup-act-ct')?.value,
-                        std_cavity: std.std_cavity, act_cavity: el('setup-act-cav')?.value
+                        std_cavity: std.std_cavity, act_cavity: el('setup-act-cav')?.value,
+                        std_runner_weight: std.std_runner_weight, act_runner_weight: el('setup-act-runner')?.value
                     })
                 });
                 const data = await r.json();
