@@ -11,8 +11,40 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.109.0",
+  "latest": "1.110.0",
   "versions": [
+    {
+      "version": "1.110.0",
+      "date": "2026-10-14",
+      "title": "Order Tracker: process, on-time verdict and advice",
+      "modules": [
+        {
+          "app": "planning",
+          "changes": [
+            {
+              "type": "feat",
+              "text": "Each order shows a clear answer: On time, At risk, Will be late or Can still be on time, with the reason, and which process it is in now."
+            },
+            {
+              "type": "feat",
+              "text": "New Process view per job card: Moulding, Shifting, Printing / TUF, Packing and Warehouse, with status, planned, revised and actual dates and quantities."
+            },
+            {
+              "type": "feat",
+              "text": "What to do to finish on time: suggestions from the live machine board, such as which free machine to put a waiting mould on, when to add a second machine, or when to move a mould up the queue."
+            },
+            {
+              "type": "feat",
+              "text": "Mould sequence: each mould in the order it must start, with need, made, balance and shifted quantities and its start, must-start and end dates."
+            },
+            {
+              "type": "fix",
+              "text": "A mould whose plan was closed short now shows the pieces and sets still missing, and the order no longer shows a fake expected end; percentages no longer round 99.8% up to 100%."
+            }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.109.0",
       "date": "2026-10-14",

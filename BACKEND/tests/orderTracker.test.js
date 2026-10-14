@@ -100,4 +100,38 @@ describe('order tracker set maths', () => {
     expect(late.start_state).toBe('START_LATE');
     expect(late.slack_hours).toBeLessThan(0);
   });
+
+  test('a mould whose plan closed short: no fake end date, verdict and advice', () => {
+    const target = new Date(Date.now() + 6 * 864e5).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+    const o = buildOrder('JR/3883', {
+      jcRows: [{ order_no: 'JR/3883', jr_qty: 10000, job_card_no: 'JC/3687', prod_plan_qty: 10000, planned_comp_date: target,
+        mld_status: 'Completed', shift_status: 'Pending', prt_tuf_status: '', pack_status: '', wh_status: '' }],
+      bomRows: [{ mould_no: 'LID', mould_name: 'LID TWO CAVITY', item_qty: 30000, jr_qty: 10000 },
+        { mould_no: 'BTM', mould_name: 'BTM 2', item_qty: 30000, jr_qty: 10000 }],
+      planRows: [{ id: 1, plan_id: 'P-LID', mould_code: 'LID', machine: 'B -L3-AKAR-110-9', status: 'COMPLETED' },
+        { id: 2, plan_id: 'P-BTM', mould_code: 'BTM', machine: 'B -L3-OM-150-7', status: 'COMPLETED' }],
+      dprRows: [
+        { plan_id: 'P-LID', mould_no: 'LID', jobcard_no: 'JC/3687', machine: 'B -L3-AKAR-110-9', dpr_date: '2026-10-01', good: 29951, reject: 0, run_hours: 104 },
+        { plan_id: 'P-BTM', mould_no: 'BTM', jobcard_no: 'JC/3687', machine: 'B -L3-OM-150-7', dpr_date: '2026-10-09', good: 30567, reject: 0, run_hours: 270 }],
+      mouldStd: new Map(),
+      shiftByPlan: new Map([['1', { qty: 29000 }], ['2', { qty: 30000 }]]),
+      board: [{ machine: 'B -L3-AKAR-110-9', tonnage: 110, state: 'IDLE', running: [], queue: [] },
+        { machine: 'B -L3-OM-150-7', tonnage: 150, state: 'RUNNING', running: [], queue: [] }]
+    });
+    const lid = o.moulds.find(m => m.mould_no === 'LID');
+    expect(lid.closed_short).toBe(true);
+    expect(lid.balance).toBe(49);
+    expect(lid.shifted).toBe(29000);
+    expect(o.sets_made).toBe(9983);
+    expect(o.expected_end).toBeNull();          /* nothing is running it */
+    expect(o.earliest_end).not.toBeNull();      /* but it could still be done in time */
+    expect(o.verdict.code).toBe('AT_RISK');
+    const tip = o.suggestions[0];
+    expect(tip.level).toBe('bad');
+    expect(tip.title).toMatch(/49 pcs short/);
+    expect(tip.text).toMatch(/17 sets/);
+    expect(tip.text).toMatch(/AKAR-110-9/);    /* free now and ran this mould before */
+    expect(o.process.current).toBe('moulding');
+    expect(o.job_cards[0].process.stages.map(x => x.name)).toEqual(['Moulding', 'Shifting', 'Printing / TUF', 'Packing', 'Warehouse']);
+  });
 });

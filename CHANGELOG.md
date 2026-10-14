@@ -13,6 +13,11 @@ part of your PR. On release, the `[Unreleased]` items move under the new version
 
 ## [Unreleased]
 
+### Added
+- Order Tracker (v1.110.0): verdict (on time / at risk / late), current process and per-job-card process stages from
+  the OR-JR stage fields + shifted qty, suggestions from the live machine board, mould sequence cards with qty.
+  Closed-short moulds detected; order/JC expected end only when every open mould is scheduled (else earliest end).
+
 ### Fixed
 - VPS backup disk growth (v1.107.1): deploy safety dumps in `.deploy/backups` are pruned to the newest 5
   per environment (`KEEP_DEPLOY_BACKUPS`); `vps-cron-setup.sh` no longer installs the 02:05 uploads
