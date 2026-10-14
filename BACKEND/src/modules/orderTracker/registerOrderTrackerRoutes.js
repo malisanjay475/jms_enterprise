@@ -103,7 +103,7 @@ const PLAN_SQL = `
          TRIM(COALESCE(pb.mould_code, '')) AS mould_code, pb.mould_name, pb.item_name,
          COALESCE(pb.plan_qty, 0) AS plan_qty, UPPER(COALESCE(pb.status, '')) AS status,
          NULLIF(TRIM(pb.job_card_no), '') AS job_card_no, pb.consumption_ratio_qty,
-         pb.start_date, pb.end_date, pb.completed_at, pb.seq
+         pb.start_date, pb.end_date, pb.completed_at, pb.completed_by, NULLIF(TRIM(pb.remarks), '') AS remarks, pb.seq
     FROM plan_board pb
    WHERE TRIM(pb.order_no) = ANY($1::text[])
      AND UPPER(COALESCE(pb.status, '')) NOT IN ('REJECTED', 'CANCELLED', 'DELETED')
@@ -349,7 +349,8 @@ function buildOrder(orderNo, { jcRows, bomRows, planRows, dprRows, mouldStd, sch
       forecast_from: expStartMs && status !== 'RUNNING' ? new Date(expStartMs).toISOString() : (eta && status !== 'COMPLETE' ? new Date().toISOString() : null),
       plans: plansOf.map(p => ({
         plan_id: p.plan_id, machine: stripPrefix(p.machine), status: p.status, plan_qty: num(p.plan_qty),
-        job_card_no: p.job_card_no, start_date: p.start_date, end_date: p.end_date, completed_at: p.completed_at
+        job_card_no: p.job_card_no, start_date: p.start_date, end_date: p.end_date, completed_at: p.completed_at,
+        completed_by: p.completed_by || null, remarks: p.remarks || null
       }))
     };
   });

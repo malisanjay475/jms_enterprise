@@ -51,9 +51,13 @@
         .g .fix { position: sticky; background: #fff; z-index: 1; }
         .g thead .fix { z-index: 3; background: #f8fafc; }
         .g .c0 { left: 0; min-width: 52px; max-width: 52px; text-align: center; }
-        .g .c1 { left: 52px; min-width: 220px; max-width: 220px; box-shadow: 2px 0 0 var(--line); }
+        .g .c1 { left: 52px; min-width: 270px; max-width: 270px; box-shadow: 2px 0 0 var(--line); }
         .g tbody tr:hover td { background-color: #fafcff; }
         .g td.c1 .nm { font-weight: 700; }
+        .g td.c1 .pc { display: flex; gap: 8px; align-items: center; }
+        .g td.c1 .pc > div { flex: 1; min-width: 0; }
+        .thumb { width: 46px; height: 46px; flex: 0 0 46px; border-radius: 8px; border: 1px solid var(--line); background: #f8fafc; overflow: hidden; display: grid; place-items: center; color: #cbd5e1; font-size: 20px; cursor: pointer; }
+        .thumb img { width: 100%; height: 100%; object-fit: cover; }
         .g td.c1 .meta { color: var(--mute); font-size: 11px; display: flex; gap: 8px; margin-top: 3px; }
         .g td.c1 .meta a { color: #2563eb; cursor: pointer; text-decoration: none; }
         select.cell, span.cell { width: 100%; border: 0; border-radius: 7px; padding: 6px 4px; font-weight: 700; font-size: 11.5px; text-align: center; text-align-last: center; cursor: pointer; appearance: none; display: block; }
@@ -84,7 +88,7 @@
         .gal .im img { width: 100%; height: 100%; object-fit: cover; cursor: zoom-in; }
         .gal .im button { position: absolute; top: 6px; right: 6px; border: 0; border-radius: 6px; background: rgba(255,255,255,.9); color: #b91c1c; cursor: pointer; padding: 2px 6px; }
         .none { color: var(--mute); font-size: 12px; }
-        @media (max-width: 700px) { .npd { padding: 14px 10px 80px; } .g .c1 { min-width: 160px; max-width: 160px; } .wrap { max-height: none; } }
+        @media (max-width: 700px) { .npd { padding: 14px 10px 80px; } .g .c1 { min-width: 200px; max-width: 200px; } .wrap { max-height: none; } }
     </style>
 </head>
 
@@ -231,11 +235,14 @@
                 h += `</tr></thead><tbody>`;
                 rows.forEach(p => {
                     const reps = p.files.filter(f => f.kind === 'report').length, imgs = p.files.filter(f => f.kind === 'image').length;
+                    /* latest product photo after trial, else a placeholder; click opens the files */
+                    const img = p.files.filter(f => f.kind === 'image').pop();
+                    const thumb = `<span class="thumb" data-files="${p.id}" title="${img ? 'Product images' : 'No product image yet'}">${img ? `<img src="${esc(img.url)}" alt="" loading="lazy">` : '<i class="bi bi-image"></i>'}</span>`;
                     const name = S.canEdit
                         ? `<input class="inp" style="width:100%;padding:4px 6px;font-weight:700" data-id="${p.id}" data-f="product_name" value="${esc(p.product_name)}">`
                         : `<div class="nm">${esc(p.product_name)}</div>`;
                     h += `<tr><td class="fix c0"><b>${esc(p.sr_no || '')}</b></td>
-                        <td class="fix c1">${name}<div class="meta"><a data-files="${p.id}"><i class="bi bi-file-earmark-text"></i> Trial report (${reps})</a><a data-files="${p.id}"><i class="bi bi-images"></i> Images (${imgs})</a></div></td>`;
+                        <td class="fix c1"><div class="pc">${thumb}<div>${name}<div class="meta"><a data-files="${p.id}"><i class="bi bi-file-earmark-text"></i> Trial report (${reps})</a><a data-files="${p.id}"><i class="bi bi-images"></i> Images (${imgs})</a></div></div></div></td>`;
                     COLS.forEach(c => { h += stageCell(p, c); });
                     h += S.canEdit
                         ? `<td><select class="ps ${psClass(p.status)}" data-id="${p.id}" data-f="status"><option value="">— Select —</option>${PSTAT.map(s => `<option${s === p.status ? ' selected' : ''}>${s}</option>`).join('')}</select></td>
