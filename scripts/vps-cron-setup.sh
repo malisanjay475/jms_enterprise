@@ -13,10 +13,9 @@
 #
 # Schedule
 #   - DB dump every 30 min, keep 48 (= 24 h)           -> $BACKUP_DIR/dumps
-#   - Uploads archive daily at 02:05, keep 3            -> $BACKUP_DIR/uploads_*.tar.gz
-#     (taken from inside the app container: uploads live in the jms_v1_uploads
-#      volume, not in $DEPLOY_PATH/BACKEND/PUBLIC/uploads, which is empty — the
-#      old job archived that empty folder every 15 min)
+#   - No uploads archive here: scheduled-backup.yml (vps-backup-to-cloud.sh)
+#     already writes $BACKUP_DIR/uploads/jms_uploads_*.tar.gz every 6 h. The old
+#     02:05 job made a second full copy (3 x 4.7 GB) of the same files.
 #   - Google Drive sync every 30 min, offset 10 min after the dump
 # ============================================================
 
@@ -55,10 +54,7 @@ cat >> "$NEW_CRON" <<CRON
 $BEGIN_MARK
 # 1. DB dump every 30 minutes (keeps last 48 = 24 hours)
 */30 * * * * DB_CONTAINER=$DB_CONTAINER APP_CONTAINER=$APP_CONTAINER BACKUP_DIR=$BACKUP_DIR MAX_BACKUPS=48 bash $DEPLOY_PATH/scripts/backup-db.sh >> $LOG_FILE 2>&1
-# 2. Uploads archive once a day (02:05) from the app container's uploads volume; keep 3.
-#    Uploads are ~1.4 GB, so the earlier hourly schedule would have held ~65 GB.
-5 2 * * * docker exec $APP_CONTAINER sh -c 'cd /app/PUBLIC && tar -czf - uploads' > $BACKUP_DIR/uploads_\$(date +\%Y-\%m-\%d).tar.gz 2>> $LOG_FILE; ls -1t $BACKUP_DIR/uploads_*.tar.gz 2>/dev/null | tail -n +4 | xargs -r rm -f
-# 3. Offsite sync to Google Drive every 30 minutes (10 min after the dump)
+# 2. Offsite sync to Google Drive every 30 minutes (10 min after the dump)
 10,40 * * * * rclone sync "$BACKUP_DIR" "gdrive:JMS-Backups" --copy-links --log-file=/var/log/rclone-sync.log 2>&1
 $END_MARK
 CRON
@@ -67,6 +63,7 @@ crontab "$NEW_CRON"
 echo "[Cron] Installed:"
 crontab -l | sed -n "/^$BEGIN_MARK\$/,/^$END_MARK\$/p"
 
-# One-time cleanup: the old job left thousands of empty (20-byte) upload archives.
-REMOVED=$(find "$BACKUP_DIR" -maxdepth 1 -name 'uploads_*.tar.gz' -size -100c -print -delete | wc -l)
-echo "[Cron] Removed $REMOVED empty uploads_*.tar.gz files."
+# Cleanup: the removed 02:05 job's archives (uploads_*.tar.gz at the top level;
+# the 6-hourly ones live in $BACKUP_DIR/uploads/ and are not touched).
+REMOVED=$(find "$BACKUP_DIR" -maxdepth 1 -name 'uploads_*.tar.gz' -print -delete | wc -l)
+echo "[Cron] Removed $REMOVED old uploads_*.tar.gz files."
