@@ -329,7 +329,7 @@
             return `<span title="${title} — tap for details" aria-label="${title}" style="margin-left:auto;color:${color};font-size:0.88rem;line-height:1;flex:0 0 auto"><i class="bi ${icon}"></i></span>`;
         };
 
-        // QC Setup vs STD (mould master): weight ±5%, cycle time ±10%, cavity exact.
+        // QC Setup vs STD (mould master): weight ±5%, cycle time ±10%, cavity exact, runner weight ±5%.
         window.qcSetupProblems = function (st) {
             const n = v => (v === null || v === undefined || v === '' || isNaN(Number(v))) ? null : Number(v);
             const off = (std, act, tol) => { const a = n(act), b = n(std); return a !== null && b !== null && b > 0 && Math.abs(a - b) / b > tol; };
@@ -337,6 +337,7 @@
             if (off(st.std_weight, st.act_weight, 0.05)) out.push('Wt');
             if (off(st.std_cycle_time, st.act_cycle_time, 0.10)) out.push('Cycle');
             if (n(st.std_cavity) !== null && n(st.act_cavity) !== null && n(st.std_cavity) !== n(st.act_cavity)) out.push('Cavity');
+            if (off(st.std_runner_weight, st.act_runner_weight, 0.05)) out.push('Runner');
             return out;
         };
 

@@ -153,6 +153,7 @@ fun QcInspectionScreen(
                 StdActualRow("Weight (kg)", s.stdWeight, s.actWeight, vm::setActWeight)
                 StdActualRow("Cycle Time (s)", s.stdCT, s.actCT, vm::setActCT)
                 StdActualRow("Cavity", s.stdCavity, s.actCavity, vm::setActCavity)
+                StdActualRow("Runner Wt (kg)", s.stdRunner, s.actRunner, vm::setActRunner)
                 Spacer(Modifier.size(8.dp))
                 OutlinedButton(onClick = vm::saveSetup, enabled = !s.savingSetup, modifier = Modifier.fillMaxWidth()) {
                     if (s.savingSetup) CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)

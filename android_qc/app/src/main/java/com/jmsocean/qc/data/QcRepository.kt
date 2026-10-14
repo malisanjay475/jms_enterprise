@@ -678,6 +678,7 @@ class QcRepository(private val session: SessionStore) {
         stdWeight: Double?, actWeight: Double?,
         stdCT: Double?, actCT: Double?,
         stdCavity: Int?, actCavity: Int?,
+        stdRunner: Double? = null, actRunner: Double? = null,
         setupPeriod: Int = 1
     ): Result<Unit> = runCatching {
         val env = api.saveJobSetup(
@@ -687,6 +688,7 @@ class QcRepository(private val session: SessionStore) {
                 std_weight = stdWeight, act_weight = actWeight,
                 std_cycle_time = stdCT, act_cycle_time = actCT,
                 std_cavity = stdCavity, act_cavity = actCavity,
+                std_runner_weight = stdRunner, act_runner_weight = actRunner,
                 setup_period = setupPeriod
             )
         )

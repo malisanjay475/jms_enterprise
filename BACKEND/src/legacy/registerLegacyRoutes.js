@@ -6174,6 +6174,9 @@ async function initializeLegacyRuntime() {
       END $$;`);
     await qIdx(`CREATE UNIQUE INDEX IF NOT EXISTS uq_qc_job_setup_period
                 ON qc_job_setup (job_card_no, machine, dpr_date, shift, setup_period)`);
+    // Runner weight: STD from the mould master (moulds.runner_weight) vs Actual from QC.
+    await q(`ALTER TABLE qc_job_setup ADD COLUMN IF NOT EXISTS std_runner_weight NUMERIC`);
+    await q(`ALTER TABLE qc_job_setup ADD COLUMN IF NOT EXISTS act_runner_weight NUMERIC`);
 
     // QC ONLINE REPORT SLOTS — structured 2-hour slot quality checks
     await q(`
@@ -32393,7 +32396,8 @@ app.get('/api/qc/summary-matrix', async (req, res) => {
           WHERE dpr_date BETWEEN $1::date AND $2::date AND ($3 = '' OR shift = $3)
             AND ($4::int IS NULL OR factory_id = $4 OR factory_id IS NULL)`, [fromDate, toDate, sh, factoryId]),
       q(`SELECT machine, dpr_date::text AS date, shift, job_card_no, COALESCE(setup_period, 1) AS setup_period,
-                std_weight, act_weight, std_cycle_time, act_cycle_time, std_cavity, act_cavity, setup_by, setup_at
+                std_weight, act_weight, std_cycle_time, act_cycle_time, std_cavity, act_cavity,
+                std_runner_weight, act_runner_weight, setup_by, setup_at
            FROM qc_job_setup
           WHERE dpr_date BETWEEN $1::date AND $2::date AND ($3 = '' OR shift = $3)
             AND ($4::int IS NULL OR factory_id = $4 OR factory_id IS NULL)`, [fromDate, toDate, sh, factoryId]),
@@ -32573,7 +32577,7 @@ app.get('/api/qc/job-setup', async (req, res) => {
     const setup = [setups[1] || null];  // keep the legacy `setup` shape (array-indexed [0])
 
     // Get STD values from mould master
-    let std = { std_weight: null, std_cycle_time: null, std_cavity: null };
+    let std = { std_weight: null, std_cycle_time: null, std_cavity: null, std_runner_weight: null };
     if (mould_name) {
       // Read the canonical Mould Master columns (std_wt_kg / cycle_time / no_of_cav).
       // These are what the Mould Master edit screen writes; older legacy column
@@ -32584,7 +32588,8 @@ app.get('/api/qc/job-setup', async (req, res) => {
         `SELECT
            std_wt_kg   AS std_weight,
            cycle_time  AS std_cycle_time,
-           no_of_cav   AS std_cavity
+           no_of_cav   AS std_cavity,
+           runner_weight AS std_runner_weight
          FROM moulds
          WHERE (LOWER(TRIM(mould_name)) = LOWER(TRIM($1))
                 OR LOWER(TRIM(mould_number)) = LOWER(TRIM($1)))
@@ -32594,7 +32599,7 @@ app.get('/api/qc/job-setup', async (req, res) => {
          LIMIT 1`,
         [mould_name, factoryId]
       );
-      if (mouldRows.length) std = { std_weight: mouldRows[0].std_weight, std_cycle_time: mouldRows[0].std_cycle_time, std_cavity: mouldRows[0].std_cavity };
+      if (mouldRows.length) std = { std_weight: mouldRows[0].std_weight, std_cycle_time: mouldRows[0].std_cycle_time, std_cavity: mouldRows[0].std_cavity, std_runner_weight: mouldRows[0].std_runner_weight };
     }
 
     res.json({ ok: true, setup: setup[0] || null, setups, std });
@@ -32607,7 +32612,7 @@ app.get('/api/qc/job-setup', async (req, res) => {
 app.post('/api/qc/job-setup', async (req, res) => {
   try {
     const { job_card_no, machine, dpr_date, shift, act_weight, act_cycle_time, act_cavity,
-            std_weight, std_cycle_time, std_cavity } = req.body || {};
+            std_weight, std_cycle_time, std_cavity, std_runner_weight, act_runner_weight } = req.body || {};
     if (!job_card_no || !machine || !dpr_date || !shift) return res.json({ ok: false, error: 'job_card_no, machine, dpr_date, shift required' });
     // setup_period: 1 (start of shift) or 2 (mid-shift). Filled twice per shift.
     let setupPeriod = parseInt(req.body.setup_period, 10);
@@ -32619,18 +32624,23 @@ app.post('/api/qc/job-setup', async (req, res) => {
 
     await q(`
       INSERT INTO qc_job_setup (factory_id, job_card_no, machine, dpr_date, shift, setup_period,
-        std_weight, act_weight, std_cycle_time, act_cycle_time, std_cavity, act_cavity, setup_by)
-      VALUES ($1,$2,$3,$4::date,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+        std_weight, act_weight, std_cycle_time, act_cycle_time, std_cavity, act_cavity, setup_by,
+        std_runner_weight, act_runner_weight)
+      VALUES ($1,$2,$3,$4::date,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
       ON CONFLICT (job_card_no, machine, dpr_date, shift, setup_period)
       DO UPDATE SET
         std_weight = EXCLUDED.std_weight, act_weight = EXCLUDED.act_weight,
         std_cycle_time = EXCLUDED.std_cycle_time, act_cycle_time = EXCLUDED.act_cycle_time,
         std_cavity = EXCLUDED.std_cavity, act_cavity = EXCLUDED.act_cavity,
+        -- Older app / web screens don't send runner weight: keep what was saved.
+        std_runner_weight = COALESCE(EXCLUDED.std_runner_weight, qc_job_setup.std_runner_weight),
+        act_runner_weight = COALESCE(EXCLUDED.act_runner_weight, qc_job_setup.act_runner_weight),
         setup_by = EXCLUDED.setup_by, setup_at = NOW()
     `, [factoryId, job_card_no, machine, dpr_date, shift, setupPeriod,
         toN(std_weight), toN(act_weight), toN(std_cycle_time), toN(act_cycle_time),
         toN(std_cavity) ? Math.round(toN(std_cavity)) : null,
-        toN(act_cavity) ? Math.round(toN(act_cavity)) : null, setup_by]);
+        toN(act_cavity) ? Math.round(toN(act_cavity)) : null, setup_by,
+        toN(std_runner_weight), toN(act_runner_weight)]);
 
     syncService.triggerSync();
     res.json({ ok: true });
@@ -32824,11 +32834,23 @@ app.post('/api/qc/hold', (req, res, next) => {
     const rawUser = (req.body.session ? (() => { try { const s = typeof req.body.session === 'string' ? JSON.parse(req.body.session) : req.body.session; return s.username || s.supervisor || s.user || ''; } catch(_) { return ''; } })() : '') || '';
     const hold_by = String(rawUser).replace(/[^\w\s\-\.@]/g, '').slice(0, 100) || 'QC';
     const factoryId = getFactoryId(req);
+    // No qty typed → hold the qty produced in that DPR entry (or the whole hour).
+    let holdQty = parseInt(qty_on_hold, 10);
+    if (!(holdQty > 0)) {
+      const qr = Number.isInteger(entryId)
+        ? await q(`SELECT good_qty AS qty FROM dpr_hourly WHERE id = $1`, [entryId])
+        : await q(`SELECT SUM(good_qty) AS qty FROM dpr_hourly
+                    WHERE machine = $1 AND dpr_date = $2::date AND shift = $3 AND hour_slot = $4
+                      AND COALESCE(is_deleted, false) = false
+                      AND ($5::int IS NULL OR factory_id = $5 OR factory_id IS NULL)`,
+                  [machine, dpr_date, shift || 'Day', slot || '', factoryId]);
+      holdQty = Math.round(Number(qr[0]?.qty) || 0);
+    }
     const r = await q(
       `INSERT INTO qc_holds (factory_id, job_card_no, machine, dpr_date, shift, slot, qty_on_hold, reason, remarks, hold_by, status,
                              image_urls, dpr_entry_id)
        VALUES ($1,$2,$3,$4::date,$5,$6,$7,$8,$9,$10,'ACTIVE',$11::jsonb,$12) RETURNING id`,
-      [factoryId, job_card_no || '', machine, dpr_date, shift || 'Day', slot || '', parseInt(qty_on_hold) || null, reason, remarks || '', hold_by,
+      [factoryId, job_card_no || '', machine, dpr_date, shift || 'Day', slot || '', holdQty > 0 ? holdQty : null, reason, remarks || '', hold_by,
        JSON.stringify(imageUrls), Number.isInteger(entryId) ? entryId : null]
     );
     // Notify via qc_notifications
@@ -32858,6 +32880,130 @@ app.get('/api/qc/holds', async (req, res) => {
       [machine || '', date || null, status || null, factoryId]
     );
     res.json({ ok: true, data: rows || [] });
+  } catch (e) {
+    sendServerError(res, e);
+  }
+});
+
+// GET /api/qc/holds/report?from&to&status=ALL|ACTIVE|RELEASED[&format=xlsx]
+// Hold register for the web Hold tab and its Excel download, with mould name/code,
+// OR No and JC No (from the held DPR entry / its plan) and the line's QC team.
+// ACTIVE = every hold still on; RELEASED = holds of the dates that were released
+// (release history); ALL = active ones plus everything placed on the dates.
+async function buildQcHoldReport(req) {
+  const isDate = v => /^\d{4}-\d{2}-\d{2}$/.test(String(v || ''));
+  let from = isDate(req.query.from) ? String(req.query.from) : null;
+  let to = isDate(req.query.to) ? String(req.query.to) : from;
+  if (!from) from = to || new Date().toISOString().slice(0, 10);
+  if (!to) to = from;
+  if (to < from) [from, to] = [to, from];
+  const status = ['ACTIVE', 'RELEASED'].includes(String(req.query.status || '').toUpperCase())
+    ? String(req.query.status).toUpperCase() : 'ALL';
+  const factoryId = getFactoryId(req);
+  const rows = await q(
+    `SELECT h.id, h.status, h.machine, h.dpr_date::text AS dpr_date, h.shift, h.slot, h.qty_on_hold,
+            h.reason, h.remarks, h.hold_by, h.hold_at, h.released_by, h.released_at, h.release_remarks,
+            COALESCE(h.image_urls, '[]'::jsonb) AS image_urls,
+            COALESCE(NULLIF(TRIM(m.line), ''), '') AS line,
+            COALESCE(NULLIF(TRIM(h.job_card_no), ''), NULLIF(TRIM(d.jobcard_no), ''), NULLIF(TRIM(pb.job_card_no), ''), '') AS job_card_no,
+            COALESCE(NULLIF(TRIM(d.order_no), ''), NULLIF(TRIM(pb.order_no), ''), '') AS or_no,
+            COALESCE(NULLIF(TRIM(pb.mould_name), ''), '') AS mould_name,
+            COALESCE(NULLIF(TRIM(pb.mould_code), ''), NULLIF(TRIM(d.mould_no), ''), '') AS mould_code,
+            COALESCE(NULLIF(TRIM(pb.item_name), ''), '') AS item_name,
+            COALESCE(d.colour, '') AS colour,
+            COALESCE(t.qc_supervisor, '') AS qc_supervisor,
+            COALESCE(t.qc_incharge, '') AS qc_incharge
+       FROM qc_holds h
+       LEFT JOIN LATERAL (
+         SELECT * FROM dpr_hourly d1
+          WHERE (h.dpr_entry_id IS NOT NULL AND d1.id = h.dpr_entry_id)
+             OR (h.dpr_entry_id IS NULL AND d1.machine = h.machine AND d1.dpr_date = h.dpr_date
+                 AND d1.shift = h.shift AND d1.hour_slot = h.slot AND COALESCE(d1.is_deleted, false) = false)
+          ORDER BY d1.id ASC LIMIT 1
+       ) d ON TRUE
+       LEFT JOIN LATERAL (
+         SELECT * FROM plan_board pb2
+          WHERE d.plan_id IS NOT NULL
+            AND (pb2.plan_id = d.plan_id OR CAST(pb2.id AS TEXT) = CAST(d.plan_id AS TEXT))
+            AND (pb2.factory_id = d.factory_id OR pb2.factory_id IS NULL OR d.factory_id IS NULL)
+          ORDER BY pb2.id DESC LIMIT 1
+       ) pb ON TRUE
+       LEFT JOIN LATERAL (
+         SELECT line FROM machines m2 WHERE m2.machine = h.machine
+            AND (h.factory_id IS NULL OR m2.factory_id = h.factory_id) LIMIT 1
+       ) m ON TRUE
+       LEFT JOIN LATERAL (
+         SELECT qc_supervisor, qc_incharge FROM qc_line_teams t2
+          WHERE TRIM(t2.line) = TRIM(m.line) AND t2.dpr_date = h.dpr_date AND t2.shift = h.shift
+            AND (h.factory_id IS NULL OR t2.factory_id IS NULL OR t2.factory_id = h.factory_id)
+          ORDER BY t2.saved_at DESC LIMIT 1
+       ) t ON TRUE
+      WHERE ($4::int IS NULL OR h.factory_id = $4 OR h.factory_id IS NULL)
+        AND CASE $3::text
+              WHEN 'ACTIVE'   THEN h.status = 'ACTIVE'
+              WHEN 'RELEASED' THEN h.status = 'RELEASED' AND h.dpr_date BETWEEN $1::date AND $2::date
+              ELSE h.status = 'ACTIVE' OR h.dpr_date BETWEEN $1::date AND $2::date
+            END
+      ORDER BY (h.status = 'ACTIVE') DESC, COALESCE(h.released_at, h.hold_at) DESC
+      LIMIT 2000`,
+    [from, to, status, factoryId]
+  );
+  return { from, to, status, rows };
+}
+
+app.get('/api/qc/holds/report', async (req, res) => {
+  try {
+    if (!getRequestUsername(req)) return res.status(401).json({ ok: false, error: 'Login required' });
+    const report = await buildQcHoldReport(req);
+    if (String(req.query.format || '') !== 'xlsx') return res.json({ ok: true, ...report });
+
+    const ExcelJS = require('exceljs');
+    const wb = new ExcelJS.Workbook();
+    wb.creator = getRequestUsername(req) || 'JMS';
+    wb.created = new Date();
+    const ws = wb.addWorksheet('QC Holds', { views: [{ state: 'frozen', ySplit: 3 }] });
+    const fmt = ts => ts ? new Date(ts).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }) : '';
+    const cols = [
+      ['Status', 11], ['Line', 10], ['Machine', 20], ['Date', 12], ['Shift', 8], ['Slot', 8],
+      ['JC No', 18], ['OR No', 18], ['Mould Code', 16], ['Mould Name', 28], ['Item', 28], ['Colour', 12],
+      ['Qty on Hold', 11], ['Reason', 34], ['Remarks', 28],
+      ['Held By', 16], ['Held At', 20], ['QC Supervisor', 18], ['QC Incharge', 18],
+      ['Released By', 16], ['Released At', 20], ['Release Remarks', 28], ['Photos', 8]
+    ];
+    ws.columns = cols.map(([, w]) => ({ width: w }));
+    const title = report.status === 'RELEASED' ? 'Release history' : report.status === 'ACTIVE' ? 'Active holds' : 'All holds';
+    ws.mergeCells(1, 1, 1, cols.length);
+    ws.getCell(1, 1).value = `QC Hold Register — ${title} · ${report.from}${report.to !== report.from ? ' to ' + report.to : ''}`;
+    ws.getCell(1, 1).font = { bold: true, size: 13, color: { argb: 'FFFFFFFF' } };
+    ws.getCell(1, 1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E4E79' } };
+    ws.getRow(1).height = 24;
+    ws.getCell(2, 1).value = `Generated ${fmt(new Date())} by ${getRequestUsername(req) || ''}`;
+    ws.getCell(2, 1).font = { italic: true, size: 9, color: { argb: 'FF64748B' } };
+    const head = ws.getRow(3);
+    cols.forEach(([h], i) => {
+      const c = head.getCell(i + 1);
+      c.value = h;
+      c.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+      c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF2E6CA4' } };
+      c.alignment = { vertical: 'middle', wrapText: true };
+    });
+    report.rows.forEach(r => {
+      const row = ws.addRow([
+        r.status === 'ACTIVE' ? 'ON HOLD' : 'Released', r.line, r.machine, r.dpr_date, r.shift, r.slot,
+        r.job_card_no, r.or_no, r.mould_code, r.mould_name, r.item_name, r.colour,
+        r.qty_on_hold == null ? '' : Number(r.qty_on_hold), r.reason, r.remarks,
+        r.hold_by, fmt(r.hold_at), r.qc_supervisor, r.qc_incharge,
+        r.released_by || '', fmt(r.released_at), r.release_remarks || '',
+        Array.isArray(r.image_urls) ? r.image_urls.length : 0
+      ]);
+      row.alignment = { vertical: 'top', wrapText: true };
+      row.getCell(1).font = { bold: true, color: { argb: r.status === 'ACTIVE' ? 'FFB91C1C' : 'FF047857' } };
+    });
+    ws.autoFilter = { from: { row: 3, column: 1 }, to: { row: 3, column: cols.length } };
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="QC_Holds_${report.from}_${report.to}.xlsx"`);
+    await wb.xlsx.write(res);
+    res.end();
   } catch (e) {
     sendServerError(res, e);
   }
