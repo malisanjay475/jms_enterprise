@@ -85,6 +85,7 @@ function escHtml(value) {
     const APP_ACCESS_CONFIG = [
         { id: 'dashboard', label: 'Dashboard', href: 'index.html' },
         { id: 'planning', label: 'Planning Board', href: 'planning.html' },
+        { id: 'npd', label: 'NPD', href: 'npd.html' },
         { id: 'analyze', label: 'Analyze', href: 'analyze.html' },
         { id: 'raw_material', label: 'Raw Material', href: 'raw_material_jobwise.html' },
         { id: 'dpr', label: 'DPR', href: 'dpr.html?view=summary' },
@@ -115,6 +116,7 @@ function escHtml(value) {
         'index.html': 'dashboard',
         'planning.html': 'planning',
         'order_tracker.html': 'planning',
+        'npd.html': 'npd',
         'analyze.html': 'analyze',
         'raw_material_jobwise.html': 'raw_material',
         'dpr.html': 'dpr',
@@ -1304,6 +1306,15 @@ function escHtml(value) {
             ]
         },
         {
+            id: 'npd',
+            label: 'NPD',
+            icon: 'bi-lightbulb',
+            href: 'npd.html',
+            items: [
+                { id: 'npd_tracker', label: 'NPD Tracker', icon: 'bi-kanban', href: 'npd.html' }
+            ]
+        },
+        {
             id: 'analyze',
             label: 'Analyze',
             icon: 'bi-bar-chart-fill',
@@ -2382,7 +2393,7 @@ function escHtml(value) {
   window.JPSMS = window.JPSMS || {};
   window.JPSMS._pathAppMap = {
     '': 'dashboard', '/': 'dashboard', 'index.html': 'dashboard',
-    'planning.html': 'planning', 'order_tracker.html': 'planning', 'analyze.html': 'analyze',
+    'planning.html': 'planning', 'order_tracker.html': 'planning', 'npd.html': 'npd', 'analyze.html': 'analyze',
     'raw_material_jobwise.html': 'raw_material', 'dpr.html': 'dpr',
     'dpr_daily_report.html': 'dpr', 'job_summary.html': 'dpr',
     'purchase_orders.html': 'purchase', 'purchase_vendors.html': 'purchase',

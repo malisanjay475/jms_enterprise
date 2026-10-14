@@ -12999,6 +12999,7 @@ app.post('/api/planning/complete', async (req, res) => {
   try {
     const { id, completed_qty, remarks, user } = req.body;
     if (!id) return res.json({ ok: false, error: 'Missing ID' });
+    if (!String(remarks || '').trim()) return res.json({ ok: false, error: 'Remarks are required to complete a plan' });
 
     // Update status, timestamps, and details.
     // CRITICAL: bump updated_at (and last_updated_at) so the completion is a fresh
@@ -17121,6 +17122,7 @@ app.get('/api/planning/completed', async (req, res) => {
           o.client_name AS "clientName",
           pb.plan_qty AS "planQty",
           pb.completed_by AS "completedBy", pb.completed_at AS "completedAt",
+          pb.remarks AS "remarks",
           ojr.job_card_no AS "jcNo",
           COALESCE(dpr.qty, 0) AS "producedQty",
           m.cycle_time AS "stdCycle", m.no_of_cav AS "stdCav",

@@ -163,9 +163,9 @@
               <!-- Remarks -->
               <div>
                 <div style="font-size:0.7rem;font-weight:700;color:#374151;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px;">
-                  <i class="bi bi-chat-left-text"></i> Remarks / Notes
+                  <i class="bi bi-chat-left-text"></i> Remarks / Notes <span style="color:#dc2626;">*</span>
                 </div>
-                <textarea id="cpmRemarks" rows="2" placeholder="Enter completion notes (optional)..."
+                <textarea id="cpmRemarks" rows="2" placeholder="Enter completion remarks (required)..."
                   style="width:100%;padding:10px;border:1px solid #d1d5db;border-radius:8px;font-size:0.9rem;box-sizing:border-box;resize:vertical;"></textarea>
               </div>
             </div>
@@ -313,10 +313,15 @@
     window.submitCompletePlan = async function () {
       const id          = window.cpCurrentPlanId;
       const completedQty = document.getElementById('cpmProduced').value;
-      const remarks     = document.getElementById('cpmRemarks').value;
+      const remarks     = document.getElementById('cpmRemarks').value.trim();
       const user        = (window.JPSMS && window.JPSMS.store && window.JPSMS.store.me)
                           ? window.JPSMS.store.me.username : 'Unknown';
       if (!id) return;
+      if (!remarks) {
+        alert('Remarks are required to complete a plan.');
+        document.getElementById('cpmRemarks').focus();
+        return;
+      }
       if (!confirm('Mark this plan as COMPLETE?')) return;
 
       const btn = document.getElementById('btnConfirmComplete');
@@ -346,7 +351,7 @@
           try {
             await api.post('/planning/complete', {
               id: ex.id, completed_qty: ex.qty,
-              remarks: (remarks ? remarks + ' (batch)' : 'Batch complete'), user
+              remarks: remarks + ' (batch)', user
             });
           } catch (e2) { console.warn('Related plan complete failed:', ex.id, e2.message); }
         }
@@ -412,13 +417,14 @@
           <td>${esc(p.status || 'DONE')}</td>
           <td>${esc(p.completedBy || '-')}</td>
           <td>${esc(dt(p.completedAt))}</td>
+          <td>${esc(p.remarks || '')}</td>
         </tr>`;
       }).join('');
       const th = (t, a) => `<th style="background:#0f172a;color:#fff;border:1px solid #334155;padding:6px 8px;text-align:${a || 'left'}">${t}</th>`;
       const table = `<table border="1" style="border-collapse:collapse;font-family:Arial;font-size:12px">
         <thead>
-          <tr><td colspan="15" style="font-size:15px;font-weight:bold;padding:8px">Complete Production Plan Report (${plans.length} plans)</td></tr>
-          <tr>${th('Machine')}${th('OR No')}${th('Job Card')}${th('Mould')}${th('Product')}${th('Mould No')}${th('Client')}${th('Plan', 'right')}${th('Produced', 'right')}${th('Balance (Prod-Plan)', 'right')}${th('Actual Start')}${th('Actual End')}${th('Status')}${th('By')}${th('Completed At')}</tr>
+          <tr><td colspan="16" style="font-size:15px;font-weight:bold;padding:8px">Complete Production Plan Report (${plans.length} plans)</td></tr>
+          <tr>${th('Machine')}${th('OR No')}${th('Job Card')}${th('Mould')}${th('Product')}${th('Mould No')}${th('Client')}${th('Plan', 'right')}${th('Produced', 'right')}${th('Balance (Prod-Plan)', 'right')}${th('Actual Start')}${th('Actual End')}${th('Status')}${th('By')}${th('Completed At')}${th('Remarks')}</tr>
         </thead>
         <tbody>${rows}</tbody>
       </table>`;
@@ -488,7 +494,7 @@
           const st = document.createElement('style');
           st.id = 'pcrStyles';
           st.textContent = `
-            .pcr-grid{--pcr-cols:minmax(130px,1.2fr) 140px 150px minmax(210px,2.2fr) 110px minmax(120px,1fr) 84px 96px 104px 104px 104px 96px 92px 124px 70px;}
+            .pcr-grid{--pcr-cols:minmax(130px,1.2fr) 140px 150px minmax(210px,2.2fr) 110px minmax(120px,1fr) 84px 96px 104px 104px 104px 96px 92px 124px minmax(160px,1.6fr) 70px;}
             .pcr-head{display:grid;grid-template-columns:var(--pcr-cols);gap:8px;align-items:center;position:sticky;top:0;z-index:6;
               padding:7px 12px;border-radius:10px;margin-bottom:6px;
               background:linear-gradient(180deg,#1e293b 0%,#0f172a 100%);
@@ -520,6 +526,7 @@
             .pcr-bal.zero{color:#64748b;}
             .pcr-time{font-size:0.76rem;color:#475569;}
             .pcr-when{font-size:0.74rem;color:#64748b;}
+            .pcr-remarks{font-size:0.76rem;color:#334155;font-style:italic;}
             .pcr-status-wrap{display:flex;align-items:center;justify-content:center;gap:6px;}
             .pcr-done{display:inline-flex;align-items:center;gap:4px;background:#dcfce7;color:#15803d;border:1px solid #86efac;
               padding:3px 9px;border-radius:999px;font-size:0.72rem;font-weight:800;letter-spacing:.03em;}
@@ -555,7 +562,7 @@
           <div class="pcr-grid pcr-head">
             <div>Machine</div><div>OR No</div><div>Job Card</div><div>Mould / Product</div><div>Mould No</div><div>Client</div>
             <div class="num">Plan</div><div class="num">Produced</div><div class="num">Bal</div>
-            <div>Actual Start</div><div>Actual End</div><div class="ctr">Status</div><div>By</div><div>Date / Time</div><div class="ctr">Action</div>
+            <div>Actual Start</div><div>Actual End</div><div class="ctr">Status</div><div>By</div><div>Completed At</div><div>Remarks</div><div class="ctr">Action</div>
           </div>`;
 
         const u = (window.JPSMS && window.JPSMS.auth) ? window.JPSMS.auth.getUser() : {};
@@ -605,7 +612,8 @@
             <div class="pcr-cell pcr-time">${fmtDate(p.actualEnd)}</div>
             <div class="pcr-status-wrap"><span class="pcr-done"><i class="bi bi-check-circle-fill"></i>DONE</span></div>
             <div class="pcr-cell pcr-by" title="${esc(by)}"><span class="pcr-avatar">${initial}</span><span class="pcr-cell">${by}</span></div>
-            <div class="pcr-cell pcr-when">${fmtDate(p.completedAt)}</div>
+            <div class="pcr-cell pcr-when" title="${esc(p.completedAt ? new Date(p.completedAt).toLocaleString('en-GB') : '')}">${fmtDate(p.completedAt)}</div>
+            <div class="pcr-cell pcr-remarks" title="${esc(p.remarks)}">${p.remarks ? pEsc(p.remarks) : '<span style="color:#cbd5e1">—</span>'}</div>
             <div class="pcr-status-wrap">${restoreBtn}</div>
           </div>`;
         });
