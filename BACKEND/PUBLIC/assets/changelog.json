@@ -11,8 +11,21 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.117.0",
+  "latest": "1.118.0",
   "versions": [
+    {
+      "version": "1.118.0",
+      "date": "2026-10-14",
+      "title": "Order Tracker shows completion remarks",
+      "modules": [
+        {
+          "app": "planning",
+          "changes": [
+            { "type": "feat", "text": "Order Tracker > All dates > Machine plans now shows the remark entered when each plan was completed, and who completed it." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.117.0",
       "date": "2026-10-14",

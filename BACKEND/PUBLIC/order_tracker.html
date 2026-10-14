@@ -688,7 +688,11 @@
                     html += grp('bi-cpu', 'Machine plans', plans.length);
                     html += plans.map(p => {
                         const pDone = ['COMPLETED', 'CLOSED'].includes(p.status);
-                        return row('lvl1', `${esc(p.machine)}`, `${esc(p.plan_id)} · ${esc(short(p.mould))} · ${n0(p.plan_qty)} pcs${p.job_card_no ? ' · ' + esc(p.job_card_no) : ''}`,
+                        /* completion remark (and who completed it) under the plan line */
+                        const rem = pDone && (p.remarks || p.completed_by)
+                            ? `<div class="small" style="color:#334155;font-style:italic;white-space:normal"><i class="bi bi-chat-left-text"></i> ${p.remarks ? esc(p.remarks) : '<span class="muted">no remark</span>'}${p.completed_by ? ` <span class="muted">— ${esc(p.completed_by)}</span>` : ''}</div>`
+                            : '';
+                        return row('lvl1', `${esc(p.machine)}`, `${esc(p.plan_id)} · ${esc(short(p.mould))} · ${n0(p.plan_qty)} pcs${p.job_card_no ? ' · ' + esc(p.job_card_no) : ''}${rem}`,
                             dPlan(p.start_date), dash, dash, dPlan(p.end_date), pDone ? dAct(p.completed_at) : dash,
                             pDone && p.end_date ? variance(p.completed_at, p.end_date) : dash, null,
                             pill(pDone ? 'COMPLETE' : p.status === 'RUNNING' ? 'RUNNING' : 'PLANNED'));
