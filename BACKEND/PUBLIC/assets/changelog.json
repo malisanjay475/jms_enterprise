@@ -11,8 +11,21 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.111.2",
+  "latest": "1.112.2",
   "versions": [
+    {
+      "version": "1.112.2",
+      "date": "2026-10-14",
+      "title": "QC Hold — one filter bar",
+      "modules": [
+        {
+          "app": "quality",
+          "changes": [
+            { "type": "improvement", "text": "Quality > Hold now has a single filter bar (Show, From, To, Line, Machine); the page's Date / Shift filter is hidden on this tab." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.111.2",
       "date": "2026-10-14",
