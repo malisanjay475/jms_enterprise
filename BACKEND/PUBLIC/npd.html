@@ -50,7 +50,7 @@
         .g thead tr.col th small { display: block; color: var(--mute); font-weight: 600; margin-top: 2px; }
         .g .fix { position: sticky; background: #fff; z-index: 1; }
         .g thead .fix { z-index: 3; background: #f8fafc; }
-        .g .c0 { left: 0; min-width: 52px; max-width: 52px; }
+        .g .c0 { left: 0; min-width: 52px; max-width: 52px; text-align: center; }
         .g .c1 { left: 52px; min-width: 220px; max-width: 220px; box-shadow: 2px 0 0 var(--line); }
         .g tbody tr:hover td { background-color: #fafcff; }
         .g td.c1 .nm { font-weight: 700; }
@@ -123,7 +123,6 @@
     <div class="mb" id="addModal">
         <div class="md" style="max-width:460px">
             <h3>Add NPD Product</h3>
-            <div class="row2"><label>Sr No</label><input class="inp" id="aSr"></div>
             <div class="row2"><label>Product *</label><input class="inp" id="aName" maxlength="300"></div>
             <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
                 <button class="btn" data-close="addModal">Cancel</button>
@@ -235,7 +234,7 @@
                     const name = S.canEdit
                         ? `<input class="inp" style="width:100%;padding:4px 6px;font-weight:700" data-id="${p.id}" data-f="product_name" value="${esc(p.product_name)}">`
                         : `<div class="nm">${esc(p.product_name)}</div>`;
-                    h += `<tr><td class="fix c0">${S.canEdit ? `<input class="inp" style="width:44px;padding:4px" data-id="${p.id}" data-f="sr_no" value="${esc(p.sr_no || '')}">` : esc(p.sr_no || '')}</td>
+                    h += `<tr><td class="fix c0"><b>${esc(p.sr_no || '')}</b></td>
                         <td class="fix c1">${name}<div class="meta"><a data-files="${p.id}"><i class="bi bi-file-earmark-text"></i> Trial report (${reps})</a><a data-files="${p.id}"><i class="bi bi-images"></i> Images (${imgs})</a></div></td>`;
                     COLS.forEach(c => { h += stageCell(p, c); });
                     h += S.canEdit
@@ -287,12 +286,12 @@
             $('refresh').onclick = load;
 
             document.querySelectorAll('[data-close]').forEach(b => b.onclick = () => $(b.dataset.close).classList.remove('on'));
-            $('addBtn').onclick = () => { $('aSr').value = ''; $('aName').value = ''; $('addModal').classList.add('on'); $('aName').focus(); };
+            $('addBtn').onclick = () => { $('aName').value = ''; $('addModal').classList.add('on'); $('aName').focus(); };
             $('aSave').onclick = async () => {
                 const name = $('aName').value.trim();
                 if (!name) return toast('Product name is required', 'error');
                 try {
-                    const res = await api('/npd/products', { method: 'POST', body: JSON.stringify({ sr_no: $('aSr').value.trim(), product_name: name }) });
+                    const res = await api('/npd/products', { method: 'POST', body: JSON.stringify({ product_name: name }) });
                     S.rows.push(res.data); $('addModal').classList.remove('on'); render();
                 } catch (e) { }
             };
