@@ -84,6 +84,37 @@
         .kv { display: grid; grid-template-columns: 120px 1fr; gap: 6px 10px; font-size: .88rem; }
         .kv b { color: var(--text-muted); font-weight: 600; }
 
+        /* ---- Hold register ---- */
+        .h-bar { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; margin-bottom: 14px; }
+        .h-bar label { display: flex; flex-direction: column; gap: 4px; font-size: .7rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: .4px; }
+        .h-seg { display: inline-flex; background: #f1f5f9; border-radius: 10px; padding: 3px; gap: 2px; }
+        .h-seg button { border: 0; background: none; padding: 7px 12px; border-radius: 8px; font-size: .82rem; font-weight: 700; color: #64748b; cursor: pointer; display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+        .h-seg button.on { background: #fff; color: var(--primary-dark); box-shadow: 0 1px 3px rgba(15,23,42,.12); }
+        .h-xl { margin-left: auto; background: #16a34a; color: #fff; border: 0; border-radius: 9px; padding: 9px 14px; font-weight: 700; font-size: .82rem; cursor: pointer; display: flex; align-items: center; gap: 6px; }
+        .h-xl:hover { background: #15803d; } .h-xl:disabled { opacity: .6; cursor: wait; }
+        .h-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 14px; }
+        .h-kpi { background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; display: flex; align-items: center; gap: 12px; }
+        .h-kpi i { width: 38px; height: 38px; border-radius: 10px; display: grid; place-items: center; font-size: 1.1rem; flex: 0 0 auto; }
+        .h-kpi .v { font-size: 1.45rem; font-weight: 800; line-height: 1.1; color: var(--primary-dark); }
+        .h-kpi .l { font-size: .7rem; font-weight: 700; text-transform: uppercase; color: var(--text-muted); letter-spacing: .4px; }
+        .h-table td { padding: 10px; vertical-align: middle; }
+        .h-table tbody tr:hover td { background: #f8fafc; }
+        .h-table tr.act td:first-child { box-shadow: inset 4px 0 0 var(--q-bad); }
+        .h-table tr.rel td:first-child { box-shadow: inset 4px 0 0 var(--q-ok); }
+        .h-st { display: inline-flex; align-items: center; gap: 4px; border-radius: 999px; padding: 3px 9px; font-size: .7rem; font-weight: 800; white-space: nowrap; }
+        .h-st.act { background: var(--q-bad-bg); color: var(--q-bad); } .h-st.rel { background: var(--q-ok-bg); color: var(--q-ok); }
+        .h-chip { display: inline-block; background: #eef2ff; color: #4338ca; border-radius: 6px; padding: 1px 6px; font-size: .7rem; font-weight: 700; margin-top: 3px; }
+        .h-chip.grey { background: #f1f5f9; color: #475569; }
+        .h-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #94a3b8; margin-right: 4px; vertical-align: middle; }
+        .h-mould { font-weight: 700; color: #0f172a; max-width: 280px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+        .h-jc { font-weight: 700; color: #0f172a; white-space: nowrap; font-variant-numeric: tabular-nums; }
+        .h-qty { font-weight: 800; font-size: .95rem; text-align: right; font-variant-numeric: tabular-nums; }
+        .h-reason { font-weight: 700; color: #7f1d1d; max-width: 240px; }
+        .h-who { font-weight: 700; color: #0f172a; white-space: nowrap; }
+        .h-team { font-size: .72rem; color: #475569; white-space: nowrap; } .h-team b { color: #94a3b8; font-weight: 700; }
+        .h-rel-btn { border: 1px solid #fca5a5; background: #fff; color: #b91c1c; border-radius: 8px; padding: 6px 12px; font-weight: 700; font-size: .78rem; cursor: pointer; white-space: nowrap; }
+        .h-rel-btn:hover { background: #fef2f2; }
+        @media (max-width: 700px) { .h-xl { margin-left: 0; } .h-seg { flex-wrap: wrap; } }
         @media (max-width: 700px) {
             .q-grid2 { grid-template-columns: 1fr; }
             .q-filters .form-input { min-width: 0; width: 100%; }
@@ -172,19 +203,20 @@
 
         <!-- HOLDS -->
         <div id="view-holds" class="hidden">
-            <div class="legend" style="flex-wrap:wrap;gap:10px">
+            <div class="h-bar">
+                <input type="hidden" id="hold-status" value="ALL">
                 <label>Show
-                    <select id="hold-status" class="form-input" onchange="loadHolds()">
-                        <option value="ALL">Active + placed on these dates</option>
-                        <option value="ACTIVE">Active holds only</option>
-                        <option value="RELEASED">Release history</option>
-                    </select>
+                    <div class="h-seg" id="hold-seg">
+                        <button type="button" data-st="ALL" class="on" onclick="setHoldStatus('ALL')"><i class="bi bi-list-ul"></i> All</button>
+                        <button type="button" data-st="ACTIVE" onclick="setHoldStatus('ACTIVE')"><i class="bi bi-sign-stop"></i> On hold</button>
+                        <button type="button" data-st="RELEASED" onclick="setHoldStatus('RELEASED')"><i class="bi bi-clock-history"></i> Release history</button>
+                    </div>
                 </label>
                 <label>From <input type="date" id="hold-from" class="form-input" onchange="loadHolds()"></label>
                 <label>To <input type="date" id="hold-to" class="form-input" onchange="loadHolds()"></label>
-                <button class="btn btn-outline small" id="hold-excel" onclick="downloadHoldsExcel()"><i class="bi bi-file-earmark-excel"></i> Download Excel</button>
-                <span style="margin-left:auto" id="hold-summary"></span>
+                <button class="h-xl" id="hold-excel" onclick="downloadHoldsExcel()"><i class="bi bi-file-earmark-excel"></i> Download Excel</button>
             </div>
+            <div class="h-kpis" id="hold-summary"></div>
             <div id="holds-container"></div>
         </div>
 
@@ -590,34 +622,47 @@
                 $('holds-container').innerHTML = `<div class="q-empty" style="color:var(--q-bad)">${esc(e.message)}</div>`;
             }
         }
+        function setHoldStatus(st) {
+            $('hold-status').value = st;
+            document.querySelectorAll('#hold-seg button').forEach(b => b.classList.toggle('on', b.dataset.st === st));
+            loadHolds();
+        }
         function renderHolds() {
             const line = $('filter-line').value, mc = $('filter-machine').value;
             const lineOf = new Map(((OV && OV.machines) || []).map(m => [m.machine, m.line]));
             const list = HOLDS.filter(h => (!line || (h.line || lineOf.get(h.machine)) === line) && (mc === 'All Machines' || h.machine === mc));
-            const act = list.filter(h => h.status === 'ACTIVE').length;
-            $('hold-summary').innerHTML = `<b>${list.length}</b> hold${list.length === 1 ? '' : 's'} · <span style="color:var(--q-bad)">${act} active</span> · <span style="color:#047857">${list.length - act} released</span>`;
+            const active = list.filter(h => h.status === 'ACTIVE');
+            const qty = active.reduce((t, h) => t + (Number(h.qty_on_hold) || 0), 0);
+            const kpi = (icon, bg, fg, v, l) => `<div class="h-kpi"><i class="bi ${icon}" style="background:${bg};color:${fg}"></i><div><div class="v">${v}</div><div class="l">${l}</div></div></div>`;
+            $('hold-summary').innerHTML =
+                kpi('bi-sign-stop-fill', 'var(--q-bad-bg)', 'var(--q-bad)', active.length, 'On hold') +
+                kpi('bi-check2-circle', 'var(--q-ok-bg)', 'var(--q-ok)', list.length - active.length, 'Released') +
+                kpi('bi-box-seam', '#fef3c7', '#b45309', qty.toLocaleString('en-IN'), 'Qty on hold') +
+                kpi('bi-cpu', '#e0f2fe', '#0369a1', new Set(active.map(h => h.machine)).size, 'Machines on hold');
             if (!list.length) {
-                $('holds-container').innerHTML = `<div class="q-empty">${$('hold-status').value === 'RELEASED' ? 'No holds released for these dates.' : 'No active holds, and none placed on these dates. 👍'}</div>`;
+                $('holds-container').innerHTML = `<div class="q-card q-empty">${$('hold-status').value === 'RELEASED' ? 'No holds released for these dates.' : 'No active holds, and none placed on these dates. 👍'}</div>`;
                 return;
             }
             const user = (JPSMS.auth.getUser && JPSMS.auth.getUser()) || {};
             const canRelease = ['quality', 'quality_manager', 'quality_supervisor', 'qc_supervisor', 'quality_ass__manager', 'admin', 'superadmin'].includes(String(user.role_code || '').toLowerCase());
-            const sub = v => v ? `<div class="mc-sub">${esc(v)}</div>` : '';
-            $('holds-container').innerHTML = `<div class="q-scroll"><table class="q-table"><thead><tr>
-                <th>Status</th><th>Machine</th><th>Date / Shift</th><th>JC No / OR No</th><th>Mould</th><th>Qty</th><th>Reason</th><th>Photos</th><th>Held by / QC Supervisor</th><th>Released</th><th></th></tr></thead><tbody>
-                ${list.map(h => `<tr>
-                    <td>${h.status === 'ACTIVE' ? '<span class="tag bad">ON HOLD</span>' : '<span class="tag ok">Released</span>'}</td>
-                    <td class="mc">${esc(h.machine)}${sub(h.line)}</td>
-                    <td style="white-space:nowrap">${esc(fmtDate(h.dpr_date))} · ${esc(h.shift || '')}${h.slot ? ` · ${esc(h.slot)}` : ''}</td>
-                    <td style="white-space:nowrap"><div>${esc(h.job_card_no || '—')}</div>${sub(h.or_no ? 'OR ' + h.or_no : '')}</td>
-                    <td style="white-space:normal;min-width:150px"><div style="font-weight:600">${esc(h.mould_name || '—')}</div>${sub([h.mould_code, h.colour].filter(Boolean).join(' · '))}</td>
-                    <td>${esc(h.qty_on_hold ?? '—')}</td>
-                    <td><div style="font-weight:600">${esc(h.reason || '')}</div>${h.remarks ? `<div class="mc-sub" style="white-space:normal">${esc(h.remarks)}</div>` : ''}</td>
+            const muted = '<span class="mc-sub">—</span>';
+            const team = h => (h.qc_supervisor || h.qc_incharge)
+                ? `<div class="h-team" style="margin-top:3px">${h.qc_supervisor ? `<b>SUP</b> ${esc(h.qc_supervisor)}` : ''}${h.qc_supervisor && h.qc_incharge ? ' · ' : ''}${h.qc_incharge ? `<b>INC</b> ${esc(h.qc_incharge)}` : ''}</div>` : '';
+            $('holds-container').innerHTML = `<div class="q-scroll"><table class="q-table h-table"><thead><tr>
+                <th>Status</th><th>Machine</th><th>Date / Shift</th><th>JC No / OR No</th><th>Mould</th><th style="text-align:right">Qty</th><th>Reason</th><th>Photos</th><th>Held by · QC team</th><th>Released</th><th></th></tr></thead><tbody>
+                ${list.map(h => { const act = h.status === 'ACTIVE'; return `<tr class="${act ? 'act' : 'rel'}">
+                    <td>${act ? '<span class="h-st act"><i class="bi bi-pause-fill"></i> ON HOLD</span>' : '<span class="h-st rel"><i class="bi bi-check-lg"></i> Released</span>'}</td>
+                    <td><div class="mc">${esc(h.machine)}</div>${h.line ? `<span class="h-chip grey">${esc(h.line)}</span>` : ''}</td>
+                    <td style="white-space:nowrap"><div style="font-weight:700">${esc(fmtDate(h.dpr_date))} · ${esc(h.shift || '')}</div>${h.slot ? `<span class="h-chip">${esc(h.slot)}</span>` : ''}</td>
+                    <td><div class="h-jc">${esc(h.job_card_no || '—')}</div>${h.or_no ? `<div class="mc-sub">${esc(h.or_no)}</div>` : ''}</td>
+                    <td><div class="h-mould" title="${esc(h.mould_name || '')}">${esc(h.mould_name || '—')}</div><div class="mc-sub">${h.mould_code ? esc(h.mould_code) : ''}${h.mould_code && h.colour ? ' · ' : ''}${h.colour ? `<span class="h-dot"></span>${esc(h.colour)}` : ''}</div></td>
+                    <td class="h-qty">${h.qty_on_hold != null ? esc(Number(h.qty_on_hold).toLocaleString('en-IN')) : muted}</td>
+                    <td><div class="h-reason">${esc(h.reason || '')}</div>${h.remarks ? `<div class="mc-sub" style="white-space:normal">${esc(h.remarks)}</div>` : ''}</td>
                     <td>${holdPhotos(h.image_urls)}</td>
-                    <td style="white-space:nowrap">${esc(h.hold_by || '')}<div class="mc-sub">${esc(fmtTime(h.hold_at))}</div>${h.qc_supervisor ? `<div class="mc-sub">Sup: ${esc(h.qc_supervisor)}</div>` : ''}${h.qc_incharge ? `<div class="mc-sub">Inc: ${esc(h.qc_incharge)}</div>` : ''}</td>
-                    <td style="white-space:nowrap">${h.released_at ? `${esc(h.released_by || '')}<div class="mc-sub">${esc(fmtTime(h.released_at))}</div>${h.release_remarks ? `<div class="mc-sub" style="white-space:normal">${esc(h.release_remarks)}</div>` : ''}` : '—'}</td>
-                    <td>${h.status === 'ACTIVE' && canRelease ? `<button class="btn btn-outline small" onclick="releaseHold(${Number(h.id)})">Release</button>` : ''}</td>
-                </tr>`).join('')}</tbody></table></div>`;
+                    <td><div class="h-who">${esc(h.hold_by || '')}</div><div class="mc-sub">${esc(fmtTime(h.hold_at))}</div>${team(h)}</td>
+                    <td>${h.released_at ? `<div class="h-who" style="color:var(--q-ok)">${esc(h.released_by || '')}</div><div class="mc-sub">${esc(fmtTime(h.released_at))}</div>${h.release_remarks ? `<div class="mc-sub" style="white-space:normal;max-width:200px">${esc(h.release_remarks)}</div>` : ''}` : muted}</td>
+                    <td style="text-align:right">${act && canRelease ? `<button class="h-rel-btn" onclick="releaseHold(${Number(h.id)})"><i class="bi bi-unlock"></i> Release</button>` : ''}</td>
+                </tr>`; }).join('')}</tbody></table></div>`;
         }
 
         async function downloadHoldsExcel() {
