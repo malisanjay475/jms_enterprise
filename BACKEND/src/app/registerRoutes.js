@@ -305,6 +305,10 @@ function registerRoutes(app, deps) {
   const { registerOrderTrackerRoutes } = require('../modules/orderTracker/registerOrderTrackerRoutes');
   registerOrderTrackerRoutes(app, pool);
 
+  // NPD Tracker (new product development stages behind PUBLIC/npd.html)
+  const { registerNpdRoutes } = require('../modules/npd/registerNpdRoutes');
+  registerNpdRoutes(app, pool);
+
   return registerLegacyRoutes({ app, pool, config, services });
 }
 

@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NPD Tracker - JMS OCEAN</title>
+    <link href="/assets/vendor/fonts/g-e34670640e.css" rel="stylesheet">
+    <link rel="stylesheet" href="/assets/bootstrap-icons.min.css">
+    <link rel="stylesheet" href="/assets/app.css?v=12">
+    <style>
+        :root {
+            --bg: #f5f7fb; --card: #fff; --line: #e4e9f0; --ink: #0f172a; --mute: #64748b;
+            /* stage colours: Blue pending, Yellow in progress, Green complete, Red N/A */
+            --p-bg: #dbeafe; --p-ink: #1d4ed8;
+            --i-bg: #fef3c7; --i-ink: #a16207;
+            --c-bg: #dcfce7; --c-ink: #15803d;
+            --n-bg: #fee2e2; --n-ink: #b91c1c;
+        }
+        .npd { padding: 20px 24px 48px; background: var(--bg); min-height: 100vh; color: var(--ink); font-size: 13px; }
+        .npd { flex: 1 1 auto; min-width: 0; max-width: 100%; }
+        .npd * { box-sizing: border-box; }
+        .hd { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 14px; }
+        .hd h1 { font-family: 'Outfit', sans-serif; font-size: 26px; font-weight: 800; margin: 0; display: flex; align-items: center; gap: 10px; }
+        .hd h1 .ic { width: 38px; height: 38px; border-radius: 11px; background: var(--ink); color: #fff; display: grid; place-items: center; font-size: 18px; }
+        .hd .sub { color: var(--mute); font-size: 13px; margin-top: 4px; }
+        .tools { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+        .btn { border: 1px solid var(--line); background: #fff; border-radius: 10px; padding: 8px 14px; font-weight: 600; cursor: pointer; display: inline-flex; gap: 6px; align-items: center; font-size: 13px; }
+        .btn.pri { background: #0f172a; color: #fff; border-color: #0f172a; }
+        .btn.sm { padding: 4px 9px; font-size: 12px; border-radius: 8px; }
+        .btn.danger { color: #b91c1c; }
+        .inp { border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; font-size: 13px; background: #fff; }
+        .bar { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
+        .legend { display: flex; gap: 8px; flex-wrap: wrap; }
+        .chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; font-weight: 700; font-size: 12px; }
+        .st-pending { background: var(--p-bg); color: var(--p-ink); }
+        .st-in_progress { background: var(--i-bg); color: var(--i-ink); }
+        .st-complete { background: var(--c-bg); color: var(--c-ink); }
+        .st-na { background: var(--n-bg); color: var(--n-ink); }
+        .tiles { display: flex; gap: 8px; flex-wrap: wrap; margin-left: auto; }
+        .tile { background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 6px 12px; cursor: pointer; font-weight: 600; }
+        .tile b { font-size: 15px; margin-left: 4px; }
+        .tile.on { border-color: #0f172a; box-shadow: 0 0 0 1px #0f172a inset; }
+        .wrap { max-width: 100%; background: #fff; border: 1px solid var(--line); border-radius: 14px; overflow: auto; max-height: calc(100vh - 210px); }
+        table.g { border-collapse: separate; border-spacing: 0; min-width: 100%; }
+        .g th, .g td { border-bottom: 1px solid var(--line); border-right: 1px solid var(--line); padding: 4px; vertical-align: middle; }
+        .g thead th { position: sticky; background: #f8fafc; z-index: 2; font-size: 11px; font-weight: 700; color: #334155; text-align: center; }
+        .g thead tr.grp th { top: 0; height: 28px; text-transform: uppercase; letter-spacing: .4px; font-size: 10.5px; }
+        .g thead tr.col th { top: 28px; min-width: 112px; max-width: 130px; white-space: normal; line-height: 1.25; padding: 6px; }
+        .g thead tr.col th small { display: block; color: var(--mute); font-weight: 600; margin-top: 2px; }
+        .g .fix { position: sticky; background: #fff; z-index: 1; }
+        .g thead .fix { z-index: 3; background: #f8fafc; }
+        .g .c0 { left: 0; min-width: 52px; max-width: 52px; }
+        .g .c1 { left: 52px; min-width: 220px; max-width: 220px; box-shadow: 2px 0 0 var(--line); }
+        .g tbody tr:hover td { background-color: #fafcff; }
+        .g td.c1 .nm { font-weight: 700; }
+        .g td.c1 .meta { color: var(--mute); font-size: 11px; display: flex; gap: 8px; margin-top: 3px; }
+        .g td.c1 .meta a { color: #2563eb; cursor: pointer; text-decoration: none; }
+        select.cell, span.cell { width: 100%; border: 0; border-radius: 7px; padding: 6px 4px; font-weight: 700; font-size: 11.5px; text-align: center; text-align-last: center; cursor: pointer; appearance: none; display: block; }
+        span.cell { cursor: default; }
+        input.dt { width: 100%; border: 1px solid var(--line); border-radius: 7px; padding: 5px 4px; font-size: 12px; }
+        select.ps { width: 130px; border: 1px solid var(--line); border-radius: 7px; padding: 6px; font-weight: 700; font-size: 12px; }
+        .ps-Hold { background: #f1f5f9; color: #475569; }
+        .ps-Launched { background: var(--c-bg); color: var(--c-ink); }
+        .ps-Delayed { background: var(--n-bg); color: var(--n-ink); }
+        .ps-On.Schedule, .ps-OnSchedule { background: var(--p-bg); color: var(--p-ink); }
+        .ps-Cancelled { background: #e5e7eb; color: #374151; text-decoration: line-through; }
+        textarea.rm { width: 220px; min-height: 34px; border: 1px solid var(--line); border-radius: 7px; padding: 5px; font-size: 12px; resize: vertical; font-family: inherit; }
+        .empty { padding: 60px 20px; text-align: center; color: var(--mute); }
+        .ro-note { color: var(--mute); font-size: 12px; }
+        /* modal */
+        .mb { position: fixed; inset: 0; background: rgba(15, 23, 42, .45); display: none; align-items: flex-start; justify-content: center; z-index: 2000; padding: 40px 16px; overflow: auto; }
+        .mb.on { display: flex; }
+        .md { background: #fff; border-radius: 16px; width: 100%; max-width: 760px; padding: 20px 22px; }
+        .md h3 { margin: 0 0 4px; font-family: 'Outfit', sans-serif; }
+        .md .row2 { display: grid; grid-template-columns: 120px 1fr; gap: 10px; margin: 12px 0; }
+        .sec { margin-top: 18px; }
+        .sec h4 { margin: 0 0 8px; font-size: 14px; display: flex; justify-content: space-between; align-items: center; }
+        .flist { display: flex; flex-direction: column; gap: 6px; }
+        .fitem { display: flex; align-items: center; gap: 10px; border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; }
+        .fitem a { flex: 1; color: #2563eb; text-decoration: none; word-break: break-all; }
+        .gal { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; }
+        .gal .im { position: relative; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; aspect-ratio: 1; background: #f8fafc; }
+        .gal .im img { width: 100%; height: 100%; object-fit: cover; cursor: zoom-in; }
+        .gal .im button { position: absolute; top: 6px; right: 6px; border: 0; border-radius: 6px; background: rgba(255,255,255,.9); color: #b91c1c; cursor: pointer; padding: 2px 6px; }
+        .none { color: var(--mute); font-size: 12px; }
+        @media (max-width: 700px) { .npd { padding: 14px 10px 80px; } .g .c1 { min-width: 160px; max-width: 160px; } .wrap { max-height: none; } }
+    </style>
+</head>
+
+<body>
+    <div class="npd">
+        <div class="hd">
+            <div>
+                <h1><span class="ic"><i class="bi bi-lightbulb"></i></span>NPD Tracker</h1>
+                <div class="sub">New product development: every stage from mould receipt to launch</div>
+            </div>
+            <div class="tools">
+                <span class="ro-note" id="roNote"></span>
+                <button class="btn" id="refresh"><i class="bi bi-arrow-clockwise"></i> Refresh</button>
+                <button class="btn pri" id="addBtn" style="display:none"><i class="bi bi-plus-lg"></i> Add Product</button>
+            </div>
+        </div>
+
+        <div class="bar">
+            <input class="inp" id="q" placeholder="Search product…" style="width:220px">
+            <div class="legend">
+                <span class="chip st-pending">Pending</span>
+                <span class="chip st-in_progress">In Progress</span>
+                <span class="chip st-complete">Complete</span>
+                <span class="chip st-na">Not Applicable</span>
+            </div>
+            <div class="tiles" id="tiles"></div>
+        </div>
+
+        <div class="wrap">
+            <table class="g" id="grid"></table>
+            <div class="empty" id="empty" style="display:none"></div>
+        </div>
+    </div>
+
+    <!-- add product -->
+    <div class="mb" id="addModal">
+        <div class="md" style="max-width:460px">
+            <h3>Add NPD Product</h3>
+            <div class="row2"><label>Sr No</label><input class="inp" id="aSr"></div>
+            <div class="row2"><label>Product *</label><input class="inp" id="aName" maxlength="300"></div>
+            <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
+                <button class="btn" data-close="addModal">Cancel</button>
+                <button class="btn pri" id="aSave">Add</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- trial report + images -->
+    <div class="mb" id="fileModal">
+        <div class="md">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
+                <div><h3 id="fTitle"></h3><div class="none">Trial reports and product photos after trial</div></div>
+                <button class="btn sm" data-close="fileModal"><i class="bi bi-x-lg"></i></button>
+            </div>
+            <div class="sec">
+                <h4>Trial Report <span class="ed"><input type="file" id="repFile" multiple hidden accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.jpg,.jpeg,.png,.webp"><button class="btn sm" onclick="document.getElementById('repFile').click()"><i class="bi bi-upload"></i> Upload Trial Report</button></span></h4>
+                <div class="flist" id="repList"></div>
+            </div>
+            <div class="sec">
+                <h4>Product Images After Trial <span class="ed"><input type="file" id="imgFile" multiple hidden accept="image/*"><button class="btn sm" onclick="document.getElementById('imgFile').click()"><i class="bi bi-camera"></i> Upload Images</button></span></h4>
+                <div class="gal" id="imgList"></div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/assets/app.min.js?v=1576"></script>
+    <script>
+        (function () {
+            /* keep keys in sync with STAGES in src/modules/npd/registerNpdRoutes.js */
+            const GROUPS = [
+                { label: 'Mould & Trial', cols: [
+                    ['mould_received', 'Final mould received @ factory', 'Tool Room'],
+                    ['mould_trials', 'Product mould final trials @ factory', 'Moulding'],
+                    ['rm_colour', 'RM & colour finalization', 'Planning / Moulding'],
+                    ['samples_ho', 'Final samples sent to HO for approval & photo shoot', 'QC'],
+                    ['pilot_drop_test', 'Pilot run & drop test @ factory', 'Moulding / QC'],
+                    ['qc_approval_ho', 'Final QC testing & approval from HO', 'QC']] },
+                { label: 'Packing, BOM & ERP', cols: [
+                    ['packing_material', 'Packing material finalization', 'Packing'],
+                    ['bom_approval', 'Product BOM finalization / approval', 'Planning'],
+                    ['packing_receiving', 'Packing material follow up & receiving @ factory', 'Purchase'],
+                    ['or_jr_erp', 'OR-JR making in ERP', 'HO'],
+                    ['production_planning', 'Production planning as per OR-JR ERP', 'Planning'],
+                    ['jc_start_date', 'Planned job card start date', 'Planning', 'date'],
+                    ['jc_end_date', 'Planned job card completion date', 'Planning', 'date'],
+                    ['launch_date', 'Launch date finalization', 'Planning', 'date']] },
+                { label: 'Mass Production', cols: [
+                    ['mass_moulding', 'Mass production - moulding', 'Moulding'],
+                    ['mass_printing', 'Mass production - printing / tufting', 'Production'],
+                    ['mass_packaging', 'Mass production - packaging', 'Packing'],
+                    ['fg_receiving', 'Finish goods receiving', 'W/H']] },
+                { label: 'Costing & Launch', cols: [
+                    ['ex_factory_cost', 'Ex factory cost finalization', 'Planning'],
+                    ['price_final', 'Price finalization', 'HO'],
+                    ['post_card_receiving', 'Final post card follow up & receiving', 'Planning'],
+                    ['post_card_posting', 'Posting post card in new product launch group', 'Planning'],
+                    ['dispatch_date', 'Actual dispatch date', '', 'date']] }
+            ];
+            const COLS = GROUPS.flatMap(g => g.cols);
+            const STATE = [['pending', 'Pending'], ['in_progress', 'In Progress'], ['complete', 'Complete'], ['na', 'N/A']];
+            const PSTAT = ['Hold', 'Launched', 'Delayed', 'On Schedule', 'Cancelled'];
+            const S = { rows: [], canEdit: false, q: '', fstat: '', open: null };
+            const $ = id => document.getElementById(id);
+            const esc = v => String(v == null ? '' : v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+            const psClass = s => 'ps-' + String(s || '').replace(/\s+/g, '');
+            const toast = (m, t) => (window.JPSMS && JPSMS.toast) ? JPSMS.toast(m, t) : alert(m);
+            const api = (url, opt = {}) => JPSMS.api.request(url, { skipLoader: true, ...opt });
+
+            async function load() {
+                try {
+                    const res = await api('/npd/products');
+                    S.rows = res.data || [];
+                    S.canEdit = !!res.can_edit;
+                    $('addBtn').style.display = S.canEdit ? '' : 'none';
+                    $('roNote').textContent = S.canEdit ? '' : 'View only - editing is for PPC managers';
+                    render();
+                } catch (e) { }
+            }
+
+            function stageCell(p, c) {
+                const [key, , , type] = c;
+                const v = (p.stages || {})[key];
+                if (type === 'date') {
+                    if (!S.canEdit) return `<td>${v ? esc(fmtDate(v)) : '<span class="none">—</span>'}</td>`;
+                    return `<td><input type="date" class="dt" data-id="${p.id}" data-stage="${key}" value="${esc(v || '')}"></td>`;
+                }
+                const st = v || 'pending';
+                if (!S.canEdit) return `<td><span class="cell st-${st}">${(STATE.find(s => s[0] === st) || STATE[0])[1]}</span></td>`;
+                return `<td><select class="cell st-${st}" data-id="${p.id}" data-stage="${key}">${STATE.map(([k, l]) => `<option value="${k}"${k === st ? ' selected' : ''}>${l}</option>`).join('')}</select></td>`;
+            }
+            function fmtDate(v) { const d = new Date(v + 'T00:00:00'); return isNaN(d) ? v : d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: '2-digit' }); }
+
+            function render() {
+                const q = S.q.toLowerCase();
+                const rows = S.rows.filter(p => (!q || (p.product_name + ' ' + (p.sr_no || '')).toLowerCase().includes(q)) && (!S.fstat || (p.status || 'No status') === S.fstat));
+                const counts = {};
+                S.rows.forEach(p => { const k = p.status || 'No status'; counts[k] = (counts[k] || 0) + 1; });
+                $('tiles').innerHTML = [['', 'All', S.rows.length], ...PSTAT.map(s => [s, s, counts[s] || 0])]
+                    .map(([k, l, n]) => `<span class="tile${S.fstat === k ? ' on' : ''}" data-f="${esc(k)}">${esc(l)}<b>${n}</b></span>`).join('');
+
+                let h = `<thead><tr class="grp"><th class="fix c0" rowspan="2" style="top:0">Sr</th><th class="fix c1" rowspan="2" style="top:0;text-align:left">Product</th>`;
+                GROUPS.forEach(g => { h += `<th colspan="${g.cols.length}">${esc(g.label)}</th>`; });
+                h += `<th rowspan="2" style="top:0;min-width:140px">Status</th><th rowspan="2" style="top:0;min-width:230px">Remarks</th>${S.canEdit ? '<th rowspan="2" style="top:0"></th>' : ''}</tr><tr class="col">`;
+                COLS.forEach(c => { h += `<th>${esc(c[1])}${c[2] ? `<small>${esc(c[2])}</small>` : ''}</th>`; });
+                h += `</tr></thead><tbody>`;
+                rows.forEach(p => {
+                    const reps = p.files.filter(f => f.kind === 'report').length, imgs = p.files.filter(f => f.kind === 'image').length;
+                    const name = S.canEdit
+                        ? `<input class="inp" style="width:100%;padding:4px 6px;font-weight:700" data-id="${p.id}" data-f="product_name" value="${esc(p.product_name)}">`
+                        : `<div class="nm">${esc(p.product_name)}</div>`;
+                    h += `<tr><td class="fix c0">${S.canEdit ? `<input class="inp" style="width:44px;padding:4px" data-id="${p.id}" data-f="sr_no" value="${esc(p.sr_no || '')}">` : esc(p.sr_no || '')}</td>
+                        <td class="fix c1">${name}<div class="meta"><a data-files="${p.id}"><i class="bi bi-file-earmark-text"></i> Trial report (${reps})</a><a data-files="${p.id}"><i class="bi bi-images"></i> Images (${imgs})</a></div></td>`;
+                    COLS.forEach(c => { h += stageCell(p, c); });
+                    h += S.canEdit
+                        ? `<td><select class="ps ${psClass(p.status)}" data-id="${p.id}" data-f="status"><option value="">— Select —</option>${PSTAT.map(s => `<option${s === p.status ? ' selected' : ''}>${s}</option>`).join('')}</select></td>
+                           <td><textarea class="rm" data-id="${p.id}" data-f="remarks">${esc(p.remarks || '')}</textarea></td>
+                           <td><button class="btn sm danger" data-del="${p.id}" title="Delete"><i class="bi bi-trash"></i></button></td>`
+                        : `<td>${p.status ? `<span class="chip ${psClass(p.status)}">${esc(p.status)}</span>` : '<span class="none">—</span>'}</td><td style="min-width:230px">${esc(p.remarks || '')}</td>`;
+                    h += '</tr>';
+                });
+                $('grid').innerHTML = h + '</tbody>';
+                $('empty').style.display = rows.length ? 'none' : '';
+                $('empty').textContent = S.rows.length ? 'No product matches the filter.' : (S.canEdit ? 'No NPD products yet. Click "Add Product" to start.' : 'No NPD products yet.');
+            }
+
+            async function save(id, body) {
+                try {
+                    const res = await api(`/npd/products/${id}`, { method: 'PUT', body: JSON.stringify(body) });
+                    const i = S.rows.findIndex(r => r.id === id);
+                    if (i >= 0) S.rows[i] = { ...S.rows[i], ...res.data, files: S.rows[i].files };
+                    return true;
+                } catch (e) { load(); return false; }
+            }
+
+            $('grid').addEventListener('change', e => {
+                const t = e.target, id = Number(t.dataset.id);
+                if (!id) return;
+                if (t.dataset.stage) {
+                    if (t.tagName === 'SELECT') t.className = 'cell st-' + t.value;
+                    save(id, { stages: { [t.dataset.stage]: t.value } });
+                } else if (t.dataset.f) {
+                    if (t.dataset.f === 'product_name' && !t.value.trim()) { toast('Product name is required', 'error'); load(); return; }
+                    if (t.dataset.f === 'status') { t.className = 'ps ' + psClass(t.value); save(id, { status: t.value }).then(ok => ok && render()); return; }
+                    save(id, { [t.dataset.f]: t.value });
+                }
+            });
+            $('grid').addEventListener('click', async e => {
+                const f = e.target.closest('[data-files]');
+                if (f) return openFiles(Number(f.dataset.files));
+                const d = e.target.closest('[data-del]');
+                if (d) {
+                    const p = S.rows.find(r => r.id === Number(d.dataset.del));
+                    if (!p || !confirm(`Delete "${p.product_name}" with its trial reports and images?`)) return;
+                    try { await api(`/npd/products/${p.id}`, { method: 'DELETE' }); S.rows = S.rows.filter(r => r.id !== p.id); render(); }
+                    catch (err) { }
+                }
+            });
+            $('tiles').addEventListener('click', e => { const t = e.target.closest('[data-f]'); if (t) { S.fstat = t.dataset.f; render(); } });
+            $('q').addEventListener('input', e => { S.q = e.target.value.trim(); render(); });
+            $('refresh').onclick = load;
+
+            document.querySelectorAll('[data-close]').forEach(b => b.onclick = () => $(b.dataset.close).classList.remove('on'));
+            $('addBtn').onclick = () => { $('aSr').value = ''; $('aName').value = ''; $('addModal').classList.add('on'); $('aName').focus(); };
+            $('aSave').onclick = async () => {
+                const name = $('aName').value.trim();
+                if (!name) return toast('Product name is required', 'error');
+                try {
+                    const res = await api('/npd/products', { method: 'POST', body: JSON.stringify({ sr_no: $('aSr').value.trim(), product_name: name }) });
+                    S.rows.push(res.data); $('addModal').classList.remove('on'); render();
+                } catch (e) { }
+            };
+
+            function openFiles(id) {
+                S.open = id;
+                renderFiles();
+                $('fileModal').classList.add('on');
+            }
+            function renderFiles() {
+                const p = S.rows.find(r => r.id === S.open);
+                if (!p) return;
+                $('fTitle').textContent = p.product_name;
+                document.querySelectorAll('#fileModal .ed').forEach(el => el.style.display = S.canEdit ? '' : 'none');
+                const by = f => `<span class="none">${esc(f.uploaded_by || '')} · ${new Date(f.uploaded_at).toLocaleDateString('en-GB')}</span>`;
+                const del = f => S.canEdit ? `<button class="btn sm danger" data-fdel="${f.id}" title="Delete"><i class="bi bi-trash"></i></button>` : '';
+                const reps = p.files.filter(f => f.kind === 'report');
+                $('repList').innerHTML = reps.length ? reps.map(f => `<div class="fitem"><i class="bi bi-file-earmark-text"></i><a href="${esc(f.url)}" target="_blank" rel="noopener">${esc(f.original_name || 'report')}</a>${by(f)}${del(f)}</div>`).join('') : '<div class="none">No trial report uploaded.</div>';
+                const imgs = p.files.filter(f => f.kind === 'image');
+                $('imgList').innerHTML = imgs.length ? imgs.map(f => `<div class="im"><a href="${esc(f.url)}" target="_blank" rel="noopener"><img src="${esc(f.url)}" alt="${esc(f.original_name || '')}" loading="lazy"></a>${S.canEdit ? `<button data-fdel="${f.id}" title="Delete"><i class="bi bi-trash"></i></button>` : ''}</div>`).join('') : '<div class="none">No product images uploaded.</div>';
+            }
+            async function uploadFiles(input, kind) {
+                const files = [...input.files];
+                input.value = '';
+                if (!files.length || !S.open) return;
+                const fd = new FormData();
+                files.forEach(f => fd.append('files', f));
+                try {
+                    const res = await api(`/npd/products/${S.open}/files/${kind}`, { method: 'POST', body: fd });
+                    const p = S.rows.find(r => r.id === S.open);
+                    p.files.push(...(res.data || []));
+                    renderFiles(); render();
+                    if (res.data.length < files.length) toast('Some files were skipped (type not allowed)', 'warning');
+                } catch (e) { }
+            }
+            $('repFile').onchange = e => uploadFiles(e.target, 'report');
+            $('imgFile').onchange = e => uploadFiles(e.target, 'image');
+            $('fileModal').addEventListener('click', async e => {
+                const b = e.target.closest('[data-fdel]');
+                if (!b || !confirm('Delete this file?')) return;
+                e.preventDefault();
+                try {
+                    await api(`/npd/files/${b.dataset.fdel}`, { method: 'DELETE' });
+                    const p = S.rows.find(r => r.id === S.open);
+                    p.files = p.files.filter(f => f.id !== Number(b.dataset.fdel));
+                    renderFiles(); render();
+                } catch (err) { }
+            });
+
+            load();
+        })();
+    </script>
+</body>
+
+</html>
