@@ -26,30 +26,45 @@ const EDIT_ROLES = new Set(['ppc_ass_manager', 'ppc_manager', 'sr_ppc_manager', 
 /* Columns of the NPD tracking sheet, in sheet order. type 'status' cells hold a
    stage state, type 'date' cells hold a YYYY-MM-DD date. Keep in sync with npd.html. */
 const STAGES = [
-  { key: 'mould_received', type: 'status' },
-  { key: 'mould_trials', type: 'status' },
-  { key: 'rm_colour', type: 'status' },
-  { key: 'samples_ho', type: 'status' },
-  { key: 'pilot_drop_test', type: 'status' },
-  { key: 'qc_approval_ho', type: 'status' },
-  { key: 'packing_material', type: 'status' },
-  { key: 'bom_approval', type: 'status' },
-  { key: 'packing_receiving', type: 'status' },
-  { key: 'or_jr_erp', type: 'status' },
-  { key: 'production_planning', type: 'status' },
-  { key: 'jc_start_date', type: 'date' },
-  { key: 'jc_end_date', type: 'date' },
-  { key: 'launch_date', type: 'date' },
-  { key: 'mass_moulding', type: 'status' },
-  { key: 'mass_printing', type: 'status' },
-  { key: 'mass_packaging', type: 'status' },
-  { key: 'fg_receiving', type: 'status' },
-  { key: 'ex_factory_cost', type: 'status' },
-  { key: 'price_final', type: 'status' },
-  { key: 'post_card_receiving', type: 'status' },
-  { key: 'post_card_posting', type: 'status' },
-  { key: 'dispatch_date', type: 'date' }
+  { key: 'mould_received', type: 'status', group: 'Mould & Trial', label: 'Final mould received @ factory (Tool Room)' },
+  { key: 'mould_trials', type: 'status', group: 'Mould & Trial', label: 'Product mould final trials @ factory (Moulding)' },
+  { key: 'rm_colour', type: 'status', group: 'Mould & Trial', label: 'RM & colour finalization (Planning / Moulding)' },
+  { key: 'samples_ho', type: 'status', group: 'Mould & Trial', label: 'Final samples sent to HO for approval & photo shoot (QC)' },
+  { key: 'pilot_drop_test', type: 'status', group: 'Mould & Trial', label: 'Pilot run & drop test @ factory (Moulding / QC)' },
+  { key: 'qc_approval_ho', type: 'status', group: 'Mould & Trial', label: 'Final QC testing & approval from HO (QC)' },
+  { key: 'packing_material', type: 'status', group: 'Packing, BOM & ERP', label: 'Packing material finalization (Packing)' },
+  { key: 'bom_approval', type: 'status', group: 'Packing, BOM & ERP', label: 'Product BOM finalization / approval (Planning)' },
+  { key: 'packing_receiving', type: 'status', group: 'Packing, BOM & ERP', label: 'Packing material follow up & receiving @ factory (Purchase)' },
+  { key: 'or_jr_erp', type: 'status', group: 'Packing, BOM & ERP', label: 'OR-JR making in ERP (HO)' },
+  { key: 'production_planning', type: 'status', group: 'Packing, BOM & ERP', label: 'Production planning as per OR-JR ERP (Planning)' },
+  { key: 'jc_start_date', type: 'date', group: 'Packing, BOM & ERP', label: 'Planned job card start date (Planning)' },
+  { key: 'jc_end_date', type: 'date', group: 'Packing, BOM & ERP', label: 'Planned job card completion date (Planning)' },
+  { key: 'launch_date', type: 'date', group: 'Packing, BOM & ERP', label: 'Launch date finalization (Planning)' },
+  { key: 'mass_moulding', type: 'status', group: 'Mass Production', label: 'Mass production - moulding (Moulding)' },
+  { key: 'mass_printing', type: 'status', group: 'Mass Production', label: 'Mass production - printing / tufting (Production)' },
+  { key: 'mass_packaging', type: 'status', group: 'Mass Production', label: 'Mass production - packaging (Packing)' },
+  { key: 'fg_receiving', type: 'status', group: 'Mass Production', label: 'Finish goods receiving (W/H)' },
+  { key: 'ex_factory_cost', type: 'status', group: 'Costing & Launch', label: 'Ex factory cost finalization (Planning)' },
+  { key: 'price_final', type: 'status', group: 'Costing & Launch', label: 'Price finalization (HO)' },
+  { key: 'post_card_receiving', type: 'status', group: 'Costing & Launch', label: 'Final post card follow up & receiving (Planning)' },
+  { key: 'post_card_posting', type: 'status', group: 'Costing & Launch', label: 'Posting post card in new product launch group (Planning)' },
+  { key: 'dispatch_date', type: 'date', group: 'Costing & Launch', label: 'Actual dispatch date' }
 ];
+/* Excel export: same words and colours as the page (Blue pending, Yellow in
+   progress, Green complete, Red N/A) */
+const STATE_STYLE = {
+  pending: { text: 'Pending', fill: 'FFDBEAFE', font: 'FF1D4ED8' },
+  in_progress: { text: 'In Progress', fill: 'FFFEF3C7', font: 'FFA16207' },
+  complete: { text: 'Complete', fill: 'FFDCFCE7', font: 'FF15803D' },
+  na: { text: 'N/A', fill: 'FFFEE2E2', font: 'FFB91C1C' }
+};
+const STATUS_STYLE = {
+  Hold: { fill: 'FFF1F5F9', font: 'FF475569' },
+  Launched: { fill: 'FFDCFCE7', font: 'FF15803D' },
+  Delayed: { fill: 'FFFEE2E2', font: 'FFB91C1C' },
+  'On Schedule': { fill: 'FFDBEAFE', font: 'FF1D4ED8' },
+  Cancelled: { fill: 'FFE5E7EB', font: 'FF374151' }
+};
 const STAGE_TYPE = new Map(STAGES.map(s => [s.key, s.type]));
 const STAGE_STATES = new Set(['pending', 'in_progress', 'complete', 'na']);
 const PRODUCT_STATUSES = new Set(['', 'Hold', 'Launched', 'Delayed', 'On Schedule', 'Cancelled']);
@@ -162,6 +177,114 @@ function registerNpdRoutes(app, pool) {
         can_edit: canEdit(u),
         data: products.rows.map(p => ({ ...p, files: byProduct.get(p.id) || [] }))
       });
+    } catch (err) { sendServerError(res, err); }
+  });
+
+  /* Excel copy of the tracker, colour coded like the page. Takes the page's
+     filters: status ('' = all, 'No status' = blank) and q (product / Sr No search). */
+  app.get('/api/npd/export.xlsx', async (req, res) => {
+    try {
+      await ensureTables();
+      if (!await sessionUser(req)) return res.status(401).json({ ok: false, error: 'Unauthorized' });
+      const status = clean(req.query.status, 40);
+      const q = clean(req.query.q, 100).toLowerCase();
+      const [products, files] = await Promise.all([
+        pool.query('SELECT * FROM npd_products ORDER BY id'),
+        pool.query('SELECT product_id, kind, COUNT(*)::int AS n FROM npd_files GROUP BY product_id, kind')
+      ]);
+      const count = new Map(files.rows.map(f => [`${f.product_id}:${f.kind}`, f.n]));
+      const rows = products.rows.filter(p =>
+        (!status || (p.status || 'No status') === status) &&
+        (!q || `${p.product_name} ${p.sr_no || ''}`.toLowerCase().includes(q)));
+
+      const ExcelJS = require('exceljs');
+      const wb = new ExcelJS.Workbook();
+      wb.creator = 'JMS';
+      const ws = wb.addWorksheet('NPD Tracker', { views: [{ state: 'frozen', xSplit: 2, ySplit: 3 }] });
+      const head = ['Sr No', 'Product', ...STAGES.map(s => s.label), 'Status', 'Remarks', 'Trial reports', 'Images', 'Last updated by', 'Last updated'];
+      const last = head.length;
+      const thin = { style: 'thin', color: { argb: 'FFCBD5E1' } };
+      const border = { top: thin, left: thin, bottom: thin, right: thin };
+      const fill = argb => ({ type: 'pattern', pattern: 'solid', fgColor: { argb } });
+
+      ws.mergeCells(1, 1, 1, last);
+      const title = ws.getCell(1, 1);
+      title.value = `NPD Tracker - exported ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}` +
+        (status ? ` - status: ${status}` : '') + (q ? ` - search: ${q}` : '');
+      title.font = { bold: true, size: 14 };
+
+      /* row 2: stage group bands over their columns */
+      for (let c = 0; c < STAGES.length;) {
+        let e = c;
+        while (e + 1 < STAGES.length && STAGES[e + 1].group === STAGES[c].group) e++;
+        ws.mergeCells(2, c + 3, 2, e + 3);
+        const g = ws.getCell(2, c + 3);
+        g.value = STAGES[c].group.toUpperCase();
+        g.font = { bold: true, color: { argb: 'FF334155' } };
+        g.alignment = { horizontal: 'center' };
+        g.fill = fill('FFE2E8F0');
+        c = e + 1;
+      }
+      const hr = ws.getRow(3);
+      hr.values = head;
+      hr.height = 60;
+      hr.eachCell(c => {
+        c.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+        c.fill = fill('FF0F172A');
+        c.alignment = { wrapText: true, vertical: 'middle', horizontal: 'center' };
+        c.border = border;
+      });
+
+      rows.forEach(p => {
+        const st = p.stages || {};
+        const vals = [/^\d+$/.test(p.sr_no || '') ? Number(p.sr_no) : (p.sr_no || ''), p.product_name];
+        STAGES.forEach(s => {
+          const v = st[s.key];
+          if (s.type === 'date') vals.push(v ? new Date(v + 'T00:00:00Z') : null);
+          else vals.push((STATE_STYLE[v] || STATE_STYLE.pending).text);
+        });
+        vals.push(p.status || '', p.remarks || '', count.get(`${p.id}:report`) || 0, count.get(`${p.id}:image`) || 0,
+          p.updated_by || '', p.updated_at ? new Date(p.updated_at) : null);
+        const r = ws.addRow(vals);
+        r.eachCell({ includeEmpty: true }, (c, col) => {
+          c.border = border;
+          c.alignment = { vertical: 'middle', wrapText: col === 2 || col === STAGES.length + 4 };
+          const s = STAGES[col - 3];
+          if (s && s.type === 'status') {
+            const k = STATE_STYLE[st[s.key]] || STATE_STYLE.pending;
+            c.fill = fill(k.fill);
+            c.font = { bold: true, color: { argb: k.font } };
+            c.alignment = { horizontal: 'center', vertical: 'middle' };
+          } else if (s) {
+            c.numFmt = 'dd-mmm-yy';
+            c.alignment = { horizontal: 'center', vertical: 'middle' };
+          }
+        });
+        r.getCell(2).font = { bold: true };
+        const ps = STATUS_STYLE[p.status];
+        if (ps) {
+          const c = r.getCell(STAGES.length + 3);
+          c.fill = fill(ps.fill);
+          c.font = { bold: true, color: { argb: ps.font } };
+        }
+        r.getCell(last).numFmt = 'dd-mmm-yy hh:mm';
+      });
+
+      ws.getColumn(1).width = 7;
+      ws.getColumn(2).width = 34;
+      STAGES.forEach((s, i) => { ws.getColumn(i + 3).width = s.type === 'date' ? 13 : 15; });
+      ws.getColumn(STAGES.length + 3).width = 14;
+      ws.getColumn(STAGES.length + 4).width = 40;
+      [STAGES.length + 5, STAGES.length + 6].forEach(c => { ws.getColumn(c).width = 10; });
+      ws.getColumn(last - 1).width = 16;
+      ws.getColumn(last).width = 17;
+      if (rows.length) ws.autoFilter = { from: { row: 3, column: 1 }, to: { row: 3 + rows.length, column: last } };
+
+      const day = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', `attachment; filename="NPD_Tracker_${day}.xlsx"`);
+      await wb.xlsx.write(res);
+      res.end();
     } catch (err) { sendServerError(res, err); }
   });
 
