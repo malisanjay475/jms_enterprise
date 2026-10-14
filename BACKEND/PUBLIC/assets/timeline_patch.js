@@ -741,7 +741,7 @@
         }
     };
 
-    /* ── Extra Qty Allowances (PPC override of 10% colour cap) ────────── */
+    /* ── Extra Qty Allowances (PPC override of 2% colour cap) ────────── */
     // Only Superadmin, Admin and Sr. PPC Manager may grant extra qty (keep in sync with canGrantExtraQty).
     const EQA_ROLES = ['superadmin', 'admin', 'sr_ppc_manager'];
     function _eqaUser() {
@@ -799,7 +799,7 @@
         const planId = window._ddState.data?.planId || window._ddState.planId;
         const cData = (window._ddState.data?.colours || []).find(c => c.colour === colour) || {};
         const g = (window._ddState.grants || {})[String(colour).trim().toUpperCase()] || { extra: 0, grants: [] };
-        const cap = Math.floor(Number(cData.planQty || 0) * 1.10) + g.extra;
+        const cap = Math.floor(Number(cData.planQty || 0) * 1.02) + g.extra;
 
         let m = document.getElementById('eqa-modal');
         if (m) m.remove();
@@ -828,7 +828,7 @@
               <span style="background:#f5f3ff;color:#7c3aed;border:1px solid #c4b5fd;border-radius:6px;padding:3px 10px;font-weight:700;font-family:monospace">Plan: ${_eqaEsc(planId || '–')}</span>
               <span style="background:#f1f5f9;border-radius:6px;padding:3px 10px;font-weight:700">Plan Qty: ${Number(cData.planQty || 0).toLocaleString()}</span>
               <span style="background:#f0fdf4;color:#16a34a;border-radius:6px;padding:3px 10px;font-weight:700">Produced: ${Number(cData.producedQty || 0).toLocaleString()}</span>
-              <span style="background:#fff7ed;color:#c2410c;border-radius:6px;padding:3px 10px;font-weight:700">Current Cap (110% + extra): ${cap.toLocaleString()}</span>
+              <span style="background:#fff7ed;color:#c2410c;border-radius:6px;padding:3px 10px;font-weight:700">Current Cap (102% + extra): ${cap.toLocaleString()}</span>
             </div>
             <label style="font-size:0.78rem;font-weight:700;color:#475569">Extra Qty to allow *</label>
             <input id="eqa-qty" type="number" min="1" inputmode="numeric" style="width:100%;padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px;margin:4px 0 10px;font-size:0.95rem" placeholder="e.g. 500">
@@ -911,7 +911,7 @@
                        </span>`
                     : '<span class="dim">–</span>';
                 const allowBtn = canAllow
-                    ? `<td class="num"><button data-eqa="${i}" title="Allow extra qty beyond the 10% cap"
+                    ? `<td class="num"><button data-eqa="${i}" title="Allow extra qty beyond the 2% cap"
                            style="border:1px solid #c4b5fd;background:#faf5ff;color:#7c3aed;border-radius:6px;padding:3px 8px;font-size:0.72rem;font-weight:800;cursor:pointer;white-space:nowrap">
                            <i class="bi bi-unlock"></i> Allow</button></td>`
                     : '';

@@ -3,7 +3,7 @@
 /**
  * Server-side guards for the Supervisor entry constraints:
  *   - Cavity ACT may not exceed Cavity STD
- *   - Cumulative colour production capped at 110% of the colour's plan qty
+ *   - Cumulative colour production capped at 102% of the colour's plan qty
  *
  * Article weight is intentionally NOT guarded — the +/-10% band was removed on
  * the owner's decision, browser and server together. The weight cases below pin
@@ -150,11 +150,11 @@ describe('Supervisor setup constraints (cavity + weight)', () => {
 });
 
 /* ------------------------------------------------------------------ */
-/* Colour 110% cap — /api/dpr/submit                                   */
+/* Colour 102% cap — /api/dpr/submit                                   */
 /* ------------------------------------------------------------------ */
 
 describe('Supervisor colour over-production cap', () => {
-  // Plan 1000 split across two colours, 500 each => cap of 550 per colour.
+  // Plan 1000 split across two colours, 500 each => cap of 510 per colour.
   const COLOUR_DETAILS = JSON.stringify([
     { colourName: 'Colour A', planQty: 500 },
     { colourName: 'Colour B', planQty: 500 }
@@ -215,31 +215,31 @@ describe('Supervisor colour over-production cap', () => {
     );
   }
 
-  it('allows an entry landing exactly on the 110% cap', async () => {
-    // 300 produced + 250 = 550 = cap
+  it('allows an entry landing exactly on the 102% cap', async () => {
+    // 300 produced + 210 = 510 = cap
     const { app, pool } = createApp();
     mockPlan(pool, { produced: 300 });
-    const res = await submit(app, { goodQty: 250 });
+    const res = await submit(app, { goodQty: 210 });
     expect(res.body.ok).toBe(true);
     expect(inserted(pool)).toBe(true);
   });
 
   it('blocks an entry one over the cap and does not insert', async () => {
-    // 300 produced + 251 = 551 > 550
+    // 300 produced + 211 = 511 > 510
     const { app, pool } = createApp();
     mockPlan(pool, { produced: 300 });
-    const res = await submit(app, { goodQty: 251 });
+    const res = await submit(app, { goodQty: 211 });
     expect(res.body.ok).toBe(false);
     expect(res.body.error).toMatch(/over production/i);
-    expect(res.body.error).toMatch(/Enter 250 or less/);
+    expect(res.body.error).toMatch(/Enter 210 or less/);
     expect(inserted(pool)).toBe(false);
   });
 
   it('counts production already recorded, not just this entry', async () => {
-    // Nothing produced yet: a single 550 entry is at the cap and allowed.
+    // Nothing produced yet: a single 510 entry is at the cap and allowed.
     const { app, pool } = createApp();
     mockPlan(pool, { produced: 0 });
-    const res = await submit(app, { goodQty: 550 });
+    const res = await submit(app, { goodQty: 510 });
     expect(res.body.ok).toBe(true);
   });
 
@@ -247,7 +247,7 @@ describe('Supervisor colour over-production cap', () => {
     // Colour B has its own 500 plan, untouched by Colour A's production.
     const { app, pool } = createApp();
     mockPlan(pool, { produced: 250 });
-    const res = await submit(app, { goodQty: 300, colour: 'Colour B' });
+    const res = await submit(app, { goodQty: 250, colour: 'Colour B' });
     expect(res.body.ok).toBe(true);
   });
 
@@ -284,7 +284,7 @@ describe('Supervisor colour over-production cap', () => {
     // there, so the server guard is the only thing standing. Verified on staging
     // with a seeded plan that had no JC linkage.
     const { app, pool } = createApp();
-    mockPlan(pool, { produced: 550 });
+    mockPlan(pool, { produced: 510 });
     const res = await submit(app, { goodQty: 1 });
     expect(res.body.ok).toBe(false);
     expect(res.body.error).toMatch(/reached its limit/);
@@ -293,7 +293,7 @@ describe('Supervisor colour over-production cap', () => {
 
   it('leaves zero-qty downtime entries alone', async () => {
     const { app, pool } = createApp();
-    mockPlan(pool, { produced: 550 }); // already at cap
+    mockPlan(pool, { produced: 510 }); // already at cap
     const res = await submit(app, { goodQty: 0 });
     expect(res.body.ok).toBe(true);
   });

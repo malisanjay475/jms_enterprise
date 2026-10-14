@@ -1826,7 +1826,7 @@
             const isOver = b < 0;
             // balIsLive: this row came from /api/job/colors, so bal already has real
             // production subtracted and (plan - bal) is a trustworthy produced figure.
-            // extra/grants: PPC-allowed extra qty beyond the 10% cap (with who/why).
+            // extra/grants: PPC-allowed extra qty beyond the 2% cap (with who/why).
             const extraAllowed = Math.round(Number(r.extra_allowed || 0));
             const extraGrants = Array.isArray(r.extra_grants) ? r.extra_grants : [];
             window.jobColorsData[r.name] = { plan: q, bal: b, balIsLive: true, extra: extraAllowed, grants: extraGrants };
@@ -3011,10 +3011,10 @@
     }
 
     // Colour over-production cap: cumulative produced for a colour may not exceed
-    // 110% of that colour's plan qty. produced is derived as (plan - bal), where
+    // 102% of that colour's plan qty. produced is derived as (plan - bal), where
     // bal already has all existing DPR entries subtracted by /api/job/colors.
     // Returns an error string, or '' when within the cap / not applicable.
-    const COLOUR_OVERPROD_FACTOR = 1.10;
+    const COLOUR_OVERPROD_FACTOR = 1.02;
     function colourCapError(colourName, goodQty) {
       const dat = (window.jobColorsData || {})[colourName];
       // Unplanned colours ("Other") and jobs with no colour plan are not capped.
@@ -3024,7 +3024,7 @@
       if (!dat.balIsLive) return '';
       const plan = Number(dat.plan);
       const produced = plan - Number(dat.bal);
-      // PPC-granted extra allowance lifts the 110% cap for this colour
+      // PPC-granted extra allowance lifts the 102% cap for this colour
       const extra = Number(dat.extra || 0);
       const cap = Math.floor(plan * COLOUR_OVERPROD_FACTOR) + extra;
       const total = produced + Number(goodQty || 0);
@@ -3269,7 +3269,7 @@
       // The logic below is commented out / removed.
       /* ------------------------------ */
 
-      /* --- COLOUR 110% CAP (hard block) --- */
+      /* --- COLOUR 102% CAP (hard block) --- */
       {
         const _rej = rejItems.reduce((s, i) => s + Number(i.qty || 0), 0);
         const capErr = colourCapError((el('d-color').value || '').trim(), Math.max(0, inputShots - _rej));
