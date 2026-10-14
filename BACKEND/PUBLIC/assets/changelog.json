@@ -11,8 +11,64 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.107.1",
+  "latest": "1.109.0",
   "versions": [
+    {
+      "version": "1.109.0",
+      "date": "2026-10-14",
+      "title": "Order Tracker: every start and end date",
+      "modules": [
+        {
+          "app": "planning",
+          "changes": [
+            {
+              "type": "feat",
+              "text": "Each order page now opens with its journey on one line: ordered, planned start, started, today, expected end and target date."
+            },
+            {
+              "type": "feat",
+              "text": "New All dates table: for the order, every job card, every mould and every machine plan, the planned start, actual or expected start, must-start time, planned end, actual or expected end, and how many days early or late."
+            },
+            {
+              "type": "feat",
+              "text": "Job cards now get their own finish date: the day each job card was completed, or when it is expected to complete, mould by mould."
+            },
+            {
+              "type": "improvement",
+              "text": "The timeline shows the planned window, actual production and the forecast for the order, each job card and each mould; order rows show early or late against the target."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.108.0",
+      "date": "2026-10-13",
+      "title": "Order Tracker: start plan and new design",
+      "modules": [
+        {
+          "app": "planning",
+          "changes": [
+            {
+              "type": "feat",
+              "text": "Each order now has a Start plan: the order in which its moulds must start, when each mould started or will start on its machine, and the latest time it must start to finish by the target date. Moulds that will start or finish late are flagged."
+            },
+            {
+              "type": "feat",
+              "text": "A timeline shows each mould's production so far, its forecast to finish, its must-start date, today and the target date."
+            },
+            {
+              "type": "improvement",
+              "text": "Order Tracker redesigned: a clearer order list showing the next mould to start, a full page for each order instead of a side panel, job cards as cards, and a cumulative progress chart."
+            },
+            {
+              "type": "fix",
+              "text": "The order detail is no longer cut off part way down the screen."
+            }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.107.1",
       "date": "2026-10-14",

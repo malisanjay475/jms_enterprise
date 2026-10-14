@@ -20,6 +20,16 @@ part of your PR. On release, the `[Unreleased]` items move under the new version
   `KEEP_UPLOAD_TARS` default 4 → 2.
 
 ### Added
+- Order Tracker (v1.109.0): dates for everything. Order journey band, All dates table (order / job cards / moulds /
+  machine plans: planned, actual, expected, must-start, early/late), job card completion + forecast per mould
+  (first in, first out by job card date), planned/actual/forecast timeline, job card x mould grid with dates.
+
+### Added
+- Order Tracker (v1.108.0): start plan per order: mould start sequence, started / expected start (from the machine queue),
+  must-start-by (target minus hours needed), on-time state; timeline with must-start markers; page redesigned
+  (full-page order view, fixes the cut-off drawer). Machine board is now buildMachineBoard() shared by both views.
+
+### Added
 - Order Tracker (v1.107.0): new order_tracker.html + /api/order-tracker/{orders,order,machines}. Order wise
   (complete sets via mould consumption ratio, bottleneck mould, job card wise sets, expected end
   from live rate) and machine wise (running job, queue, machine free time).
