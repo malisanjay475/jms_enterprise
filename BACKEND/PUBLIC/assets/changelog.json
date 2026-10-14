@@ -11,8 +11,40 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.110.1",
+  "latest": "1.110.2",
   "versions": [
+    {
+      "version": "1.110.2",
+      "date": "2026-10-14",
+      "title": "Order Tracker: right consumption ratio and pace",
+      "modules": [
+        {
+          "app": "planning",
+          "changes": [
+            {
+              "type": "fix",
+              "text": "Order Tracker now takes the consumption ratio from the plan first, then the mould master, and only then the ERP BOM. An order whose BOM gave ×240 per set no longer shows an end date years away."
+            },
+            {
+              "type": "feat",
+              "text": "If the ERP BOM ratio disagrees with the plan, or a ratio cannot be right, the order says so under Check the data."
+            },
+            {
+              "type": "feat",
+              "text": "New quantity tiles: order qty, job card qty, sets made, sets to go, sets needed per day to make the target and sets being made per day now."
+            },
+            {
+              "type": "feat",
+              "text": "Each mould shows its cycle time, cavities, standard and live rate, and the rate it needs to finish on time against what it runs now."
+            },
+            {
+              "type": "fix",
+              "text": "Dates on the order timeline no longer overlap, and a far-away end date no longer squeezes the rest into a corner."
+            }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.110.1",
       "date": "2026-10-14",
