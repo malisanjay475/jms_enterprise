@@ -1682,6 +1682,11 @@
                        <button onclick="viewMouldHistory('${row.mould_number}')" class="btn-action-icon" title="History"><i class="bi bi-clock-history text-gray-600"></i></button>
                        <button onclick="openMouldTransferModal(JSON.parse(decodeURIComponent('${safeData}')))" class="btn-action-icon" title="Transfer to another factory"><i class="bi bi-arrow-left-right" style="color:#7c3aed"></i></button>`
                     : '';
+                  // Activate / Deactivate — Admin & Superadmin only (server re-checks).
+                  const isActive = row.is_active !== false;
+                  const activeBtn = (JPSMS.auth.isAdminLike() && jmsMouldWriteAllowed())
+                    ? `<button onclick="toggleMouldActive('${encodeURIComponent(row.mould_number || '')}', ${row.factory_id == null ? 'null' : Number(row.factory_id)}, ${!isActive})" class="btn-action-icon" title="${isActive ? 'Deactivate (hide from other users)' : 'Activate'}"><i class="bi ${isActive ? 'bi-toggle-on' : 'bi-toggle-off'}" style="color:${isActive ? '#16a34a' : '#dc2626'}; font-size:1.05rem"></i></button>`
+                    : '';
                   // Remark badge: shows at a glance that some department left remarks on
                   // this mould (count + latest remark on hover); click opens them.
                   const rem = (window._mvRemarkSummary || {})[row.mould_number];
@@ -1692,7 +1697,7 @@
                     const tip = esc(`${rem.count} remark${rem.count > 1 ? 's' : ''} — latest by ${l.by || '?'}: ${String(l.note || '').slice(0, 120)}`);
                     remarkBtn = `<button onclick="openMouldVerifyModal(JSON.parse(decodeURIComponent('${safeData}')))" class="btn-action-icon" title="${tip}" style="position:relative"><i class="bi bi-chat-left-text-fill" style="color:#ea580c"></i><span style="position:absolute; top:-4px; right:-6px; background:#dc2626; color:#fff; font-size:0.6rem; font-weight:700; line-height:1; padding:2px 4px; border-radius:8px">${rem.count}</span></button>`;
                   }
-                  return `<div style="white-space:nowrap; display:inline-flex; align-items:center; gap:2px">${editBtns}${verifyBtn}${remarkBtn}</div>`;
+                  return `<div style="white-space:nowrap; display:inline-flex; align-items:center; gap:2px">${editBtns}${activeBtn}${verifyBtn}${remarkBtn}</div>`;
               } else if (currentType === 'users') {
                 const perms = row.permissions || {};
                 const permBadges = Object.keys(perms).map(k => perms[k] ? `<span style="background:#e0e7ff; color:#3730a3; padding:2px 6px; border-radius:4px; font-size:0.7rem; margin-right:4px">${k}</span>` : '').join('');
@@ -1811,6 +1816,9 @@
                 badge = `<span title="Verified &amp; Authorised" style="display:inline-flex; align-items:center; gap:3px; margin-left:6px; padding:1px 7px; border-radius:999px; background:#dcfce7; color:#166534; font-size:0.64rem; font-weight:800; white-space:nowrap"><i class="bi bi-patch-check-fill"></i>VERIFIED</span>`;
               } else if (done > 0) {
                 badge = `<span title="Verification in progress (${done} of 6)" style="display:inline-flex; align-items:center; margin-left:6px; padding:1px 7px; border-radius:999px; background:#fef3c7; color:#92400e; font-size:0.64rem; font-weight:800; white-space:nowrap">${done}/6</span>`;
+              }
+              if (row.is_active === false) {
+                badge += `<span title="Deactivated${row.deactivated_by ? ' by ' + String(row.deactivated_by).replace(/[&<>"']/g, '') : ''} — hidden from other users" style="display:inline-flex; align-items:center; margin-left:6px; padding:1px 7px; border-radius:999px; background:#fee2e2; color:#991b1b; font-size:0.64rem; font-weight:800; white-space:nowrap">INACTIVE</span>`;
               }
               return `<span style="white-space:nowrap">${data == null ? '' : data}${badge}</span>`;
             };
@@ -3510,3 +3518,20 @@
     }
 
     /* --------------------------------------------------------------------- */
+
+// Mould Master: Admin / Superadmin activate or deactivate a mould.
+async function toggleMouldActive(encodedMouldNumber, factoryId, active) {
+  const mouldNumber = decodeURIComponent(encodedMouldNumber);
+  const msg = active
+    ? `Activate mould ${mouldNumber}? It will show again for all users.`
+    : `Deactivate mould ${mouldNumber}? It will be hidden from the Mould Master list for everyone except Admin / Superadmin.`;
+  if (!confirm(msg)) return;
+  try {
+    const res = await JPSMS.api.post('/moulds/' + encodeURIComponent(mouldNumber) + '/active', { active, factory_id: factoryId });
+    if (!res || res.ok === false) throw new Error((res && res.error) || 'Update failed');
+    if (typeof loadMasterData === 'function') loadMasterData();
+  } catch (e) {
+    alert('Could not update mould: ' + (e.message || e));
+  }
+}
+window.toggleMouldActive = toggleMouldActive;

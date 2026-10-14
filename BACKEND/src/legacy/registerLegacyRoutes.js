@@ -2053,6 +2053,11 @@ async function migrateMouldMasterSchema() {
     ['verify_gm_at', 'TIMESTAMPTZ'],
     ['verify_nkb_by', 'TEXT'],
     ['verify_nkb_at', 'TIMESTAMPTZ'],
+    // Admin/Superadmin can deactivate a mould: it then disappears from the Mould
+    // Master list for every other role (admins still see it, marked INACTIVE).
+    ['is_active', 'BOOLEAN NOT NULL DEFAULT TRUE'],
+    ['deactivated_by', 'TEXT'],
+    ['deactivated_at', 'TIMESTAMPTZ'],
     ['updated_at', 'TIMESTAMPTZ DEFAULT NOW()'],
     ['factory_id', 'INTEGER'],
     ['last_updated_at', 'TIMESTAMP'],
@@ -7537,12 +7542,17 @@ app.get('/api/masters/moulds', async (req, res) => {
     // isolation" filter here contradicted that and hid moulds whose factory_id did
     // not match the session factory — e.g. Shivani moulds on MAIN carrying the
     // original import's factory_id showed up blank (KAN-114). Return all moulds.
-    const query = 'SELECT * FROM moulds ORDER BY id ASC';
+    // Deactivated moulds are visible only to admin / superadmin.
+    const actor = await getRequestActor(req).catch(() => null);
+    const showInactive = isAdminLikeRole(actor);
+    const query = showInactive
+      ? 'SELECT * FROM moulds ORDER BY id ASC'
+      : 'SELECT * FROM moulds WHERE is_active IS NOT FALSE ORDER BY id ASC';
     const params = [];
 
-    // Read-mostly: serve from a single company-wide short-TTL cache bucket.
+    // Read-mostly: serve from a company-wide short-TTL cache bucket (one per view).
     // Invalidated by mould write endpoints (ttlCacheClear('moulds')).
-    const cacheKey = 'all';
+    const cacheKey = showInactive ? 'all' : 'active';
     const cachedMoulds = ttlCacheGet('moulds', cacheKey);
     if (cachedMoulds !== undefined) {
       return res.json({ ok: true, data: cachedMoulds });
@@ -27296,6 +27306,46 @@ app.put('/api/moulds/:id', async (req, res) => {
     if (e.code === '23505') {
       return res.status(400).json({ ok: false, error: 'Mould Number already exists for this factory' });
     }
+    sendServerError(res, e);
+  }
+});
+
+// Activate / deactivate a mould (Admin & Superadmin only).
+// POST /api/moulds/:id/active  { active: true|false }
+// A deactivated mould is hidden from the Mould Master list for every other role.
+app.post('/api/moulds/:id/active', async (req, res) => {
+  try {
+    if (guardMouldWriteMainOnly(res)) return; // MAIN-only master
+    const actor = await getRequestActor(req);
+    if (!isAdminLikeRole(actor)) {
+      return res.status(403).json({ ok: false, error: 'Only Admin or Superadmin can activate / deactivate a mould' });
+    }
+    const active = req.body?.active === true || req.body?.active === 'true';
+    const { id } = req.params;
+    const factoryId = req.body?.factory_id != null && req.body.factory_id !== '' ? Number(req.body.factory_id) : null;
+    const rows = await q(
+      `UPDATE moulds
+          SET is_active = $1,
+              deactivated_by = CASE WHEN $1 THEN NULL ELSE $2 END,
+              deactivated_at = CASE WHEN $1 THEN NULL ELSE NOW() END,
+              updated_at = NOW()
+        WHERE mould_number = $3 AND ($4::int IS NULL OR factory_id = $4::int)
+        RETURNING mould_number, factory_id`,
+      [active, actor.username, id, factoryId]
+    );
+    if (!rows.length) return res.status(404).json({ ok: false, error: 'Mould not found' });
+    ttlCacheClear('moulds');
+    for (const r of rows) {
+      await q(
+        `INSERT INTO mould_audit_logs(mould_id, action_type, changed_fields, changed_by, factory_id)
+         VALUES($1, $2, $3, $4, $5)`,
+        [r.mould_number, active ? 'ACTIVATE' : 'DEACTIVATE',
+          JSON.stringify({ is_active: { old: !active, new: active } }), actor.username, r.factory_id]
+      ).catch(err => console.warn('[moulds] active audit log skipped:', err.message));
+    }
+    res.json({ ok: true, message: active ? 'Mould activated' : 'Mould deactivated' });
+  } catch (e) {
+    console.error('Mould active toggle error', e);
     sendServerError(res, e);
   }
 });
