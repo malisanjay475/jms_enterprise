@@ -11,8 +11,21 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.121.1",
+  "latest": "1.121.2",
   "versions": [
+    {
+      "version": "1.121.2",
+      "date": "2026-10-15",
+      "title": "Sr. PPC Manager rights everywhere",
+      "modules": [
+        {
+          "app": "all",
+          "changes": [
+            { "type": "fix", "text": "Sr. PPC Manager users now get all their rights on every page: deleting DPR entries and plans, back-dated entries, priority, restoring plans, PPC Check, NPD edit and maintenance alerts." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.121.1",
       "date": "2026-10-15",
