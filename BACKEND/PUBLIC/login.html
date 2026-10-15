@@ -65,10 +65,8 @@
         .login-layout {
             position: relative;
             z-index: 1;
-            width: min(100%, 960px);
-            display: grid;
-            grid-template-columns: 1.05fr 1fr;
-            border-radius: 28px;
+            width: min(100%, 440px);
+            border-radius: 26px;
             overflow: hidden;
             background: #ffffff;
             box-shadow: 0 40px 90px rgba(2, 14, 30, 0.45), 0 0 0 1px rgba(255, 255, 255, 0.08);
@@ -80,133 +78,57 @@
             to { opacity: 1; transform: none; }
         }
 
-        /* ---------- Brand side ---------- */
-        .brand-panel {
-            position: relative;
-            padding: 44px 40px;
-            display: flex;
-            flex-direction: column;
-            justify-content: space-between;
-            gap: 32px;
-            color: #e6f4fb;
-            background:
-                radial-gradient(420px 320px at 100% 0%, rgba(250, 172, 36, 0.16), transparent 70%),
-                radial-gradient(520px 380px at 0% 100%, rgba(1, 168, 221, 0.28), transparent 70%),
-                linear-gradient(160deg, #03315c 0%, #024c81 60%, #046c8c 100%);
-            overflow: hidden;
-        }
-
-        .brand-panel::after {
-            content: '';
-            position: absolute;
-            inset: 0;
-            pointer-events: none;
-            background-image: radial-gradient(rgba(255, 255, 255, 0.09) 1px, transparent 1px);
-            background-size: 22px 22px;
-            mask-image: linear-gradient(180deg, transparent, black 40%, transparent);
-        }
-
-        .brand-top {
-            position: relative;
-            z-index: 1;
-            display: flex;
-            align-items: center;
-            gap: 14px;
-        }
-
-        .brand-mark {
-            width: 64px;
-            height: 64px;
-            flex: none;
-            display: grid;
-            place-items: center;
-            border-radius: 18px;
-            background: #ffffff;
-            box-shadow: 0 10px 24px rgba(0, 0, 0, 0.22);
-        }
-
-        .brand-mark img {
-            width: 52px;
-            height: 52px;
-            object-fit: contain;
-        }
-
-        .brand-name {
-            display: block;
-            font-size: 1.35rem;
-            font-weight: 800;
-            letter-spacing: -0.02em;
-            color: #ffffff;
-        }
-
-        .brand-tag {
-            display: block;
-            margin-top: 2px;
-            font-size: 0.8rem;
-            color: rgba(230, 244, 251, 0.72);
-            letter-spacing: 0.02em;
-        }
-
-        .brand-copy { position: relative; z-index: 1; }
-
-        .brand-copy h1 {
-            margin: 0 0 12px;
-            font-size: 2rem;
-            line-height: 1.15;
-            letter-spacing: -0.03em;
-            font-weight: 800;
-            color: #ffffff;
-        }
-
-        .brand-copy h1 span { color: var(--logo-gold); }
-
-        .brand-copy p {
-            margin: 0;
-            max-width: 340px;
-            font-size: 0.95rem;
-            line-height: 1.6;
-            color: rgba(230, 244, 251, 0.8);
-        }
-
-        .brand-points {
-            position: relative;
-            z-index: 1;
-            display: grid;
-            gap: 10px;
-            margin: 0;
-            padding: 0;
-            list-style: none;
-        }
-
-        .brand-points li {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            font-size: 0.88rem;
-            color: rgba(230, 244, 251, 0.9);
-        }
-
-        .brand-points i {
-            width: 30px;
-            height: 30px;
-            display: grid;
-            place-items: center;
-            border-radius: 9px;
-            background: rgba(255, 255, 255, 0.1);
-            color: #9fe4f7;
-            font-size: 0.95rem;
-        }
-
         /* ---------- Form side ---------- */
         .auth-card {
-            padding: 48px 44px 36px;
+            padding: 36px 36px 26px;
             display: flex;
             flex-direction: column;
             justify-content: center;
             min-width: 0;
         }
 
-        .mobile-brand { display: none; }
+        .mobile-brand {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            margin-bottom: 28px;
+        }
+
+        .brand-mark {
+            width: 56px;
+            height: 56px;
+            flex: none;
+            display: grid;
+            place-items: center;
+            border-radius: 16px;
+            background: #ffffff;
+            box-shadow: 0 6px 16px rgba(2, 76, 129, 0.16), 0 0 0 1px #e3eef4;
+        }
+
+        .brand-mark img { width: 46px; height: 46px; object-fit: contain; }
+
+        .brand-name {
+            display: block;
+            font-size: 1.25rem;
+            font-weight: 800;
+            letter-spacing: -0.02em;
+            color: var(--text-main);
+        }
+
+        .brand-tag {
+            display: block;
+            margin-top: 2px;
+            font-size: 0.8rem;
+            color: var(--text-soft);
+        }
+
+        /* Brand-coloured strip across the top of the card */
+        .login-layout::before {
+            content: '';
+            display: block;
+            height: 5px;
+            background: linear-gradient(90deg, var(--logo-blue), var(--logo-cyan), var(--logo-gold));
+        }
 
         .auth-heading {
             margin: 0;
@@ -526,39 +448,8 @@
         }
 
         /* ---------- Responsive ---------- */
-        @media (max-width: 860px) {
-            .login-layout {
-                grid-template-columns: 1fr;
-                width: min(100%, 460px);
-            }
-
-            .brand-panel { display: none; }
-
-            .mobile-brand {
-                display: flex;
-                align-items: center;
-                gap: 12px;
-                margin-bottom: 26px;
-            }
-
-            .mobile-brand .brand-mark {
-                width: 52px;
-                height: 52px;
-                border-radius: 14px;
-                box-shadow: 0 6px 16px rgba(2, 76, 129, 0.16), 0 0 0 1px #e3eef4;
-            }
-
-            .mobile-brand .brand-mark img { width: 42px; height: 42px; }
-
-            .mobile-brand .brand-name { color: var(--text-main); font-size: 1.2rem; }
-
-            .mobile-brand .brand-tag { color: var(--text-soft); }
-
-            .auth-card { padding: 34px 30px 26px; }
-        }
-
         @media (max-width: 480px) {
-            body.login-page { padding: 16px 16px 48px; justify-content: flex-start; padding-top: max(16px, 6vh); }
+            html body.login-page { padding: max(20px, 5vh) 14px 48px !important; justify-content: flex-start; }
 
             .login-layout { border-radius: 22px; }
 
@@ -583,26 +474,6 @@
 
 <body class="login-page">
     <main class="login-layout">
-        <section class="brand-panel" aria-hidden="true">
-            <div class="brand-top">
-                <div class="brand-mark"><img src="/assets/jms-logo.png" alt=""></div>
-                <div>
-                    <strong class="brand-name">JMS OCEAN</strong>
-                    <span class="brand-tag">Job Management System · Joyo Plastics</span>
-                </div>
-            </div>
-
-            <div class="brand-copy">
-                <h1>Every machine, every shift, <span>one view.</span></h1>
-                <p>Planning, production, quality and dispatch for the moulding shop floor — live from every factory.</p>
-            </div>
-
-            <ul class="brand-points">
-                <li><i class="bi bi-calendar3"></i> Plan board &amp; job cards</li>
-                <li><i class="bi bi-graph-up-arrow"></i> Live DPR &amp; machine output</li>
-                <li><i class="bi bi-patch-check"></i> QC checks &amp; traceability</li>
-            </ul>
-        </section>
 
         <section class="auth-card">
             <div class="mobile-brand">

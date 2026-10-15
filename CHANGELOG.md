@@ -14,7 +14,7 @@ part of your PR. On release, the `[Unreleased]` items move under the new version
 ## [Unreleased]
 
 ### Changed
-- Login (v1.120.2): redesigned sign-in page. Desktop shows a two-panel card (brand panel + form); phones get a compact single card. Adds a Caps Lock warning, a spinner while signing in, a clear error box (empty fields are highlighted), password-manager friendly autocomplete, auto-focus on the right field, and keyboard/screen-reader labels. Login logic, Remember me, factory picker and redirects are unchanged.
+- Login (v1.120.2): redesigned sign-in page. One compact card with the logo header on every screen size, with a brand-coloured strip on top. Adds a Caps Lock warning, a spinner while signing in, a clear error box (empty fields are highlighted), password-manager friendly autocomplete, auto-focus on the right field, and keyboard/screen-reader labels. Login logic, Remember me, factory picker and redirects are unchanged.
 
 ### Fixed
 - NPD (v1.120.1): factory LOCAL servers did not receive NPD products created before v1.120.0 (a LOCAL pulls only rows changed since its last pull). MAIN now marks the existing NPD rows changed once (server_config NPD_SYNC_RESEND_V1), so every LOCAL pulls the full list on its next cycle.
