@@ -21,7 +21,7 @@ const multer = require('multer');
 const { getRequestUsername } = require('../../app/requestContext');
 const { sendServerError } = require('../../app/httpErrors');
 
-const EDIT_ROLES = new Set(['ppc_ass_manager', 'ppc_manager', 'sr_ppc_manager', 'admin', 'superadmin']);
+const EDIT_ROLES = new Set(['ppc_ass_manager', 'ppc_manager', 'sr_ppc_manager', 'sr__ppc_manager', 'admin', 'superadmin']);
 
 /* Columns of the NPD tracking sheet, in sheet order. type 'status' cells hold a
    stage state, type 'date' cells hold a YYYY-MM-DD date. Keep in sync with npd.html. */
