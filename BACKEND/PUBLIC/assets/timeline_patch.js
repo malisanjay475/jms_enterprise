@@ -747,8 +747,15 @@
     function _eqaUser() {
         try { return (window.JPSMS && window.JPSMS.auth.getUser()) || {}; } catch (_) { return {}; }
     }
+    // Normalise like the server (normalizeApprovalRoleCode): roles created as
+    // "Sr. PPC Manager" are stored as sr__ppc_manager.
+    function _eqaRole() {
+        return String(_eqaUser().role_code || '').toLowerCase().replace(/&/g, 'and')
+            .replace(/[^a-z0-9]+/g, '_').replace(/_+/g, '_').replace(/^_+|_+$/g, '');
+    }
     function _eqaCanAllow() {
-        return EQA_ROLES.includes(String(_eqaUser().role_code || '').toLowerCase());
+        const role = _eqaRole();
+        return EQA_ROLES.includes(role) || role === 'senior_ppc_manager';
     }
     // Only Admin / Superadmin may DELETE an allowance (removing it lowers the cap).
     function _eqaCanDelete() {
