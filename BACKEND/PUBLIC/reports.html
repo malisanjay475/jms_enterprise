@@ -831,7 +831,7 @@
       
       let html = canAll ? '<option value="">All Factories</option>' : '';
       factories.forEach(f => {
-        html += `<option value="${f.id}">${f.name}</option>`;
+        html += `<option value="${escapeHtml(f.id)}">${escapeHtml(f.name)}</option>`;
       });
       selector.innerHTML = html;
 
@@ -974,7 +974,7 @@
           return;
         }
         box.innerHTML = list.map(t =>
-          `<label class="mw-chk"><input type="checkbox" class="tonnage-chk" value="${t}" checked onchange="onTonnageItemChange()"> ${t}T</label>`
+          `<label class="mw-chk"><input type="checkbox" class="tonnage-chk" value="${escapeHtml(t)}" checked onchange="onTonnageItemChange()"> ${escapeHtml(t)}T</label>`
         ).join('');
         document.getElementById('tonnageAll').checked = true;
       } catch (e) {
@@ -1173,10 +1173,10 @@
         const rows = g.rows.map(r => `
           <tr>
             ${leadCols.map(c => `<td class="${c.num ? 'mr-num' : 'mr-label'}">${esc(c.get(r))}</td>`).join('')}
-            <td class="mr-label">${fmtDate(r.date)}</td>
-            <td class="mr-num">${r.day}</td>
-            <td class="mr-num">${r.night}</td>
-            <td class="mr-num">${r.total}</td>
+            <td class="mr-label">${esc(fmtDate(r.date))}</td>
+            <td class="mr-num">${esc(r.day)}</td>
+            <td class="mr-num">${esc(r.night)}</td>
+            <td class="mr-num">${esc(r.total)}</td>
             ${metricCols.map(c => `<td class="mr-num">${esc(c.get(r))}</td>`).join('')}
           </tr>`).join('');
 
@@ -1222,7 +1222,7 @@
             <tr>${headCells}</tr>
             ${rows}
             <tr class="mr-grand">
-              ${grandLead}<td>${g.grandTotal}</td>${grandMetrics}
+              ${grandLead}<td>${esc(g.grandTotal)}</td>${grandMetrics}
             </tr>
           </table>`;
       }).join('');
@@ -1283,7 +1283,7 @@
           const raw = r[c.key];
           const val = c.fmt ? c.fmt(raw) : esc(raw);
           const isNum = c.key !== 'machine' && c.key !== 'mouldNo' && c.key !== 'mouldName';
-          return `<td class="${isNum ? 'mr-num' : 'mr-label'}">${c.fmt ? val : esc(raw)}</td>`;
+          return `<td class="${isNum ? 'mr-num' : 'mr-label'}">${esc(c.fmt ? val : raw)}</td>`;
         }).join('');
         const grid = dates.map(d => {
           const cell = (r.cells && r.cells[d.date]) || { day: 0, night: 0 };
@@ -1323,6 +1323,11 @@
         </div>`;
     }
 
+    // Escape all of & < > " ' for HTML text and attribute values.
+    function escapeHtml(v) {
+      return String(v == null ? '' : v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    }
+
     function kpiTile(label, val, color) {
       const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
       return `<div class="kpi" style="--kc:${color || '#024c81'}"><div class="k-label">${esc(label)}</div><div class="k-val">${esc(val)}</div></div>`;
@@ -1336,7 +1341,8 @@
 
     // Value for Excel/CSV: strip markup and thousands separators so numbers stay numbers.
     function exportVal(out) {
-      const txt = String(out == null ? '' : out).replace(/<[^>]*>/g, '').trim();
+      // Parse into an inert document (scripts never run) and read its text.
+      const txt = (new DOMParser().parseFromString(String(out == null ? '' : out), 'text/html').body.textContent || '').trim();
       const bare = txt.replace(/,/g, '');
       return /^[-+]?\d+(\.\d+)?$/.test(bare) ? Number(bare) : txt;
     }
@@ -1573,7 +1579,12 @@
       const metaTxt = reportMetaText(type, (data || []).length);
       document.getElementById('resultTitle').textContent = meta.name;
       document.getElementById('resultMeta').textContent = metaTxt;
-      document.getElementById('printHead').innerHTML = `<b>JMS OCEAN · ${meta.name}</b><div>${metaTxt}</div>`;
+      const ph = document.getElementById('printHead');
+      const phTitle = document.createElement('b');
+      phTitle.textContent = `JMS OCEAN · ${meta.name}`;
+      const phMeta = document.createElement('div');
+      phMeta.textContent = metaTxt;
+      ph.replaceChildren(phTitle, phMeta);
 
       const badge = document.getElementById('reportStatusBadge');
       badge.textContent = type === 'jms-plan' ? 'JMS Plan'
@@ -1667,11 +1678,11 @@
           : sh.full_maint ? `${label}: full shift maintenance`
           : (sh.maint_min > 0 ? `${label}: maint. ${sh.maint_min} min` : '');
         const shiftCols = (k, label) => [
-          { title: `${label} Mould`, data: k + '.mould', defaultContent: '',
+          { title: `${label} Mould`, data: k + '.mould', defaultContent: '', _html: true,
             render: (v, t, r) => r[k].full_maint ? 'MAINTENANCE' : r[k].idle ? 'IDLE' : txt.display(v || '') },
           { title: `${label} Std`, data: k + '.std', defaultContent: '', render: cell },
           { title: `${label} Act`, data: k + '.act', defaultContent: '', render: cell },
-          { title: `${label} Diff`, data: k + '.diff', defaultContent: '', render: (v, t) => {
+          { title: `${label} Diff`, data: k + '.diff', defaultContent: '', _html: true, render: (v, t) => {
               if (v == null) return '—';
               if (t !== 'display') return v;
               return v < 0 ? `<span style="color:#dc2626;font-weight:800">${v}</span>` : (v > 0 ? '+' + v : '0');
@@ -1773,6 +1784,14 @@
         const isPct = c.data == null && c.title === 'Reject %';
         if (!(isSum || isPct || (c.data != null && numSet.has(c.data)))) {
           if (/remark|why/i.test(c.title)) c.className = 'wrap';
+          // Report rows come from the API: show them as text, never as HTML.
+          if (!c._html && (!c.render || typeof c.render === 'function')) {
+            const origTxt = c.render;
+            c.render = (v, t, r, m) => {
+              const out = typeof origTxt === 'function' ? origTxt(v, t, r, m) : (origTxt ? origTxt.display(v) : v);
+              return t === 'display' ? escapeHtml(out == null ? '' : out) : out;
+            };
+          }
           return;
         }
         c.className = 'dt-right';
@@ -1785,7 +1804,8 @@
         c.render = (v, t, r, m) => {
           if ((t === 'sort' || t === 'type') && v != null && v !== '' && !isNaN(v)) return Number(v);
           const out = orig ? (typeof orig === 'function' ? orig(v, t, r, m) : orig.display(v)) : fmtNum(v);
-          return t === 'export' ? exportVal(out) : out;
+          if (t === 'export') return exportVal(out);
+          return (t === 'display' && !c._html) ? escapeHtml(out) : out;
         };
       });
 
