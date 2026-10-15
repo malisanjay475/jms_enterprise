@@ -11,8 +11,21 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.119.0",
+  "latest": "1.121.1",
   "versions": [
+    {
+      "version": "1.121.1",
+      "date": "2026-10-15",
+      "title": "Extra Qty Allow for Sr. PPC Manager",
+      "modules": [
+        {
+          "app": "planning",
+          "changes": [
+            { "type": "fix", "text": "Sr. PPC Manager now sees the Allow button for Extra Qty on the Machine Timeline." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.119.0",
       "date": "2026-10-14",
