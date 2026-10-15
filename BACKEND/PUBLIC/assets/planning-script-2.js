@@ -580,6 +580,7 @@
         const isSuper = _restoreRole === 'superadmin'
           || _restoreRole === 'planner'
           || _restoreRole === 'sr_ppc_manager'
+          || _restoreRole === 'sr__ppc_manager'
           || _restoreRole === 'ppc_manager'
           || _restoreRole === 'ppc_ass_manager';
 
