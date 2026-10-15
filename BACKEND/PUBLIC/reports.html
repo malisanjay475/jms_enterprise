@@ -18,12 +18,16 @@
 
   <style>
     :root {
-      --primary: #2563eb;
-      --primary-dark: #1d4ed8;
-      --bg-soft: #f8fafc;
+      --primary: #024c81;
+      --primary-dark: #013a63;
+      --accent: #01a8dd;
+      --gold: #faac24;
+      --bg-soft: #f4f8fb;
       --text-main: #1e293b;
       --text-light: #64748b;
       --border: #e2e8f0;
+      --ok: #16a34a;
+      --bad: #dc2626;
     }
 
     body {
@@ -39,32 +43,93 @@
       margin: 0 auto;
     }
 
-    .header-row {
+    /* ---------- Header ---------- */
+    .rp-head {
       display: flex;
       justify-content: space-between;
-      align-items: center;
-      margin-bottom: 20px;
+      align-items: flex-end;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-bottom: 16px;
     }
-
-    .page-title {
-      font-size: 1.4rem;
+    .rp-head .page-title {
+      font-size: 1.45rem;
       font-weight: 800;
       color: #0f172a;
       letter-spacing: -0.03em;
+      display: flex;
+      align-items: center;
+      gap: 10px;
     }
+    .rp-head .page-title i {
+      width: 36px; height: 36px;
+      display: inline-flex; align-items: center; justify-content: center;
+      border-radius: 10px;
+      background: linear-gradient(135deg, var(--primary), var(--accent));
+      color: #fff; font-size: 1.05rem;
+    }
+    .rp-sub { font-size: 0.83rem; color: var(--text-light); margin-top: 4px; }
+    .rp-crumb { font-size: 0.82rem; color: var(--text-light); }
+    .rp-crumb a { color: var(--primary); text-decoration: none; font-weight: 600; }
 
     .card {
       background: white;
-      border-radius: 12px;
-      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
-      padding: 20px;
-      margin-bottom: 20px;
+      border-radius: 14px;
+      box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 4px 14px rgba(15, 23, 42, 0.04);
+      padding: 18px 20px;
+      margin-bottom: 18px;
       border: 1px solid var(--border);
+      position: relative;
+    }
+    #filterCard { overflow: hidden; }
+    #filterCard::before {
+      content: ''; position: absolute; left: 0; right: 0; top: 0; height: 4px;
+      background: linear-gradient(90deg, var(--primary), var(--accent) 70%, var(--gold));
     }
 
+    .step-label {
+      font-size: 0.72rem; font-weight: 800; text-transform: uppercase;
+      letter-spacing: 0.06em; color: var(--text-light);
+      margin: 4px 0 10px; display: flex; align-items: center; gap: 8px;
+    }
+    .step-label b {
+      width: 20px; height: 20px; border-radius: 50%;
+      background: var(--primary); color: #fff; font-size: 0.68rem;
+      display: inline-flex; align-items: center; justify-content: center;
+    }
+
+    /* ---------- Report type picker ---------- */
+    .rt-groups { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin-bottom: 18px; }
+    .rt-group-title {
+      font-size: 0.7rem; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase;
+      color: #94a3b8; margin-bottom: 6px; display: flex; align-items: center; gap: 6px;
+    }
+    .rt-list { display: flex; flex-direction: column; gap: 6px; }
+    .rt-card {
+      display: flex; gap: 10px; align-items: flex-start; text-align: left;
+      width: 100%; padding: 9px 11px; border-radius: 10px;
+      border: 1px solid var(--border); background: #fff; cursor: pointer;
+      font: inherit; color: inherit; transition: border-color .15s, background .15s, box-shadow .15s;
+    }
+    .rt-card:hover { border-color: #93c5fd; background: #f8fbff; }
+    .rt-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+    .rt-card i {
+      flex: 0 0 28px; height: 28px; border-radius: 8px;
+      display: inline-flex; align-items: center; justify-content: center;
+      background: #eef6fb; color: var(--primary); font-size: 0.95rem;
+    }
+    .rt-card .rt-name { font-weight: 700; font-size: 0.82rem; color: #0f172a; line-height: 1.25; }
+    .rt-card .rt-desc { font-size: 0.72rem; color: var(--text-light); line-height: 1.35; margin-top: 2px; }
+    .rt-card.active {
+      border-color: var(--primary); background: #eff7fd;
+      box-shadow: 0 0 0 2px rgba(1, 168, 221, 0.18);
+    }
+    .rt-card.active i { background: var(--primary); color: #fff; }
+
+    /* ---------- Filters ---------- */
     .filter-bar {
       display: flex;
-      gap: 15px;
+      gap: 14px;
       align-items: flex-end;
       flex-wrap: wrap;
     }
@@ -76,7 +141,7 @@
     }
 
     .control-label {
-      font-size: 0.72rem;
+      font-size: 0.7rem;
       font-weight: 700;
       text-transform: uppercase;
       color: var(--text-light);
@@ -85,95 +150,165 @@
 
     .form-input {
       border: 1px solid #cbd5e1;
-      border-radius: 8px;
+      border-radius: 9px;
       padding: 8px 12px;
       font-size: 0.85rem;
       min-width: 160px;
+      height: 38px;
       background: #ffffff;
-      transition: border-color 0.2s;
+      color: var(--text-main);
+      transition: border-color 0.2s, box-shadow 0.2s;
+      box-sizing: border-box;
     }
 
     .form-input:focus {
       outline: none;
-      border-color: var(--primary);
-      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(1, 168, 221, 0.15);
     }
 
+    .date-presets { display: flex; gap: 6px; flex-wrap: wrap; }
+    .chip {
+      border: 1px solid var(--border); background: #fff; color: #334155;
+      border-radius: 999px; padding: 6px 12px; font: inherit; font-size: 0.76rem; font-weight: 600;
+      cursor: pointer; transition: all .15s; white-space: nowrap;
+    }
+    .chip:hover { border-color: var(--accent); color: var(--primary); }
+    .chip.active { background: var(--primary); border-color: var(--primary); color: #fff; }
+    .date-note { font-size: 0.74rem; color: var(--text-light); display: none; }
+
     .btn-action {
-      background-color: var(--primary);
+      background: linear-gradient(135deg, var(--primary), #0369a1);
       color: white;
       border: none;
-      padding: 9px 20px;
-      border-radius: 8px;
+      padding: 0 20px;
+      height: 38px;
+      border-radius: 9px;
       font-weight: 700;
       font-size: 0.85rem;
       cursor: pointer;
       transition: all 0.2s;
       display: inline-flex;
       align-items: center;
+      justify-content: center;
       gap: 8px;
+      white-space: nowrap;
     }
 
-    .btn-action:hover {
-      background-color: var(--primary-dark);
-      transform: translateY(-1px);
+    .btn-action:hover { filter: brightness(1.08); transform: translateY(-1px); }
+    .btn-action:active { transform: translateY(0); }
+    .btn-action:disabled { opacity: .65; cursor: wait; transform: none; }
+    .btn-ghost {
+      background: #fff; color: var(--text-main); border: 1px solid var(--border);
     }
+    .btn-ghost:hover { background: #f8fafc; filter: none; }
+    .btn-excel { background: #166534; }
+    .spin { display: inline-block; animation: rp-spin .8s linear infinite; }
+    @keyframes rp-spin { to { transform: rotate(360deg); } }
 
-    .btn-action:active {
-      transform: translateY(0);
+    /* ---------- Result card ---------- */
+    .result-head {
+      display: flex; justify-content: space-between; align-items: flex-start;
+      gap: 12px; flex-wrap: wrap; margin-bottom: 14px;
     }
+    .result-title { margin: 0; font-size: 1.1rem; font-weight: 800; color: #0f172a; }
+    .result-meta { font-size: 0.78rem; color: var(--text-light); margin-top: 3px; }
+    .result-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+    .result-actions .btn-action { height: 34px; padding: 0 14px; font-size: 0.8rem; }
 
-    /* DataTable Overrides */
-    table.dataTable.display tbody tr td {
-      padding: 10px 12px;
+    .kpi-row { display: grid; grid-template-columns: repeat(auto-fill, minmax(165px, 1fr)); gap: 10px; margin-bottom: 12px; }
+    .kpi {
+      border: 1px solid var(--border); border-radius: 12px; padding: 10px 13px;
+      background: #fff; border-left: 4px solid var(--kc, var(--primary));
+    }
+    .kpi .k-label { font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--text-light); }
+    .kpi .k-val { font-size: 1.2rem; font-weight: 800; color: var(--kc, #0f172a); margin-top: 2px; font-variant-numeric: tabular-nums; }
+    .chip-row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-bottom: 8px; }
+    .chip-row .control-label { margin-right: 4px; }
+    .mini-chip {
+      background: color-mix(in srgb, var(--kc) 8%, #fff); color: var(--kc);
+      border: 1px solid color-mix(in srgb, var(--kc) 30%, #fff);
+      border-radius: 8px; padding: 3px 10px; font-weight: 700; font-size: 0.74rem; white-space: nowrap;
+    }
+    .summary-table { border-collapse: collapse; min-width: 420px; font-size: 0.8rem; margin-top: 4px; }
+    .summary-table th { text-align: left; padding: 8px 12px; border-bottom: 2px solid var(--border); text-transform: uppercase; font-size: 0.7rem; color: #475569; background: #f8fafc; }
+    .summary-table td { padding: 6px 12px; border-bottom: 1px solid var(--border); font-variant-numeric: tabular-nums; }
+    .summary-table .num { text-align: right; }
+
+    /* ---------- DataTable ---------- */
+    .table-scroll {
+      width: 100%; overflow: auto; max-height: 68vh;
+      border: 1px solid var(--border); border-radius: 10px;
+    }
+    #reportTable { margin: 0 !important; border-collapse: separate; border-spacing: 0; }
+    table.dataTable tbody td {
+      padding: 8px 12px !important;
       font-size: 0.8rem;
+      border-bottom: 1px solid #f1f5f9;
+      font-variant-numeric: tabular-nums;
     }
-
+    table.dataTable.stripe tbody tr.odd,
+    table.dataTable.display tbody tr.odd { background: #fbfdff; }
+    table.dataTable tbody tr:hover > td { background: #eff7fd !important; }
     table.dataTable thead th {
-      background: #f8fafc !important;
-      color: #475569 !important;
+      position: sticky; top: 0; z-index: 2;
+      background: #f1f5f9 !important;
+      color: #334155 !important;
       font-weight: 700;
       text-transform: uppercase;
-      font-size: 0.75rem;
-      letter-spacing: 0.05em;
-      padding: 12px !important;
-      border-bottom: 2px solid var(--border) !important;
+      font-size: 0.7rem;
+      letter-spacing: 0.04em;
+      padding: 10px 12px !important;
+      border-bottom: 2px solid #cbd5e1 !important;
+      white-space: nowrap;
     }
+    table.dataTable tfoot td {
+      position: sticky; bottom: 0; z-index: 2;
+      background: #eef6fb;
+      border-top: 2px solid var(--primary) !important;
+      font-weight: 800; color: #0f172a;
+      padding: 9px 12px !important;
+      font-size: 0.8rem;
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+    }
+    table.dataTable th.dt-right, table.dataTable td.dt-right { text-align: right; }
+    table.dataTable td.wrap { white-space: normal; min-width: 180px; max-width: 320px; }
 
+    .dataTables_wrapper .dt-top {
+      display: flex; justify-content: space-between; align-items: center;
+      gap: 10px; flex-wrap: wrap; margin-bottom: 10px;
+    }
+    .dataTables_wrapper .dt-bottom {
+      display: flex; justify-content: space-between; align-items: center;
+      gap: 10px; flex-wrap: wrap; margin-top: 10px;
+    }
     .dataTables_wrapper .dataTables_filter input {
       border: 1px solid #cbd5e1;
-      border-radius: 8px;
+      border-radius: 9px;
       padding: 6px 12px;
+      margin-left: 6px;
     }
-
-    .dt-buttons .dt-button {
-      background: white !important;
-      border: 1px solid #e2e8f0 !important;
-      border-radius: 8px !important;
-      padding: 6px 16px !important;
-      font-size: 0.8rem !important;
-      font-weight: 600 !important;
-      color: var(--text-main) !important;
-      transition: all 0.2s !important;
+    .dataTables_wrapper .dataTables_length select {
+      border: 1px solid #cbd5e1; border-radius: 8px; padding: 4px 8px;
     }
-
-    .dt-buttons .dt-button:hover {
-      background: #f8fafc !important;
-      border-color: #cbd5e1 !important;
+    .dataTables_wrapper .dataTables_info { font-size: 0.78rem; color: var(--text-light); padding: 0; }
+    .dataTables_wrapper .dataTables_paginate { padding: 0; }
+    .dataTables_wrapper .dataTables_paginate .paginate_button.current,
+    .dataTables_wrapper .dataTables_paginate .paginate_button.current:hover {
+      background: var(--primary) !important; color: #fff !important; border-color: var(--primary) !important; border-radius: 8px;
     }
 
     .status-badge {
       display: inline-flex;
       align-items: center;
-      padding: 4px 8px;
+      padding: 4px 10px;
       border-radius: 999px;
       font-size: 0.7rem;
       font-weight: 700;
       text-transform: uppercase;
+      background: #eef6fb; color: var(--primary);
     }
-
-    .badge-summary { background: #eff6ff; color: #2563eb; }
-    .badge-detail { background: #fdf2f8; color: #db2777; }
 
     .mw-chk {
       display: inline-flex;
@@ -184,79 +319,113 @@
       color: var(--text-main);
       cursor: pointer;
       user-select: none;
+      min-height: 38px;
     }
-    .mw-chk input { width: 15px; height: 15px; cursor: pointer; }
+    .mw-chk input { width: 15px; height: 15px; cursor: pointer; accent-color: var(--primary); }
     .mw-chk input:disabled { cursor: not-allowed; }
     .mw-chk input:disabled + span,
     .mw-chk:has(input:disabled) { color: var(--text-light); }
+    .sub-strip { margin-top: 14px; padding-top: 14px; border-top: 1px dashed var(--border); }
+    .sub-strip .mw-chk { min-height: 0; }
 
     /* Mould-wise printable report */
     .mould-report-table {
       border-collapse: collapse;
       margin-bottom: 28px;
-      font-size: 0.9rem;
+      font-size: 0.85rem;
       page-break-inside: avoid;
+      font-variant-numeric: tabular-nums;
     }
     .mould-report-table td,
     .mould-report-table th {
-      border: 1px solid #000;
+      border: 1px solid #94a3b8;
       padding: 6px 14px;
       text-align: center;
     }
     .mould-report-table .mr-label { font-weight: 700; text-align: left; }
     .mould-report-table .mr-mould-name {
-      background: #ffff00;
+      background: #fff3c4;
       font-weight: 800;
       text-align: left;
     }
-    .mould-report-table .mr-colhead { font-weight: 700; text-align: left; }
+    .mould-report-table .mr-colhead { font-weight: 700; text-align: left; background: #f1f5f9; }
     .mould-report-table td.mr-num { text-align: right; }
     .mould-report-table .mr-grand td {
       font-weight: 800;
-      font-size: 1rem;
+      font-size: 0.95rem;
       text-align: right;
-      border-top: 2px solid #000;
+      border-top: 2px solid #0f172a;
+      background: #eef6fb;
     }
 
+    .empty-state { text-align: center; padding: 70px 20px; color: var(--text-light); }
+    .empty-state .es-ico {
+      width: 64px; height: 64px; border-radius: 18px; margin: 0 auto;
+      display: flex; align-items: center; justify-content: center;
+      background: #eef6fb; color: var(--primary); font-size: 1.8rem;
+    }
+    .empty-state h3 { margin: 14px 0 4px; color: #0f172a; font-size: 1.05rem; }
+    .print-head { display: none; }
+
     @media print {
-      body { background: #fff; font-size: 12px; }
-      .no-print, .header-row,
-      #filterCard, #tableCard, #emptyState { display: none !important; }
+      @page { size: landscape; margin: 10mm; }
+      body { background: #fff !important; font-size: 11px; }
+      .sidebar, .header, .mobile-header, .no-print, .rp-head, #filterCard, #emptyState,
+      .dt-top, .dt-bottom { display: none !important; }
+      .main-content { padding: 0 !important; overflow: visible !important; height: auto !important; }
       .card { box-shadow: none; border: none; padding: 0; }
-      #mouldReportCard { display: block !important; }
+      .print-head { display: block; margin-bottom: 8px; }
+      .print-head b { font-size: 14px; }
+      .table-scroll { max-height: none; overflow: visible; border: none; }
+      table.dataTable thead th, table.dataTable tfoot td { position: static; }
+      table.dataTable tbody td { padding: 4px 6px !important; font-size: 10px; }
+      .kpi { padding: 6px 8px; }
+      .kpi .k-val { font-size: 13px; }
+      * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    }
+
+    @media (max-width: 1100px) {
+      .rt-groups { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     }
 
     @media (max-width: 768px) {
-      .filter-bar {
-        flex-direction: column;
-        align-items: stretch;
-      }
-      .control-group {
-        width: 100%;
-      }
-      .form-input {
-        width: 100%;
-      }
+      .main-content { padding: 12px 16px !important; }
+      .rt-groups { grid-template-columns: 1fr; gap: 10px; }
+      .rt-card .rt-desc { display: none; }
+      .rt-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+      .rt-card { padding: 8px; gap: 8px; align-items: center; }
+      .rt-card i { flex-basis: 24px; height: 24px; font-size: 0.8rem; }
+      .rt-card .rt-name { font-size: 0.76rem; }
+      .filter-bar { flex-direction: column; align-items: stretch; }
+      .control-group { width: 100%; }
+      .form-input { width: 100%; min-width: 0; }
+      .btn-action { width: 100%; }
+      .result-actions { width: 100%; }
+      .result-actions .btn-action { flex: 1; width: auto; }
+      .kpi-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .table-scroll { max-height: 62vh; }
+      .dataTables_wrapper .dataTables_filter { width: 100%; }
+      .dataTables_wrapper .dataTables_filter label, .dataTables_wrapper .dataTables_filter input { width: 100%; margin-left: 0; box-sizing: border-box; }
     }
   </style>
 </head>
 
 <body>
   <div class="main-content">
-    <div class="header-row">
+    <div class="rp-head">
       <div>
-        <div class="page-title" id="pageTitle">Reports</div>
-        <div style="font-size:0.85rem; color:var(--text-light); margin-top:4px">
-          Generate production, stock, and factory-wise reports.
-        </div>
+        <div class="page-title" id="pageTitle"><i class="bi bi-file-earmark-bar-graph"></i> Reports</div>
+        <div class="rp-sub">Pick a report, choose the period, and generate. Every report can be exported to Excel or printed.</div>
       </div>
-      <div style="font-size:0.85rem; color:var(--text-light)">
-        <a href="/index.html" style="text-decoration:none; color:var(--primary)">Dashboard</a> / Reports
-      </div>
+      <div class="rp-crumb"><a href="/index.html">Dashboard</a> / Reports</div>
     </div>
 
     <!-- Filter Card -->
     <div class="card" id="filterCard">
+      <div class="step-label"><b>1</b> Choose a report</div>
+      <div class="rt-groups" id="rtGroups"></div>
+
+      <div class="step-label" id="filtersStep"><b>2</b> Set filters</div>
       <div class="filter-bar">
         <div class="control-group">
           <label class="control-label">Factory</label>
@@ -265,7 +434,7 @@
           </select>
         </div>
 
-        <div class="control-group">
+        <div class="control-group" style="display:none">
           <label class="control-label">Report Type</label>
           <select id="reportType" class="form-input" onchange="onReportTypeChange()">
             <option value="summary">Summary View</option>
@@ -377,23 +546,32 @@
           </select>
         </div>
 
-        <div class="control-group">
+        <div class="control-group date-ctl">
           <label class="control-label">From Date</label>
           <input type="date" id="dateFrom" class="form-input">
         </div>
 
-        <div class="control-group">
+        <div class="control-group date-ctl">
           <label class="control-label">To Date</label>
           <input type="date" id="dateTo" class="form-input">
         </div>
 
-        <button class="btn-action" onclick="generateReport()">
+        <button class="btn-action" id="btnGenerate" onclick="generateReport()">
           <i class="bi bi-play-fill"></i> Generate Report
         </button>
       </div>
+      <div class="date-presets date-ctl" id="datePresets" style="margin-top:12px">
+        <button type="button" class="chip" data-preset="today">Today</button>
+        <button type="button" class="chip" data-preset="yesterday">Yesterday</button>
+        <button type="button" class="chip" data-preset="week">This week</button>
+        <button type="button" class="chip" data-preset="last7">Last 7 days</button>
+        <button type="button" class="chip" data-preset="month">This month</button>
+        <button type="button" class="chip" data-preset="lastmonth">Last month</button>
+      </div>
+      <div class="date-note" id="dateNote"><i class="bi bi-info-circle"></i> This report shows the live plan board — the date range is not used.</div>
 
       <!-- Mould-Wise field strip (extra columns / group-by dimensions) -->
-      <div id="mouldFieldStrip" style="display:none; margin-top:14px; padding-top:14px; border-top:1px dashed var(--border);">
+      <div id="mouldFieldStrip" class="sub-strip" style="display:none">
         <div class="control-label" style="margin-bottom:8px;">Include Columns</div>
         <div style="display:flex; flex-wrap:wrap; gap:16px 22px;">
           <label class="mw-chk"><input type="checkbox" value="or_no"      onchange="onMouldFieldChange()"> OR No.</label>
@@ -412,7 +590,7 @@
       </div>
 
       <!-- Machine-Tonnage checkbox filter (Mould-Wise only). Default: all selected. -->
-      <div id="tonnageStrip" style="display:none; margin-top:14px; padding-top:14px; border-top:1px dashed var(--border);">
+      <div id="tonnageStrip" class="sub-strip" style="display:none">
         <div style="display:flex; align-items:center; gap:14px; margin-bottom:8px;">
           <span class="control-label" style="margin:0;">Machine Tonnage</span>
           <label class="mw-chk"><input type="checkbox" id="tonnageAll" checked onchange="onTonnageAllChange()"> <b>All</b></label>
@@ -425,19 +603,22 @@
 
     <!-- Data Table Card -->
     <div class="card" id="tableCard" style="display:none">
-      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px">
-        <h3 style="margin:0; font-size:1.1rem; font-weight:700">WIP Report Results</h3>
-        <span id="reportStatusBadge" class="status-badge"></span>
+      <div class="print-head" id="printHead"></div>
+      <div class="result-head">
+        <div>
+          <h3 class="result-title" id="resultTitle">Report</h3>
+          <div class="result-meta" id="resultMeta"></div>
+        </div>
+        <div class="result-actions no-print">
+          <span id="reportStatusBadge" class="status-badge" style="align-self:center"></span>
+          <button class="btn-action btn-excel" onclick="exportTable('excel')"><i class="bi bi-file-earmark-excel"></i> Excel</button>
+          <button class="btn-action btn-ghost" onclick="exportTable('csv')"><i class="bi bi-filetype-csv"></i> CSV</button>
+          <button class="btn-action btn-ghost" onclick="printReport()"><i class="bi bi-printer"></i> Print / PDF</button>
+        </div>
       </div>
+      <div class="kpi-row" id="kpiRow" style="display:none"></div>
       <div id="eqaSummaryStrip" style="display:none; margin-bottom:15px;"></div>
-      <div style="width:100%; overflow-x:auto;">
-        <table id="reportTable" class="display nowrap compact" style="width:100%">
-          <thead>
-            <tr id="tableHeader"></tr>
-          </thead>
-          <tbody id="tableBody"></tbody>
-        </table>
-      </div>
+      <div id="reportTableHost"></div>
     </div>
 
     <!-- Mould-Wise Printable Report -->
@@ -445,11 +626,11 @@
       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px" class="no-print">
         <h3 style="margin:0; font-size:1.1rem; font-weight:700">Mould Wise Item QTY</h3>
         <div style="display:flex; gap:8px;">
-          <button class="btn-action" style="background:#166534" onclick="downloadMouldExcel()">
+          <button class="btn-action btn-excel" onclick="downloadMouldExcel()">
             <i class="bi bi-file-earmark-excel"></i> Download Excel
           </button>
-          <button class="btn-action" onclick="window.print()">
-            <i class="bi bi-printer"></i> Print
+          <button class="btn-action btn-ghost" onclick="window.print()">
+            <i class="bi bi-printer"></i> Print / PDF
           </button>
         </div>
       </div>
@@ -462,17 +643,17 @@
         <h3 style="margin:0; font-size:1.1rem; font-weight:700">Machine Finish Schedule</h3>
         <div>
           <span id="mwScheduleCount" class="status-badge" style="margin-right:8px"></span>
-          <button class="btn-action" onclick="window.print()"><i class="bi bi-printer"></i> Print</button>
+          <button class="btn-action btn-ghost" onclick="window.print()"><i class="bi bi-printer"></i> Print / PDF</button>
         </div>
       </div>
       <div id="mwScheduleBody"></div>
     </div>
 
     <!-- Empty State -->
-    <div id="emptyState" style="text-align:center; padding:100px 20px; color:var(--text-light)">
-      <i class="bi bi-file-earmark-bar-graph" style="font-size:3rem; opacity:0.3"></i>
-      <h3 style="margin-top:10px">No Report Generated</h3>
-      <p>Select your filters above and click "Generate Report" to view data.</p>
+    <div id="emptyState" class="card empty-state">
+      <div class="es-ico"><i class="bi bi-bar-chart-line"></i></div>
+      <h3 id="emptyTitle">No report generated yet</h3>
+      <p id="emptyText" style="margin:0">Choose a report and period above, then click <b>Generate Report</b>.</p>
     </div>
   </div>
 
@@ -486,11 +667,135 @@
   <script>
     let reportTable = null;
 
+    // Report catalogue: grouping, icon and one-line description for the picker.
+    // `dates: false` = the report ignores the From/To range (live plan board).
+    const REPORT_GROUPS = [
+      { title: 'Production', icon: 'bi-gear-wide-connected', items: [
+        { type: 'mould-wise-qty', name: 'Mould Wise Item QTY', icon: 'bi-box-seam', desc: 'Day / night quantity per mould, with optional OR, JC, cycle and reject columns.' },
+        { type: 'machine-date-history', name: 'Machine Date-Wise History', icon: 'bi-clock-history', desc: 'What one machine produced, date by date (default last 2 months).' },
+        { type: 'tonnage', name: 'Tonnage Report', icon: 'bi-speedometer2', desc: 'Good, reject and overall tonnage by day, week, month or year.' }
+      ] },
+      { title: 'Planning', icon: 'bi-calendar3', items: [
+        { type: 'jms-plan', name: 'JMS Plan', icon: 'bi-clipboard-data', desc: 'Every plan created in the period with JR, mould, machine and batch details.' },
+        { type: 'machine-wise', name: 'Machine-Wise Plan Report', icon: 'bi-diagram-3', desc: 'Running and queued plans per machine with expected finish times.', dates: false },
+        { type: 'extra-qty-allowed', name: 'Extra Allowed QTY By PPC', icon: 'bi-plus-circle', desc: 'Extra quantity granted by PPC: who, why and how much.' }
+      ] },
+      { title: 'Machines & People', icon: 'bi-people', items: [
+        { type: 'machine-maintenance', name: 'Machine Maintenance Report', icon: 'bi-tools', desc: 'Maintenance downtime per machine, daily, weekly or monthly.' },
+        { type: 'manpower', name: 'Manpower Report', icon: 'bi-person-badge', desc: 'Standard vs actual manpower per machine and shift.' }
+      ] },
+      { title: 'Stock (WIP)', icon: 'bi-archive', items: [
+        { type: 'summary', name: 'Summary View', icon: 'bi-list-columns', desc: 'WIP stock summary per item: previous, current and total quantity.' },
+        { type: 'detail', name: 'Detailed View', icon: 'bi-list-ul', desc: 'Every WIP stock entry with job number, status and remarks.' }
+      ] }
+    ];
+    const REPORT_META = {};
+    REPORT_GROUPS.forEach(g => g.items.forEach(it => { REPORT_META[it.type] = it; }));
+
+    function renderTypeCards() {
+      const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+      document.getElementById('rtGroups').innerHTML = REPORT_GROUPS.map(g => `
+        <div>
+          <div class="rt-group-title"><i class="bi ${g.icon}"></i> ${esc(g.title)}</div>
+          <div class="rt-list">
+            ${g.items.map(it => `
+              <button type="button" class="rt-card" data-type="${it.type}" onclick="selectReportType('${it.type}')">
+                <i class="bi ${it.icon}"></i>
+                <span><div class="rt-name">${esc(it.name)}</div><div class="rt-desc">${esc(it.desc)}</div></span>
+              </button>`).join('')}
+          </div>
+        </div>`).join('');
+    }
+
+    function selectReportType(type) {
+      const sel = document.getElementById('reportType');
+      if (sel.value === type) { syncTypeCards(); return; }
+      sel.value = type;
+      onReportTypeChange();
+      if (window.matchMedia('(max-width: 768px)').matches) {
+        document.getElementById('filtersStep').scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    }
+
+    function syncTypeCards() {
+      const type = document.getElementById('reportType').value;
+      document.querySelectorAll('.rt-card').forEach(c => c.classList.toggle('active', c.dataset.type === type));
+      const usesDates = !(REPORT_META[type] && REPORT_META[type].dates === false);
+      document.querySelectorAll('.date-ctl').forEach(el => { el.style.display = usesDates ? '' : 'none'; });
+      document.getElementById('dateNote').style.display = usesDates ? 'none' : 'block';
+    }
+
+    // Local YYYY-MM-DD (toISOString() is UTC, which in IST gives yesterday before 05:30).
+    function ymd(d) {
+      const p = n => String(n).padStart(2, '0');
+      return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+    }
+
+    function setDateRange(from, to) {
+      document.getElementById('dateFrom').value = from;
+      document.getElementById('dateTo').value = to;
+      highlightPreset();
+      onMdhFilterChange();
+    }
+
+    function presetRange(key) {
+      const now = new Date();
+      const y = now.getFullYear(), m = now.getMonth(), d = now.getDate();
+      switch (key) {
+        case 'today': return [ymd(now), ymd(now)];
+        case 'yesterday': { const t = new Date(y, m, d - 1); return [ymd(t), ymd(t)]; }
+        case 'week': { const dow = (now.getDay() + 6) % 7; return [ymd(new Date(y, m, d - dow)), ymd(now)]; } // Monday start
+        case 'last7': return [ymd(new Date(y, m, d - 6)), ymd(now)];
+        case 'month': return [ymd(new Date(y, m, 1)), ymd(now)];
+        case 'lastmonth': return [ymd(new Date(y, m - 1, 1)), ymd(new Date(y, m, 0))];
+      }
+      return null;
+    }
+
+    function highlightPreset() {
+      const from = document.getElementById('dateFrom').value;
+      const to = document.getElementById('dateTo').value;
+      document.querySelectorAll('#datePresets .chip').forEach(c => {
+        const r = presetRange(c.dataset.preset);
+        c.classList.toggle('active', !!r && r[0] === from && r[1] === to);
+      });
+    }
+
+    // Machine order = Line from the machine master, then machine number
+    // (the /machines endpoint returns that order); unknown machines go last.
+    const _machineRank = {};
+    async function machineRank() {
+      const key = document.getElementById('factorySelector').value || '';
+      if (_machineRank[key]) return _machineRank[key];
+      const rank = new Map();
+      try {
+        const res = await JPSMS.api.get('/machines?line=All');
+        ((res && res.data) || []).forEach((m, i) => rank.set(m, i));
+      } catch (e) { console.warn('machine order unavailable', e); }
+      _machineRank[key] = rank;
+      return rank;
+    }
+    async function sortMachines(list) {
+      const rank = await machineRank();
+      return [...list].sort((a, b) => {
+        const ra = rank.has(a) ? rank.get(a) : Infinity;
+        const rb = rank.has(b) ? rank.get(b) : Infinity;
+        if (ra !== rb) return ra - rb;
+        return String(a).localeCompare(String(b), undefined, { numeric: true });
+      });
+    }
+
     document.addEventListener('DOMContentLoaded', async () => {
       JPSMS.auth.requireAuth();
       JPSMS.renderShell('reports');
 
       initFilters();
+      renderTypeCards();
+      document.querySelectorAll('#datePresets .chip').forEach(c => c.addEventListener('click', () => {
+        const r = presetRange(c.dataset.preset);
+        if (r) setDateRange(r[0], r[1]);
+      }));
+      ['dateFrom', 'dateTo'].forEach(id => document.getElementById(id).addEventListener('change', highlightPreset));
       ['factorySelector', 'dateFrom', 'dateTo'].forEach(id => {
         const el = document.getElementById(id);
         if (el) el.addEventListener('change', onMdhFilterChange);
@@ -501,11 +806,11 @@
       }
 
       // Auto-set current month dates
-      const now = new Date();
-      const firstDay = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
-      const today = now.toISOString().split('T')[0];
+      const [firstDay, today] = presetRange('month');
       document.getElementById('dateFrom').value = firstDay;
       document.getElementById('dateTo').value = today;
+      highlightPreset();
+      syncTypeCards();
 
       // Deep-link from the Machine Timeline: ?view=machine-wise[&machine=..][&mwview=summary|detail]
       if (params.get('view') === 'machine-wise') {
@@ -526,7 +831,7 @@
       
       let html = canAll ? '<option value="">All Factories</option>' : '';
       factories.forEach(f => {
-        html += `<option value="${f.id}">${f.name}</option>`;
+        html += `<option value="${escapeHtml(f.id)}">${escapeHtml(f.name)}</option>`;
       });
       selector.innerHTML = html;
 
@@ -562,10 +867,12 @@
         // otherwise pre-fills the current month). The user can still change them.
         const now = new Date();
         const twoMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 2, now.getDate());
-        document.getElementById('dateFrom').value = twoMonthsAgo.toISOString().split('T')[0];
-        document.getElementById('dateTo').value = now.toISOString().split('T')[0];
+        document.getElementById('dateFrom').value = ymd(twoMonthsAgo);
+        document.getElementById('dateTo').value = ymd(now);
+        highlightPreset();
         loadMdhMachines();
       }
+      syncTypeCards();
     }
 
     // When the factory or dates change while the Machine Date-Wise History report is
@@ -607,7 +914,7 @@
       try {
         const factoryId = document.getElementById('factorySelector').value;
         const res = await JPSMS.api.get(`/reports/machine-date-history?factory_id=${factoryId}${range.qs}`);
-        const machines = (res && res.machines) || [];
+        const machines = await sortMachines((res && res.machines) || []);
         const escLocal = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
         const prev = sel.value;
         sel.innerHTML = '<option value="">Select machine…</option>' +
@@ -628,7 +935,7 @@
         const factoryId = document.getElementById('factorySelector').value;
         const res = await JPSMS.api.get(`/planning/board${factoryId ? `?factory_id=${factoryId}` : ''}`);
         const plans = (res && res.data && res.data.plans) || [];
-        const machines = [...new Set(plans.map(p => p.machine).filter(Boolean))].sort();
+        const machines = await sortMachines([...new Set(plans.map(p => p.machine).filter(Boolean))]);
         const escLocal = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
         const sel = document.getElementById('mwMachine');
         sel.innerHTML = '<option value="">All Machines</option>' +
@@ -667,7 +974,7 @@
           return;
         }
         box.innerHTML = list.map(t =>
-          `<label class="mw-chk"><input type="checkbox" class="tonnage-chk" value="${t}" checked onchange="onTonnageItemChange()"> ${t}T</label>`
+          `<label class="mw-chk"><input type="checkbox" class="tonnage-chk" value="${escapeHtml(t)}" checked onchange="onTonnageItemChange()"> ${escapeHtml(t)}T</label>`
         ).join('');
         document.getElementById('tonnageAll').checked = true;
       } catch (e) {
@@ -726,6 +1033,12 @@
       const factoryId = document.getElementById('factorySelector').value;
       const from = document.getElementById('dateFrom').value;
       const to = document.getElementById('dateTo').value;
+      if (REPORT_META[type] && REPORT_META[type].dates !== false && type !== 'machine-date-history' && from && to && from > to) {
+        JPSMS.toast('From date is after To date.', 'error');
+        return;
+      }
+      const btn = document.getElementById('btnGenerate');
+      const btnHtml = btn.innerHTML;
 
       try {
         let endpoint;
@@ -767,6 +1080,8 @@
         } else {
           endpoint = `/reports/wip?type=${type}&factory_id=${factoryId}&from=${from}&to=${to}`;
         }
+        btn.disabled = true;
+        btn.innerHTML = '<i class="bi bi-arrow-repeat spin"></i> Generating…';
         const res = await JPSMS.api.get(endpoint);
 
         if (res.ok) {
@@ -803,6 +1118,9 @@
       } catch (err) {
         console.error(err);
         JPSMS.toast(err.message || 'Error generating report', 'error');
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = btnHtml;
       }
     }
 
@@ -813,6 +1131,7 @@
     }
 
     function renderMouldReport(groups, fields) {
+      document.getElementById('kpiRow').style.display = 'none';
       document.getElementById('emptyState').style.display = 'none';
       document.getElementById('tableCard').style.display = 'none';
       document.getElementById('mwScheduleCard').style.display = 'none';
@@ -854,10 +1173,10 @@
         const rows = g.rows.map(r => `
           <tr>
             ${leadCols.map(c => `<td class="${c.num ? 'mr-num' : 'mr-label'}">${esc(c.get(r))}</td>`).join('')}
-            <td class="mr-label">${fmtDate(r.date)}</td>
-            <td class="mr-num">${r.day}</td>
-            <td class="mr-num">${r.night}</td>
-            <td class="mr-num">${r.total}</td>
+            <td class="mr-label">${esc(fmtDate(r.date))}</td>
+            <td class="mr-num">${esc(r.day)}</td>
+            <td class="mr-num">${esc(r.night)}</td>
+            <td class="mr-num">${esc(r.total)}</td>
             ${metricCols.map(c => `<td class="mr-num">${esc(c.get(r))}</td>`).join('')}
           </tr>`).join('');
 
@@ -903,7 +1222,7 @@
             <tr>${headCells}</tr>
             ${rows}
             <tr class="mr-grand">
-              ${grandLead}<td>${g.grandTotal}</td>${grandMetrics}
+              ${grandLead}<td>${esc(g.grandTotal)}</td>${grandMetrics}
             </tr>
           </table>`;
       }).join('');
@@ -917,6 +1236,7 @@
     // DETAIL view of Mould Wise Item QTY — pivot: one row per Machine+Mould,
     // dates as Day/Night column pairs, matching the printed grid layout.
     function renderMouldDetail(pivot, fields) {
+      document.getElementById('kpiRow').style.display = 'none';
       document.getElementById('emptyState').style.display = 'none';
       document.getElementById('tableCard').style.display = 'none';
       document.getElementById('mwScheduleCard').style.display = 'none';
@@ -963,7 +1283,7 @@
           const raw = r[c.key];
           const val = c.fmt ? c.fmt(raw) : esc(raw);
           const isNum = c.key !== 'machine' && c.key !== 'mouldNo' && c.key !== 'mouldName';
-          return `<td class="${isNum ? 'mr-num' : 'mr-label'}">${c.fmt ? val : esc(raw)}</td>`;
+          return `<td class="${isNum ? 'mr-num' : 'mr-label'}">${esc(c.fmt ? val : raw)}</td>`;
         }).join('');
         const grid = dates.map(d => {
           const cell = (r.cells && r.cells[d.date]) || { day: 0, night: 0 };
@@ -1003,13 +1323,70 @@
         </div>`;
     }
 
+    // Escape all of & < > " ' for HTML text and attribute values.
+    function escapeHtml(v) {
+      return String(v == null ? '' : v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    }
+
+    function kpiTile(label, val, color) {
+      const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+      return `<div class="kpi" style="--kc:${color || '#024c81'}"><div class="k-label">${esc(label)}</div><div class="k-val">${esc(val)}</div></div>`;
+    }
+
+    function fmtNum(v) {
+      if (v == null || v === '') return '';
+      const n = Number(v);
+      return isNaN(n) ? v : n.toLocaleString('en-IN', { maximumFractionDigits: 3 });
+    }
+
+    // Value for Excel/CSV: strip markup and thousands separators so numbers stay numbers.
+    function exportVal(out) {
+      // Parse into an inert document (scripts never run) and read its text.
+      const txt = (new DOMParser().parseFromString(String(out == null ? '' : out), 'text/html').body.textContent || '').trim();
+      const bare = txt.replace(/,/g, '');
+      return /^[-+]?\d+(\.\d+)?$/.test(bare) ? Number(bare) : txt;
+    }
+
+    function getPath(obj, path) {
+      return String(path).split('.').reduce((o, k) => (o == null ? undefined : o[k]), obj);
+    }
+
+    function exportTable(kind) {
+      if (!reportTable) return;
+      reportTable.button(kind === 'csv' ? '.buttons-csv' : '.buttons-excel').trigger();
+    }
+
+    // Print every row (not just the current page), then restore paging.
+    function printReport() {
+      if (!reportTable) { window.print(); return; }
+      const len = reportTable.page.len();
+      reportTable.page.len(-1).draw(false);
+      window.addEventListener('afterprint', () => { reportTable && reportTable.page.len(len).draw(false); }, { once: true });
+      setTimeout(() => window.print(), 60);
+    }
+
+    function reportMetaText(type, rows) {
+      const fSel = document.getElementById('factorySelector');
+      const factory = fSel.options[fSel.selectedIndex] ? fSel.options[fSel.selectedIndex].text : '';
+      const from = document.getElementById('dateFrom').value;
+      const to = document.getElementById('dateTo').value;
+      const usesDates = !(REPORT_META[type] && REPORT_META[type].dates === false);
+      const period = !usesDates ? 'Live plan board'
+        : (from && to) ? (from === to ? fmtDate(from) : `${fmtDate(from)} to ${fmtDate(to)}`)
+        : 'Last 2 months';
+      const factoryTxt = (type === 'extra-qty-allowed' || type === 'machine-maintenance') ? '' : factory;
+      return [factoryTxt, period, `${Number(rows).toLocaleString('en-IN')} row${rows === 1 ? '' : 's'}`,
+        'Generated ' + new Date().toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })]
+        .filter(Boolean).join('  ·  ');
+    }
+
     function renderEqaSummary(summary) {
       const strip = document.getElementById('eqaSummaryStrip');
       if (!summary) { strip.style.display = 'none'; strip.innerHTML = ''; return; }
       const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c =>
         ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
       const pill = (label, val, color) =>
-        `<span style="background:${color}12;color:${color};border:1px solid ${color}44;border-radius:8px;padding:4px 12px;font-weight:800;font-size:0.78rem;white-space:nowrap">${esc(label)}: ${esc(val)}</span>`;
+        `<span class="mini-chip" style="--kc:${color}">${esc(label)}: ${esc(val)}</span>`;
       const userPills = Object.entries(summary.by_user || {})
         .sort((a, b) => b[1] - a[1])
         .map(([u, v]) => pill(u, '+' + Number(v).toLocaleString(), '#7c3aed')).join(' ');
@@ -1018,14 +1395,14 @@
         .map(([c, v]) => pill(c, '+' + Number(v).toLocaleString(), '#0369a1')).join(' ');
       strip.style.display = 'block';
       strip.innerHTML = `
-        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px">
-          ${pill('Total Extra Allowed', Number(summary.total || 0).toLocaleString() + ' pcs', '#16a34a')}
-          ${pill('Grants', summary.count || 0, '#475569')}
+        <div class="kpi-row">
+          ${kpiTile('Total Extra Allowed', Number(summary.total || 0).toLocaleString() + ' pcs', '#16a34a')}
+          ${kpiTile('Grants', summary.count || 0, '#475569')}
         </div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:6px">
+        <div class="chip-row">
           <span class="control-label" style="align-self:center">By User:</span> ${userPills || '<span style="color:var(--text-light)">–</span>'}
         </div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <div class="chip-row">
           <span class="control-label" style="align-self:center">By Colour:</span> ${colourPills || '<span style="color:var(--text-light)">–</span>'}
         </div>`;
     }
@@ -1037,17 +1414,17 @@
         ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
       const hrs = m => (Number(m || 0) / 60).toFixed(1);
       const pill = (label, val, color) =>
-        `<span style="background:${color}12;color:${color};border:1px solid ${color}44;border-radius:8px;padding:4px 12px;font-weight:800;font-size:0.78rem;white-space:nowrap">${esc(label)}: ${esc(val)}</span>`;
+        `<span class="mini-chip" style="--kc:${color}">${esc(label)}: ${esc(val)}</span>`;
       const machinePills = Object.entries(summary.by_machine || {})
         .sort((a, b) => b[1] - a[1])
         .map(([m, v]) => pill(m, hrs(v) + ' Hrs', '#b45309')).join(' ');
       strip.style.display = 'block';
       strip.innerHTML = `
-        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px">
-          ${pill('Total Maintenance Downtime', hrs(summary.total_min) + ' Hrs', '#dc2626')}
-          ${pill('Machines Affected', summary.machines || 0, '#475569')}
+        <div class="kpi-row">
+          ${kpiTile('Total Maintenance Downtime', hrs(summary.total_min) + ' Hrs', '#dc2626')}
+          ${kpiTile('Machines Affected', summary.machines || 0, '#475569')}
         </div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <div class="chip-row">
           <span class="control-label" style="align-self:center">By Machine (most affected first):</span> ${machinePills || '<span style="color:var(--text-light)">–</span>'}
         </div>`;
     }
@@ -1058,21 +1435,21 @@
       const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c =>
         ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
       const pill = (label, val, color) =>
-        `<span style="background:${color}12;color:${color};border:1px solid ${color}44;border-radius:8px;padding:4px 12px;font-weight:800;font-size:0.78rem;white-space:nowrap">${esc(label)}: ${esc(val)}</span>`;
+        `<span class="mini-chip" style="--kc:${color}">${esc(label)}: ${esc(val)}</span>`;
       const machines = (summary.full_day_maint_machines || []).map(m => pill(m, 'Full day', '#b45309')).join(' ');
       strip.style.display = 'block';
       strip.innerHTML = `
-        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px">
-          ${shift !== 'Night' ? pill('Day Std / Act', `${summary.day.std} / ${summary.day.act}`, '#2563eb') : ''}
-          ${shift !== 'Day' ? pill('Night Std / Act', `${summary.night.std} / ${summary.night.act}`, '#4f46e5') : ''}
-          ${pill('Shortage', summary.shortage, summary.shortage < 0 ? '#dc2626' : '#16a34a')}
-          ${pill('Excess', '+' + (summary.excess || 0), '#0891b2')}
-          ${pill('Shifts without Act manpower', summary.missing_act || 0, '#64748b')}
-          ${summary.missing_std ? pill('Shifts without Std manpower (mould master)', summary.missing_std, '#64748b') : ''}
-          ${pill('Idle (machine-days)', summary.idle || 0, '#475569')}
-          ${pill('Full Day Maintenance (machine-days)', summary.full_day_maint || 0, '#b45309')}
+        <div class="kpi-row">
+          ${shift !== 'Night' ? kpiTile('Day Std / Act', `${summary.day.std} / ${summary.day.act}`, '#2563eb') : ''}
+          ${shift !== 'Day' ? kpiTile('Night Std / Act', `${summary.night.std} / ${summary.night.act}`, '#4f46e5') : ''}
+          ${kpiTile('Shortage', summary.shortage, summary.shortage < 0 ? '#dc2626' : '#16a34a')}
+          ${kpiTile('Excess', '+' + (summary.excess || 0), '#0891b2')}
+          ${kpiTile('Shifts without Act manpower', summary.missing_act || 0, '#64748b')}
+          ${summary.missing_std ? kpiTile('Shifts without Std manpower (mould master)', summary.missing_std, '#64748b') : ''}
+          ${kpiTile('Idle (machine-days)', summary.idle || 0, '#475569')}
+          ${kpiTile('Full Day Maintenance (machine-days)', summary.full_day_maint || 0, '#b45309')}
         </div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <div class="chip-row">
           <span class="control-label" style="align-self:center">Machines under full day maintenance:</span> ${machines || '<span style="color:var(--text-light)">–</span>'}
         </div>
         <div style="margin-top:8px;font-size:0.75rem;color:var(--text-light)">
@@ -1100,7 +1477,7 @@
         ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
       const t = v => Number(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 3, maximumFractionDigits: 3 }) + ' T';
       const pill = (label, val, color) =>
-        `<span style="background:${color}12;color:${color};border:1px solid ${color}44;border-radius:8px;padding:4px 12px;font-weight:800;font-size:0.78rem;white-space:nowrap">${esc(label)}: ${esc(val)}</span>`;
+        `<span class="mini-chip" style="--kc:${color}">${esc(label)}: ${esc(val)}</span>`;
       const shiftLabel = shift === 'Day' ? ' (Day)' : shift === 'Night' ? ' (Night)' : '';
 
       const colspan = split ? 5 : 4;
@@ -1117,14 +1494,14 @@
 
       strip.style.display = 'block';
       strip.innerHTML = `
-        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px">
-          ${pill('Good Tonnage' + shiftLabel, t(summary.good_tonnage), '#16a34a')}
-          ${pill('Reject Tonnage' + shiftLabel, t(summary.reject_tonnage), '#dc2626')}
-          ${pill('Overall Tonnage' + shiftLabel, t(summary.overall_tonnage), '#2563eb')}
-          ${pill('Reject %', Number(summary.reject_pct || 0).toFixed(2) + '%', '#b45309')}
+        <div class="kpi-row">
+          ${kpiTile('Good Tonnage' + shiftLabel, t(summary.good_tonnage), '#16a34a')}
+          ${kpiTile('Reject Tonnage' + shiftLabel, t(summary.reject_tonnage), '#dc2626')}
+          ${kpiTile('Overall Tonnage' + shiftLabel, t(summary.overall_tonnage), '#2563eb')}
+          ${kpiTile('Reject %', Number(summary.reject_pct || 0).toFixed(2) + '%', '#b45309')}
         </div>
         <div style="overflow-x:auto">
-          <table style="border-collapse:collapse;min-width:420px;font-size:0.8rem">
+          <table class="summary-table">
             <thead>
               <tr>
                 ${th(group === 'daily' ? 'Date' : 'Period', 'left')}
@@ -1142,6 +1519,7 @@
     // Machine Finish Schedule: all machines, each with its running + queued plans
     // laid out left-to-right in queue order, each showing its finish (Exp End) time.
     function renderMachineSchedule(data) {
+      document.getElementById('kpiRow').style.display = 'none';
       document.getElementById('emptyState').style.display = 'none';
       document.getElementById('tableCard').style.display = 'none';
       document.getElementById('mouldReportCard').style.display = 'none';
@@ -1197,6 +1575,17 @@
       else if (type === 'tonnage') renderTonnageSummary(summary, window._tonnagePeriods, window._tonnageGroup || 'monthly', window._tonnageShift || 'all');
       else renderEqaSummary(null);
 
+      const meta = REPORT_META[type] || { name: 'Report' };
+      const metaTxt = reportMetaText(type, (data || []).length);
+      document.getElementById('resultTitle').textContent = meta.name;
+      document.getElementById('resultMeta').textContent = metaTxt;
+      const ph = document.getElementById('printHead');
+      const phTitle = document.createElement('b');
+      phTitle.textContent = `JMS OCEAN · ${meta.name}`;
+      const phMeta = document.createElement('div');
+      phMeta.textContent = metaTxt;
+      ph.replaceChildren(phTitle, phMeta);
+
       const badge = document.getElementById('reportStatusBadge');
       badge.textContent = type === 'jms-plan' ? 'JMS Plan'
         : type === 'extra-qty-allowed' ? 'Extra Allowed QTY By PPC'
@@ -1206,13 +1595,12 @@
         : type === 'machine-wise' ? `Machine-Wise Plan (${window._mwView === 'detail' ? 'Detail · per colour' : 'Summary · per plan'})`
         : type === 'machine-date-history' ? `Machine Date-Wise History${window._mdhMachine ? ' · ' + window._mdhMachine : ''}${window._mdhSplitShift ? ' · Day/Night' : ''}`
         : (type === 'summary' ? 'Summary View' : 'Detailed View');
-      badge.className = 'status-badge ' + (type === 'summary' ? 'badge-summary' : 'badge-detail');
+      badge.className = 'status-badge';
+      // The card title already names the report; the badge only adds the options.
+      badge.style.display = /\(|·/.test(badge.textContent) ? '' : 'none';
+      badge.textContent = badge.textContent.replace(/^[^(·]*[(·]\s*/, '').replace(/\)$/, '');
 
-      if (reportTable) {
-        reportTable.destroy();
-        document.getElementById('tableHeader').innerHTML = '';
-        document.getElementById('tableBody').innerHTML = '';
-      }
+      if (reportTable) { reportTable.destroy(); reportTable = null; }
 
       let columns = [];
       if (type === 'jms-plan') {
@@ -1290,18 +1678,18 @@
           : sh.full_maint ? `${label}: full shift maintenance`
           : (sh.maint_min > 0 ? `${label}: maint. ${sh.maint_min} min` : '');
         const shiftCols = (k, label) => [
-          { title: `${label} Mould`, data: k + '.mould', defaultContent: '',
+          { title: `${label} Mould`, data: k + '.mould', defaultContent: '', _html: true,
             render: (v, t, r) => r[k].full_maint ? 'MAINTENANCE' : r[k].idle ? 'IDLE' : txt.display(v || '') },
           { title: `${label} Std`, data: k + '.std', defaultContent: '', render: cell },
           { title: `${label} Act`, data: k + '.act', defaultContent: '', render: cell },
-          { title: `${label} Diff`, data: k + '.diff', defaultContent: '', render: (v, t) => {
+          { title: `${label} Diff`, data: k + '.diff', defaultContent: '', _html: true, render: (v, t) => {
               if (v == null) return '—';
               if (t !== 'display') return v;
               return v < 0 ? `<span style="color:#dc2626;font-weight:800">${v}</span>` : (v > 0 ? '+' + v : '0');
             } }
         ];
         columns = [
-          { title: 'Date', data: 'dpr_date', render: (v, t) => (t === 'display' || t === 'filter') ? fmtDate(v) : v },
+          { title: 'Date', data: 'dpr_date', render: (v, t) => (t === 'display' || t === 'filter' || t === 'export') ? fmtDate(v) : v },
           { title: 'Machine', data: 'machine', render: txt },
           ...(ms !== 'Night' ? shiftCols('day', 'Day') : []),
           ...(ms !== 'Day' ? shiftCols('night', 'Night') : []),
@@ -1374,10 +1762,98 @@
         ];
       }
 
+      // Number columns: right-aligned, Indian digit grouping, numeric sort/export,
+      // and a totals row (over the rows matching the search box) for additive ones.
+      const SUM_COLS = {
+        summary: ['previous_stock_qty', 'current_stock_available_qty', 'total_qty', 'entries_count'],
+        detail: ['total_qty'],
+        'jms-plan': ['jrQty', 'planQty', 'batchQty'],
+        'extra-qty-allowed': ['extra_qty'],
+        'machine-maintenance': ['maint_min', 'entry_count'],
+        tonnage: ['good_tonnage', 'reject_tonnage', 'overall_tonnage'],
+        manpower: ['day.std', 'day.act', 'day.diff', 'night.std', 'night.act', 'night.diff', 'total_act'],
+        'machine-wise': ['qty', 'balQty', 'totalPlanTime', 'remBalQty'],
+        'machine-date-history': ['goodQty', 'rejectQty']
+      };
+      const NUM_COLS = { 'jms-plan': ['mouldItemQty', 'tonnage', 'cycleTime', 'cavity'], 'machine-wise': ['planQueued'] };
+      const sumSet = new Set(SUM_COLS[type] || []);
+      const numSet = new Set(NUM_COLS[type] || []);
+      const sumOf = (rows, key) => rows.reduce((a, r) => a + (Number(getPath(r, key)) || 0), 0);
+      columns.forEach(c => {
+        const isSum = c.data != null && sumSet.has(c.data);
+        const isPct = c.data == null && c.title === 'Reject %';
+        if (!(isSum || isPct || (c.data != null && numSet.has(c.data)))) {
+          if (/remark|why/i.test(c.title)) c.className = 'wrap';
+          // Report rows come from the API: show them as text, never as HTML.
+          if (!c._html && (!c.render || typeof c.render === 'function')) {
+            const origTxt = c.render;
+            c.render = (v, t, r, m) => {
+              const out = typeof origTxt === 'function' ? origTxt(v, t, r, m) : (origTxt ? origTxt.display(v) : v);
+              return t === 'display' ? escapeHtml(out == null ? '' : out) : out;
+            };
+          }
+          return;
+        }
+        c.className = 'dt-right';
+        c._sum = isSum;
+        if (isPct) c._foot = rows => {
+          const o = sumOf(rows, 'overall_tonnage');
+          return o > 0 ? (sumOf(rows, 'reject_tonnage') / o * 100).toFixed(2) + '%' : '0%';
+        };
+        const orig = c.render;
+        c.render = (v, t, r, m) => {
+          if ((t === 'sort' || t === 'type') && v != null && v !== '' && !isNaN(v)) return Number(v);
+          const out = orig ? (typeof orig === 'function' ? orig(v, t, r, m) : orig.display(v)) : fmtNum(v);
+          if (t === 'export') return exportVal(out);
+          return (t === 'display' && !c._html) ? escapeHtml(out) : out;
+        };
+      });
+
+      const host = document.getElementById('reportTableHost');
+      host.innerHTML = `<table id="reportTable" class="display nowrap compact stripe" style="width:100%">
+        <thead></thead><tbody></tbody>
+        <tfoot><tr>${columns.map(() => '<td></td>').join('')}</tr></tfoot></table>`;
+      const hasTotals = columns.some(c => c._sum || c._foot);
+      if (!hasTotals) host.querySelector('tfoot').remove();
+
+      // KPI tiles for reports without their own summary strip.
+      const kpiRow = document.getElementById('kpiRow');
+      if (['extra-qty-allowed', 'machine-maintenance', 'manpower', 'tonnage'].includes(type) || !data || !data.length) {
+        kpiRow.style.display = 'none';
+        kpiRow.innerHTML = '';
+      } else {
+        const COLORS = ['#16a34a', '#01a8dd', '#b45309', '#7c3aed'];
+        const tiles = [kpiTile('Rows', data.length.toLocaleString('en-IN'), '#024c81')];
+        columns.filter(c => c._sum).slice(0, 4).forEach((c, i) => {
+          tiles.push(kpiTile(c.title, c.render(sumOf(data, c.data), 'display', {}, {}), COLORS[i]));
+        });
+        if (type === 'machine-wise') tiles.push(kpiTile('Machines', new Set(data.map(r => r.machine)).size, '#475569'));
+        if (type === 'jms-plan') tiles.push(kpiTile('Machines', new Set(data.map(r => r.machine).filter(Boolean)).size, '#475569'));
+        kpiRow.innerHTML = tiles.join('');
+        kpiRow.style.display = 'grid';
+      }
+
+      const exportTitle = (type === 'jms-plan' ? 'JMS Plan Report' : type === 'extra-qty-allowed' ? 'Extra Allowed QTY By PPC' : type === 'machine-maintenance' ? 'Machine Maintenance Report' : type === 'tonnage' ? 'Tonnage Report' : type === 'manpower' ? 'Manpower Report' : type === 'machine-wise' ? ('Machine-Wise Plan Report (' + (window._mwView === 'detail' ? 'Detail' : 'Summary') + ')') : type === 'machine-date-history' ? ('Machine Date-Wise History' + (window._mdhMachine ? ' - ' + window._mdhMachine : '')) : 'WIP Report') + ' - ' + new Date().toLocaleString('en-IN');
+      const exportOptions = { orthogonal: 'export' };
+
       reportTable = $('#reportTable').DataTable({
         data: data,
         columns: columns,
         pageLength: 25,
+        lengthMenu: [[25, 50, 100, -1], [25, 50, 100, 'All']],
+        language: { search: '', searchPlaceholder: 'Search in report…', emptyTable: 'No data for the selected filters.' },
+        footerCallback: hasTotals ? function () {
+          const api = this.api();
+          const rows = api.rows({ search: 'applied' }).data().toArray();
+          columns.forEach((c, i) => {
+            const cell = api.column(i).footer();
+            if (!cell) return;
+            if (c._foot) cell.innerHTML = c._foot(rows);
+            else if (c._sum) cell.innerHTML = c.render(sumOf(rows, c.data), 'display', {}, {});
+            else cell.innerHTML = i === 0 ? `Total <span style="font-weight:600;color:#64748b">(${rows.length.toLocaleString('en-IN')})</span>` : '';
+            cell.className = (c._sum || c._foot) ? 'dt-right' : '';
+          });
+        } : undefined,
         // These reports come back from the server in the standard machine order
         // (Line, then machine number: …-6, -7, -8, -10, -11) — keep that order
         // instead of letting DataTables re-sort Machine as plain text.
@@ -1386,20 +1862,12 @@
           if (r.full_day_maint) { row.style.background = '#fef3c7'; row.style.color = '#92400e'; row.style.fontWeight = '700'; }
           else if (r.idle) { row.style.background = '#f1f5f9'; row.style.color = '#64748b'; }
         } : undefined,
-        dom: 'Bfrtip',
+        // Export buttons are created but not shown; the card's own buttons trigger them.
+        dom: '<"dt-top"lf><"table-scroll"t><"dt-bottom"ip>',
         buttons: [
-          {
-            extend: 'excelHtml5',
-            title: (type === 'jms-plan' ? 'JMS Plan Report' : type === 'extra-qty-allowed' ? 'Extra Allowed QTY By PPC' : type === 'machine-maintenance' ? 'Machine Maintenance Report' : type === 'tonnage' ? 'Tonnage Report' : type === 'manpower' ? 'Manpower Report' : type === 'machine-wise' ? ('Machine-Wise Plan Report (' + (window._mwView === 'detail' ? 'Detail' : 'Summary') + ')') : type === 'machine-date-history' ? ('Machine Date-Wise History' + (window._mdhMachine ? ' - ' + window._mdhMachine : '')) : 'WIP Report') + ' - ' + new Date().toLocaleString('en-IN'),
-            className: 'btn-dt'
-          },
-          {
-            extend: 'csvHtml5',
-            title: (type === 'jms-plan' ? 'JMS Plan Report' : type === 'extra-qty-allowed' ? 'Extra Allowed QTY By PPC' : type === 'machine-maintenance' ? 'Machine Maintenance Report' : type === 'tonnage' ? 'Tonnage Report' : type === 'manpower' ? 'Manpower Report' : type === 'machine-wise' ? ('Machine-Wise Plan Report (' + (window._mwView === 'detail' ? 'Detail' : 'Summary') + ')') : type === 'machine-date-history' ? ('Machine Date-Wise History' + (window._mdhMachine ? ' - ' + window._mdhMachine : '')) : 'WIP Report') + ' - ' + new Date().toLocaleString('en-IN'),
-             className: 'btn-dt'
-          }
-        ],
-        responsive: true
+          { extend: 'excelHtml5', title: exportTitle, footer: hasTotals, exportOptions },
+          { extend: 'csvHtml5', title: exportTitle, footer: hasTotals, exportOptions }
+        ]
       });
     }
   </script>

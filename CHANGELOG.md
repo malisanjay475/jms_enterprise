@@ -14,9 +14,11 @@ part of your PR. On release, the `[Unreleased]` items move under the new version
 ## [Unreleased]
 
 ### Changed
+- Reports (v1.121.0): redesigned the Reports page. Report types are now grouped cards (Production, Planning, Machines & People, Stock) with a one-line description each; quick date presets (Today, Yesterday, This week, Last 7 days, This month, Last month); a loading state on Generate. Results get a title with factory / period / row count, summary KPI tiles, sticky table headers, right-aligned Indian-format numbers, a totals row (follows the search box), All-rows paging, and Excel / CSV / Print-PDF buttons (Excel keeps numbers as numbers and includes the totals; print shows every row in landscape). Machine dropdowns follow the standard Line-then-machine-number order. All report APIs and calculations are unchanged.
 - Login (v1.120.2): redesigned sign-in page. One compact card with the logo header on every screen size, with a brand-coloured strip on top. Adds a Caps Lock warning, a spinner while signing in, a clear error box (empty fields are highlighted), password-manager friendly autocomplete, auto-focus on the right field, and keyboard/screen-reader labels. Login logic, Remember me, factory picker and redirects are unchanged.
 
 ### Fixed
+- Reports (v1.121.0): default and Machine Date-Wise History dates were computed in UTC, so before 05:30 IST the page pre-filled yesterday as "today". Dates now use local time.
 - NPD (v1.120.1): factory LOCAL servers did not receive NPD products created before v1.120.0 (a LOCAL pulls only rows changed since its last pull). MAIN now marks the existing NPD rows changed once (server_config NPD_SYNC_RESEND_V1), so every LOCAL pulls the full list on its next cycle.
 
 ### Added
