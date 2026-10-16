@@ -64,6 +64,16 @@ function machineSorter(machineRows) {
   };
 }
 
+/* machine name compared without spaces, case or the "Line>" prefix */
+const mkey = v => key(stripPrefix(v)).replace(/\s+/g, '');
+/* primary / secondary machine from the mould master; a cell may list several */
+const allowedOf = std => [std && std.primary_machine, std && std.secondary_machine]
+  .flatMap(v => String(v || '').split(/[,;|\n]+/)).map(x => x.trim()).filter(Boolean);
+const sameMachine = (a, b) => {
+  const A = mkey(a), B = mkey(b);
+  return !!A && !!B && (A === B || A.endsWith('-' + B) || B.endsWith('-' + A) || A.endsWith('>' + B) || B.endsWith('>' + A));
+};
+
 const addHours = (h) => (h == null ? null : new Date(Date.now() + h * 3600000).toISOString());
 
 /* ---------------------------------------------------------------- SQL --- */
@@ -139,6 +149,7 @@ const SHIFT_SQL = `
 const MOULD_SQL = `
   SELECT TRIM(mould_number) AS code, TRIM(mould_name) AS name,
          COALESCE(pcs_per_hour, 0) AS pcs_per_hour, cycle_time, no_of_cav, consumption_ratio_qty,
+         primary_machine, secondary_machine,
          NULLIF(regexp_replace(COALESCE(tonnage::text, ''), '[^0-9.]+', '', 'g'), '')::numeric AS tonnage
     FROM moulds
    WHERE TRIM(mould_number) = ANY($1::text[])
@@ -340,6 +351,7 @@ function buildOrder(orderNo, { jcRows, bomRows, planRows, dprRows, mouldStd, sch
       cycle_time: num(std && std.cycle_time) || m.cycle || null, cavity: num(std && std.no_of_cav) || m.cavity || null,
       /* machine size the mould needs: mould master first, then the ERP BOM */
       tonnage: num(std && std.tonnage) || m.tonnage || null,
+      allowed_machines: allowedOf(std),
       tonnage_source: num(std && std.tonnage) ? 'mould master' : (m.tonnage ? 'ERP BOM' : null),
       std_pph: Math.round(stdRate) || null, live_pph: liveRate ? Math.round(liveRate) : null,
       /* what it must do to make the target, against what it does now */
@@ -573,19 +585,21 @@ function suggest(o, board) {
   if (o.status === 'COMPLETE') return out;
   const tgt = o.target_date ? new Date(o.target_date.slice(0, 10) + TARGET_DAY_END).getTime() : null;
   const machines = board || [];
-  const idle = machines.filter(m => m.state === 'IDLE');
-  const tonOf = name => { const m = machines.find(x => key(x.machine) === key(name)); return m ? num(m.tonnage) : 0; };
+  /* only machines the mould master allows (primary / secondary machine) */
   const pickFor = m => {
-    const used = new Set((m.all_machines || []).map(key));
-    const known = idle.filter(x => used.has(key(x.machine)));
-    if (known.length) return { list: known.slice(0, 3).map(x => x.machine), why: 'free now and ran this mould before' };
-    const ton = Math.max(0, ...(m.all_machines || []).map(tonOf));
-    const fit = ton ? idle.filter(x => num(x.tonnage) >= ton * 0.9 && num(x.tonnage) <= ton * 1.6) : [];
-    if (fit.length) return { list: fit.slice(0, 3).map(x => x.machine), why: `free now, ${ton} T class` };
-    if (idle.length) return { list: idle.slice(0, 3).map(x => x.machine), why: 'free now; check the mould fits' };
-    const soon = machines.filter(x => x.free_at).sort((a, b) => String(a.free_at).localeCompare(String(b.free_at))).slice(0, 2);
-    return { list: soon.map(x => `${x.machine} (free ${fmtD(x.free_at)})`), why: 'no machine is free now; these free up first' };
+    const allowed = m.allowed_machines || [];
+    if (!allowed.length) return { list: [], why: '', none: true };
+    const ok = machines.filter(x => allowed.some(a => sameMachine(x.machine, a)));
+    const free = ok.filter(x => x.state === 'IDLE');
+    if (free.length) return { list: free.slice(0, 3).map(x => x.machine), why: 'free now, mould master machine' };
+    const soon = ok.filter(x => x.free_at).sort((a, b) => String(a.free_at).localeCompare(String(b.free_at))).slice(0, 2);
+    if (soon.length) return { list: soon.map(x => `${x.machine} (free ${fmtD(x.free_at)})`), why: 'mould master machine, frees up first' };
+    return { list: [], why: '', busy: allowed };
   };
+  /* when no machine can be suggested, say why: never a machine outside the mould master */
+  const hint = (m, p) => p.list.length ? ''
+    : p.none ? ` No primary / secondary machine is set for this mould in the mould master; set it in Masters → Moulds to get machine advice.`
+    : ` Its mould master machines (${p.busy.join(', ')}) are not on the machine board.`;
   const neckSets = o.bottleneck ? (o.moulds.find(m => m.mould_no === o.bottleneck.mould_no) || {}).sets_equiv : null;
 
   o.moulds.filter(m => m.status !== 'COMPLETE').sort((a, b) => (a.start_seq || 99) - (b.start_seq || 99)).forEach(m => {
@@ -595,7 +609,7 @@ function suggest(o, board) {
       const p = pickFor(m);
       out.push({ level: 'bad', mould: m.mould_name,
         title: `${m.mould_name}: plan closed ${m.balance.toLocaleString('en-IN')} pcs short`,
-        text: `That is ${setsShort.toLocaleString('en-IN')} sets (×${m.ratio}). About ${fmtH(hrs)} of moulding${m.rate_pph ? ' at ' + m.rate_pph + '/h' : ''}. Plan ${m.balance.toLocaleString('en-IN')} pcs${p.list.length ? ' on ' + p.list.join(', ') + ' (' + p.why + ')' : ''}, or close the order ${setsShort.toLocaleString('en-IN')} sets short.` });
+        text: `That is ${setsShort.toLocaleString('en-IN')} sets (×${m.ratio}). About ${fmtH(hrs)} of moulding${m.rate_pph ? ' at ' + m.rate_pph + '/h' : ''}. Plan ${m.balance.toLocaleString('en-IN')} pcs${p.list.length ? ' on ' + p.list.join(', ') + ' (' + p.why + ')' : ''}, or close the order ${setsShort.toLocaleString('en-IN')} sets short.${hint(m, p)}` });
       return;
     }
     if (m.status === 'RUNNING') {
@@ -610,8 +624,8 @@ function suggest(o, board) {
             : need && need > 1 && need - m.machines.length <= p.list.length
             ? `Needs ${fmtH(hrs)} on ${m.machines.length} machine(s) but only ${fmtH(left)} remain. Run it on ${need} machines: add ${p.list.slice(0, need - m.machines.length).join(', ')} (${p.why}).`
             : need && need > 1
-            ? `Needs ${fmtH(hrs)} but only ${fmtH(left)} remain: it would take ${need} machines and only ${p.list.length} are free. Ask for a later date, or split the order.`
-            : `Target can no longer be met on the current rate (${m.rate_pph}/h). Speed up the cycle, add a machine${p.list.length ? ' (' + p.list.join(', ') + ')' : ''} or move the date.` });
+            ? `Needs ${fmtH(hrs)} but only ${fmtH(left)} remain: it would take ${need} machines and only ${p.list.length} mould master machine(s) can take it. Ask for a later date, or split the order.${hint(m, p)}`
+            : `Target can no longer be met on the current rate (${m.rate_pph}/h). Speed up the cycle, add a machine${p.list.length ? ' (' + p.list.join(', ') + ')' : ''} or move the date.${hint(m, p)}` });
       } else if (m.start_state === 'ON_TRACK') {
         out.push({ level: 'good', mould: m.mould_name, title: `${m.mould_name} is running on ${m.machines.join(', ')}`, text: `Ends ${fmtD(m.eta)}, ${fmtH(m.slack_hours)} before target. Keep it running.` });
       }
@@ -622,7 +636,7 @@ function suggest(o, board) {
         const p = pickFor(m);
         out.push({ level: 'bad', mould: m.mould_name,
           title: `${m.mould_name} starts ${fmtH(-m.slack_hours)} too late`,
-          text: `It is #${m.queue.position} in the queue on ${m.queue.machine} and starts ${fmtD(m.expected_start)}, but must start by ${fmtD(m.must_start_by)}. Move it up the queue on ${m.queue.machine}${p.list.length ? ', or start it on ' + p.list.join(', ') + ' (' + p.why + ')' : ''}.` });
+          text: `It is #${m.queue.position} in the queue on ${m.queue.machine} and starts ${fmtD(m.expected_start)}, but must start by ${fmtD(m.must_start_by)}. Move it up the queue on ${m.queue.machine}${p.list.length ? ', or start it on ' + p.list.join(', ') + ' (' + p.why + ')' : ''}.${p.none ? hint(m, p) : ''}` });
       } else {
         out.push({ level: 'good', mould: m.mould_name, title: `${m.mould_name} is queued on ${m.queue.machine}`, text: `Starts ${fmtD(m.expected_start)}, must start by ${fmtD(m.must_start_by)}. No action needed yet.` });
       }
@@ -631,16 +645,20 @@ function suggest(o, board) {
     const p = pickFor(m);
     out.push({ level: m.start_state === 'OVERDUE' ? 'bad' : 'warn', mould: m.mould_name,
       title: `Put ${m.mould_name} on a machine${m.must_start_by ? ' by ' + fmtD(m.must_start_by) : ''}`,
-      text: `${m.balance.toLocaleString('en-IN')} pcs left (${setsShort.toLocaleString('en-IN')} sets × ${m.ratio}), about ${fmtH(hrs)}.${p.list.length ? ' Suggested: ' + p.list.join(', ') + ' (' + p.why + ').' : ''}` });
+      text: `${m.balance.toLocaleString('en-IN')} pcs left (${setsShort.toLocaleString('en-IN')} sets × ${m.ratio}), about ${fmtH(hrs)}.${p.list.length ? ' Suggested: ' + p.list.join(', ') + ' (' + p.why + ').' : hint(m, p)}` });
   });
 
   /* a running mould far ahead of the bottleneck while the bottleneck waits */
   const neck = o.bottleneck && o.moulds.find(m => m.mould_no === o.bottleneck.mould_no);
   if (neck && neck.status !== 'RUNNING' && neck.status !== 'COMPLETE') {
     o.moulds.filter(m => m.status === 'RUNNING' && m.mould_no !== neck.mould_no && m.sets_equiv - neckSets > 0).forEach(m => {
+      /* swap only onto a machine the mould master allows for the bottleneck mould */
+      const fits = m.machines.filter(x => (neck.allowed_machines || []).some(a => sameMachine(x, a)));
       out.push({ level: 'warn', mould: m.mould_name,
         title: `${m.mould_name} is ${(m.sets_equiv - neckSets).toLocaleString('en-IN')} sets ahead of ${neck.mould_name}`,
-        text: `Complete sets wait for ${neck.mould_name}. If ${neck.mould_name} fits ${m.machines.join(', ')}, run it there first, then go back to ${m.mould_name}.` });
+        text: fits.length
+          ? `Complete sets wait for ${neck.mould_name}. ${fits.join(', ')} is a mould master machine for it: run ${neck.mould_name} there first, then go back to ${m.mould_name}.`
+          : `Complete sets wait for ${neck.mould_name}. Give ${neck.mould_name} priority on its own mould master machine${(neck.allowed_machines || []).length ? ' (' + neck.allowed_machines.join(', ') + ')' : ''}.` });
     });
   }
   (o.data_warnings || []).forEach(w => out.unshift({ level: w.level, title: 'Check the data', text: w.text }));
