@@ -394,6 +394,35 @@
         .tl-det td.r { text-align: right; }
         .lg { display: inline-flex; align-items: center; gap: 5px; margin-right: 14px; font-size: 12px; color: var(--mute); }
         .lg i { width: 11px; height: 11px; border-radius: 3px; display: inline-block; }
+        .tl th .qi { color: var(--blue); font-size: 10px; margin-left: 3px; cursor: help; }
+        .vchip { display: inline-flex; align-items: center; gap: 4px; margin-top: 4px; padding: 2px 8px; border-radius: 999px; font-size: 10.5px; font-weight: 800; white-space: nowrap; }
+        .vchip.short { background: var(--red-bg); color: var(--red); border: 1px solid var(--red-br); }
+        .vchip.tight { background: var(--amber-bg); color: var(--amber); border: 1px solid var(--amber-br); }
+        .vchip.ok { background: var(--green-bg); color: var(--green); border: 1px solid var(--green-br); }
+        .vchip.none { background: var(--grey-bg); color: var(--mute); border: 1px solid var(--line); }
+        /* load vs capacity board */
+        .lc { padding: 16px 18px; margin-bottom: 14px; }
+        .lc h3 { margin: 0 0 4px; font-size: 15px; font-weight: 800; display: flex; align-items: center; gap: 8px; }
+        .lc .sub { font-size: 12px; color: var(--mute); margin-bottom: 12px; }
+        .lcr { display: grid; grid-template-columns: 76px 1fr 150px; gap: 12px; align-items: center; padding: 6px 0; border-top: 1px dashed var(--line2); }
+        .lcr .tn { font-weight: 800; font-size: 14px; }
+        .lcr .tn small { display: block; font-size: 10.5px; color: var(--mute); font-weight: 600; }
+        .lcb { position: relative; height: 22px; background: #eef2f7; border-radius: 7px; overflow: hidden; }
+        .lcb .cap { position: absolute; top: 0; bottom: 0; left: 0; background: repeating-linear-gradient(45deg, #dfe7f1, #dfe7f1 6px, #e9eff6 6px, #e9eff6 12px); border-right: 2px solid #64748b; }
+        .lcb .ld { position: absolute; top: 5px; bottom: 5px; left: 0; border-radius: 5px; display: flex; overflow: hidden; }
+        .lcb .ld i { display: block; height: 100%; }
+        .lcr .vt { text-align: right; font-size: 12px; }
+        .lcr .vt b { font-size: 13px; }
+        .guide { margin-bottom: 14px; }
+        .guide summary { cursor: pointer; padding: 12px 16px; font-weight: 800; font-size: 14px; list-style: none; display: flex; align-items: center; gap: 8px; }
+        .guide summary::-webkit-details-marker { display: none; }
+        .guide[open] summary { border-bottom: 1px solid var(--line); }
+        .gtab { width: 100%; border-collapse: collapse; font-size: 13px; }
+        .gtab td { padding: 9px 14px; border-bottom: 1px solid var(--line2); vertical-align: top; }
+        .gtab td:first-child { font-weight: 800; white-space: nowrap; width: 190px; }
+        .gtab td.f { font-family: Consolas, monospace; font-size: 12px; color: var(--ink2); background: #fafbfd; width: 300px; }
+        .gtab td.ex { color: var(--blue); font-size: 12px; width: 190px; }
+        @media (max-width: 760px) { .lcr { grid-template-columns: 60px 1fr; } .lcr .vt { grid-column: 1 / -1; text-align: left; } .gtab td.f, .gtab td.ex { display: none; } }
         .bar input[type=date], .bar input[type=number] { border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; font-size: 13px; background: #fff; font-weight: 600; }
         .bar label.fl { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 700; color: var(--mute); }
 
@@ -478,6 +507,8 @@
                 <button class="btn" id="tcsv"><i class="bi bi-file-earmark-excel"></i> Download Excel</button>
             </div>
             <div class="otc tl-help" id="thelp"></div>
+            <div id="tboard"></div>
+            <details class="otc guide" id="tguide"></details>
             <div id="tlist"><div class="otc empty">Loading tonnage load…</div></div>
         </section>
     </div>
@@ -1049,6 +1080,56 @@
 
             const bookTone = p => p == null ? 'var(--faint)' : p > 100 ? 'var(--red)' : p >= 85 ? 'var(--amber)' : 'var(--green)';
             const tonKey = r => r.tonnage == null ? 'x' : String(r.tonnage);
+            /* one-word answer per tonnage: short / tight / spare */
+            function verdictChip(r) {
+                if (r.tonnage == null) return '<span class="vchip none"><i class="bi bi-question-circle"></i>Add tonnage</span>';
+                if (r.shortage_machines > 0) return `<span class="vchip short"><i class="bi bi-arrow-up-circle-fill"></i>Short ${f2(r.shortage_machines)} m/c</span>`;
+                if (r.booked_pct >= 85) return '<span class="vchip tight"><i class="bi bi-exclamation-circle-fill"></i>Almost full</span>';
+                if (!r.load_hours) return '<span class="vchip none"><i class="bi bi-dash-circle"></i>No load</span>';
+                return `<span class="vchip ok"><i class="bi bi-check-circle-fill"></i>${f2(r.excess_machines)} m/c spare</span>`;
+            }
+
+            /* every column: name, small line, what it means, how it is worked out */
+            const TCOLS = [
+                ['M/c tonnage', '', 'The machine size (clamping force in tons) the mould needs. Each mould is counted under the smallest machine tonnage it fits.', 'Mould master tonnage → ERP BOM → machine it last ran on'],
+                ['Hrs required', 'open load', 'Machine hours still needed to finish the pieces of the open orders on this tonnage. The bar under it shows how much is running now (blue), waiting in a machine queue (amber) and not planned on any machine yet (grey).', 'Σ balance pcs ÷ pcs per hour'],
+                ['Days required', 'hrs ÷ 24', 'The same load in machine days (one machine running 24 hours = 1 day).', 'Hrs required ÷ 24'],
+                ['Available hrs', '', 'Machine hours this tonnage can give between now and the "Plan until" date.', 'Machines × 24 × days left × efficiency %'],
+                ['Available days', '', 'The same capacity in machine days.', 'Machines × days left × efficiency %'],
+                ['Machines with us', '', 'Active moulding machines of this tonnage in the machine master, with how many are running or idle right now.', 'Count from Masters → Machines'],
+                ['Machines needed', '', 'How many machines of this tonnage we would need running full time to finish the load by the date.', 'Hrs required ÷ (24 × days left × efficiency %)'],
+                ['Machine shortage numbers', 'red', 'Extra machines we would need. Red means this tonnage cannot finish its load in time.', 'Machines needed − machines with us'],
+                ['Machine shortage days', 'red', 'Machine days of work that will not fit before the date.', 'Days required − available days'],
+                ['Capacity booked', '', 'How full this tonnage is. Over 100% = overloaded, 85–100% = almost full, under 85% = room to spare.', 'Hrs required ÷ available hrs'],
+                ['Machine excess numbers', 'green', 'Machines of this tonnage that are spare and can take more work.', 'Machines with us − machines needed'],
+                ['Machine excess days', 'green', 'Spare machine days available before the date.', 'Available days − days required']
+            ];
+            function guideHtml(r) {
+                const ex = r ? [
+                    `${tonName(r.tonnage)}`, `${f2(r.load_hours)} h`, `${f2(r.load_days)} days`, `${n0(r.avail_hours)} h`, `${f2(r.avail_days)} days`,
+                    `${r.machine_count} machines`, `${f2(r.machines_needed)}`, r.shortage_machines ? f2(r.shortage_machines) : '-', r.shortage_days ? f2(r.shortage_days) : '-',
+                    `${r.booked_pct}%`, r.excess_machines ? f2(r.excess_machines) : '-', r.excess_days ? f2(r.excess_days) : '-'] : [];
+                return `<summary><i class="bi bi-book" style="color:var(--blue)"></i> What does each column mean?<span class="muted small" style="font-weight:600;margin-left:auto">click to ${$('tguide').open ? 'close' : 'open'}</span></summary>
+                    <table class="gtab"><tbody>${TCOLS.map((c, i) => `<tr><td>${c[0]}</td><td>${c[2]}</td><td class="f">${c[3]}</td><td class="ex">${r ? 'e.g. ' + esc(tonName(r.tonnage)) + ': ' + esc(ex[i]) : ''}</td></tr>`).join('')}
+                    <tr><td>Not planned yet</td><td colspan="3">Moulds of open orders that are <b>not on any machine</b> on the plan board — no running plan and no queued plan. Their hours still count as load; Planning has to put them on a machine.</td></tr>
+                    <tr><td>No tonnage</td><td colspan="3">Moulds with no tonnage in the mould master or ERP that never ran on a machine. They cannot be placed in a row, so they are shown apart and not in the total. Fill the tonnage in Masters → Moulds.</td></tr>
+                    </tbody></table>`;
+            }
+            const th = (c, extra) => `<th title="${esc(c[2] + ' (' + c[3] + ')')}">${c[0]}<i class="bi bi-info-circle qi"></i>${extra || c[1] ? `<small>${extra || c[1]}</small>` : ''}</th>`;
+
+            /* picture of load against capacity, one bar per tonnage */
+            function boardHtml(rows) {
+                const max = Math.max(1, ...rows.map(r => Math.max(r.load_hours, r.avail_hours)));
+                return `<div class="otc lc"><h3><i class="bi bi-bar-chart-steps" style="color:var(--blue)"></i> Load against capacity</h3>
+                    <div class="sub">Striped box = machine hours we have until the date (line = the limit). Coloured bar = hours of work: <span class="lg"><i style="background:var(--blue)"></i>running</span><span class="lg"><i style="background:var(--amber)"></i>queued</span><span class="lg"><i style="background:#94a3b8"></i>not planned yet</span> A bar past the line means not enough machines.</div>
+                    ${rows.map(r => {
+                        const L = r.load_hours || 1, over = r.load_hours > r.avail_hours;
+                        return `<div class="lcr"><div class="tn">${tonName(r.tonnage)}<small>${r.machine_count} m/c</small></div>
+                            <div class="lcb" title="${f2(r.load_hours)} h of work · ${n0(r.avail_hours)} h available"><div class="cap" style="width:${r.avail_hours / max * 100}%"></div>
+                                <div class="ld" style="width:${r.load_hours / max * 100}%;${over ? 'box-shadow:0 0 0 2px var(--red)' : ''}"><i style="width:${r.running_hours / L * 100}%;background:var(--blue)"></i><i style="width:${r.queued_hours / L * 100}%;background:var(--amber)"></i><i style="width:${r.unplanned_hours / L * 100}%;background:#94a3b8"></i></div></div>
+                            <div class="vt"><b style="color:${bookTone(r.booked_pct)}">${r.booked_pct == null ? '—' : r.booked_pct + '%'}</b> booked<br>${verdictChip(r)}</div></div>`;
+                    }).join('')}</div>`;
+            }
             function tonRow(r, open) {
                 const pct = r.booked_pct;
                 const L = r.load_hours || 1;
@@ -1056,9 +1137,9 @@
                 const cell = (on, cls, v) => on ? `<td class="${cls}">${f2(v)}</td>` : '<td class="dash">-</td>';
                 return `<tr class="cls ${open ? 'open' : ''}" data-ton="${tonKey(r)}">
                     <td class="ton"><i class="bi bi-chevron-${open ? 'down' : 'right'} muted small"></i> ${tonName(r.tonnage)}
-                        <div class="muted small" style="font-weight:600">${r.orders} orders · ${r.moulds} moulds</div></td>
+                        <div class="muted small" style="font-weight:600">${r.orders} orders · ${r.moulds} moulds</div>${verdictChip(r)}</td>
                     <td>${f2(r.load_hours)}
-                        <div class="split" title="Running ${f2(r.running_hours)} h · Queued ${f2(r.queued_hours)} h · No machine ${f2(r.unplanned_hours)} h">
+                        <div class="split" title="Running ${f2(r.running_hours)} h · Queued ${f2(r.queued_hours)} h · Not planned yet ${f2(r.unplanned_hours)} h">
                             <i style="width:${r.running_hours / L * 100}%;background:var(--blue)"></i><i style="width:${r.queued_hours / L * 100}%;background:var(--amber)"></i><i style="width:${r.unplanned_hours / L * 100}%;background:#94a3b8"></i></div></td>
                     <td>${f2(r.load_days)}</td>
                     <td>${n0(r.avail_hours)}</td>
@@ -1073,7 +1154,7 @@
             function tonDetail(r) {
                 if (!r.items.length) return '<div class="tl-det muted">No open load on this tonnage.</div>';
                 const where = i => i.status === 'RUNNING' ? `<span class="pill s-RUNNING">On ${esc(i.machines.join(', '))}</span>`
-                    : i.queue ? `<span class="pill s-QUEUED">Queued #${i.queue.position} on ${esc(i.queue.machine)}</span>` : '<span class="pill s-NOT_PLANNED">No machine</span>';
+                    : i.queue ? `<span class="pill s-QUEUED">Queued #${i.queue.position} on ${esc(i.queue.machine)}</span>` : '<span class="pill s-NOT_PLANNED" title="No plan on any machine yet - Planning must put it on the plan board">Not planned yet</span>';
                 const late = i => i.target_date && day(i.target_date) < todayStr();
                 return `<div class="tl-det">
                     <div class="muted small" style="margin-bottom:8px"><b>Machines:</b> ${r.machines.map(m => `<span class="mc">${esc(m)}</span>`).join('') || '—'}</div>
@@ -1109,16 +1190,20 @@
                 $('thelp').innerHTML = `<i class="bi bi-info-circle-fill"></i><div>
                     <b>How to read:</b> Hrs required = pieces still to mould on ${$('tbasis').value === 'due' ? 'open orders due by ' + until : 'all open orders'} ÷ pieces per hour (live rate, else mould standard), grouped by the machine tonnage the mould needs.
                     Available = machines × 24 h × ${f2(T.days)} days left until ${until} × ${Math.round(T.eff * 100)}% efficiency.
-                    <b style="color:var(--red)">Red</b> = we need more machines than we have; <b style="color:var(--green)">green</b> = spare machines. Click a row to see the orders and moulds behind it.
-                    <div style="margin-top:6px"><span class="lg"><i style="background:var(--blue)"></i>Running now</span><span class="lg"><i style="background:var(--amber)"></i>Queued on a machine</span><span class="lg"><i style="background:#94a3b8"></i>No machine yet</span></div></div>`;
+                    <b style="color:var(--red)">Red</b> = we need more machines than we have; <b style="color:var(--green)">green</b> = spare machines. Click a row to see the orders and moulds behind it. Hover a column heading, or open <b>What does each column mean?</b> below, for every column.
+                    <div style="margin-top:6px"><span class="lg"><i style="background:var(--blue)"></i>Running now</span><span class="lg"><i style="background:var(--amber)"></i>Queued on a machine</span><span class="lg"><i style="background:#94a3b8"></i>Not planned yet (not on any machine)</span></div></div>`;
+                $('tboard').innerHTML = rows.length ? boardHtml(rows) : '';
+                const g = $('tguide'), wasOpen = g.open;
+                g.innerHTML = guideHtml(rows.slice().sort((a, b) => b.load_hours - a.load_hours)[0]);
+                g.open = wasOpen;
+                g.ontoggle = () => { const sm = g.querySelector('summary .small'); if (sm) sm.textContent = 'click to ' + (g.open ? 'close' : 'open'); };
                 const openSet = S.tonOpen || (S.tonOpen = new Set());
                 const all = rows.concat(T.unknown.items.length ? [T.unknown] : []);
                 $('tlist').innerHTML = `<div class="otc tl-wrap"><table class="tl">
                     <thead><tr>
-                        <th>M/c tonnage</th><th>Hrs required<small>open load</small></th><th>Days required<small>hrs ÷ 24</small></th>
-                        <th>Available hrs<small>until ${esc(until)}</small></th><th>Available days</th><th>Machines with us</th>
-                        <th>Machines needed</th><th>Machine shortage<small>numbers</small></th><th>Machine shortage<small>days</small></th>
-                        <th>Capacity booked</th><th>Machine excess<small>numbers</small></th><th>Machine excess<small>days</small></th>
+                        ${th(TCOLS[0])}${th(TCOLS[1])}${th(TCOLS[2])}${th(TCOLS[3], 'until ' + esc(until))}${th(TCOLS[4])}${th(TCOLS[5])}
+                        ${th(TCOLS[6])}${th(['Machine shortage', '', TCOLS[7][2], TCOLS[7][3]], 'numbers')}${th(['Machine shortage', '', TCOLS[8][2], TCOLS[8][3]], 'days')}
+                        ${th(TCOLS[9])}${th(['Machine excess', '', TCOLS[10][2], TCOLS[10][3]], 'numbers')}${th(['Machine excess', '', TCOLS[11][2], TCOLS[11][3]], 'days')}
                     </tr></thead>
                     <tbody>${all.map(r => tonRow(r, openSet.has(tonKey(r)))).join('')}</tbody>
                     <tfoot><tr><td style="text-align:left">Total</td><td>${n0(t.load_hours)}</td><td>${n0(t.load_days)}</td><td>${n0(t.avail_hours)}</td><td>${n0(t.avail_days)}</td>

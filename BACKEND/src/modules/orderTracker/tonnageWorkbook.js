@@ -43,7 +43,7 @@ async function buildTonnageWorkbook(T, { until, basis, factoryName }) {
   /* row 4: headers */
   const heads = ['M/c Tonnage', 'Hrs Required', 'Days Required', 'Available Hrs', 'Available Days', 'Machines With Us',
     'Total Machine Plan', 'Machine Shortage Numbers', 'Machine Shortage Days', 'Capacity Booked', 'Machine Excess Numbers',
-    'Machine Excess Days', 'Running Hrs', 'Queued Hrs', 'No Machine Hrs', 'Orders', 'Moulds'];
+    'Machine Excess Days', 'Running Hrs', 'Queued Hrs', 'Not Planned Hrs', 'Orders', 'Moulds'];
   const hr = ws.getRow(4);
   hr.values = heads; hr.height = 44;
   hr.eachCell(c => { c.font = { bold: true }; c.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true }; c.fill = fill(HEAD); c.border = box; });
@@ -94,7 +94,7 @@ async function buildTonnageWorkbook(T, { until, basis, factoryName }) {
     mould: i.mould_name, mt: i.mould_tonnage, target: i.target_date ? String(i.target_date).slice(0, 10) : '',
     bal: i.balance, rate: i.rate_pph || null, hrs: i.hours, days: i.hours == null ? null : i.hours / 24,
     where: i.status === 'RUNNING' ? 'Running on ' + (i.machines || []).join(', ')
-      : i.queue ? `Queued #${i.queue.position} on ${i.queue.machine}` : 'No machine'
+      : i.queue ? `Queued #${i.queue.position} on ${i.queue.machine}` : 'Not planned yet'
   })));
   d.autoFilter = { from: 'A1', to: 'L1' };
 
