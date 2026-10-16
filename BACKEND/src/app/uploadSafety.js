@@ -44,7 +44,10 @@ function extensionForUpload(originalname, mimetype, allowed = MEDIA_EXTS) {
 // Upload folders that must not be public. Resumes are candidates' personal data
 // (name, phone, address, work history); only HR and admins may open them.
 const PRIVATE_UPLOAD_DIRS = [
-  { prefix: '/uploads/interviews/', roles: new Set(['admin', 'superadmin', 'hr_manager']) }
+  { prefix: '/uploads/interviews/', roles: new Set(['admin', 'superadmin', 'hr_manager']) },
+  // Chat attachments are never served as static files: GET /api/chat/files/:id checks
+  // that the viewer is in the chat. An empty role set means "nobody".
+  { prefix: '/uploads/chat/', roles: new Set() }
 ];
 
 // The static file handler decodes the URL and, on the Windows factory servers, reads
@@ -73,6 +76,7 @@ function createPrivateUploadGuard(authMiddleware) {
     if (fullPath === null) return res.status(400).json({ ok: false, error: 'Bad file path.' });
     const rule = PRIVATE_UPLOAD_DIRS.find((r) => fullPath.startsWith(r.prefix) || `${fullPath}/` === r.prefix);
     if (!rule) return next();
+    if (!rule.roles.size) return res.status(404).json({ ok: false, error: 'File not found.' });
     return authMiddleware(req, res, () => {
       if (!req.auth) return res.status(401).json({ ok: false, code: 'AUTH_REQUIRED', error: 'Please log in again to open this file.' });
       if (!rule.roles.has(req.auth.role)) return res.status(403).json({ ok: false, code: 'FORBIDDEN', error: 'This file is only available to HR and admins.' });

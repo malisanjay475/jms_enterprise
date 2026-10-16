@@ -11,8 +11,24 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.124.0",
+  "latest": "1.125.0",
   "versions": [
+    {
+      "version": "1.125.0",
+      "date": "2026-10-16",
+      "title": "JMS Chat: groups, files and more",
+      "modules": [
+        {
+          "app": "all",
+          "changes": [
+            { "type": "feat", "text": "Group chats: press the 👥 button to make a group, rename it, add or remove people (group admins), or leave; each message shows who sent it." },
+            { "type": "feat", "text": "Send photos (with a preview), PDFs, Excel (.xlsx) files and audio up to 10 MB with the 📎 button, by pasting, or by dropping a file into the chat." },
+            { "type": "feat", "text": "Ticks per message: one grey tick sent, two grey ticks delivered, two blue ticks read; in a group, hover the ticks to see who has read it." },
+            { "type": "feat", "text": "See when someone is typing, search old messages from the chat search box, edit a message within 15 minutes, and delete a message for everyone." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.124.0",
       "date": "2026-10-16",
