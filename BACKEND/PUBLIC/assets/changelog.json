@@ -11,8 +11,21 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.121.2",
+  "latest": "1.122.0",
   "versions": [
+    {
+      "version": "1.122.0",
+      "date": "2026-10-16",
+      "title": "Tonnage load report",
+      "modules": [
+        {
+          "app": "planning",
+          "changes": [
+            { "type": "feature", "text": "Order Tracker has a new Tonnage load view: for every machine tonnage it shows the hours of open order work, the machine hours we have until a chosen date, machines needed, shortage (red) or spare machines (green) and capacity booked. Click a row to see the orders and moulds behind it, or download it for Excel." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.121.2",
       "date": "2026-10-15",
