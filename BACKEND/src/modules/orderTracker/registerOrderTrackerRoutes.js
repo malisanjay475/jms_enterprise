@@ -28,6 +28,7 @@
 
 const { getFactoryId } = require('../../app/requestContext');
 const { sendServerError } = require('../../app/httpErrors');
+const { buildTonnageWorkbook } = require('./tonnageWorkbook');
 
 const RATE_DAYS = 3;
 /* a set needing more pieces of one mould than this is almost certainly a data error */
@@ -848,6 +849,26 @@ async function queueSchedule(pool, factoryId) {
   return { map, board };
 }
 
+/* query parameters -> tonnage load for the factory */
+async function tonnageFor(pool, req) {
+  const factoryId = getFactoryId(req) || null;
+  const until = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.until || '')) ? req.query.until : monthEnd();
+  const eff = Math.min(Math.max(Number(req.query.eff) || 100, 10), 100) / 100;
+  const basis = req.query.basis === 'due' ? 'due' : 'all';
+  const orderNos = (await pool.query(`
+    SELECT TRIM(or_jr_no) AS order_no, MAX(or_jr_date) AS d FROM or_jr_report
+     WHERE COALESCE(TRIM(or_jr_no), '') <> ''
+       AND ($1::int IS NULL OR factory_id = $1 OR factory_id IS NULL)
+       AND or_jr_date >= CURRENT_DATE - 365
+       AND COALESCE(TRIM(jr_close), '') <> 'Yes' AND is_closed IS NOT TRUE
+     GROUP BY 1 ORDER BY d DESC NULLS LAST LIMIT ${MAX_ORDERS}`, [factoryId])).rows.map(r => r.order_no);
+  const q = await queueSchedule(pool, factoryId);
+  const orders = await loadOrders(pool, orderNos, factoryId, q.map, q.board);
+  const untilMs = new Date(until + TARGET_DAY_END).getTime();
+  const data = buildTonnageLoad(orders, q.board, { untilMs, eff, basis });
+  return { until, basis, data };
+}
+
 function registerOrderTrackerRoutes(app, pool) {
   /* GET /api/order-tracker/orders?scope=running|open|all&days=120&q= */
   app.get('/api/order-tracker/orders', async (req, res) => {
@@ -915,24 +936,25 @@ function registerOrderTrackerRoutes(app, pool) {
      open-order machine load per tonnage against machine hours until the date */
   app.get('/api/order-tracker/tonnage', async (req, res) => {
     try {
-      const factoryId = getFactoryId(req) || null;
-      const until = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.until || '')) ? req.query.until : monthEnd();
-      const eff = Math.min(Math.max(Number(req.query.eff) || 100, 10), 100) / 100;
-      const basis = req.query.basis === 'due' ? 'due' : 'all';
-      const orderNos = (await pool.query(`
-        SELECT TRIM(or_jr_no) AS order_no, MAX(or_jr_date) AS d FROM or_jr_report
-         WHERE COALESCE(TRIM(or_jr_no), '') <> ''
-           AND ($1::int IS NULL OR factory_id = $1 OR factory_id IS NULL)
-           AND or_jr_date >= CURRENT_DATE - 365
-           AND COALESCE(TRIM(jr_close), '') <> 'Yes' AND is_closed IS NOT TRUE
-         GROUP BY 1 ORDER BY d DESC NULLS LAST LIMIT ${MAX_ORDERS}`, [factoryId])).rows.map(r => r.order_no);
-      const q = await queueSchedule(pool, factoryId);
-      const orders = await loadOrders(pool, orderNos, factoryId, q.map, q.board);
-      const untilMs = new Date(until + TARGET_DAY_END).getTime();
-      const data = buildTonnageLoad(orders, q.board, { untilMs, eff, basis });
+      const { until, basis, data } = await tonnageFor(pool, req);
       res.json({ ok: true, server_time: new Date().toISOString(), until, basis, data });
     } catch (e) {
       console.error('[order-tracker/tonnage]', e);
+      sendServerError(res, e);
+    }
+  });
+
+  /* GET /api/order-tracker/tonnage.xlsx - same figures as an Excel sheet */
+  app.get('/api/order-tracker/tonnage.xlsx', async (req, res) => {
+    try {
+      const { until, basis, data } = await tonnageFor(pool, req);
+      const factoryName = String(req.query.factory || '').replace(/[^\w .&()-]/g, '').slice(0, 40);
+      const buf = await buildTonnageWorkbook(data, { until, basis, factoryName });
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', `attachment; filename="Machine_Planning_Summary_${until}.xlsx"`);
+      res.end(Buffer.from(buf));
+    } catch (e) {
+      console.error('[order-tracker/tonnage.xlsx]', e);
       sendServerError(res, e);
     }
   });

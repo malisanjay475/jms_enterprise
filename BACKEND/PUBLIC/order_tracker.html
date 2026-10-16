@@ -475,7 +475,7 @@
                     <option value="all">Load: all open orders</option>
                     <option value="due">Load: orders due by this date</option>
                 </select>
-                <button class="btn" id="tcsv"><i class="bi bi-download"></i> Excel (CSV)</button>
+                <button class="btn" id="tcsv"><i class="bi bi-file-earmark-excel"></i> Download Excel</button>
             </div>
             <div class="otc tl-help" id="thelp"></div>
             <div id="tlist"><div class="otc empty">Loading tonnage load…</div></div>
@@ -1134,20 +1134,27 @@
                 });
             }
 
-            function tonnageCsv() {
-                const T = S.tonnage; if (!T) return;
-                const head = ['M/c Tonnage', 'Hrs Required', 'Days Required', 'Available Hrs', 'Available Days', 'Machines With Us', 'Machines Needed', 'Shortage Numbers', 'Shortage Days', 'Capacity Booked %', 'Excess Numbers', 'Excess Days', 'Running Hrs', 'Queued Hrs', 'No Machine Hrs', 'Orders', 'Moulds'];
-                const line = (r, name) => [name || tonName(r.tonnage), r.load_hours, r.load_days, r.avail_hours, r.avail_days, r.machine_count, r.machines_needed, r.shortage_machines, r.shortage_days, r.booked_pct, r.excess_machines, r.excess_days, r.running_hours, r.queued_hours, r.unplanned_hours, r.orders, r.moulds];
-                const rows = [[`Machine load summary until ${$('tuntil').value} (${f2(T.days)} days, ${Math.round(T.eff * 100)}% efficiency)`], head]
-                    .concat(T.classes.map(r => line(r))).concat([line(T.total, 'Total')]);
-                if (T.unknown.items.length) rows.push(line(T.unknown));
-                rows.push([], ['Tonnage', 'Order', 'Client', 'Product', 'Mould', 'Mould T', 'Target', 'Balance pcs', 'Rate /h', 'Hours', 'Status']);
-                T.classes.concat([T.unknown]).forEach(r => r.items.forEach(i => rows.push([tonName(r.tonnage), i.order_no, i.client_name, i.product_name, i.mould_name, i.mould_tonnage, i.target_date ? day(i.target_date) : '', i.balance, i.rate_pph, i.hours, i.status])));
-                const csv = rows.map(r => r.map(v => { const x = v == null ? '' : String(v); return /[",\n]/.test(x) ? '"' + x.replace(/"/g, '""') + '"' : x; }).join(',')).join('\r\n');
-                const a = document.createElement('a');
-                a.href = URL.createObjectURL(new Blob(['﻿' + csv], { type: 'text/csv' }));
-                a.download = `tonnage_load_${$('tuntil').value}.csv`; a.click();
-                setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+            /* Excel built on the server, laid out like the monthly machine planning summary */
+            async function tonnageXlsx() {
+                const b = $('tcsv'); b.disabled = true;
+                try {
+                    const headers = {};
+                    const token = localStorage.getItem('token');
+                    if (token) headers.Authorization = `Bearer ${token}`;
+                    const u = JSON.parse(localStorage.getItem('user') || '{}');
+                    if (u.username) headers['X-User-Name'] = u.username;
+                    const qs = new URLSearchParams({ until: $('tuntil').value, eff: Number($('teff').value) || 100, basis: $('tbasis').value, factory: $('fac').textContent || '' });
+                    const res = await fetch(`/api/order-tracker/tonnage.xlsx?${qs}`, { headers });
+                    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Download failed');
+                    const blob = await res.blob();
+                    const name = (res.headers.get('Content-Disposition') || '').match(/filename="([^"]+)"/);
+                    const a = document.createElement('a');
+                    a.href = URL.createObjectURL(blob);
+                    a.download = name ? name[1] : 'Machine_Planning_Summary.xlsx';
+                    document.body.appendChild(a); a.click(); a.remove();
+                    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+                } catch (e) { alert(e.message || 'Download failed'); }
+                finally { b.disabled = false; }
             }
 
             /* ====================================================== WIRING */
@@ -1188,7 +1195,7 @@
                 let t; $('q').oninput = () => { clearTimeout(t); t = setTimeout(refresh, 400); };
                 $('mq').oninput = renderMachines;
                 $('tuntil').onchange = refresh; $('tbasis').onchange = refresh; $('teff').onchange = refresh;
-                $('tcsv').onclick = tonnageCsv;
+                $('tcsv').onclick = tonnageXlsx;
                 document.addEventListener('click', e => {
                     const of = e.target.closest('[data-of]');
                     if (of) { S.ofilter = of.dataset.of; renderOrders(); return; }
