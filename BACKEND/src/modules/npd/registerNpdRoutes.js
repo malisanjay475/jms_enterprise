@@ -116,7 +116,13 @@ function removeFile(filePath) {
    are identified by sync_id, never the per-server serial id: a file links to its
    product by product_sync_id. sync.service calls this before its schema sweep so
    the tables exist (with their sync triggers) even where NPD was never opened. */
+/* Dungra Unit-I: owner of every product made before NPD became factory wise */
+const NPD_LEGACY_FACTORY_ID = 1;
+
 async function ensureNpdSchema(pool) {
+  const localFactoryId = parseInt(process.env.LOCAL_FACTORY_ID, 10);
+  /* purge other factories' copies only when this LOCAL knows its own factory */
+  const isLocal = String(process.env.SERVER_TYPE || '').toUpperCase() === 'LOCAL' && Number.isInteger(localFactoryId) && localFactoryId > 0;
   /* one string = one implicit transaction, so the lock holds until the end and
      several workers starting together don't race on CREATE / ALTER */
   await pool.query(`
@@ -159,35 +165,63 @@ async function ensureNpdSchema(pool) {
     ALTER TABLE npd_files ALTER COLUMN product_id DROP NOT NULL;
     CREATE INDEX IF NOT EXISTS idx_npd_files_product_sync ON npd_files(product_sync_id);
 
-    /* Sr No: MAIN and a LOCAL can both hand out the same next number while apart.
-       MAIN decides: a row arriving with a number another product already has gets
-       the next free one, and updated_at moves so the new number syncs back out. */
+    /* NPD is factory wise. Products made before v1.121 had no factory; they are all
+       Dungra Unit-I's (owner, 16-Oct-2026). With factory_id the sync sends each
+       LOCAL only its own factory's rows. A file carries its product's factory. */
+    ALTER TABLE npd_products ADD COLUMN IF NOT EXISTS factory_id INTEGER;
+    ALTER TABLE npd_files ADD COLUMN IF NOT EXISTS factory_id INTEGER;
+    UPDATE npd_products SET factory_id = ${NPD_LEGACY_FACTORY_ID} WHERE factory_id IS NULL;
+    UPDATE npd_files f SET factory_id = COALESCE(p.factory_id, ${NPD_LEGACY_FACTORY_ID})
+      FROM npd_products p WHERE f.factory_id IS NULL AND p.sync_id = f.product_sync_id;
+    UPDATE npd_files SET factory_id = ${NPD_LEGACY_FACTORY_ID} WHERE factory_id IS NULL;
+    CREATE INDEX IF NOT EXISTS idx_npd_products_factory ON npd_products(factory_id);
+    CREATE INDEX IF NOT EXISTS idx_npd_files_factory ON npd_files(factory_id);
+
+    /* Sr No runs per factory. MAIN and a LOCAL can both hand out the same next
+       number while apart; MAIN decides: a row arriving with a number another product
+       of that factory already has gets the next free one, and updated_at moves so
+       the new number syncs back out. */
     CREATE OR REPLACE FUNCTION npd_unique_sr_no() RETURNS trigger AS $$
     BEGIN
       PERFORM pg_advisory_xact_lock(hashtext('npd_sr_no'));
       IF NEW.sr_no IS NOT NULL AND EXISTS (
            SELECT 1 FROM npd_products
-            WHERE sr_no = NEW.sr_no AND sync_id IS DISTINCT FROM NEW.sync_id) THEN
+            WHERE sr_no = NEW.sr_no AND factory_id IS NOT DISTINCT FROM NEW.factory_id
+              AND sync_id IS DISTINCT FROM NEW.sync_id) THEN
         NEW.sr_no := (SELECT (COALESCE(MAX(NULLIF(regexp_replace(sr_no, '[^0-9]', '', 'g'), '')::bigint), 0) + 1)::text
-                        FROM npd_products);
+                        FROM npd_products WHERE factory_id IS NOT DISTINCT FROM NEW.factory_id);
         NEW.updated_at := NOW();
       END IF;
       RETURN NEW;
     END $$ LANGUAGE plpgsql;
     DROP TRIGGER IF EXISTS trg_npd_unique_sr_no ON npd_products;
-    ${String(process.env.SERVER_TYPE || '').toUpperCase() === 'LOCAL' ? '' : `
-    CREATE TRIGGER trg_npd_unique_sr_no BEFORE INSERT OR UPDATE OF sr_no ON npd_products
+    CREATE TABLE IF NOT EXISTS server_config (key TEXT PRIMARY KEY, value TEXT);
+    ${isLocal ? `
+    /* This LOCAL pulled every factory's products while NPD was not factory wise.
+       Drop the other factories' copies here only: their tombstones are removed in
+       the same transaction so the deletes never reach MAIN. */
+    DELETE FROM npd_files WHERE factory_id IS DISTINCT FROM ${localFactoryId};
+    DELETE FROM npd_products WHERE factory_id IS DISTINCT FROM ${localFactoryId};
+    DO $$
+    BEGIN
+      DELETE FROM sync_deletions s
+       WHERE s.table_name IN ('npd_products', 'npd_files')
+         AND s.factory_id IS DISTINCT FROM ${localFactoryId}
+         AND s.deleted_at > NOW() - interval '1 minute';
+    EXCEPTION WHEN undefined_table THEN NULL; /* sync not set up yet */
+    END $$;` : `
+    CREATE TRIGGER trg_npd_unique_sr_no BEFORE INSERT OR UPDATE OF sr_no, factory_id ON npd_products
       FOR EACH ROW EXECUTE FUNCTION npd_unique_sr_no();
     /* duplicates already here: the oldest keeps its number, the others are renumbered */
     UPDATE npd_products p SET sr_no = p.sr_no
-     WHERE EXISTS (SELECT 1 FROM npd_products o WHERE o.sr_no = p.sr_no AND o.id < p.id);
+     WHERE EXISTS (SELECT 1 FROM npd_products o
+                    WHERE o.sr_no = p.sr_no AND o.factory_id IS NOT DISTINCT FROM p.factory_id AND o.id < p.id);
     /* A LOCAL pulls only rows changed since its last pull (one watermark for all
-       tables), so products made before NPD joined sync never reached it. Mark them
-       changed once; every LOCAL then pulls the whole list on its next cycle. */
-    CREATE TABLE IF NOT EXISTS server_config (key TEXT PRIMARY KEY, value TEXT);
+       tables). Mark every NPD row changed once per version so each LOCAL pulls its
+       factory's list again: V1 = joined sync, V2 = became factory wise. */
     DO $$
     BEGIN
-      INSERT INTO server_config (key, value) VALUES ('NPD_SYNC_RESEND_V1', NOW()::text);
+      INSERT INTO server_config (key, value) VALUES ('NPD_SYNC_RESEND_V2', NOW()::text);
       UPDATE npd_products SET updated_at = NOW();
       UPDATE npd_files SET updated_at = NOW();
     EXCEPTION WHEN unique_violation THEN NULL; /* already done */
