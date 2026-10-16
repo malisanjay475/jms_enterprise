@@ -365,6 +365,38 @@
         .pace .pt { height: 5px; background: rgba(15,23,42,.08); border-radius: 9px; margin-top: 6px; overflow: hidden; }
         .pace .pt i { display: block; height: 100%; border-radius: 9px; }
         .pace.ok .pt i { background: var(--green); } .pace.bad .pt i { background: var(--red); }
+        /* ---------- tonnage load ---------- */
+        .tl-help { display: flex; gap: 10px; align-items: flex-start; padding: 12px 15px; margin-bottom: 14px; font-size: 13px; color: var(--ink2); background: var(--blue-bg); border-color: var(--blue-br); }
+        .tl-help i { color: var(--blue); font-size: 16px; margin-top: 1px; }
+        .tl-wrap { overflow-x: auto; }
+        table.tl { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 1180px; }
+        .tl th { background: #dbeafe; color: var(--ink); font-weight: 800; font-size: 12px; padding: 9px 8px; text-align: center; border: 1px solid #bfd3f5; line-height: 1.25; }
+        .tl th small { display: block; font-weight: 600; color: var(--mute); font-size: 10px; }
+        .tl td { padding: 9px 8px; border: 1px solid var(--line); text-align: right; white-space: nowrap; }
+        .tl td.ton { text-align: left; font-weight: 800; font-size: 14px; }
+        .tl tr.cls { cursor: pointer; }
+        .tl tr.cls:hover td { background: #f8fafc; }
+        .tl tr.cls.open td { background: #f1f5ff; }
+        .tl td.short { background: #ef4444 !important; color: #fff; font-weight: 800; font-style: italic; }
+        .tl td.excess { background: #16a34a !important; color: #fff; font-weight: 800; font-style: italic; }
+        .tl td.dash { color: var(--faint); text-align: center; }
+        .tl tfoot td { background: #1e293b; color: #fff; font-weight: 800; border-color: #334155; }
+        .tl .bk { display: flex; align-items: center; gap: 8px; justify-content: flex-end; }
+        .tl .bk .bar { width: 70px; height: 7px; background: #e9eef5; border-radius: 9px; overflow: hidden; }
+        .tl .bk .bar i { display: block; height: 100%; }
+        .tl .split { display: flex; height: 6px; border-radius: 9px; overflow: hidden; margin-top: 4px; background: #e9eef5; }
+        .tl .split i { display: block; height: 100%; }
+        .tl tr.det td { background: #fbfcfe; padding: 0; text-align: left; white-space: normal; }
+        .tl-det { padding: 12px 14px; }
+        .tl-det table { width: 100%; border-collapse: collapse; font-size: 12px; }
+        .tl-det th { background: var(--grey-bg); border: 1px solid var(--line); font-size: 11px; padding: 6px; text-align: left; }
+        .tl-det td { border: 1px solid var(--line2); padding: 6px; text-align: left; white-space: nowrap; }
+        .tl-det td.r { text-align: right; }
+        .lg { display: inline-flex; align-items: center; gap: 5px; margin-right: 14px; font-size: 12px; color: var(--mute); }
+        .lg i { width: 11px; height: 11px; border-radius: 3px; display: inline-block; }
+        .bar input[type=date], .bar input[type=number] { border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; font-size: 13px; background: #fff; font-weight: 600; }
+        .bar label.fl { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 700; color: var(--mute); }
+
         @media (max-width: 1100px) { .qtiles { grid-template-columns: repeat(3, 1fr); } }
         @media (max-width: 760px) { .qtiles { grid-template-columns: repeat(2, 1fr); } }
         @media (max-width: 1100px) { .dtiles { grid-template-columns: repeat(3, 1fr); } }
@@ -394,6 +426,7 @@
                 <div class="seg" id="seg">
                     <button data-view="orders" class="on"><i class="bi bi-receipt"></i> Order wise</button>
                     <button data-view="machines"><i class="bi bi-cpu"></i> Machine wise</button>
+                    <button data-view="tonnage"><i class="bi bi-speedometer2"></i> Tonnage load</button>
                 </div>
                 <button class="btn" id="refresh"><i class="bi bi-arrow-clockwise"></i> Refresh</button>
             </div>
@@ -430,6 +463,22 @@
                 <div class="chips" id="mchips"></div>
             </div>
             <div id="mlist"><div class="otc empty">Loading machines…</div></div>
+        </section>
+
+        <!-- TONNAGE LOAD -->
+        <section id="v-tonnage" style="display:none">
+            <div class="kpis" id="tkpis"></div>
+            <div class="bar">
+                <label class="fl">Plan until <input type="date" id="tuntil"></label>
+                <label class="fl">Machine efficiency % <input type="number" id="teff" min="10" max="100" step="5" value="100" style="width:80px"></label>
+                <select id="tbasis" title="Which orders count as load">
+                    <option value="all">Load: all open orders</option>
+                    <option value="due">Load: orders due by this date</option>
+                </select>
+                <button class="btn" id="tcsv"><i class="bi bi-download"></i> Excel (CSV)</button>
+            </div>
+            <div class="otc tl-help" id="thelp"></div>
+            <div id="tlist"><div class="otc empty">Loading tonnage load…</div></div>
         </section>
     </div>
 
@@ -577,7 +626,7 @@
             function closeOrder() {
                 S.order = null; S.detail = null;
                 if (S.chart) { S.chart.destroy(); S.chart = null; }
-                history.replaceState(null, '', location.pathname + (S.view === 'machines' ? '?view=machines' : ''));
+                history.replaceState(null, '', location.pathname + (S.view !== 'orders' ? '?view=' + S.view : ''));
                 show(S.view);
             }
 
@@ -986,17 +1035,134 @@
                     </div>`).join('')}</div>`).join('');
             }
 
+            /* ============================================== TONNAGE LOAD */
+            const f2 = v => Number(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+            const tonName = t => t == null ? 'Unknown' : t + ' T';
+            async function loadTonnage() {
+                if (!$('tuntil').value) {
+                    const d = new Date(); $('tuntil').value = new Date(d.getFullYear(), d.getMonth() + 1, 0).toLocaleDateString('en-CA');
+                }
+                const res = await JPSMS.api.request(`/order-tracker/tonnage?until=${$('tuntil').value}&eff=${Number($('teff').value) || 100}&basis=${$('tbasis').value}`, { skipLoader: true });
+                S.tonnage = res.data || null;
+                renderTonnage();
+            }
+
+            const bookTone = p => p == null ? 'var(--faint)' : p > 100 ? 'var(--red)' : p >= 85 ? 'var(--amber)' : 'var(--green)';
+            const tonKey = r => r.tonnage == null ? 'x' : String(r.tonnage);
+            function tonRow(r, open) {
+                const pct = r.booked_pct;
+                const L = r.load_hours || 1;
+                const shortN = r.shortage_machines > 0, excessN = r.excess_machines > 0;
+                const cell = (on, cls, v) => on ? `<td class="${cls}">${f2(v)}</td>` : '<td class="dash">-</td>';
+                return `<tr class="cls ${open ? 'open' : ''}" data-ton="${tonKey(r)}">
+                    <td class="ton"><i class="bi bi-chevron-${open ? 'down' : 'right'} muted small"></i> ${tonName(r.tonnage)}
+                        <div class="muted small" style="font-weight:600">${r.orders} orders · ${r.moulds} moulds</div></td>
+                    <td>${f2(r.load_hours)}
+                        <div class="split" title="Running ${f2(r.running_hours)} h · Queued ${f2(r.queued_hours)} h · No machine ${f2(r.unplanned_hours)} h">
+                            <i style="width:${r.running_hours / L * 100}%;background:var(--blue)"></i><i style="width:${r.queued_hours / L * 100}%;background:var(--amber)"></i><i style="width:${r.unplanned_hours / L * 100}%;background:#94a3b8"></i></div></td>
+                    <td>${f2(r.load_days)}</td>
+                    <td>${n0(r.avail_hours)}</td>
+                    <td>${f2(r.avail_days)}</td>
+                    <td>${r.machine_count}<div class="muted small">${r.running} running · ${r.idle} idle</div></td>
+                    <td>${r.machines_needed == null ? '—' : f2(r.machines_needed)}</td>
+                    ${cell(shortN, 'short', r.shortage_machines)}${cell(shortN, 'short', r.shortage_days)}
+                    <td><div class="bk"><b style="color:${bookTone(pct)}">${pct == null ? '—' : pct + '%'}</b><span class="bar"><i style="width:${Math.min(100, pct || 0)}%;background:${bookTone(pct)}"></i></span></div></td>
+                    ${cell(excessN, 'excess', r.excess_machines)}${cell(excessN, 'excess', r.excess_days)}
+                </tr>${open ? `<tr class="det"><td colspan="12">${tonDetail(r)}</td></tr>` : ''}`;
+            }
+            function tonDetail(r) {
+                if (!r.items.length) return '<div class="tl-det muted">No open load on this tonnage.</div>';
+                const where = i => i.status === 'RUNNING' ? `<span class="pill s-RUNNING">On ${esc(i.machines.join(', '))}</span>`
+                    : i.queue ? `<span class="pill s-QUEUED">Queued #${i.queue.position} on ${esc(i.queue.machine)}</span>` : '<span class="pill s-NOT_PLANNED">No machine</span>';
+                const late = i => i.target_date && day(i.target_date) < todayStr();
+                return `<div class="tl-det">
+                    <div class="muted small" style="margin-bottom:8px"><b>Machines:</b> ${r.machines.map(m => `<span class="mc">${esc(m)}</span>`).join('') || '—'}</div>
+                    <table><thead><tr><th>Order</th><th>Client / product</th><th>Mould</th><th>Mould T</th><th>Target</th><th class="r">Balance pcs</th><th class="r">Rate /h</th><th class="r">Hours</th><th class="r">Days</th><th>Where</th><th>Start</th></tr></thead><tbody>
+                    ${r.items.map(i => `<tr>
+                        <td><a class="lnk" data-order="${esc(i.order_no)}">${esc(i.order_no)}</a></td>
+                        <td>${esc(short(i.client_name))}<div class="muted small">${esc(short(i.product_name))}</div></td>
+                        <td>${esc(short(i.mould_name))}</td>
+                        <td>${i.mould_tonnage ? i.mould_tonnage + ' T' : '—'}<div class="muted small">${esc(i.tonnage_source || '')}${i.oversize ? ' · <b style="color:var(--red)">bigger than any machine</b>' : ''}</div></td>
+                        <td ${late(i) ? 'style="color:var(--red);font-weight:700"' : ''}>${fd(i.target_date)}</td>
+                        <td class="r">${n0(i.balance)}</td>
+                        <td class="r">${i.rate_pph ? n0(i.rate_pph) : '<span style="color:var(--red)">no rate</span>'}</td>
+                        <td class="r b">${i.hours == null ? '—' : f2(i.hours)}</td>
+                        <td class="r">${i.hours == null ? '—' : f2(i.hours / 24)}</td>
+                        <td>${where(i)}</td>
+                        <td>${stHtml(i)}</td></tr>`).join('')}
+                    </tbody></table></div>`;
+            }
+
+            function renderTonnage() {
+                const T = S.tonnage;
+                if (!T) { $('tlist').innerHTML = '<div class="otc empty">No data.</div>'; return; }
+                const t = T.total, rows = T.classes;
+                const shortRows = rows.filter(r => r.shortage_machines > 0);
+                $('tkpis').innerHTML = [
+                    kpi('bi-cpu', 'grey', t.machine_count || 0, `Machines · ${rows.length} tonnages`, null),
+                    kpi('bi-hourglass-split', 'blue', n0(t.load_hours), `Load hours · ${f2(t.load_days)} machine days`, null),
+                    kpi('bi-calendar-range', 'green', n0(t.avail_hours), `Available hours in ${f2(T.days)} days`, null),
+                    kpi('bi-speedometer', t.booked_pct > 100 ? 'red' : t.booked_pct >= 85 ? 'amber' : 'green', t.booked_pct == null ? '—' : t.booked_pct + '%', 'Capacity booked', null),
+                    kpi('bi-exclamation-triangle', shortRows.length ? 'red' : 'green', shortRows.length, shortRows.length ? 'Short: ' + shortRows.map(r => r.tonnage + ' T').join(', ') : 'No tonnage short', null)
+                ].join('');
+                const until = fd($('tuntil').value);
+                $('thelp').innerHTML = `<i class="bi bi-info-circle-fill"></i><div>
+                    <b>How to read:</b> Hrs required = pieces still to mould on ${$('tbasis').value === 'due' ? 'open orders due by ' + until : 'all open orders'} ÷ pieces per hour (live rate, else mould standard), grouped by the machine tonnage the mould needs.
+                    Available = machines × 24 h × ${f2(T.days)} days left until ${until} × ${Math.round(T.eff * 100)}% efficiency.
+                    <b style="color:var(--red)">Red</b> = we need more machines than we have; <b style="color:var(--green)">green</b> = spare machines. Click a row to see the orders and moulds behind it.
+                    <div style="margin-top:6px"><span class="lg"><i style="background:var(--blue)"></i>Running now</span><span class="lg"><i style="background:var(--amber)"></i>Queued on a machine</span><span class="lg"><i style="background:#94a3b8"></i>No machine yet</span></div></div>`;
+                const openSet = S.tonOpen || (S.tonOpen = new Set());
+                const all = rows.concat(T.unknown.items.length ? [T.unknown] : []);
+                $('tlist').innerHTML = `<div class="otc tl-wrap"><table class="tl">
+                    <thead><tr>
+                        <th>M/c tonnage</th><th>Hrs required<small>open load</small></th><th>Days required<small>hrs ÷ 24</small></th>
+                        <th>Available hrs<small>until ${esc(until)}</small></th><th>Available days</th><th>Machines with us</th>
+                        <th>Machines needed</th><th>Machine shortage<small>numbers</small></th><th>Machine shortage<small>days</small></th>
+                        <th>Capacity booked</th><th>Machine excess<small>numbers</small></th><th>Machine excess<small>days</small></th>
+                    </tr></thead>
+                    <tbody>${all.map(r => tonRow(r, openSet.has(tonKey(r)))).join('')}</tbody>
+                    <tfoot><tr><td style="text-align:left">Total</td><td>${n0(t.load_hours)}</td><td>${n0(t.load_days)}</td><td>${n0(t.avail_hours)}</td><td>${n0(t.avail_days)}</td>
+                        <td>${t.machine_count || 0}</td><td>${n0(t.machines_needed)}</td><td>${f2(t.shortage_machines)}</td><td>${n0(t.shortage_days)}</td>
+                        <td>${t.booked_pct == null ? '—' : t.booked_pct + '%'}</td><td>${f2(t.excess_machines)}</td><td>${n0(t.excess_days)}</td></tr></tfoot>
+                </table></div>
+                ${T.unknown.items.length ? `<div class="note a"><i class="bi bi-exclamation-triangle-fill"></i><div><b>${T.unknown.items.length} moulds (${f2(T.unknown.load_hours)} h) have no tonnage</b> in the mould master or ERP BOM and never ran on a machine, so they are not in the total. Add the tonnage in Masters → Moulds.</div></div>` : ''}
+                ${t.no_rate ? `<div class="note a"><i class="bi bi-exclamation-triangle-fill"></i><div><b>${t.no_rate} moulds have no rate</b> (no DPR and no standard pcs/hour or cycle time), so their hours are not counted. Open a row to see them.</div></div>` : ''}`;
+                $('tlist').querySelectorAll('tr.cls').forEach(tr => tr.onclick = e => {
+                    if (e.target.closest('[data-order]')) return;
+                    const k = tr.dataset.ton; if (openSet.has(k)) openSet.delete(k); else openSet.add(k);
+                    renderTonnage();
+                });
+            }
+
+            function tonnageCsv() {
+                const T = S.tonnage; if (!T) return;
+                const head = ['M/c Tonnage', 'Hrs Required', 'Days Required', 'Available Hrs', 'Available Days', 'Machines With Us', 'Machines Needed', 'Shortage Numbers', 'Shortage Days', 'Capacity Booked %', 'Excess Numbers', 'Excess Days', 'Running Hrs', 'Queued Hrs', 'No Machine Hrs', 'Orders', 'Moulds'];
+                const line = (r, name) => [name || tonName(r.tonnage), r.load_hours, r.load_days, r.avail_hours, r.avail_days, r.machine_count, r.machines_needed, r.shortage_machines, r.shortage_days, r.booked_pct, r.excess_machines, r.excess_days, r.running_hours, r.queued_hours, r.unplanned_hours, r.orders, r.moulds];
+                const rows = [[`Machine load summary until ${$('tuntil').value} (${f2(T.days)} days, ${Math.round(T.eff * 100)}% efficiency)`], head]
+                    .concat(T.classes.map(r => line(r))).concat([line(T.total, 'Total')]);
+                if (T.unknown.items.length) rows.push(line(T.unknown));
+                rows.push([], ['Tonnage', 'Order', 'Client', 'Product', 'Mould', 'Mould T', 'Target', 'Balance pcs', 'Rate /h', 'Hours', 'Status']);
+                T.classes.concat([T.unknown]).forEach(r => r.items.forEach(i => rows.push([tonName(r.tonnage), i.order_no, i.client_name, i.product_name, i.mould_name, i.mould_tonnage, i.target_date ? day(i.target_date) : '', i.balance, i.rate_pph, i.hours, i.status])));
+                const csv = rows.map(r => r.map(v => { const x = v == null ? '' : String(v); return /[",\n]/.test(x) ? '"' + x.replace(/"/g, '""') + '"' : x; }).join(',')).join('\r\n');
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(new Blob(['﻿' + csv], { type: 'text/csv' }));
+                a.download = `tonnage_load_${$('tuntil').value}.csv`; a.click();
+                setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+            }
+
             /* ====================================================== WIRING */
             function show(v) {
                 $('v-orders').style.display = v === 'orders' ? '' : 'none';
                 $('v-machines').style.display = v === 'machines' ? '' : 'none';
                 $('v-detail').style.display = v === 'detail' ? '' : 'none';
+                $('v-tonnage').style.display = v === 'tonnage' ? '' : 'none';
             }
 
             async function refresh() {
                 try {
                     if (S.order) await openOrder(S.order, true);
                     else if (S.view === 'orders') await loadOrders();
+                    else if (S.view === 'tonnage') await loadTonnage();
                     else await loadMachines();
                     stamp(true);
                 } catch (e) { stamp(false); }
@@ -1006,7 +1172,7 @@
                 S.view = v; S.order = null; S.detail = null;
                 document.querySelectorAll('#seg button').forEach(b => b.classList.toggle('on', b.dataset.view === v));
                 try { localStorage.setItem('ot_view', v); } catch (e) { /* private mode */ }
-                history.replaceState(null, '', location.pathname + (v === 'machines' ? '?view=machines' : ''));
+                history.replaceState(null, '', location.pathname + (v !== 'orders' ? '?view=' + v : ''));
                 show(v);
                 refresh();
             }
@@ -1021,6 +1187,8 @@
                 $('sort').onchange = renderOrders;
                 let t; $('q').oninput = () => { clearTimeout(t); t = setTimeout(refresh, 400); };
                 $('mq').oninput = renderMachines;
+                $('tuntil').onchange = refresh; $('tbasis').onchange = refresh; $('teff').onchange = refresh;
+                $('tcsv').onclick = tonnageCsv;
                 document.addEventListener('click', e => {
                     const of = e.target.closest('[data-of]');
                     if (of) { S.ofilter = of.dataset.of; renderOrders(); return; }
@@ -1036,7 +1204,7 @@
                 const p = new URLSearchParams(location.search);
                 let v = p.get('view');
                 if (!v) { try { v = localStorage.getItem('ot_view'); } catch (e) { /* ignore */ } }
-                setView(v === 'machines' ? 'machines' : 'orders');
+                setView(['machines', 'tonnage'].includes(v) ? v : 'orders');
                 if (p.get('order')) openOrder(p.get('order'));
                 setInterval(() => { if (!document.hidden) refresh(); }, REFRESH_MS);
             });
