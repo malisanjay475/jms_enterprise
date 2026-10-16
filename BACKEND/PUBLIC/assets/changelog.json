@@ -11,8 +11,21 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.123.0",
+  "latest": "1.123.1",
   "versions": [
+    {
+      "version": "1.123.1",
+      "date": "2026-10-16",
+      "title": "Order Tracker machine advice from mould master",
+      "modules": [
+        {
+          "app": "planning",
+          "changes": [
+            { "type": "fix", "text": "Order Tracker advice now suggests only the primary or secondary machine set for the mould in the mould master. If none is set, it says so instead of suggesting a machine the mould may not fit." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.123.0",
       "date": "2026-10-16",
