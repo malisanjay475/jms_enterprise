@@ -11,8 +11,21 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.122.1",
+  "latest": "1.122.2",
   "versions": [
+    {
+      "version": "1.122.2",
+      "date": "2026-10-16",
+      "title": "Tonnage load easier to read",
+      "modules": [
+        {
+          "app": "planning",
+          "changes": [
+            { "type": "improvement", "text": "Tonnage load now has a Load against capacity chart, a Short / Almost full / Spare tag on every tonnage, a guide that explains every column with an example, and column tips on hover. 'No machine' is now called 'Not planned yet'." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.122.1",
       "date": "2026-10-16",
