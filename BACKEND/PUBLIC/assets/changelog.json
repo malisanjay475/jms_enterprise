@@ -11,8 +11,21 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.123.2",
+  "latest": "1.124.0",
   "versions": [
+    {
+      "version": "1.124.0",
+      "date": "2026-10-16",
+      "title": "JMS Chat",
+      "modules": [
+        {
+          "app": "all",
+          "changes": [
+            { "type": "feat", "text": "New green chat button at the bottom-right of every page: message anyone in JMS, see when they are online, get a pop-up and sound for new messages, and see ticks turn blue when your message is read." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.123.2",
       "date": "2026-10-16",

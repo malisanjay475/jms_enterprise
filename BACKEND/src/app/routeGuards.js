@@ -40,6 +40,8 @@ const GUARDED_ROUTES = [
   { method: 'POST', path: /^\/api\/logout-all\/?$/, need: 'session' },
   // AI endpoints call a paid model and /ask ran model-written SQL.
   { method: '*', path: /^\/api\/ai(\/|$)/, need: 'session' },
+  // Chat: who you are decides which chats you can read.
+  { method: '*', path: /^\/api\/chat(\/|$)/, need: 'session' },
   // Points the Modbus collector at factory-LAN IPs.
   { method: 'PUT', path: /^\/api\/machine-data\/config\/[^/]+\/?$/, need: 'admin' },
   // DPR data changes. These handlers took the actor's role from the request body
