@@ -11,8 +11,21 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.122.2",
+  "latest": "1.123.0",
   "versions": [
+    {
+      "version": "1.123.0",
+      "date": "2026-10-16",
+      "title": "Machines we have, in Tonnage load",
+      "modules": [
+        {
+          "app": "planning",
+          "changes": [
+            { "type": "feature", "text": "Tonnage load now shows the machines we have as per the machine master: per tonnage how many are active, inactive, running, planned and idle. Click a tonnage to see each machine. The Excel has a new Machine master sheet." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.122.2",
       "date": "2026-10-16",

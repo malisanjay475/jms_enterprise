@@ -423,6 +423,28 @@
         .gtab td.f { font-family: Consolas, monospace; font-size: 12px; color: var(--ink2); background: #fafbfd; width: 300px; }
         .gtab td.ex { color: var(--blue); font-size: 12px; width: 190px; }
         @media (max-width: 760px) { .lcr { grid-template-columns: 60px 1fr; } .lcr .vt { grid-column: 1 / -1; text-align: left; } .gtab td.f, .gtab td.ex { display: none; } }
+        /* machine master */
+        .mm { padding: 16px 18px; margin-bottom: 14px; }
+        .mm .mmh { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+        .mm h3 { margin: 0; font-size: 15px; font-weight: 800; display: flex; align-items: center; gap: 8px; }
+        .mm .tot { display: flex; gap: 8px; flex-wrap: wrap; }
+        .mm .tot span { background: var(--grey-bg); border: 1px solid var(--line); border-radius: 10px; padding: 5px 11px; font-size: 12px; color: var(--mute); font-weight: 600; }
+        .mm .tot b { color: var(--ink); font-size: 15px; margin-right: 3px; }
+        .mmg { display: grid; grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); gap: 10px; }
+        .mmt { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; cursor: pointer; background: #fff; transition: border-color .15s, box-shadow .15s; }
+        .mmt:hover, .mmt.on { border-color: var(--blue-br); box-shadow: 0 3px 10px rgba(37,99,235,.08); }
+        .mmt.on { background: var(--blue-bg); }
+        .mmt .tt { font-size: 12px; font-weight: 800; color: var(--mute); }
+        .mmt .nn { font-size: 26px; font-weight: 800; line-height: 1.1; }
+        .mmt .nn small { font-size: 12px; color: var(--mute); font-weight: 600; }
+        .mmt .sb { display: flex; height: 6px; border-radius: 9px; overflow: hidden; background: #e9eef5; margin: 7px 0 5px; }
+        .mmt .sb i { display: block; height: 100%; }
+        .mmt .ss { font-size: 10.5px; color: var(--mute); font-weight: 600; }
+        .mml { margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--line); display: flex; flex-wrap: wrap; gap: 6px; }
+        .mml .m { display: inline-flex; align-items: center; gap: 5px; border-radius: 8px; padding: 4px 9px; font-size: 12px; font-weight: 700; border: 1px solid var(--line); background: #fff; }
+        .mml .m i { width: 7px; height: 7px; border-radius: 50%; }
+        .mml .m small { color: var(--mute); font-weight: 600; }
+        .mml .m.INACTIVE { opacity: .55; text-decoration: line-through; }
         .bar input[type=date], .bar input[type=number] { border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; font-size: 13px; background: #fff; font-weight: 600; }
         .bar label.fl { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 700; color: var(--mute); }
 
@@ -507,6 +529,7 @@
                 <button class="btn" id="tcsv"><i class="bi bi-file-earmark-excel"></i> Download Excel</button>
             </div>
             <div class="otc tl-help" id="thelp"></div>
+            <div id="tmaster"></div>
             <div id="tboard"></div>
             <details class="otc guide" id="tguide"></details>
             <div id="tlist"><div class="otc empty">Loading tonnage load…</div></div>
@@ -1080,6 +1103,7 @@
 
             const bookTone = p => p == null ? 'var(--faint)' : p > 100 ? 'var(--red)' : p >= 85 ? 'var(--amber)' : 'var(--green)';
             const tonKey = r => r.tonnage == null ? 'x' : String(r.tonnage);
+            const inactiveOf = r => { const M = S.tonnage && S.tonnage.master; const g = M && r.tonnage != null && M.by_tonnage.find(x => x.tonnage === r.tonnage); return g ? g.inactive : 0; };
             /* one-word answer per tonnage: short / tight / spare */
             function verdictChip(r) {
                 if (r.tonnage == null) return '<span class="vchip none"><i class="bi bi-question-circle"></i>Add tonnage</span>';
@@ -1117,6 +1141,32 @@
             }
             const th = (c, extra) => `<th title="${esc(c[2] + ' (' + c[3] + ')')}">${c[0]}<i class="bi bi-info-circle qi"></i>${extra || c[1] ? `<small>${extra || c[1]}</small>` : ''}</th>`;
 
+            /* machines as per the machine master, per tonnage */
+            const MST = { RUNNING: ['var(--blue)', 'Running'], QUEUED: ['var(--amber)', 'Planned, not running'], IDLE: ['#94a3b8', 'Idle'], INACTIVE: ['#cbd5e1', 'Inactive'] };
+            function masterHtml(M) {
+                if (!M || !M.total) return '';
+                const sel = S.mmSel;
+                const groups = M.by_tonnage.concat(M.no_tonnage.total ? [Object.assign({ tonnage: null }, M.no_tonnage)] : []);
+                const tile = g => {
+                    const k = g.tonnage == null ? 'x' : String(g.tonnage), A = g.active || 1;
+                    return `<div class="mmt ${sel === k ? 'on' : ''}" data-mm="${k}" title="Click to see the machines">
+                        <div class="tt">${g.tonnage == null ? '<span style="color:var(--red)">No tonnage</span>' : g.tonnage + ' T'}</div>
+                        <div class="nn">${g.active}${g.inactive ? ` <small>+${g.inactive} inactive</small>` : ''}</div>
+                        <div class="sb"><i style="width:${g.running / A * 100}%;background:var(--blue)"></i><i style="width:${g.queued / A * 100}%;background:var(--amber)"></i><i style="width:${g.idle / A * 100}%;background:#94a3b8"></i></div>
+                        <div class="ss">${g.running} running · ${g.queued} planned · ${g.idle} idle</div></div>`;
+                };
+                const open = groups.find(g => (g.tonnage == null ? 'x' : String(g.tonnage)) === sel);
+                return `<div class="otc mm"><div class="mmh">
+                    <div><h3><i class="bi bi-hdd-rack" style="color:var(--blue)"></i> Machines we have (Machine master)</h3>
+                    <div class="muted small" style="margin-top:3px">Moulding machines in Masters → Machines, by tonnage. Big number = active machines counted as capacity. Click a tonnage to see its machines.</div></div>
+                    <div class="tot"><span><b>${M.total}</b>in master</span><span><b>${M.active}</b>active</span>${M.inactive ? `<span><b>${M.inactive}</b>inactive</span>` : ''}<span><b style="color:var(--blue)">${M.running}</b>running</span><span><b style="color:var(--amber)">${M.queued}</b>planned</span><span><b>${M.idle}</b>idle</span></div></div>
+                    <div class="mmg">${groups.map(tile).join('')}</div>
+                    ${open ? `<div class="mml">${open.machines.map(m => `<span class="m ${m.state}" title="${esc(MST[m.state][1])}"><i style="background:${MST[m.state][0]}"></i>${esc(m.machine)}${m.line ? ` <small>${esc(m.line)}</small>` : ''}</span>`).join('')}
+                        <span class="muted small" style="width:100%;margin-top:4px">${Object.entries(MST).map(([k, v]) => `<span class="lg"><i style="background:${v[0]};border-radius:50%"></i>${v[1]}</span>`).join('')}</span></div>` : ''}
+                    ${M.no_tonnage.total ? `<div class="note a"><i class="bi bi-exclamation-triangle-fill"></i><div><b>${M.no_tonnage.total} machine${M.no_tonnage.total === 1 ? '' : 's'} with no tonnage</b> in the machine master: not counted in any tonnage row. Fill the tonnage in Masters → Machines.</div></div>` : ''}
+                </div>`;
+            }
+
             /* picture of load against capacity, one bar per tonnage */
             function boardHtml(rows) {
                 const max = Math.max(1, ...rows.map(r => Math.max(r.load_hours, r.avail_hours)));
@@ -1144,7 +1194,7 @@
                     <td>${f2(r.load_days)}</td>
                     <td>${n0(r.avail_hours)}</td>
                     <td>${f2(r.avail_days)}</td>
-                    <td>${r.machine_count}<div class="muted small">${r.running} running · ${r.idle} idle</div></td>
+                    <td>${r.machine_count}<div class="muted small">${r.running} running · ${r.idle} idle${inactiveOf(r) ? ` · ${inactiveOf(r)} inactive` : ''}</div></td>
                     <td>${r.machines_needed == null ? '—' : f2(r.machines_needed)}</td>
                     ${cell(shortN, 'short', r.shortage_machines)}${cell(shortN, 'short', r.shortage_days)}
                     <td><div class="bk"><b style="color:${bookTone(pct)}">${pct == null ? '—' : pct + '%'}</b><span class="bar"><i style="width:${Math.min(100, pct || 0)}%;background:${bookTone(pct)}"></i></span></div></td>
@@ -1180,7 +1230,7 @@
                 const t = T.total, rows = T.classes;
                 const shortRows = rows.filter(r => r.shortage_machines > 0);
                 $('tkpis').innerHTML = [
-                    kpi('bi-cpu', 'grey', t.machine_count || 0, `Machines · ${rows.length} tonnages`, null),
+                    kpi('bi-cpu', 'grey', t.machine_count || 0, `Active machines · ${rows.length} tonnages${T.master && T.master.inactive ? ' · ' + T.master.inactive + ' inactive' : ''}`, null),
                     kpi('bi-hourglass-split', 'blue', n0(t.load_hours), `Load hours · ${f2(t.load_days)} machine days`, null),
                     kpi('bi-calendar-range', 'green', n0(t.avail_hours), `Available hours in ${f2(T.days)} days`, null),
                     kpi('bi-speedometer', t.booked_pct > 100 ? 'red' : t.booked_pct >= 85 ? 'amber' : 'green', t.booked_pct == null ? '—' : t.booked_pct + '%', 'Capacity booked', null),
@@ -1192,6 +1242,8 @@
                     Available = machines × 24 h × ${f2(T.days)} days left until ${until} × ${Math.round(T.eff * 100)}% efficiency.
                     <b style="color:var(--red)">Red</b> = we need more machines than we have; <b style="color:var(--green)">green</b> = spare machines. Click a row to see the orders and moulds behind it. Hover a column heading, or open <b>What does each column mean?</b> below, for every column.
                     <div style="margin-top:6px"><span class="lg"><i style="background:var(--blue)"></i>Running now</span><span class="lg"><i style="background:var(--amber)"></i>Queued on a machine</span><span class="lg"><i style="background:#94a3b8"></i>Not planned yet (not on any machine)</span></div></div>`;
+                $('tmaster').innerHTML = masterHtml(T.master);
+                $('tmaster').querySelectorAll('[data-mm]').forEach(el => el.onclick = () => { S.mmSel = S.mmSel === el.dataset.mm ? null : el.dataset.mm; renderTonnage(); });
                 $('tboard').innerHTML = rows.length ? boardHtml(rows) : '';
                 const g = $('tguide'), wasOpen = g.open;
                 g.innerHTML = guideHtml(rows.slice().sort((a, b) => b.load_hours - a.load_hours)[0]);

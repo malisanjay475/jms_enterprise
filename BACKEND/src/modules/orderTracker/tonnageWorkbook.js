@@ -98,6 +98,21 @@ async function buildTonnageWorkbook(T, { until, basis, factoryName }) {
   })));
   d.autoFilter = { from: 'A1', to: 'L1' };
 
+  /* sheet 3: machines we have, as per the machine master */
+  if (T.master && T.master.total) {
+    const M = T.master;
+    const m = wb.addWorksheet('Machine master', { views: [{ state: 'frozen', ySplit: 1 }] });
+    m.columns = [{ width: 14 }, { width: 12 }, { width: 10 }, { width: 10 }, { width: 10 }, { width: 10 }, { width: 10 }, { width: 70 }];
+    const h = m.addRow(['M/c Tonnage', 'In master', 'Active', 'Inactive', 'Running', 'Planned', 'Idle', 'Machines']);
+    h.eachCell(c => { c.font = { bold: true }; c.fill = fill(HEAD); c.border = box; });
+    const line = (name, g) => m.addRow([name, g.total, g.active, g.inactive, g.running, g.queued, g.idle,
+      (g.machines || []).map(x => x.machine + (x.active ? '' : ' (inactive)')).join(', ')]).eachCell(c => { c.border = box; c.alignment = { vertical: 'top', wrapText: true }; });
+    M.by_tonnage.forEach(g => line(g.tonnage, g));
+    if (M.no_tonnage.total) line('No tonnage', M.no_tonnage);
+    const t = m.addRow(['Total', M.total, M.active, M.inactive, M.running, M.queued, M.idle, '']);
+    t.eachCell({ includeEmpty: true }, c => { c.fill = fill(NAVY); c.font = { bold: true, color: { argb: 'FFFFFFFF' } }; });
+  }
+
   return wb.xlsx.writeBuffer();
 }
 
