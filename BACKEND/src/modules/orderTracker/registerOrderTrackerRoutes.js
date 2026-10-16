@@ -91,6 +91,7 @@ const BOM_SQL = `
          MAX(NULLIF(regexp_replace(COALESCE(jr_qty, ''), '[^0-9.]+', '', 'g'), '')::numeric) AS jr_qty,
          MAX(NULLIF(regexp_replace(COALESCE(cycle_time, ''), '[^0-9.]+', '', 'g'), '')::numeric) AS cycle_time,
          MAX(NULLIF(regexp_replace(COALESCE(cavity, ''), '[^0-9.]+', '', 'g'), '')::numeric) AS cavity,
+         MAX(NULLIF(regexp_replace(COALESCE(tonnage::text, ''), '[^0-9.]+', '', 'g'), '')::numeric) AS tonnage,
          ARRAY_AGG(DISTINCT mould_item_name) FILTER (WHERE COALESCE(mould_item_name, '') <> '') AS items
     FROM mould_planning_report
    WHERE TRIM(or_jr_no) = ANY($1::text[])
@@ -136,7 +137,8 @@ const SHIFT_SQL = `
 
 const MOULD_SQL = `
   SELECT TRIM(mould_number) AS code, TRIM(mould_name) AS name,
-         COALESCE(pcs_per_hour, 0) AS pcs_per_hour, cycle_time, no_of_cav, consumption_ratio_qty
+         COALESCE(pcs_per_hour, 0) AS pcs_per_hour, cycle_time, no_of_cav, consumption_ratio_qty,
+         NULLIF(regexp_replace(COALESCE(tonnage::text, ''), '[^0-9.]+', '', 'g'), '')::numeric AS tonnage
     FROM moulds
    WHERE TRIM(mould_number) = ANY($1::text[])
      AND ($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL)`;
@@ -200,7 +202,7 @@ function buildOrder(orderNo, { jcRows, bomRows, planRows, dprRows, mouldStd, sch
     moulds.set(key(b.mould_no), {
       mould_no: b.mould_no, mould_name: b.mould_name || b.mould_no,
       bomRatio: jr > 0 ? +(num(b.item_qty) / jr).toFixed(3) : null,
-      cycle: num(b.cycle_time), cavity: num(b.cavity) || 1, items: b.items || []
+      cycle: num(b.cycle_time), cavity: num(b.cavity) || 1, items: b.items || [], tonnage: num(b.tonnage)
     });
   });
   planRows.forEach(p => {
@@ -335,6 +337,9 @@ function buildOrder(orderNo, { jcRows, bomRows, planRows, dprRows, mouldStd, sch
       ratio_suspect: m.ratio > MAX_SANE_RATIO,
       ratio_mismatch: m.bomRatio > 0 && Math.abs(m.bomRatio - m.ratio) / m.ratio > 0.05,
       cycle_time: num(std && std.cycle_time) || m.cycle || null, cavity: num(std && std.no_of_cav) || m.cavity || null,
+      /* machine size the mould needs: mould master first, then the ERP BOM */
+      tonnage: num(std && std.tonnage) || m.tonnage || null,
+      tonnage_source: num(std && std.tonnage) ? 'mould master' : (m.tonnage ? 'ERP BOM' : null),
       std_pph: Math.round(stdRate) || null, live_pph: liveRate ? Math.round(liveRate) : null,
       /* what it must do to make the target, against what it does now */
       need_pph: targetEndMs && balance > 0 && targetEndMs > Date.now() ? Math.ceil(balance / ((targetEndMs - Date.now()) / 3600000)) : null,
@@ -653,6 +658,96 @@ const slim = o => {
   };
 };
 
+/* ------------------------------------------------------ tonnage load --- */
+
+/* Open-order load per machine tonnage, against the machine hours the factory
+   has until a chosen date - the monthly "machine planning summary" sheet.
+   Load of a mould = balance pieces / pieces per hour on one machine. The mould
+   goes to the smallest machine class that fits its tonnage (mould master, ERP
+   BOM, else the machine it ran on). Days are 24 machine hours. */
+function buildTonnageLoad(orders, board, { untilMs, eff, basis }) {
+  const days = Math.max(0, (untilMs - Date.now()) / 86400000);
+  const classes = [...new Set(board.map(m => num(m.tonnage)).filter(t => t > 0))].sort((a, b) => a - b);
+  const tonOf = new Map(board.map(m => [key(m.machine), num(m.tonnage)]));
+  const fit = t => classes.find(c => c >= t * 0.95) || (classes.length ? classes[classes.length - 1] : null);
+  const rows = new Map(classes.map(c => [c, {
+    tonnage: c, machines: board.filter(m => num(m.tonnage) === c).map(m => m.machine), items: []
+  }]));
+  const unknown = { tonnage: null, machines: [], items: [] };
+
+  orders.forEach(o => {
+    if (o.status === 'COMPLETE') return;
+    const due = !o.target_date || new Date(o.target_date.slice(0, 10) + TARGET_DAY_END).getTime() <= untilMs;
+    if (basis === 'due' && !due) return;
+    o.moulds.forEach(m => {
+      if (m.status === 'COMPLETE' || m.balance <= 0) return;
+      let ton = num(m.tonnage), src = m.tonnage_source;
+      if (!ton) {
+        ton = Math.max(0, ...(m.all_machines || []).map(n => tonOf.get(key(n)) || 0));
+        src = ton ? 'machine used' : null;
+      }
+      const cls = ton ? fit(ton) : null;
+      const rate = num(m.rate_pph);
+      const item = {
+        order_no: o.order_no, client_name: o.client_name, product_name: o.product_name, target_date: o.target_date,
+        due, mould_no: m.mould_no, mould_name: m.mould_name, mould_tonnage: ton || null, tonnage_source: src,
+        oversize: !!(ton && cls && ton > cls * 1.05),
+        balance: m.balance, rate_pph: rate, hours: rate > 0 ? +(m.balance / rate).toFixed(1) : null,
+        status: m.status, machines: m.machines, queue: m.queue, start_state: m.start_state, slack_hours: m.slack_hours, must_start_by: m.must_start_by
+      };
+      (cls ? rows.get(cls) : unknown).items.push(item);
+    });
+  });
+
+  const summarise = r => {
+    const st = m => (board.find(b => b.machine === m) || {}).state;
+    const count = r.machines.length;
+    const sum = f => +r.items.filter(f).reduce((s, i) => s + (i.hours || 0), 0).toFixed(1);
+    const load = sum(() => true);
+    const availH = count * 24 * days * eff;
+    const needed = days > 0 && eff > 0 ? load / (24 * days * eff) : null;
+    const loadDays = load / 24, availDays = count * days * eff;
+    r.items.sort((a, b) => (b.hours || 0) - (a.hours || 0));
+    return {
+      tonnage: r.tonnage, machines: r.machines, machine_count: count,
+      running: r.machines.filter(m => st(m) === 'RUNNING').length,
+      idle: r.machines.filter(m => st(m) === 'IDLE').length,
+      load_hours: load, load_days: +loadDays.toFixed(2),
+      running_hours: sum(i => i.status === 'RUNNING'),
+      queued_hours: sum(i => i.status !== 'RUNNING' && !!i.queue),
+      unplanned_hours: sum(i => i.status !== 'RUNNING' && !i.queue),
+      avail_hours: Math.round(availH), avail_days: +availDays.toFixed(2),
+      machines_needed: needed == null ? null : +needed.toFixed(2),
+      shortage_machines: needed != null && needed > count ? +(needed - count).toFixed(2) : 0,
+      shortage_days: loadDays > availDays ? +(loadDays - availDays).toFixed(2) : 0,
+      excess_machines: needed != null && needed < count ? +(count - needed).toFixed(2) : 0,
+      excess_days: availDays > loadDays ? +(availDays - loadDays).toFixed(2) : 0,
+      booked_pct: availH > 0 ? Math.round(load / availH * 100) : (load > 0 ? null : 0),
+      orders: new Set(r.items.map(i => i.order_no)).size,
+      moulds: r.items.length, no_rate: r.items.filter(i => i.hours == null).length,
+      items: r.items
+    };
+  };
+  const data = [...rows.values()].map(summarise);
+  const tot = data.reduce((t, r) => {
+    ['machine_count', 'running', 'idle', 'load_hours', 'load_days', 'running_hours', 'queued_hours', 'unplanned_hours',
+      'avail_hours', 'avail_days', 'machines_needed', 'shortage_machines', 'shortage_days', 'excess_machines', 'excess_days', 'moulds', 'no_rate']
+      .forEach(k => { t[k] = +((t[k] || 0) + (r[k] || 0)).toFixed(2); });
+    return t;
+  }, {});
+  tot.booked_pct = tot.avail_hours > 0 ? Math.round(tot.load_hours / tot.avail_hours * 100) : null;
+  tot.orders = new Set(data.flatMap(r => r.items.map(i => i.order_no))).size;
+  /* no tonnage = no machines to compare with; show only its load */
+  const unk = Object.assign(summarise(unknown), { machines_needed: null, shortage_machines: 0, shortage_days: 0, booked_pct: null });
+  return { days: +days.toFixed(2), eff, classes: data, total: tot, unknown: unk };
+}
+
+/* last day of the current month in IST, as YYYY-MM-DD */
+const monthEnd = () => {
+  const ist = new Date(Date.now() + 330 * 60000);
+  return new Date(Date.UTC(ist.getUTCFullYear(), ist.getUTCMonth() + 1, 0)).toISOString().slice(0, 10);
+};
+
 /* ------------------------------------------------------------- routes --- */
 
 /* Every moulding machine with its running job and queue, each job carrying
@@ -815,6 +910,32 @@ function registerOrderTrackerRoutes(app, pool) {
       sendServerError(res, e);
     }
   });
+
+  /* GET /api/order-tracker/tonnage?until=YYYY-MM-DD&eff=100&basis=all|due
+     open-order machine load per tonnage against machine hours until the date */
+  app.get('/api/order-tracker/tonnage', async (req, res) => {
+    try {
+      const factoryId = getFactoryId(req) || null;
+      const until = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.until || '')) ? req.query.until : monthEnd();
+      const eff = Math.min(Math.max(Number(req.query.eff) || 100, 10), 100) / 100;
+      const basis = req.query.basis === 'due' ? 'due' : 'all';
+      const orderNos = (await pool.query(`
+        SELECT TRIM(or_jr_no) AS order_no, MAX(or_jr_date) AS d FROM or_jr_report
+         WHERE COALESCE(TRIM(or_jr_no), '') <> ''
+           AND ($1::int IS NULL OR factory_id = $1 OR factory_id IS NULL)
+           AND or_jr_date >= CURRENT_DATE - 365
+           AND COALESCE(TRIM(jr_close), '') <> 'Yes' AND is_closed IS NOT TRUE
+         GROUP BY 1 ORDER BY d DESC NULLS LAST LIMIT ${MAX_ORDERS}`, [factoryId])).rows.map(r => r.order_no);
+      const q = await queueSchedule(pool, factoryId);
+      const orders = await loadOrders(pool, orderNos, factoryId, q.map, q.board);
+      const untilMs = new Date(until + TARGET_DAY_END).getTime();
+      const data = buildTonnageLoad(orders, q.board, { untilMs, eff, basis });
+      res.json({ ok: true, server_time: new Date().toISOString(), until, basis, data });
+    } catch (e) {
+      console.error('[order-tracker/tonnage]', e);
+      sendServerError(res, e);
+    }
+  });
 }
 
-module.exports = { registerOrderTrackerRoutes, buildOrder };
+module.exports = { registerOrderTrackerRoutes, buildOrder, buildTonnageLoad };
