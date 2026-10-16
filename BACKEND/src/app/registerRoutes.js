@@ -297,6 +297,10 @@ function registerRoutes(app, deps) {
   const { registerMachineDataRoutes } = require('../modules/machineData/registerMachineDataRoutes');
   registerMachineDataRoutes(app, pool);
 
+  // Chat (WhatsApp-style messages between users; chat-widget.js on every page)
+  const { registerChatRoutes } = require('../modules/chat/registerChatRoutes');
+  registerChatRoutes(app, pool);
+
   // Pulse (machine-wise live job tracker behind PUBLIC/pulse.html)
   const { registerPulseRoutes } = require('../modules/pulse/registerPulseRoutes');
   registerPulseRoutes(app, pool);

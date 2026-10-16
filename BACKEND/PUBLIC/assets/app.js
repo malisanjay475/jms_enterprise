@@ -2557,3 +2557,14 @@ function escHtml(value) {
     })
     .catch(function () { /* offline or server busy: try again on the next page */ });
 }());
+
+// JMS Chat: floating chat button on every page (PUBLIC/assets/chat-widget.js).
+(function () {
+  if (typeof document === 'undefined' || !document.querySelector) return;
+  if (window.__jmsChatLoaded || document.querySelector('script[data-jms-chat]')) return;
+  var s = document.createElement('script');
+  s.src = '/assets/chat-widget.js?v=2';
+  s.defer = true;
+  s.setAttribute('data-jms-chat', '1');
+  (document.head || document.documentElement).appendChild(s);
+}());
