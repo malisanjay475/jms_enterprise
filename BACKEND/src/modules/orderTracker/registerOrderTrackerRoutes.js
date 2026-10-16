@@ -849,6 +849,37 @@ async function queueSchedule(pool, factoryId) {
   return { map, board };
 }
 
+/* every moulding machine in the machine master, active or not */
+const MASTER_SQL = `
+  SELECT TRIM(machine) AS machine, line, building, tonnage, COALESCE(is_active, TRUE) AS active
+    FROM machines
+   WHERE COALESCE(NULLIF(TRIM(machine_process), ''), 'Moulding') = 'Moulding'
+     AND COALESCE(TRIM(machine), '') <> ''
+     AND ($1::int IS NULL OR factory_id = $1 OR factory_id IS NULL)`;
+
+/* machine master per tonnage: how many machines we have, active / inactive,
+   and what the active ones are doing now (running / queued / idle) */
+function machineMaster(rows, board) {
+  const sorter = machineSorter(rows);
+  const stateOf = new Map(board.map(m => [key(m.machine), m.state]));
+  const list = rows.slice().sort((a, b) => sorter(a.machine, b.machine)).map(r => ({
+    machine: r.machine, line: r.line || r.building || '', tonnage: num(r.tonnage) || null, active: !!r.active,
+    state: r.active ? (stateOf.get(key(r.machine)) || 'IDLE') : 'INACTIVE'
+  }));
+  const tons = [...new Set(list.map(m => m.tonnage).filter(Boolean))].sort((a, b) => a - b);
+  const sum = ms => ({
+    total: ms.length, active: ms.filter(m => m.active).length, inactive: ms.filter(m => !m.active).length,
+    running: ms.filter(m => m.state === 'RUNNING').length, queued: ms.filter(m => m.state === 'QUEUED').length,
+    idle: ms.filter(m => m.state === 'IDLE').length
+  });
+  const noTon = list.filter(m => !m.tonnage);
+  return {
+    ...sum(list),
+    by_tonnage: tons.map(t => { const ms = list.filter(m => m.tonnage === t); return { tonnage: t, ...sum(ms), machines: ms }; }),
+    no_tonnage: { ...sum(noTon), machines: noTon }
+  };
+}
+
 /* query parameters -> tonnage load for the factory */
 async function tonnageFor(pool, req) {
   const factoryId = getFactoryId(req) || null;
@@ -866,6 +897,8 @@ async function tonnageFor(pool, req) {
   const orders = await loadOrders(pool, orderNos, factoryId, q.map, q.board);
   const untilMs = new Date(until + TARGET_DAY_END).getTime();
   const data = buildTonnageLoad(orders, q.board, { untilMs, eff, basis });
+  const master = (await pool.query(MASTER_SQL, [factoryId])).rows;
+  data.master = machineMaster(master, q.board);
   return { until, basis, data };
 }
 
@@ -960,4 +993,4 @@ function registerOrderTrackerRoutes(app, pool) {
   });
 }
 
-module.exports = { registerOrderTrackerRoutes, buildOrder, buildTonnageLoad };
+module.exports = { registerOrderTrackerRoutes, buildOrder, buildTonnageLoad, machineMaster };
