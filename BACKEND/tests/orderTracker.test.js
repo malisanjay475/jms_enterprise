@@ -113,7 +113,7 @@ describe('order tracker set maths', () => {
       dprRows: [
         { plan_id: 'P-LID', mould_no: 'LID', jobcard_no: 'JC/3687', machine: 'B -L3-AKAR-110-9', dpr_date: '2026-10-01', good: 29951, reject: 0, run_hours: 104 },
         { plan_id: 'P-BTM', mould_no: 'BTM', jobcard_no: 'JC/3687', machine: 'B -L3-OM-150-7', dpr_date: '2026-10-09', good: 30567, reject: 0, run_hours: 270 }],
-      mouldStd: new Map(),
+      mouldStd: new Map([['LID', { primary_machine: 'B-L3-AKAR-110-9' }]]),
       shiftByPlan: new Map([['1', { qty: 29000 }], ['2', { qty: 30000 }]]),
       board: [{ machine: 'B -L3-AKAR-110-9', tonnage: 110, state: 'IDLE', running: [], queue: [] },
         { machine: 'B -L3-OM-150-7', tonnage: 150, state: 'RUNNING', running: [], queue: [] }]
@@ -130,7 +130,7 @@ describe('order tracker set maths', () => {
     expect(tip.level).toBe('bad');
     expect(tip.title).toMatch(/49 pcs short/);
     expect(tip.text).toMatch(/17 sets/);
-    expect(tip.text).toMatch(/AKAR-110-9/);    /* free now and ran this mould before */
+    expect(tip.text).toMatch(/AKAR-110-9/);    /* free now and its mould master machine */
     expect(o.process.current).toBe('moulding');
     expect(o.job_cards[0].process.stages.map(x => x.name)).toEqual(['Moulding', 'Shifting', 'Printing / TUF', 'Packing', 'Warehouse']);
   });
@@ -159,5 +159,27 @@ describe('order tracker set maths', () => {
     const bomOnly = build(null).moulds[0];
     expect([bomOnly.ratio, bomOnly.ratio_source, bomOnly.ratio_suspect]).toEqual([240, 'ERP BOM', true]);
     expect(withPlan.suggestions.some(t => /machines/.test(t.text))).toBe(true); /* real advice, not 'ratio looks wrong' */
+  });
+});
+
+describe('Order Tracker machine advice', () => {
+  const base = () => ({
+    jcRows: [{ order_no: 'JR/X', jr_qty: '100', job_card_no: 'JC/1', prod_plan_qty: '100', planned_comp_date: '2099-01-01' }],
+    bomRows: [{ order_no: 'JR/X', mould_no: 'BODY', mould_name: 'BODY', item_qty: '100', jr_qty: '100' }],
+    planRows: [], dprRows: [], sched: new Map(),
+    board: [{ machine: 'C-L-2-PRIMA-220-1', tonnage: 220, state: 'IDLE', running: [], queue: [] },
+      { machine: 'C -L3-OM-150-2', tonnage: 150, state: 'IDLE', running: [], queue: [] }]
+  });
+  test('suggests only the mould master machines', () => {
+    const o = buildOrder('JR/X', { ...base(), mouldStd: new Map([['BODY', { pcs_per_hour: 10, primary_machine: 'C-L3-OM-150-2' }]]) });
+    const tip = o.suggestions.find(s => s.mould === 'BODY');
+    expect(tip.text).toMatch(/OM-150-2/);
+    expect(tip.text).not.toMatch(/PRIMA/);
+  });
+  test('names no machine when the mould master has none', () => {
+    const o = buildOrder('JR/X', { ...base(), mouldStd: new Map([['BODY', { pcs_per_hour: 10 }]]) });
+    const tip = o.suggestions.find(s => s.mould === 'BODY');
+    expect(tip.text).not.toMatch(/PRIMA|OM-150/);
+    expect(tip.text).toMatch(/mould master/);
   });
 });
