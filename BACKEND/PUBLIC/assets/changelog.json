@@ -11,8 +11,21 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.123.1",
+  "latest": "1.123.2",
   "versions": [
+    {
+      "version": "1.123.2",
+      "date": "2026-10-16",
+      "title": "Sr. PPC Manager PPC Check in Mould Verification",
+      "modules": [
+        {
+          "app": "masters",
+          "changes": [
+            { "type": "fix", "text": "Sr. PPC Manager now sees the PPC Check approve button in Mould Verification without needing to clear the browser cache." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.123.1",
       "date": "2026-10-16",
