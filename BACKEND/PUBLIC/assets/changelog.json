@@ -11,8 +11,21 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.122.0",
+  "latest": "1.122.1",
   "versions": [
+    {
+      "version": "1.122.1",
+      "date": "2026-10-16",
+      "title": "Tonnage load Excel",
+      "modules": [
+        {
+          "app": "planning",
+          "changes": [
+            { "type": "improvement", "text": "Order Tracker Tonnage load: Download Excel now gives a formatted sheet like the monthly machine planning summary (red shortage, green excess, total row) plus a second sheet with the orders and moulds behind each tonnage." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.122.0",
       "date": "2026-10-16",
