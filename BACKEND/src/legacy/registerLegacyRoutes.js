@@ -6245,6 +6245,13 @@ async function initializeLegacyRuntime() {
     await q(`ALTER TABLE qc_holds ADD COLUMN IF NOT EXISTS dpr_entry_id INTEGER`);
     // Portable link to the held DPR entry (see qc_verifications.dpr_global_id).
     await q(`ALTER TABLE qc_holds ADD COLUMN IF NOT EXISTS dpr_global_id UUID`);
+    // Moulding releases a hold, then QC verifies it: verify_status PENDING -> VERIFIED,
+    // or REJECTED (hold goes back to ACTIVE for Moulding to fix and release again).
+    await q(`ALTER TABLE qc_holds ADD COLUMN IF NOT EXISTS verify_status TEXT`);
+    await q(`ALTER TABLE qc_holds ADD COLUMN IF NOT EXISTS verified_by TEXT`);
+    await q(`ALTER TABLE qc_holds ADD COLUMN IF NOT EXISTS verified_at TIMESTAMPTZ`);
+    await q(`ALTER TABLE qc_holds ADD COLUMN IF NOT EXISTS verify_remarks TEXT`);
+    await q(`ALTER TABLE qc_holds ADD COLUMN IF NOT EXISTS reopen_count INTEGER DEFAULT 0`);
     // dpr_global_id wins: it maps to this server's dpr_hourly row. Without it, fill it from
     // dpr_entry_id (rows saved here by the QC app).
     await q(`
@@ -32998,6 +33005,7 @@ app.get('/api/qc/holds', async (req, res) => {
 // GET /api/qc/holds/report?from&to&status=ALL|ACTIVE|RELEASED[&format=xlsx]
 // Hold register for the web Hold tab and its Excel download, with mould name/code,
 // OR No and JC No (from the held DPR entry / its plan) and the line's QC team.
+// VERIFY = released by Moulding, waiting for QC to verify.
 // ACTIVE = every hold still on; RELEASED = holds of the dates that were released
 // (release history); ALL = active ones plus everything placed on the dates.
 async function buildQcHoldReport(req) {
@@ -33007,12 +33015,13 @@ async function buildQcHoldReport(req) {
   if (!from) from = to || new Date().toISOString().slice(0, 10);
   if (!to) to = from;
   if (to < from) [from, to] = [to, from];
-  const status = ['ACTIVE', 'RELEASED'].includes(String(req.query.status || '').toUpperCase())
+  const status = ['ACTIVE', 'RELEASED', 'VERIFY'].includes(String(req.query.status || '').toUpperCase())
     ? String(req.query.status).toUpperCase() : 'ALL';
   const factoryId = getFactoryId(req);
   const rows = await q(
     `SELECT h.id, h.status, h.machine, h.dpr_date::text AS dpr_date, h.shift, h.slot, h.qty_on_hold,
             h.reason, h.remarks, h.hold_by, h.hold_at, h.released_by, h.released_at, h.release_remarks,
+            h.verify_status, h.verified_by, h.verified_at, h.verify_remarks, COALESCE(h.reopen_count, 0) AS reopen_count,
             COALESCE(h.image_urls, '[]'::jsonb) AS image_urls,
             COALESCE(NULLIF(TRIM(m.line), ''), '') AS line,
             COALESCE(NULLIF(TRIM(h.job_card_no), ''), NULLIF(TRIM(d.jobcard_no), ''), NULLIF(TRIM(pb.job_card_no), ''), '') AS job_card_no,
@@ -33052,9 +33061,11 @@ async function buildQcHoldReport(req) {
         AND CASE $3::text
               WHEN 'ACTIVE'   THEN h.status = 'ACTIVE'
               WHEN 'RELEASED' THEN h.status = 'RELEASED' AND h.dpr_date BETWEEN $1::date AND $2::date
-              ELSE h.status = 'ACTIVE' OR h.dpr_date BETWEEN $1::date AND $2::date
+              WHEN 'VERIFY'   THEN h.status = 'RELEASED' AND h.verify_status = 'PENDING'
+              ELSE h.status = 'ACTIVE' OR (h.status = 'RELEASED' AND h.verify_status = 'PENDING')
+                   OR h.dpr_date BETWEEN $1::date AND $2::date
             END
-      ORDER BY (h.status = 'ACTIVE') DESC, COALESCE(h.released_at, h.hold_at) DESC
+      ORDER BY (h.status = 'ACTIVE') DESC, (h.verify_status = 'PENDING') DESC, COALESCE(h.released_at, h.hold_at) DESC
       LIMIT 2000`,
     [from, to, status, factoryId]
   );
@@ -33078,10 +33089,12 @@ app.get('/api/qc/holds/report', async (req, res) => {
       ['JC No', 18], ['OR No', 18], ['Mould Code', 16], ['Mould Name', 28], ['Item', 28], ['Colour', 12],
       ['Qty on Hold', 11], ['Reason', 34], ['Remarks', 28],
       ['Held By', 16], ['Held At', 20], ['QC Supervisor', 18], ['QC Incharge', 18],
-      ['Released By', 16], ['Released At', 20], ['Release Remarks', 28], ['Photos', 8]
+      ['Released By', 16], ['Released At', 20], ['Release Remarks', 28],
+      ['QC Verify', 12], ['Verified By', 16], ['Verified At', 20], ['Verify Remarks', 28], ['Reopened', 9], ['Photos', 8]
     ];
     ws.columns = cols.map(([, w]) => ({ width: w }));
-    const title = report.status === 'RELEASED' ? 'Release history' : report.status === 'ACTIVE' ? 'Active holds' : 'All holds';
+    const title = report.status === 'RELEASED' ? 'Release history' : report.status === 'ACTIVE' ? 'Active holds'
+      : report.status === 'VERIFY' ? 'Waiting for QC verify' : 'All holds';
     ws.mergeCells(1, 1, 1, cols.length);
     ws.getCell(1, 1).value = `QC Hold Register — ${title} · ${report.from}${report.to !== report.from ? ' to ' + report.to : ''}`;
     ws.getCell(1, 1).font = { bold: true, size: 13, color: { argb: 'FFFFFFFF' } };
@@ -33104,6 +33117,8 @@ app.get('/api/qc/holds/report', async (req, res) => {
         r.qty_on_hold == null ? '' : Number(r.qty_on_hold), r.reason, r.remarks,
         r.hold_by, fmt(r.hold_at), r.qc_supervisor, r.qc_incharge,
         r.released_by || '', fmt(r.released_at), r.release_remarks || '',
+        QC_HOLD_VERIFY_LABEL[r.verify_status] || '', r.verified_by || '', fmt(r.verified_at), r.verify_remarks || '',
+        Number(r.reopen_count) || 0,
         Array.isArray(r.image_urls) ? r.image_urls.length : 0
       ]);
       row.alignment = { vertical: 'top', wrapText: true };
@@ -33119,19 +33134,69 @@ app.get('/api/qc/holds/report', async (req, res) => {
   }
 });
 
-// POST /api/qc/holds/:id/release — release a QC hold
+// Who verifies a hold release (Quality). Releasing is Moulding: isMouldingApprovalRole.
+const QC_HOLD_VERIFY_ROLE_CODES = new Set(['quality', 'quality_manager', 'quality_supervisor', 'qc_supervisor',
+  'quality_ass__manager', 'quality_ass_manager', 'admin', 'superadmin']);
+const QC_HOLD_VERIFY_LABEL = { PENDING: 'Pending', VERIFIED: 'Verified', REJECTED: 'Not verified' };
+
+async function getQcHoldActor(req) {
+  const username = getRequestUsername(req);
+  if (!username) return null;
+  const rows = await q('SELECT username, role_code FROM users WHERE LOWER(username) = LOWER($1) LIMIT 1', [username]);
+  return rows[0] || null;
+}
+
+// POST /api/qc/holds/:id/release — Moulding releases a QC hold; QC then verifies it.
 app.post('/api/qc/holds/:id/release', async (req, res) => {
   try {
-    const { id } = req.params;
-    const { remarks } = req.body || {};
-    const rawUser = (req.body.session ? (() => { try { const s = typeof req.body.session === 'string' ? JSON.parse(req.body.session) : req.body.session; return s.username || s.supervisor || s.user || ''; } catch(_) { return ''; } })() : '') || '';
-    const released_by = String(rawUser).replace(/[^\w\s\-\.@]/g, '').slice(0, 100) || 'QC';
-    const factoryId = getFactoryId(req);
-    await q(
-      `UPDATE qc_holds SET status='RELEASED', released_by=$1, released_at=NOW(), release_remarks=$2
-       WHERE id=$3 AND ($4::int IS NULL OR factory_id=$4 OR factory_id IS NULL)`,
-      [released_by, remarks || '', id, factoryId]
+    const actor = await getQcHoldActor(req);
+    if (!actor) return res.status(401).json({ ok: false, error: 'Login required' });
+    if (!isMouldingApprovalRole(actor)) {
+      return res.status(403).json({ ok: false, error: 'Only Moulding Manager / Moulding Ass. Manager can release a QC hold' });
+    }
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ ok: false, error: 'Invalid hold id' });
+    const remarks = String((req.body || {}).remarks || '').slice(0, 500);
+    const rows = await q(
+      `UPDATE qc_holds SET status='RELEASED', released_by=$1, released_at=NOW(), release_remarks=$2,
+              verify_status='PENDING', verified_by=NULL, verified_at=NULL, verify_remarks=NULL
+       WHERE id=$3 AND status='ACTIVE' AND ($4::int IS NULL OR factory_id=$4 OR factory_id IS NULL)
+       RETURNING id`,
+      [actor.username, remarks, id, getFactoryId(req)]
     );
+    if (!rows.length) return res.status(409).json({ ok: false, error: 'Hold is not active (already released?)' });
+    res.json({ ok: true });
+  } catch (e) {
+    sendServerError(res, e);
+  }
+});
+
+// POST /api/qc/holds/:id/verify { verified: true|false, remarks } — QC checks the
+// Moulding release. Not verified -> the hold is ACTIVE again and goes back to Moulding.
+app.post('/api/qc/holds/:id/verify', async (req, res) => {
+  try {
+    const actor = await getQcHoldActor(req);
+    if (!actor) return res.status(401).json({ ok: false, error: 'Login required' });
+    if (!QC_HOLD_VERIFY_ROLE_CODES.has(normalizeApprovalRoleCode(actor.role_code))) {
+      return res.status(403).json({ ok: false, error: 'Only Quality can verify a hold release' });
+    }
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ ok: false, error: 'Invalid hold id' });
+    const body = req.body || {};
+    const ok = body.verified === true || body.verified === 'true';
+    const remarks = String(body.remarks || '').slice(0, 500);
+    if (!ok && !remarks.trim()) return res.status(400).json({ ok: false, error: 'Give a reason for Not verified' });
+    const rows = await q(
+      `UPDATE qc_holds SET verified_by=$1, verified_at=NOW(), verify_remarks=$2,
+              verify_status = CASE WHEN $3::boolean THEN 'VERIFIED' ELSE 'REJECTED' END,
+              status        = CASE WHEN $3::boolean THEN status ELSE 'ACTIVE' END,
+              reopen_count  = COALESCE(reopen_count, 0) + CASE WHEN $3::boolean THEN 0 ELSE 1 END
+       WHERE id=$4 AND status='RELEASED' AND verify_status='PENDING'
+         AND ($5::int IS NULL OR factory_id=$5 OR factory_id IS NULL)
+       RETURNING id`,
+      [actor.username, remarks, ok, id, getFactoryId(req)]
+    );
+    if (!rows.length) return res.status(409).json({ ok: false, error: 'This hold is not waiting for QC verify' });
     res.json({ ok: true });
   } catch (e) {
     sendServerError(res, e);

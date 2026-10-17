@@ -14,8 +14,9 @@ part of your PR. On release, the `[Unreleased]` items move under the new version
 ## [Unreleased]
 
 ### Added
+- QC Hold release flow (v1.132.0): only Moulding Manager / Moulding Ass. Manager (and admin/superadmin) can Release a QC hold. A released hold then waits for Quality to Verify or Not verify; Not verified puts it back ON HOLD for Moulding with the QC reason. New "QC verify" filter and KPI on the Hold tab, verify columns in the Excel, new POST /api/qc/holds/:id/verify; release now checks the user's role on the server.
 - Planning order popup (v1.131.0): completed plans now show their JC number (plan_board.job_card_no, else label print log by plan, else OR-JR report) with JC date, plan window, actual DPR run dates, rejects and planner; the JC opens the drill-down. /api/planning/orders/:orderNo/history returns the extra fields.
-
+
 ### Fixed
 - Shifting Manual Entry (v1.131.2): colour-wise Plan / Balance showed "—" because plan colour_details store the colour as `colourName`, which buildShiftColourSummary did not read (it fell back to item-code short names). It now reads colourName / colour_name / colorName, and planned colours not yet produced are listed too.
 - Shifting Manual Entry (v1.131.1): the job popup now shows plan-wise quantities — a Plan vs Produced bar (balance to produce / excess), Plan and Balance columns per colour with a Total row, and the plan qty on each job tab. /api/shifting/machine-board jobs carry plan_qty.
