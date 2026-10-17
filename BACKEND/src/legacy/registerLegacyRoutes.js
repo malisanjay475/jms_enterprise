@@ -9566,6 +9566,9 @@ function buildShiftColourSummary(rawDetails, fallback = {}) {
       row?.colour ||
       row?.color ||
       row?.item_colour ||
+      row?.colourName ||
+      row?.colour_name ||
+      row?.colorName ||
       extractShiftColourName(rawItemName) ||
       extractShiftColourName(itemCode) ||
       fallback.colour ||
@@ -10983,9 +10986,12 @@ app.get('/api/shifting/availability', async (req, res) => {
       buildShiftColourSummary(plan.colour_details, { item_name: plan.item_name || '', mould_name: plan.mould_name || '', plan_qty: Number(plan.plan_qty || 0) })
         .forEach(r => planByColour.set(shiftingColourKey(r.colour), Number(r.plan_qty || 0)));
     } catch (_) { /* no colour split */ }
-    // DPR colour names are the real ones; the plan's colour split (often short codes) is
-    // only listed while nothing is produced yet.
-    const colourKeys = agg.colours.size ? [...agg.colours.keys()] : [...planByColour.keys()];
+    // DPR colours first, then planned colours not produced yet - but only when the plan's
+    // names match DPR (old plans hold short codes like "RL Brown" that would double up).
+    const planNamesMatch = [...planByColour.keys()].some(k => agg.colours.has(k));
+    const colourKeys = agg.colours.size
+      ? [...agg.colours.keys(), ...(planNamesMatch ? [...planByColour.keys()].filter(k => !agg.colours.has(k)) : [])]
+      : [...planByColour.keys()];
     res.json({
       ok: true,
       data: {
