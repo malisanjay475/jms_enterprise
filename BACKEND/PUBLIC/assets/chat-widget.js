@@ -6,6 +6,8 @@
 // sound on/off, @mentions, open a chat from ?chat=<id> (bell, notifications page, push).
 // Phase 5: "messages may be reviewed" notice on first open; messages emptied by the
 // retention job show as removed.
+// Share to chat: mark a spot on any JMS page and send it as a link card; the link opens
+// the page, finds the spot again and offers Start work / Mark done. Replies like WhatsApp.
 (function () {
   'use strict';
   if (window.__jmsChatLoaded) return;
@@ -23,6 +25,8 @@
   var editing = null, typingSentAt = 0, typingTimer = null, searchTimer = null;
   var root, els = {};
   var stopped = false; // chat switched off while the page was open
+  var replying = null; // message being replied to
+  var serverInfo = { server_type: 'MAIN', factory_id: null };
   var soundOn = readPref('jmsChatSound', '1') === '1';
   var swReg = null; // service worker registration, when the page may use one
 
@@ -123,7 +127,8 @@
 
   // ---------------- styles ----------------
   var CSS = [
-    '.jc-root{--jc-g:#00a884;--jc-gd:#008069;--jc-bg:#fff;--jc-bg2:#f0f2f5;--jc-chat:#efeae2;--jc-out:#d9fdd3;--jc-in:#fff;--jc-tx:#111b21;--jc-mu:#667781;--jc-bd:#e9edef;font-family:inherit;font-size:14px;color:var(--jc-tx)}',
+    // the share sheet, mark bar and target banner live outside .jc-root: same colours
+    '.jc-root,.jc-sheet-bg,.jc-tbanner,.jc-markbar{--jc-g:#00a884;--jc-gd:#008069;--jc-bg:#fff;--jc-bg2:#f0f2f5;--jc-chat:#efeae2;--jc-out:#d9fdd3;--jc-in:#fff;--jc-tx:#111b21;--jc-mu:#667781;--jc-bd:#e9edef;font-family:inherit;font-size:14px;color:var(--jc-tx)}',
     '.jc-fab{position:fixed;right:20px;bottom:20px;z-index:9990;width:56px;height:56px;border-radius:50%;border:0;background:var(--jc-g);color:#fff;box-shadow:0 4px 14px rgba(0,0,0,.25);cursor:pointer;display:flex;align-items:center;justify-content:center}',
     '.jc-fab:hover{background:var(--jc-gd)}',
     '.jc-fab svg{width:28px;height:28px;fill:#fff}',
@@ -218,6 +223,60 @@
     '.jc-notice span{flex:1}',
     '.jc-notice button{border:0;border-radius:12px;background:#5f5300;color:#fff;font:inherit;font-size:11px;padding:3px 10px;cursor:pointer}',
     '.jc-ph small{display:block;margin-top:14px;font-size:11px}',
+    // share button, mark mode, compose sheet, link cards, target banner
+    '.jc-sharefab{position:fixed;right:86px;bottom:28px;z-index:9990;width:40px;height:40px;border-radius:50%;border:0;background:#fff;color:var(--jc-gd);box-shadow:0 3px 10px rgba(0,0,0,.22);cursor:pointer;font-size:18px;display:flex;align-items:center;justify-content:center}',
+    '.jc-sharefab:hover{background:#e7fce3}',
+    '.jc-root.jc-stack .jc-sharefab{right:42px;bottom:176px}',
+    '.jc-markbar{position:fixed;left:50%;top:12px;transform:translateX(-50%);z-index:100003;background:#0f172a;color:#fff;border-radius:10px;padding:10px 14px;display:flex;gap:10px;align-items:center;box-shadow:0 8px 24px rgba(0,0,0,.35);font-size:14px;max-width:calc(100vw - 32px);flex-wrap:wrap}',
+    '.jc-markbar button{border:0;border-radius:6px;padding:6px 10px;font:inherit;font-size:13px;cursor:pointer;background:#334155;color:#fff}',
+    '.jc-markbar button.jc-pri{background:var(--jc-g)}',
+    '.jc-markbox{position:fixed;z-index:100002;pointer-events:none;border:2px solid #f59e0b;background:rgba(245,158,11,.12);border-radius:4px;transition:all .06s}',
+    '.jc-sheet-bg{position:fixed;inset:0;z-index:100004;background:rgba(15,23,42,.45);display:flex;align-items:center;justify-content:center;padding:16px}',
+    '.jc-sheet{background:#fff;border-radius:12px;width:460px;max-width:100%;max-height:calc(100vh - 32px);display:flex;flex-direction:column;box-shadow:0 20px 50px rgba(0,0,0,.35);overflow:hidden}',
+    '.jc-sheet h3{margin:0;padding:14px 16px;font-size:16px;border-bottom:1px solid var(--jc-bd);display:flex;justify-content:space-between;align-items:center}',
+    '.jc-sheet .jc-sbody{padding:12px 16px;overflow-y:auto;flex:1}',
+    '.jc-sheet .jc-sfoot{padding:10px 16px;border-top:1px solid var(--jc-bd);display:flex;gap:8px;justify-content:flex-end;align-items:center}',
+    '.jc-sheet textarea{width:100%;box-sizing:border-box;border:1px solid #cbd5e1;border-radius:8px;padding:8px 10px;font:inherit;min-height:60px;resize:vertical}',
+    '.jc-sheet .jc-slabel{font-size:12px;font-weight:700;color:var(--jc-mu);margin:12px 0 6px;text-transform:uppercase}',
+    '.jc-prio{display:flex;gap:8px}',
+    '.jc-prio label{flex:1;border:1px solid #cbd5e1;border-radius:8px;padding:7px 10px;cursor:pointer;display:flex;gap:6px;align-items:center}',
+    '.jc-prio label.jc-urg.jc-sel{border-color:#dc2626;background:#fef2f2;color:#b91c1c}',
+    '.jc-prio label.jc-sel{border-color:var(--jc-g);background:#ecfdf5}',
+    '.jc-linkcard{display:block;border-left:4px solid var(--jc-g);background:rgba(0,0,0,.04);border-radius:6px;padding:7px 9px;margin-bottom:4px;cursor:pointer;min-width:200px}',
+    '.jc-linkcard.jc-urgent{border-left-color:#dc2626}',
+    '.jc-linkcard b{display:block;font-size:13px}',
+    '.jc-linkcard .jc-lx{font-size:12px;color:var(--jc-mu);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;white-space:normal}',
+    '.jc-linkcard .jc-lrow{display:flex;gap:6px;align-items:center;margin-top:5px;flex-wrap:wrap}',
+    '.jc-badge2{font-size:10px;font-weight:700;border-radius:8px;padding:1px 7px;text-transform:uppercase;letter-spacing:.02em}',
+    '.jc-st-open{background:#e0f2fe;color:#0369a1}',
+    '.jc-st-in_progress{background:#fef3c7;color:#92400e}',
+    '.jc-st-done{background:#dcfce7;color:#15803d}',
+    '.jc-urg-b{background:#fee2e2;color:#b91c1c}',
+    '.jc-target{outline:3px solid #f59e0b !important;outline-offset:2px;border-radius:3px;animation:jcPulse 1.2s ease-in-out 4}',
+    '@keyframes jcPulse{0%,100%{outline-color:#f59e0b;box-shadow:0 0 0 0 rgba(245,158,11,.6)}50%{outline-color:#dc2626;box-shadow:0 0 0 10px rgba(245,158,11,0)}}',
+    '.jc-tbanner{position:fixed;left:50%;top:12px;transform:translateX(-50%);z-index:100001;background:#fff;border:1px solid #fcd34d;border-left:5px solid #f59e0b;border-radius:10px;box-shadow:0 10px 30px rgba(0,0,0,.25);padding:10px 12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;max-width:calc(100vw - 32px);width:640px;font-size:14px}',
+    '.jc-tbanner .jc-tmsg{flex:1;min-width:200px}',
+    '.jc-tbanner .jc-tmsg small{display:block;color:var(--jc-mu);font-size:12px;margin-top:2px}',
+    '.jc-tbanner button{border:0;border-radius:6px;padding:6px 10px;font:inherit;font-size:13px;cursor:pointer;background:#e2e8f0;color:#0f172a}',
+    '.jc-tbanner button.jc-pri{background:var(--jc-g);color:#fff}',
+    '.jc-ctxpill{position:fixed;z-index:100003;background:#0f172a;color:#fff;border:0;border-radius:16px;padding:7px 12px;font:inherit;font-size:13px;cursor:pointer;box-shadow:0 6px 16px rgba(0,0,0,.3)}',
+    // replies
+    '.jc-quote{border-left:3px solid var(--jc-g);background:rgba(0,0,0,.05);border-radius:5px;padding:4px 8px;margin-bottom:4px;cursor:pointer;display:flex;gap:6px;align-items:center;max-width:100%}',
+    '.jc-quote div{min-width:0}',
+    '.jc-quote b{display:block;font-size:12px;color:var(--jc-gd)}',
+    '.jc-quote span{display:block;font-size:12px;color:var(--jc-mu);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+    '.jc-quote img{width:34px;height:34px;object-fit:cover;border-radius:4px;flex:none}',
+    '.jc-rbtn{position:absolute;top:50%;transform:translateY(-50%);display:none;border:0;border-radius:50%;width:26px;height:26px;background:rgba(255,255,255,.95);box-shadow:0 1px 3px rgba(0,0,0,.2);cursor:pointer;font-size:13px;color:var(--jc-mu);padding:0}',
+    '.jc-msg:hover .jc-rbtn{display:block}',
+    '.jc-msg .jc-rbtn{right:-32px}',
+    '.jc-msg.jc-out .jc-rbtn{right:auto;left:-32px}',
+    '.jc-replybar{flex:none;display:flex;align-items:center;gap:8px;padding:6px 12px;background:#fff;border-left:4px solid var(--jc-g)}',
+    '.jc-replybar .jc-rb{flex:1;min-width:0}',
+    '.jc-replybar b{display:block;font-size:12px;color:var(--jc-gd)}',
+    '.jc-replybar span{display:block;font-size:12px;color:var(--jc-mu);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+    '.jc-replybar img{width:34px;height:34px;object-fit:cover;border-radius:4px}',
+    '.jc-sys.jc-sysr span{cursor:pointer;text-decoration:underline dotted}',
+    '@media (max-width:640px){.jc-panel.jc-open~.jc-sharefab{display:none}.jc-sharefab{right:80px;bottom:24px}}',
     '.jc-err{background:#fde8e8;color:#b42318;font-size:12px;padding:6px 10px;display:none}',
     '.jc-back{display:none}',
     '.jc-toast{position:fixed;right:20px;bottom:86px;z-index:9992;max-width:300px;background:#fff;border-left:4px solid var(--jc-g);border-radius:8px;box-shadow:0 6px 20px rgba(0,0,0,.25);padding:10px 12px;cursor:pointer}',
@@ -327,7 +386,14 @@
     var badge = el('span', 'jc-badge');
     fab.appendChild(badge);
 
-    root.appendChild(panel); root.appendChild(fab);
+    // Share to chat: mark something on this page and send it to people.
+    var shareFab = el('button', 'jc-sharefab', '🔗');
+    shareFab.title = 'Share to chat: mark a problem on this page and send it';
+    shareFab.setAttribute('aria-label', 'Share to chat');
+    shareFab.addEventListener('click', function () { startMark(); });
+    var replyBar = el('div', 'jc-replybar');
+    replyBar.style.display = 'none';
+    root.appendChild(panel); root.appendChild(fab); root.appendChild(shareFab);
     document.body.appendChild(root);
     var stack = function () { root.classList.toggle('jc-stack', !!document.querySelector('.ai-chat-widget')); };
     stack();
@@ -337,7 +403,7 @@
     els = { panel: panel, list: list, sIn: sIn, tabs: tabs, tMine: tMine, tAll: tAll, err: err,
       main: main, mh: mh, mAv: mAv, mName: mName, mSub: mSub, mTitle: mTitle, mInfo: mInfo, msgs: msgs, ro: ro,
       comp: comp, ta: ta, send: send, ph: ph, badge: badge, newBtn: newBtn, fileIn: fileIn,
-      editBar: editBar, editTxt: editTxt, ment: ment, mMute: mMute, side: side };
+      editBar: editBar, editTxt: editTxt, replyBar: replyBar, ment: ment, mMute: mMute, side: side };
 
     fab.addEventListener('click', function () { toggle(!open); });
     closeBtn.addEventListener('click', function () { toggle(false); });
@@ -698,7 +764,8 @@
     els.main.appendChild(els.msgs);
     var readOnly = c.is_member === false;
     if (readOnly) els.main.appendChild(els.ro);
-    else { els.main.appendChild(els.editBar); els.main.appendChild(els.comp); }
+    else { els.main.appendChild(els.editBar); els.main.appendChild(els.replyBar); els.main.appendChild(els.comp); }
+    cancelReply();
     els.editBar.style.display = 'none';
     els.panel.classList.add('jc-conv');
     convHeader();
@@ -825,6 +892,9 @@
   function messageMenu(m, bub) {
     closeMenu();
     var menu = el('div', 'jc-menu');
+    var rp = el('button', null, '↩ Reply');
+    rp.addEventListener('click', function (e) { e.stopPropagation(); closeMenu(); startReply(m); });
+    menu.appendChild(rp);
     var canEdit = (m.kind === 'text' || m.attachment) && Date.now() - new Date(m.server_ts).getTime() < EDIT_MS;
     if (canEdit) {
       var eb = el('button', null, m.kind === 'text' ? 'Edit' : 'Edit caption');
@@ -874,8 +944,13 @@
         box.appendChild(dd);
       }
       if (m.kind === 'system') {
-        var sys = el('div', 'jc-sys');
-        sys.appendChild(el('span', null, m.body));
+        var sys = el('div', 'jc-sys' + (m.reply_to ? ' jc-sysr' : ''));
+        var sysText = el('span', null, m.body);
+        if (m.reply_to) {
+          sysText.title = 'Show the shared item';
+          sysText.addEventListener('click', function () { flash(m.reply_to.sync_id); });
+        }
+        sys.appendChild(sysText);
         box.appendChild(sys);
         return;
       }
@@ -893,6 +968,8 @@
       } else if (m.deleted) {
         b.appendChild(el('span', 'jc-del', '🚫 This message was deleted'));
       } else {
+        if (m.reply_to) b.appendChild(quoteEl(m.reply_to));
+        if (m.kind === 'link' && m.link) b.appendChild(linkCardEl(m));
         if (m.attachment) b.appendChild(attachmentEl(m));
         else if (m.localFile) b.appendChild(el('div', 'jc-prev', '📎 ' + m.localFile.name + ' · ' + fmtSize(m.localFile.size)));
         if (m.body) appendBody(b, m.body);
@@ -911,6 +988,13 @@
         opt.addEventListener('click', function (e) { e.stopPropagation(); messageMenu(m, b); });
         b.appendChild(opt);
       }
+      if (!adminView && !m.deleted && !m.purged && !m.pending && !m.failed && current && current.is_member !== false) {
+        var rb = el('button', 'jc-rbtn', '↩');
+        rb.title = 'Reply';
+        rb.addEventListener('click', function (e) { e.stopPropagation(); startReply(m); });
+        b.appendChild(rb);
+        addSwipe(row, b, m);
+      }
       if (m.failed) {
         b.style.cursor = 'pointer';
         b.addEventListener('click', function () {
@@ -925,6 +1009,7 @@
   }
 
   function startEdit(m) {
+    cancelReply();
     editing = m;
     els.editTxt.textContent = m.body || '';
     els.editBar.style.display = 'flex';
@@ -966,7 +1051,8 @@
     }
     if (!text) return;
     var m = { sync_id: uuid(), conversation_sync_id: current.sync_id, sender: me, body: text, kind: 'text',
-      server_ts: new Date().toISOString(), pending: true };
+      server_ts: new Date().toISOString(), pending: true, reply_to: replyQuote(), reply_to_sync_id: replying && replying.sync_id };
+    cancelReply();
     loaded.push(m);
     els.ta.value = '';
     els.ta.style.height = 'auto';
@@ -977,7 +1063,7 @@
 
   function postMessage(m) {
     api('POST', API + '/messages', { sync_id: m.sync_id, conversation_sync_id: m.conversation_sync_id,
-      body: m.body, client_ts: m.server_ts }).then(function (d) {
+      body: m.body, client_ts: m.server_ts, reply_to_sync_id: m.reply_to_sync_id || undefined }).then(function (d) {
       Object.assign(m, d.message, { pending: false, failed: false });
       redraw();
       loadConvs();
@@ -999,7 +1085,8 @@
     els.ta.value = '';
     els.ta.style.height = 'auto';
     var m = { sync_id: uuid(), conversation_sync_id: current.sync_id, sender: me, body: caption, kind: 'file',
-      server_ts: new Date().toISOString(), pending: true, localFile: f };
+      server_ts: new Date().toISOString(), pending: true, localFile: f, reply_to: replyQuote(), reply_to_sync_id: replying && replying.sync_id };
+    cancelReply();
     loaded.push(m);
     redraw();
     els.msgs.scrollTop = els.msgs.scrollHeight;
@@ -1011,6 +1098,7 @@
     fd.append('conversation_sync_id', m.conversation_sync_id);
     fd.append('sync_id', m.sync_id);
     fd.append('body', m.body || '');
+    if (m.reply_to_sync_id) fd.append('reply_to_sync_id', m.reply_to_sync_id);
     fd.append('file', m.localFile, m.localFile.name || 'file');
     api('POST', API + '/attachments', fd).then(function (d) {
       Object.assign(m, d.message, { pending: false, failed: false, localFile: null });
@@ -1410,8 +1498,9 @@
         delete typingIn[m.conversation_sync_id];
         if (current && current.sync_id === m.conversation_sync_id) convHeader();
       }
+      // a reply to my message reaches me even in a muted chat, like an @mention
       var alert = !mine && !ev.adminCopy && m.kind !== 'system' && !m.deleted &&
-        (!isMuted(convById(m.conversation_sync_id)) || mentionsMe(m.body));
+        (!isMuted(convById(m.conversation_sync_id)) || mentionsMe(m.body) || (m.reply_to && same(m.reply_to.sender, me)));
       if (current && current.sync_id === m.conversation_sync_id) {
         var exists = loaded.some(function (x) { return x.sync_id === m.sync_id; });
         if (!exists) { loaded.push(m); redraw(); }
@@ -1424,6 +1513,11 @@
     } else if (ev.type === 'message_update') {
       if (current && current.sync_id === ev.message.conversation_sync_id) applyUpdate(ev.message);
       if (open) loadConvs();
+    } else if (ev.type === 'task') {
+      // Start work / Mark done on a shared item: update its card (and the banner here)
+      loaded.forEach(function (x) { if (x.sync_id === ev.message_sync_id) x.task = { status: ev.status, by: ev.by }; });
+      if (current && current.sync_id === ev.conversation_sync_id) redraw();
+      if (targetBanner && targetBanner.msgId === ev.message_sync_id) targetBanner.update(ev.status, ev.by);
     } else if (ev.type === 'receipt') {
       if (current && current.sync_id === ev.conversation_sync_id && !same(ev.username, me)) {
         var ids = {};
@@ -1495,11 +1589,526 @@
     }
   });
 
+  // ================= Replies =================
+  function lineOf(m) {
+    if (m.deleted || m.purged) return '';
+    var label = { image: '📷 Photo', pdf: '📄 PDF', xlsx: '📊 Excel file', audio: '🎤 Audio' }[m.attachment ? m.attachment.kind : ''];
+    if (m.kind === 'link' && m.link) return '🔗 ' + (m.link.title || 'Shared page') + (m.body ? ': ' + m.body : '');
+    var t = String(m.body || '').replace(/\s+/g, ' ').trim();
+    return label ? (t ? label + ': ' + t : label) : t;
+  }
+
+  function replyQuote() {
+    if (!replying) return null;
+    var m = replying;
+    return { sync_id: m.sync_id, sender: m.sender, text: lineOf(m), kind: m.kind,
+      image: m.attachment && m.attachment.kind === 'image' ? m.attachment.sync_id : null };
+  }
+
+  function startReply(m) {
+    if (!current || current.is_member === false) return;
+    cancelEdit();
+    replying = m;
+    var bar = els.replyBar;
+    bar.textContent = '';
+    var q = replyQuote();
+    if (q.image) { var im = el('img'); im.src = API + '/files/' + encodeURIComponent(q.image); im.alt = ''; bar.appendChild(im); }
+    var t = el('div', 'jc-rb');
+    t.appendChild(el('b', null, '↩ ' + (same(m.sender, me) ? 'You' : m.sender)));
+    t.appendChild(el('span', null, q.text || (m.attachment ? m.attachment.file_name : '')));
+    bar.appendChild(t);
+    var x = el('button', 'jc-ibtn', '✕');
+    x.title = 'Cancel reply';
+    x.addEventListener('click', cancelReply);
+    bar.appendChild(x);
+    bar.style.display = 'flex';
+    els.ta.focus();
+  }
+
+  function cancelReply() {
+    replying = null;
+    if (els.replyBar) els.replyBar.style.display = 'none';
+  }
+
+  function quoteEl(q) {
+    var d = el('div', 'jc-quote');
+    if (q.image && !q.deleted) {
+      var im = el('img');
+      im.src = API + '/files/' + encodeURIComponent(q.image);
+      im.alt = '';
+      d.appendChild(im);
+    }
+    var t = el('div');
+    t.appendChild(el('b', null, q.deleted ? '' : (same(q.sender, me) ? 'You' : q.sender)));
+    t.appendChild(el('span', null, q.deleted ? 'Original message deleted' : (q.text || '…')));
+    d.appendChild(t);
+    d.title = 'Show the original message';
+    d.addEventListener('click', function (e) {
+      e.stopPropagation();
+      if (!q.deleted) flash(q.sync_id);
+    });
+    return d;
+  }
+
+  // Swipe a message to the right on a phone to reply to it.
+  function addSwipe(row, bub, m) {
+    var x0 = null, y0 = 0, dx = 0;
+    row.addEventListener('touchstart', function (e) { var t = e.touches[0]; x0 = t.clientX; y0 = t.clientY; dx = 0; }, { passive: true });
+    row.addEventListener('touchmove', function (e) {
+      if (x0 === null) return;
+      var t = e.touches[0];
+      if (Math.abs(t.clientY - y0) > 30) { x0 = null; bub.style.transform = ''; return; }
+      dx = Math.max(0, Math.min(80, t.clientX - x0));
+      bub.style.transform = 'translateX(' + dx + 'px)';
+    }, { passive: true });
+    row.addEventListener('touchend', function () {
+      bub.style.transition = 'transform .15s';
+      bub.style.transform = '';
+      setTimeout(function () { bub.style.transition = ''; }, 160);
+      if (x0 !== null && dx > 55) startReply(m);
+      x0 = null;
+    });
+  }
+
+  // ================= Share to chat =================
+  var markState = null;
+  var targetBanner = null;
+
+  // window.CSS: this file has its own CSS variable (the stylesheet text).
+  function cssEsc(v) {
+    if (window.CSS && window.CSS.escape) return window.CSS.escape(String(v));
+    return String(v).replace(/[^a-zA-Z0-9_-]/g, function (c) { return "\\" + c; });
+  }
+
+  function isOurs(node) { return !!(node && node.closest && node.closest('.jc-root, .jc-sheet-bg, .jc-markbar, .jc-tbanner, .jc-ctxpill')); }
+
+  // Codes people quote on the floor: machine, job card, mould, order numbers.
+  function findCodes(text) {
+    var out = [];
+    var re = /\b(?:[A-Z]{1,5}[-\/]?\d{1,6}(?:[-\/][A-Z0-9]{1,8})*|\d{2,4}[-\/][A-Z0-9]{2,10})\b/g;
+    var m2;
+    while ((m2 = re.exec(text)) && out.length < 4) if (out.indexOf(m2[0]) === -1) out.push(m2[0]);
+    return out;
+  }
+
+  function textOf(node) { return String((node && (node.innerText || node.textContent)) || '').replace(/\s+/g, ' ').trim(); }
+
+  // The element worth pointing at: the nearest row, card or element with an id / data-* key.
+  function anchorOf(node) {
+    var n = node, steps = 0;
+    while (n && n !== document.body && steps < 8) {
+      if (n.id && !/^\d|jc-/.test(n.id)) return n;
+      var hasData = Array.prototype.some.call(n.attributes || [], function (a) { return /^data-(?!bs-|toggle|target|dismiss)/i.test(a.name) && a.value && a.value.length < 120; });
+      if (hasData) return n;
+      if (/^(TR|LI)$/.test(n.tagName) || /\b(card|tile|machine|row|item)\b/i.test(n.className || '')) return n;
+      n = n.parentElement; steps += 1;
+    }
+    return node;
+  }
+
+  function cssPath(node) {
+    var parts = [];
+    var n = node;
+    while (n && n.nodeType === 1 && n !== document.body && parts.length < 7) {
+      if (n.id && !/^\d/.test(n.id)) { parts.unshift('#' + cssEsc(n.id)); break; }
+      var tag = n.tagName.toLowerCase();
+      var i = 1, sib = n;
+      while ((sib = sib.previousElementSibling)) if (sib.tagName === n.tagName) i += 1;
+      parts.unshift(tag + ':nth-of-type(' + i + ')');
+      n = n.parentElement;
+    }
+    return parts.join(' > ');
+  }
+
+  function locatorFor(node) {
+    var a = anchorOf(node);
+    var data = {};
+    Array.prototype.forEach.call(a.attributes || [], function (at) {
+      if (/^data-(?!bs-|toggle|target|dismiss)/i.test(at.name) && at.value && at.value.length < 120 && Object.keys(data).length < 4) data[at.name] = at.value;
+    });
+    var text = textOf(a).slice(0, 150);
+    return { el: a, locator: { id: a.id && !/^\d/.test(a.id) ? a.id : undefined, data: data, path: cssPath(a), tag: a.tagName.toLowerCase(), text: text, codes: findCodes(text) } };
+  }
+
+  // Find the marked element again on the opened page (the page may still be loading).
+  function resolveLocator(loc) {
+    if (!loc) return null;
+    var byText = function (cand) {
+      var want = (loc.codes && loc.codes.length) ? loc.codes : (loc.text ? [loc.text.slice(0, 40)] : []);
+      if (!want.length) return null;
+      var best = null;
+      Array.prototype.forEach.call(cand, function (c) {
+        if (isOurs(c)) return;
+        var t = textOf(c);
+        if (want.every(function (w) { return t.indexOf(w) !== -1; }) && (!best || t.length < textOf(best).length)) best = c;
+      });
+      return best;
+    };
+    try {
+      if (loc.id) { var e1 = document.getElementById(loc.id); if (e1) return e1; }
+      var keys = Object.keys(loc.data || {});
+      if (keys.length) {
+        var sel = keys.map(function (k) { return '[' + k + '="' + cssEsc(loc.data[k]) + '"]'; }).join('');
+        var e2 = document.querySelector(sel);
+        if (e2) return e2;
+      }
+      if (loc.path) {
+        var e3 = document.querySelector(loc.path);
+        if (e3 && (!loc.text || textOf(e3).slice(0, 30) === loc.text.slice(0, 30))) return e3;
+      }
+      if (loc.tag) { var e4 = byText(document.getElementsByTagName(loc.tag)); if (e4) return e4; }
+      return byText(document.querySelectorAll('tr, li, td, [class*="card"], [class*="tile"]'));
+    } catch (_e) { return null; }
+  }
+
+  function currentFactory() {
+    if (serverInfo.server_type === 'LOCAL') return { id: serverInfo.factory_id, name: 'Factory ' + serverInfo.factory_id };
+    var id = null, name = '';
+    try { id = localStorage.getItem('jpsms_factory_id'); name = localStorage.getItem('jpsms_factory_name') || ''; } catch (_e) { }
+    if (!id || id === 'all') return { id: null, name: id === 'all' ? 'All factories' : '' };
+    return { id: parseInt(id, 10), name: name };
+  }
+
+  function pageTitle() {
+    var h = document.querySelector('h1, .page-title, .am-header h1, .ca-header h1, header h1');
+    var t = (h && textOf(h)) || document.title || location.pathname;
+    return t.replace(/^\(\d+\+?\)\s*/, '').replace(/^JMS OCEAN\s*-\s*/i, '').slice(0, 100);
+  }
+
+  function startMark() {
+    if (markState) return;
+    toggle(false);
+    var bar = el('div', 'jc-markbar');
+    bar.appendChild(el('span', null, '🔗 Click the problem on the page to mark it'));
+    var whole = el('button', 'jc-pri', 'Share whole page');
+    var cancel = el('button', null, 'Cancel');
+    bar.appendChild(whole); bar.appendChild(cancel);
+    var box = el('div', 'jc-markbox');
+    box.style.display = 'none';
+    document.body.appendChild(bar);
+    document.body.appendChild(box);
+    var hover = null;
+    function onMove(e) {
+      var t = e.target;
+      if (isOurs(t)) { box.style.display = 'none'; hover = null; return; }
+      hover = anchorOf(t);
+      var rc = hover.getBoundingClientRect();
+      box.style.display = 'block';
+      box.style.left = rc.left - 3 + 'px'; box.style.top = rc.top - 3 + 'px';
+      box.style.width = rc.width + 6 + 'px'; box.style.height = rc.height + 6 + 'px';
+    }
+    function onClick(e) {
+      if (isOurs(e.target)) return;
+      e.preventDefault(); e.stopPropagation();
+      var pick = e.target;
+      finish();
+      openShareSheet(pick);
+    }
+    function onKey(e) { if (e.key === 'Escape') finish(); }
+    function finish() {
+      document.removeEventListener('mousemove', onMove, true);
+      document.removeEventListener('click', onClick, true);
+      document.removeEventListener('keydown', onKey, true);
+      bar.remove(); box.remove();
+      markState = null;
+    }
+    document.addEventListener('mousemove', onMove, true);
+    document.addEventListener('click', onClick, true);
+    document.addEventListener('keydown', onKey, true);
+    whole.addEventListener('click', function (e) { e.stopPropagation(); finish(); openShareSheet(null); });
+    cancel.addEventListener('click', function (e) { e.stopPropagation(); finish(); });
+    markState = { finish: finish };
+  }
+
+  // Right-click (Shift+right-click keeps the browser menu) or long-press on a row, card
+  // or tile offers "Share to chat" for that spot.
+  function setupContextShare() {
+    var pill = null;
+    function hide() { if (pill) { pill.remove(); pill = null; } }
+    function offer(target, x, y) {
+      hide();
+      pill = el('button', 'jc-ctxpill', '🔗 Share to chat');
+      pill.style.left = Math.min(x, window.innerWidth - 170) + 'px';
+      pill.style.top = Math.min(y, window.innerHeight - 50) + 'px';
+      pill.addEventListener('click', function (e) { e.stopPropagation(); hide(); openShareSheet(target); });
+      document.body.appendChild(pill);
+    }
+    function shareable(t) {
+      if (!t || isOurs(t) || stopped || /^(INPUT|TEXTAREA|SELECT|A|BUTTON)$/.test(t.tagName) || t.isContentEditable) return false;
+      return !!(t.closest && t.closest('tr, li, [data-machine], [data-id], [data-job], [data-mould], [class*="card"], [class*="tile"]'));
+    }
+    document.addEventListener('contextmenu', function (e) {
+      if (e.shiftKey || !shareable(e.target)) return;
+      e.preventDefault();
+      offer(e.target, e.clientX, e.clientY);
+    });
+    var lp = null;
+    document.addEventListener('touchstart', function (e) {
+      var t = e.target;
+      if (!shareable(t)) return;
+      var touch = e.touches[0];
+      lp = setTimeout(function () { offer(t, touch.clientX, touch.clientY); }, 650);
+    }, { passive: true });
+    ['touchend', 'touchmove', 'touchcancel'].forEach(function (n) {
+      document.addEventListener(n, function () { if (lp) { clearTimeout(lp); lp = null; } }, { passive: true });
+    });
+    document.addEventListener('click', function (e) { if (pill && !pill.contains(e.target)) hide(); });
+    window.addEventListener('scroll', hide, true);
+  }
+
+  function openShareSheet(node) {
+    var picked = node ? locatorFor(node) : null;
+    if (picked) picked.el.classList.add('jc-target');
+    var fac = currentFactory();
+    var link = {
+      url: location.pathname + location.search.replace(/([?&])(jmsChatTarget|chat)=[^&#]*&?/gi, '$1').replace(/[?&]$/, '') + location.hash.replace(/#?jmsChatTarget=[0-9a-f-]+/i, ''),
+      title: pageTitle(),
+      factory_id: fac.id,
+      factory_name: fac.name || null,
+      locator: picked ? picked.locator : null,
+      excerpt: picked ? picked.locator.text : ''
+    };
+    var bg = el('div', 'jc-sheet-bg');
+    var sh = el('div', 'jc-sheet');
+    var h = el('h3', null, '🔗 Share to chat');
+    var x = el('button', 'jc-ibtn', '✕');
+    h.appendChild(x);
+    var body = el('div', 'jc-sbody');
+    var prev = el('div', 'jc-linkcard');
+    prev.style.cursor = 'default';
+    prev.appendChild(el('b', null, link.title + (fac.name ? ' · ' + fac.name : '')));
+    prev.appendChild(el('div', 'jc-lx', picked ? link.excerpt || '(marked item)' : 'Whole page'));
+    body.appendChild(prev);
+    body.appendChild(el('div', 'jc-slabel', 'Note'));
+    var note = el('textarea');
+    note.placeholder = 'Problem: …';
+    note.maxLength = 2000;
+    body.appendChild(note);
+    body.appendChild(el('div', 'jc-slabel', 'Priority'));
+    var prio = el('div', 'jc-prio');
+    var priority = 'normal';
+    [['normal', 'Normal'], ['urgent', '⚠ Urgent']].forEach(function (pv) {
+      var lb = el('label', pv[0] === 'urgent' ? 'jc-urg' : 'jc-sel');
+      var rd = el('input'); rd.type = 'radio'; rd.name = 'jcprio'; rd.checked = pv[0] === 'normal';
+      rd.addEventListener('change', function () {
+        priority = pv[0];
+        Array.prototype.forEach.call(prio.children, function (c) { c.classList.toggle('jc-sel', c === lb); });
+      });
+      lb.appendChild(rd); lb.appendChild(document.createTextNode(pv[1]));
+      prio.appendChild(lb);
+    });
+    body.appendChild(prio);
+    body.appendChild(el('div', 'jc-slabel', 'Send to'));
+    var count = el('span', 'jc-prev', 'Pick people or groups');
+    var groupsBox = el('div');
+    var chosenGroups = {};
+    loadConvs().then(function () {
+      var groups = convs.filter(function (c) { return isGroup(c) && c.is_member !== false; });
+      if (!groups.length) return;
+      groupsBox.appendChild(el('div', 'jc-sect', 'Groups'));
+      groups.forEach(function (g) {
+        var it = el('div', 'jc-item');
+        var cb = el('input', 'jc-chk'); cb.type = 'checkbox';
+        cb.addEventListener('change', function () { if (cb.checked) chosenGroups[g.sync_id] = true; else delete chosenGroups[g.sync_id]; check(); });
+        it.appendChild(cb);
+        var av = el('div', 'jc-av', '👥'); av.style.background = avatarColor(g.title);
+        it.appendChild(av);
+        it.appendChild(el('div', 'jc-name', g.title));
+        it.addEventListener('click', function (e) { if (e.target !== cb) cb.click(); });
+        groupsBox.appendChild(it);
+      });
+    });
+    body.appendChild(groupsBox);
+    body.appendChild(el('div', 'jc-sect', 'People'));
+    var people = el('div');
+    var chosenPeople = [];
+    var excl = {}; excl[String(me).toLowerCase()] = true;
+    picker(people, excl, function (c) { chosenPeople = c; check(); });
+    body.appendChild(people);
+    var foot = el('div', 'jc-sfoot');
+    var send = el('button', 'jc-btn', 'Send');
+    send.disabled = true;
+    var cancel = el('button', 'jc-btn jc-danger', 'Cancel');
+    foot.appendChild(count); count.style.flex = '1';
+    foot.appendChild(cancel); foot.appendChild(send);
+    sh.appendChild(h); sh.appendChild(body); sh.appendChild(foot);
+    bg.appendChild(sh);
+    document.body.appendChild(bg);
+    note.focus();
+    function check() {
+      var n = chosenPeople.length + Object.keys(chosenGroups).length;
+      count.textContent = n ? n + ' selected' : 'Pick people or groups';
+      send.disabled = !n;
+    }
+    function close() { bg.remove(); if (picked) setTimeout(function () { picked.el.classList.remove('jc-target'); }, 1500); }
+    x.addEventListener('click', close);
+    cancel.addEventListener('click', close);
+    bg.addEventListener('click', function (e) { if (e.target === bg) close(); });
+    send.addEventListener('click', function () {
+      send.disabled = true;
+      api('POST', API + '/share', { users: chosenPeople, conversations: Object.keys(chosenGroups), note: note.value.trim(), priority: priority, link: link })
+        .then(function (d) {
+          close();
+          var n = d.sent.length;
+          toastText('Shared', 'Sent to ' + n + ' chat' + (n === 1 ? '' : 's') + '.');
+        })
+        .catch(function (e) { send.disabled = false; count.textContent = e.message; });
+    });
+  }
+
+  function toastText(title, text) {
+    var t = el('div', 'jc-toast');
+    t.appendChild(el('b', null, title));
+    t.appendChild(el('span', null, text));
+    root.appendChild(t);
+    setTimeout(function () { t.remove(); }, 4000);
+  }
+
+  // ---- link cards ----
+  var STATUS = { open: 'Open', in_progress: 'In progress', done: 'Done' };
+
+  function linkCardEl(m) {
+    var L = m.link;
+    var urgent = L.priority === 'urgent';
+    var c = el('div', 'jc-linkcard' + (urgent ? ' jc-urgent' : ''));
+    c.appendChild(el('b', null, (urgent ? '⚠ ' : '🔗 ') + (L.title || 'Shared page') + (L.factory_name ? ' · ' + L.factory_name : '')));
+    if (L.excerpt) c.appendChild(el('div', 'jc-lx', L.excerpt));
+    var rowx = el('div', 'jc-lrow');
+    var st = (m.task && m.task.status) || 'open';
+    rowx.appendChild(el('span', 'jc-badge2 jc-st-' + st, STATUS[st] || st));
+    if (urgent) rowx.appendChild(el('span', 'jc-badge2 jc-urg-b', 'Urgent'));
+    rowx.appendChild(el('span', 'jc-prev', 'Tap to open ›'));
+    c.appendChild(rowx);
+    c.title = 'Open ' + L.url;
+    c.addEventListener('click', function (e) { e.stopPropagation(); openLink(m); });
+    return c;
+  }
+
+  // Same-origin relative paths only (the server already refuses anything else).
+  function safeUrl(u) { return typeof u === 'string' && /^\/(?!\/)/.test(u) && !/[\\\s]/.test(u) ? u : null; }
+
+  function withTarget(u, id) {
+    var hashAt = u.indexOf('#');
+    var base = hashAt === -1 ? u : u.slice(0, hashAt);
+    var hash = hashAt === -1 ? '' : u.slice(hashAt);
+    return base + (base.indexOf('?') === -1 ? '?' : '&') + 'jmsChatTarget=' + id + hash;
+  }
+
+  // On the main site, switch to the link's factory when this user may see it.
+  // Returns 'ok', 'switched', 'denied' or 'other-server'.
+  function ensureFactory(L) {
+    if (!L || L.factory_id == null) return 'ok';
+    if (serverInfo.server_type === 'LOCAL') return Number(serverInfo.factory_id) === Number(L.factory_id) ? 'ok' : 'other-server';
+    var cur = currentFactory();
+    if (cur.id == null && cur.name === 'All factories') return 'ok';
+    if (Number(cur.id) === Number(L.factory_id)) return 'ok';
+    var allowed = [];
+    try { allowed = JSON.parse(localStorage.getItem('jpsms_allowed_factories') || '[]'); } catch (_e) { allowed = []; }
+    var f = allowed.filter(function (a) { return Number(a && typeof a === 'object' ? a.id : a) === Number(L.factory_id); })[0];
+    var canAll = localStorage.getItem('jpsms_can_all_factories') === 'true';
+    if (!f && !canAll) return 'denied';
+    try {
+      var oldView = localStorage.getItem('jpsms_factory_id');
+      localStorage.setItem('jpsms_factory_id', String(L.factory_id));
+      localStorage.setItem('jpsms_factory_name', (f && f.name) || L.factory_name || ('Factory ' + L.factory_id));
+      if (localStorage.getItem('jpsms_write_factory_id') === oldView) {
+        localStorage.setItem('jpsms_write_factory_id', String(L.factory_id));
+        localStorage.setItem('jpsms_write_factory_name', (f && f.name) || L.factory_name || ('Factory ' + L.factory_id));
+      }
+    } catch (_e) { return 'denied'; }
+    return 'switched';
+  }
+
+  function openLink(m) {
+    var u = safeUrl(m.link && m.link.url);
+    if (!u) { showErr('This link cannot be opened.'); return; }
+    var f = ensureFactory(m.link);
+    if (f === 'other-server') {
+      showErr('This was shared from ' + (m.link.factory_name || 'another factory') + '. Open it on the main JMS site.');
+      return;
+    }
+    try { sessionStorage.setItem('jmsChatReopen', m.conversation_sync_id); } catch (_e) { }
+    window.location.href = withTarget(u, m.sync_id);
+  }
+
+  // ---- landing on a shared spot ----
+  function landOnTarget(id) {
+    api('GET', API + '/messages/' + encodeURIComponent(id)).then(function (d) {
+      var m = d.message;
+      if (!m || m.kind !== 'link' || !m.link) return;
+      var f = ensureFactory(m.link);
+      if (f === 'switched') {
+        // the page loaded with another factory selected: load it again for the right one
+        var guard = 'jmsChatSwitched:' + id;
+        var again = true;
+        try { again = !sessionStorage.getItem(guard); sessionStorage.setItem(guard, '1'); } catch (_e) { }
+        if (again) { window.location.reload(); return; }
+      }
+      showTargetBanner(m, f);
+    }).catch(function (e) { toastText('Shared link', e.message || 'This shared item is not available.'); });
+  }
+
+  function showTargetBanner(m, factoryState) {
+    var L = m.link;
+    var bn = el('div', 'jc-tbanner');
+    var msg = el('div', 'jc-tmsg');
+    var head = el('b', null, (L.priority === 'urgent' ? '⚠ Urgent · ' : '🔗 ') + 'Shared by ' + m.sender + (m.body ? ': ' + m.body : ''));
+    var sub = el('small', null, 'Finding the marked item…');
+    msg.appendChild(head); msg.appendChild(sub);
+    var stEl = el('span', 'jc-badge2');
+    var startBtn = el('button', 'jc-pri', '▶ Start work');
+    var doneBtn = el('button', null, '✓ Mark done');
+    var chatBtn = el('button', null, '💬 Open chat');
+    var closeBtn = el('button', null, '✕');
+    closeBtn.title = 'Close';
+    [msg, stEl, startBtn, doneBtn, chatBtn, closeBtn].forEach(function (n) { bn.appendChild(n); });
+    document.body.appendChild(bn);
+    function update(status, by) {
+      stEl.className = 'jc-badge2 jc-st-' + status;
+      stEl.textContent = (STATUS[status] || status) + (by && status !== 'open' ? ' · ' + by : '');
+      startBtn.style.display = status === 'open' ? '' : 'none';
+      doneBtn.style.display = status === 'done' ? 'none' : '';
+    }
+    update((m.task && m.task.status) || 'open', m.task && m.task.by);
+    function setStatus(status) {
+      startBtn.disabled = doneBtn.disabled = true;
+      api('POST', API + '/tasks/' + encodeURIComponent(m.sync_id), { status: status })
+        .then(function (d) { update(d.task.status, d.task.by || me); })
+        .catch(function (e) { sub.textContent = e.message; })
+        .then(function () { startBtn.disabled = doneBtn.disabled = false; });
+    }
+    startBtn.addEventListener('click', function () { setStatus('in_progress'); });
+    doneBtn.addEventListener('click', function () { setStatus('done'); });
+    chatBtn.addEventListener('click', function () { openChatById(m.conversation_sync_id); });
+    closeBtn.addEventListener('click', function () { bn.remove(); targetBanner = null; });
+    targetBanner = { msgId: m.sync_id, update: update };
+
+    if (factoryState === 'other-server') { sub.textContent = 'Shared from ' + (L.factory_name || 'another factory') + ': this factory server cannot show it. Open it on the main JMS site.'; return; }
+    if (factoryState === 'denied') { sub.textContent = 'Shared from ' + (L.factory_name || 'another factory') + ', which your login cannot open.'; return; }
+    if (!L.locator) { sub.textContent = 'The whole page was shared.' + (L.excerpt ? '' : ''); return; }
+    // the page may still be loading its data: keep looking for a while
+    var tries = 0;
+    (function look() {
+      var found = resolveLocator(L.locator);
+      if (found) {
+        found.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        found.classList.add('jc-target');
+        sub.textContent = 'The marked item is highlighted below.';
+        return;
+      }
+      if (++tries < 24) { setTimeout(look, 500); return; }
+      sub.textContent = 'Could not find the marked item on this page (it may have changed or moved).' + (L.excerpt ? ' It was: "' + L.excerpt.slice(0, 120) + '"' : '');
+    })();
+  }
+
+
   function start() {
     api('GET', API + '/me').then(function (d) {
       me = d.username;
       isAdmin = d.isSuperadmin;
+      serverInfo = { server_type: d.server_type || 'MAIN', factory_id: d.factory_id == null ? null : d.factory_id };
       build();
+      setupContextShare();
       if (isAdmin) els.tabs.style.display = 'flex';
       updateBadge();
       connect();
@@ -1507,6 +2116,12 @@
       // ?chat=<id>: opened from the bell, the notifications page or a push notification.
       var want = /[?&]chat=([0-9a-f-]{36})/i.exec(location.search);
       if (want) openChatById(want[1]);
+      // Opened from a shared link card: find the marked spot, and keep the chat open.
+      var target = /[?&#]jmsChatTarget=([0-9a-f-]{36})/i.exec(location.search + location.hash);
+      if (target) landOnTarget(target[1]);
+      var reopen = null;
+      try { reopen = sessionStorage.getItem('jmsChatReopen'); sessionStorage.removeItem('jmsChatReopen'); } catch (_e) { }
+      if (reopen && !want) openChatById(reopen);
     }).catch(function () { /* no session: no chat button */ });
   }
 
