@@ -12,6 +12,9 @@ part of your PR. On release, the `[Unreleased]` items move under the new version
 > per-release changelog used by the deploy tooling. This file is the human-readable summary.
 
 ## [Unreleased]
+
+### Fixed
+- Chat (v1.130.2): a shared link opened the page with ?jmsChatTarget=<id> and the parameter stayed in the address bar, so every refresh showed the "Shared by …" banner again. The widget now removes it with history.replaceState once the link is handled (after any factory-switch reload); the page's own query and hash are kept. package-lock.json root version brought in line (was 1.126.0).
 
 ### Changed
 - Joy AI (v1.130.1): the Joy AI chat box is temporarily hidden on every page (JOY_AI_ENABLED = false at the top of BACKEND/PUBLIC/assets/ai-chat.js). Set it back to true to restore it.
