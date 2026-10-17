@@ -10220,7 +10220,7 @@ app.get('/api/shifting/machine-board', async (req, res) => {
       b.job_list.push({
         plan_id: r.plan_id, plan_code: r.plan_code || '', status: r.status || '', order_no: r.order_no || '',
         jc_no: r.jc_no || '', client_name: r.client_name || '', item_name: r.item_name || '', mould_name: r.mould_name || '',
-        produced: produced, verified: Number(r.total_verified) || 0, shifted, on_floor: floor, approved, on_hold: !!r.on_hold,
+        plan_qty: Number(r.plan_qty) || 0, produced: produced, verified: Number(r.total_verified) || 0, shifted, on_floor: floor, approved, on_hold: !!r.on_hold,
         // Pending to shift = something still on the shop floor.
         pending: floor > 0,
         sfg_std: r.sfg_std || 0, sfg_pack_type: r.sfg_pack_type || '', sfg_bag_size: r.sfg_bag_size || '',
