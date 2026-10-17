@@ -113,6 +113,11 @@
         }
         .modal-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
         .modal-head h3 { margin: 0; font-size: 1.15rem; }
+        .plan-prog { margin-top: 8px; font-size: 0.8rem; }
+        .plan-prog .bar { height: 6px; background: #e2e8f0; border-radius: 4px; margin-top: 4px; overflow: hidden; }
+        .plan-prog .bar span { display: block; height: 100%; background: #f59e0b; }
+        .plan-prog .bar span.done { background: #16a34a; }
+        .mini-table tr.tot td { border-top: 2px solid #cbd5e1; }
         .metric { background: #f8fafc; border-radius: 8px; padding: 8px 10px; }
         .metric .l { font-size: 0.66rem; font-weight: 700; color: #64748b; text-transform: uppercase; }
         .metric .v { font-size: 1.15rem; font-weight: 800; font-variant-numeric: tabular-nums; }
@@ -635,6 +640,27 @@
             return list.map(l => `<span class="loc-chip">${esc(l.location)}: ${qtyFmt(l.qty)}</span>`).join('');
         }
 
+        // Plan vs produced: "Plan 4,800 · Produced 4,822 (100%) · Excess 22" with a bar.
+        function planProgress(plan, produced) {
+            plan = Number(plan) || 0; produced = Number(produced) || 0;
+            if (!(plan > 0)) return '<div class="plan-prog"><span class="muted">Plan qty not set on this plan</span></div>';
+            const pct = Math.round(produced * 100 / plan);
+            const bal = plan - produced;
+            const tail = bal > 0 ? `Balance to produce <b class="warn">${qtyFmt(bal)}</b>`
+                : bal < 0 ? `Excess <b class="crit">${qtyFmt(-bal)}</b>` : '<b class="good">Plan complete</b>';
+            return `<div class="plan-prog"><div>Plan <b>${qtyFmt(plan)}</b> · Produced <b>${qtyFmt(produced)}</b> (${pct}%) · ${tail}</div>
+                <div class="bar"><span style="width:${Math.min(pct, 100)}%" class="${pct >= 100 ? 'done' : ''}"></span></div></div>`;
+        }
+
+        // Plan balance of one colour: balance (amber), excess (red, "+22") or blank when no plan.
+        function balanceCell(plan, produced) {
+            plan = Number(plan) || 0;
+            if (!(plan > 0)) return '<td class="num muted">—</td>';
+            const bal = plan - (Number(produced) || 0);
+            if (bal < 0) return `<td class="num crit">+${qtyFmt(-bal)}</td>`;
+            return `<td class="num ${bal > 0 ? 'warn' : 'good'}">${bal > 0 ? qtyFmt(bal) : '✓'}</td>`;
+        }
+
         function metric(label, value, cls) {
             return `<div class="metric"><div class="l">${esc(label)}</div><div class="v ${cls || ''}">${value}</div></div>`;
         }
@@ -648,7 +674,7 @@
             // Job switcher (only when the machine has more than one job)
             const tabs = jobs.length > 1 ? `<div class="job-tabs">${jobs.map(j => `<button class="job-tab ${String(j.plan_id) === current.planId ? 'sel' : ''}" onclick="selectJob('${esc(String(j.plan_id))}')">
                     <span class="t">${esc(j.item_name || j.mould_name || '—')}</span>
-                    <span class="s">${esc(j.plan_code || j.plan_id)} · <b>${qtyFmt(j.approved)}</b> approved</span></button>`).join('')}</div>` : '';
+                    <span class="s">${esc(j.plan_code || j.plan_id)}${j.plan_qty > 0 ? ` · Plan ${qtyFmt(j.plan_qty)}` : ''} · <b>${qtyFmt(j.approved)}</b> approved</span></button>`).join('')}</div>` : '';
 
             const a = current.avail;
             let left = tabs;
@@ -682,17 +708,21 @@
                         ${metric('Ready', qtyFmt(t.ready) + (packText(t.ready, std, a.sfg_pack_type) ? `<div class="pack-sub">${packText(t.ready, std, a.sfg_pack_type)}</div>` : ''), t.ready > 0 ? 'good' : '')}
                         ${metric('QC hold', hold && hold.count ? (hold.qty > 0 ? qtyFmt(hold.qty) : 'Yes') : '0', hold && hold.count ? 'crit' : '')}
                     </div>
+                    ${planProgress(a.plan_qty, t.produced)}
                     ${hold && hold.count ? `<div class="crit" style="font-weight:700; margin-top:6px">QC HOLD on ${esc(a.machine)}: ${esc((hold.reasons || []).join('; ') || 'no reason given')}</div>` : ''}
                     ${a.verification_enforced ? '' : '<div class="warn sub" style="margin-top:6px">QC verification data is not on this server; only production is checked.</div>'}
                     <div style="margin-top:8px; font-size:0.78rem"><b>Shifted to</b> ${locChips(t.by_location)}</div>
                 </div>`;
                 const details = `${(a.colours || []).length ? `<div class="section"><h4>Colour-wise</h4>
-                        <table class="mini-table"><thead><tr><th>Colour</th><th class="num">Produced</th><th class="num">QC ok</th><th class="num">Not ver.</th><th class="num">Shifted</th><th class="num">Ready</th><th class="num">Ready packs</th><th>Shifted to</th></tr></thead><tbody>
-                        ${a.colours.map(c => `<tr><td><b>${esc(c.colour || '—')}</b></td><td class="num">${qtyFmt(c.produced)}</td><td class="num good">${qtyFmt(c.verified)}</td>
+                        <table class="mini-table"><thead><tr><th>Colour</th><th class="num">Plan</th><th class="num">Produced</th><th class="num">Balance</th><th class="num">QC ok</th><th class="num">Not ver.</th><th class="num">Shifted</th><th class="num">Ready</th><th class="num">Ready packs</th><th>Shifted to</th></tr></thead><tbody>
+                        ${a.colours.map(c => `<tr><td><b>${esc(c.colour || '—')}</b></td><td class="num">${c.plan_qty > 0 ? qtyFmt(c.plan_qty) : '—'}</td><td class="num">${qtyFmt(c.produced)}</td>${balanceCell(c.plan_qty, c.produced)}<td class="num good">${qtyFmt(c.verified)}</td>
                             <td class="num ${c.not_verified > 0 ? 'crit' : ''}">${qtyFmt(c.not_verified)}</td><td class="num">${qtyFmt(c.shifted)}</td>
                             <td class="num ${c.ready > 0 ? 'good' : ''}"><b>${qtyFmt(c.ready)}</b></td>
                             <td class="num pack-sub">${packText(c.ready, std, a.sfg_pack_type) || '—'}</td><td>${locChips(c.by_location)}</td></tr>`).join('')}
-                        ${a.unassigned && a.unassigned.shifted > 0 ? `<tr><td class="warn"><b>No colour (manual)</b></td><td></td><td></td><td></td>
+                        ${a.colours.length > 1 ? `<tr class="tot"><td><b>Total</b></td><td class="num"><b>${a.plan_qty > 0 ? qtyFmt(a.plan_qty) : '—'}</b></td><td class="num"><b>${qtyFmt(t.produced)}</b></td>${balanceCell(a.plan_qty, t.produced)}
+                            <td class="num good"><b>${qtyFmt(t.verified)}</b></td><td class="num"><b>${qtyFmt(t.not_verified)}</b></td><td class="num"><b>${qtyFmt(t.shifted)}</b></td><td class="num"><b>${qtyFmt(t.ready)}</b></td>
+                            <td class="num pack-sub">${packText(t.ready, std, a.sfg_pack_type) || '—'}</td><td></td></tr>` : ''}
+                        ${a.unassigned && a.unassigned.shifted > 0 ? `<tr><td class="warn"><b>No colour (manual)</b></td><td></td><td></td><td></td><td></td><td></td>
                             <td class="num">${qtyFmt(a.unassigned.shifted)}</td><td></td><td></td><td>${locChips(a.unassigned.by_location)}</td></tr>` : ''}
                         </tbody></table></div>` : ''}
                     ${(a.recent || []).length ? `<div class="section"><h4>Latest shifting</h4>
