@@ -78,6 +78,11 @@
             color: #0284c7;
         }
 
+        .bg-chat {
+            background: #d9fdd3;
+            color: #008069;
+        }
+
         .bg-warn {
             background: #fef3c7;
             color: #d97706;
@@ -176,7 +181,7 @@
 
     </div>
 
-    <script src="assets/app.min.js?v=1576"></script>
+    <script src="assets/app.min.js?v=1581"></script>
     <script>
         const JPSMS = window.JPSMS;
         const api = JPSMS.api;
@@ -234,6 +239,7 @@
                     if (n.type === 'WARNING') typeClass = 'bg-warn';
                     if (n.type === 'ALERT') typeClass = 'bg-alert';
                     if (n.type === 'SUCCESS') typeClass = 'bg-success';
+                    if (n.type === 'CHAT') typeClass = 'bg-chat';
 
                     const date = new Date(n.created_at).toLocaleString();
                     const readClass = n.is_read ? '' : 'unread';
@@ -244,14 +250,14 @@
                     const safeLink = n.link ? String(n.link).replace(/"/g, '&quot;') : '';
                     div.innerHTML = `
                         <div class="notif-meta">
-                            <span><span class="badge-type ${typeClass}">${n.type}</span> &nbsp; ${date}</span>
-                            <span>${n.created_by || 'System'}</span>
+                            <span><span class="badge-type ${typeClass}">${esc(n.type)}</span> &nbsp; ${date}</span>
+                            <span>${esc(n.created_by || 'System')}</span>
                         </div>
                         <div style="display:flex; justify-content:space-between; align-items:start;">
                             <div>
-                                <div class="notif-title">${n.title}</div>
-                                <div class="notif-msg">${n.message}</div>
-                                ${safeLink ? `<button class="btn sm primary" style="margin-top:10px" onclick="openNotificationLink(${n.id}, '${safeLink}')"><i class="bi bi-box-arrow-up-right"></i> Open Approval</button>` : ''}
+                                <div class="notif-title">${esc(n.title)}</div>
+                                <div class="notif-msg">${esc(n.message)}</div>
+                                ${safeLink ? `<button class="btn sm primary" style="margin-top:10px" onclick="openNotificationLink(${Number(n.id)}, '${safeLink}')"><i class="bi bi-box-arrow-up-right"></i> ${n.type === 'CHAT' ? 'Open chat' : 'Open Approval'}</button>` : ''}
                             </div>
                             <button class="btn icon sm" onclick="markRead(${n.id})" title="Mark Read" ${n.is_read ? 'disabled' : ''}>
                                 ${icon}
@@ -265,6 +271,11 @@
                 console.error(e);
                 container.innerHTML = 'Error loading notifications.';
             }
+        }
+
+        // Titles and text can come from users (chat messages): never insert them as HTML.
+        function esc(v) {
+            return String(v == null ? '' : v).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
         }
 
         async function markRead(id) {

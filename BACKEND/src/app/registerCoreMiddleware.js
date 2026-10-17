@@ -159,7 +159,7 @@ function registerCoreMiddleware(app) {
   app.use((req, res, next) => {
     if (req.method !== 'GET') return next();
     const p = req.path;
-    if (p === '/sw.js') {
+    if (p === '/sw.js' || p === '/sw-chat.js') {
       // The service worker must update promptly — never cache it. The browser
       // re-checks /sw.js on navigation; a stale SW would pin old asset logic.
       res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');

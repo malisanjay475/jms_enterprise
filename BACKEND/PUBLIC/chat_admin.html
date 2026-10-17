@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>JMS OCEAN - Chat Console</title>
+  <meta name="theme-color" content="#0f172a">
+  <link rel="stylesheet" href="/assets/app.css?v=12">
+  <link rel="stylesheet" href="/assets/bootstrap-icons.min.css">
+  <style>
+    /* Full-width admin page, like the Activity Monitor */
+    body { background: #f1f5f9 !important; }
+    .main-content { padding: 0 !important; margin-left: 0 !important; }
+    .sidebar { display: none !important; }
+
+    .ca-header { background: linear-gradient(135deg, #0f172a 0%, #1e3a5f 100%); color: #fff; padding: 14px 20px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .ca-header h1 { margin: 0; font-size: 1.05rem; font-weight: 900; flex: 1; }
+    .ca-header a { color: #cbd5e1; text-decoration: none; font-size: .85rem; }
+    .ca-banner { background: #fff8d6; color: #5f5300; border-bottom: 1px solid #f1e3a0; padding: 9px 20px; font-size: .85rem; display: flex; gap: 8px; align-items: center; }
+    .ca-tabs { display: flex; gap: 4px; padding: 10px 20px 0; }
+    .ca-tab { border: 0; background: #e2e8f0; color: #334155; padding: 8px 16px; border-radius: 8px 8px 0 0; font: inherit; font-weight: 700; cursor: pointer; }
+    .ca-tab.on { background: #fff; color: #0f172a; }
+    .ca-pane { background: #fff; margin: 0 20px 20px; border-radius: 0 10px 10px 10px; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+    .ca-filters { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; padding: 14px 16px; border-bottom: 1px solid #e2e8f0; }
+    .ca-filters label { display: flex; flex-direction: column; gap: 4px; font-size: .72rem; font-weight: 700; color: #64748b; text-transform: uppercase; }
+    .ca-filters input, .ca-filters select { border: 1px solid #cbd5e1; border-radius: 6px; padding: 6px 9px; font: inherit; font-size: .88rem; min-width: 130px; }
+    .ca-btn { border: 0; border-radius: 6px; padding: 7px 13px; font: inherit; font-size: .86rem; font-weight: 700; cursor: pointer; background: #0f766e; color: #fff; display: inline-flex; gap: 6px; align-items: center; }
+    .ca-btn.alt { background: #e2e8f0; color: #0f172a; }
+    .ca-btn:disabled { opacity: .5; cursor: default; }
+    .ca-split { display: grid; grid-template-columns: minmax(260px, 360px) 1fr; min-height: 560px; }
+    .ca-list { border-right: 1px solid #e2e8f0; overflow-y: auto; max-height: 72vh; }
+    .ca-item { padding: 10px 14px; border-bottom: 1px solid #f1f5f9; cursor: pointer; }
+    .ca-item:hover, .ca-item.sel { background: #f1f5f9; }
+    .ca-item b { display: block; font-size: .9rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .ca-item small { color: #64748b; font-size: .76rem; }
+    .ca-view { display: flex; flex-direction: column; min-width: 0; }
+    .ca-vhead { padding: 12px 16px; border-bottom: 1px solid #e2e8f0; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+    .ca-vhead h2 { margin: 0; font-size: 1rem; flex: 1; min-width: 160px; }
+    .ca-ro { background: #fff8d6; color: #5f5300; font-size: .8rem; padding: 6px 16px; }
+    .ca-msgs { flex: 1; overflow-y: auto; max-height: 64vh; padding: 12px 6%; background: #efeae2; }
+    .ca-msg { background: #fff; border-radius: 8px; padding: 6px 10px; margin: 4px 0; max-width: 78%; box-shadow: 0 1px .5px rgba(0,0,0,.13); white-space: pre-wrap; overflow-wrap: anywhere; }
+    .ca-msg .who { font-size: .76rem; font-weight: 700; color: #0f766e; }
+    .ca-msg .meta { font-size: .7rem; color: #64748b; margin-top: 2px; }
+    .ca-msg.sys { background: #fff8d6; color: #5f5300; margin: 8px auto; text-align: center; font-size: .78rem; max-width: 85%; }
+    .ca-msg .gone { font-style: italic; color: #64748b; }
+    .ca-empty { padding: 40px 20px; text-align: center; color: #64748b; }
+    .ca-table { width: 100%; border-collapse: collapse; font-size: .86rem; }
+    .ca-table th { text-align: left; background: #f8fafc; color: #475569; font-size: .72rem; text-transform: uppercase; padding: 8px 12px; position: sticky; top: 0; }
+    .ca-table td { padding: 8px 12px; border-top: 1px solid #f1f5f9; vertical-align: top; }
+    .ca-pill { display: inline-block; border-radius: 10px; padding: 1px 8px; font-size: .72rem; font-weight: 700; background: #e0f2fe; color: #0369a1; }
+    .ca-pill.export { background: #fee2e2; color: #b91c1c; }
+    .ca-pill.view { background: #dcfce7; color: #15803d; }
+    .ca-err { color: #b91c1c; padding: 8px 16px; display: none; }
+    @media (max-width: 760px) { .ca-split { grid-template-columns: 1fr; } .ca-list { max-height: 40vh; border-right: 0; border-bottom: 1px solid #e2e8f0; } .ca-pane { margin: 0 8px 12px; } .ca-tabs { padding: 10px 8px 0; } }
+  </style>
+</head>
+<body>
+<div class="main-content">
+  <div class="ca-header">
+    <h1><i class="bi bi-chat-square-text"></i> Chat Console</h1>
+    <a href="index.html"><i class="bi bi-house"></i> Home</a>
+  </div>
+  <div class="ca-banner" role="note"><i class="bi bi-eye"></i> <span>Read-only. Everything you open or export here is recorded in the audit log with your name.</span></div>
+
+  <div id="denied" class="ca-empty" style="display:none; color:#b91c1c">
+    <i class="bi bi-shield-lock-fill" style="font-size:2.4rem; display:block; margin-bottom:10px"></i>
+    <strong>Access denied.</strong> The chat console is for superadmins only.
+  </div>
+
+  <div id="app" style="display:none">
+    <div class="ca-tabs">
+      <button class="ca-tab on" data-tab="chats" type="button"><i class="bi bi-chat-dots"></i> Chats</button>
+      <button class="ca-tab" data-tab="audit" type="button"><i class="bi bi-journal-text"></i> Audit log</button>
+    </div>
+
+    <!-- Chats -->
+    <div class="ca-pane" id="pane-chats">
+      <form class="ca-filters" id="chatFilters">
+        <label>Person <input id="fUser" list="userList" placeholder="Anyone" autocomplete="off"></label>
+        <label>Sent from <select id="fFactory"><option value="">All sites</option><option value="main">Main site</option></select></label>
+        <label>From <input type="date" id="fFrom"></label>
+        <label>To <input type="date" id="fTo"></label>
+        <label>Text <input id="fText" placeholder="Words in the message"></label>
+        <button class="ca-btn" type="submit"><i class="bi bi-search"></i> Search</button>
+        <button class="ca-btn alt" type="button" data-export="xlsx" data-scope="range"><i class="bi bi-file-earmark-excel"></i> Export all (Excel)</button>
+        <button class="ca-btn alt" type="button" data-export="csv" data-scope="range"><i class="bi bi-filetype-csv"></i> CSV</button>
+      </form>
+      <datalist id="userList"></datalist>
+      <div class="ca-err" id="chatErr"></div>
+      <div class="ca-split">
+        <div class="ca-list" id="convList"><div class="ca-empty">Set filters and press Search.</div></div>
+        <div class="ca-view">
+          <div class="ca-vhead">
+            <h2 id="vTitle">No chat open</h2>
+            <button class="ca-btn alt" type="button" data-export="xlsx" data-scope="chat" disabled><i class="bi bi-file-earmark-excel"></i> Export chat</button>
+            <button class="ca-btn alt" type="button" data-export="csv" data-scope="chat" disabled><i class="bi bi-filetype-csv"></i> CSV</button>
+          </div>
+          <div class="ca-ro" id="vMembers">Pick a chat on the left. Opening it is logged.</div>
+          <div class="ca-msgs" id="vMsgs"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Audit -->
+    <div class="ca-pane" id="pane-audit" style="display:none">
+      <form class="ca-filters" id="auditFilters">
+        <label>Who <input id="aViewer" list="userList" placeholder="Anyone" autocomplete="off"></label>
+        <label>Action
+          <select id="aAction">
+            <option value="">All</option>
+            <option value="admin_view">Opened a chat (console)</option>
+            <option value="read_messages">Opened a chat (chat panel)</option>
+            <option value="export">Export</option>
+            <option value="admin_search">Search</option>
+            <option value="admin_open_file">Opened a file (console)</option>
+            <option value="open_file">Opened a file (chat panel)</option>
+            <option value="list_all">Listed all chats</option>
+            <option value="retention_change">Changed retention</option>
+          </select>
+        </label>
+        <label>From <input type="date" id="aFrom"></label>
+        <label>To <input type="date" id="aTo"></label>
+        <button class="ca-btn" type="submit"><i class="bi bi-search"></i> Show</button>
+      </form>
+      <div class="ca-err" id="auditErr"></div>
+      <div style="max-height:70vh; overflow:auto">
+        <table class="ca-table">
+          <thead><tr><th>When (IST)</th><th>Who</th><th>Action</th><th>Chat</th><th>Details</th></tr></thead>
+          <tbody id="auditRows"><tr><td colspan="5" class="ca-empty">Loading…</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="/assets/app.min.js?v=1581"></script>
+<script>
+(function () {
+  'use strict';
+  var API = '/api/chat/admin';
+  var current = null;
+  var $ = function (id) { return document.getElementById(id); };
+
+  function el(tag, cls, text) {
+    var e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text != null) e.textContent = text;
+    return e;
+  }
+
+  function api(url) {
+    return fetch(url, { credentials: 'same-origin', cache: 'no-store' }).then(function (r) {
+      return r.json().catch(function () { return { ok: false }; }).then(function (d) {
+        if (!r.ok || d.ok === false) { var e = new Error(d.error || ('HTTP ' + r.status)); e.status = r.status; throw e; }
+        return d;
+      });
+    });
+  }
+
+  function showErr(id, msg) { var e = $(id); e.textContent = msg || ''; e.style.display = msg ? 'block' : 'none'; }
+  function ist(ts) { return ts ? new Date(ts).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''; }
+  function siteName(f) { return f === 'main' ? 'Main site' : (factoryNames[f] || ('Factory ' + f)); }
+  var factoryNames = {};
+
+  function filters() {
+    var q = new URLSearchParams();
+    var add = function (k, v) { if (v) q.set(k, v); };
+    add('user', $('fUser').value.trim());
+    add('factory', $('fFactory').value);
+    add('from', $('fFrom').value);
+    add('to', $('fTo').value);
+    add('q', $('fText').value.trim());
+    return q;
+  }
+
+  // ---- chats ----
+  function search() {
+    showErr('chatErr', '');
+    var list = $('convList');
+    list.textContent = '';
+    list.appendChild(el('div', 'ca-empty', 'Searching…'));
+    api(API + '/conversations?' + filters().toString()).then(function (d) {
+      list.textContent = '';
+      if (!d.conversations.length) { list.appendChild(el('div', 'ca-empty', 'No chats match these filters.')); return; }
+      d.conversations.forEach(function (c) {
+        var it = el('div', 'ca-item');
+        it.appendChild(el('b', null, (c.type === 'group' ? '👥 ' : '') + c.title));
+        it.appendChild(el('small', null, c.messages + ' message(s) · ' + ist(c.first_at) + ' – ' + ist(c.last_at) + ' · ' + c.factories.map(siteName).join(', ')));
+        it.addEventListener('click', function () {
+          Array.prototype.forEach.call(list.children, function (x) { x.classList.remove('sel'); });
+          it.classList.add('sel');
+          openChat(c);
+        });
+        list.appendChild(it);
+      });
+    }).catch(function (e) { list.textContent = ''; showErr('chatErr', e.message); });
+  }
+
+  function openChat(c) {
+    current = c;
+    document.querySelectorAll('[data-scope="chat"]').forEach(function (b) { b.disabled = false; });
+    $('vTitle').textContent = (c.type === 'group' ? '👥 ' : '') + c.title;
+    $('vMembers').textContent = 'Loading…';
+    var box = $('vMsgs');
+    box.textContent = '';
+    loadPage(c, null);
+  }
+
+  function loadPage(c, after) {
+    var q = filters();
+    q.delete('user'); q.delete('q');
+    if (after) q.set('after', after);
+    api(API + '/conversations/' + encodeURIComponent(c.sync_id) + '/messages?' + q.toString()).then(function (d) {
+      if (current !== c) return;
+      $('vMembers').textContent = 'Read-only · logged · Members: ' + d.members.map(function (m) {
+        return m.username + (m.role === 'admin' ? ' (admin)' : '') + (m.left ? ' (left)' : '');
+      }).join(', ');
+      var box = $('vMsgs');
+      var more = box.querySelector('.ca-more');
+      if (more) more.remove();
+      d.messages.forEach(function (m) { box.appendChild(renderMsg(m)); });
+      if (!d.messages.length && !after) box.appendChild(el('div', 'ca-empty', 'No messages in this date range.'));
+      if (d.has_more) {
+        var b = el('button', 'ca-btn alt ca-more', 'Load more');
+        b.style.margin = '10px auto';
+        b.style.display = 'flex';
+        b.addEventListener('click', function () { loadPage(c, d.messages[d.messages.length - 1].server_ts); });
+        box.appendChild(b);
+      }
+    }).catch(function (e) { showErr('chatErr', e.message); });
+  }
+
+  function renderMsg(m) {
+    if (m.kind === 'system') return el('div', 'ca-msg sys', m.body + ' · ' + ist(m.server_ts));
+    var d = el('div', 'ca-msg');
+    d.appendChild(el('div', 'who', m.sender));
+    if (m.purged || m.deleted) d.appendChild(el('span', 'gone', m.body));
+    else if (m.body) d.appendChild(document.createTextNode(m.body));
+    if (m.attachment) {
+      var a = el('a', null, '📎 ' + m.attachment.file_name);
+      a.href = API + '/files/' + encodeURIComponent(m.attachment.sync_id);
+      a.target = '_blank';
+      a.rel = 'noopener';
+      a.style.display = 'block';
+      d.appendChild(a);
+    }
+    d.appendChild(el('div', 'meta', ist(m.server_ts) + ' · ' + siteName(m.factory) + (m.edited ? ' · edited' : '')));
+    return d;
+  }
+
+  // ---- export (fetched, so a refusal shows as a message instead of a broken file) ----
+  function doExport(format, scope) {
+    var q = filters();
+    if (scope === 'chat') {
+      if (!current) return;
+      q.delete('user'); q.delete('q');
+      q.set('conversation', current.sync_id);
+    }
+    q.set('format', format);
+    if (scope === 'range' && !confirm('Export every message that matches these filters? The export is recorded in the audit log.')) return;
+    showErr('chatErr', '');
+    fetch(API + '/export?' + q.toString(), { credentials: 'same-origin' }).then(function (r) {
+      var type = r.headers.get('content-type') || '';
+      if (!r.ok || type.indexOf('application/json') === 0) {
+        return r.json().then(function (d) { throw new Error(d.error || ('HTTP ' + r.status)); });
+      }
+      var name = (/filename="([^"]+)"/.exec(r.headers.get('content-disposition') || '') || [])[1] || ('chat-export.' + format);
+      return r.blob().then(function (blob) {
+        var url = URL.createObjectURL(blob);
+        var a = el('a');
+        a.href = url; a.download = name;
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(function () { URL.revokeObjectURL(url); }, 2000);
+      });
+    }).catch(function (e) { showErr('chatErr', e.message); });
+  }
+
+  // ---- audit ----
+  var ACTIONS = {
+    admin_view: ['Opened chat (console)', 'view'], read_messages: ['Opened chat (chat panel)', 'view'],
+    export: ['Export', 'export'], admin_search: ['Search', ''], admin_open_file: ['Opened file (console)', 'view'],
+    open_file: ['Opened file (chat panel)', 'view'], list_all: ['Listed all chats', ''], retention_change: ['Changed retention', 'export']
+  };
+
+  function detailText(e) {
+    var d = e.details || {};
+    if (e.action === 'export') {
+      var f = d.filters || {};
+      var parts = [String(d.format || '').toUpperCase(), (d.rows || 0) + ' message(s)'];
+      if (f.user) parts.push('person ' + f.user);
+      if (f.factory != null) parts.push(siteName(f.factory));
+      if (f.from || f.to) parts.push((f.from || '…') + ' to ' + (f.to || '…'));
+      if (f.text) parts.push('text "' + f.text + '"');
+      return parts.join(' · ');
+    }
+    if (e.action === 'retention_change') return d.from + ' → ' + d.to + ' days';
+    if (e.action === 'admin_search') return (d.results || 0) + ' chat(s)';
+    if (d.file) return d.file;
+    return '';
+  }
+
+  function loadAudit() {
+    showErr('auditErr', '');
+    var q = new URLSearchParams();
+    if ($('aViewer').value.trim()) q.set('viewer', $('aViewer').value.trim());
+    if ($('aAction').value) q.set('action', $('aAction').value);
+    if ($('aFrom').value) q.set('from', $('aFrom').value);
+    if ($('aTo').value) q.set('to', $('aTo').value);
+    var body = $('auditRows');
+    api(API + '/audit?' + q.toString()).then(function (d) {
+      body.textContent = '';
+      if (!d.entries.length) {
+        var tr = el('tr'); var td = el('td', 'ca-empty', 'Nothing recorded for these filters.'); td.colSpan = 5; tr.appendChild(td); body.appendChild(tr);
+        return;
+      }
+      d.entries.forEach(function (e) {
+        var tr = el('tr');
+        tr.appendChild(el('td', null, ist(e.at)));
+        tr.appendChild(el('td', null, e.viewer));
+        var a = ACTIONS[e.action] || [e.action, ''];
+        var td = el('td'); td.appendChild(el('span', 'ca-pill ' + a[1], a[0])); tr.appendChild(td);
+        tr.appendChild(el('td', null, e.conversation || '—'));
+        tr.appendChild(el('td', null, detailText(e)));
+        body.appendChild(tr);
+      });
+    }).catch(function (e) { showErr('auditErr', e.message); });
+  }
+
+  // ---- start ----
+  function start() {
+    api(API + '/meta').then(function (d) {
+      $('app').style.display = '';
+      var dl = $('userList');
+      d.users.forEach(function (u) { var o = el('option'); o.value = u; dl.appendChild(o); });
+      var sel = $('fFactory');
+      d.factories.forEach(function (f) {
+        factoryNames[f.id] = f.name;
+        var o = el('option', null, f.name || ('Factory ' + f.id)); o.value = String(f.id); sel.appendChild(o);
+      });
+      var to = new Date(), from = new Date(); from.setDate(from.getDate() - 30);
+      var iso = function (x) { return x.toISOString().slice(0, 10); };
+      $('fFrom').value = iso(from); $('fTo').value = iso(to);
+      search();
+    }).catch(function (e) {
+      if (e.status === 401) { location.replace('/login.html'); return; }
+      $('denied').style.display = '';
+    });
+    $('chatFilters').addEventListener('submit', function (e) { e.preventDefault(); search(); });
+    $('auditFilters').addEventListener('submit', function (e) { e.preventDefault(); loadAudit(); });
+    document.querySelectorAll('[data-export]').forEach(function (b) {
+      b.addEventListener('click', function () { doExport(b.getAttribute('data-export'), b.getAttribute('data-scope')); });
+    });
+    document.querySelectorAll('.ca-tab').forEach(function (t) {
+      t.addEventListener('click', function () {
+        document.querySelectorAll('.ca-tab').forEach(function (x) { x.classList.toggle('on', x === t); });
+        var tab = t.getAttribute('data-tab');
+        $('pane-chats').style.display = tab === 'chats' ? '' : 'none';
+        $('pane-audit').style.display = tab === 'audit' ? '' : 'none';
+        if (tab === 'audit') loadAudit();
+      });
+    });
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start);
+  else start();
+})();
+</script>
+</body>
+</html>

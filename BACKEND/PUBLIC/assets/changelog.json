@@ -11,8 +11,110 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.123.2",
+  "latest": "1.129.0",
   "versions": [
+    {
+      "version": "1.129.0",
+      "date": "2026-10-17",
+      "title": "Faster, steadier chat",
+      "modules": [
+        {
+          "app": "all",
+          "changes": [
+            { "type": "perf", "text": "Chat stays quick when many people are chatting at once: the unread count is about 50 times faster and new messages arrive steadily even at busy times." },
+            { "type": "fix", "text": "If the server briefly loses its database connection, chat messages still reach you live instead of waiting for a page refresh." }
+          ]
+        },
+        {
+          "app": "admin",
+          "changes": [
+            { "type": "feat", "text": "Settings > Chat: switch chat off for everyone, or turn it on factory by factory for a staged rollout." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.128.0",
+      "date": "2026-10-17",
+      "title": "Chat console and retention",
+      "modules": [
+        {
+          "app": "all",
+          "changes": [
+            { "type": "feat", "text": "The chat panel now says that messages may be reviewed by administrators (shown once when you first open chat)." },
+            { "type": "feat", "text": "Chat messages older than the retention period (2 years unless changed in Settings) are removed automatically; the message line stays, marked as removed." }
+          ]
+        },
+        {
+          "app": "admin",
+          "changes": [
+            { "type": "feat", "text": "New Chat Console for superadmins: search chats by person, site and dates, read any chat (read-only), export a chat or a whole range to Excel or CSV, and see an audit log of who opened or exported what." },
+            { "type": "feat", "text": "Settings: set how many days chat messages are kept (Chat Retention card)." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.127.0",
+      "date": "2026-10-17",
+      "title": "Chat notifications",
+      "modules": [
+        {
+          "app": "all",
+          "changes": [
+            { "type": "feat", "text": "Chat messages now show in the bell and on the Notifications page: one line per chat with the newest message, cleared when you open the chat." },
+            { "type": "feat", "text": "Desktop pop-ups for new chat messages while JMS is in the background: press the 🔔 in the chat panel to turn them on. On the live site they also arrive when JMS is closed." },
+            { "type": "feat", "text": "Mute a chat for 8 hours, 1 week or always with the 🔔 at the top of the chat, and turn the chat sound on or off." },
+            { "type": "feat", "text": "Type @ in a group to mention someone (or @all): they are notified even if they muted the chat." },
+            { "type": "security", "text": "The Notifications page no longer lets text in a notification run as page code." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.126.0",
+      "date": "2026-10-17",
+      "title": "JMS Chat across factories",
+      "modules": [
+        {
+          "app": "all",
+          "changes": [
+            { "type": "feat", "text": "Chat now works between the factories and head office: a message sent from a factory screen reaches people on the live site within a second or two, and replies reach the factory within a few seconds." },
+            { "type": "feat", "text": "Groups, photos and files, ticks, edits and deletes all carry across too; a photo sent at one site opens at the other." },
+            { "type": "fix", "text": "New chat messages, ticks and typing now always show up live; before, some of them could be missed until the page was refreshed." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.125.0",
+      "date": "2026-10-16",
+      "title": "JMS Chat: groups, files and more",
+      "modules": [
+        {
+          "app": "all",
+          "changes": [
+            { "type": "feat", "text": "Group chats: press the 👥 button to make a group, rename it, add or remove people (group admins), or leave; each message shows who sent it." },
+            { "type": "feat", "text": "Send photos (with a preview), PDFs, Excel (.xlsx) files and audio up to 10 MB with the 📎 button, by pasting, or by dropping a file into the chat." },
+            { "type": "feat", "text": "Ticks per message: one grey tick sent, two grey ticks delivered, two blue ticks read; in a group, hover the ticks to see who has read it." },
+            { "type": "feat", "text": "See when someone is typing, search old messages from the chat search box, edit a message within 15 minutes, and delete a message for everyone." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.124.0",
+      "date": "2026-10-16",
+      "title": "JMS Chat",
+      "modules": [
+        {
+          "app": "all",
+          "changes": [
+            { "type": "feat", "text": "New green chat button at the bottom-right of every page: message anyone in JMS, see when they are online, get a pop-up and sound for new messages, and see ticks turn blue when your message is read." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.123.2",
       "date": "2026-10-16",
