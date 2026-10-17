@@ -11,8 +11,28 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.128.0",
+  "latest": "1.129.0",
   "versions": [
+    {
+      "version": "1.129.0",
+      "date": "2026-10-17",
+      "title": "Faster, steadier chat",
+      "modules": [
+        {
+          "app": "all",
+          "changes": [
+            { "type": "perf", "text": "Chat stays quick when many people are chatting at once: the unread count is about 50 times faster and new messages arrive steadily even at busy times." },
+            { "type": "fix", "text": "If the server briefly loses its database connection, chat messages still reach you live instead of waiting for a page refresh." }
+          ]
+        },
+        {
+          "app": "admin",
+          "changes": [
+            { "type": "feat", "text": "Settings > Chat: switch chat off for everyone, or turn it on factory by factory for a staged rollout." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.128.0",
       "date": "2026-10-17",

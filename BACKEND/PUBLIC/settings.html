@@ -844,6 +844,17 @@
                     <button class="btn-primary" id="chatRetentionSave" type="button"><i class="bi bi-save"></i> Save</button>
                     <span class="directory-state" id="chatRetentionState"></span>
                 </div>
+                <div style="display:flex; gap:14px; align-items:flex-end; flex-wrap:wrap; margin-top:16px; padding-top:14px; border-top:1px solid #e2e8f0">
+                    <label style="display:flex; gap:8px; align-items:center; font-weight:700; color:#0f172a">
+                        <input type="checkbox" id="chatEnabled"> Chat is on
+                    </label>
+                    <label style="display:flex; flex-direction:column; gap:4px; font-size:.8rem; font-weight:700; color:#475569">Factories with chat (staged rollout)
+                        <input type="text" id="chatFactories" placeholder="all  or  1,3" style="padding:7px 10px; border:1px solid #cbd5e1; border-radius:6px; width:200px">
+                    </label>
+                    <button class="btn-primary" id="chatSettingsSave" type="button"><i class="bi bi-save"></i> Save</button>
+                    <span class="directory-state" id="chatSettingsState"></span>
+                </div>
+                <div class="section-copy" style="margin-top:6px">Off hides the chat button and closes chat for everyone (this switch stays here to turn it back on). A factory list turns chat on only for users of those factories (superadmins always keep it, to test). Factory servers follow these settings within a few seconds. A server's CHAT_ENABLED / CHAT_FACTORIES environment variables override them.</div>
             </section>
 
             <section class="card settings-card" id="localServersCard">
@@ -1021,7 +1032,7 @@
         </div>
     </div>
 
-    <script src="/assets/app.min.js?v=1580"></script>
+    <script src="/assets/app.min.js?v=1581"></script>
     <script>
         (function () {
             let currentUser = null;
@@ -1205,6 +1216,41 @@
                         const res = await window.JPSMS.api.put('/chat/admin/retention', { days });
                         if (!res.ok) throw new Error(res.error || 'Save failed');
                         window.JPSMS.toast('Chat retention saved.', 'success');
+                    } catch (e) {
+                        window.JPSMS.toast(e.message || 'Save failed.', 'error');
+                    } finally {
+                        save.disabled = false;
+                    }
+                };
+            }
+
+            async function loadChatSwitch() {
+                if (!isSuperadmin(currentUser)) return;
+                const on = document.getElementById('chatEnabled');
+                const list = document.getElementById('chatFactories');
+                const state = document.getElementById('chatSettingsState');
+                const save = document.getElementById('chatSettingsSave');
+                try {
+                    const res = await window.JPSMS.api.get('/admin/chat-settings');
+                    if (!res.ok) throw new Error(res.error || 'Failed to load');
+                    on.checked = res.own.enabled;
+                    list.value = res.own.factories === 'all' ? 'all' : res.own.factories.join(',');
+                    on.disabled = list.disabled = save.disabled = !res.editable;
+                    const eff = `Now: chat ${res.enabled ? 'ON' : 'OFF'} for ${res.factories === 'all' ? 'all factories' : 'factories ' + res.factories.join(', ')}`;
+                    const src = res.source.enabled === 'env' || res.source.factories === 'env' ? ' (set by this server\'s environment)' : (res.source.enabled === 'main' ? ' (from the main site)' : '');
+                    state.textContent = eff + src;
+                } catch (e) {
+                    state.textContent = e.message || 'Failed to load chat settings.';
+                }
+                save.onclick = async () => {
+                    const msg = on.checked ? `Turn chat on for ${list.value.trim() || 'all'}?` : 'Turn chat OFF for everyone? The chat button disappears within a minute.';
+                    if (!confirm(msg)) return;
+                    save.disabled = true;
+                    try {
+                        const res = await window.JPSMS.api.put('/admin/chat-settings', { enabled: on.checked, factories: list.value.trim() || 'all' });
+                        if (!res.ok) throw new Error(res.error || 'Save failed');
+                        window.JPSMS.toast('Chat settings saved.', 'success');
+                        loadChatSwitch();
                     } catch (e) {
                         window.JPSMS.toast(e.message || 'Save failed.', 'error');
                     } finally {
@@ -2033,6 +2079,7 @@
                 await loadFactories();
                 await loadGeofences();
                 await loadChatRetention();
+                await loadChatSwitch();
                 await loadLocalServers();
                 await initLocalUpdateCard();
             });

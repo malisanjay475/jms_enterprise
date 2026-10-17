@@ -22,6 +22,7 @@
   var oldestTs = null, hasMore = false;
   var editing = null, typingSentAt = 0, typingTimer = null, searchTimer = null;
   var root, els = {};
+  var stopped = false; // chat switched off while the page was open
   var soundOn = readPref('jmsChatSound', '1') === '1';
   var swReg = null; // service worker registration, when the page may use one
 
@@ -1387,7 +1388,21 @@
     });
   }
 
+  // Superadmins get a copy of every message: refresh only the open All-chats list,
+  // at most every 3 s, and never the badge (copies are not unread messages).
+  var adminRefreshTimer = null;
+  function adminCopy(ev) {
+    var m = ev.message;
+    if (m && current && current.sync_id === m.conversation_sync_id && current.is_member === false) {
+      if (ev.type === 'message' && !loaded.some(function (x) { return x.sync_id === m.sync_id; })) { loaded.push(m); redraw(); }
+      else if (ev.type === 'message_update') applyUpdate(m);
+    }
+    if (!open || !adminAll || adminRefreshTimer) return;
+    adminRefreshTimer = setTimeout(function () { adminRefreshTimer = null; if (open && adminAll) loadConvs(); }, 3000);
+  }
+
   function onEvent(ev) {
+    if (ev.adminCopy) return adminCopy(ev);
     if (ev.type === 'message') {
       var m = ev.message;
       var mine = same(m.sender, me);
@@ -1449,7 +1464,7 @@
   }
 
   function connect() {
-    if (typeof EventSource === 'undefined') return;
+    if (stopped || typeof EventSource === 'undefined') return;
     if (es) es.close();
     es = new EventSource(API + '/stream');
     es.onmessage = function (e) {
@@ -1462,7 +1477,12 @@
       if (es.readyState === EventSource.CLOSED) {
         es = null;
         retry = Math.min(retry + 1, 6);
-        setTimeout(connect, 2000 * retry);
+        // Chat switched off (or not on for this factory yet): remove the widget
+        // instead of retrying for ever.
+        fetch(API + '/me', { credentials: 'same-origin', cache: 'no-store' }).then(function (r) {
+          if (r.status === 404) { stopped = true; if (root) root.remove(); return; }
+          setTimeout(connect, 2000 * retry);
+        }).catch(function () { setTimeout(connect, 2000 * retry); });
       }
     };
   }
