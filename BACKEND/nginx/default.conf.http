@@ -24,6 +24,40 @@ server {
         proxy_buffering on;
     }
 
+    # ── Server-sent events (JMS Chat live stream, live-update events) ───────
+    # Long-lived streams: nothing may be buffered or compressed (both hold events back),
+    # and the read timeout must outlast quiet periods (the app sends a heartbeat every 20 s).
+    # Exact matches, so they win over the regex blocks below.
+    location = /api/chat/stream {
+        proxy_pass         http://app:3000;
+        proxy_http_version 1.1;
+        proxy_set_header   Connection "";
+        proxy_set_header   Host $host;
+        proxy_set_header   X-Real-IP $remote_addr;
+        proxy_set_header   X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto $scheme;
+        proxy_buffering    off;
+        proxy_cache        off;
+        gzip               off;
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
+    }
+
+    location = /api/events {
+        proxy_pass         http://app:3000;
+        proxy_http_version 1.1;
+        proxy_set_header   Connection "";
+        proxy_set_header   Host $host;
+        proxy_set_header   X-Real-IP $remote_addr;
+        proxy_set_header   X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto $scheme;
+        proxy_buffering    off;
+        proxy_cache        off;
+        gzip               off;
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
+    }
+
     # Sync-specific location block: proxy_buffering must be off for streaming
     location ~ ^/(api/sync|sync)/ {
         proxy_pass http://app:3000;
