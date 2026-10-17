@@ -17,6 +17,7 @@ part of your PR. On release, the `[Unreleased]` items move under the new version
 - Planning order popup (v1.131.0): completed plans now show their JC number (plan_board.job_card_no, else label print log by plan, else OR-JR report) with JC date, plan window, actual DPR run dates, rejects and planner; the JC opens the drill-down. /api/planning/orders/:orderNo/history returns the extra fields.
 
 ### Fixed
+- Shifting Manual Entry (v1.131.1): the job popup now shows plan-wise quantities — a Plan vs Produced bar (balance to produce / excess), Plan and Balance columns per colour with a Total row, and the plan qty on each job tab. /api/shifting/machine-board jobs carry plan_qty.
 - Chat (v1.130.2): a shared link opened the page with ?jmsChatTarget=<id> and the parameter stayed in the address bar, so every refresh showed the "Shared by …" banner again. The widget now removes it with history.replaceState once the link is handled (after any factory-switch reload); the page's own query and hash are kept. package-lock.json root version brought in line (was 1.126.0).
 
 ### Changed
