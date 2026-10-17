@@ -11,8 +11,29 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.127.0",
+  "latest": "1.128.0",
   "versions": [
+    {
+      "version": "1.128.0",
+      "date": "2026-10-17",
+      "title": "Chat console and retention",
+      "modules": [
+        {
+          "app": "all",
+          "changes": [
+            { "type": "feat", "text": "The chat panel now says that messages may be reviewed by administrators (shown once when you first open chat)." },
+            { "type": "feat", "text": "Chat messages older than the retention period (2 years unless changed in Settings) are removed automatically; the message line stays, marked as removed." }
+          ]
+        },
+        {
+          "app": "admin",
+          "changes": [
+            { "type": "feat", "text": "New Chat Console for superadmins: search chats by person, site and dates, read any chat (read-only), export a chat or a whole range to Excel or CSV, and see an audit log of who opened or exported what." },
+            { "type": "feat", "text": "Settings: set how many days chat messages are kept (Chat Retention card)." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.127.0",
       "date": "2026-10-17",

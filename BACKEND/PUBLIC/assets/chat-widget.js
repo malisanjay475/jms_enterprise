@@ -4,6 +4,8 @@
 // Phase 2: groups, attachments, delivered/read ticks, typing, search, edit and delete.
 // Phase 4: desktop notifications (page + Web Push via /sw.js -> /sw-chat.js), mute,
 // sound on/off, @mentions, open a chat from ?chat=<id> (bell, notifications page, push).
+// Phase 5: "messages may be reviewed" notice on first open; messages emptied by the
+// retention job show as removed.
 (function () {
   'use strict';
   if (window.__jmsChatLoaded) return;
@@ -211,6 +213,10 @@
     '.jc-ment{position:absolute;left:10px;bottom:58px;z-index:4;background:#fff;border-radius:8px;box-shadow:0 6px 20px rgba(0,0,0,.22);max-height:180px;overflow-y:auto;min-width:200px;display:none}',
     '.jc-ment div{padding:7px 12px;cursor:pointer}',
     '.jc-ment div:hover,.jc-ment div.jc-on{background:var(--jc-bg2)}',
+    '.jc-notice{display:flex;gap:8px;align-items:flex-start;background:#fff8d6;color:#5f5300;font-size:12px;padding:8px 10px;border-bottom:1px solid var(--jc-bd)}',
+    '.jc-notice span{flex:1}',
+    '.jc-notice button{border:0;border-radius:12px;background:#5f5300;color:#fff;font:inherit;font-size:11px;padding:3px 10px;cursor:pointer}',
+    '.jc-ph small{display:block;margin-top:14px;font-size:11px}',
     '.jc-err{background:#fde8e8;color:#b42318;font-size:12px;padding:6px 10px;display:none}',
     '.jc-back{display:none}',
     '.jc-toast{position:fixed;right:20px;bottom:86px;z-index:9992;max-width:300px;background:#fff;border-left:4px solid var(--jc-g);border-radius:8px;box-shadow:0 6px 20px rgba(0,0,0,.25);padding:10px 12px;cursor:pointer}',
@@ -308,6 +314,7 @@
     ph.appendChild(el('div', null, '💬'));
     ph.appendChild(el('b', null, 'JMS Chat'));
     ph.appendChild(el('div', null, 'Pick a chat on the left, press ✎ to message anyone, or 👥 to make a group.'));
+    ph.appendChild(el('small', null, 'Messages may be reviewed by administrators.'));
     main.appendChild(ph);
 
     panel.appendChild(side); panel.appendChild(main);
@@ -388,8 +395,23 @@
     if (msg) { clearTimeout(showErr.t); showErr.t = setTimeout(function () { showErr(''); }, 8000); }
   }
 
+  // Shown once per person on this browser, the first time they open chat.
+  function showNoticeOnce() {
+    var key = 'jmsChatNotice:' + String(me).toLowerCase();
+    if (readPref(key, '') || els.notice) return;
+    var n = el('div', 'jc-notice');
+    n.setAttribute('role', 'note');
+    n.appendChild(el('span', null, '🛈 Messages may be reviewed by administrators. Keep chat for work.'));
+    var okBtn = el('button', null, 'OK');
+    okBtn.addEventListener('click', function () { writePref(key, String(Date.now())); n.remove(); els.notice = null; });
+    n.appendChild(okBtn);
+    els.list.parentNode.insertBefore(n, els.list);
+    els.notice = n;
+  }
+
   function toggle(v) {
     open = v;
+    if (v) showNoticeOnce();
     els.panel.classList.toggle('jc-open', v);
     if (v) {
       loadConvs();
@@ -865,7 +887,9 @@
         sn.style.color = avatarColor(m.sender);
         b.appendChild(sn);
       }
-      if (m.deleted) {
+      if (m.purged) {
+        b.appendChild(el('span', 'jc-del', '🕓 Removed after the retention period'));
+      } else if (m.deleted) {
         b.appendChild(el('span', 'jc-del', '🚫 This message was deleted'));
       } else {
         if (m.attachment) b.appendChild(attachmentEl(m));
@@ -873,14 +897,14 @@
         if (m.body) appendBody(b, m.body);
       }
       var meta = el('span', 'jc-meta', (m.edited_at && !m.deleted ? 'edited ' : '') + (m.pending ? '' : fmtTime(m.server_ts)));
-      if (mine && !adminView && !m.deleted) {
+      if (mine && !adminView && !m.deleted && !m.purged) {
         var tk = tickFor(m);
         var tick = el('span', 'jc-tick' + tk.cls, tk.t);
         if (tk.title) tick.title = tk.title;
         meta.appendChild(tick);
       }
       b.appendChild(meta);
-      if (mine && !adminView && !m.deleted && !m.pending && !m.failed) {
+      if (mine && !adminView && !m.deleted && !m.purged && !m.pending && !m.failed) {
         var opt = el('button', 'jc-opt', '▾');
         opt.title = 'Message options';
         opt.addEventListener('click', function (e) { e.stopPropagation(); messageMenu(m, b); });

@@ -1496,6 +1496,14 @@ function escHtml(value) {
             items: []
         },
         {
+            id: 'chat_admin',
+            label: 'Chat Console',
+            icon: 'bi-chat-square-text',
+            href: 'chat_admin.html',
+            visibleIf: (user) => isSuperadminUser(user),
+            items: []
+        },
+        {
             id: 'notifications',
             label: 'Notifications',
             icon: 'bi-bell',
@@ -2413,7 +2421,8 @@ function escHtml(value) {
     'supervisor.html': 'supervisor_app', 'qcsupervisor.html': 'qc_supervisor_app',
     'shifting_supervisor.html': 'shifting_supervisor_app',
     'wip_supervisor.html': 'wip_supervisor_app',
-    'activity-monitor.html': 'admin'
+    'activity-monitor.html': 'admin',
+    'chat_admin.html': 'admin'
   };
 
   const _pageName = _path.split('/').pop().split('?')[0] || 'index.html';
@@ -2563,7 +2572,7 @@ function escHtml(value) {
   if (typeof document === 'undefined' || !document.querySelector) return;
   if (window.__jmsChatLoaded || document.querySelector('script[data-jms-chat]')) return;
   var s = document.createElement('script');
-  s.src = '/assets/chat-widget.js?v=4';
+  s.src = '/assets/chat-widget.js?v=5';
   s.defer = true;
   s.setAttribute('data-jms-chat', '1');
   (document.head || document.documentElement).appendChild(s);

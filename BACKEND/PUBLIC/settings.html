@@ -828,6 +828,24 @@
                 <div id="geofenceList" style="display:flex; flex-direction:column; gap:14px; margin-top:12px"></div>
             </section>
 
+            <section class="card settings-card" id="chatRetentionCard" style="display:none">
+                <div class="section-head">
+                    <div>
+                        <div class="section-eyebrow" style="background: rgba(0, 128, 105, 0.12); color:#008069;"><i class="bi bi-chat-square-text"></i><span>Chat Retention</span></div>
+                        <div class="section-title">How long chat messages are kept.</div>
+                        <div class="section-copy">Once a day the main server empties the text (and removes the files) of chat messages older than this. The message line stays, marked "removed after the retention period", on every server. Default 730 days (2 years). Superadmins only.</div>
+                    </div>
+                    <a class="btn-outline" href="chat_admin.html"><i class="bi bi-chat-square-text"></i> Chat Console</a>
+                </div>
+                <div style="display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap; margin-top:10px">
+                    <label style="display:flex; flex-direction:column; gap:4px; font-size:.8rem; font-weight:700; color:#475569">Keep messages for (days)
+                        <input type="number" id="chatRetentionDays" min="30" max="3650" step="1" style="padding:7px 10px; border:1px solid #cbd5e1; border-radius:6px; width:160px">
+                    </label>
+                    <button class="btn-primary" id="chatRetentionSave" type="button"><i class="bi bi-save"></i> Save</button>
+                    <span class="directory-state" id="chatRetentionState"></span>
+                </div>
+            </section>
+
             <section class="card settings-card" id="localServersCard">
                 <div class="section-head">
                     <div>
@@ -1003,7 +1021,7 @@
         </div>
     </div>
 
-    <script src="/assets/app.min.js?v=1579"></script>
+    <script src="/assets/app.min.js?v=1580"></script>
     <script>
         (function () {
             let currentUser = null;
@@ -1156,6 +1174,43 @@
                         }
                     });
                 });
+            }
+
+            async function loadChatRetention() {
+                if (!isSuperadmin(currentUser)) return;
+                const card = document.getElementById('chatRetentionCard');
+                const input = document.getElementById('chatRetentionDays');
+                const state = document.getElementById('chatRetentionState');
+                const save = document.getElementById('chatRetentionSave');
+                card.style.display = '';
+                try {
+                    const res = await window.JPSMS.api.get('/chat/admin/retention');
+                    if (!res.ok) throw new Error(res.error || 'Failed to load');
+                    input.value = res.days;
+                    input.disabled = save.disabled = !res.editable;
+                    const last = res.last_run ? `Last run ${new Date(res.last_run.at).toLocaleString('en-IN')}: ${res.last_run.purged} message(s) emptied.` : 'Not run yet.';
+                    state.textContent = res.editable ? last : 'Set on the main site; this factory server follows it.';
+                } catch (e) {
+                    state.textContent = e.message || 'Failed to load chat retention.';
+                }
+                save.onclick = async () => {
+                    const days = Number(input.value);
+                    if (!Number.isInteger(days) || days < 30 || days > 3650) {
+                        window.JPSMS.toast('Enter a number of days between 30 and 3650.', 'error');
+                        return;
+                    }
+                    if (!confirm(`Keep chat messages for ${days} days? Older messages will be emptied on the next daily run and cannot be brought back.`)) return;
+                    save.disabled = true;
+                    try {
+                        const res = await window.JPSMS.api.put('/chat/admin/retention', { days });
+                        if (!res.ok) throw new Error(res.error || 'Save failed');
+                        window.JPSMS.toast('Chat retention saved.', 'success');
+                    } catch (e) {
+                        window.JPSMS.toast(e.message || 'Save failed.', 'error');
+                    } finally {
+                        save.disabled = false;
+                    }
+                };
             }
 
             async function loadGeofences() {
@@ -1977,6 +2032,7 @@
 
                 await loadFactories();
                 await loadGeofences();
+                await loadChatRetention();
                 await loadLocalServers();
                 await initLocalUpdateCard();
             });
