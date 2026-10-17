@@ -362,7 +362,7 @@ function syncHeaders() {
 
 function mainUrl() { return String(runtime().mainUrl || '').trim().replace(/\/$/, ''); }
 
-function createLoop(pool, { uploadRoot }) {
+function createLoop(pool, { uploadRoot, onMainSettings }) {
   const pushCur = {};
   const pullCur = {};
   for (const t of TABLES) { pushCur[t] = makeCursor(pool, `push:${t}`); pullCur[t] = makeCursor(pool, `pull:${t}`); }
@@ -409,6 +409,8 @@ function createLoop(pool, { uploadRoot }) {
       });
       if (!r.ok) throw new Error(`pull HTTP ${r.status}`);
       const d = await r.json();
+      // MAIN's chat switch / rollout list rides along (chatGate.js).
+      if (d.settings && onMainSettings) await onMainSettings(d.settings);
       const payload = {};
       let any = false;
       for (const t of TABLES) {
@@ -491,7 +493,7 @@ function createLoop(pool, { uploadRoot }) {
 }
 
 // ---- MAIN endpoints (sync key, under /api/sync so no login session is needed) ----
-function registerSyncRoutes(app, pool, { uploadRoot, ensureSchema }) {
+function registerSyncRoutes(app, pool, { uploadRoot, ensureSchema, getSettings }) {
   function guard(req, res) {
     const rt = runtime();
     if (rt.serverType === 'LOCAL') { res.status(404).json({ ok: false, error: 'Not a MAIN server.' }); return false; }
@@ -527,7 +529,7 @@ function registerSyncRoutes(app, pool, { uploadRoot, ensureSchema }) {
         out[t] = { rows: page.rows, max: page.max };
         if (page.more) more = true;
       }
-      res.json({ ok: true, tables: out, more });
+      res.json({ ok: true, tables: out, more, settings: getSettings ? await getSettings() : undefined });
     } catch (err) {
       console.error('[chat-sync] pull failed:', err);
       res.status(500).json({ ok: false, error: 'Chat pull failed.' });

@@ -23,6 +23,7 @@ const { sniffAttachment } = require('./attachmentType');
 const chatSync = require('./chatSync');
 const chatNotify = require('./chatNotify');
 const chatAdmin = require('./chatAdmin');
+const chatGate = require('./chatGate');
 
 const DM_ID = chatSync.deterministicIdSql('chat-dm', '$1::text');
 const MEMBER_ID = (conv, user) => chatSync.deterministicIdSql('chat-member', conv, `LOWER(${user})`);
@@ -258,7 +259,14 @@ async function memberNames(pool, convSyncId) {
   return rows.map((r) => r.username);
 }
 
+let superadminCache = { at: 0, names: [] };
 async function superadminNames(pool) {
+  if (Date.now() - superadminCache.at < 30000) return superadminCache.names;
+  superadminCache = { at: Date.now(), names: await superadminNamesUncached(pool) };
+  return superadminCache.names;
+}
+
+async function superadminNamesUncached(pool) {
   const { rows } = await pool.query(
     `SELECT username FROM users
       WHERE LOWER(role_code) = 'superadmin' AND COALESCE(is_active, TRUE) = TRUE`
@@ -300,10 +308,11 @@ function messageOut(row, att, receipts) {
 // Attachments and (for my own messages) receipts for a list of message rows.
 async function decorate(pool, rows, me) {
   if (!rows.length) return [];
-  const ids = rows.map((r) => r.sync_id);
-  const { rows: atts } = await pool.query(
-    'SELECT * FROM chat_attachments WHERE message_sync_id = ANY($1::uuid[])', [ids]
-  );
+  // Only file messages have an attachment row; skip the lookup for plain text.
+  const ids = rows.filter((r) => r.kind !== 'text' && r.kind !== 'system').map((r) => r.sync_id);
+  const { rows: atts } = ids.length
+    ? await pool.query('SELECT * FROM chat_attachments WHERE message_sync_id = ANY($1::uuid[])', [ids])
+    : { rows: [] };
   const attBy = new Map(atts.map((a) => [a.message_sync_id, a]));
   const mine = rows.filter((r) => me && r.sender.toLowerCase() === me.toLowerCase()).map((r) => r.sync_id);
   const recBy = new Map(mine.map((id) => [id, []]));
@@ -412,6 +421,7 @@ function startLiveEvents(pool) {
     if (loop) loop.stop();
     if (leadTimer) { clearTimeout(leadTimer); leadTimer = null; }
     c.end().catch(() => {});
+    startFallback();
     const t = setTimeout(connect, retryMs);
     if (t.unref) t.unref();
     retryMs = Math.min(retryMs * 2, 60000);
@@ -427,6 +437,7 @@ function startLiveEvents(pool) {
       client = c;
       c.on('notification', (msg) => { onNote(msg.payload).catch((err) => console.warn('[chat] live event failed:', err.message)); });
       await c.query('LISTEN jms_chat');
+      stopFallback();
       retryMs = 2000;
       tryLead(c);
     } catch (err) {
@@ -454,7 +465,7 @@ function startLiveEvents(pool) {
         const { rows: [r] } = await c.query('SELECT pg_try_advisory_lock(hashtext($1)) AS ok', [chatSync.LEADER_LOCK]);
         if (r.ok) {
           leader = true;
-          loop = loop || chatSync.createLoop(pool, { uploadRoot });
+          loop = loop || chatSync.createLoop(pool, { uploadRoot, onMainSettings: saveMainSettings });
           loop.start();
           console.log(`[chat] chat sync leader (pid ${process.pid})`);
           return;
@@ -476,6 +487,10 @@ function startLiveEvents(pool) {
     }
     if (!n.e || !streams.size) return;
     if (n.t === 'chat_messages') {
+      if (n.op === 'INSERT') {
+        if (n.fb && seen.has(n.s)) return; // the fallback found one LISTEN already delivered
+        rememberSeen(n.s);
+      }
       const { rows } = await pool.query('SELECT * FROM chat_messages WHERE sync_id = $1', [n.s]);
       if (!rows[0]) return;
       const [plain] = await decorate(pool, rows, null);
@@ -520,7 +535,140 @@ function startLiveEvents(pool) {
     }
   }
 
+  // Fallback while LISTEN is down (database restart, network blip): read new and changed
+  // chat rows every 2 s and feed them through the same handler, so this worker's users
+  // keep getting events. New rows are found by their serial id (reliable); changes by
+  // updated_at (rows synced in from MAIN keep MAIN's time, so a few of those may only
+  // show on the next refresh). Typing indicators pause until LISTEN is back.
+  // While LISTEN works, note the newest row ids every 5 s: when it drops, the fallback
+  // starts from there, so rows written between the drop and its detection are not lost.
+  // Messages LISTEN already delivered are skipped (seen), the rest is idempotent.
+  const FB_TABLES = ['chat_conversations', 'chat_members', 'chat_messages', 'chat_receipts'];
+  const seen = new Set();
+  const seenOrder = [];
+  function rememberSeen(id) {
+    if (seen.has(id)) return;
+    seen.add(id); seenOrder.push(id);
+    if (seenOrder.length > 5000) seen.delete(seenOrder.shift());
+  }
+  let snap = null;
+  async function snapshot() {
+    const { rows: [x] } = await pool.query(
+      `SELECT NOW() AS at, ${FB_TABLES.map((t) => `(SELECT COALESCE(MAX(id), 0) FROM ${t}) AS ${t}`).join(', ')}`
+    );
+    return { at: x.at, ids: Object.fromEntries(FB_TABLES.map((t) => [t, Number(x[t])])) };
+  }
+  const snapTimer = setInterval(() => {
+    if (client && !fallback) snapshot().then((v) => { snap = v; }).catch(() => {});
+  }, 5000);
+  if (snapTimer.unref) snapTimer.unref();
+
+  let fallback = null;
+  function startFallback() {
+    if (fallback) return;
+    const state = snap ? { ids: { ...snap.ids }, since: snap.at } : null;
+    fallback = { state, timer: setInterval(() => tick(), 2000) };
+    if (fallback.timer.unref) fallback.timer.unref();
+    console.warn('[chat] live events: LISTEN down, polling fallback on');
+    tick();
+  }
+  async function tick() {
+    const fb = fallback;
+    if (!fb || fb.busy) return;
+    fb.busy = true;
+    try {
+      if (!fb.state) fb.state = await snapshot().then((v) => ({ ids: v.ids, since: v.at }));
+      else await pollOnce(fb.state);
+    } catch (_e) { /* database unreachable: try again */ }
+    fb.busy = false;
+  }
+  function stopFallback() {
+    if (!fallback) return;
+    const fb = fallback;
+    fallback = null;
+    clearInterval(fb.timer);
+    // one last read: rows written while LISTEN was coming back
+    if (fb.state) pollOnce(fb.state).catch(() => {});
+    console.log('[chat] live events: LISTEN back, polling fallback off');
+  }
+  async function pollOnce(state) {
+    const tables = FB_TABLES;
+    const { rows: [{ n: now }] } = await pool.query('SELECT NOW() AS n');
+    for (const t of tables) {
+      const { rows } = await pool.query(
+        `SELECT * FROM ${t} WHERE id > $1 OR (updated_at > $2 AND updated_at <= $3) ORDER BY id LIMIT 500`,
+        [state.ids[t], state.since, now]
+      );
+      for (const row of rows) {
+        const op = row.id > state.ids[t] ? 'INSERT' : 'UPDATE';
+        let note;
+        if (t === 'chat_messages') note = { t, op, s: row.sync_id, c: row.conversation_sync_id, e: true, fb: true };
+        else if (t === 'chat_receipts') note = { t, op, c: row.conversation_sync_id, m: row.message_sync_id, u: row.username, k: row.read_at ? 'read' : 'delivered', e: true };
+        else if (t === 'chat_members') note = { t, op, c: row.conversation_sync_id, u: row.username, e: true };
+        else note = { t, op, c: row.sync_id, e: true };
+        await onNote(JSON.stringify(note)).catch(() => {});
+      }
+      if (rows.length) state.ids[t] = Math.max(state.ids[t], ...rows.map((x) => x.id));
+    }
+    state.since = now;
+  }
+
   connect();
+}
+
+// MAIN's switch/rollout list as received by a LOCAL (chatGate reads it from here).
+async function saveMainSettings(s) {
+  const value = JSON.stringify({ enabled: s.enabled !== false, factories: s.factories || 'all' });
+  const { rowCount } = await sharedPool.query(
+    `INSERT INTO chat_sync_state (name, value) VALUES ('main_chat_settings', $1)
+     ON CONFLICT (name) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()
+     WHERE chat_sync_state.value <> EXCLUDED.value`, [value]
+  );
+  if (rowCount) { chatGate.clearCache(); console.log('[chat] settings from MAIN:', value); }
+}
+let sharedPool = null;
+
+// Chat on/off and rollout list for superadmins, outside /api/chat so it still works
+// while chat is switched off. Changed on MAIN (LOCALs follow MAIN).
+function registerChatSettingsRoutes(app, pool) {
+  function guard(req, res) {
+    if (!requireSession(req, res)) return false;
+    if (!isSuperadmin(req.auth)) { res.status(403).json({ ok: false, error: 'Only a superadmin can change chat settings.' }); return false; }
+    return true;
+  }
+  app.get('/api/admin/chat-settings', async (req, res) => {
+    try {
+      if (!guard(req, res)) return;
+      await ensureChatSchema(pool);
+      const eff = await chatGate.settings(pool, { fresh: true });
+      res.json({ ok: true, ...eff, own: await chatGate.ownSettings(pool), editable: !chatSync.isLocal() });
+    } catch (err) { fail(res, err, 'chat settings'); }
+  });
+  app.put('/api/admin/chat-settings', async (req, res) => {
+    try {
+      if (!guard(req, res)) return;
+      if (chatSync.isLocal()) return res.status(400).json({ ok: false, error: 'Change chat settings on the main site; factory servers follow it.' });
+      const b = req.body || {};
+      const enabled = b.enabled !== false;
+      const factories = chatGate.parseFactories(b.factories == null ? 'all' : (Array.isArray(b.factories) ? b.factories.join(',') : b.factories));
+      if (!factories || (Array.isArray(factories) && !factories.length)) {
+        return res.status(400).json({ ok: false, error: 'List factory numbers (e.g. 1,3) or "all".' });
+      }
+      const stored = factories === 'all' ? 'all' : factories.join(',');
+      for (const [key, value] of [['CHAT_ENABLED', enabled ? '1' : '0'], ['CHAT_FACTORIES', stored]]) {
+        await pool.query(
+          'INSERT INTO server_config (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value',
+          [key, value]
+        );
+      }
+      await pool.query(
+        'INSERT INTO chat_audit_views (viewer, action, details) VALUES ($1, $2, $3)',
+        [req.auth.username, 'settings_change', JSON.stringify({ enabled, factories: stored })]
+      ).catch(() => {});
+      chatGate.clearCache();
+      res.json({ ok: true, enabled, factories });
+    } catch (err) { fail(res, err, 'chat settings save'); }
+  });
 }
 
 function fail(res, err, where) {
@@ -530,8 +678,15 @@ function fail(res, err, where) {
 
 // ---- routes ----
 function registerChatRoutes(app, pool) {
+  sharedPool = pool;
   ensureChatSchema(pool).catch((err) => console.warn('[chat] schema init failed:', err.message));
-  chatSync.registerSyncRoutes(app, pool, { uploadRoot, ensureSchema: () => ensureChatSchema(pool) });
+  chatSync.registerSyncRoutes(app, pool, {
+    uploadRoot, ensureSchema: () => ensureChatSchema(pool), getSettings: () => chatGate.ownSettings(pool)
+  });
+  registerChatSettingsRoutes(app, pool);
+  // Kill switch / staged rollout: every /api/chat/* route answers 404 while chat is off
+  // for this user (the sync routes under /api/sync/chat keep running).
+  app.use('/api/chat', chatGate.middleware(pool));
   startLiveEvents(pool);
 
   async function ready(req, res) {
@@ -564,7 +719,12 @@ function registerChatRoutes(app, pool) {
     res.write('data: {"type":"connected"}\n\n');
     addStream(req.auth.username, res);
     const hb = setInterval(() => {
-      try { res.write(': hb\n\n'); } catch (_e) { clearInterval(hb); }
+      // Chat switched off (or this user's factory taken out of the rollout): end the
+      // stream; the widget then finds /api/chat/me gone and removes itself.
+      chatGate.access(pool, req.auth).then((a) => {
+        if (!a.ok) { clearInterval(hb); res.end(); return; }
+        try { res.write(': hb\n\n'); } catch (_e) { clearInterval(hb); }
+      }).catch(() => {});
     }, 20000);
     req.on('close', () => clearInterval(hb));
   });
@@ -629,7 +789,13 @@ function registerChatRoutes(app, pool) {
           LIMIT 300`,
         params
       );
-      if (all) await logAudit(pool, me, null, 'list_all');
+      if (all) {
+        const { rows: recent } = await pool.query(
+          `SELECT 1 FROM chat_audit_views WHERE LOWER(viewer) = LOWER($1) AND action = 'list_all'
+              AND viewed_at > NOW() - INTERVAL '10 minutes' LIMIT 1`, [me]
+        );
+        if (!recent.length) await logAudit(pool, me, null, 'list_all');
+      }
       res.json({
         ok: true,
         conversations: rows.map((r) => {
@@ -660,12 +826,20 @@ function registerChatRoutes(app, pool) {
   app.get('/api/chat/unread', async (req, res) => {
     try {
       if (!(await ready(req, res))) return;
+      // Counted chat by chat from each read position, through the
+      // (conversation_sync_id, server_ts) index. A plain join of members to messages
+      // scanned the whole message table (50 ms at 300k messages; this runs for every
+      // receiver of every message and on every page load).
       const { rows } = await pool.query(
-        `SELECT COUNT(*)::int AS n FROM chat_messages x
-           JOIN chat_members me ON me.conversation_sync_id = x.conversation_sync_id
-                               AND LOWER(me.username) = LOWER($1) AND me.left_at IS NULL
-          WHERE LOWER(x.sender) <> LOWER($1) AND x.deleted_at IS NULL AND x.kind <> 'system'
-            AND (me.last_read_at IS NULL OR x.server_ts > me.last_read_at)`,
+        `SELECT COALESCE(SUM(u.n), 0)::int AS n
+           FROM chat_members me
+           CROSS JOIN LATERAL (
+             SELECT COUNT(*) AS n FROM chat_messages x
+              WHERE x.conversation_sync_id = me.conversation_sync_id
+                AND x.server_ts > COALESCE(me.last_read_at, '-infinity'::timestamptz)
+                AND LOWER(x.sender) <> LOWER($1) AND x.deleted_at IS NULL AND x.kind <> 'system'
+           ) u
+          WHERE LOWER(me.username) = LOWER($1) AND me.left_at IS NULL`,
         [req.auth.username]
       );
       res.json({ ok: true, unread: rows[0].n });
