@@ -4,6 +4,7 @@
 // "all chats" view for superadmins (every such view is logged).
 // Phase 1: direct chats, stream, superadmin view. Phase 2: groups, attachments,
 // delivered/read receipts per message, typing indicator, search, edit and delete.
+// Phase 4: bell rows, mute, @mentions and Web Push (chatNotify.js).
 // Phase 3: chats replicate between MAIN and the factory LOCALs within seconds
 // (chatSync.js), and live events go through PostgreSQL NOTIFY so they reach users on
 // every PM2 worker and arrive for rows synced in from the other server too.
@@ -19,6 +20,7 @@ const multer = require('multer');
 const { isSuperadmin } = require('../../app/auth');
 const { sniffAttachment } = require('./attachmentType');
 const chatSync = require('./chatSync');
+const chatNotify = require('./chatNotify');
 
 const DM_ID = chatSync.deterministicIdSql('chat-dm', '$1::text');
 const MEMBER_ID = (conv, user) => chatSync.deterministicIdSql('chat-member', conv, `LOWER(${user})`);
@@ -223,6 +225,7 @@ async function createSchema(pool) {
     console.warn('[chat] pg_trgm search index not created:', err.message);
   }
   await chatSync.ensureSyncSchema(pool);
+  await chatNotify.ensureNotifySchema(pool);
 }
 
 async function activeUser(pool, username) {
@@ -388,6 +391,7 @@ function startLiveEvents(pool) {
   let client = null;
   let loop = null;
   let leader = false;
+  let pushSender = false;
   let retryMs = 2000;
   let leadTimer = null;
   const receipts = new Map(); // "conv|user|kind" -> [message ids]
@@ -400,6 +404,7 @@ function startLiveEvents(pool) {
     client = null;
     if (leader) console.log('[chat] sync leader released:', why);
     leader = false;
+    pushSender = false;
     if (loop) loop.stop();
     if (leadTimer) { clearTimeout(leadTimer); leadTimer = null; }
     c.end().catch(() => {});
@@ -427,11 +432,20 @@ function startLiveEvents(pool) {
     }
   }
 
-  // Only on a LOCAL: one worker holds the lock (for as long as its connection lives).
+  // LOCAL: one worker runs the chat sync. MAIN with VAPID keys: one worker sends Web
+  // Push. Each holds its lock for as long as its connection lives.
   async function tryLead(c) {
     leadTimer = null;
-    if (client !== c || leader) return;
+    if (client !== c || leader || pushSender) return;
     try {
+      if (!chatSync.isLocal() && chatNotify.pushEnabled()) {
+        const { rows: [p] } = await c.query('SELECT pg_try_advisory_lock(hashtext($1)) AS ok', [chatNotify.PUSH_LOCK]);
+        if (p.ok) {
+          pushSender = true;
+          console.log(`[chat] web push sender (pid ${process.pid})`);
+          return;
+        }
+      }
       if (chatSync.isLocal()) {
         const { rows: [r] } = await c.query('SELECT pg_try_advisory_lock(hashtext($1)) AS ok', [chatSync.LEADER_LOCK]);
         if (r.ok) {
@@ -453,6 +467,9 @@ function startLiveEvents(pool) {
     let n;
     try { n = JSON.parse(payload); } catch (_e) { return; }
     if (n.l && leader && loop) loop.kick();
+    if (pushSender && n.t === 'chat_messages' && n.op === 'INSERT') {
+      chatNotify.sendPushForMessage(pool, n.s).catch((err) => console.warn('[chat-push]', err.message));
+    }
     if (!n.e || !streams.size) return;
     if (n.t === 'chat_messages') {
       const { rows } = await pool.query('SELECT * FROM chat_messages WHERE sync_id = $1', [n.s]);
@@ -519,6 +536,8 @@ function registerChatRoutes(app, pool) {
     return true;
   }
 
+  chatNotify.registerNotifyRoutes(app, pool, { ready, membership, fail });
+
   app.get('/api/chat/me', async (req, res) => {
     try {
       if (!(await ready(req, res))) return;
@@ -581,6 +600,8 @@ function registerChatRoutes(app, pool) {
         `SELECT c.sync_id, c.type, c.title, c.last_message_at,
                 (SELECT m.role FROM chat_members m WHERE m.conversation_sync_id = c.sync_id
                     AND LOWER(m.username) = LOWER($1) AND m.left_at IS NULL) AS my_role,
+                (SELECT m.muted_until FROM chat_members m WHERE m.conversation_sync_id = c.sync_id
+                    AND LOWER(m.username) = LOWER($1) AND m.left_at IS NULL) AS muted_until,
                 (SELECT array_agg(m.username ORDER BY LOWER(m.username)) FROM chat_members m
                   WHERE m.conversation_sync_id = c.sync_id AND m.left_at IS NULL) AS members,
                 lm.body AS last_body, lm.sender AS last_sender, lm.deleted_at AS last_deleted,
@@ -616,6 +637,7 @@ function registerChatRoutes(app, pool) {
               : (r.title || (all && others.length > 1 ? members.join(' ↔ ') : (others[0] || me))),
             members,
             my_role: r.my_role || null,
+            muted_until: chatNotify.muteOut(r.muted_until),
             online: r.type === 'group' ? false : others.some(isOnline),
             last_message_at: r.last_message_at,
             last_body: r.last_deleted ? 'This message was deleted' : previewText(r.last_kind, r.last_body),
@@ -822,6 +844,7 @@ function registerChatRoutes(app, pool) {
                        updated_at = NOW()`,
         [convId, me, localFactoryId()]
       );
+      await chatNotify.markChatNotificationRead(pool, me, convId);
       res.json({ ok: true, last_read_at: rows[0].last_read_at });
     } catch (err) { fail(res, err, 'read'); }
   });

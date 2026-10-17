@@ -13,6 +13,9 @@
  */
 'use strict';
 
+// Chat notifications (push + notification click) live in their own file.
+try { importScripts('/sw-chat.js'); } catch (e) { /* chat notifications off; caching still works */ }
+
 const CACHE_VERSION = 'jms-v4-2026-07-18a';
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const PAGE_CACHE = `${CACHE_VERSION}-pages`;

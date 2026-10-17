@@ -11,8 +11,25 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.126.0",
+  "latest": "1.127.0",
   "versions": [
+    {
+      "version": "1.127.0",
+      "date": "2026-10-17",
+      "title": "Chat notifications",
+      "modules": [
+        {
+          "app": "all",
+          "changes": [
+            { "type": "feat", "text": "Chat messages now show in the bell and on the Notifications page: one line per chat with the newest message, cleared when you open the chat." },
+            { "type": "feat", "text": "Desktop pop-ups for new chat messages while JMS is in the background: press the 🔔 in the chat panel to turn them on. On the live site they also arrive when JMS is closed." },
+            { "type": "feat", "text": "Mute a chat for 8 hours, 1 week or always with the 🔔 at the top of the chat, and turn the chat sound on or off." },
+            { "type": "feat", "text": "Type @ in a group to mention someone (or @all): they are notified even if they muted the chat." },
+            { "type": "security", "text": "The Notifications page no longer lets text in a notification run as page code." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.126.0",
       "date": "2026-10-17",

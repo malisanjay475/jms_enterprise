@@ -2,6 +2,8 @@
 // a WhatsApp-style panel. Loaded on every page by app.js. Needs a login session; with
 // none, it stays hidden. Message text is always set with textContent (never HTML).
 // Phase 2: groups, attachments, delivered/read ticks, typing, search, edit and delete.
+// Phase 4: desktop notifications (page + Web Push via /sw.js -> /sw-chat.js), mute,
+// sound on/off, @mentions, open a chat from ?chat=<id> (bell, notifications page, push).
 (function () {
   'use strict';
   if (window.__jmsChatLoaded) return;
@@ -18,6 +20,11 @@
   var oldestTs = null, hasMore = false;
   var editing = null, typingSentAt = 0, typingTimer = null, searchTimer = null;
   var root, els = {};
+  var soundOn = readPref('jmsChatSound', '1') === '1';
+  var swReg = null; // service worker registration, when the page may use one
+
+  function readPref(k, d) { try { var v = localStorage.getItem(k); return v == null ? d : v; } catch (_e) { return d; } }
+  function writePref(k, v) { try { localStorage.setItem(k, v); } catch (_e) { } }
 
   function api(method, url, body) {
     var isForm = typeof FormData !== 'undefined' && body instanceof FormData;
@@ -92,6 +99,25 @@
 
   function isGroup(c) { return !!c && c.type === 'group'; }
 
+  function convById(id) { return convs.filter(function (x) { return x.sync_id === id; })[0] || (current && current.sync_id === id ? current : null); }
+
+  function isMuted(c) { return !!(c && c.muted_until && new Date(c.muted_until) > new Date()); }
+
+  function escapeRe(t) { return String(t).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+
+  // @me, @all or @everyone as a whole word (same rule as chat_mentions() on the server).
+  function mentionsMe(body) {
+    var re = new RegExp('(^|[^\\w.@])@(all|everyone|' + escapeRe(me) + ')(?![\\w])', 'i');
+    return re.test(String(body || ''));
+  }
+
+  function muteLabel(c) {
+    if (!isMuted(c)) return '';
+    var until = new Date(c.muted_until);
+    if (until.getFullYear() > 9000) return 'Muted';
+    return 'Muted until ' + until.toLocaleString([], { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+  }
+
   // ---------------- styles ----------------
   var CSS = [
     '.jc-root{--jc-g:#00a884;--jc-gd:#008069;--jc-bg:#fff;--jc-bg2:#f0f2f5;--jc-chat:#efeae2;--jc-out:#d9fdd3;--jc-in:#fff;--jc-tx:#111b21;--jc-mu:#667781;--jc-bd:#e9edef;font-family:inherit;font-size:14px;color:var(--jc-tx)}',
@@ -101,7 +127,7 @@
     '.jc-badge{position:absolute;top:-4px;right:-4px;min-width:20px;height:20px;padding:0 5px;border-radius:10px;background:#e53935;color:#fff;font-size:11px;font-weight:700;line-height:20px;text-align:center;display:none}',
     '.jc-panel{position:fixed;right:20px;bottom:86px;z-index:9991;width:760px;max-width:calc(100vw - 40px);height:560px;max-height:calc(100vh - 110px);background:var(--jc-bg);border-radius:12px;box-shadow:0 10px 40px rgba(0,0,0,.3);display:none;overflow:hidden}',
     '.jc-panel.jc-open{display:flex}',
-    '.jc-side{width:300px;border-right:1px solid var(--jc-bd);display:flex;flex-direction:column;min-width:0}',
+    '.jc-side{position:relative;width:300px;border-right:1px solid var(--jc-bd);display:flex;flex-direction:column;min-width:0}',
     '.jc-head{height:56px;flex:none;background:var(--jc-bg2);display:flex;align-items:center;gap:8px;padding:0 12px;border-bottom:1px solid var(--jc-bd)}',
     '.jc-head h3{margin:0;font-size:16px;font-weight:600;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
     '.jc-ibtn{border:0;background:none;cursor:pointer;color:var(--jc-mu);padding:6px;border-radius:50%;font-size:18px;line-height:1}',
@@ -125,7 +151,7 @@
     '.jc-unr{flex:none;min-width:18px;height:18px;border-radius:9px;background:#25d366;color:#fff;font-size:11px;font-weight:700;text-align:center;line-height:18px;padding:0 5px}',
     '.jc-empty{padding:30px 16px;text-align:center;color:var(--jc-mu);font-size:13px}',
     '.jc-sect{padding:8px 12px 4px;font-size:12px;font-weight:600;color:var(--jc-gd);text-transform:uppercase}',
-    '.jc-main{flex:1;display:flex;flex-direction:column;min-width:0;background:var(--jc-chat)}',
+    '.jc-main{position:relative;flex:1;display:flex;flex-direction:column;min-width:0;background:var(--jc-chat)}',
     '.jc-mh-click{cursor:pointer}',
     '.jc-msgs{flex:1;overflow-y:auto;padding:12px 6%}',
     '.jc-day{text-align:center;margin:10px 0}',
@@ -175,6 +201,16 @@
     '.jc-btn.jc-danger{background:none;color:#d93025;padding-left:0}',
     '.jc-role{font-size:11px;color:var(--jc-gd);border:1px solid var(--jc-g);border-radius:8px;padding:0 6px;flex:none}',
     '.jc-chk{flex:none;width:18px;height:18px;accent-color:var(--jc-g)}',
+    '.jc-at{color:#027eb5;font-weight:600}',
+    '.jc-at.jc-me{background:#fff3c4;border-radius:3px;padding:0 2px}',
+    '.jc-mute{font-size:12px;margin-left:4px;color:var(--jc-mu)}',
+    '.jc-pop{position:absolute;z-index:5;background:#fff;border-radius:8px;box-shadow:0 6px 20px rgba(0,0,0,.22);padding:4px 0;min-width:200px}',
+    '.jc-pop button{display:block;width:100%;border:0;background:none;text-align:left;padding:8px 14px;font:inherit;cursor:pointer;white-space:nowrap}',
+    '.jc-pop button:hover,.jc-pop button.jc-on{background:var(--jc-bg2)}',
+    '.jc-pop .jc-sub{padding:6px 14px 2px;font-size:11px;color:var(--jc-mu)}',
+    '.jc-ment{position:absolute;left:10px;bottom:58px;z-index:4;background:#fff;border-radius:8px;box-shadow:0 6px 20px rgba(0,0,0,.22);max-height:180px;overflow-y:auto;min-width:200px;display:none}',
+    '.jc-ment div{padding:7px 12px;cursor:pointer}',
+    '.jc-ment div:hover,.jc-ment div.jc-on{background:var(--jc-bg2)}',
     '.jc-err{background:#fde8e8;color:#b42318;font-size:12px;padding:6px 10px;display:none}',
     '.jc-back{display:none}',
     '.jc-toast{position:fixed;right:20px;bottom:86px;z-index:9992;max-width:300px;background:#fff;border-left:4px solid var(--jc-g);border-radius:8px;box-shadow:0 6px 20px rgba(0,0,0,.25);padding:10px 12px;cursor:pointer}',
@@ -206,13 +242,15 @@
     var side = el('div', 'jc-side');
     var sh = el('div', 'jc-head');
     sh.appendChild(el('h3', null, 'Chats'));
+    var bellBtn = el('button', 'jc-ibtn', '🔔');
+    bellBtn.title = 'Notifications and sound';
     var groupBtn = el('button', 'jc-ibtn', '👥');
     groupBtn.title = 'New group';
     var newBtn = el('button', 'jc-ibtn', '✎');
     newBtn.title = 'New chat';
     var closeBtn = el('button', 'jc-ibtn', '✕');
     closeBtn.title = 'Close';
-    sh.appendChild(groupBtn); sh.appendChild(newBtn); sh.appendChild(closeBtn);
+    sh.appendChild(bellBtn); sh.appendChild(groupBtn); sh.appendChild(newBtn); sh.appendChild(closeBtn);
     var search = el('div', 'jc-search');
     var sIn = el('input');
     sIn.placeholder = 'Search chats, people and messages';
@@ -236,11 +274,13 @@
     var mName = el('div', 'jc-name');
     var mSub = el('div', 'jc-prev');
     mTitle.appendChild(mName); mTitle.appendChild(mSub);
+    var mMute = el('button', 'jc-ibtn', '🔕');
+    mMute.title = 'Mute notifications';
     var mInfo = el('button', 'jc-ibtn', 'ⓘ');
     mInfo.title = 'Group info';
     var mClose = el('button', 'jc-ibtn', '✕');
     mClose.title = 'Close';
-    mh.appendChild(back); mh.appendChild(mAv); mh.appendChild(mTitle); mh.appendChild(mInfo); mh.appendChild(mClose);
+    mh.appendChild(back); mh.appendChild(mAv); mh.appendChild(mTitle); mh.appendChild(mMute); mh.appendChild(mInfo); mh.appendChild(mClose);
     var msgs = el('div', 'jc-msgs');
     var ro = el('div', 'jc-ro', 'Superadmin view: read-only. Your viewing is logged.');
     var editBar = el('div', 'jc-editbar');
@@ -263,6 +303,7 @@
     send.innerHTML = ICON_SEND;
     send.title = 'Send';
     comp.appendChild(attach); comp.appendChild(fileIn); comp.appendChild(ta); comp.appendChild(send);
+    var ment = el('div', 'jc-ment');
     var ph = el('div', 'jc-ph');
     ph.appendChild(el('div', null, '💬'));
     ph.appendChild(el('b', null, 'JMS Chat'));
@@ -288,7 +329,7 @@
     els = { panel: panel, list: list, sIn: sIn, tabs: tabs, tMine: tMine, tAll: tAll, err: err,
       main: main, mh: mh, mAv: mAv, mName: mName, mSub: mSub, mTitle: mTitle, mInfo: mInfo, msgs: msgs, ro: ro,
       comp: comp, ta: ta, send: send, ph: ph, badge: badge, newBtn: newBtn, fileIn: fileIn,
-      editBar: editBar, editTxt: editTxt };
+      editBar: editBar, editTxt: editTxt, ment: ment, mMute: mMute, side: side };
 
     fab.addEventListener('click', function () { toggle(!open); });
     closeBtn.addEventListener('click', function () { toggle(false); });
@@ -309,9 +350,13 @@
       if (f) sendFile(f);
     });
     mTitle.addEventListener('click', function () { if (isGroup(current)) showGroupInfo(); });
+    bellBtn.addEventListener('click', function (e) { e.stopPropagation(); showSettings(bellBtn); });
+    mMute.addEventListener('click', function (e) { e.stopPropagation(); showMuteMenu(mMute); });
     mInfo.addEventListener('click', function () { if (isGroup(current)) showGroupInfo(); });
     editX.addEventListener('click', cancelEdit);
     ta.addEventListener('keydown', function (e) {
+      if (mentionOpen() && (e.key === 'Enter' || e.key === 'Tab')) { e.preventDefault(); pickMention(0); return; }
+      if (mentionOpen() && e.key === 'Escape') { e.stopPropagation(); hideMention(); return; }
       if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
       else if (e.key === 'Escape' && editing) { e.stopPropagation(); cancelEdit(); }
     });
@@ -319,6 +364,7 @@
       ta.style.height = 'auto';
       ta.style.height = Math.min(ta.scrollHeight, 120) + 'px';
       sendTyping();
+      updateMention();
     });
     ta.addEventListener('paste', function (e) {
       var items = (e.clipboardData && e.clipboardData.files) || [];
@@ -393,7 +439,9 @@
       av.style.background = avatarColor(c.title);
       var mid = el('div', 'jc-mid');
       var r1 = el('div', 'jc-row');
-      r1.appendChild(el('div', 'jc-name', c.title));
+      var nm = el('div', 'jc-name', c.title);
+      if (isMuted(c)) { var mi = el('span', 'jc-mute', '🔕'); mi.title = muteLabel(c); nm.appendChild(mi); }
+      r1.appendChild(nm);
       r1.appendChild(el('div', 'jc-time', fmtListTime(c.last_message_at)));
       var r2 = el('div', 'jc-row');
       var typing = typingText(c.sync_id);
@@ -610,6 +658,10 @@
     els.mSub.className = 'jc-prev';
     if (readOnly || isGroup(c)) els.mSub.textContent = (c.members || []).join(', ');
     else els.mSub.textContent = c.online ? 'online' : '';
+    if (isMuted(c)) els.mSub.textContent = '🔕 ' + muteLabel(c) + (els.mSub.textContent ? ' · ' + els.mSub.textContent : '');
+    els.mMute.style.display = readOnly ? 'none' : '';
+    els.mMute.textContent = isMuted(c) ? '🔕' : '🔔';
+    els.mMute.title = isMuted(c) ? muteLabel(c) + ' (click to change)' : 'Mute notifications';
     els.mAv.textContent = isGroup(c) ? '👥' : initials(c.title);
     els.mAv.style.background = avatarColor(c.title);
   }
@@ -818,7 +870,7 @@
       } else {
         if (m.attachment) b.appendChild(attachmentEl(m));
         else if (m.localFile) b.appendChild(el('div', 'jc-prev', '📎 ' + m.localFile.name + ' · ' + fmtSize(m.localFile.size)));
-        if (m.body) b.appendChild(document.createTextNode(m.body));
+        if (m.body) appendBody(b, m.body);
       }
       var meta = el('span', 'jc-meta', (m.edited_at && !m.deleted ? 'edited ' : '') + (m.pending ? '' : fmtTime(m.server_ts)));
       if (mine && !adminView && !m.deleted) {
@@ -960,6 +1012,7 @@
     api('POST', API + '/read', { conversation_sync_id: convId }).then(function () {
       if (c) c.unread = 0;
       updateBadge();
+      if (typeof window.checkUnread === 'function') { try { window.checkUnread(); } catch (_e) { } }
       renderListIfIdle();
     }).catch(function () { });
   }
@@ -1119,7 +1172,7 @@
     root.appendChild(toastEl);
     clearTimeout(toastTimer);
     toastTimer = setTimeout(function () { if (toastEl) { toastEl.remove(); toastEl = null; } }, 5000);
-    beep();
+    if (soundOn) beep();
   }
 
   function beep() {
@@ -1134,6 +1187,182 @@
     } catch (_e) { }
   }
 
+  // ---------------- mentions ----------------
+  function appendBody(b, text) {
+    var parts = String(text).split(/(@[\w.\-]+)/);
+    parts.forEach(function (part) {
+      if (/^@[\w.\-]+$/.test(part)) {
+        var name = part.slice(1);
+        var known = /^(all|everyone)$/i.test(name) || (current && (current.members || []).some(function (n) { return same(n, name); }));
+        if (known) { b.appendChild(el('span', 'jc-at' + (same(name, me) || /^(all|everyone)$/i.test(name) ? ' jc-me' : ''), part)); return; }
+      }
+      if (part) b.appendChild(document.createTextNode(part));
+    });
+  }
+
+  var mentionList = [];
+  function mentionOpen() { return els.ment && els.ment.style.display === 'block' && mentionList.length; }
+  function hideMention() { if (els.ment) els.ment.style.display = 'none'; mentionList = []; }
+
+  // "@ra" just before the caret in a group: suggest members.
+  function updateMention() {
+    if (!current || !isGroup(current) || current.is_member === false) return hideMention();
+    var ta = els.ta, upto = ta.value.slice(0, ta.selectionStart);
+    var mm = /(^|\s)@([\w.\-]*)$/.exec(upto);
+    if (!mm) return hideMention();
+    var q = mm[2].toLowerCase();
+    mentionList = (current.members || []).filter(function (n) { return !same(n, me) && n.toLowerCase().indexOf(q) === 0; });
+    if ('all'.indexOf(q) === 0) mentionList.push('all');
+    if (!mentionList.length) return hideMention();
+    var box = els.ment;
+    box.textContent = '';
+    mentionList.slice(0, 8).forEach(function (n, i) {
+      var d = el('div', i === 0 ? 'jc-on' : null, '@' + n + (n === 'all' ? '  (everyone in the group)' : ''));
+      d.addEventListener('mousedown', function (e) { e.preventDefault(); pickMention(i); });
+      box.appendChild(d);
+    });
+    if (!box.parentNode) els.main.appendChild(box);
+    box.style.display = 'block';
+  }
+
+  function pickMention(i) {
+    var name = mentionList[i];
+    if (!name) return hideMention();
+    var ta = els.ta, pos = ta.selectionStart;
+    var before = ta.value.slice(0, pos).replace(/@[\w.\-]*$/, '@' + name + ' ');
+    ta.value = before + ta.value.slice(pos);
+    ta.selectionStart = ta.selectionEnd = before.length;
+    hideMention();
+    ta.focus();
+  }
+
+  // ---------------- menus: mute, settings ----------------
+  var popEl = null;
+  function closePop() { if (popEl) { popEl.remove(); popEl = null; } }
+  document.addEventListener('click', function (e) { if (popEl && !popEl.contains(e.target)) closePop(); });
+
+  function popup(anchor, host, items) {
+    closePop();
+    var pop = el('div', 'jc-pop');
+    items.forEach(function (it) {
+      if (it.sub) { pop.appendChild(el('div', 'jc-sub', it.sub)); return; }
+      var b = el('button', it.on ? 'jc-on' : null, it.label);
+      b.addEventListener('click', function (e) { e.stopPropagation(); closePop(); it.run(); });
+      pop.appendChild(b);
+    });
+    var hr = host.getBoundingClientRect(), ar = anchor.getBoundingClientRect();
+    pop.style.top = (ar.bottom - hr.top + 4) + 'px';
+    pop.style.right = Math.max(4, hr.right - ar.right) + 'px';
+    host.appendChild(pop);
+    popEl = pop;
+  }
+
+  function showMuteMenu(anchor) {
+    var c = current;
+    if (!c || c.is_member === false) return;
+    var setMute = function (how) {
+      api('POST', API + '/conversations/' + encodeURIComponent(c.sync_id) + '/mute', { 'for': how }).then(function (d) {
+        c.muted_until = d.muted_until;
+        var lc = convs.filter(function (x) { return x.sync_id === c.sync_id; })[0];
+        if (lc) lc.muted_until = d.muted_until;
+        convHeader();
+        renderListIfIdle();
+      }).catch(function (e) { showErr(e.message); });
+    };
+    var items = [{ sub: isMuted(c) ? muteLabel(c) + '. @mentions still notify you.' : 'Mute notifications. @mentions still notify you.' },
+      { label: 'For 8 hours', run: function () { setMute('8h'); } },
+      { label: 'For 1 week', run: function () { setMute('1w'); } },
+      { label: 'Always', run: function () { setMute('always'); } }];
+    if (isMuted(c)) items.push({ label: '🔔 Unmute', run: function () { setMute('off'); } });
+    popup(anchor, els.main, items);
+  }
+
+  function notifState() {
+    if (!('Notification' in window)) return 'unsupported';
+    return Notification.permission; // default | granted | denied
+  }
+
+  function showSettings(anchor) {
+    var st = notifState();
+    var items = [{ sub: 'Pop-ups when JMS is in the background' }];
+    if (st === 'granted') items.push({ label: '✓ Desktop notifications are on', on: true, run: function () { ensurePush(); } });
+    else if (st === 'denied') items.push({ label: 'Desktop notifications are blocked in this browser', run: function () { showErr('Allow notifications for this site in the browser settings (padlock icon), then try again.'); } });
+    else if (st === 'unsupported') items.push({ label: 'This browser cannot show notifications', run: function () { } });
+    else items.push({ label: 'Turn on desktop notifications', run: enableNotifications });
+    items.push({ sub: 'Sound' });
+    items.push({ label: soundOn ? '🔊 Sound on (click to turn off)' : '🔇 Sound off (click to turn on)', on: soundOn, run: function () {
+      soundOn = !soundOn;
+      writePref('jmsChatSound', soundOn ? '1' : '0');
+      if (soundOn) beep();
+    } });
+    popup(anchor, els.side, items);
+  }
+
+  function enableNotifications() {
+    if (!('Notification' in window)) return;
+    Notification.requestPermission().then(function (p) {
+      if (p === 'granted') { ensurePush(); return; }
+      showErr('Notifications were not allowed.');
+    });
+  }
+
+  function urlB64ToUint8Array(b64) {
+    var pad = '='.repeat((4 - b64.length % 4) % 4);
+    var raw = atob((b64 + pad).replace(/-/g, '+').replace(/_/g, '/'));
+    var out = new Uint8Array(raw.length);
+    for (var i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
+    return out;
+  }
+
+  // Web Push (closed tabs) where the server offers it (MAIN over HTTPS). Quietly does
+  // nothing elsewhere: background-tab pop-ups still work there.
+  function ensurePush() {
+    if (!swReg || !('PushManager' in window) || notifState() !== 'granted') return;
+    api('GET', API + '/push/config').then(function (cfg) {
+      if (!cfg.enabled || !cfg.publicKey) return;
+      return swReg.pushManager.getSubscription().then(function (sub) {
+        return sub || swReg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlB64ToUint8Array(cfg.publicKey) });
+      }).then(function (sub) {
+        return api('POST', API + '/push/subscribe', { subscription: sub.toJSON() });
+      });
+    }).catch(function (e) { if (window.console) console.warn('[chat] push not set up:', e.message); });
+  }
+
+  function desktopNotify(m) {
+    if (notifState() !== 'granted') return;
+    var c = convById(m.conversation_sync_id);
+    var title = c && isGroup(c) ? m.sender + ' in ' + c.title : m.sender;
+    var opts = { body: (mentionsMe(m.body) ? '@ ' : '') + previewOf(m), tag: 'jms-chat-' + m.conversation_sync_id,
+      renotify: true, icon: '/assets/icon-192.png', data: { chat: m.conversation_sync_id }, silent: !soundOn };
+    if (swReg && swReg.showNotification) { swReg.showNotification(title, opts).catch(function () { }); return; }
+    try {
+      var n = new Notification(title, opts);
+      n.onclick = function () { window.focus(); openChatById(m.conversation_sync_id); n.close(); };
+    } catch (_e) { }
+  }
+
+  function openChatById(id) {
+    if (!/^[0-9a-f-]{36}$/i.test(String(id || ''))) return;
+    toggle(true);
+    loadConvs().then(function () {
+      var c = convs.filter(function (x) { return x.sync_id === id; })[0];
+      if (c) openConv(c);
+    });
+  }
+
+  function setupServiceWorker() {
+    if (!('serviceWorker' in navigator)) return;
+    var secure = window.isSecureContext || location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+    if (!secure) return;
+    navigator.serviceWorker.register('/sw.js').then(function (reg) {
+      swReg = reg;
+      ensurePush();
+    }).catch(function () { });
+    navigator.serviceWorker.addEventListener('message', function (e) {
+      if (e.data && e.data.type === 'jms-open-chat') openChatById(e.data.chat);
+    });
+  }
+
   function onEvent(ev) {
     if (ev.type === 'message') {
       var m = ev.message;
@@ -1142,13 +1371,16 @@
         delete typingIn[m.conversation_sync_id];
         if (current && current.sync_id === m.conversation_sync_id) convHeader();
       }
+      var alert = !mine && !ev.adminCopy && m.kind !== 'system' && !m.deleted &&
+        (!isMuted(convById(m.conversation_sync_id)) || mentionsMe(m.body));
       if (current && current.sync_id === m.conversation_sync_id) {
         var exists = loaded.some(function (x) { return x.sync_id === m.sync_id; });
         if (!exists) { loaded.push(m); redraw(); }
         if (open && !document.hidden && !ev.adminCopy) markRead(m.conversation_sync_id);
-      } else if (!mine && !ev.adminCopy && m.kind !== 'system') {
+      } else if (alert) {
         toast(m);
       }
+      if (alert && document.hidden) desktopNotify(m);
       if (open) loadConvs(); else updateBadge();
     } else if (ev.type === 'message_update') {
       if (current && current.sync_id === ev.message.conversation_sync_id) applyUpdate(ev.message);
@@ -1227,6 +1459,10 @@
       if (isAdmin) els.tabs.style.display = 'flex';
       updateBadge();
       connect();
+      setupServiceWorker();
+      // ?chat=<id>: opened from the bell, the notifications page or a push notification.
+      var want = /[?&]chat=([0-9a-f-]{36})/i.exec(location.search);
+      if (want) openChatById(want[1]);
     }).catch(function () { /* no session: no chat button */ });
   }
 
