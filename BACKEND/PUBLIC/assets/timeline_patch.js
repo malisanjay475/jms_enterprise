@@ -363,11 +363,19 @@
                         ${exp ? `<div style="text-align:right;color:#2563eb;font-weight:700">Exp:</div><div style="font-weight:700;color:#2563eb">${xStr}</div>` : ''}
                     </div>`;
                 }
-            } else if (st === 'completed' && (item.completedBy || item.completedAt)) {
-                // Completed plan — show who completed and when
+            } else if (st === 'completed' && (item.completedBy || item.completedAt || item.completedInfo)) {
+                // Completed plan — planned window, actual DPR run dates, rejects, who completed and when
+                const c = item.completedInfo || {};
+                const day = (d) => d ? new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : '-';
+                const ran = c.first_date ? (c.first_date === c.last_date ? day(c.first_date) : `${day(c.first_date)} → ${day(c.last_date)}`) : '';
+                const lbl = (t, col) => `<div style="text-align:right;color:${col || '#94a3b8'}">${t}</div>`;
                 datesHtml = `<div style="display:grid;grid-template-columns:auto 1fr;gap:2px 8px;font-size:0.8rem">
-                    <div style="text-align:right;color:#15803d;font-weight:700">By:</div><div style="font-weight:700;color:#15803d">${esc(item.completedBy || '–')}</div>
-                    <div style="text-align:right;color:#94a3b8">At:</div><div style="font-weight:600;color:#334155">${fmt(item.completedAt)}</div>
+                    ${c.start_date ? `${lbl('Plan:')}<div style="font-weight:600;color:#334155">${fmt(c.start_date)} → ${fmt(c.end_date)}</div>` : ''}
+                    ${ran ? `${lbl('Ran:')}<div style="font-weight:600;color:#334155">${ran}${c.entries ? ` <span style="color:#94a3b8">(${c.entries} DPR)</span>` : ''}</div>` : ''}
+                    ${Number(c.reject_qty) > 0 ? `${lbl('Rej:', '#dc2626')}<div style="font-weight:700;color:#dc2626">${Number(c.reject_qty).toLocaleString()}</div>` : ''}
+                    ${lbl('By:', '#15803d')}<div style="font-weight:700;color:#15803d">${esc(item.completedBy || '–')}</div>
+                    ${lbl('At:')}<div style="font-weight:600;color:#334155">${fmt(item.completedAt)}</div>
+                    ${c.created_by ? `${lbl('Planned by:')}<div style="color:#475569">${esc(c.created_by)}</div>` : ''}
                 </div>`;
             }
 
@@ -398,8 +406,11 @@
                 machDisplay = '<span style="color:#cbd5e1;font-style:italic">Unassigned</span>';
             }
             const jcClickable = jc && jc !== '-'
-                ? `<span class="dd-jc-link" onclick="window.openJcDrilldown('${esc(jc)}','${esc(jc)}','${esc(item._planObj ? (item._planObj.planId || item._planObj.plan_id || '') : (item.completedPlanId || ''))}','${esc(item._planObj ? (item._planObj.orderNo || '') : '')}');event.stopPropagation();" title="Click to see colour/shift/hourly drill-down">${esc(jc)} <i class="bi bi-bar-chart-line-fill" style="font-size:.75rem"></i></span>`
+                ? `<span class="dd-jc-link" onclick="window.openJcDrilldown('${esc(jc)}','${esc(jc)}','${esc(item._planObj ? (item._planObj.planId || item._planObj.plan_id || '') : (item.completedPlanId || ''))}','${esc(item._planObj ? (item._planObj.orderNo || orderNo) : orderNo)}');event.stopPropagation();" title="Click to see colour/shift/hourly drill-down">${esc(jc)} <i class="bi bi-bar-chart-line-fill" style="font-size:.75rem"></i></span>`
                 : '<span style="color:#cbd5e1">—</span>';
+            const jcDate = item.completedInfo && item.completedInfo.job_card_date;
+            const jcCell = jcClickable + (jc && jc !== '-' && jcDate
+                ? `<div style="font-size:0.72rem;color:#94a3b8">${new Date(jcDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: '2-digit' })}</div>` : '');
 
             const planIdText = esc(item._planObj ? (item._planObj.planId || item._planObj.plan_id || '-') : (item.completedPlanId || '-'));
             const completedRowStyle = st === 'completed' ? ' style="background:#f0fdf4;"' : '';
@@ -408,7 +419,7 @@
                 <td><div style="font-weight:700;color:#334155">${esc(item.mouldName || '-')}</div>
                     <div style="font-size:0.8rem;color:#64748b;font-family:monospace">${esc(item.mouldNo)}</div></td>
                 <td style="font-weight:600;color:#334155">${machDisplay}</td>
-                <td>${jcClickable}</td>
+                <td>${jcCell}</td>
                 <td><span class="om-badge ${badgeClass}">${esc(item.status || 'Pending')}</span></td>
                 <td style="text-align:right;font-weight:700;color:#1e293b">${(item.planQty || 0).toLocaleString()}</td>
                 <td style="text-align:right;font-weight:700;color:#16a34a">${(item.producedQty || 0).toLocaleString()}${item.extraQty > 0 ? `<div style="font-size:0.72rem;color:#15803d;font-weight:700">+${Number(item.extraQty).toLocaleString()} extra</div>` : ''}</td>
@@ -532,7 +543,8 @@
                             extraQty:     cp ? Number(cp.extra_qty || 0) : 0,
                             completedBy:  cp ? cp.completed_by : null,
                             completedAt:  cp ? cp.completed_at : null,
-                            completedPlanId: cp ? cp.id : null,
+                            completedPlanId: cp ? (cp.plan_id || cp.id) : null,
+                            completedInfo: cp || null,
                             _planObj:     ap
                         };
                     });

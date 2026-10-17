@@ -11,8 +11,21 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.130.2",
+  "latest": "1.131.0",
   "versions": [
+    {
+      "version": "1.131.0",
+      "date": "2026-10-17",
+      "title": "Order popup: completed plans show JC",
+      "modules": [
+        {
+          "app": "planning",
+          "changes": [
+            { "type": "feature", "text": "In the order popup, completed plans now show their Job Card number (click it for the colour/shift/hourly drill-down), plan dates, the dates it actually ran, rejects and who planned it." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.130.2",
       "date": "2026-10-17",
