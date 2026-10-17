@@ -10122,7 +10122,7 @@ async function shiftingJobRows(req, { days, line }) {
     shiftingMouldPacking(plans.flatMap(p => [p.mould_name, p.mould_code]))
   ]);
   const [jobAvail, jobHolds, verifyEnforced, clientRows] = await Promise.all([
-    shiftingAvailabilityMap(plans.map(p => ({ pk: p.plan_id, code: p.plan_code })), factoryId),
+    shiftingAvailabilityMap(plans.map(p => ({ pk: p.plan_id, code: p.plan_code, order_no: p.order_no })), factoryId),
     shiftingHoldsByMachine(plans.map(p => p.machine), factoryId),
     shiftingVerificationEnforced(factoryId),
     orders.length
@@ -10511,7 +10511,7 @@ app.post('/api/shifting/entry', async (req, res) => {
     }
 
     const planRows = await q(
-      `SELECT id, plan_id, machine, status, factory_id, mould_name, mould_code
+      `SELECT id, plan_id, machine, status, factory_id, mould_name, mould_code, order_no
          FROM plan_board
         WHERE (CAST(id AS TEXT) = TRIM($1::text) OR TRIM(COALESCE(plan_id, '')) = TRIM($1::text))
           AND ($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL)
@@ -10544,7 +10544,7 @@ app.post('/api/shifting/entry', async (req, res) => {
 
       // Colour of the shifted material: the one picked, or the job's only produced colour.
       // Saved with DPR's spelling so the job panel shows it under that colour.
-      const avail = (await shiftingAvailabilityMap([{ pk: plan.id, code: planCode }], planFactoryId)).get(planPk);
+      const avail = (await shiftingAvailabilityMap([{ pk: plan.id, code: planCode, order_no: plan.order_no }], planFactoryId)).get(planPk);
       const producedColours = avail ? [...avail.colours.values()].filter(c => c.colour && c.produced > 0) : [];
       let colour = '';
       if (wantedColour) {
@@ -10796,16 +10796,21 @@ async function shiftingVerificationEnforced(factoryId) {
  * Map<String(pk), { produced, verified, not_verified, shifted, ready, colours: Map<ck, {...}> }>.
  */
 async function shiftingAvailabilityMap(plans, factoryId) {
+  // p.order_no (optional): skip DPR rows of another order - a plan code can be stamped
+  // on an unrelated order's rows (plan codes repeat between factories).
   const list = (plans || []).filter(p => p && (p.pk != null || p.code));
   const out = new Map();
   if (!list.length) return out;
   const fid = normalizeFactoryId(factoryId) ?? null;
   const keyByRef = new Map();
+  const orderByRef = new Map();
   list.forEach(p => {
     const pk = String(p.pk ?? '').trim();
     const code = String(p.code || '').trim();
     if (pk) keyByRef.set(pk, pk);
     if (code) keyByRef.set(code, pk || code);
+    const orderNo = String(p.order_no || '').trim().toUpperCase();
+    if (orderNo) { if (pk) orderByRef.set(pk, orderNo); if (code) orderByRef.set(code, orderNo); }
     out.set(pk || code, {
       produced: 0, verified: 0, not_verified: 0, shifted: 0, ready: 0, colours: new Map(), by_location: new Map(),
       // Shifted with no colour (manual entries saved before colour was asked, or by old apps).
@@ -10816,7 +10821,7 @@ async function shiftingAvailabilityMap(plans, factoryId) {
   const pkInts = list.map(p => Number(p.pk)).filter(Number.isInteger);
 
   const [dprRows, shiftRows] = await Promise.all([
-    q(`SELECT TRIM(CAST(d.plan_id AS TEXT)) AS ref, TRIM(COALESCE(d.colour, '')) AS colour,
+    q(`SELECT TRIM(CAST(d.plan_id AS TEXT)) AS ref, UPPER(TRIM(COALESCE(d.order_no, ''))) AS order_no, TRIM(COALESCE(d.colour, '')) AS colour,
               COALESCE(SUM(d.good_qty), 0) AS produced,
               COALESCE(SUM(CASE WHEN qv.status = 'Verified'
                                 THEN d.good_qty * LEAST(1.0, COALESCE(qv.qc_good_qty::numeric / NULLIF(qv.sup_good_qty, 0), 1.0))
@@ -10833,7 +10838,7 @@ async function shiftingAvailabilityMap(plans, factoryId) {
         WHERE TRIM(CAST(d.plan_id AS TEXT)) = ANY($1::text[])
           AND d.is_deleted IS NOT TRUE
           AND ($2::int IS NULL OR d.factory_id = $2 OR d.factory_id IS NULL)
-        GROUP BY 1, 2`, [refs, fid]),
+        GROUP BY 1, 2, 3`, [refs, fid]),
     pkInts.length
       ? q(`SELECT CAST(plan_id AS TEXT) AS ref, TRIM(COALESCE(colour, '')) AS colour,
                   COALESCE(NULLIF(TRIM(to_location), ''), '—') AS location, COALESCE(SUM(quantity), 0) AS shifted
@@ -10852,6 +10857,8 @@ async function shiftingAvailabilityMap(plans, factoryId) {
   dprRows.forEach(r => {
     const agg = out.get(keyByRef.get(r.ref));
     if (!agg) return;
+    const wantOrder = orderByRef.get(r.ref);
+    if (wantOrder && r.order_no && r.order_no !== wantOrder) return;
     const c = colourOf(agg, r.colour);
     const produced = Number(r.produced) || 0;
     const verified = Math.floor(Number(r.verified) || 0);
@@ -10963,7 +10970,7 @@ app.get('/api/shifting/availability', async (req, res) => {
     if (!plan) return res.status(404).json({ ok: false, error: 'Job not found.' });
     const fid = normalizeFactoryId(plan.factory_id) ?? factoryId;
     const [avail, holds, orderRows, enforced, recentRows] = await Promise.all([
-      shiftingAvailabilityMap([{ pk: plan.id, code: plan.plan_id }], fid),
+      shiftingAvailabilityMap([{ pk: plan.id, code: plan.plan_id, order_no: plan.order_no }], fid),
       shiftingHoldsByMachine([plan.machine], fid),
       q(`SELECT ojr.job_card_no, COALESCE(ojr.client_name, o.client_name) AS client_name
            FROM (SELECT $1::text AS order_no) x
@@ -25517,13 +25524,13 @@ app.post('/api/dpr/auto-fill-ongoing', async (req, res) => {
     // Find the last entry (any type) per machine today — then only carry forward if it's a quick-action.
     // This prevents carry-forward when a user makes a manual Main entry after a quick-action run.
     const lastEntryQ = `
-      SELECT DISTINCT ON (machine) machine, hour_slot, entry_type, shots, good_qty,
+      SELECT DISTINCT ON (machine, factory_id) machine, factory_id, hour_slot, entry_type, shots, good_qty,
         reject_qty, downtime_min, remarks, plan_id, order_no, mould_no, jobcard_no,
         colour, reject_breakup, downtime_breakup, supervisor
       FROM dpr_hourly
       WHERE dpr_date = $1 AND shift = $2 AND is_deleted = false
         AND ($3::int IS NULL OR factory_id = $3 OR factory_id IS NULL)
-      ORDER BY machine, id DESC
+      ORDER BY machine, factory_id, id DESC
     `;
     const allLastEntries = await q(lastEntryQ, [dprDate, currentShift, factoryId || null]);
     // Only carry forward machines whose absolute last entry is a quick-action type
@@ -25531,6 +25538,10 @@ app.post('/api/dpr/auto-fill-ongoing', async (req, res) => {
 
     let filled = 0;
     for (const last of lastEntries) {
+      // The fill-in row belongs to the same factory as the entry it continues. With no
+      // factory selected this used to save every unit's rows as factory 1, and plan codes
+      // repeat between factories, so they landed on an unrelated plan of factory 1.
+      const rowFactory = normalizeFactoryId(last.factory_id) ?? normalizeFactoryId(factoryId) ?? null;
       const lastIdx = SHIFT_SLOTS.indexOf(last.hour_slot);
       if (lastIdx === -1 || currentSlotIdx <= lastIdx) continue; // nothing to fill
 
@@ -25541,7 +25552,7 @@ app.post('/api/dpr/auto-fill-ongoing', async (req, res) => {
 
         const exists = await q(
           'SELECT id FROM dpr_hourly WHERE machine=$1 AND dpr_date=$2 AND shift=$3 AND hour_slot=$4 AND is_deleted=false AND ($5::int IS NULL OR factory_id=$5 OR factory_id IS NULL)',
-          [last.machine, dprDate, currentShift, gapSlot, factoryId || null]
+          [last.machine, dprDate, currentShift, gapSlot, rowFactory]
         );
         if (exists.length === 0) {
           await q(
@@ -25556,7 +25567,7 @@ app.post('/api/dpr/auto-fill-ongoing', async (req, res) => {
               (last.remarks ? (last.remarks.includes('[Auto-Filled]') ? last.remarks : last.remarks + ' [Auto-Filled]') : '[Auto-Filled]'),
               last.machine, last.plan_id, last.order_no, last.mould_no, last.jobcard_no,
               last.colour, last.reject_breakup, last.downtime_breakup, last.entry_type,
-              'SYSTEM-AUTOFILL', last.supervisor, factoryId || 1
+              'SYSTEM-AUTOFILL', last.supervisor, rowFactory
             ]
           );
           filled++;
