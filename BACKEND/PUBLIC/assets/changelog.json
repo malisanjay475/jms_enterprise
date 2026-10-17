@@ -23,7 +23,8 @@
           "changes": [
             { "type": "feat", "text": "Share to chat: press the 🔗 button next to the chat button (or right-click a row), click the problem on the page, add a note, pick people or groups and mark it Urgent if needed." },
             { "type": "feat", "text": "Tapping a shared item opens that page (switching factory if needed), highlights the marked spot and lets you press Start work or Mark done; everyone in the chat sees the status." },
-            { "type": "feat", "text": "Reply to a message like WhatsApp: hover and press ↩ (or swipe right on a phone). Tap the quote to jump to the original. A reply to your message notifies you even in a muted chat." }
+            { "type": "feat", "text": "Reply to a message like WhatsApp: hover and press ↩ (or swipe right on a phone). Tap the quote to jump to the original. A reply to your message notifies you even in a muted chat." },
+            { "type": "feat", "text": "Photos in chat open full screen: pinch or scroll to zoom, double-tap to zoom in, drag to move, swipe or use the arrows for the other photos, and tap outside (or press Back / Esc) to close." }
           ]
         }
       ]

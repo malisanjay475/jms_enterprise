@@ -277,6 +277,29 @@
     '.jc-replybar img{width:34px;height:34px;object-fit:cover;border-radius:4px}',
     '.jc-sys.jc-sysr span{cursor:pointer;text-decoration:underline dotted}',
     '@media (max-width:640px){.jc-panel.jc-open~.jc-sharefab{display:none}.jc-sharefab{right:80px;bottom:24px}}',
+    // image viewer
+    '.jc-iv{position:fixed;inset:0;z-index:100010;background:rgba(8,12,18,.94);display:flex;flex-direction:column;color:#fff;font-family:inherit;touch-action:none;user-select:none}',
+    '.jc-iv-head{flex:none;display:flex;align-items:center;gap:10px;padding:10px 14px;background:linear-gradient(rgba(0,0,0,.55),rgba(0,0,0,0))}',
+    '.jc-iv-who{flex:1;min-width:0}',
+    '.jc-iv-who b{display:block;font-size:15px}',
+    '.jc-iv-who span{font-size:12px;color:#cbd5e1}',
+    '.jc-iv-count{font-size:13px;color:#cbd5e1}',
+    '.jc-iv-btn{border:0;background:rgba(255,255,255,.12);color:#fff;width:40px;height:40px;border-radius:50%;font-size:20px;line-height:40px;text-align:center;cursor:pointer;text-decoration:none;padding:0;flex:none}',
+    '.jc-iv-btn:hover,.jc-iv-btn:focus-visible,.jc-iv-nav:hover,.jc-iv-nav:focus-visible{background:rgba(255,255,255,.28);outline:2px solid #00a884;outline-offset:1px}',
+    '.jc-iv-btn:disabled{opacity:.35;cursor:default}',
+    '.jc-iv-stage{flex:1;position:relative;overflow:hidden;display:flex;align-items:center;justify-content:center;cursor:zoom-out}',
+    '.jc-iv-img{max-width:calc(100% - 24px);max-height:100%;object-fit:contain;transform-origin:center center;cursor:zoom-in;will-change:transform;transition:opacity .15s}',
+    '.jc-iv.jc-iv-zoomed .jc-iv-img{cursor:grab}',
+    '.jc-iv.jc-iv-zoomed .jc-iv-img:active{cursor:grabbing}',
+    '.jc-iv-spin{position:absolute;left:50%;top:50%;width:42px;height:42px;margin:-21px 0 0 -21px;border:4px solid rgba(255,255,255,.25);border-top-color:#fff;border-radius:50%;animation:jcSpin .8s linear infinite}',
+    '@keyframes jcSpin{to{transform:rotate(360deg)}}',
+    '.jc-iv-err{position:absolute;display:none;color:#fecaca;font-size:14px}',
+    '.jc-iv-nav{position:absolute;top:50%;transform:translateY(-50%);border:0;width:46px;height:64px;border-radius:8px;background:rgba(255,255,255,.12);color:#fff;font-size:36px;cursor:pointer;z-index:2}',
+    '.jc-iv-prev{left:12px}',
+    '.jc-iv-next{right:12px}',
+    '.jc-iv-tools{flex:none;display:flex;gap:10px;align-items:center;justify-content:center;padding:10px;background:linear-gradient(rgba(0,0,0,0),rgba(0,0,0,.55))}',
+    '.jc-iv-pct{min-width:52px;text-align:center;font-size:13px;color:#e2e8f0}',
+    '@media (max-width:640px){.jc-iv-nav{display:none !important}.jc-iv-head{padding:8px 10px}}',
     '.jc-err{background:#fde8e8;color:#b42318;font-size:12px;padding:6px 10px;display:none}',
     '.jc-back{display:none}',
     '.jc-toast{position:fixed;right:20px;bottom:86px;z-index:9992;max-width:300px;background:#fff;border-left:4px solid var(--jc-g);border-radius:8px;box-shadow:0 6px 20px rgba(0,0,0,.25);padding:10px 12px;cursor:pointer}',
@@ -862,7 +885,7 @@
         var box = els.msgs;
         if (box.scrollHeight - box.scrollTop - box.clientHeight < 300) box.scrollTop = box.scrollHeight;
       });
-      img.addEventListener('click', function () { window.open(fileUrl(a), '_blank', 'noopener'); });
+      img.addEventListener('click', function (e) { e.stopPropagation(); openViewerFor(m); });
       return img;
     }
     if (a.kind === 'audio') {
@@ -1588,6 +1611,255 @@
       if (open && current && current.is_member !== false) markRead(current.sync_id);
     }
   });
+
+  // ================= Image viewer (WhatsApp-style) =================
+  // Full screen over a dark backdrop. Close: backdrop click/tap, Esc, ✕, or the phone's
+  // Back button (a history entry is pushed while open). Zoom 1x-5x: wheel, pinch, + / -,
+  // double-click/double-tap toggles fit <-> 2.5x; drag to pan when zoomed (a click that
+  // ends a drag never closes). Arrows / swipe step through this chat's images.
+  var viewer = null;
+
+  function chatImages() {
+    return loaded.filter(function (x) { return x.attachment && x.attachment.kind === 'image' && !x.deleted && !x.purged; })
+      .map(function (x) {
+        return { id: x.attachment.sync_id, src: fileUrl(x.attachment), download: fileUrl(x.attachment, true),
+          name: x.attachment.file_name, sender: x.sender, ts: x.server_ts };
+      });
+  }
+
+  function openViewerFor(m) {
+    var list = chatImages();
+    var i = list.map(function (x) { return x.id; }).indexOf(m.attachment.sync_id);
+    if (i === -1) { list = [{ id: m.attachment.sync_id, src: fileUrl(m.attachment), download: fileUrl(m.attachment, true), name: m.attachment.file_name, sender: m.sender, ts: m.server_ts }]; i = 0; }
+    openViewer(list, i);
+  }
+
+  function openViewer(list, index) {
+    if (viewer) viewer.close(true);
+    var MIN = 1, MAX = 5, DOUBLE = 2.5;
+    var st = { i: index, s: 1, tx: 0, ty: 0 };
+    var lastFocus = document.activeElement;
+
+    var ov = el('div', 'jc-iv');
+    ov.setAttribute('role', 'dialog');
+    ov.setAttribute('aria-modal', 'true');
+    ov.setAttribute('aria-label', 'Image viewer');
+    var head = el('div', 'jc-iv-head');
+    var who = el('div', 'jc-iv-who');
+    var whoName = el('b');
+    var whoTime = el('span');
+    who.appendChild(whoName); who.appendChild(whoTime);
+    var count = el('span', 'jc-iv-count');
+    var dl = el('a', 'jc-iv-btn', '⤓');
+    dl.title = 'Download'; dl.setAttribute('aria-label', 'Download image');
+    dl.setAttribute('download', '');
+    var xBtn = el('button', 'jc-iv-btn', '✕');
+    xBtn.title = 'Close (Esc)'; xBtn.setAttribute('aria-label', 'Close image viewer');
+    head.appendChild(who); head.appendChild(count); head.appendChild(dl); head.appendChild(xBtn);
+
+    var stage = el('div', 'jc-iv-stage');
+    var img = el('img', 'jc-iv-img');
+    img.alt = '';
+    img.draggable = false;
+    var spin = el('div', 'jc-iv-spin');
+    spin.setAttribute('aria-label', 'Loading');
+    var errBox = el('div', 'jc-iv-err', 'Could not load this image.');
+    stage.appendChild(img); stage.appendChild(spin); stage.appendChild(errBox);
+
+    var prev = el('button', 'jc-iv-nav jc-iv-prev', '‹');
+    prev.title = 'Previous image (←)'; prev.setAttribute('aria-label', 'Previous image');
+    var next = el('button', 'jc-iv-nav jc-iv-next', '›');
+    next.title = 'Next image (→)'; next.setAttribute('aria-label', 'Next image');
+
+    var tools = el('div', 'jc-iv-tools');
+    var zOut = el('button', 'jc-iv-btn', '−'); zOut.title = 'Zoom out (−)'; zOut.setAttribute('aria-label', 'Zoom out');
+    var zPct = el('span', 'jc-iv-pct', '100%');
+    var zIn = el('button', 'jc-iv-btn', '+'); zIn.title = 'Zoom in (+)'; zIn.setAttribute('aria-label', 'Zoom in');
+    var zFit = el('button', 'jc-iv-btn', '⤢'); zFit.title = 'Fit (0)'; zFit.setAttribute('aria-label', 'Reset zoom');
+    [zOut, zPct, zIn, zFit].forEach(function (n) { tools.appendChild(n); });
+
+    [head, stage, prev, next, tools].forEach(function (n) { ov.appendChild(n); });
+    document.body.appendChild(ov);
+
+    // ---- transform ----
+    function clampPan() {
+      var r = stage.getBoundingClientRect();
+      var w = img.offsetWidth * st.s, h = img.offsetHeight * st.s;
+      var mx = Math.max(0, (w - r.width) / 2), my = Math.max(0, (h - r.height) / 2);
+      st.tx = Math.max(-mx, Math.min(mx, st.tx));
+      st.ty = Math.max(-my, Math.min(my, st.ty));
+    }
+    function apply(animate) {
+      if (st.s <= MIN) { st.s = MIN; st.tx = 0; st.ty = 0; }
+      clampPan();
+      img.style.transition = animate ? 'transform .18s ease-out' : 'none';
+      img.style.transform = 'translate(' + st.tx + 'px,' + st.ty + 'px) scale(' + st.s + ')';
+      zPct.textContent = Math.round(st.s * 100) + '%';
+      zOut.disabled = st.s <= MIN; zIn.disabled = st.s >= MAX;
+      ov.classList.toggle('jc-iv-zoomed', st.s > MIN);
+    }
+    // zoom to `to`, keeping the screen point (cx, cy) still
+    function zoomAt(to, cx, cy, animate) {
+      var s0 = st.s;
+      var s1 = Math.max(MIN, Math.min(MAX, to));
+      if (s1 === s0) return;
+      var r = stage.getBoundingClientRect();
+      var px = (cx == null ? r.left + r.width / 2 : cx) - (r.left + r.width / 2);
+      var py = (cy == null ? r.top + r.height / 2 : cy) - (r.top + r.height / 2);
+      st.tx = px - (px - st.tx) * (s1 / s0);
+      st.ty = py - (py - st.ty) * (s1 / s0);
+      st.s = s1;
+      apply(animate);
+    }
+
+    // ---- showing an image ----
+    function show(i) {
+      st.i = (i + list.length) % list.length;
+      var it = list[st.i];
+      st.s = 1; st.tx = 0; st.ty = 0; apply(false);
+      whoName.textContent = same(it.sender, me) ? 'You' : it.sender;
+      whoTime.textContent = it.ts ? fmtDay(it.ts) + ', ' + fmtTime(it.ts) : '';
+      count.textContent = list.length > 1 ? (st.i + 1) + ' / ' + list.length : '';
+      dl.href = it.download;
+      img.alt = it.name || 'Image';
+      prev.style.display = next.style.display = list.length > 1 ? '' : 'none';
+      spin.style.display = 'block';
+      errBox.style.display = 'none';
+      img.style.opacity = '0';
+      img.onload = function () { spin.style.display = 'none'; img.style.opacity = '1'; };
+      img.onerror = function () { spin.style.display = 'none'; errBox.style.display = 'block'; };
+      img.src = it.src;
+    }
+
+    // ---- closing (and the phone Back button) ----
+    var pushed = false;
+    try { history.pushState({ jcViewer: true }, ''); pushed = true; } catch (_e) { }
+    function onPop() { close(true); }
+    window.addEventListener('popstate', onPop);
+    function close(fromHistory) {
+      if (!viewer) return;
+      viewer = null;
+      window.removeEventListener('popstate', onPop);
+      document.removeEventListener('keydown', onKey, true);
+      ov.remove();
+      if (pushed && !fromHistory) { try { history.back(); } catch (_e) { } }
+      if (lastFocus && lastFocus.focus) { try { lastFocus.focus(); } catch (_e) { } }
+    }
+
+    // ---- keyboard ----
+    function onKey(e) {
+      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); }
+      else if (e.key === 'ArrowLeft' && list.length > 1 && st.s === 1) { e.preventDefault(); show(st.i - 1); }
+      else if (e.key === 'ArrowRight' && list.length > 1 && st.s === 1) { e.preventDefault(); show(st.i + 1); }
+      else if (e.key === '+' || e.key === '=') { e.preventDefault(); zoomAt(st.s * 1.5, null, null, true); }
+      else if (e.key === '-' || e.key === '_') { e.preventDefault(); zoomAt(st.s / 1.5, null, null, true); }
+      else if (e.key === '0') { e.preventDefault(); st.s = 1; apply(true); }
+      else if (e.key === 'Tab') {
+        // keep focus inside the viewer
+        var f = Array.prototype.filter.call(ov.querySelectorAll('button, a[href]'), function (n) { return n.offsetParent && !n.disabled; });
+        if (!f.length) return;
+        var at = f.indexOf(document.activeElement);
+        if (e.shiftKey && at <= 0) { e.preventDefault(); f[f.length - 1].focus(); }
+        else if (!e.shiftKey && at === f.length - 1) { e.preventDefault(); f[0].focus(); }
+      }
+    }
+    document.addEventListener('keydown', onKey, true);
+
+    // ---- buttons ----
+    xBtn.addEventListener('click', function (e) { e.stopPropagation(); close(); });
+    prev.addEventListener('click', function (e) { e.stopPropagation(); show(st.i - 1); });
+    next.addEventListener('click', function (e) { e.stopPropagation(); show(st.i + 1); });
+    zIn.addEventListener('click', function (e) { e.stopPropagation(); zoomAt(st.s * 1.5, null, null, true); });
+    zOut.addEventListener('click', function (e) { e.stopPropagation(); zoomAt(st.s / 1.5, null, null, true); });
+    zFit.addEventListener('click', function (e) { e.stopPropagation(); st.s = 1; apply(true); });
+    dl.addEventListener('click', function (e) { e.stopPropagation(); });
+    [head, tools].forEach(function (n) { n.addEventListener('click', function (e) { e.stopPropagation(); }); });
+
+    // ---- wheel zoom ----
+    stage.addEventListener('wheel', function (e) {
+      e.preventDefault();
+      zoomAt(st.s * Math.pow(1.0015, -e.deltaY), e.clientX, e.clientY, false);
+    }, { passive: false });
+
+    // ---- pointer: drag to pan, pinch, swipe, tap / double-tap, backdrop close ----
+    var pts = new Map();
+    var gesture = null; // { kind: 'pan'|'pinch'|'swipe', ... }
+    var moved = false;
+    var lastTap = { t: 0, x: 0, y: 0 };
+    function dist(a, b) { return Math.hypot(a.x - b.x, a.y - b.y); }
+    stage.addEventListener('pointerdown', function (e) {
+      try { stage.setPointerCapture(e.pointerId); } catch (_e) { /* capture is a nicety; gestures work without it */ }
+      pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      moved = false;
+      if (pts.size === 2) {
+        var p = Array.from(pts.values());
+        gesture = { kind: 'pinch', d0: dist(p[0], p[1]), s0: st.s, cx: (p[0].x + p[1].x) / 2, cy: (p[0].y + p[1].y) / 2 };
+      } else {
+        gesture = { kind: st.s > 1 ? 'pan' : 'swipe', x0: e.clientX, y0: e.clientY, tx0: st.tx, ty0: st.ty };
+      }
+    });
+    stage.addEventListener('pointermove', function (e) {
+      if (!pts.has(e.pointerId) || !gesture) return;
+      pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (gesture.kind === 'pinch' && pts.size === 2) {
+        var p = Array.from(pts.values());
+        moved = true;
+        zoomAt(gesture.s0 * dist(p[0], p[1]) / gesture.d0, gesture.cx, gesture.cy, false);
+      } else if (gesture.kind === 'pan') {
+        var dx = e.clientX - gesture.x0, dy = e.clientY - gesture.y0;
+        if (Math.abs(dx) + Math.abs(dy) > 4) moved = true;
+        st.tx = gesture.tx0 + dx; st.ty = gesture.ty0 + dy;
+        apply(false);
+      } else if (gesture.kind === 'swipe') {
+        var sx = e.clientX - gesture.x0;
+        if (Math.abs(sx) > 6) moved = true;
+        img.style.transition = 'none';
+        img.style.transform = 'translateX(' + sx + 'px)';
+      }
+    });
+    function endPointer(e) {
+      if (!pts.has(e.pointerId)) return;
+      pts.delete(e.pointerId);
+      if (!gesture) return;
+      if (gesture.kind === 'swipe') {
+        var sx = e.clientX - gesture.x0;
+        if (list.length > 1 && Math.abs(sx) > 60 && Math.abs(e.clientY - gesture.y0) < 80) show(st.i + (sx < 0 ? 1 : -1));
+        else apply(true);
+      }
+      if (gesture.kind === 'pinch' && pts.size === 1) {
+        // one finger left after a pinch: carry on as a pan from here
+        var rest = Array.from(pts.values())[0];
+        gesture = { kind: st.s > 1 ? 'pan' : 'swipe', x0: rest.x, y0: rest.y, tx0: st.tx, ty0: st.ty };
+        return;
+      }
+      if (!pts.size) gesture = null;
+    }
+    stage.addEventListener('pointerup', endPointer);
+    stage.addEventListener('pointercancel', function (e) { pts.delete(e.pointerId); gesture = null; apply(true); });
+
+    // click: double-click/tap toggles zoom; a single click on the backdrop closes,
+    // unless it ended a drag, pinch or swipe.
+    var tapTimer = null;
+    stage.addEventListener('click', function (e) {
+      if (moved) { moved = false; return; }
+      var now = Date.now();
+      var isDouble = now - lastTap.t < 300 && Math.abs(e.clientX - lastTap.x) < 30 && Math.abs(e.clientY - lastTap.y) < 30;
+      lastTap = { t: now, x: e.clientX, y: e.clientY };
+      if (isDouble) {
+        clearTimeout(tapTimer); tapTimer = null;
+        if (st.s > 1) { st.s = 1; apply(true); } else zoomAt(DOUBLE, e.clientX, e.clientY, true);
+        lastTap.t = 0;
+        return;
+      }
+      if (e.target === img) return; // a single tap on the picture does nothing
+      // wait a moment so a double-tap on the backdrop is not taken as "close"
+      tapTimer = setTimeout(function () { tapTimer = null; close(); }, 260);
+    });
+
+    viewer = { close: close };
+    show(index);
+    xBtn.focus();
+  }
 
   // ================= Replies =================
   function lineOf(m) {
