@@ -92,6 +92,7 @@ function convTitle(type, title, members) {
 function bodyText(row) {
   if (row.purged_at) return '[removed after the retention period]';
   if (row.deleted_at) return '[deleted by sender]';
+  if (row.kind === 'link' && row.meta) return `[shared ${row.meta.title || 'page'}: ${row.meta.url}]${row.body ? ' ' + row.body : ''}`;
   return row.body || '';
 }
 
@@ -222,7 +223,7 @@ function registerAdminRoutes(app, pool, { ready, fail, uploadRoot }) {
       const where = messageWhere(f, params);
       params.push(EXPORT_MAX_ROWS + 1);
       const { rows } = await pool.query(
-        `SELECT x.server_ts, x.sender, x.kind, x.body, x.edited_at, x.deleted_at, x.purged_at, x.factory_id,
+        `SELECT x.server_ts, x.sender, x.kind, x.body, x.meta, x.edited_at, x.deleted_at, x.purged_at, x.factory_id,
                 c.type AS conv_type, c.title AS conv_title, x.conversation_sync_id,
                 (SELECT array_agg(m.username ORDER BY LOWER(m.username)) FROM chat_members m
                   WHERE m.conversation_sync_id = c.sync_id AND m.left_at IS NULL) AS members,
@@ -386,7 +387,7 @@ async function runRetention(pool, { uploadRoot, now = null } = {}) {
         const p = now ? [now] : [];
         for (;;) {
           const { rowCount } = await client.query(
-            `UPDATE chat_messages SET body = '', purged_at = NOW(), updated_at = NOW()
+            `UPDATE chat_messages SET body = '', meta = NULL, purged_at = NOW(), updated_at = NOW()
               WHERE sync_id IN (SELECT sync_id FROM chat_messages
                                  WHERE server_ts < ${cutoffSql} AND purged_at IS NULL
                                  ORDER BY server_ts LIMIT ${PURGE_BATCH})`, p

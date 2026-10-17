@@ -77,11 +77,18 @@ async function ensureNotifySchema(pool) {
       conv RECORD;
       label TEXT;
       preview TEXT;
+      replied_to TEXT;
     BEGIN
       IF NEW.kind = 'system' OR NEW.deleted_at IS NOT NULL THEN RETURN NULL; END IF;
       SELECT type, title INTO conv FROM chat_conversations WHERE sync_id = NEW.conversation_sync_id;
       label := CASE NEW.kind WHEN 'image' THEN '📷 Photo' WHEN 'pdf' THEN '📄 PDF'
-                             WHEN 'xlsx' THEN '📊 Excel file' WHEN 'audio' THEN '🎤 Audio' END;
+                             WHEN 'xlsx' THEN '📊 Excel file' WHEN 'audio' THEN '🎤 Audio'
+                             WHEN 'link' THEN CASE WHEN NEW.meta->>'priority' = 'urgent' THEN '⚠ Urgent: ' ELSE '' END
+                                              || '🔗 ' || COALESCE(NEW.meta->>'title', 'Shared page') END;
+      -- a reply reaches the author of the quoted message even in a muted chat
+      IF NEW.reply_to_sync_id IS NOT NULL THEN
+        SELECT sender INTO replied_to FROM chat_messages WHERE sync_id = NEW.reply_to_sync_id;
+      END IF;
       preview := CASE WHEN label IS NULL THEN NEW.body
                       WHEN COALESCE(NEW.body, '') = '' THEN label
                       ELSE label || ': ' || NEW.body END;
@@ -93,7 +100,8 @@ async function ensureNotifySchema(pool) {
        WHERE m.conversation_sync_id = NEW.conversation_sync_id AND m.left_at IS NULL
          AND LOWER(m.username) <> LOWER(NEW.sender)
          AND (m.last_read_at IS NULL OR m.last_read_at < NEW.server_ts)
-         AND (m.muted_until IS NULL OR m.muted_until < NOW() OR chat_mentions(NEW.body, m.username))
+         AND (m.muted_until IS NULL OR m.muted_until < NOW() OR chat_mentions(NEW.body, m.username)
+              OR LOWER(m.username) = LOWER(replied_to))
       ON CONFLICT (sync_id) DO UPDATE
          SET title = EXCLUDED.title, message = EXCLUDED.message, link = EXCLUDED.link, is_read = FALSE,
              created_by = EXCLUDED.created_by, created_at = EXCLUDED.created_at, updated_at = NOW()
@@ -141,7 +149,9 @@ async function sendPushForMessage(pool, messageSyncId) {
   const wp = client();
   if (!wp) return { sent: 0 };
   const { rows: [m] } = await pool.query(
-    `SELECT x.*, c.type AS conv_type, c.title AS conv_title FROM chat_messages x
+    `SELECT x.*, c.type AS conv_type, c.title AS conv_title,
+            (SELECT r.sender FROM chat_messages r WHERE r.sync_id = x.reply_to_sync_id) AS replied_to
+       FROM chat_messages x
        JOIN chat_conversations c ON c.sync_id = x.conversation_sync_id
       WHERE x.sync_id = $1 AND x.kind <> 'system' AND x.deleted_at IS NULL
         AND x.server_ts > NOW() - INTERVAL '10 minutes'`,
@@ -149,14 +159,17 @@ async function sendPushForMessage(pool, messageSyncId) {
   );
   if (!m) return { sent: 0 };
   const { rows: subs } = await pool.query(
-    `SELECT s.*, chat_mentions($3, mb.username) AS mentioned
+    `SELECT s.*, (chat_mentions($3, mb.username) OR LOWER(mb.username) = LOWER($4)) AS mentioned
        FROM chat_members mb
        JOIN chat_push_subscriptions s ON LOWER(s.username) = LOWER(mb.username)
       WHERE mb.conversation_sync_id = $1 AND mb.left_at IS NULL AND LOWER(mb.username) <> LOWER($2)
-        AND (mb.muted_until IS NULL OR mb.muted_until < NOW() OR chat_mentions($3, mb.username))`,
-    [m.conversation_sync_id, m.sender, m.body]
+        AND (mb.muted_until IS NULL OR mb.muted_until < NOW() OR chat_mentions($3, mb.username)
+             OR LOWER(mb.username) = LOWER($4))`,
+    [m.conversation_sync_id, m.sender, m.body, m.replied_to || '']
   );
-  const label = { image: '📷 Photo', pdf: '📄 PDF', xlsx: '📊 Excel file', audio: '🎤 Audio' }[m.kind];
+  const label = m.kind === 'link'
+    ? `${m.meta && m.meta.priority === 'urgent' ? '⚠ Urgent: ' : ''}🔗 ${(m.meta && m.meta.title) || 'Shared page'}`
+    : { image: '📷 Photo', pdf: '📄 PDF', xlsx: '📊 Excel file', audio: '🎤 Audio' }[m.kind];
   const body = label ? (m.body ? `${label}: ${m.body}` : label) : m.body;
   let sent = 0;
   for (const s of subs) {
