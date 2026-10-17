@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.125.0",
+  "latest": "1.126.0",
   "versions": [
+    {
+      "version": "1.126.0",
+      "date": "2026-10-17",
+      "title": "JMS Chat across factories",
+      "modules": [
+        {
+          "app": "all",
+          "changes": [
+            { "type": "feat", "text": "Chat now works between the factories and head office: a message sent from a factory screen reaches people on the live site within a second or two, and replies reach the factory within a few seconds." },
+            { "type": "feat", "text": "Groups, photos and files, ticks, edits and deletes all carry across too; a photo sent at one site opens at the other." },
+            { "type": "fix", "text": "New chat messages, ticks and typing now always show up live; before, some of them could be missed until the page was refreshed." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.125.0",
       "date": "2026-10-16",

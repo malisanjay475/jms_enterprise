@@ -3585,11 +3585,18 @@ function isFullReplicationActive() {
     return FULL_REPLICATION === true;
 }
 
+// Read by modules with their own fast sync (chat, src/modules/chat/chatSync.js).
+function getRuntime() {
+    return { serverType: SERVER_TYPE, mainUrl: MAIN_SERVER_URL, factoryId: LOCAL_FACTORY_ID, apiKey: API_KEY };
+}
+
 module.exports = {
     init,
     router,
     triggerSync,
     isFullReplicationActive,
+    getRuntime,
+    syncKeyValid,
     __test: {
         fetchWithSyncRetry,
         pullChanges,
