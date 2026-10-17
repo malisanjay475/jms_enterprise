@@ -2304,10 +2304,21 @@
   }
 
   // ---- landing on a shared spot ----
+  // The link opened this page with jmsChatTarget=<id>. Once handled, take it out of the
+  // address bar (no reload), so a refresh shows the plain page instead of the banner again.
+  function clearTargetParam() {
+    try {
+      var q = location.search.replace(/([?&])jmsChatTarget=[^&#]*(&|$)/i, function (_m, pre, post) { return post ? pre : ""; });
+      if (q === "?") q = "";
+      var h = location.hash.replace(/[#&]?jmsChatTarget=[0-9a-f-]+/i, "");
+      history.replaceState(history.state, "", location.pathname + q + (h === "#" ? "" : h));
+    } catch (_e) { }
+  }
+
   function landOnTarget(id) {
     api('GET', API + '/messages/' + encodeURIComponent(id)).then(function (d) {
       var m = d.message;
-      if (!m || m.kind !== 'link' || !m.link) return;
+      if (!m || m.kind !== 'link' || !m.link) { clearTargetParam(); return; }
       var f = ensureFactory(m.link);
       if (f === 'switched') {
         // the page loaded with another factory selected: load it again for the right one
@@ -2316,8 +2327,9 @@
         try { again = !sessionStorage.getItem(guard); sessionStorage.setItem(guard, '1'); } catch (_e) { }
         if (again) { window.location.reload(); return; }
       }
+      clearTargetParam();
       showTargetBanner(m, f);
-    }).catch(function (e) { toastText('Shared link', e.message || 'This shared item is not available.'); });
+    }).catch(function (e) { clearTargetParam(); toastText('Shared link', e.message || 'This shared item is not available.'); });
   }
 
   function showTargetBanner(m, factoryState) {

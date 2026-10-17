@@ -11,8 +11,21 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.130.1",
+  "latest": "1.130.2",
   "versions": [
+    {
+      "version": "1.130.2",
+      "date": "2026-10-17",
+      "title": "Shared links: no repeat banner",
+      "modules": [
+        {
+          "app": "all",
+          "changes": [
+            { "type": "fix", "text": "After opening a shared item from chat, refreshing the page no longer shows the \"Shared by …\" banner again; tap the item in chat to see it again." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.130.1",
       "date": "2026-10-17",
