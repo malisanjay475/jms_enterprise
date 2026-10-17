@@ -16002,20 +16002,52 @@ app.get('/api/planning/orders/:orderNo/history', async (req, res) => {
 
     const completedRows = await q(
       `SELECT pb.id, pb.mould_name, pb.mould_code AS mould_no, pb.machine,
-              pb.plan_qty, pb.job_card_no,
+              pb.plan_id, pb.plan_qty,
+              -- plan_board.job_card_no is usually blank on completed plans, so fall back to
+              -- the label print log (by plan) and then the OR-JR report (same order as the board).
+              COALESCE(NULLIF(TRIM(pb.job_card_no), ''), jl.jc_no, ojr.job_card_no) AS job_card_no,
+              COALESCE(pb.job_card_date, ojr.job_card_date) AS job_card_date,
+              pb.start_date, pb.end_date, pb.created_by,
               COALESCE(dpr.produced, 0) AS produced_qty,
+              COALESCE(dpr.rejected, 0) AS reject_qty,
+              dpr.first_date, dpr.last_date, dpr.entries,
               GREATEST(0, pb.plan_qty - COALESCE(dpr.produced, 0)) AS bal_qty,
               GREATEST(0, COALESCE(dpr.produced, 0) - pb.plan_qty) AS extra_qty,
               pb.completed_by, pb.completed_at
        FROM plan_board pb
        LEFT JOIN LATERAL (
-           SELECT SUM(good_qty) AS produced
+           SELECT SUM(good_qty) AS produced, SUM(reject_qty) AS rejected,
+                  MIN(dh.dpr_date)::text AS first_date, MAX(dh.dpr_date)::text AS last_date,
+                  COUNT(*)::int AS entries
            FROM dpr_hourly dh
            WHERE dh.plan_id = pb.plan_id
              -- Factory-scope: plan_id repeats across factories (KAN-127).
              AND (dh.factory_id = pb.factory_id OR dh.factory_id IS NULL OR pb.factory_id IS NULL)
              AND dh.is_deleted = false
        ) dpr ON true
+       LEFT JOIN LATERAL (
+           SELECT l.jc_no FROM job_card_label_print_log l
+           WHERE TRIM(COALESCE(l.plan_id, '')) = TRIM(COALESCE(pb.plan_id, ''))
+             AND COALESCE(TRIM(l.jc_no), '') <> ''
+             AND (l.factory_id = pb.factory_id OR l.factory_id IS NULL)
+           ORDER BY l.printed_at DESC, l.id DESC LIMIT 1
+       ) jl ON NULLIF(TRIM(pb.plan_id), '') IS NOT NULL
+       LEFT JOIN LATERAL (
+           SELECT rpt.job_card_no, rpt.job_card_date
+           FROM or_jr_report rpt
+           WHERE TRIM(rpt.or_jr_no) = TRIM(pb.order_no)
+           ORDER BY
+             CASE
+               WHEN NULLIF(TRIM(pb.plan_id), '') IS NOT NULL
+                    AND LOWER(COALESCE(rpt.remarks_all, '')) LIKE '%' || LOWER(TRIM(pb.plan_id)) || '%' THEN 0
+               WHEN NULLIF(TRIM(pb.our_code), '') IS NOT NULL
+                    AND LOWER(COALESCE(rpt.remarks_all, '')) LIKE '%' || LOWER(TRIM(pb.our_code)) || '%' THEN 0
+               ELSE 1
+             END,
+             (NULLIF(TRIM(rpt.job_card_no), '') IS NULL)::int,
+             rpt.id
+           LIMIT 1
+       ) ojr ON true
        WHERE TRIM(COALESCE(pb.order_no,'')) = TRIM($1)
          AND pb.status = 'COMPLETED'
          AND pb.factory_id = $2
