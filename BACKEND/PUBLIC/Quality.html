@@ -114,6 +114,12 @@
         .h-team { font-size: .72rem; color: #475569; white-space: nowrap; } .h-team b { color: #94a3b8; font-weight: 700; }
         .h-rel-btn { border: 1px solid #fca5a5; background: #fff; color: #b91c1c; border-radius: 8px; padding: 6px 12px; font-weight: 700; font-size: .78rem; cursor: pointer; white-space: nowrap; }
         .h-rel-btn:hover { background: #fef2f2; }
+        .h-table tr.ver td:first-child { box-shadow: inset 4px 0 0 #d97706; }
+        .h-st.ver { background: #fef3c7; color: #b45309; }
+        .h-vbtns { display: inline-flex; gap: 6px; }
+        .h-ok-btn { border: 1px solid #86efac; background: #fff; color: #047857; border-radius: 8px; padding: 6px 10px; font-weight: 700; font-size: .78rem; cursor: pointer; white-space: nowrap; }
+        .h-ok-btn:hover { background: #ecfdf5; }
+        .h-reopen { font-size: .72rem; font-weight: 700; color: #b91c1c; margin-top: 3px; max-width: 220px; white-space: normal; }
         @media (max-width: 700px) { .h-xl { margin-left: 0; } .h-seg { flex-wrap: wrap; } }
         @media (max-width: 700px) {
             .q-grid2 { grid-template-columns: 1fr; }
@@ -209,6 +215,7 @@
                     <div class="h-seg" id="hold-seg">
                         <button type="button" data-st="ALL" class="on" onclick="setHoldStatus('ALL')"><i class="bi bi-list-ul"></i> All</button>
                         <button type="button" data-st="ACTIVE" onclick="setHoldStatus('ACTIVE')"><i class="bi bi-sign-stop"></i> On hold</button>
+                        <button type="button" data-st="VERIFY" onclick="setHoldStatus('VERIFY')"><i class="bi bi-patch-question"></i> QC verify</button>
                         <button type="button" data-st="RELEASED" onclick="setHoldStatus('RELEASED')"><i class="bi bi-clock-history"></i> Release history</button>
                     </div>
                 </label>
@@ -645,26 +652,31 @@
             const mc = $('hold-machine').value;
             const list = HOLDS.filter(h => (!line || h.line === line) && (!mc || h.machine === mc));
             const active = list.filter(h => h.status === 'ACTIVE');
+            const toVerify = list.filter(h => h.status === 'RELEASED' && h.verify_status === 'PENDING');
             const qty = active.reduce((t, h) => t + (Number(h.qty_on_hold) || 0), 0);
             const kpi = (icon, bg, fg, v, l) => `<div class="h-kpi"><i class="bi ${icon}" style="background:${bg};color:${fg}"></i><div><div class="v">${v}</div><div class="l">${l}</div></div></div>`;
             $('hold-summary').innerHTML =
                 kpi('bi-sign-stop-fill', 'var(--q-bad-bg)', 'var(--q-bad)', active.length, 'On hold') +
-                kpi('bi-check2-circle', 'var(--q-ok-bg)', 'var(--q-ok)', list.length - active.length, 'Released') +
+                kpi('bi-patch-question', '#fef3c7', '#b45309', toVerify.length, 'Waiting QC verify') +
+                kpi('bi-check2-circle', 'var(--q-ok-bg)', 'var(--q-ok)', list.length - active.length - toVerify.length, 'Released') +
                 kpi('bi-box-seam', '#fef3c7', '#b45309', qty.toLocaleString('en-IN'), 'Qty on hold') +
                 kpi('bi-cpu', '#e0f2fe', '#0369a1', new Set(active.map(h => h.machine)).size, 'Machines on hold');
             if (!list.length) {
-                $('holds-container').innerHTML = `<div class="q-card q-empty">${$('hold-status').value === 'RELEASED' ? 'No holds released for these dates.' : 'No active holds, and none placed on these dates. 👍'}</div>`;
+                $('holds-container').innerHTML = `<div class="q-card q-empty">${$('hold-status').value === 'RELEASED' ? 'No holds released for these dates.' : $('hold-status').value === 'VERIFY' ? 'Nothing waiting for QC verify.' : 'No active holds, and none placed on these dates. 👍'}</div>`;
                 return;
             }
             const user = (JPSMS.auth.getUser && JPSMS.auth.getUser()) || {};
-            const canRelease = ['quality', 'quality_manager', 'quality_supervisor', 'qc_supervisor', 'quality_ass__manager', 'admin', 'superadmin'].includes(String(user.role_code || '').toLowerCase());
+            // Moulding releases a hold; Quality then verifies (Not verified puts it back on hold).
+            const role = String(user.role_code || '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '');
+            const canRelease = ['moulding_manager', 'moulding_ass_manager', 'moulding_assistant_manager', 'molding_manager', 'molding_ass_manager', 'molding_assistant_manager', 'admin', 'superadmin'].includes(role);
+            const canVerify = ['quality', 'quality_manager', 'quality_supervisor', 'qc_supervisor', 'quality_ass_manager', 'admin', 'superadmin'].includes(role);
             const muted = '<span class="mc-sub">—</span>';
             const team = h => (h.qc_supervisor || h.qc_incharge)
                 ? `<div class="h-team" style="margin-top:3px">${h.qc_supervisor ? `<b>SUP</b> ${esc(h.qc_supervisor)}` : ''}${h.qc_supervisor && h.qc_incharge ? ' · ' : ''}${h.qc_incharge ? `<b>INC</b> ${esc(h.qc_incharge)}` : ''}</div>` : '';
             $('holds-container').innerHTML = `<div class="q-scroll"><table class="q-table h-table"><thead><tr>
                 <th>Status</th><th>Machine</th><th>Date / Shift</th><th>JC No / OR No</th><th>Mould</th><th style="text-align:right">Qty</th><th>Reason</th><th>Photos</th><th>Held by · QC team</th><th>Released</th><th></th></tr></thead><tbody>
-                ${list.map(h => { const act = h.status === 'ACTIVE'; return `<tr class="${act ? 'act' : 'rel'}">
-                    <td>${act ? '<span class="h-st act"><i class="bi bi-pause-fill"></i> ON HOLD</span>' : '<span class="h-st rel"><i class="bi bi-check-lg"></i> Released</span>'}</td>
+                ${list.map(h => { const act = h.status === 'ACTIVE'; const ver = !act && h.verify_status === 'PENDING'; return `<tr class="${act ? 'act' : ver ? 'ver' : 'rel'}">
+                    <td>${act ? '<span class="h-st act"><i class="bi bi-pause-fill"></i> ON HOLD</span>' : ver ? '<span class="h-st ver"><i class="bi bi-hourglass-split"></i> QC VERIFY</span>' : '<span class="h-st rel"><i class="bi bi-check-lg"></i> Released</span>'}${verifyNote(h)}</td>
                     <td><div class="mc">${esc(h.machine)}</div>${h.line ? `<span class="h-chip grey">${esc(h.line)}</span>` : ''}</td>
                     <td style="white-space:nowrap"><div style="font-weight:700">${esc(fmtDate(h.dpr_date))} · ${esc(h.shift || '')}</div>${h.slot ? `<span class="h-chip">${esc(h.slot)}</span>` : ''}</td>
                     <td><div class="h-jc">${esc(h.job_card_no || '—')}</div>${h.or_no ? `<div class="mc-sub">${esc(h.or_no)}</div>` : ''}</td>
@@ -674,7 +686,7 @@
                     <td>${holdPhotos(h.image_urls)}</td>
                     <td><div class="h-who">${esc(h.hold_by || '')}</div><div class="mc-sub">${esc(fmtTime(h.hold_at))}</div>${team(h)}</td>
                     <td>${h.released_at ? `<div class="h-who" style="color:var(--q-ok)">${esc(h.released_by || '')}</div><div class="mc-sub">${esc(fmtTime(h.released_at))}</div>${h.release_remarks ? `<div class="mc-sub" style="white-space:normal;max-width:200px">${esc(h.release_remarks)}</div>` : ''}` : muted}</td>
-                    <td style="text-align:right">${act && canRelease ? `<button class="h-rel-btn" onclick="releaseHold(${Number(h.id)})"><i class="bi bi-unlock"></i> Release</button>` : ''}</td>
+                    <td style="text-align:right">${act && canRelease ? `<button class="h-rel-btn" onclick="releaseHold(${Number(h.id)})"><i class="bi bi-unlock"></i> Release</button>` : ''}${ver && canVerify ? `<span class="h-vbtns"><button class="h-ok-btn" onclick="verifyHold(${Number(h.id)}, true)"><i class="bi bi-check2"></i> Verify</button><button class="h-rel-btn" onclick="verifyHold(${Number(h.id)}, false)"><i class="bi bi-x-lg"></i> Not verify</button></span>` : ''}</td>
                 </tr>`; }).join('')}</tbody></table></div>`;
         }
 
@@ -709,6 +721,26 @@
             const list = (Array.isArray(urls) ? urls : []).filter(u => /^\/uploads\/qc-images\/[A-Za-z0-9._-]+$/.test(String(u)));
             if (!list.length) return '<span class="mc-sub">—</span>';
             return `<div style="display:flex;gap:4px;flex-wrap:wrap">${list.map(u => `<a href="${esc(u)}" target="_blank" rel="noopener"><img src="/api/qc/thumb?src=${encodeURIComponent(u)}&w=120" alt="Hold photo" style="width:44px;height:44px;object-fit:cover;border-radius:6px;border:1px solid #e2e8f0"></a>`).join('')}</div>`;
+        }
+
+        // Under the status: who verified the release, or why QC sent it back to Moulding.
+        function verifyNote(h) {
+            if (h.verify_status === 'VERIFIED' && h.status === 'RELEASED')
+                return `<div class="mc-sub" style="color:var(--q-ok);font-weight:700;margin-top:3px">QC verified · ${esc(h.verified_by || '')}</div>`;
+            if (h.verify_status === 'REJECTED' && h.status === 'ACTIVE')
+                return `<div class="h-reopen">Not verified by ${esc(h.verified_by || 'QC')}${h.verify_remarks ? ': ' + esc(h.verify_remarks) : ''}${Number(h.reopen_count) > 1 ? ` (×${Number(h.reopen_count)})` : ''}</div>`;
+            return '';
+        }
+
+        async function verifyHold(id, ok) {
+            const remarks = prompt(ok ? 'Verify this release? Remarks (optional):' : 'Not verified — the hold opens again for Moulding. Reason:');
+            if (remarks === null) return;
+            if (!ok && !remarks.trim()) { alert('Please give a reason.'); return; }
+            try {
+                const res = await JPSMS.api.post(`/qc/holds/${id}/verify`, { verified: ok, remarks });
+                if (!res.ok) throw new Error(res.error || 'Verify failed');
+                loadView(true);
+            } catch (e) { alert(e.message); }
         }
 
         async function releaseHold(id) {
