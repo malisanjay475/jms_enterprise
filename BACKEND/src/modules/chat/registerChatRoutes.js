@@ -4,11 +4,13 @@
 // "all chats" view for superadmins (every such view is logged).
 // Phase 1: direct chats, stream, superadmin view. Phase 2: groups, attachments,
 // delivered/read receipts per message, typing indicator, search, edit and delete.
+// Phase 3: chats replicate between MAIN and the factory LOCALs within seconds
+// (chatSync.js), and live events go through PostgreSQL NOTIFY so they reach users on
+// every PM2 worker and arrive for rows synced in from the other server too.
 //
-// Rows are linked by sync_id (UUID), never by SERIAL id, so Phase 3 can sync these
-// tables between LOCAL and MAIN without remapping ids. A direct chat is keyed by
-// dm_key (the two lower-cased usernames, sorted) so two servers can't each create
-// their own copy of the same chat.
+// Rows are linked by sync_id (UUID), never by SERIAL id. Rows two servers may create
+// on their own (a direct chat, a member, a receipt) get a sync_id derived from their
+// natural key, so both servers produce the same one.
 
 const crypto = require('crypto');
 const fs = require('fs');
@@ -16,6 +18,11 @@ const path = require('path');
 const multer = require('multer');
 const { isSuperadmin } = require('../../app/auth');
 const { sniffAttachment } = require('./attachmentType');
+const chatSync = require('./chatSync');
+
+const DM_ID = chatSync.deterministicIdSql('chat-dm', '$1::text');
+const MEMBER_ID = (conv, user) => chatSync.deterministicIdSql('chat-member', conv, `LOWER(${user})`);
+const RECEIPT_ID = (msg, user) => chatSync.deterministicIdSql('chat-receipt', msg, `LOWER(${user})`);
 
 const MAX_BODY = 4000;
 const PAGE_SIZE = 50;
@@ -67,7 +74,8 @@ function isOnline(username) {
 // Attachments live under PUBLIC/uploads (the folder the deploy keeps on a volume), but
 // /uploads/chat/ is blocked for static serving (uploadSafety.js): files are handed out
 // only by GET /api/chat/files/:id after a membership check.
-const uploadRoot = path.join(__dirname, '../../../PUBLIC/uploads/chat');
+// CHAT_UPLOAD_DIR only for tests that run MAIN and LOCAL side by side on one machine.
+const uploadRoot = process.env.CHAT_UPLOAD_DIR || path.join(__dirname, '../../../PUBLIC/uploads/chat');
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -78,8 +86,11 @@ function dmKey(a, b) {
   return [String(a).toLowerCase(), String(b).toLowerCase()].sort().join('|');
 }
 
+// The factory a row was written in (null on MAIN).
 function localFactoryId() {
-  const n = parseInt(process.env.LOCAL_FACTORY_ID || '', 10);
+  const rt = chatSync.runtime();
+  if (rt.serverType !== 'LOCAL') return null;
+  const n = parseInt(rt.factoryId, 10);
   return Number.isFinite(n) ? n : null;
 }
 
@@ -108,8 +119,11 @@ function ensureChatSchema(pool) {
 }
 
 async function createSchema(pool) {
-  await pool.query('CREATE EXTENSION IF NOT EXISTS "pgcrypto"');
+  // One string = one transaction: the lock keeps PM2 workers that start together from
+  // racing on CREATE EXTENSION / CREATE TABLE.
   await pool.query(`
+    SELECT pg_advisory_xact_lock(hashtext('jms_chat_schema'));
+    CREATE EXTENSION IF NOT EXISTS pgcrypto;
     CREATE TABLE IF NOT EXISTS chat_conversations (
       id SERIAL PRIMARY KEY,
       sync_id UUID NOT NULL DEFAULT gen_random_uuid() UNIQUE,
@@ -200,13 +214,15 @@ async function createSchema(pool) {
   // Message search index. pg_trgm ships with PostgreSQL but the DB user may not be allowed
   // to create it; search still works (just slower) without the index.
   try {
-    await pool.query('CREATE EXTENSION IF NOT EXISTS pg_trgm');
-    await pool.query(
-      'CREATE INDEX IF NOT EXISTS idx_chat_messages_body_trgm ON chat_messages USING gin (body gin_trgm_ops)'
-    );
+    await pool.query(`
+      SELECT pg_advisory_xact_lock(hashtext('jms_chat_schema'));
+      CREATE EXTENSION IF NOT EXISTS pg_trgm;
+      CREATE INDEX IF NOT EXISTS idx_chat_messages_body_trgm ON chat_messages USING gin (body gin_trgm_ops);
+    `);
   } catch (err) {
     console.warn('[chat] pg_trgm search index not created:', err.message);
   }
+  await chatSync.ensureSyncSchema(pool);
 }
 
 async function activeUser(pool, username) {
@@ -301,9 +317,9 @@ async function markDelivered(pool, username, convId) {
     const params = [username, localFactoryId()];
     let cond = '';
     if (convId) { params.push(convId); cond = 'AND x.conversation_sync_id = $3'; }
-    const { rows } = await pool.query(
-      `INSERT INTO chat_receipts (message_sync_id, conversation_sync_id, username, delivered_at, factory_id)
-       SELECT x.sync_id, x.conversation_sync_id, $1, NOW(), $2
+    await pool.query(
+      `INSERT INTO chat_receipts (sync_id, message_sync_id, conversation_sync_id, username, delivered_at, factory_id)
+       SELECT ${RECEIPT_ID('x.sync_id', '$1::text')}, x.sync_id, x.conversation_sync_id, $1, NOW(), $2
          FROM chat_messages x
          JOIN chat_members me ON me.conversation_sync_id = x.conversation_sync_id
                              AND LOWER(me.username) = LOWER($1) AND me.left_at IS NULL
@@ -311,26 +327,11 @@ async function markDelivered(pool, username, convId) {
           AND x.server_ts > NOW() - INTERVAL '30 days' ${cond}
           AND NOT EXISTS (SELECT 1 FROM chat_receipts r
                            WHERE r.message_sync_id = x.sync_id AND LOWER(r.username) = LOWER($1))
-       ON CONFLICT (message_sync_id, (LOWER(username))) DO NOTHING
-       RETURNING conversation_sync_id, message_sync_id`,
+       ON CONFLICT (message_sync_id, (LOWER(username))) DO NOTHING`,
       params
     );
-    await announceReceipts(pool, rows, username, 'delivered');
   } catch (err) {
     console.warn('[chat] delivered receipts failed:', err.message);
-  }
-}
-
-async function announceReceipts(pool, rows, username, kind) {
-  const byConv = new Map();
-  for (const r of rows) {
-    if (!byConv.has(r.conversation_sync_id)) byConv.set(r.conversation_sync_id, []);
-    byConv.get(r.conversation_sync_id).push(r.message_sync_id);
-  }
-  for (const [conv, ids] of byConv) {
-    pushTo(await memberNames(pool, conv), {
-      type: 'receipt', kind, conversation_sync_id: conv, username, message_sync_ids: ids
-    });
   }
 }
 
@@ -348,7 +349,8 @@ async function systemMessage(db, convId, actor, text) {
   return row;
 }
 
-// Send an event to the chat's members, and a copy to superadmins who are not in it.
+// Send an event to this worker's streams of the chat's members, and a copy to
+// superadmins who are not in it. Called by the NOTIFY dispatcher (startLiveEvents).
 async function notify(pool, convId, event, extraNames = []) {
   const members = await memberNames(pool, convId);
   const all = members.concat(extraNames);
@@ -373,6 +375,133 @@ function cleanFileName(v) {
   return base.replace(/[\u0000-\u001f\u007f"<>|]/g, '').slice(0, 120) || 'file';
 }
 
+// ---- live events ----
+// Every chat write fires a NOTIFY (trigger chat_notify, chatSync.js). Each PM2 worker
+// listens on its own connection and turns the notes into SSE events for the users whose
+// streams it holds, so it no longer matters which worker handled the write, or whether
+// the row came in from the other server. The LOCAL worker that wins the advisory lock
+// also runs the MAIN <-> LOCAL chat sync loop and is woken by local writes.
+function startLiveEvents(pool) {
+  if (startLiveEvents.started || process.env.NODE_ENV === 'test' || !pool || !pool.options) return;
+  startLiveEvents.started = true;
+  const { Client } = require('pg');
+  let client = null;
+  let loop = null;
+  let leader = false;
+  let retryMs = 2000;
+  let leadTimer = null;
+  const receipts = new Map(); // "conv|user|kind" -> [message ids]
+  const convs = new Map(); // conv -> Set(extra usernames)
+  let receiptTimer = null;
+  let convTimer = null;
+
+  function dropped(c, why) {
+    if (client !== c) return;
+    client = null;
+    if (leader) console.log('[chat] sync leader released:', why);
+    leader = false;
+    if (loop) loop.stop();
+    if (leadTimer) { clearTimeout(leadTimer); leadTimer = null; }
+    c.end().catch(() => {});
+    const t = setTimeout(connect, retryMs);
+    if (t.unref) t.unref();
+    retryMs = Math.min(retryMs * 2, 60000);
+  }
+
+  async function connect() {
+    const c = new Client(pool.options);
+    try {
+      await ensureChatSchema(pool);
+      c.on('error', (err) => dropped(c, err.message));
+      c.on('end', () => dropped(c, 'connection ended'));
+      await c.connect();
+      client = c;
+      c.on('notification', (msg) => { onNote(msg.payload).catch((err) => console.warn('[chat] live event failed:', err.message)); });
+      await c.query('LISTEN jms_chat');
+      retryMs = 2000;
+      tryLead(c);
+    } catch (err) {
+      console.warn('[chat] live events not connected:', err.message);
+      client = c;
+      dropped(c, err.message);
+    }
+  }
+
+  // Only on a LOCAL: one worker holds the lock (for as long as its connection lives).
+  async function tryLead(c) {
+    leadTimer = null;
+    if (client !== c || leader) return;
+    try {
+      if (chatSync.isLocal()) {
+        const { rows: [r] } = await c.query('SELECT pg_try_advisory_lock(hashtext($1)) AS ok', [chatSync.LEADER_LOCK]);
+        if (r.ok) {
+          leader = true;
+          loop = loop || chatSync.createLoop(pool, { uploadRoot });
+          loop.start();
+          console.log(`[chat] chat sync leader (pid ${process.pid})`);
+          return;
+        }
+      }
+    } catch (err) {
+      console.warn('[chat] sync leader check failed:', err.message);
+    }
+    leadTimer = setTimeout(() => tryLead(c), 30000);
+    if (leadTimer.unref) leadTimer.unref();
+  }
+
+  async function onNote(payload) {
+    let n;
+    try { n = JSON.parse(payload); } catch (_e) { return; }
+    if (n.l && leader && loop) loop.kick();
+    if (!n.e || !streams.size) return;
+    if (n.t === 'chat_messages') {
+      const { rows } = await pool.query('SELECT * FROM chat_messages WHERE sync_id = $1', [n.s]);
+      if (!rows[0]) return;
+      const [plain] = await decorate(pool, rows, null);
+      await notify(pool, n.c, { type: n.op === 'INSERT' ? 'message' : 'message_update', message: plain });
+    } else if (n.t === 'chat_receipts') {
+      const key = `${n.c}|${n.u}|${n.k}`;
+      if (!receipts.has(key)) receipts.set(key, []);
+      receipts.get(key).push(n.m);
+      if (!receiptTimer) receiptTimer = setTimeout(flushReceipts, 150);
+    } else if (n.t === 'chat_members' || n.t === 'chat_conversations') {
+      if (!convs.has(n.c)) convs.set(n.c, new Set());
+      if (n.u) convs.get(n.c).add(n.u); // a removed member still hears about it
+      if (!convTimer) convTimer = setTimeout(flushConvs, 200);
+    } else if (n.t === 'typing') {
+      const others = (await memberNames(pool, n.c)).filter((m) => m.toLowerCase() !== String(n.u).toLowerCase());
+      pushTo(others, { type: 'typing', conversation_sync_id: n.c, username: n.u });
+    }
+  }
+
+  async function flushReceipts() {
+    receiptTimer = null;
+    const batch = [...receipts.entries()];
+    receipts.clear();
+    for (const [key, ids] of batch) {
+      const [conv, username, kind] = key.split('|');
+      try {
+        pushTo(await memberNames(pool, conv), {
+          type: 'receipt', kind, conversation_sync_id: conv, username, message_sync_ids: ids
+        });
+      } catch (err) { console.warn('[chat] receipt event failed:', err.message); }
+    }
+  }
+
+  async function flushConvs() {
+    convTimer = null;
+    const batch = [...convs.entries()];
+    convs.clear();
+    for (const [conv, extra] of batch) {
+      try {
+        await notify(pool, conv, { type: 'conversation', conversation_sync_id: conv }, [...extra]);
+      } catch (err) { console.warn('[chat] conversation event failed:', err.message); }
+    }
+  }
+
+  connect();
+}
+
 function fail(res, err, where) {
   console.error(`[chat] ${where}:`, err);
   res.status(500).json({ ok: false, error: 'Chat is not available right now. Please try again.' });
@@ -381,6 +510,8 @@ function fail(res, err, where) {
 // ---- routes ----
 function registerChatRoutes(app, pool) {
   ensureChatSchema(pool).catch((err) => console.warn('[chat] schema init failed:', err.message));
+  chatSync.registerSyncRoutes(app, pool, { uploadRoot, ensureSchema: () => ensureChatSchema(pool) });
+  startLiveEvents(pool);
 
   async function ready(req, res) {
     if (!requireSession(req, res)) return false;
@@ -531,15 +662,15 @@ function registerChatRoutes(app, pool) {
       try {
         await client.query('BEGIN');
         await client.query(
-          `INSERT INTO chat_conversations (type, dm_key, created_by, factory_id)
-           VALUES ('direct', $1, $2, $3) ON CONFLICT (dm_key) DO NOTHING`,
+          `INSERT INTO chat_conversations (sync_id, type, dm_key, created_by, factory_id)
+           VALUES (${DM_ID}, 'direct', $1, $2, $3) ON CONFLICT DO NOTHING`,
           [key, me, localFactoryId()]
         );
         ({ rows: [conv] } = await client.query('SELECT * FROM chat_conversations WHERE dm_key = $1', [key]));
         for (const name of [me, other]) {
           await client.query(
-            `INSERT INTO chat_members (conversation_sync_id, username, factory_id)
-             VALUES ($1, $2, $3)
+            `INSERT INTO chat_members (sync_id, conversation_sync_id, username, factory_id)
+             VALUES (${MEMBER_ID('$1::uuid', '$2::text')}, $1, $2, $3)
              ON CONFLICT (conversation_sync_id, (LOWER(username)))
              DO UPDATE SET left_at = NULL, updated_at = NOW()
              WHERE chat_members.left_at IS NOT NULL`,
@@ -656,7 +787,6 @@ function registerChatRoutes(app, pool) {
             WHERE conversation_sync_id = $1 AND LOWER(username) = LOWER($2)`,
           [convId, me, row.server_ts]
         );
-        await notify(pool, convId, { type: 'message', message: messageOut(row) });
       }
       const [out] = await decorate(pool, [row], me);
       res.json({ ok: true, message: out, duplicate });
@@ -677,9 +807,9 @@ function registerChatRoutes(app, pool) {
         [convId, me]
       );
       if (!rows[0]) return res.json({ ok: true, member: false });
-      const { rows: done } = await pool.query(
-        `INSERT INTO chat_receipts (message_sync_id, conversation_sync_id, username, delivered_at, read_at, factory_id)
-         SELECT x.sync_id, x.conversation_sync_id, $2, NOW(), NOW(), $3
+      await pool.query(
+        `INSERT INTO chat_receipts (sync_id, message_sync_id, conversation_sync_id, username, delivered_at, read_at, factory_id)
+         SELECT ${RECEIPT_ID('x.sync_id', '$2::text')}, x.sync_id, x.conversation_sync_id, $2, NOW(), NOW(), $3
            FROM chat_messages x
           WHERE x.conversation_sync_id = $1 AND LOWER(x.sender) <> LOWER($2)
             AND x.deleted_at IS NULL AND x.kind <> 'system'
@@ -689,11 +819,9 @@ function registerChatRoutes(app, pool) {
          ON CONFLICT (message_sync_id, (LOWER(username)))
          DO UPDATE SET read_at = EXCLUDED.read_at,
                        delivered_at = COALESCE(chat_receipts.delivered_at, EXCLUDED.delivered_at),
-                       updated_at = NOW()
-         RETURNING conversation_sync_id, message_sync_id`,
+                       updated_at = NOW()`,
         [convId, me, localFactoryId()]
       );
-      await announceReceipts(pool, done, me, 'read');
       res.json({ ok: true, last_read_at: rows[0].last_read_at });
     } catch (err) { fail(res, err, 'read'); }
   });
@@ -725,8 +853,8 @@ function registerChatRoutes(app, pool) {
     const added = [];
     for (const name of names) {
       const { rows } = await db.query(
-        `INSERT INTO chat_members (conversation_sync_id, username, factory_id)
-         VALUES ($1, $2, $3)
+        `INSERT INTO chat_members (sync_id, conversation_sync_id, username, factory_id)
+         VALUES (${MEMBER_ID('$1::uuid', '$2::text')}, $1, $2, $3)
          ON CONFLICT (conversation_sync_id, (LOWER(username)))
          DO UPDATE SET left_at = NULL, role = 'member', joined_at = NOW(), updated_at = NOW()
          WHERE chat_members.left_at IS NOT NULL
@@ -753,10 +881,6 @@ function registerChatRoutes(app, pool) {
     }
   }
 
-  function groupChanged(convId, extra) {
-    return notify(pool, convId, { type: 'conversation', conversation_sync_id: convId }, extra);
-  }
-
   // Create a group: { title, members: [usernames] }. The creator is its admin.
   app.post('/api/chat/groups', async (req, res) => {
     try {
@@ -776,15 +900,14 @@ function registerChatRoutes(app, pool) {
           [title, me, localFactoryId()]
         );
         await db.query(
-          `INSERT INTO chat_members (conversation_sync_id, username, role, factory_id)
-           VALUES ($1, $2, 'admin', $3)`,
+          `INSERT INTO chat_members (sync_id, conversation_sync_id, username, role, factory_id)
+           VALUES (${MEMBER_ID('$1::uuid', '$2::text')}, $1, $2, 'admin', $3)`,
           [c.sync_id, me, localFactoryId()]
         );
         await addMembers(db, c.sync_id, names);
         await systemMessage(db, c.sync_id, me, `${me} created the group "${title}"`);
         return c;
       });
-      await groupChanged(conv.sync_id);
       res.json({
         ok: true,
         conversation: { sync_id: conv.sync_id, type: 'group', title, members: [me, ...names], my_role: 'admin', is_member: true }
@@ -807,7 +930,6 @@ function registerChatRoutes(app, pool) {
           [g.conv.sync_id, title]);
         await systemMessage(db, g.conv.sync_id, me, `${me} renamed the group to "${title}"`);
       });
-      await groupChanged(g.conv.sync_id);
       res.json({ ok: true, title });
     } catch (err) { fail(res, err, 'rename group'); }
   });
@@ -831,7 +953,6 @@ function registerChatRoutes(app, pool) {
         if (a.length) await systemMessage(db, g.conv.sync_id, me, `${me} added ${a.join(', ')}`);
         return a;
       });
-      if (added.length) await groupChanged(g.conv.sync_id);
       res.json({ ok: true, added });
     } catch (err) { fail(res, err, 'add members'); }
   });
@@ -859,7 +980,6 @@ function registerChatRoutes(app, pool) {
         return rows[0] ? rows[0].username : null;
       });
       if (!removed) return res.status(404).json({ ok: false, error: 'That person is not in this group.' });
-      await groupChanged(g.conv.sync_id, [removed]);
       res.json({ ok: true, removed });
     } catch (err) { fail(res, err, 'remove member'); }
   });
@@ -894,7 +1014,6 @@ function registerChatRoutes(app, pool) {
           if (next) await systemMessage(db, g.conv.sync_id, next.username, `${next.username} is now an admin`);
         }
       });
-      await groupChanged(g.conv.sync_id, [me]);
       res.json({ ok: true });
     } catch (err) { fail(res, err, 'leave group'); }
   });
@@ -977,8 +1096,6 @@ function registerChatRoutes(app, pool) {
           throw err;
         }
         const [out] = await decorate(pool, [row], me);
-        const [plain] = await decorate(pool, [row], null);
-        await notify(pool, convId, { type: 'message', message: plain });
         res.json({ ok: true, message: out, duplicate: false });
       } catch (err) { fail(res, err, 'attachment'); }
     });
@@ -1005,6 +1122,13 @@ function registerChatRoutes(app, pool) {
       const base = path.resolve(uploadRoot);
       const full = path.resolve(base, a.storage_name);
       if (!full.startsWith(base + path.sep)) return res.status(404).json({ ok: false, error: 'File not found.' });
+      // Sent on another server: a LOCAL fetches it from MAIN; MAIN waits for the LOCAL.
+      if (!(await chatSync.fileExists(uploadRoot, a.storage_name))) {
+        const got = await chatSync.fetchFileFromMain(uploadRoot, a).catch(() => false);
+        if (!got) {
+          return res.status(503).json({ ok: false, error: 'This file is still on its way from the other server. Try again in a minute.' });
+        }
+      }
       const inline = a.kind !== 'xlsx' && req.query.download !== '1';
       res.setHeader('Content-Type', a.mime);
       res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -1037,8 +1161,8 @@ function registerChatRoutes(app, pool) {
         for (const [k, t] of typingSeen) if (now - t > 60000) typingSeen.delete(k);
       }
       if (!(await membership(pool, convId, me))) return res.status(403).json({ ok: false, error: 'You are not in this chat.' });
-      const others = (await memberNames(pool, convId)).filter((n) => n.toLowerCase() !== me.toLowerCase());
-      pushTo(others, { type: 'typing', conversation_sync_id: convId, username: me });
+      await pool.query("SELECT pg_notify('jms_chat', $1)",
+        [JSON.stringify({ t: 'typing', c: convId, u: me, e: true })]);
       res.json({ ok: true });
     } catch (err) { fail(res, err, 'typing'); }
   });
@@ -1097,8 +1221,6 @@ function registerChatRoutes(app, pool) {
   }
 
   async function announceUpdate(row, me) {
-    const [plain] = await decorate(pool, [row], null);
-    await notify(pool, row.conversation_sync_id, { type: 'message_update', message: plain });
     const [out] = await decorate(pool, [row], me);
     return out;
   }
