@@ -31,7 +31,7 @@ describe('chat sync merge rules', () => {
   });
 
   test('tables sync parents first', () => {
-    expect(chatSync.TABLES).toEqual(['chat_conversations', 'chat_members', 'chat_messages', 'chat_attachments', 'chat_receipts']);
+    expect(chatSync.TABLES).toEqual(['chat_conversations', 'chat_members', 'chat_messages', 'chat_tasks', 'chat_attachments', 'chat_receipts']);
   });
 });
 

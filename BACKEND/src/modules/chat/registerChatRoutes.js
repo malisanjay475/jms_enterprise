@@ -6,6 +6,7 @@
 // delivered/read receipts per message, typing indicator, search, edit and delete.
 // Phase 4: bell rows, mute, @mentions and Web Push (chatNotify.js).
 // Phase 5: superadmin console, exports, audit log and retention (chatAdmin.js).
+// Share to chat (deep links with a work status) and replies: chatShare.js.
 // Phase 3: chats replicate between MAIN and the factory LOCALs within seconds
 // (chatSync.js), and live events go through PostgreSQL NOTIFY so they reach users on
 // every PM2 worker and arrive for rows synced in from the other server too.
@@ -24,6 +25,7 @@ const chatSync = require('./chatSync');
 const chatNotify = require('./chatNotify');
 const chatAdmin = require('./chatAdmin');
 const chatGate = require('./chatGate');
+const chatShare = require('./chatShare');
 
 const DM_ID = chatSync.deterministicIdSql('chat-dm', '$1::text');
 const MEMBER_ID = (conv, user) => chatSync.deterministicIdSql('chat-member', conv, `LOWER(${user})`);
@@ -227,6 +229,7 @@ async function createSchema(pool) {
   } catch (err) {
     console.warn('[chat] pg_trgm search index not created:', err.message);
   }
+  await chatShare.ensureShareSchema(pool); // chat_tasks must exist before the sync triggers
   await chatSync.ensureSyncSchema(pool);
   await chatNotify.ensureNotifySchema(pool);
   await chatAdmin.ensureAdminSchema(pool);
@@ -296,6 +299,7 @@ function messageOut(row, att, receipts) {
     edited_at: row.edited_at,
     deleted: Boolean(row.deleted_at),
     purged: Boolean(row.purged_at), // emptied by the retention job
+    reply_to_sync_id: row.reply_to_sync_id || null,
     attachment: att && !row.deleted_at && !row.purged_at ? attachmentOut(att) : null
   };
   if (receipts) {
@@ -323,7 +327,8 @@ async function decorate(pool, rows, me) {
     );
     for (const r of recs) recBy.get(r.message_sync_id).push(r);
   }
-  return rows.map((r) => messageOut(r, attBy.get(r.sync_id), recBy.get(r.sync_id)));
+  const outs = rows.map((r) => messageOut(r, attBy.get(r.sync_id), recBy.get(r.sync_id)));
+  return chatShare.decorateShare(pool, rows, outs); // reply quotes, shared links, work status
 }
 
 // Record "delivered" for every message this user has not acknowledged yet (in one chat,
@@ -376,7 +381,11 @@ async function notify(pool, convId, event, extraNames = []) {
   if (admins.length) pushToSuperadmins(admins, event);
 }
 
-function previewText(kind, body) {
+function previewText(kind, body, meta) {
+  if (kind === 'link') {
+    const urgent = meta && meta.priority === 'urgent' ? '⚠ Urgent: ' : '';
+    return `${urgent}🔗 ${(meta && meta.title) || 'Shared page'}${body ? ': ' + body : ''}`;
+  }
   const label = { image: '📷 Photo', pdf: '📄 PDF', xlsx: '📊 Excel file', audio: '🎤 Audio' }[kind];
   if (label) return body ? `${label}: ${body}` : label;
   return body || '';
@@ -500,6 +509,10 @@ function startLiveEvents(pool) {
       if (!receipts.has(key)) receipts.set(key, []);
       receipts.get(key).push(n.m);
       if (!receiptTimer) receiptTimer = setTimeout(flushReceipts, 150);
+    } else if (n.t === 'chat_tasks') {
+      pushTo(await memberNames(pool, n.c), {
+        type: 'task', conversation_sync_id: n.c, message_sync_id: n.m, status: n.k, by: n.u
+      });
     } else if (n.t === 'chat_members' || n.t === 'chat_conversations') {
       if (!convs.has(n.c)) convs.set(n.c, new Set());
       if (n.u) convs.get(n.c).add(n.u); // a removed member still hears about it
@@ -543,7 +556,7 @@ function startLiveEvents(pool) {
   // While LISTEN works, note the newest row ids every 5 s: when it drops, the fallback
   // starts from there, so rows written between the drop and its detection are not lost.
   // Messages LISTEN already delivered are skipped (seen), the rest is idempotent.
-  const FB_TABLES = ['chat_conversations', 'chat_members', 'chat_messages', 'chat_receipts'];
+  const FB_TABLES = ['chat_conversations', 'chat_members', 'chat_messages', 'chat_receipts', 'chat_tasks'];
   const seen = new Set();
   const seenOrder = [];
   function rememberSeen(id) {
@@ -605,6 +618,7 @@ function startLiveEvents(pool) {
         if (t === 'chat_messages') note = { t, op, s: row.sync_id, c: row.conversation_sync_id, e: true, fb: true };
         else if (t === 'chat_receipts') note = { t, op, c: row.conversation_sync_id, m: row.message_sync_id, u: row.username, k: row.read_at ? 'read' : 'delivered', e: true };
         else if (t === 'chat_members') note = { t, op, c: row.conversation_sync_id, u: row.username, e: true };
+        else if (t === 'chat_tasks') note = { t, op, c: row.conversation_sync_id, m: row.message_sync_id, k: row.status, u: row.updated_by, e: true };
         else note = { t, op, c: row.sync_id, e: true };
         await onNote(JSON.stringify(note)).catch(() => {});
       }
@@ -696,13 +710,21 @@ function registerChatRoutes(app, pool) {
   }
 
   chatNotify.registerNotifyRoutes(app, pool, { ready, membership, fail });
+  chatShare.registerShareRoutes(app, pool, {
+    ready, membership, fail, decorate, sendRateOk, localFactoryId, activeUser,
+    dmIdSql: DM_ID, memberIdSql: MEMBER_ID('$1::uuid', '$2::text')
+  });
   chatAdmin.registerAdminRoutes(app, pool, { ready, fail, uploadRoot });
   chatAdmin.startRetentionJob(pool, { uploadRoot });
 
   app.get('/api/chat/me', async (req, res) => {
     try {
       if (!(await ready(req, res))) return;
-      res.json({ ok: true, username: req.auth.username, isSuperadmin: isSuperadmin(req.auth) });
+      const rt = chatSync.runtime();
+      res.json({
+        ok: true, username: req.auth.username, isSuperadmin: isSuperadmin(req.auth),
+        server_type: rt.serverType, factory_id: rt.serverType === 'LOCAL' ? localFactoryId() : null
+      });
     } catch (err) { fail(res, err, 'me'); }
   });
 
@@ -771,7 +793,7 @@ function registerChatRoutes(app, pool) {
                 (SELECT array_agg(m.username ORDER BY LOWER(m.username)) FROM chat_members m
                   WHERE m.conversation_sync_id = c.sync_id AND m.left_at IS NULL) AS members,
                 lm.body AS last_body, lm.sender AS last_sender, lm.deleted_at AS last_deleted,
-                lm.kind AS last_kind,
+                lm.kind AS last_kind, lm.meta AS last_meta,
                 (SELECT COUNT(*)::int FROM chat_messages x
                    JOIN chat_members me ON me.conversation_sync_id = x.conversation_sync_id
                                        AND LOWER(me.username) = LOWER($1)
@@ -781,7 +803,7 @@ function registerChatRoutes(app, pool) {
                     AND (me.last_read_at IS NULL OR x.server_ts > me.last_read_at)) AS unread
            FROM chat_conversations c
            LEFT JOIN LATERAL (
-             SELECT body, sender, deleted_at, kind FROM chat_messages
+             SELECT body, sender, deleted_at, kind, meta FROM chat_messages
               WHERE conversation_sync_id = c.sync_id ORDER BY server_ts DESC LIMIT 1
            ) lm ON TRUE
           WHERE c.last_message_at IS NOT NULL ${scope}
@@ -812,7 +834,7 @@ function registerChatRoutes(app, pool) {
             muted_until: chatNotify.muteOut(r.muted_until),
             online: r.type === 'group' ? false : others.some(isOnline),
             last_message_at: r.last_message_at,
-            last_body: r.last_deleted ? 'This message was deleted' : previewText(r.last_kind, r.last_body),
+            last_body: r.last_deleted ? 'This message was deleted' : previewText(r.last_kind, r.last_body, r.last_meta),
             last_sender: r.last_kind === 'system' ? '' : (r.last_sender || ''),
             unread: r.unread || 0,
             is_member: members.some((m) => m.toLowerCase() === me.toLowerCase())
@@ -962,14 +984,16 @@ function registerChatRoutes(app, pool) {
       if (!sendRateOk(me.toLowerCase())) {
         return res.status(429).json({ ok: false, error: 'You are sending too fast. Please wait a moment.' });
       }
+      const replyTo = await chatShare.validReplyTarget(pool, convId, b.reply_to_sync_id);
+      if (replyTo === undefined) return res.status(400).json({ ok: false, error: 'The message you replied to is not in this chat.' });
       const clientTs = b.client_ts ? new Date(String(b.client_ts)) : null;
       const ins = await pool.query(
-        `INSERT INTO chat_messages (sync_id, conversation_sync_id, sender, body, client_ts, factory_id)
-         VALUES ($1, $2, $3, $4, $5, $6)
+        `INSERT INTO chat_messages (sync_id, conversation_sync_id, sender, body, client_ts, factory_id, reply_to_sync_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
          ON CONFLICT (sync_id) DO NOTHING
          RETURNING *`,
         [syncId, convId, me, body,
-          clientTs && !Number.isNaN(clientTs.getTime()) ? clientTs.toISOString() : null, localFactoryId()]
+          clientTs && !Number.isNaN(clientTs.getTime()) ? clientTs.toISOString() : null, localFactoryId(), replyTo]
       );
       let row = ins.rows[0];
       const duplicate = !row;
@@ -1241,6 +1265,9 @@ function registerChatRoutes(app, pool) {
         const b = req.body || {};
         const convId = String(b.conversation_sync_id || '');
         const syncId = UUID_RE.test(String(b.sync_id || '')) ? String(b.sync_id) : crypto.randomUUID();
+        const replyTo = UUID_RE.test(String(b.conversation_sync_id || ''))
+          ? await chatShare.validReplyTarget(pool, String(b.conversation_sync_id), b.reply_to_sync_id) : null;
+        if (replyTo === undefined) return res.status(400).json({ ok: false, error: 'The message you replied to is not in this chat.' });
         const caption = String(b.body || '').replace(/\r\n/g, '\n').trim().slice(0, MAX_BODY);
         if (!UUID_RE.test(convId)) return res.status(400).json({ ok: false, error: 'Bad chat id.' });
         if (!req.file) return res.status(400).json({ ok: false, error: 'No file attached.' });
@@ -1273,9 +1300,9 @@ function registerChatRoutes(app, pool) {
         try {
           row = await inTx(async (db) => {
             const { rows: [m] } = await db.query(
-              `INSERT INTO chat_messages (sync_id, conversation_sync_id, sender, body, kind, factory_id)
-               VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
-              [syncId, convId, me, caption, type.kind, localFactoryId()]
+              `INSERT INTO chat_messages (sync_id, conversation_sync_id, sender, body, kind, factory_id, reply_to_sync_id)
+               VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+              [syncId, convId, me, caption, type.kind, localFactoryId(), replyTo]
             );
             await db.query(
               `INSERT INTO chat_attachments (message_sync_id, conversation_sync_id, kind, mime, file_name,
@@ -1388,7 +1415,7 @@ function registerChatRoutes(app, pool) {
            JOIN chat_members me ON me.conversation_sync_id = x.conversation_sync_id
                                AND LOWER(me.username) = LOWER($1) AND me.left_at IS NULL
            JOIN chat_conversations c ON c.sync_id = x.conversation_sync_id
-          WHERE x.deleted_at IS NULL AND x.kind <> 'system' AND x.body ILIKE $2
+          WHERE x.deleted_at IS NULL AND x.kind <> 'system' AND (x.body ILIKE $2 OR x.meta->>'title' ILIKE $2)
           ORDER BY x.server_ts DESC
           LIMIT 50`,
         [me, like]

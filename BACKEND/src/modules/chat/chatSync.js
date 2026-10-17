@@ -28,7 +28,7 @@ const path = require('path');
 const multer = require('multer');
 const { sniffAttachment } = require('./attachmentType');
 
-const TABLES = ['chat_conversations', 'chat_members', 'chat_messages', 'chat_attachments', 'chat_receipts'];
+const TABLES = ['chat_conversations', 'chat_members', 'chat_messages', 'chat_tasks', 'chat_attachments', 'chat_receipts'];
 const MERGE = {
   chat_conversations: { greatest: ['last_message_at'] },
   chat_members: { greatest: ['last_read_at'] },
@@ -37,6 +37,7 @@ const MERGE = {
 const NATURAL = {
   chat_members: { cols: ['conversation_sync_id', 'username'], lower: 'username' },
   chat_receipts: { cols: ['message_sync_id', 'username'], lower: 'username' },
+  chat_tasks: { cols: ['message_sync_id'] },
   chat_conversations: { cols: ['dm_key'] }
 };
 const BATCH = 500;
@@ -115,6 +116,9 @@ async function ensureSyncSchema(pool) {
           send := OLD.left_at IS DISTINCT FROM NEW.left_at OR OLD.role IS DISTINCT FROM NEW.role;
         END IF;
         payload := jsonb_build_object('c', NEW.conversation_sync_id, 'u', NEW.username);
+      ELSIF TG_TABLE_NAME = 'chat_tasks' THEN
+        IF TG_OP = 'UPDATE' THEN send := OLD.status IS DISTINCT FROM NEW.status; END IF;
+        payload := jsonb_build_object('c', NEW.conversation_sync_id, 'm', NEW.message_sync_id, 'k', NEW.status, 'u', NEW.updated_by);
       ELSIF TG_TABLE_NAME = 'chat_conversations' THEN
         IF TG_OP = 'UPDATE' THEN send := OLD.title IS DISTINCT FROM NEW.title; END IF;
         payload := jsonb_build_object('c', NEW.sync_id);
