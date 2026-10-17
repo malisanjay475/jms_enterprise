@@ -11,8 +11,21 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.130.0",
+  "latest": "1.130.1",
   "versions": [
+    {
+      "version": "1.130.1",
+      "date": "2026-10-17",
+      "title": "Joy AI chat box hidden for now",
+      "modules": [
+        {
+          "app": "all",
+          "changes": [
+            { "type": "improvement", "text": "The Joy AI chat box is temporarily hidden." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.130.0",
       "date": "2026-10-17",
