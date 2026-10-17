@@ -5,6 +5,7 @@
 // Phase 1: direct chats, stream, superadmin view. Phase 2: groups, attachments,
 // delivered/read receipts per message, typing indicator, search, edit and delete.
 // Phase 4: bell rows, mute, @mentions and Web Push (chatNotify.js).
+// Phase 5: superadmin console, exports, audit log and retention (chatAdmin.js).
 // Phase 3: chats replicate between MAIN and the factory LOCALs within seconds
 // (chatSync.js), and live events go through PostgreSQL NOTIFY so they reach users on
 // every PM2 worker and arrive for rows synced in from the other server too.
@@ -21,6 +22,7 @@ const { isSuperadmin } = require('../../app/auth');
 const { sniffAttachment } = require('./attachmentType');
 const chatSync = require('./chatSync');
 const chatNotify = require('./chatNotify');
+const chatAdmin = require('./chatAdmin');
 
 const DM_ID = chatSync.deterministicIdSql('chat-dm', '$1::text');
 const MEMBER_ID = (conv, user) => chatSync.deterministicIdSql('chat-member', conv, `LOWER(${user})`);
@@ -226,6 +228,7 @@ async function createSchema(pool) {
   }
   await chatSync.ensureSyncSchema(pool);
   await chatNotify.ensureNotifySchema(pool);
+  await chatAdmin.ensureAdminSchema(pool);
 }
 
 async function activeUser(pool, username) {
@@ -279,12 +282,13 @@ function messageOut(row, att, receipts) {
     sync_id: row.sync_id,
     conversation_sync_id: row.conversation_sync_id,
     sender: row.sender,
-    body: row.deleted_at ? '' : row.body,
+    body: row.deleted_at || row.purged_at ? '' : row.body,
     kind: row.kind,
     server_ts: row.server_ts,
     edited_at: row.edited_at,
     deleted: Boolean(row.deleted_at),
-    attachment: att && !row.deleted_at ? attachmentOut(att) : null
+    purged: Boolean(row.purged_at), // emptied by the retention job
+    attachment: att && !row.deleted_at && !row.purged_at ? attachmentOut(att) : null
   };
   if (receipts) {
     out.delivered_to = receipts.filter((r) => r.delivered_at).map((r) => r.username);
@@ -537,6 +541,8 @@ function registerChatRoutes(app, pool) {
   }
 
   chatNotify.registerNotifyRoutes(app, pool, { ready, membership, fail });
+  chatAdmin.registerAdminRoutes(app, pool, { ready, fail, uploadRoot });
+  chatAdmin.startRetentionJob(pool, { uploadRoot });
 
   app.get('/api/chat/me', async (req, res) => {
     try {
@@ -1131,7 +1137,7 @@ function registerChatRoutes(app, pool) {
       const id = String(req.params.id || '');
       if (!UUID_RE.test(id)) return res.status(400).json({ ok: false, error: 'Bad file id.' });
       const { rows: [a] } = await pool.query(
-        `SELECT a.*, m.deleted_at FROM chat_attachments a
+        `SELECT a.*, m.deleted_at, m.purged_at FROM chat_attachments a
            JOIN chat_messages m ON m.sync_id = a.message_sync_id
           WHERE a.sync_id = $1`,
         [id]
@@ -1141,6 +1147,7 @@ function registerChatRoutes(app, pool) {
       const member = await membership(pool, a.conversation_sync_id, me);
       if (!member && !isSuperadmin(req.auth)) return res.status(403).json({ ok: false, error: 'You are not in this chat.' });
       if (a.deleted_at) return res.status(410).json({ ok: false, error: 'This message was deleted.' });
+      if (a.purged_at) return res.status(410).json({ ok: false, error: 'This file was removed after the retention period.' });
       if (!member) await logAudit(pool, me, a.conversation_sync_id, 'open_file');
       const base = path.resolve(uploadRoot);
       const full = path.resolve(base, a.storage_name);
@@ -1235,7 +1242,7 @@ function registerChatRoutes(app, pool) {
       res.status(403).json({ ok: false, error: 'You can only change your own messages.' });
       return null;
     }
-    if (m.deleted_at) { res.status(410).json({ ok: false, error: 'This message was deleted.' }); return null; }
+    if (m.deleted_at || m.purged_at) { res.status(410).json({ ok: false, error: 'This message was deleted.' }); return null; }
     if (!(await membership(pool, m.conversation_sync_id, req.auth.username))) {
       res.status(403).json({ ok: false, error: 'You are not in this chat.' });
       return null;
