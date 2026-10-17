@@ -1,4 +1,8 @@
 (function () {
+  // Joy AI chat box is temporarily hidden. Set to true to bring it back.
+  const JOY_AI_ENABLED = false;
+  if (!JOY_AI_ENABLED) return;
+
   // --- Modern Styles (Glassmorphism + Animations) ---
   const style = document.createElement('style');
   style.innerHTML = `
