@@ -11,8 +11,21 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.131.0",
+  "latest": "1.132.2",
   "versions": [
+    {
+      "version": "1.132.2",
+      "date": "2026-10-18",
+      "title": "Supervisor: colour picker respects setup",
+      "modules": [
+        {
+          "app": "supervisor",
+          "changes": [
+            { "type": "fix", "text": "The colour picker no longer opens before the one-time Setup (STD / Actual) is saved — it now reminds you and scrolls to the setup card, instead of opening and then silently clearing the colour you picked." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.131.0",
       "date": "2026-10-17",
