@@ -11,8 +11,22 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.132.2",
+  "latest": "1.132.3",
   "versions": [
+    {
+      "version": "1.132.3",
+      "date": "2026-10-18",
+      "title": "Less blank space at the bottom",
+      "modules": [
+        {
+          "app": "all",
+          "changes": [
+            { "type": "fix", "text": "Supervisor, WIP Supervisor and Shifting Supervisor no longer leave a large blank gap below the last card when you scroll to the bottom; on phones with a home bar the spacing now adjusts to the phone instead of being fixed." },
+            { "type": "fix", "text": "Order Analyze and the Grinding job list no longer add an extra empty strip under the last row." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.132.2",
       "date": "2026-10-18",

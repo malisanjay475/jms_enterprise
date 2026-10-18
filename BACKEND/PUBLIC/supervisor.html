@@ -83,7 +83,6 @@
       min-height: 100%;
       overflow-y: auto;
       -webkit-overflow-scrolling: touch;
-      padding-bottom: 40px;
     }
 
     .input-error {
@@ -107,7 +106,7 @@
     .shell {
       width: min(100vw, var(--phone));
       margin: 0 auto;
-      padding: 18px 12px 24px;
+      padding: 18px 12px calc(24px + env(safe-area-inset-bottom, 0px));
     }
 
     /* App view hugs the top — trim the header whitespace */
