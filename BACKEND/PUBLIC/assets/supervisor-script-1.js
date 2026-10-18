@@ -3568,56 +3568,6 @@
 
 
 
-    /* ==================== COLOUR CHANGE (Original) ==================== */
-    let ccRej = [];
-    let ccDt = [];
-
-    function openColourChange() {
-      ccRej = [];
-      ccDt = [];
-
-      el('cc-shots').value = '';
-      el('cc-good').value = '';
-      el('cc-rej').innerHTML = '';
-      el('cc-dt').innerHTML = '';
-      el('cc-rej-total').textContent = '0';
-      el('cc-dt-total').textContent = '0';
-      el('cc-errors').innerHTML = '';
-      el('cc-msg').textContent = '';
-
-      el('cc-colour').innerHTML = el('d-color').innerHTML;
-      el('cc-colour').value = el('d-color').value;
-
-      const mainSlot = el('d-slot') ? el('d-slot').value : '';
-      fillHourSlotSelect('cc-slot', mainSlot, false);
-      // Wait for UI to render then select value
-      setTimeout(() => {
-        if (el('cc-slot').value !== mainSlot) el('cc-slot').value = mainSlot;
-      }, 50);
-    }
-
-    function showMachineCheck(entry) {
-      show('modal-machine-check');
-      const mainSlot = el('d-slot').value;
-      fillHourSlotSelect('mc-slot', mainSlot, false);
-    }
-
-    function closeCc() {
-      hide('modal-cc');
-    }
-
-    function ccAddRej() {
-      // Init empty
-      ccRej.push({ qty: '', code: REJECT_REASONS[0][0], text: REJECT_REASONS[0][1], otherText: '' });
-      ccRenderRej();
-    }
-
-    function ccAddDt() {
-      // Init empty
-      ccDt.push({ min: '', code: DOWNTIME_REASONS[0][0], text: DOWNTIME_REASONS[0][1], otherText: '' });
-      ccRenderDt();
-    }
-
     /* ==================== MOULD CHANGE ==================== */
     let mcDt = [];
     let currentMcEntryType = 'MouldChange';
