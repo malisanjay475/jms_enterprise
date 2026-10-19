@@ -2314,7 +2314,7 @@
 
     function orderedDetails(job) {
       const all = job ? (job._all || {}) : {};
-      let html = '<div class="card" style="padding:8px">';
+      let html = '<div class="sup-card" style="padding:8px">';
       FIELD_ORDER.forEach(f => {
         const val = lookup(all, job, f.keys);
         html += `<div class="inline" style="justify-content:space-between;border-bottom:1px dashed var(--line);padding:6px 0">
