@@ -552,7 +552,7 @@ body.viewport-compact .user-profile {
 }
 
 body.viewport-compact .main-content {
-  padding: clamp(12px, 1.4vw, 18px);
+  /* padding: owned by the .main-content media rules below + per-page overrides */
   max-width: var(--layout-max-width);
 }
 
@@ -610,10 +610,6 @@ body.viewport-compact .dataTables_wrapper .dt-layout-row {
   align-items: center;
 }
 
-body.viewport-tight .main-content {
-  padding: 12px;
-}
-
 body.viewport-tight .header {
   margin-bottom: 18px;
   padding-bottom: 14px;
@@ -649,11 +645,6 @@ body.viewport-tight .modal-content {
   max-height: calc(100vh - 28px);
   padding: 20px;
   border-radius: 14px;
-}
-
-body.viewport-short .main-content {
-  padding-top: 16px;
-  padding-bottom: 16px;
 }
 
 body.viewport-short .header {
@@ -1131,7 +1122,7 @@ tbody tr:hover {
   #contentArea,
   #pageContent {
     max-width: 100% !important;
-    padding: clamp(10px, 1.2vw, 16px) !important;
+    padding: clamp(10px, 1.2vw, 16px);
   }
 
   .header {
@@ -1225,7 +1216,7 @@ tbody tr:hover {
   #pageContent {
     margin-left: 0 !important;
     width: 100% !important;
-    padding: 16px !important;
+    padding: 16px;
     -webkit-overflow-scrolling: touch !important;
   }
 
