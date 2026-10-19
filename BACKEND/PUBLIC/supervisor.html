@@ -112,13 +112,77 @@
     /* App view hugs the top — trim the header whitespace */
     #view-app .shell { padding-top: 8px; }
 
-    /* ── Card ── */
-    .card {
+    /* ── Card ──
+       Deliberately NOT called `.card`: assets/app.css carries a
+       `@media (max-width: 768px) { .card { ... !important } }` block that
+       repaints every `.card` with a 12px radius, a flat grey shadow and a
+       #e2e8f0 border. Every factory phone is under 768px, so a `.card` here
+       would never render the palette this page defines — the topbar (not a
+       card) kept its 20px corners while the sections below it went 12px, and
+       the page read as two different designs stacked on top of each other.
+       `.sup-card` is this page's own class, so nothing overrides it. */
+    .sup-card {
       background: var(--surface);
       border: 1px solid var(--line);
       border-radius: 20px;
       padding: 16px;
+      margin-bottom: 16px;
       box-shadow: var(--shadow);
+    }
+
+    /* app.css gave `.card` overflow:hidden, which clipped a wide colour table.
+       Keep the table scrollable instead of clipped. */
+    .color-table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch }
+
+    /* ── Reclaimed from app.css's mobile block ──
+       That same `@media (max-width: 768px)` block sets, with !important:
+         h1,h2,h3,h4 { font-size: 1.5rem }   → every heading 24px, so h2 and h3
+                                               were identical and nothing read
+                                               as a sub-heading;
+         input, select { height: 45px; border-radius: 8px;
+                         border: 1px solid #cbd5e1 }
+                                             → 8px controls inside 14px buttons
+                                               and 20px cards.
+       !important can only be answered with !important; these restore the
+       sizes this page already declares and change nothing outside it. */
+    #view-login h2, #view-app h2 { font-size: 19px !important }
+    #view-login h3, #view-app h3 { font-size: 17px !important }
+
+    #view-login input, #view-login select, #view-login textarea,
+    #view-app input, #view-app select, #view-app textarea,
+    .modal input, .modal select, .modal textarea {
+      height: auto !important;
+      min-height: var(--tap) !important;
+      border-radius: 12px !important;
+      border: 1.5px solid var(--line-bright) !important;
+    }
+
+    #view-app #dd-machine {
+      min-height: 54px !important;
+      border-radius: 14px !important;
+    }
+
+    /* Machine picker: the select alone gave no clue what it was choosing. */
+    .machine-select-label {
+      display: block;
+      margin-bottom: 6px;
+      color: var(--muted);
+      font-weight: 700;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    /* Three chips in a row: one word, two words, or a word that wraps — centre
+       them all so the row keeps a single baseline instead of looking ragged. */
+    .action-chip {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 2px;
+      line-height: 1.15;
+      text-align: center;
     }
 
     .pill {
@@ -837,7 +901,7 @@
 
   <!-- Boot overlay so the app never looks “blank” -->
   <div id="boot">
-    <div class="card">
+    <div class="sup-card">
       <div class="inline" style="gap:10px">
         <div style="width:30px;height:30px;border-radius:9px;background:linear-gradient(135deg,#2563eb,#3b82f6)"></div>
         <div>
@@ -869,7 +933,7 @@
 
   <!-- ============ LOGIN (phone) ============ -->
   <div id="view-login" class="shell">
-    <div id="login-card" class="card" role="region" aria-labelledby="login-title">
+    <div id="login-card" class="sup-card" role="region" aria-labelledby="login-title">
       <div class="inline">
         <img src="/assets/jms-logo.png" alt="JMS logo" style="width:42px;height:42px;border-radius:12px;object-fit:contain;background:#fff;padding:4px;box-shadow:0 8px 18px rgba(8,38,58,0.12)">
         <div>
@@ -925,9 +989,8 @@
       <!-- Topbar -->
       <div class="topbar" role="region" aria-label="Top bar">
         <div class="machine-select-wrap">
-          <div class="inline" style="width:100%">
-            <select id="dd-machine" onchange="onMachineChange()" style="width:100%"></select>
-          </div>
+          <label class="machine-select-label" for="dd-machine">Machine</label>
+          <select id="dd-machine" onchange="onMachineChange()" style="width:100%"></select>
         </div>
 
         <div class="control-actions">
@@ -952,7 +1015,7 @@
       </div>
 
       <!-- QUEUE -->
-      <section id="sec-queue" class="page card" style="display:block">
+      <section id="sec-queue" class="page sup-card" style="display:block">
         <h2 style="margin-bottom:6px">Job Queue</h2>
         <div class="muted" style="font-size:13px;margin-bottom:10px">Tap Fill DPR on the first job</div>
         <div id="jobs" class="jobs"></div>
@@ -960,14 +1023,14 @@
       </section>
 
       <!-- DPR -->
-      <section id="sec-dpr" class="page card hidden">
+      <section id="sec-dpr" class="page sup-card hidden">
         <h2 style="margin-bottom:6px">DPR Entry</h2>
         <div id="active-job" class="muted">Open Queue → <b>Fill DPR</b> on the first job.</div>
 
         <div id="job-summary" class="job" style="margin-top:10px"></div>
 
         <!-- One-time Setup -->
-        <div id="std-actual-card" class="card hidden" style="margin-top:10px">
+        <div id="std-actual-card" class="sup-card hidden" style="margin-top:10px">
           <h3 style="margin:0 0 6px">One-time Setup (per Job & Shift)</h3>
           <div class="muted" style="font-size:12px;margin-bottom:6px">Each box shows STD (left) and ACT (right).</div>
 
@@ -1066,26 +1129,28 @@
         </div>
 
         <!-- Colour & QTY table -->
-        <div id="color-plan-card" class="card hidden" style="margin-top:10px">
+        <div id="color-plan-card" class="sup-card hidden" style="margin-top:10px">
           <div class="inline" style="justify-content:space-between; margin-bottom:6px">
             <h3 style="margin:0">Colour &amp; QTY</h3>
             <span id="color-plan-note" class="muted" style="font-size:12px"></span>
           </div>
           <div class="muted" style="font-size:12px; margin-bottom:6px">Tap a row to set the DPR Colour.</div>
-          <table class="color-table" aria-label="Colour and quantities">
-            <thead>
-              <tr>
-                <th>Colour</th>
-                <th>PlanQty</th>
-                <th>Bal Qty (job)</th>
-              </tr>
-            </thead>
-            <tbody id="color-plan-body"></tbody>
-          </table>
+          <div class="color-table-wrap">
+            <table class="color-table" aria-label="Colour and quantities">
+              <thead>
+                <tr>
+                  <th>Colour</th>
+                  <th>PlanQty</th>
+                  <th>Bal Qty (job)</th>
+                </tr>
+              </thead>
+              <tbody id="color-plan-body"></tbody>
+            </table>
+          </div>
         </div>
 
         <!-- DPR form -->
-        <div id="dpr-form" class="hidden card" style="margin-top:10px">
+        <div id="dpr-form" class="hidden sup-card" style="margin-top:10px">
           <!-- NEW: Entry Mode Switcher -->
           <div class="tabs" style="grid-template-columns:1fr 1fr; margin-bottom:12px">
             <button id="mode-main" class="active" onclick="setDPRMode('Main')">Main Entry</button>
@@ -1215,7 +1280,7 @@
       </section>
 
       <!-- VIEW ENTRIES (formerly Recent) -->
-      <section id="sec-recent" class="page card hidden" style="padding-top: 10px;">
+      <section id="sec-recent" class="page sup-card hidden" style="padding-top: 10px;">
         <div class="inline" style="justify-content:space-between;margin-bottom:12px">
           <h2 style="margin:0; font-size: 1.1rem;">View Entries</h2>
           <div class="segmented-control" id="recent-filter-container">
@@ -1257,7 +1322,7 @@
 
   <!-- ======== Mould Change Modal ======== -->
   <div id="modal-mc" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="mc-title">
-    <div class="panel card">
+    <div class="panel sup-card">
       <h3 id="mc-title" style="margin:0 0 8px">Mould Change – Downtime only</h3>
 
       <div class="grid-3" style="margin-bottom:6px">
@@ -1290,7 +1355,7 @@
 
   <!-- ======== Quick Actions Modal (NEW) ======== -->
   <div id="modal-quick-actions" class="modal hidden">
-    <div class="panel card" style="max-width:380px; width:95vw; border-radius:18px; padding:24px">
+    <div class="panel sup-card" style="max-width:380px; width:95vw; border-radius:18px; padding:24px">
       <h2 style="margin:0 0 20px; text-align:center; font-size:1.4rem; color:#1e293b">Machine Quick Action</h2>
 
       <div style="display:grid; grid-template-columns:1fr; gap:12px">
@@ -1324,7 +1389,7 @@
 
   <!-- ======== Edit Entry Modal (NEW) ======== -->
   <div id="modal-edit" class="modal hidden">
-    <div class="panel card">
+    <div class="panel sup-card">
       <h3>Edit Last Entry</h3>
       <input type="hidden" id="edit-id">
 
@@ -1369,7 +1434,7 @@
 
   <!-- ======== Factory Selection Modal ======== -->
   <div id="modal-factory-select" class="modal hidden" role="dialog" aria-modal="true">
-    <div class="panel card" style="text-align:center">
+    <div class="panel sup-card" style="text-align:center">
       <h3>Select Factory</h3>
       <div class="muted" style="margin-bottom:12px">You are assigned to multiple factories.</div>
       <div id="factory-list" class="row"></div>
@@ -1379,7 +1444,7 @@
   <!-- ======== Confirm Previous Shift Modal (NEW) ======== -->
   <div id="modal-confirm" class="modal hidden"
     style="z-index:9999; backdrop-filter:blur(4px); -webkit-backdrop-filter:blur(4px);">
-    <div class="card"
+    <div class="sup-card"
       style="text-align:center; max-width:320px; padding:24px; box-shadow:0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1);">
       <h3 style="margin-top:0; font-size:18px; color:#1e293b">Confirm Submission</h3>
       <div id="confirm-msg" style="margin-bottom:20px; color:#334155; line-height:1.6; font-size:15px"></div>
@@ -1392,7 +1457,7 @@
 
   <!-- ======== Shift Team Modal (NEW) ======== -->
   <div id="modal-shift-team" class="modal hidden">
-    <div class="panel card">
+    <div class="panel sup-card">
       <h3 style="margin:0 0 10px">Shift Team Entry</h3>
       <div class="muted" style="font-size:13px;margin-bottom:10px">
         Who is on duty for this shift?
@@ -1432,7 +1497,7 @@
     </div>
   </div>
 
-  <script src="/assets/supervisor-script-1.js?v=release94"></script>
+  <script src="/assets/supervisor-script-1.js?v=release95"></script>
   <script src="/assets/register-sw.js?v=release65"></script>
   <script src="/assets/app.min.js?v=1583"></script>
 

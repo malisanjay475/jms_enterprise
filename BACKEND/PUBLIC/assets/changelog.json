@@ -11,8 +11,25 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.132.3",
+  "latest": "1.132.4",
   "versions": [
+    {
+      "version": "1.132.4",
+      "date": "2026-10-19",
+      "title": "Supervisor: one consistent look",
+      "modules": [
+        {
+          "app": "supervisor",
+          "changes": [
+            { "type": "fix", "text": "The Supervisor page now looks like one design on the phone: the boxes below the top bar have the same rounded corners and soft shadow as the top bar, instead of squarer corners with a grey shadow." },
+            { "type": "fix", "text": "Headings are sized again — a section title and a sub-heading no longer look identical." },
+            { "type": "fix", "text": "The machine dropdown is taller with rounded corners to match the buttons, and now has a “Machine” label above it." },
+            { "type": "fix", "text": "Maint/MP, Refresh and Shift Team sit evenly in their row instead of looking ragged." },
+            { "type": "fix", "text": "A wide Colour & QTY table scrolls sideways instead of being cut off." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.132.3",
       "date": "2026-10-18",
