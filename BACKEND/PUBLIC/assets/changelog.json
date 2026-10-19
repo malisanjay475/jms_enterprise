@@ -11,8 +11,21 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.132.2",
+  "latest": "1.132.4",
   "versions": [
+    {
+      "version": "1.132.4",
+      "date": "2026-10-19",
+      "title": "Dashboards use their own page layout again",
+      "modules": [
+        {
+          "app": "all",
+          "changes": [
+            { "type": "fix", "text": "The main Dashboard, Moulding Dashboard and Live Scanning Dashboard now use the full-screen layout each page was designed with, instead of being forced into the standard page margin." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.132.2",
       "date": "2026-10-18",
