@@ -11,6 +11,12 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import coil.compose.AsyncImage
+import coil.request.ImageRequest
+import com.jmsocean.chat.data.Session
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -56,8 +62,9 @@ private val avatarColors = listOf(
     Color(0xFF4DB6AC), Color(0xFFF06292), Color(0xFF7986CB), Color(0xFFFFB74D)
 )
 
+/** Round avatar: the profile photo when [photoUrl] is set, else coloured initials. */
 @Composable
-fun Avatar(name: String, size: Dp = 48.dp, group: Boolean = false, online: Boolean = false) {
+fun Avatar(name: String, size: Dp = 48.dp, group: Boolean = false, online: Boolean = false, photoUrl: String? = null) {
     val c = avatarColors[(name.lowercase().hashCode() and 0x7fffffff) % avatarColors.size]
     Box(Modifier.size(size)) {
         Box(
@@ -69,6 +76,18 @@ fun Avatar(name: String, size: Dp = 48.dp, group: Boolean = false, online: Boole
                 color = Color.White, fontWeight = FontWeight.SemiBold,
                 fontSize = (size.value * 0.38f).sp
             )
+            if (photoUrl != null) {
+                val ctx = LocalContext.current
+                AsyncImage(
+                    model = remember(photoUrl) {
+                        ImageRequest.Builder(ctx).data(photoUrl)
+                            .addHeader("Authorization", "Bearer ${Session.token}")
+                            .crossfade(true).build()
+                    },
+                    contentDescription = name, contentScale = ContentScale.Crop,
+                    modifier = Modifier.size(size).clip(CircleShape)
+                )
+            }
         }
         if (online) Box(
             Modifier.size(size * 0.28f).align(Alignment.BottomEnd).clip(CircleShape)
@@ -117,6 +136,20 @@ fun dayLabel(iso: String?): String {
         days == 1L -> "Yesterday"
         days < 7 -> t.format(weekday)
         else -> t.format(dayFmt)
+    }
+}
+
+/** "online" / "last seen today at 3:15 pm" / "last seen yesterday at …" / "last seen 12 Oct 2026". */
+fun lastSeenText(online: Boolean, iso: String?): String {
+    if (online) return "online"
+    val t = parseTs(iso) ?: return ""
+    val days = ChronoUnit.DAYS.between(t.toLocalDate(), LocalDate.now(zone))
+    val at = t.format(hm).lowercase()
+    return when {
+        days == 0L -> "last seen today at $at"
+        days == 1L -> "last seen yesterday at $at"
+        days < 7 -> "last seen ${t.format(weekday)} at $at"
+        else -> "last seen ${t.format(dayFmt)}"
     }
 }
 

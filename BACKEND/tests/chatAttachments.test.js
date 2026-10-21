@@ -39,6 +39,15 @@ describe('chat attachment type check (real bytes, not the name)', () => {
     expect(sniffAttachment(pad(Buffer.from('\0\0\0\x20ftypisom')))).toBeNull();
   });
 
+  test('phone voice notes (plain MP4 with only a sound track) are audio; any video track is refused', () => {
+    const hdlr = (type) => `\0\0\0\x21hdlr\0\0\0\0\0\0\0\0${type}`;
+    const mp4 = (...types) => pad(Buffer.from(`\0\0\0\x18ftypmp42 moov ${types.map(hdlr).join(' ')}`));
+    expect(sniffAttachment(mp4('soun'))).toMatchObject({ kind: 'audio', mime: 'audio/mp4', ext: '.m4a' });
+    expect(sniffAttachment(mp4('vide', 'soun'))).toBeNull();
+    expect(sniffAttachment(mp4('soun', 'vide'))).toBeNull();
+    expect(sniffAttachment(mp4())).toBeNull();
+  });
+
   test('webm voice notes are audio; webm with a video track is refused', () => {
     const ebml = [0x1a, 0x45, 0xdf, 0xa3];
     expect(sniffAttachment(pad(Buffer.concat([Buffer.from(ebml), Buffer.from('webm A_OPUS')])))).toMatchObject({ kind: 'audio' });

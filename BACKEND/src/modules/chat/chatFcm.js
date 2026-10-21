@@ -87,8 +87,8 @@ async function sendToUsers(pool, usernames, data) {
   if (!devices.length) return { sent: 0 };
   const token = await accessToken();
   const url = `https://fcm.googleapis.com/v1/projects/${readAccount().project_id}/messages:send`;
-  let sent = 0;
-  for (const dev of devices) {
+  // All devices at once: a busy group must not wait for each phone in turn.
+  const results = await Promise.all(devices.map(async (dev) => {
     try {
       const r = await fetch(url, {
         method: 'POST',
@@ -102,9 +102,8 @@ async function sendToUsers(pool, usernames, data) {
         })
       });
       if (r.ok) {
-        sent += 1;
-        await pool.query('UPDATE chat_fcm_devices SET last_ok_at = NOW(), failures = 0 WHERE id = $1', [dev.id]);
-        continue;
+        pool.query('UPDATE chat_fcm_devices SET last_ok_at = NOW(), failures = 0 WHERE id = $1', [dev.id]).catch(() => {});
+        return 1;
       }
       const body = await r.text();
       if (r.status === 404 || /UNREGISTERED|INVALID_ARGUMENT.*registration/i.test(body)) {
@@ -116,8 +115,9 @@ async function sendToUsers(pool, usernames, data) {
     } catch (err) {
       console.warn('[chat-fcm] send failed:', err.message);
     }
-  }
-  return { sent };
+    return 0;
+  }));
+  return { sent: results.reduce((a, b) => a + b, 0) };
 }
 
 function registerFcmRoutes(app, pool, { ready, fail }) {

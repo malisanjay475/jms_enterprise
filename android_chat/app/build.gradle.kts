@@ -18,7 +18,7 @@ android {
         // versionCode is set by CI (APP_VERSION_CODE = 1000 + run number) so it always
         // increases and phones auto-update. Local builds fall back to 1.
         versionCode = System.getenv("APP_VERSION_CODE")?.toIntOrNull() ?: 1
-        versionName = "2.0.0"
+        versionName = "2.1.0"
 
         // JMS Chat always talks to the MAIN server: everyone signs in there with the
         // chat-only login (/api/chat-app/login), from anywhere, no geofence.
@@ -104,6 +104,7 @@ dependencies {
 
     // Chat photos
     implementation("io.coil-kt:coil-compose:2.7.0")
+    implementation("androidx.exifinterface:exifinterface:1.3.7")
 
     // Push (Firebase Cloud Messaging), initialised in code from BuildConfig
     implementation(platform("com.google.firebase:firebase-bom:33.4.0"))

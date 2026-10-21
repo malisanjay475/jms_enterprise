@@ -45,6 +45,15 @@ function sniffAttachment(buf) {
   if (ascii(buf, 4, 8) === 'ftyp') {
     const brand = ascii(buf, 8, 12);
     if (brand === 'M4A ' || brand === 'M4B ') return { kind: 'audio', mime: 'audio/mp4', ext: '.m4a' };
+    // Phones record voice notes as plain MP4 (mp42 / isom / 3gp): audio only when every
+    // track handler ('hdlr' box: 8 bytes, then the handler type) is a sound track.
+    const text = buf.toString('latin1');
+    const handlers = [];
+    for (let i = text.indexOf('hdlr'); i !== -1 && handlers.length < 16; i = text.indexOf('hdlr', i + 4)) {
+      handlers.push(text.slice(i + 12, i + 16));
+    }
+    const tracks = handlers.filter((h) => h === 'soun' || h === 'vide');
+    if (tracks.length && tracks.every((h) => h === 'soun')) return { kind: 'audio', mime: 'audio/mp4', ext: '.m4a' };
     return null; // mp4/mov video and other ISO media
   }
   // WebM (what browsers record voice notes in): audio only if it has no video track.

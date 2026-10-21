@@ -2,4 +2,6 @@
 <paths>
     <!-- Downloaded update APKs live in cacheDir/apk -->
     <cache-path name="apk" path="apk/" />
+    <!-- Camera photos before they are sent / set as profile photo -->
+    <cache-path name="camera" path="camera/" />
 </paths>

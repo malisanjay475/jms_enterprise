@@ -141,13 +141,15 @@ fun NewChatScreen(group: Boolean, onBack: () -> Unit, onNewGroup: () -> Unit, on
                         }.padding(horizontal = 16.dp, vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Avatar(u.username, 46.dp, online = u.online)
+                        Avatar(u.username, 46.dp, online = u.online, photoUrl = Api.avatarUrl(u.username, u.photo_v))
                         Spacer(Modifier.width(14.dp))
                         Column(Modifier.weight(1f)) {
                             Text(u.username, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
                             val sub = listOf(u.role.replace('_', ' '), u.line).filter { it.isNotBlank() }.joinToString(" · ")
                             Text(if (u.online) "online${if (sub.isNotEmpty()) " · $sub" else ""}" else sub, fontSize = 13.sp,
                                 color = if (u.online) Color(0xFF00A884) else MaterialTheme.colorScheme.onSurfaceVariant)
+                            if (u.about.isNotBlank()) Text(u.about, fontSize = 13.sp, maxLines = 1,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         if (group) Checkbox(checked = sel, onCheckedChange = { if (it) picked.add(u.username) else picked.remove(u.username) })
                     }
