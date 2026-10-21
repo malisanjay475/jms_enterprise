@@ -14,6 +14,9 @@ part of your PR. On release, the `[Unreleased]` items move under the new version
 ## [Unreleased]
 
 ### Fixed
+- Deploy (v1.136.3): the 21-Oct production deploy stopped with "no running db container found" because the FCM_SERVICE_ACCOUNT secret was the raw (multi-line) Firebase JSON, which broke .env so docker compose could not read it. scripts/vps-safe-deploy.sh now normalises the push keys before writing .env (normalize_push_keys): raw JSON is base64-encoded (chatFcm.js reads JSON or base64), wrapped base64 is joined, a lone "{" left in a broken .env is dropped with a warning, and VAPID keys lose line breaks. Rollback: revert the script; set the secret as one-line base64.
+
+### Fixed
 - JMS Chat push (v1.136.2): scripts/vps-safe-deploy.sh rewrote .env from a fixed list on every deploy, so FCM_SERVICE_ACCOUNT (and the VAPID Web Push keys) added on the VPS were dropped by the next deploy and push never reached phones. The deploy now writes FCM_SERVICE_ACCOUNT / VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY / VAPID_SUBJECT, taken from GitHub secrets of the same names (publish-v1-app.yml, deploy-vps-docker-isolated.yml) or, when a secret is empty, kept from the current .env. FCM pushes carry the recipient's total unread (app badge); collapse_key dropped so no message is folded away. New GET /api/chat/fcm/status and POST /api/chat/fcm/test; startup logs whether app push is ON. Android app 2.2.0: Profile > Notifications checklist (app built with push, server push, phone registered, permission, battery exemption) with fix buttons and Send test notification; badge icon on message notifications; notifications cleared when nothing is unread.
 
 ### Added

@@ -52,11 +52,44 @@ keep_env_value() {
   fi
 }
 
+# .env holds one value per line, so every push key must be a single line. A multi-line
+# value (the Firebase key pasted as raw JSON) broke .env: docker compose could not read
+# it and the deploy stopped with "no running db container found" (21-Oct-2026).
+#  - FCM_SERVICE_ACCOUNT: raw JSON is base64-encoded (the app reads JSON or base64);
+#    a base64 value wrapped over several lines is joined; a lone "{" (the first line of
+#    a JSON key that broke an older .env) is dropped with a warning.
+#  - VAPID keys: line breaks and spaces removed.
+normalize_push_keys() {
+  local v
+  v="$(printf '%s' "${FCM_SERVICE_ACCOUNT:-}" | tr -d '\r')"
+  v="${v#"${v%%[![:space:]]*}"}"
+  if [[ "$v" == "{"* ]]; then
+    if [[ "$v" == *'"private_key"'* && "$v" == *"}" ]]; then
+      v="$(printf '%s' "$v" | base64 -w0)"
+    else
+      echo "[deploy] WARNING: FCM_SERVICE_ACCOUNT is not a complete JSON key; leaving app push off" >&2
+      v=""
+    fi
+  else
+    v="$(printf '%s' "$v" | tr -d '[:space:]')"
+  fi
+  FCM_SERVICE_ACCOUNT="$v"
+  export FCM_SERVICE_ACCOUNT
+  local k
+  for k in VAPID_PUBLIC_KEY VAPID_PRIVATE_KEY; do
+    printf -v "$k" '%s' "$(printf '%s' "${!k:-}" | tr -d '[:space:]')"
+    export "$k"
+  done
+  VAPID_SUBJECT="$(printf '%s' "${VAPID_SUBJECT:-}" | tr -d '\r\n')"
+  export VAPID_SUBJECT
+}
+
 write_env_file() {
   local image_ref="$1"
   resolve_traefik_settings
   local k
   for k in FCM_SERVICE_ACCOUNT VAPID_PUBLIC_KEY VAPID_PRIVATE_KEY VAPID_SUBJECT; do keep_env_value "$k"; done
+  normalize_push_keys
 
   cat > .env <<EOF
 APP_IMAGE=${image_ref}
