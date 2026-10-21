@@ -20,6 +20,16 @@ const legacyAuthUsage = require('./legacyAuthUsage');
 
 const COOKIE_NAME = 'jms_session';
 const TOKEN_TYPE = 'session';
+// JMS Chat app sessions (chatAppAuth.js): issued on MAIN to any active user, without the
+// geofence or global access. They identify the user ONLY on /api/chat/* — everywhere
+// else the request is treated as having no session.
+const CHAT_COOKIE_NAME = 'jms_chat_session';
+const CHAT_TOKEN_TYPE = 'chat';
+const CHAT_SCOPE_RE = /^\/api\/chat(\/|$)/i;
+
+function isChatScope(req) {
+  return CHAT_SCOPE_RE.test(String(req.originalUrl || req.url || '').split('?')[0]);
+}
 
 function readPositiveIntEnv(name, fallback) {
   const n = Number.parseInt(process.env[name] || '', 10);
@@ -81,8 +91,13 @@ function parseCookies(header) {
 }
 
 function readToken(req) {
-  const cookie = parseCookies(req.headers.cookie)[COOKIE_NAME];
+  const cookies = parseCookies(req.headers.cookie);
+  const cookie = cookies[COOKIE_NAME];
   if (cookie) return { token: cookie, fromCookie: true };
+  // The chat cookie only counts where a chat token is accepted.
+  if (cookies[CHAT_COOKIE_NAME] && isChatScope(req)) {
+    return { token: cookies[CHAT_COOKIE_NAME], fromCookie: true, chatCookie: true };
+  }
   const auth = String(req.headers.authorization || '');
   if (auth.toLowerCase().startsWith('bearer ')) {
     const token = auth.slice(7).trim();
@@ -106,10 +121,10 @@ function cookieOptions(req, maxAgeMs) {
 
 // `issuedAtMs` is stored in the token so "log out other devices" can revoke every
 // session issued before a cutoff with millisecond precision (JWT `iat` is seconds).
-async function signSession(pool, user, issuedAtMs = Date.now()) {
+async function signSession(pool, user, issuedAtMs = Date.now(), typ = TOKEN_TYPE) {
   const key = await getSigningKey(pool);
   return jwt.sign(
-    { typ: TOKEN_TYPE, sub: String(user.username), uid: user.id ?? null, sat: issuedAtMs },
+    { typ, sub: String(user.username), uid: user.id ?? null, sat: issuedAtMs },
     key,
     { algorithm: 'HS256', expiresIn: Math.floor(SESSION_TTL_MS / 1000) }
   );
@@ -123,6 +138,16 @@ async function issueSession(pool, req, res, user, issuedAtMs) {
 
 function clearSession(req, res) {
   res.clearCookie(COOKIE_NAME, cookieOptions(req));
+}
+
+async function issueChatSession(pool, req, res, user, issuedAtMs) {
+  const token = await signSession(pool, user, issuedAtMs, CHAT_TOKEN_TYPE);
+  res.cookie(CHAT_COOKIE_NAME, token, cookieOptions(req, SESSION_TTL_MS));
+  return token;
+}
+
+function clearChatSession(req, res) {
+  res.clearCookie(CHAT_COOKIE_NAME, cookieOptions(req));
 }
 
 const userCache = new Map();
@@ -164,7 +189,14 @@ function createAuthMiddleware(pool) {
     try {
       const key = await getSigningKey(pool);
       const payload = jwt.verify(found.token, key, { algorithms: ['HS256'] });
-      if (payload.typ !== TOKEN_TYPE || !payload.sub) throw new Error('not a session token');
+      if (!payload.sub) throw new Error('not a session token');
+      const chatToken = payload.typ === CHAT_TOKEN_TYPE;
+      if (!chatToken && payload.typ !== TOKEN_TYPE) throw new Error('not a session token');
+      // A chat-app token outside /api/chat: valid, just not here. No session, keep it.
+      if (chatToken && !isChatScope(req)) {
+        legacyAuthUsage.recordLegacyUse(req);
+        return next();
+      }
 
       const user = await loadSessionUser(pool, payload.sub);
       if (!user || user.is_active === false) throw new Error('user missing or inactive');
@@ -177,7 +209,8 @@ function createAuthMiddleware(pool) {
         username: user.username,
         role: String(user.role_code || '').toLowerCase(),
         permissions: (user.permissions && typeof user.permissions === 'object') ? user.permissions : {},
-        globalAccess: user.global_access === true
+        globalAccess: user.global_access === true,
+        scope: chatToken ? 'chat' : 'full'
       };
       // The verified identity wins over whatever the client claimed.
       req.headers['x-user-name'] = user.username;
@@ -191,12 +224,14 @@ function createAuthMiddleware(pool) {
       }
 
       if (found.fromCookie && Date.now() - issuedAt > REFRESH_AFTER_MS) {
-        await issueSession(pool, req, res, user).catch(() => {});
+        const reissue = found.chatCookie ? issueChatSession : issueSession;
+        await reissue(pool, req, res, user).catch(() => {});
       }
     } catch (err) {
       // Expired, tampered, revoked or unknown: stop the browser sending it. The
       // request continues as an unauthenticated (legacy) request.
-      if (found.fromCookie) clearSession(req, res);
+      if (found.chatCookie) clearChatSession(req, res);
+      else if (found.fromCookie) clearSession(req, res);
     }
     legacyAuthUsage.recordLegacyUse(req);
     return next();
@@ -239,6 +274,10 @@ module.exports = {
   createAuthMiddleware,
   issueSession,
   clearSession,
+  CHAT_COOKIE_NAME,
+  issueChatSession,
+  clearChatSession,
+  isChatScope,
   signSession,
   invalidateUserCache,
   parseCookies,

@@ -16,6 +16,7 @@
 
 const PUBLIC_API = [
   /^\/api\/(login|logout|logout-all|session|version|health)\/?$/,
+  /^\/api\/chat-app\/(login|logout)\/?$/, // JMS Chat app sign-in (chatAppAuth.js)
   /^\/api\/sync(\/|$)/,                 // x-sync-api-key (LOCAL ↔ MAIN)
   /^\/api\/sync-alert(\/|$)/,           // SYNC_API_KEY (GitHub Action)
   /^\/api\/local-servers(\/|$)/,        // x-node-key (node routes); admin routes keep their own checks

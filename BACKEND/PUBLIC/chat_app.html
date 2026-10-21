@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+  <meta name="theme-color" content="#075e54">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="JMS Chat">
+  <link rel="manifest" href="/chat-app.webmanifest">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="icon" href="/favicon.png">
+  <title>JMS Chat</title>
+  <!-- JMS Chat app: the chat alone, full screen, on the MAIN server. Sign-in is the
+       chat-only login (/api/chat-app/login): any active user, from anywhere. Used by
+       the Android app (android_chat/) and as an iPhone home-screen app. -->
+  <style>
+    html, body { margin: 0; height: 100%; background: #f0f2f5; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+    #login { display: none; min-height: 100%; box-sizing: border-box; flex-direction: column; align-items: center; justify-content: center; padding: 24px 16px; background: linear-gradient(#075e54 0 220px, #f0f2f5 220px); }
+    #login.show { display: flex; }
+    .card { width: 100%; max-width: 380px; background: #fff; border-radius: 14px; box-shadow: 0 6px 24px rgba(0,0,0,.12); padding: 28px 22px; box-sizing: border-box; }
+    .logo { width: 64px; height: 64px; border-radius: 50%; background: #25d366; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 32px; margin: 0 auto 10px; }
+    h1 { text-align: center; font-size: 22px; margin: 0 0 4px; color: #111b21; }
+    .sub { text-align: center; color: #667781; font-size: 14px; margin: 0 0 22px; }
+    label { display: block; font-size: 13px; color: #54656f; margin: 12px 0 4px; }
+    input { width: 100%; box-sizing: border-box; font-size: 16px; padding: 12px; border: 1px solid #d1d7db; border-radius: 8px; outline: none; }
+    input:focus { border-color: #00a884; }
+    button { width: 100%; margin-top: 20px; padding: 13px; font-size: 16px; font-weight: 600; color: #fff; background: #00a884; border: 0; border-radius: 24px; cursor: pointer; }
+    button:disabled { opacity: .6; }
+    #err { color: #d32f2f; font-size: 14px; min-height: 18px; margin-top: 12px; text-align: center; }
+    .foot { color: #8696a0; font-size: 12px; text-align: center; margin-top: 18px; }
+    #loading { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; color: #667781; }
+  </style>
+</head>
+<body>
+  <div id="loading">Loading JMS Chat…</div>
+  <div id="login">
+    <form class="card" id="form" autocomplete="on">
+      <div class="logo">💬</div>
+      <h1>JMS Chat</h1>
+      <p class="sub">Sign in with your JMS username and password</p>
+      <label for="u">Username</label>
+      <input id="u" name="username" autocomplete="username" autocapitalize="none" required>
+      <label for="p">Password</label>
+      <input id="p" name="password" type="password" autocomplete="current-password" required>
+      <button id="go" type="submit">Sign in</button>
+      <div id="err"></div>
+      <div class="foot">Messages may be reviewed by administrators.</div>
+    </form>
+  </div>
+  <script>
+    (function () {
+      'use strict';
+      window.__jmsChatAppMode = true;
+      var loading = document.getElementById('loading');
+      var login = document.getElementById('login');
+      var form = document.getElementById('form');
+      var err = document.getElementById('err');
+      var go = document.getElementById('go');
+
+      function native() { return window.JMSChatNative || null; }
+
+      window.JMSChatApp = {
+        onReady: function (username) {
+          loading.style.display = 'none';
+          login.classList.remove('show');
+          if (native() && native().onSignedIn) native().onSignedIn(username);
+        },
+        onNoSession: function () {
+          loading.style.display = 'none';
+          login.classList.add('show');
+          if (native() && native().onSignedOut) native().onSignedOut();
+        },
+        signOut: function () {
+          fetch('/api/chat-app/logout', { method: 'POST', credentials: 'same-origin' })
+            .catch(function () { })
+            .then(function () { location.reload(); });
+        },
+        // Android Back: leave an open chat first. true = handled.
+        back: function () {
+          var viewer = document.querySelector('.jc-iv');
+          if (viewer && viewer.offsetParent !== null) { history.back(); return true; }
+          var panel = document.querySelector('.jc-panel.jc-conv');
+          var btn = panel && panel.querySelector('.jc-back');
+          if (btn) { btn.click(); return true; }
+          return false;
+        }
+      };
+
+      function loadChat() {
+        var s = document.createElement('script');
+        s.src = '/assets/chat-widget.js?v=1.133.0';
+        s.onerror = function () {
+          loading.textContent = 'Cannot reach the JMS server. Check your internet, then tap to retry.';
+          loading.onclick = function () { location.reload(); };
+        };
+        document.body.appendChild(s);
+      }
+
+      form.addEventListener('submit', function (e) {
+        e.preventDefault();
+        err.textContent = '';
+        go.disabled = true;
+        fetch('/api/chat-app/login', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username: document.getElementById('u').value.trim(), password: document.getElementById('p').value })
+        }).then(function (r) {
+          return r.json().catch(function () { return { ok: false }; });
+        }).then(function (d) {
+          if (!d.ok) throw new Error(d.error || 'Sign-in failed.');
+          location.reload(); // the widget loads with the new session
+        }).catch(function (e2) {
+          err.textContent = e2.message;
+          go.disabled = false;
+        });
+      });
+
+      loadChat();
+    }());
+  </script>
+</body>
+</html>
