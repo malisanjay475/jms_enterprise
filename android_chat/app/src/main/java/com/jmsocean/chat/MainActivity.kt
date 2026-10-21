@@ -1,6 +1,7 @@
 package com.jmsocean.chat
 
 import android.Manifest
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
@@ -49,7 +50,7 @@ class MainActivity : ComponentActivity() {
     private val askNotify = registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        androidx.core.splashscreen.SplashScreen.installSplashScreen(this)
+        installSplashScreen()
         super.onCreate(savedInstanceState)
         openFromIntent.value = intent?.getStringExtra(Notifier.EXTRA_CONV)
 

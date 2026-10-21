@@ -45,6 +45,8 @@ import androidx.compose.material.icons.automirrored.filled.Reply
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.ui.text.withLink
 import androidx.compose.foundation.layout.offset
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.CameraAlt
@@ -421,7 +423,7 @@ private fun Bubble(
     var dragX by remember { mutableStateOf(0f) }
     val swipe = Modifier.pointerInput(m.sync_id) {
         if (m.deleted || m.pending || m.failed || m.kind == "system") return@pointerInput
-        androidx.compose.foundation.gestures.detectHorizontalDragGestures(
+        detectHorizontalDragGestures(
             onDragEnd = { if (dragX > 140f) onReply(); dragX = 0f },
             onDragCancel = { dragX = 0f }
         ) { change, amount ->
