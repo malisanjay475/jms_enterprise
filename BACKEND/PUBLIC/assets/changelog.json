@@ -14,6 +14,19 @@
   "latest": "1.136.1",
   "versions": [
     {
+      "version": "1.136.2",
+      "date": "2026-10-21",
+      "title": "JMS Chat: push notifications fixed, unread badge",
+      "modules": [
+        {
+          "app": "all",
+          "changes": [
+            { "type": "fix", "text": "JMS Chat app: push notifications now arrive when the app is closed (the server lost its notification key on every update). The app icon shows an unread badge, and Profile has a Notifications check with a Send test notification button and a one-tap fix for phones that block apps in the background." }
+          ]
+        }
+      ]
+    },
+    {
       "version": "1.136.1",
       "date": "2026-10-21",
       "title": "Moulding Alerts: Dungra units only",

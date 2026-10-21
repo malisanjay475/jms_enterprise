@@ -37,9 +37,26 @@ resolve_traefik_settings() {
   fi
 }
 
+# Push keys (JMS Chat): taken from the workflow (GitHub secrets) when given, else kept
+# from the current .env. write_env_file rewrites .env from scratch, so before this a key
+# added by hand on the VPS was silently dropped by the next deploy.
+keep_env_value() {
+  local name="$1"
+  if [[ -z "${!name:-}" && -f .env ]]; then
+    local old
+    old="$(grep -m1 "^${name}=" .env | cut -d= -f2- | tr -d '\r' || true)"
+    if [[ -n "$old" ]]; then
+      printf -v "$name" '%s' "$old"
+      export "$name"
+    fi
+  fi
+}
+
 write_env_file() {
   local image_ref="$1"
   resolve_traefik_settings
+  local k
+  for k in FCM_SERVICE_ACCOUNT VAPID_PUBLIC_KEY VAPID_PRIVATE_KEY VAPID_SUBJECT; do keep_env_value "$k"; done
 
   cat > .env <<EOF
 APP_IMAGE=${image_ref}
@@ -72,6 +89,10 @@ TRAEFIK_WWW_PATH=${TRAEFIK_WWW_PATH}
 TRAEFIK_PGADMIN_ENABLE=${TRAEFIK_PGADMIN_ENABLE}
 PGADMIN_DEFAULT_EMAIL=${PGADMIN_DEFAULT_EMAIL:-}
 PGADMIN_DEFAULT_PASSWORD=${PGADMIN_DEFAULT_PASSWORD:-}
+FCM_SERVICE_ACCOUNT=${FCM_SERVICE_ACCOUNT:-}
+VAPID_PUBLIC_KEY=${VAPID_PUBLIC_KEY:-}
+VAPID_PRIVATE_KEY=${VAPID_PRIVATE_KEY:-}
+VAPID_SUBJECT=${VAPID_SUBJECT:-}
 EOF
 }
 

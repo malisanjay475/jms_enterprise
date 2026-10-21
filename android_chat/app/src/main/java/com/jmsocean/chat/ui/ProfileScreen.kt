@@ -142,6 +142,8 @@ fun ProfileScreen(onBack: () -> Unit, onSignOut: () -> Unit) {
             HorizontalDivider(Modifier.padding(start = 72.dp))
             val sub = listOf(profile.role.replace('_', ' '), profile.line).filter { it.isNotBlank() }.joinToString(" · ")
             if (sub.isNotEmpty()) InfoRow(Icons.Default.Info, "Role", sub, null)
+            Spacer(Modifier.height(8.dp))
+            NotificationsSection()
             Spacer(Modifier.height(16.dp))
             Row(
                 Modifier.fillMaxWidth().clickable(onClick = onSignOut).padding(horizontal = 24.dp, vertical = 16.dp),
@@ -192,6 +194,90 @@ fun ProfileScreen(onBack: () -> Unit, onSignOut: () -> Unit) {
             },
             dismissButton = { TextButton(onClick = { editAbout = null }) { Text("Cancel") } }
         )
+    }
+}
+
+/**
+ * Why a phone gets no notifications, in plain words, with a button to fix each one:
+ * server push set up, this phone registered, notification permission, and background
+ * (battery) restriction — Xiaomi / Oppo / Vivo / Realme block background apps by default.
+ */
+@Composable
+private fun NotificationsSection() {
+    val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var status by remember { mutableStateOf<com.jmsocean.chat.data.PushStatus?>(null) }
+    var checking by remember { mutableStateOf(true) }
+    var tick by remember { mutableStateOf(0) }
+    val lifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    androidx.compose.runtime.DisposableEffect(lifecycle) {
+        val obs = androidx.lifecycle.LifecycleEventObserver { _, e -> if (e == androidx.lifecycle.Lifecycle.Event.ON_RESUME) tick++ }
+        lifecycle.lifecycle.addObserver(obs)
+        onDispose { lifecycle.lifecycle.removeObserver(obs) }
+    }
+    LaunchedEffect(tick) {
+        checking = true
+        com.jmsocean.chat.push.Push.register()
+        status = runCatching { Api.pushStatus() }.getOrNull()
+        checking = false
+    }
+    val permOk = android.os.Build.VERSION.SDK_INT < 33 ||
+        androidx.core.content.ContextCompat.checkSelfPermission(ctx, android.Manifest.permission.POST_NOTIFICATIONS) ==
+        android.content.pm.PackageManager.PERMISSION_GRANTED
+    val enabledOk = androidx.core.app.NotificationManagerCompat.from(ctx).areNotificationsEnabled()
+    val pm = ctx.getSystemService(android.content.Context.POWER_SERVICE) as android.os.PowerManager
+    val batteryOk = pm.isIgnoringBatteryOptimizations(ctx.packageName)
+    val appOk = com.jmsocean.chat.push.Push.configured
+    val serverOk = status?.server == true
+    val phoneOk = (status?.devices?.size ?: 0) > 0
+
+    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+        Text("Notifications", color = Color(0xFF00A884), fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(8.dp))
+        if (checking && status == null) Text("Checking…", modifier = Modifier.padding(8.dp))
+        CheckRow("App built with push", appOk, if (appOk) null else "Update the app") {}
+        CheckRow("Server push set up", serverOk, if (serverOk) null else "Ask the admin") {}
+        CheckRow("This phone registered", phoneOk, if (phoneOk || !serverOk || !appOk) null else "Retry") { tick++ }
+        CheckRow("Notifications allowed", permOk && enabledOk, if (permOk && enabledOk) null else "Allow") {
+            ctx.startActivity(android.content.Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                .putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, ctx.packageName))
+        }
+        CheckRow("Runs in background (battery)", batteryOk, if (batteryOk) null else "Allow") {
+            runCatching {
+                ctx.startActivity(android.content.Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                    android.net.Uri.parse("package:${ctx.packageName}")))
+            }.onFailure {
+                ctx.startActivity(android.content.Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                    android.net.Uri.parse("package:${ctx.packageName}")))
+            }
+        }
+        Text(
+            "On Xiaomi, Redmi, Oppo, Vivo, Realme also turn on Autostart for JMS Chat in the phone's settings, or messages arrive only when the app is open.",
+            fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(8.dp)
+        )
+        androidx.compose.material3.OutlinedButton(
+            onClick = {
+                scope.launch {
+                    runCatching { Api.pushTest() }
+                        .onSuccess { Toast.makeText(ctx, "Test sent. Close the app — it should pop up in a few seconds.", Toast.LENGTH_LONG).show() }
+                        .onFailure { Toast.makeText(ctx, it.message, Toast.LENGTH_LONG).show() }
+                }
+            },
+            modifier = Modifier.padding(8.dp)
+        ) { Text("Send test notification") }
+        TextButton(onClick = {
+            ctx.startActivity(android.content.Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                android.net.Uri.parse("package:${ctx.packageName}")))
+        }) { Text("Open app settings (Autostart, battery)") }
+    }
+}
+
+@Composable
+private fun CheckRow(label: String, ok: Boolean, action: String?, onAction: () -> Unit) {
+    Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(if (ok) "✅" else "⚠️", fontSize = 16.sp)
+        Spacer(Modifier.width(12.dp))
+        Text(label, modifier = Modifier.weight(1f), fontSize = 15.sp)
+        if (action != null) TextButton(onClick = onAction) { Text(action) }
     }
 }
 

@@ -44,7 +44,12 @@ class PushService : FirebaseMessagingService() {
 
     override fun onMessageReceived(msg: RemoteMessage) {
         val d = msg.data
-        if (d["type"] != "chat" || !Session.signedIn) return
+        if (!Session.signedIn) return
+        if (d["type"] == "test") {
+            Notifier.show(this, "test", "JMS Chat", "JMS Chat", d["body"] ?: "Notifications are working", false)
+            return
+        }
+        if (d["type"] != "chat") return
         val conv = d["conversation_sync_id"] ?: return
         val sender = d["sender"] ?: ""
         Notifier.show(
