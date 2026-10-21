@@ -11,8 +11,21 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.135.0",
+  "latest": "1.136.1",
   "versions": [
+    {
+      "version": "1.136.1",
+      "date": "2026-10-21",
+      "title": "Moulding Alerts: Dungra units only",
+      "modules": [
+        {
+          "app": "all",
+          "changes": [
+            { "type": "fix", "text": "JMS Chat 'Moulding Alerts' group now gets machine-stopped alerts only for JOYO PLASTICS Dungra Unit-I and Unit-II. Machines of Shivani, Premier-Kachigam or any other factory are never posted there." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.136.0",
       "date": "2026-10-21",

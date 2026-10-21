@@ -63,8 +63,13 @@ describe('runOnce', () => {
     };
     const q = async (sql) => {
       if (sql.includes('closed_plants')) return closures;
-      if (sql.includes('FROM machines')) return [{ machine: 'B -L1-HYD-350-2', line: 'B -L1', building: 'B', factory_id: 1 }];
-      if (sql.includes('FROM factories')) return [{ id: 1, name: 'Factory 1' }];
+      if (sql.includes('FROM machines')) {
+        return [
+          { machine: 'B -L1-HYD-350-2', line: 'B -L1', building: 'B', factory_id: 1 },
+          { machine: 'S-HYD-180-1', line: 'S -L1', building: 'S', factory_id: 2 }
+        ];
+      }
+      if (sql.includes('FROM factories')) return [{ id: 1, name: 'Unit-I' }, { id: 2, name: 'Shivani' }, { id: 4, name: 'Unit-II' }];
       return [];
     };
     return { pool: { connect: async () => client }, q, inserted, tasks, seen };
@@ -75,19 +80,27 @@ describe('runOnce', () => {
     { machine: 'B -L1-HYD-350-2', factoryId: 1, stoppedSince: hoursAgo(4), reason: 'No entry / unknown', powerCut: false },
     { machine: 'B -L1-HYD-350-3', factoryId: 1, stoppedSince: hoursAgo(5), reason: 'Power Failure/Pre Heating', powerCut: true },
     { machine: 'B -L1-HYD-350-4', factoryId: 1, stoppedSince: hoursAgo(30), reason: 'No Plan', powerCut: false },
-    { machine: 'B -L1-HYD-350-5', factoryId: 1, stoppedSince: null, reason: 'No production recorded', powerCut: false }
+    { machine: 'B -L1-HYD-350-5', factoryId: 1, stoppedSince: null, reason: 'No production recorded', powerCut: false },
+    // a Shivani machine that turns up in Unit-I's result (plan with no factory) → dropped
+    { machine: 'S-HYD-180-1', factoryId: null, stoppedSince: hoursAgo(4), reason: 'No entry / unknown', powerCut: false }
   ];
+  const unit2 = () => [{ machine: 'F-L1-HAI-250-1', factoryId: 4, stoppedSince: hoursAgo(3.2), reason: 'Material Shortage', powerCut: false }];
+  const shivani = () => [{ machine: 'S-HYD-180-2', factoryId: 2, stoppedSince: hoursAgo(6), reason: 'Mould Problem', powerCut: false }];
+  const byFactory = (fid) => (fid === 1 ? stopped() : fid === 4 ? unit2() : fid === 2 ? shivani() : []);
 
   test('posts one alert per stoppage, without power cuts, old or never-run machines', async () => {
     const f = fakePool();
     const calls = [];
-    const list = stopped(); // stop times come from the DB, so they are the same each tick
-    const computeStoppedMachines = async (...args) => { calls.push(args); return list.map((s) => ({ ...s })); };
+    const lists = { 1: stopped(), 4: unit2(), 2: shivani() }; // stop times come from the DB: same each tick
+    const computeStoppedMachines = async (...args) => { calls.push(args); return (lists[args[0]] || []).map((s) => ({ ...s })); };
     const r = await runOnce({ pool: f.pool, q: f.q, computeStoppedMachines });
-    expect(calls[0]).toEqual([null, 180, 2]);
-    expect(r.posted).toBe(2);
-    expect(f.inserted.map((m) => m.meta.alert.machine)).toEqual(['B -L1-HYD-350-1', 'B -L1-HYD-350-2']);
-    expect(f.tasks).toEqual(['msg-1', 'msg-2']);
+    // only Dungra Unit-I (1) and Unit-II (4) are looked at, each on its own
+    expect(calls).toEqual([[1, 180, 2], [4, 180, 2]]);
+    expect(r.posted).toBe(3);
+    expect(f.inserted.map((m) => m.meta.alert.machine)).toEqual(['B -L1-HYD-350-1', 'B -L1-HYD-350-2', 'F-L1-HAI-250-1']);
+    expect(f.inserted.map((m) => m.meta.factory_id)).toEqual([1, 1, 4]);
+    expect(f.inserted[2].body).toContain('(Unit-II)');
+    expect(f.tasks).toEqual(['msg-1', 'msg-2', 'msg-3']);
 
     // the next tick finds the same stoppages: nothing new is posted
     const again = await runOnce({ pool: f.pool, q: f.q, computeStoppedMachines });
@@ -96,10 +109,20 @@ describe('runOnce', () => {
 
   test('a closed plant gets no alert', async () => {
     const f = fakePool({ closures: [{ plant: 'B -L1', factory_id: 1 }] });
-    const r = await runOnce({ pool: f.pool, q: f.q, computeStoppedMachines: async () => stopped() });
+    const r = await runOnce({ pool: f.pool, q: f.q, computeStoppedMachines: async (fid) => (fid === 1 ? stopped() : []) });
     // machine -1 is not in the machine master, so only -2 is matched to the closed line
     expect(f.inserted.map((m) => m.meta.alert.machine)).toEqual(['B -L1-HYD-350-1']);
     expect(r.posted).toBe(1);
+  });
+
+  test('MACHINE_STOP_ALERT_FACTORIES picks other factories', async () => {
+    process.env.MACHINE_STOP_ALERT_FACTORIES = '2';
+    try {
+      const f = fakePool();
+      const r = await runOnce({ pool: f.pool, q: f.q, computeStoppedMachines: async (fid) => byFactory(fid) });
+      expect(f.inserted.map((m) => m.meta.alert.machine)).toEqual(['S-HYD-180-2']);
+      expect(r.posted).toBe(1);
+    } finally { delete process.env.MACHINE_STOP_ALERT_FACTORIES; }
   });
 
   test('does nothing when the "Moulding Alerts" group does not exist', async () => {
