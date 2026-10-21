@@ -21,7 +21,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Chat
+import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.PushPin
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.NotificationsOff
 import androidx.compose.material.icons.filled.Search
@@ -99,6 +102,14 @@ class ChatListViewModel(app: android.app.Application) : androidx.lifecycle.Andro
         }
     }
 
+    fun pin(c: Conversation) = viewModelScope.launch {
+        runCatching { Api.pin(c.sync_id, !c.pinned) }.onSuccess { load() }.onFailure { error.value = it.message }
+    }
+
+    fun archive(c: Conversation) = viewModelScope.launch {
+        runCatching { Api.archive(c.sync_id, !c.archived) }.onSuccess { load() }.onFailure { error.value = it.message }
+    }
+
     /** Many events at once (a busy group) make one reload. */
     private fun reloadSoon() {
         if (reloadJob?.isActive == true) return
@@ -114,6 +125,7 @@ fun ChatListScreen(
     onNewGroup: () -> Unit,
     onSignOut: () -> Unit,
     onProfile: () -> Unit,
+    onStarred: () -> Unit,
     vm: ChatListViewModel = viewModel()
 ) {
     val chats by vm.chats.collectAsState()
@@ -128,7 +140,10 @@ fun ChatListScreen(
     LaunchedEffect(Unit) { vm.load() }
     LaunchedEffect(loading) { if (!loading) refreshing = false }
 
-    val shown = if (query.isBlank()) chats else chats.filter {
+    var showArchived by remember { mutableStateOf(false) }
+    val archivedCount = chats.count { it.archived }
+    val base = if (query.isNotBlank()) chats else chats.filter { it.archived == showArchived }
+    val shown = if (query.isBlank()) base else base.filter {
         it.name.contains(query, true) || (it.last_body ?: "").contains(query, true) ||
             it.members.any { m -> m.contains(query, true) }
     }
@@ -163,6 +178,7 @@ fun ChatListScreen(
                             DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                                 DropdownMenuItem(text = { Text("Profile") }, onClick = { menu = false; onProfile() })
                                 DropdownMenuItem(text = { Text("New group") }, onClick = { menu = false; onNewGroup() })
+                                DropdownMenuItem(text = { Text("Starred messages") }, onClick = { menu = false; onStarred() })
                                 DropdownMenuItem(text = { Text("Signed in as ${Session.username}") }, onClick = { menu = false }, enabled = false)
                                 DropdownMenuItem(text = { Text("Sign out") }, onClick = { menu = false; onSignOut() })
                             }
@@ -196,8 +212,19 @@ fun ChatListScreen(
                     )
                 }
                 else -> LazyColumn(Modifier.fillMaxSize()) {
+                    if (query.isBlank() && (archivedCount > 0 || showArchived)) item {
+                        Row(
+                            Modifier.fillMaxWidth().clickable { showArchived = !showArchived }.padding(horizontal = 28.dp, vertical = 14.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(if (showArchived) Icons.AutoMirrored.Filled.ArrowBack else Icons.Default.Archive, null, tint = Color(0xFF00A884))
+                            Spacer(Modifier.width(24.dp))
+                            Text(if (showArchived) "Back to chats" else "Archived", fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                            if (!showArchived) Text("$archivedCount", color = Color(0xFF00A884))
+                        }
+                    }
                     items(shown, key = { it.sync_id }) { c ->
-                        ChatRow(c) { onOpen(c.sync_id) }
+                        ChatRow(c, onPin = { vm.pin(c) }, onArchive = { vm.archive(c) }) { onOpen(c.sync_id) }
                         HorizontalDivider(Modifier.padding(start = 80.dp), thickness = 0.5.dp)
                     }
                 }
@@ -206,10 +233,18 @@ fun ChatListScreen(
     }
 }
 
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
-private fun ChatRow(c: Conversation, onClick: () -> Unit) {
+private fun ChatRow(c: Conversation, onPin: () -> Unit, onArchive: () -> Unit, onClick: () -> Unit) {
+    var menu by remember { mutableStateOf(false) }
+    Box {
+    DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+        DropdownMenuItem(text = { Text(if (c.pinned) "Unpin chat" else "Pin chat") }, onClick = { menu = false; onPin() })
+        DropdownMenuItem(text = { Text(if (c.archived) "Unarchive chat" else "Archive chat") }, onClick = { menu = false; onArchive() })
+    }
     Row(
-        Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 10.dp),
+        Modifier.fillMaxWidth().combinedClickable(onClick = onClick, onLongClick = { menu = true })
+            .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Avatar(c.name, 52.dp, group = c.isGroup, online = c.online, photoUrl = c.peer?.let { Api.avatarUrl(it, c.photo_v) })
@@ -235,6 +270,7 @@ private fun ChatRow(c: Conversation, onClick: () -> Unit) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f)
                 )
                 if (c.muted_until != null) Icon(Icons.Default.NotificationsOff, "Muted", Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (c.pinned) Icon(Icons.Default.PushPin, "Pinned", Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 if (c.unread > 0) {
                     Spacer(Modifier.width(6.dp))
                     Box(
@@ -244,5 +280,6 @@ private fun ChatRow(c: Conversation, onClick: () -> Unit) {
                 }
             }
         }
+    }
     }
 }

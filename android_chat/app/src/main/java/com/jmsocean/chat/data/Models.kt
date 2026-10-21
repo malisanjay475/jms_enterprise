@@ -38,6 +38,8 @@ data class Conversation(
     val last_body: String? = null,
     val last_sender: String? = null,
     val unread: Int = 0,
+    val pinned: Boolean = false,
+    val archived: Boolean = false,
     val peer: String? = null,
     val photo_v: String? = null,
     val last_seen_at: String? = null
@@ -74,10 +76,49 @@ data class Message(
     val attachment: Attachment? = null,
     val delivered_to: List<String>? = null,
     val read_by: List<String>? = null,
+    val forwarded: Boolean = false,
+    val reactions: List<Reaction>? = null,
+    val starred: Boolean = false,
+    /** Shared JMS page (kind = link): title, url, excerpt, factory_name, priority. */
+    val link: kotlinx.serialization.json.JsonObject? = null,
+    /** Work status of a shared link: open / in_progress / done. */
+    val task: TaskStatus? = null,
     // local only: sending / failed
     val pending: Boolean = false,
     val failed: Boolean = false
 )
+
+@Serializable
+data class Reaction(val emoji: String, val users: List<String> = emptyList())
+
+@Serializable
+data class TaskStatus(val status: String = "open", val by: String? = null)
+
+@Serializable
+data class Receipt(val username: String, val at: String? = null)
+
+@Serializable
+data class MessageInfo(
+    val sent_at: String? = null,
+    val read: List<Receipt> = emptyList(),
+    val delivered: List<Receipt> = emptyList(),
+    val pending: List<Receipt> = emptyList()
+)
+
+@Serializable
+data class FoundMessage(val message: Message, val conversation_title: String = "")
+
+@Serializable
+data class FoundReply(val results: List<FoundMessage> = emptyList())
+
+@Serializable
+data class TaskReply(val task: TaskStatus? = null)
+
+@Serializable
+data class ReactReply(val reactions: List<Reaction> = emptyList())
+
+@Serializable
+data class ForwardReply(val messages: List<Message> = emptyList())
 
 @Serializable
 data class MessagesReply(
@@ -130,5 +171,9 @@ data class LiveEvent(
     val username: String? = null,
     val kind: String? = null,
     val message_sync_ids: List<String>? = null,
+    val message_sync_id: String? = null,
+    val reactions: List<Reaction>? = null,
+    val status: String? = null,
+    val by: String? = null,
     val adminCopy: Boolean = false
 )

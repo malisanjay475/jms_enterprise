@@ -27,6 +27,8 @@ const chatAdmin = require('./chatAdmin');
 const chatGate = require('./chatGate');
 const chatShare = require('./chatShare');
 const chatProfiles = require('./chatProfiles');
+const chatExtras = require('./chatExtras');
+const chatAuto = require('./chatAuto');
 const chatFcm = require('./chatFcm');
 const { registerChatAppAuthRoutes } = require('./chatAppAuth');
 
@@ -303,6 +305,7 @@ function messageOut(row, att, receipts) {
     deleted: Boolean(row.deleted_at),
     purged: Boolean(row.purged_at), // emptied by the retention job
     reply_to_sync_id: row.reply_to_sync_id || null,
+    forwarded: Boolean(row.meta && row.meta.forwarded),
     attachment: att && !row.deleted_at && !row.purged_at ? attachmentOut(att) : null
   };
   if (receipts) {
@@ -331,6 +334,20 @@ async function decorate(pool, rows, me) {
     for (const r of recs) recBy.get(r.message_sync_id).push(r);
   }
   const outs = rows.map((r) => messageOut(r, attBy.get(r.sync_id), recBy.get(r.sync_id)));
+  // reactions and (for me) stars; extras tables live on each server only
+  try {
+    const ids = rows.map((r) => r.sync_id);
+    const [reactions, stars] = await Promise.all([
+      chatExtras.reactionsFor(pool, ids), chatExtras.starredAmong(pool, me, ids)
+    ]);
+    outs.forEach((o) => {
+      const rx = reactions.get(o.sync_id);
+      if (rx && rx.length) o.reactions = rx;
+      if (stars.has(o.sync_id)) o.starred = true;
+    });
+  } catch (err) {
+    console.warn('[chat] reactions/stars:', err.message);
+  }
   return chatShare.decorateShare(pool, rows, outs); // reply quotes, shared links, work status
 }
 
@@ -520,6 +537,11 @@ function startLiveEvents(pool) {
       if (!convs.has(n.c)) convs.set(n.c, new Set());
       if (n.u) convs.get(n.c).add(n.u); // a removed member still hears about it
       if (!convTimer) convTimer = setTimeout(flushConvs, 200);
+    } else if (n.t === 'reaction') {
+      const rx = (await chatExtras.reactionsFor(pool, [n.m])).get(n.m) || [];
+      pushTo(await memberNames(pool, n.c), {
+        type: 'reaction', conversation_sync_id: n.c, message_sync_id: n.m, reactions: rx
+      });
     } else if (n.t === 'typing') {
       const others = (await memberNames(pool, n.c)).filter((m) => m.toLowerCase() !== String(n.u).toLowerCase());
       pushTo(others, { type: 'typing', conversation_sync_id: n.c, username: n.u });
@@ -722,6 +744,10 @@ function registerChatRoutes(app, pool) {
   chatFcm.registerFcmRoutes(app, pool, { ready, fail });
   chatProfiles.registerProfileRoutes(app, pool, { ready, fail, uploadRoot, isOnline, activeUser });
   chatProfiles.ensureProfileSchema(pool).catch((err) => console.warn('[chat] profile schema:', err.message));
+  chatExtras.registerExtrasRoutes(app, pool, { ready, fail, membership, decorate, sendRateOk, localFactoryId, uploadRoot });
+  chatExtras.ensureExtrasSchema(pool).catch((err) => console.warn('[chat] extras schema:', err.message));
+  // factory groups + QC / machine alerts (MAIN only, one worker)
+  if (!chatSync.isLocal()) chatAuto.start(pool);
   if (chatFcm.enabled()) chatFcm.ensureFcmSchema(pool).catch((err) => console.warn('[chat-fcm] schema:', err.message));
   chatAdmin.startRetentionJob(pool, { uploadRoot });
 
@@ -834,6 +860,9 @@ function registerChatRoutes(app, pool) {
         );
         if (!recent.length) await logAudit(pool, me, null, 'list_all');
       }
+      const prefs = all ? new Map() : await chatExtras.prefsFor(pool, me).catch(() => new Map());
+      const pinOf = (r) => { const p = prefs.get(r.sync_id); return p && p.pinned_at ? new Date(p.pinned_at).getTime() : 0; };
+      rows.sort((a, b) => (pinOf(b) - pinOf(a)) || (new Date(b.last_message_at) - new Date(a.last_message_at)));
       const peers = rows.filter((r) => r.type !== 'group')
         .map((r) => (r.members || []).find((m) => m.toLowerCase() !== me.toLowerCase())).filter(Boolean);
       const prof = await chatProfiles.lookup(pool, peers);
@@ -844,7 +873,10 @@ function registerChatRoutes(app, pool) {
           const others = members.filter((m) => m.toLowerCase() !== me.toLowerCase());
           const peer = r.type === 'group' ? null : (others[0] || null);
           const pp = peer ? (prof.get(peer.toLowerCase()) || {}) : {};
+          const pref = prefs.get(r.sync_id) || {};
           return {
+            pinned: Boolean(pref.pinned_at),
+            archived: Boolean(pref.archived_at),
             peer,
             photo_v: pp.photo_v || null,
             last_seen_at: pp.last_seen_at || null,
@@ -1441,6 +1473,7 @@ function registerChatRoutes(app, pool) {
       if (q.length < 2) return res.json({ ok: true, results: [] });
       const like = `%${q.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
       const me = req.auth.username;
+      const inConv = UUID_RE.test(String(req.query.conversation || '')) ? String(req.query.conversation) : null;
       const { rows } = await pool.query(
         `SELECT x.*, c.type AS conv_type, c.title AS conv_title,
                 (SELECT array_agg(m2.username) FROM chat_members m2
@@ -1450,9 +1483,10 @@ function registerChatRoutes(app, pool) {
                                AND LOWER(me.username) = LOWER($1) AND me.left_at IS NULL
            JOIN chat_conversations c ON c.sync_id = x.conversation_sync_id
           WHERE x.deleted_at IS NULL AND x.kind <> 'system' AND (x.body ILIKE $2 OR x.meta->>'title' ILIKE $2)
+            AND ($3::uuid IS NULL OR x.conversation_sync_id = $3::uuid)
           ORDER BY x.server_ts DESC
           LIMIT 50`,
-        [me, like]
+        [me, like, inConv]
       );
       res.json({
         ok: true,
