@@ -1,8 +1,11 @@
 name: Build JMS Chat Android APK
 
-# Builds the JMS Chat app (android_chat/). Every push/dispatch produces a downloadable
-# debug APK; with the RELEASE signing secrets set it also builds a signed release APK
-# (same secrets as the QC and Shifting apps). Download them from the run's artifacts.
+# Builds the native JMS Chat app (android_chat/). Every push/dispatch produces a
+# downloadable debug APK. With the RELEASE signing secrets set it also builds a signed
+# release APK, and on push to `main` it auto-publishes it to the MAIN server's feed
+# (/api/qc-app/publish with app=chat → /qc-app/chat/), so the phones auto-update.
+# Same secrets as the QC and Shifting apps, plus the Firebase app ids for push
+# (FCM_APP_ID, FCM_API_KEY, FCM_PROJECT_ID, FCM_SENDER_ID; empty = no push).
 on:
   workflow_dispatch:
   push:
@@ -22,6 +25,11 @@ jobs:
     runs-on: ubuntu-latest
     env:
       HAS_KEYSTORE: ${{ secrets.KEYSTORE_BASE64 != '' }}
+      HAS_PUBLISH: ${{ secrets.QC_PUBLISH_USER != '' && secrets.QC_PUBLISH_PASS != '' }}
+      FCM_APP_ID: ${{ secrets.FCM_APP_ID }}
+      FCM_API_KEY: ${{ secrets.FCM_API_KEY }}
+      FCM_PROJECT_ID: ${{ secrets.FCM_PROJECT_ID }}
+      FCM_SENDER_ID: ${{ secrets.FCM_SENDER_ID }}
     defaults:
       run:
         working-directory: android_chat
@@ -85,3 +93,42 @@ jobs:
           path: android_chat/app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
           retention-days: 30
+
+      # A release that changes the backend and this app together deploys both at once.
+      # Servers older than 1.134.0 have no app=chat feed (they would reject it), and the
+      # app needs that version's endpoints (Bearer chat sign-in, FCM register), so wait
+      # (up to 25 min) until MAIN runs a version that has them.
+      - name: Wait for MAIN to support the Chat feed
+        if: ${{ github.ref == 'refs/heads/main' && env.HAS_KEYSTORE == 'true' && env.HAS_PUBLISH == 'true' }}
+        run: |
+          MIN=1.134.0
+          for i in $(seq 1 50); do
+            V=$(curl -fsS "$PUBLISH_URL/api/version" | grep -oP '"version"\s*:\s*"\K[0-9.]+' || true)
+            if [ -n "$V" ] && [ "$(printf '%s\n%s\n' "$MIN" "$V" | sort -V | head -1)" = "$MIN" ]; then
+              echo "MAIN is on $V (>= $MIN)"; exit 0
+            fi
+            echo "MAIN is on '${V:-unknown}', waiting for >= $MIN ($i/50)"; sleep 30
+          done
+          echo "::error::MAIN never reached $MIN; not publishing (the chat feed is missing)"; exit 1
+        env:
+          PUBLISH_URL: https://jmsocean.cloud
+
+      - name: Auto-publish release to MAIN feed
+        if: ${{ github.ref == 'refs/heads/main' && env.HAS_KEYSTORE == 'true' && env.HAS_PUBLISH == 'true' }}
+        run: |
+          VC=$APP_VERSION_CODE
+          VN=$(grep -oP 'versionName\s*=\s*"\K[^"]+' app/build.gradle.kts | head -1)
+          APK=app/build/outputs/apk/release/app-release.apk
+          echo "Publishing Chat versionCode=$VC versionName=$VN"
+          curl -fsS -X POST "$PUBLISH_URL/api/qc-app/publish" \
+            -F "app=chat" \
+            -F "username=$QC_PUBLISH_USER" \
+            -F "password=$QC_PUBLISH_PASS" \
+            -F "versionCode=$VC" \
+            -F "versionName=$VN" \
+            -F "notes=Auto-published from CI (${GITHUB_SHA:0:7})" \
+            -F "apk=@$APK"
+        env:
+          PUBLISH_URL: https://jmsocean.cloud
+          QC_PUBLISH_USER: ${{ secrets.QC_PUBLISH_USER }}
+          QC_PUBLISH_PASS: ${{ secrets.QC_PUBLISH_PASS }}

@@ -48,14 +48,16 @@ function registerChatAppAuthRoutes(app, pool) {
       const a = await chatGate.access(pool, { username: u.username, role: String(u.role_code || '').toLowerCase() });
       if (!a.ok) return res.status(403).json({ ok: false, error: 'Chat is not available for your login yet.' });
 
-      await issueChatSession(pool, req, res, u);
+      // The cookie serves chat_app.html; the native app sends the same token as
+      // "Authorization: Bearer" (auth.js accepts it on /api/chat/* only).
+      const token = await issueChatSession(pool, req, res, u);
       const ua = String(req.headers['user-agent'] || '');
       pool.query(
         `INSERT INTO user_activity_log (username, role_code, app_id, action, page, device_type, ip_address, user_agent, created_at)
          VALUES ($1,$2,'chat_app','login',NULL,$3,$4,$5,NOW())`,
         [u.username, u.role_code || '', /mobile|android|iphone|ipad/i.test(ua) ? 'mobile' : 'desktop', clientIp(req), ua.slice(0, 500)]
       ).catch(() => {});
-      res.json({ ok: true, username: u.username });
+      res.json({ ok: true, username: u.username, token });
     } catch (err) {
       console.error('[chat] app login:', err);
       res.status(500).json({ ok: false, error: 'Sign-in failed. Please try again.' });
