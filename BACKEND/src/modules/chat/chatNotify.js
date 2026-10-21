@@ -83,7 +83,7 @@ async function ensureNotifySchema(pool) {
       IF NEW.kind = 'system' OR NEW.deleted_at IS NOT NULL THEN RETURN NULL; END IF;
       SELECT type, title INTO conv FROM chat_conversations WHERE sync_id = NEW.conversation_sync_id;
       label := CASE NEW.kind WHEN 'image' THEN '📷 Photo' WHEN 'pdf' THEN '📄 PDF'
-                             WHEN 'xlsx' THEN '📊 Excel file' WHEN 'audio' THEN '🎤 Audio'
+                             WHEN 'xlsx' THEN '📊 Excel file' WHEN 'audio' THEN '🎤 Audio' WHEN 'video' THEN '🎥 Video'
                              WHEN 'link' THEN CASE WHEN NEW.meta->>'priority' = 'urgent' THEN '⚠ Urgent: ' ELSE '' END
                                               || '🔗 ' || COALESCE(NEW.meta->>'title', 'Shared page') END;
       -- a reply reaches the author of the quoted message even in a muted chat
@@ -193,7 +193,7 @@ async function sendPushForMessage(pool, messageSyncId) {
   );
   const label = m.kind === 'link'
     ? `${m.meta && m.meta.priority === 'urgent' ? '⚠ Urgent: ' : ''}🔗 ${(m.meta && m.meta.title) || 'Shared page'}`
-    : { image: '📷 Photo', pdf: '📄 PDF', xlsx: '📊 Excel file', audio: '🎤 Audio' }[m.kind];
+    : { image: '📷 Photo', pdf: '📄 PDF', xlsx: '📊 Excel file', audio: '🎤 Audio', video: '🎥 Video' }[m.kind];
   const body = label ? (m.body ? `${label}: ${m.body}` : label) : m.body;
   const title = m.conv_type === 'group' ? `${m.sender} in ${m.conv_title || 'Group'}` : m.sender;
   let sent = 0;

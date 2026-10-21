@@ -406,7 +406,7 @@ function previewText(kind, body, meta) {
     const urgent = meta && meta.priority === 'urgent' ? '⚠ Urgent: ' : '';
     return `${urgent}🔗 ${(meta && meta.title) || 'Shared page'}${body ? ': ' + body : ''}`;
   }
-  const label = { image: '📷 Photo', pdf: '📄 PDF', xlsx: '📊 Excel file', audio: '🎤 Audio' }[kind];
+  const label = { image: '📷 Photo', pdf: '📄 PDF', xlsx: '📊 Excel file', audio: '🎤 Audio', video: '🎥 Video' }[kind];
   if (label) return body ? `${label}: ${body}` : label;
   return body || '';
 }
@@ -1342,7 +1342,7 @@ function registerChatRoutes(app, pool) {
         }
         const type = sniffAttachment(req.file.buffer);
         if (!type) {
-          return res.status(415).json({ ok: false, error: 'Only photos, PDF, Excel (.xlsx) and audio files can be sent.' });
+          return res.status(415).json({ ok: false, error: 'Only photos, short videos, PDF, Excel (.xlsx) and audio files can be sent.' });
         }
         const { rows: [dup] } = await pool.query('SELECT * FROM chat_messages WHERE sync_id = $1', [syncId]);
         if (dup) {

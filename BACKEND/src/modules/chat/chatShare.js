@@ -107,7 +107,7 @@ async function validReplyTarget(pool, convId, replyId) {
 
 function oneLine(row) {
   if (row.deleted_at || row.purged_at) return '';
-  const label = { image: '📷 Photo', pdf: '📄 PDF', xlsx: '📊 Excel file', audio: '🎤 Audio' }[row.kind];
+  const label = { image: '📷 Photo', pdf: '📄 PDF', xlsx: '📊 Excel file', audio: '🎤 Audio', video: '🎥 Video' }[row.kind];
   if (row.kind === 'link') return `🔗 ${(row.meta && row.meta.title) || 'Shared page'}${row.body ? ': ' + row.body : ''}`;
   const text = String(row.body || '').replace(/\s+/g, ' ').trim();
   return (label ? (text ? `${label}: ${text}` : label) : text).slice(0, 140);

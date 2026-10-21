@@ -148,6 +148,11 @@ fun ConversationScreen(convId: String, onBack: () -> Unit, onInfo: () -> Unit, v
     var viewing by remember { mutableStateOf<String?>(null) }
     var topMenu by remember { mutableStateOf(false) }
     var forwarding by remember { mutableStateOf<Message?>(null) }
+    var attachSheet by remember { mutableStateOf(false) }
+    var playing by remember { mutableStateOf<String?>(null) }
+    val pickMedia = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(10)) { uris ->
+        if (uris.isNotEmpty()) vm.sendMany(uris)
+    }
     val uiScope = androidx.compose.runtime.rememberCoroutineScope()
     var infoFor by remember { mutableStateOf<String?>(null) }
     var searching by remember { mutableStateOf(false) }
@@ -296,7 +301,7 @@ fun ConversationScreen(convId: String, onBack: () -> Unit, onInfo: () -> Unit, v
                 editing = editing,
                 onCancelReply = { vm.setReply(null) },
                 onCancelEdit = { vm.startEdit(null); text = "" },
-                onAttach = { pick.launch("*/*") },
+                onAttach = { attachSheet = true },
                 onCamera = {
                     val (f, uri) = Media.newCameraTarget(ctx)
                     cameraFile = f
@@ -322,8 +327,26 @@ fun ConversationScreen(convId: String, onBack: () -> Unit, onInfo: () -> Unit, v
         }
     }
 
-    viewing?.let { id -> ImageViewer(id) { viewing = null } }
+    viewing?.let { id ->
+        if (id.startsWith("video:")) { playing = id.removePrefix("video:"); viewing = null }
+        else ImageViewer(id) { viewing = null }
+    }
     forwarding?.let { m -> ForwardSheet(m) { forwarding = null } }
+    playing?.let { id -> VideoPlayerDialog(id) { playing = null } }
+    if (attachSheet) AttachSheet(
+        onDismiss = { attachSheet = false },
+        onMedia = {
+            attachSheet = false
+            pickMedia.launch(androidx.activity.result.PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo))
+        },
+        onCamera = {
+            attachSheet = false
+            val (f, uri) = Media.newCameraTarget(ctx)
+            cameraFile = f
+            camera.launch(uri)
+        },
+        onDocument = { attachSheet = false; pick.launch("*/*") }
+    )
     infoFor?.let { id -> MessageInfoDialog(id) { infoFor = null } }
 }
 
@@ -409,6 +432,7 @@ private fun Bubble(
                             modifier = Modifier.padding(vertical = 2.dp).size(240.dp).clip(RoundedCornerShape(8.dp)).clickable { onImage(att.sync_id) }
                         )
                         att != null && att.kind == "audio" -> VoiceNote(att.sync_id)
+                        att != null && att.kind == "video" -> VideoTile(att) { onImage("video:" + att.sync_id) }
                         att != null -> Row(
                             Modifier.padding(vertical = 2.dp).clip(RoundedCornerShape(8.dp)).background(Color.Black.copy(alpha = 0.05f))
                                 .clickable { download(ctx, att.sync_id, att.file_name, att.mime) }.padding(10.dp),
@@ -423,7 +447,7 @@ private fun Bubble(
                             Icon(Icons.AutoMirrored.Filled.InsertDriveFile, null, Modifier.padding(start = 6.dp).size(20.dp))
                         }
                     }
-                    val hideBody = att?.kind == "audio" && m.body.startsWith("🎤")
+                    val hideBody = (att?.kind == "audio" && m.body.startsWith("🎤")) || (att?.kind == "video" && m.body.startsWith("🎥"))
                     if (!(m.deleted || m.purged) && m.body.isNotBlank() && !hideBody) {
                         Text(m.body, fontSize = 15.sp)
                     }
@@ -581,6 +605,31 @@ private fun Composer(
                 if (micMode) "Hold to record a voice message" else "Send", tint = Color.White
             )
         }
+    }
+}
+
+/** 📎: photos & videos (up to 10 at once), camera, or a document. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun AttachSheet(onDismiss: () -> Unit, onMedia: () -> Unit, onCamera: () -> Unit, onDocument: () -> Unit) {
+    androidx.compose.material3.ModalBottomSheet(onDismissRequest = onDismiss) {
+        Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
+            AttachOption("🖼️", "Gallery", Color(0xFFBF59CF), onMedia)
+            AttachOption("📷", "Camera", Color(0xFFE5486B), onCamera)
+            AttachOption("📄", "Document", Color(0xFF5157AE), onDocument)
+        }
+        Text("Gallery: up to 10 photos and videos at once. Videos are made smaller (about 1 minute max).",
+            fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 24.dp))
+        Spacer(Modifier.height(28.dp))
+    }
+}
+
+@Composable
+private fun AttachOption(icon: String, label: String, color: Color, onClick: () -> Unit) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.clickable(onClick = onClick).padding(8.dp)) {
+        Box(Modifier.size(56.dp).clip(CircleShape).background(color), contentAlignment = Alignment.Center) { Text(icon, fontSize = 24.sp) }
+        Spacer(Modifier.height(6.dp))
+        Text(label, fontSize = 13.sp)
     }
 }
 
