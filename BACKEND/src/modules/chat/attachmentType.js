@@ -1,8 +1,8 @@
 'use strict';
 
 // Works out what a chat attachment really is from its first bytes, never from the name
-// or the MIME type the browser sent. Only images, PDF, Excel (.xlsx) and audio are
-// allowed. Returns { kind, mime, ext } or null to reject.
+// or the MIME type the browser sent. Only images, PDF, Excel (.xlsx), audio and MP4
+// video are allowed. Returns { kind, mime, ext } or null to reject.
 
 function startsWith(buf, bytes, offset = 0) {
   if (buf.length < offset + bytes.length) return false;
@@ -54,7 +54,10 @@ function sniffAttachment(buf) {
     }
     const tracks = handlers.filter((h) => h === 'soun' || h === 'vide');
     if (tracks.length && tracks.every((h) => h === 'soun')) return { kind: 'audio', mime: 'audio/mp4', ext: '.m4a' };
-    return null; // mp4/mov video and other ISO media
+    // Short videos (the app compresses them to 480p MP4 first). The size limit is the
+    // same 10 MB as every attachment.
+    if (tracks.includes('vide')) return { kind: 'video', mime: 'video/mp4', ext: '.mp4' };
+    return null; // other ISO media
   }
   // WebM (what browsers record voice notes in): audio only if it has no video track.
   if (startsWith(buf, [0x1a, 0x45, 0xdf, 0xa3])) {
