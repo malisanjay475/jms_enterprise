@@ -256,6 +256,8 @@
     '.jc-st-in_progress{background:#fef3c7;color:#92400e}',
     '.jc-st-done{background:#dcfce7;color:#15803d}',
     '.jc-urg-b{background:#fee2e2;color:#b91c1c}',
+    '.jc-ackbtn{border:0;border-radius:6px;padding:4px 10px;font:inherit;font-size:12px;font-weight:700;cursor:pointer;background:#dc2626;color:#fff}',
+    '.jc-ackbtn:disabled{opacity:.6;cursor:default}',
     '.jc-target{outline:3px solid #f59e0b !important;outline-offset:2px;border-radius:3px;animation:jcPulse 1.2s ease-in-out 4}',
     '@keyframes jcPulse{0%,100%{outline-color:#f59e0b;box-shadow:0 0 0 0 rgba(245,158,11,.6)}50%{outline-color:#dc2626;box-shadow:0 0 0 10px rgba(245,158,11,0)}}',
     '.jc-tbanner{position:fixed;left:50%;top:12px;transform:translateX(-50%);z-index:100001;background:#fff;border:1px solid #fcd34d;border-left:5px solid #f59e0b;border-radius:10px;box-shadow:0 10px 30px rgba(0,0,0,.25);padding:10px 12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;max-width:calc(100vw - 32px);width:640px;font-size:14px}',
@@ -2262,6 +2264,31 @@
     if (L.excerpt) c.appendChild(el('div', 'jc-lx', L.excerpt));
     var rowx = el('div', 'jc-lrow');
     var st = (m.task && m.task.status) || 'open';
+    if (L.alert) {
+      // Machine-stop alert: Acknowledge button instead of the work status.
+      if (st === 'done') {
+        rowx.appendChild(el('span', 'jc-badge2 jc-st-done', '✓ Acknowledged' + (m.task && m.task.by ? ' · ' + m.task.by : '')));
+      } else {
+        var ack = el('button', 'jc-ackbtn', '✓ Acknowledge');
+        ack.addEventListener('click', function (e) {
+          e.stopPropagation();
+          ack.disabled = true;
+          api('POST', API + '/tasks/' + encodeURIComponent(m.sync_id), { status: 'done' })
+            .then(function (d) {
+              m.task = { status: d.task.status, by: d.task.by || me };
+              var badge = el('span', 'jc-badge2 jc-st-done', '✓ Acknowledged · ' + m.task.by);
+              ack.replaceWith(badge);
+            })
+            .catch(function (er) { ack.disabled = false; showErr(er.message || 'Could not acknowledge.'); });
+        });
+        rowx.appendChild(ack);
+      }
+      rowx.appendChild(el('span', 'jc-prev', 'Open DPR ›'));
+      c.appendChild(rowx);
+      c.title = 'Open ' + L.url;
+      c.addEventListener('click', function (e) { e.stopPropagation(); openLink(m); });
+      return c;
+    }
     rowx.appendChild(el('span', 'jc-badge2 jc-st-' + st, STATUS[st] || st));
     if (urgent) rowx.appendChild(el('span', 'jc-badge2 jc-urg-b', 'Urgent'));
     rowx.appendChild(el('span', 'jc-prev', 'Tap to open ›'));
@@ -2362,10 +2389,11 @@
     closeBtn.title = 'Close';
     [msg, stEl, startBtn, doneBtn, chatBtn, closeBtn].forEach(function (n) { bn.appendChild(n); });
     document.body.appendChild(bn);
+    if (L.alert) doneBtn.textContent = '✓ Acknowledge';
     function update(status, by) {
       stEl.className = 'jc-badge2 jc-st-' + status;
-      stEl.textContent = (STATUS[status] || status) + (by && status !== 'open' ? ' · ' + by : '');
-      startBtn.style.display = status === 'open' ? '' : 'none';
+      stEl.textContent = (L.alert && status === 'done' ? 'Acknowledged' : (STATUS[status] || status)) + (by && status !== 'open' ? ' · ' + by : '');
+      startBtn.style.display = status === 'open' && !L.alert ? '' : 'none';
       doneBtn.style.display = status === 'done' ? 'none' : '';
     }
     update((m.task && m.task.status) || 'open', m.task && m.task.by);

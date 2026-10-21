@@ -800,6 +800,16 @@
                           <option value="NoPlan">📅 No Plan</option>
                           <option value="MachineMaintenance">🛠️ Machine Maintenance</option>
                           <option value="MouldTrial">🧪 Mould Trial</option>
+                          <option value="Stopped">⛔ Machine Stopped</option>
+                        </select>
+                      </div>
+                      <div id="s-stop-hrs-wrap" style="display:none">
+                        <label style="display:block; font-size:0.7rem; font-weight:600; color:#64748b; margin-bottom:3px" title="No production (0 pcs) for at least this long, for any reason except Power Cut">Stopped for</label>
+                        <select id="s-stop-hrs" class="form-control" style="padding:6px 7px; border:1px solid #fca5a5; border-radius:4px; font-size:0.8rem; min-width:90px; color:#b91c1c; font-weight:700">
+                          <option value="2">2 hours +</option>
+                          <option value="3" selected>3 hours +</option>
+                          <option value="4">4 hours +</option>
+                          <option value="5">5 hours +</option>
                         </select>
                       </div>
                       <div style="display:flex; gap:8px; align-items:center">
@@ -1852,6 +1862,22 @@
                     const selectedLines = selLines.slice(); // [] = all lines
                     const groupBy = 'machine'; // Compliance Summary is always machine-wise now
                     const filterMode = document.getElementById('s-eff-filter')?.value || '';
+                    const stopHrsWrap = document.getElementById('s-stop-hrs-wrap');
+                    if (stopHrsWrap) stopHrsWrap.style.display = filterMode === 'Stopped' ? '' : 'none';
+
+                    // "⛔ Machine Stopped N hours +": machines stopped RIGHT NOW (active plan, 0 pcs
+                    // for N h+, any reason) from /api/dpr/stopped-machines — Power Cut left out.
+                    const stopHrs = Number(document.getElementById('s-stop-hrs')?.value) || 3;
+                    const stopKey = s => String(s || '').toUpperCase().replace(/>/g, '-').replace(/\s+/g, ' ').trim();
+                    let stoppedNow = null; // Map stopKey(machine) → stopped item
+                    if (filterMode === 'Stopped') {
+                        stoppedNow = new Map();
+                        try {
+                            const sr = await J.api.get(`/dpr/stopped-machines?minutes=${stopHrs * 60}&factory_id=${encodeURIComponent(selectedFactory || 'all')}`);
+                            ((sr && sr.ok && sr.data) || []).filter(s => !s.powerCut).forEach(s => stoppedNow.set(stopKey(s.machine), s));
+                        } catch (e) { console.warn('Stopped-machine filter failed:', e); }
+                    }
+                    const stoppedLabel = `⛔ Machine Stopped ${stopHrs} hours + (now, excl. Power Cut)`;
 
                     localStorage.setItem('jpsms_dpr_process', dprProcess);
 
@@ -3607,8 +3633,9 @@
                             masterHtml += mmStickyHeader;
                             const extractIdx = (str) => { const m = String(str).match(/-(\d+)$/); return m ? parseInt(m[1]) : 999999; };
                             // View Filter: a machine passes if ANY of its date/shift passes matches.
-                            const passesViewFilter = (rows) => {
+                            const passesViewFilter = (rows, machine) => {
                                 if (!filterMode || filterMode === 'ShowAll') return true;
+                                if (filterMode === 'Stopped') return !!(stoppedNow && stoppedNow.has(stopKey(machine)));
                                 return rows.some(r => {
                                     switch (filterMode) {
                                         case 'AbovePlan': return r.balComplete === true;
@@ -3639,9 +3666,10 @@
                                 mmOrder.forEach(lineName => {
                                     Object.keys(mmRows[lineName]).forEach(machine => {
                                         const passRows = mmRows[lineName][machine];
-                                        if (!passesViewFilter(passRows)) return;
+                                        if (!passesViewFilter(passRows, machine)) return;
                                         flat.push({
                                             machine,
+                                            stopMin: (stoppedNow && stoppedNow.get(stopKey(machine)) || {}).silentMin || 0,
                                             rowsHtml: passRows.map(r => r.html).join(''),
                                             eff: Math.min(...passRows.map(r => r.eff || 0)),
                                             oee: Math.min(...passRows.map(r => r.oee || 0)),
@@ -3651,10 +3679,11 @@
                                 });
                                 if (filterMode === 'Pending') flat.sort((a, b) => b.missingSlots - a.missingSlots);
                                 else if (filterMode === 'LowOee') flat.sort((a, b) => a.oee - b.oee);
+                                else if (filterMode === 'Stopped') flat.sort((a, b) => b.stopMin - a.stopMin); // longest stop first
                                 else flat.sort((a, b) => a.eff - b.eff);
                                 mmMachineCount = flat.length;
 
-                                const filterLabels = { ShowAll: 'Show All (by EFF)', AbovePlan: '🔴 Above Plan Qty', Pending: '⚠️ Pending Entries', LowEff: 'Low EFF', LowOee: 'Low OEE', MouldChange: 'Mould Change', PlanChangeOver: 'Plan Change Over (≤20% left)', ManPowerShortage: '🚷 MP Shortage', MouldMaintenance: '🔧 Mould Maintenance', PowerCut: '⚡ Power Cut', NoPlan: '📅 No Plan', MachineMaintenance: '🛠️ Machine Maintenance', MouldTrial: '🧪 Mould Trial' };
+                                const filterLabels = { ShowAll: 'Show All (by EFF)', AbovePlan: '🔴 Above Plan Qty', Pending: '⚠️ Pending Entries', LowEff: 'Low EFF', LowOee: 'Low OEE', MouldChange: 'Mould Change', PlanChangeOver: 'Plan Change Over (≤20% left)', ManPowerShortage: '🚷 MP Shortage', MouldMaintenance: '🔧 Mould Maintenance', PowerCut: '⚡ Power Cut', NoPlan: '📅 No Plan', MachineMaintenance: '🛠️ Machine Maintenance', MouldTrial: '🧪 Mould Trial', Stopped: stoppedLabel };
                                 let tbodies = '';
                                 flat.forEach(f => { tbodies += `<tbody class="mm-machine" data-search="${mkSearchText(f.machine, f.rowsHtml)}">${f.rowsHtml}</tbody>`; });
                                 const colgroup = `<colgroup><col style="width:220px; min-width:220px"><col style="width:45px; min-width:45px">${Array(12).fill('<col style="width:65px; min-width:65px">').join('')}<col style="width:140px; min-width:140px"></colgroup>`;
@@ -3758,6 +3787,15 @@
                         }
 
                         container.innerHTML = masterHtml;
+                        // Stopped filter: tag each machine with how long it has been stopped and why.
+                        if (stoppedNow && stoppedNow.size) {
+                            container.querySelectorAll('td[data-dpr-machine]').forEach(td => {
+                                const s = stoppedNow.get(stopKey(td.getAttribute('data-dpr-machine')));
+                                if (!s || td.querySelector('.dpr-stop-badge')) return;
+                                const dur = s.silentHrs >= 1 ? `${s.silentHrs}h` : `${s.silentMin || 0}m`;
+                                td.insertAdjacentHTML('beforeend', `<div class="dpr-stop-badge" style="margin-top:4px; display:inline-block; background:#fef2f2; color:#b91c1c; border:1px solid #fca5a5; border-radius:8px; padding:1px 7px; font-size:0.68rem; font-weight:800; white-space:normal">⛔ Stopped ${dur} · ${dprEscHtml(s.reason || '-')}</div>`);
+                            });
+                        }
                         // Total machines shown after View/Line filters (before Search narrows).
                         window._dprMachineCount = mmMachineCount;
                         // Re-apply the active search filter to the fresh DOM (also sets the count badge).
@@ -4114,6 +4152,7 @@
 
                 document.getElementById('btn-s-apply').onclick = loadSummary;
                 document.getElementById('s-eff-filter')?.addEventListener('change', loadSummary);
+                document.getElementById('s-stop-hrs')?.addEventListener('change', loadSummary);
                 document.getElementById('s-factory')?.addEventListener('change', loadSummary);
                 // Live search over the rendered machine blocks (machine / OR / client).
                 const dprSearchInput = document.getElementById('s-search');
