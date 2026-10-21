@@ -105,6 +105,7 @@ import com.jmsocean.chat.data.Message
 import com.jmsocean.chat.data.Session
 import com.jmsocean.chat.push.Notifier
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import java.io.File
 import java.util.Locale
 
@@ -146,6 +147,12 @@ fun ConversationScreen(convId: String, onBack: () -> Unit, onInfo: () -> Unit, v
     var text by remember { mutableStateOf("") }
     var viewing by remember { mutableStateOf<String?>(null) }
     var topMenu by remember { mutableStateOf(false) }
+    var forwarding by remember { mutableStateOf<Message?>(null) }
+    val uiScope = androidx.compose.runtime.rememberCoroutineScope()
+    var infoFor by remember { mutableStateOf<String?>(null) }
+    var searching by remember { mutableStateOf(false) }
+    var query by remember { mutableStateOf("") }
+    val found by vm.searchResults.collectAsState()
     var cameraFile by remember { mutableStateOf<File?>(null) }
     var recording by remember { mutableStateOf(false) }
     val recorder = remember { Media.Recorder(ctx) }
@@ -184,7 +191,18 @@ fun ConversationScreen(convId: String, onBack: () -> Unit, onInfo: () -> Unit, v
 
     Scaffold(
         topBar = {
-            TopAppBar(
+            if (searching) TopAppBar(
+                navigationIcon = {
+                    IconButton(onClick = { searching = false; query = ""; vm.search("") }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") }
+                },
+                title = {
+                    TextField(
+                        value = query, onValueChange = { query = it; vm.search(it) }, placeholder = { Text("Search this chat…") },
+                        singleLine = true, modifier = Modifier.fillMaxWidth(),
+                        colors = TextFieldDefaults.colors(focusedContainerColor = Color.Transparent, unfocusedContainerColor = Color.Transparent)
+                    )
+                }
+            ) else TopAppBar(
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
                 title = {
                     Row(Modifier.clickable(onClick = onInfo), verticalAlignment = Alignment.CenterVertically) {
@@ -202,6 +220,7 @@ fun ConversationScreen(convId: String, onBack: () -> Unit, onInfo: () -> Unit, v
                         IconButton(onClick = { topMenu = true }) { Icon(Icons.Default.MoreVert, "Menu") }
                         DropdownMenu(expanded = topMenu, onDismissRequest = { topMenu = false }) {
                             DropdownMenuItem(text = { Text(if (isGroup) "Group info" else "Contact info") }, onClick = { topMenu = false; onInfo() })
+                            DropdownMenuItem(text = { Text("Search") }, onClick = { topMenu = false; searching = true })
                             if (mutedUntil != null) DropdownMenuItem(text = { Text("Unmute notifications") }, onClick = { topMenu = false; vm.mute("off") })
                             else {
                                 DropdownMenuItem(text = { Text("Mute for 8 hours") }, onClick = { topMenu = false; vm.mute("8h") })
@@ -222,6 +241,24 @@ fun ConversationScreen(convId: String, onBack: () -> Unit, onInfo: () -> Unit, v
         Column(Modifier.padding(pad).fillMaxSize().imePadding()) {
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 if (loading) CircularProgressIndicator(Modifier.align(Alignment.Center), color = Green)
+                found?.let { results ->
+                    Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
+                        LazyColumn(Modifier.fillMaxSize()) {
+                            if (results.isEmpty()) item { Text("No messages found.", Modifier.padding(16.dp)) }
+                            itemsIndexed(results, key = { _, m -> "s" + m.sync_id }) { _, m ->
+                                Column(Modifier.fillMaxWidth().clickable {
+                                    val idx = reversed.indexOfFirst { it.sync_id == m.sync_id }
+                                    searching = false; query = ""; vm.search("")
+                                    if (idx >= 0) uiScope.launch { listState.scrollToItem(idx) }
+                                }.padding(horizontal = 16.dp, vertical = 10.dp)) {
+                                    Text("${if (Session.isMe(m.sender)) "You" else m.sender} · ${dayLabel(m.server_ts)} ${timeOf(m.server_ts)}",
+                                        fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text(m.body, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                                }
+                            }
+                        }
+                    }
+                }
                 LazyColumn(
                     state = listState, reverseLayout = true, modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp)
@@ -235,6 +272,12 @@ fun ConversationScreen(convId: String, onBack: () -> Unit, onInfo: () -> Unit, v
                                 m, isGroup = isGroup, members = members.size,
                                 firstOfRun = prev == null || prev.sender != m.sender || prev.kind == "system" || dayKey(prev.server_ts) != dayKey(m.server_ts),
                                 canEdit = vm.canEdit(m),
+                                myReaction = vm.myReaction(m),
+                                onReact = { e -> vm.react(m, e) },
+                                onForward = { forwarding = m },
+                                onStar = { vm.star(m) },
+                                onInfo = { infoFor = m.sync_id },
+                                onTask = { st -> vm.setTask(m, st) },
                                 onEdit = { vm.startEdit(m) },
                                 onDelete = { vm.delete(m) },
                                 onReply = { vm.setReply(m) },
@@ -280,6 +323,8 @@ fun ConversationScreen(convId: String, onBack: () -> Unit, onInfo: () -> Unit, v
     }
 
     viewing?.let { id -> ImageViewer(id) { viewing = null } }
+    forwarding?.let { m -> ForwardSheet(m) { forwarding = null } }
+    infoFor?.let { id -> MessageInfoDialog(id) { infoFor = null } }
 }
 
 @Composable
@@ -305,6 +350,8 @@ private fun SystemLine(text: String) {
 private fun Bubble(
     m: Message, isGroup: Boolean, members: Int, firstOfRun: Boolean,
     canEdit: Boolean, onEdit: () -> Unit, onDelete: () -> Unit,
+    myReaction: String?, onReact: (String) -> Unit, onForward: () -> Unit, onStar: () -> Unit,
+    onInfo: () -> Unit, onTask: (String) -> Unit,
     onReply: () -> Unit, onRetry: () -> Unit, onImage: (String) -> Unit
 ) {
     val ctx = LocalContext.current
@@ -321,6 +368,7 @@ private fun Bubble(
         topStart = if (!mine && firstOfRun) 2.dp else 10.dp, topEnd = if (mine && firstOfRun) 2.dp else 10.dp,
         bottomStart = 10.dp, bottomEnd = 10.dp
     )
+    Column(Modifier.fillMaxWidth()) {
     Row(
         Modifier.fillMaxWidth().padding(top = if (firstOfRun) 6.dp else 2.dp),
         horizontalArrangement = if (mine) Arrangement.End else Arrangement.Start
@@ -336,6 +384,9 @@ private fun Bubble(
             ) {
                 Column(Modifier.padding(horizontal = 8.dp, vertical = 5.dp)) {
                     if (isGroup && !mine && firstOfRun) Text(m.sender, color = nameColor(m.sender), fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                    if (m.forwarded && !m.deleted) Text("↪ Forwarded", fontSize = 12.sp, fontStyle = FontStyle.Italic,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (m.kind == "link" && !m.deleted && !m.purged) LinkCard(m, onTask)
                     m.reply_to?.let { q ->
                         Row(
                             Modifier.fillMaxWidth().padding(vertical = 3.dp).clip(RoundedCornerShape(6.dp))
@@ -377,6 +428,7 @@ private fun Bubble(
                         Text(m.body, fontSize = 15.sp)
                     }
                     Row(Modifier.align(Alignment.End), verticalAlignment = Alignment.CenterVertically) {
+                        if (m.starred) Text("★ ", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         if (m.edited_at != null && !m.deleted) Text("edited ", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Text(timeOf(m.server_ts), fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         if (mine && !m.deleted) {
@@ -387,6 +439,12 @@ private fun Bubble(
                 }
             }
             DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                if (!m.deleted && !m.pending && !m.failed) ReactionBar(myReaction) { e -> menu = false; onReact(e) }
+                if (!m.deleted && !m.pending && !m.failed) {
+                    DropdownMenuItem(text = { Text("Forward") }, onClick = { menu = false; onForward() })
+                    DropdownMenuItem(text = { Text(if (m.starred) "Unstar" else "Star") }, onClick = { menu = false; onStar() })
+                    if (mine) DropdownMenuItem(text = { Text("Info") }, onClick = { menu = false; onInfo() })
+                }
                 DropdownMenuItem(text = { Text("Reply") }, leadingIcon = { Icon(Icons.AutoMirrored.Filled.Reply, null) }, onClick = { menu = false; onReply() })
                 if (m.body.isNotBlank() && !m.deleted) DropdownMenuItem(text = { Text("Copy") }, onClick = {
                     menu = false
@@ -408,6 +466,9 @@ private fun Bubble(
                 dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Cancel") } }
             )
         }
+    }
+    val rx = m.reactions
+    if (!rx.isNullOrEmpty() && !m.deleted) ReactionChips(rx, alignEnd = mine)
     }
 }
 
