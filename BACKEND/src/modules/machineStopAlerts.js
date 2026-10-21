@@ -16,8 +16,13 @@
 //
 // The message sync_id is derived from machine + factory + stop time, so a stoppage is
 // posted once even with several PM2 workers, a restart, or a LOCAL running the same job.
+// Only the factories the group is for get alerts: Dungra Unit-I (id 1) and Unit-II (id 4).
+// Each factory is worked out on its own (plans + DPR of that factory only), and a machine
+// whose master record belongs to another factory is dropped, so no other unit's machine
+// can reach the group.
 // Settings (env): MACHINE_STOP_ALERTS=off, MACHINE_STOP_ALERT_HOURS (default 3),
-// MACHINE_STOP_ALERT_GROUP (default "Moulding Alerts").
+// MACHINE_STOP_ALERT_GROUP (default "Moulding Alerts"), MACHINE_STOP_ALERT_FACTORIES
+// (factory ids, default "1,4").
 
 const chatSync = require('./chat/chatSync');
 
@@ -30,7 +35,9 @@ const LOCK = 'jms_machine_stop_alerts';
 function settings() {
   const hours = Math.max(1, Math.min(24, Number(process.env.MACHINE_STOP_ALERT_HOURS) || 3));
   const group = String(process.env.MACHINE_STOP_ALERT_GROUP || 'Moulding Alerts').trim();
-  return { hours, group };
+  const ids = String(process.env.MACHINE_STOP_ALERT_FACTORIES || '1,4').split(',')
+    .map((x) => parseInt(x, 10)).filter((n) => Number.isFinite(n) && n > 0);
+  return { hours, group, factories: [...new Set(ids)] };
 }
 
 function enabled() {
@@ -84,7 +91,8 @@ function alertMessage(s, hours, factoryName) {
 }
 
 async function runOnce({ pool, q, computeStoppedMachines }) {
-  const { hours, group } = settings();
+  const { hours, group, factories } = settings();
+  if (!factories.length) return { posted: 0, skipped: 'no factories' };
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -103,8 +111,14 @@ async function runOnce({ pool, q, computeStoppedMachines }) {
     if (!conv) { await client.query('ROLLBACK'); return { posted: 0, skipped: 'no group' }; }
 
     const now = Date.now();
-    const stopped = (await computeStoppedMachines(null, hours * 60, 2))
-      .filter((s) => s.stoppedSince && !s.powerCut && now - new Date(s.stoppedSince).getTime() <= MAX_AGE_MS);
+    const stopped = [];
+    for (const fid of factories) {
+      const list = await computeStoppedMachines(fid, hours * 60, 2);
+      for (const s of list) {
+        if (!s.stoppedSince || s.powerCut || now - new Date(s.stoppedSince).getTime() > MAX_AGE_MS) continue;
+        stopped.push({ ...s, factoryId: fid });
+      }
+    }
     if (!stopped.length) { await client.query('COMMIT'); return { posted: 0 }; }
 
     const { date, shift } = dprNow(new Date(now));
@@ -112,13 +126,22 @@ async function runOnce({ pool, q, computeStoppedMachines }) {
       "SELECT plant, factory_id FROM closed_plants WHERE dpr_date = $1 AND (shift = $2 OR shift = 'Both')", [date, shift]
     ).catch(() => []);
     const machineRows = await q('SELECT machine, line, building, factory_id FROM machines').catch(() => []);
-    const machineInfo = new Map(machineRows.map((m) => [String(m.machine || '').trim().toUpperCase(), m]));
+    const machineInfo = new Map(); // NAME → master rows (a name may exist in more than one factory)
+    for (const m of machineRows) {
+      const k = String(m.machine || '').trim().toUpperCase();
+      if (!machineInfo.has(k)) machineInfo.set(k, []);
+      machineInfo.get(k).push(m);
+    }
     const factoryRows = await q('SELECT id, name FROM factories').catch(() => []);
     const factoryName = new Map(factoryRows.map((f) => [Number(f.id), f.name]));
 
     let posted = 0;
     for (const s of stopped) {
-      const info = machineInfo.get(String(s.machine || '').trim().toUpperCase());
+      const masters = machineInfo.get(String(s.machine || '').trim().toUpperCase()) || [];
+      const info = masters.find((m) => Number(m.factory_id) === Number(s.factoryId))
+        || masters.find((m) => m.factory_id == null);
+      // the machine master puts it only in another factory → not this group's machine
+      if (masters.length && !info) continue;
       if (plantClosed(closures, info, s.factoryId)) continue;
       const { body, meta } = alertMessage(s, hours, factoryName.get(Number(s.factoryId)) || '');
       const key = `${String(s.machine).trim().toUpperCase()}|${s.factoryId == null ? '' : s.factoryId}|${s.stoppedSince}`;
