@@ -176,6 +176,20 @@ object Api {
         get<FoundReply>("/api/chat/search?q=" + java.net.URLEncoder.encode(q, "UTF-8") +
             (conversation?.let { "&conversation=$it" } ?: "")).results
 
+    // ---- voice calls ----
+    suspend fun startCall(to: String): CallReply =
+        json.decodeFromString(call("POST", "/api/chat/calls", jsonBody("to" to to)))
+
+    /** accept / decline / end. accept also returns the ICE servers. */
+    suspend fun callAction(id: String, action: String): CallReply =
+        json.decodeFromString(call("POST", "/api/chat/calls/$id/$action", "{}".toRequestBody(JSON)))
+
+    suspend fun callSignal(id: String, kind: String, data: String) {
+        call("POST", "/api/chat/calls/$id/signal", jsonBody("kind" to kind, "data" to data))
+    }
+
+    suspend fun callSignals(id: String, after: Long): CallSignalsReply = get("/api/chat/calls/$id/signals?after=$after")
+
     // ---- pin / archive ----
     suspend fun pin(convId: String, on: Boolean) { call("POST", "/api/chat/conversations/$convId/pin", jsonBody("on" to on)) }
     suspend fun archive(convId: String, on: Boolean) { call("POST", "/api/chat/conversations/$convId/archive", jsonBody("on" to on)) }

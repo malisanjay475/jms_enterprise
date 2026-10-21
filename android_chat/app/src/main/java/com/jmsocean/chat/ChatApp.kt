@@ -14,6 +14,7 @@ class ChatApp : Application() {
         super.onCreate()
         Session.init(this)
         Notifier.ensureChannel(this)
+        com.jmsocean.chat.call.CallNotifications.ensureChannels(this)
         Push.init(this)
         // Live stream only while the app is on screen; push covers the rest.
         ProcessLifecycleOwner.get().lifecycle.addObserver(object : DefaultLifecycleObserver {

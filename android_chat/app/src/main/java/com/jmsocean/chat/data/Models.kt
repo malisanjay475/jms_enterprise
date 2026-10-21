@@ -160,6 +160,28 @@ data class PushDevice(val app_version: String? = null, val created_at: String? =
 data class PushStatus(val server: Boolean = false, val devices: List<PushDevice> = emptyList())
 
 @Serializable
+data class IceServerConfig(val urls: List<String> = emptyList(), val username: String? = null, val credential: String? = null)
+
+@Serializable
+data class CallInfo(
+    val id: String,
+    val caller: String = "",
+    val callee: String = "",
+    val status: String = "",
+    val peer: String = "",
+    val incoming: Boolean = false
+)
+
+@Serializable
+data class CallReply(val call: CallInfo, val ice: List<IceServerConfig> = emptyList(), val ring_seconds: Int = 45)
+
+@Serializable
+data class CallSignal(val seq: Long, val kind: String, val data: String)
+
+@Serializable
+data class CallSignalsReply(val status: String = "", val signals: List<CallSignal> = emptyList())
+
+@Serializable
 data class AppVersion(val versionCode: Int = 0, val versionName: String = "", val apk: String = "", val notes: String = "")
 
 /** One event from /api/chat/stream. */
