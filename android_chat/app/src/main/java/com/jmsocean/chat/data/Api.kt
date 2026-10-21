@@ -147,6 +147,11 @@ object Api {
         runCatching { call("POST", "/api/chat/fcm/unregister", buildJsonObject { put("token", token) }.toString().toRequestBody(JSON)) }
     }
 
+    suspend fun pushStatus(): PushStatus = get("/api/chat/fcm/status")
+
+    /** Ask the server to push a test notification to my phones. Throws with the reason. */
+    suspend fun pushTest() { call("POST", "/api/chat/fcm/test", "{}".toRequestBody(JSON)) }
+
     fun fileUrl(attachmentId: String) = "$base/api/chat/files/$attachmentId"
 
     /** Profile photo URL; null when the user has none. `v` changes with each new photo. */

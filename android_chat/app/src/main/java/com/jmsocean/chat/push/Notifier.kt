@@ -106,6 +106,7 @@ object Notifier {
             .addAction(replyAction)
             .addAction(readAction)
             .setNumber(history.size)
+            .setBadgeIconType(NotificationCompat.BADGE_ICON_SMALL)
             .build()
         NotificationManagerCompat.from(ctx).notify(notifId(conv), n)
     }

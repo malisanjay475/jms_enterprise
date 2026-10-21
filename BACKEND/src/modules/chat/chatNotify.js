@@ -150,6 +150,24 @@ function client() {
   return webpush;
 }
 
+// Total unread per user (same rule as GET /api/chat/unread), for the app badge.
+async function unreadFor(pool, usernames) {
+  const { rows } = await pool.query(
+    `SELECT LOWER(me.username) AS u, COALESCE(SUM(c.n), 0)::int AS n
+       FROM chat_members me
+       CROSS JOIN LATERAL (
+         SELECT COUNT(*) AS n FROM chat_messages x
+          WHERE x.conversation_sync_id = me.conversation_sync_id
+            AND x.server_ts > COALESCE(me.last_read_at, '-infinity'::timestamptz)
+            AND LOWER(x.sender) <> LOWER(me.username) AND x.deleted_at IS NULL AND x.kind <> 'system'
+       ) c
+      WHERE LOWER(me.username) = ANY($1::text[]) AND me.left_at IS NULL
+      GROUP BY LOWER(me.username)`,
+    [usernames.map((u) => String(u).toLowerCase())]
+  );
+  return new Map(rows.map((r) => [r.u, r.n]));
+}
+
 // Push one new message to every subscribed member who should hear about it.
 async function sendPushForMessage(pool, messageSyncId) {
   const wp = client();
@@ -180,18 +198,23 @@ async function sendPushForMessage(pool, messageSyncId) {
   const title = m.conv_type === 'group' ? `${m.sender} in ${m.conv_title || 'Group'}` : m.sender;
   let sent = 0;
 
-  // Android app: one data message per person (mentioned or not), the app shows it.
-  for (const mentioned of [true, false]) {
-    const users = who.filter((w) => Boolean(w.mentioned) === mentioned).map((w) => w.username);
-    if (!users.length) continue;
-    const r = await chatFcm.sendToUsers(pool, users, {
-      type: 'chat',
-      title: String(title || ''),
-      body: (mentioned ? '@ ' : '') + String(body || '').slice(0, 300),
-      sender: String(m.sender || ''),
-      conversation_sync_id: String(m.conversation_sync_id),
-      message_sync_id: String(m.sync_id),
-      is_group: m.conv_type === 'group' ? '1' : '0'
+  // Android app: one data message per phone, with that person's total unread for the
+  // app-icon badge (like WhatsApp).
+  if (chatFcm.enabled() && who.length) {
+    const unread = await unreadFor(pool, who.map((w) => w.username)).catch(() => new Map());
+    const mentionedSet = new Set(who.filter((w) => w.mentioned).map((w) => w.username.toLowerCase()));
+    const r = await chatFcm.sendToUsers(pool, who.map((w) => w.username), (username) => {
+      const key = String(username).toLowerCase();
+      return {
+        type: 'chat',
+        title: String(title || ''),
+        body: (mentionedSet.has(key) ? '@ ' : '') + String(body || '').slice(0, 300),
+        sender: String(m.sender || ''),
+        conversation_sync_id: String(m.conversation_sync_id),
+        message_sync_id: String(m.sync_id),
+        is_group: m.conv_type === 'group' ? '1' : '0',
+        unread: String(unread.get(key) || 1)
+      };
     }).catch((err) => { console.warn('[chat-fcm]', err.message); return { sent: 0 }; });
     sent += r.sent;
   }

@@ -77,11 +77,12 @@ async function ensureFcmSchema(pool) {
   `);
 }
 
-// Send one data message to every device of these users. `data` values must be strings.
+// Send one data message to every device of these users. `data` values must be strings;
+// it may be a function (username) -> data, for per-person fields such as the unread badge.
 async function sendToUsers(pool, usernames, data) {
   if (!enabled() || !usernames.length) return { sent: 0 };
   const { rows: devices } = await pool.query(
-    'SELECT id, token FROM chat_fcm_devices WHERE LOWER(username) = ANY($1::text[])',
+    'SELECT id, token, username FROM chat_fcm_devices WHERE LOWER(username) = ANY($1::text[])',
     [usernames.map((u) => String(u).toLowerCase())]
   );
   if (!devices.length) return { sent: 0 };
@@ -96,8 +97,8 @@ async function sendToUsers(pool, usernames, data) {
         body: JSON.stringify({
           message: {
             token: dev.token,
-            data,
-            android: { priority: 'HIGH', ttl: '3600s', collapse_key: data.conversation_sync_id || 'chat' }
+            data: typeof data === 'function' ? data(dev.username) : data,
+            android: { priority: 'HIGH', ttl: '3600s' }
           }
         })
       });
@@ -121,6 +122,39 @@ async function sendToUsers(pool, usernames, data) {
 }
 
 function registerFcmRoutes(app, pool, { ready, fail }) {
+  console.log(`[chat-fcm] push to the Android app: ${enabled() ? 'ON' : 'OFF (no FCM_SERVICE_ACCOUNT)'}`);
+
+  // For the app's Notifications screen: is push set up here, and is this phone known?
+  app.get('/api/chat/fcm/status', async (req, res) => {
+    try {
+      if (!(await ready(req, res))) return;
+      let devices = [];
+      if (enabled()) {
+        await ensureFcmSchema(pool);
+        ({ rows: devices } = await pool.query(
+          'SELECT app_version, created_at, last_ok_at, failures FROM chat_fcm_devices WHERE LOWER(username) = LOWER($1) ORDER BY created_at DESC',
+          [req.auth.username]
+        ));
+      }
+      res.json({ ok: true, server: enabled(), devices });
+    } catch (err) { fail(res, err, 'fcm status'); }
+  });
+
+  // "Send me a test notification": a push to the caller's own phones.
+  app.post('/api/chat/fcm/test', async (req, res) => {
+    try {
+      if (!(await ready(req, res))) return;
+      if (!enabled()) return res.status(503).json({ ok: false, error: 'Push is not set up on the server (FCM_SERVICE_ACCOUNT missing).' });
+      await ensureFcmSchema(pool);
+      const r = await sendToUsers(pool, [req.auth.username], {
+        type: 'test', title: 'JMS Chat', body: 'Notifications are working ✅', sender: 'JMS Chat',
+        conversation_sync_id: 'test', message_sync_id: 'test', is_group: '0', unread: '0'
+      });
+      if (!r.sent) return res.status(404).json({ ok: false, error: 'This phone is not registered for push yet. Reopen the app and try again.' });
+      res.json({ ok: true, sent: r.sent });
+    } catch (err) { fail(res, err, 'fcm test'); }
+  });
+
   app.post('/api/chat/fcm/register', async (req, res) => {
     try {
       if (!(await ready(req, res))) return;
