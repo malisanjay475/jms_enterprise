@@ -149,6 +149,40 @@ object Api {
 
     fun fileUrl(attachmentId: String) = "$base/api/chat/files/$attachmentId"
 
+    /** Profile photo URL; null when the user has none. `v` changes with each new photo. */
+    fun avatarUrl(username: String, v: String?) =
+        v?.let { "$base/api/chat/avatars/${java.net.URLEncoder.encode(username, "UTF-8")}?v=$it" }
+
+    // ---- profiles ----
+    suspend fun myProfile(): Profile = get<ProfileReply>("/api/chat/profile").profile ?: Profile()
+    suspend fun profileOf(username: String): Profile =
+        get<ProfileReply>("/api/chat/profile/" + java.net.URLEncoder.encode(username, "UTF-8")).profile ?: Profile(username = username)
+
+    suspend fun saveAbout(about: String): Profile = withContext(Dispatchers.IO) {
+        json.decodeFromString<ProfileReply>(call("PUT", "/api/chat/profile", buildJsonObject { put("about", about) }.toString().toRequestBody(JSON))).profile ?: Profile()
+    }
+
+    suspend fun uploadPhoto(file: File, mime: String): Profile {
+        val form = MultipartBody.Builder().setType(MultipartBody.FORM)
+            .addFormDataPart("photo", file.name, file.asRequestBodyCompat(mime)).build()
+        return json.decodeFromString<ProfileReply>(call("POST", "/api/chat/profile/photo", form)).profile ?: Profile()
+    }
+
+    suspend fun removePhoto(): Profile = json.decodeFromString<ProfileReply>(call("DELETE", "/api/chat/profile/photo")).profile ?: Profile()
+
+    // ---- edit / delete / mute ----
+    suspend fun editMessage(id: String, body: String): Message =
+        json.decodeFromString<MessageReply>(call("PATCH", "/api/chat/messages/$id", buildJsonObject { put("body", body) }.toString().toRequestBody(JSON))).message
+            ?: throw ApiError("Not edited.")
+
+    suspend fun deleteMessage(id: String): Message =
+        json.decodeFromString<MessageReply>(call("DELETE", "/api/chat/messages/$id")).message ?: throw ApiError("Not deleted.")
+
+    /** how: 8h, 1w, always or off. */
+    suspend fun mute(convId: String, how: String) {
+        call("POST", "/api/chat/conversations/$convId/mute", buildJsonObject { put("for", how) }.toString().toRequestBody(JSON))
+    }
+
     // ---- self-update feed (static, no session needed) ----
     suspend fun appVersion(): AppVersion? = runCatching {
         withContext(Dispatchers.IO) {

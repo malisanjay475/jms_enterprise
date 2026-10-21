@@ -42,7 +42,7 @@ object Notifier {
 
     private fun notifId(conv: String) = conv.hashCode()
 
-    fun show(ctx: Context, conv: String, title: String, sender: String, text: String, isGroup: Boolean) {
+    fun show(ctx: Context, conv: String, title: String, sender: String, text: String, isGroup: Boolean, senderPhoto: android.graphics.Bitmap? = null) {
         if (appInFront && openChat == conv) return
         if (Build.VERSION.SDK_INT >= 33 &&
             ContextCompat.checkSelfPermission(ctx, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
@@ -61,7 +61,10 @@ object Notifier {
         if (isGroup) style.setConversationTitle(title.substringAfter(" in ", title)).setGroupConversation(true)
         val now = System.currentTimeMillis()
         history.forEachIndexed { i, (who, line) ->
-            style.addMessage(line, now - (history.size - i), Person.Builder().setName(who).build())
+            val person = Person.Builder().setName(who).apply {
+                if (who == sender && senderPhoto != null) setIcon(androidx.core.graphics.drawable.IconCompat.createWithBitmap(senderPhoto))
+            }.build()
+            style.addMessage(line, now - (history.size - i), person)
         }
 
         val open = PendingIntent.getActivity(
@@ -95,6 +98,7 @@ object Notifier {
             .setStyle(style)
             .setContentTitle(title)
             .setContentText(text)
+            .apply { if (senderPhoto != null && !isGroup) setLargeIcon(senderPhoto) }
             .setCategory(NotificationCompat.CATEGORY_MESSAGE)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setAutoCancel(true)

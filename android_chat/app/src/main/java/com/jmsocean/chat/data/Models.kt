@@ -12,7 +12,15 @@ data class LoginReply(val ok: Boolean = false, val error: String? = null, val us
 data class Me(val ok: Boolean = false, val username: String = "", val isSuperadmin: Boolean = false)
 
 @Serializable
-data class ChatUser(val username: String, val role: String = "", val line: String = "", val online: Boolean = false)
+data class ChatUser(
+    val username: String,
+    val role: String = "",
+    val line: String = "",
+    val online: Boolean = false,
+    val about: String = "",
+    val photo_v: String? = null,
+    val last_seen_at: String? = null
+)
 
 @Serializable
 data class UsersReply(val users: List<ChatUser> = emptyList())
@@ -29,7 +37,10 @@ data class Conversation(
     val last_message_at: String? = null,
     val last_body: String? = null,
     val last_sender: String? = null,
-    val unread: Int = 0
+    val unread: Int = 0,
+    val peer: String? = null,
+    val photo_v: String? = null,
+    val last_seen_at: String? = null
 ) {
     val isGroup get() = type == "group"
     val name get() = title ?: "Chat"
@@ -74,8 +85,26 @@ data class MessagesReply(
     val has_more: Boolean = false,
     val type: String = "direct",
     val title: String? = null,
-    val members: List<String> = emptyList()
+    val members: List<String> = emptyList(),
+    val member_roles: List<Member> = emptyList()
 )
+
+@Serializable
+data class Member(val username: String, val role: String? = null, val online: Boolean = false, val last_seen_at: String? = null, val photo_v: String? = null)
+
+@Serializable
+data class Profile(
+    val username: String = "",
+    val role: String = "",
+    val line: String = "",
+    val about: String = "",
+    val photo_v: String? = null,
+    val last_seen_at: String? = null,
+    val online: Boolean = false
+)
+
+@Serializable
+data class ProfileReply(val profile: Profile? = null)
 
 @Serializable
 data class MessageReply(val message: Message? = null)

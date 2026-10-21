@@ -1,9 +1,11 @@
 package com.jmsocean.chat.ui
 
+import android.Manifest
 import android.app.DownloadManager
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Environment
 import android.widget.Toast
@@ -13,9 +15,12 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -39,21 +44,30 @@ import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
 import androidx.compose.material.icons.automirrored.filled.Reply
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.AttachFile
+import androidx.compose.material.icons.filled.CameraAlt
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Done
 import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.ErrorOutline
+import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.TopAppBar
@@ -71,6 +85,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontStyle
@@ -80,13 +95,18 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.jmsocean.chat.data.Api
+import com.jmsocean.chat.data.Media
 import com.jmsocean.chat.data.Message
 import com.jmsocean.chat.data.Session
 import com.jmsocean.chat.push.Notifier
+import kotlinx.coroutines.delay
+import java.io.File
+import java.util.Locale
 
 private val nameColors = listOf(
     Color(0xFF1FA855), Color(0xFF6B5BD2), Color(0xFFE5486B), Color(0xFF02A6C6),
@@ -95,9 +115,11 @@ private val nameColors = listOf(
 
 private fun nameColor(n: String) = nameColors[(n.lowercase().hashCode() and 0x7fffffff) % nameColors.size]
 
+private val Accent = Color(0xFF00A884)
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ConversationScreen(convId: String, onBack: () -> Unit, vm: ConversationViewModel = viewModel(key = convId)) {
+fun ConversationScreen(convId: String, onBack: () -> Unit, onInfo: () -> Unit, vm: ConversationViewModel = viewModel(key = convId)) {
     val ctx = LocalContext.current
     LaunchedEffect(convId) { vm.start(convId) }
     DisposableEffect(convId) {
@@ -116,22 +138,39 @@ fun ConversationScreen(convId: String, onBack: () -> Unit, vm: ConversationViewM
     val older by vm.loadingOlder.collectAsState()
     val error by vm.error.collectAsState()
     val replyTo by vm.replyTo.collectAsState()
+    val editing by vm.editing.collectAsState()
+    val peer by vm.peer.collectAsState()
+    val peerPhoto by vm.peerPhoto.collectAsState()
+    val lastSeen by vm.lastSeen.collectAsState()
+    val mutedUntil by vm.mutedUntil.collectAsState()
     var text by remember { mutableStateOf("") }
     var viewing by remember { mutableStateOf<String?>(null) }
+    var topMenu by remember { mutableStateOf(false) }
+    var cameraFile by remember { mutableStateOf<File?>(null) }
+    var recording by remember { mutableStateOf(false) }
+    val recorder = remember { Media.Recorder(ctx) }
 
     LaunchedEffect(error) {
         error?.let { Toast.makeText(ctx, it, Toast.LENGTH_SHORT).show(); vm.clearError() }
     }
+    LaunchedEffect(editing) { editing?.let { text = it.body } }
+    DisposableEffect(Unit) { onDispose { recorder.cancel(); Media.Player.stop() } }
 
     val pick = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
         if (uri != null) { vm.sendFile(uri, text); text = "" }
+    }
+    val camera = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
+        val f = cameraFile
+        if (ok && f != null) vm.sendCameraPhoto(f)
+    }
+    val askMic = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        Toast.makeText(ctx, if (granted) "Now hold the mic to record." else "Allow the microphone to send voice messages.", Toast.LENGTH_LONG).show()
     }
 
     val subtitle = when {
         typing != null -> if (isGroup) "$typing is typing…" else "typing…"
         isGroup -> members.joinToString(", ") { if (Session.isMe(it)) "You" else it }
-        online -> "online"
-        else -> ""
+        else -> lastSeenText(online, lastSeen)
     }
 
     // newest at the bottom: the list is reversed
@@ -148,8 +187,8 @@ fun ConversationScreen(convId: String, onBack: () -> Unit, vm: ConversationViewM
             TopAppBar(
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
                 title = {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Avatar(title, 38.dp, group = isGroup)
+                    Row(Modifier.clickable(onClick = onInfo), verticalAlignment = Alignment.CenterVertically) {
+                        Avatar(title, 38.dp, group = isGroup, photoUrl = peer?.let { Api.avatarUrl(it, peerPhoto) })
                         Spacer(Modifier.width(10.dp))
                         Column {
                             Text(title, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -158,8 +197,23 @@ fun ConversationScreen(convId: String, onBack: () -> Unit, vm: ConversationViewM
                         }
                     }
                 },
+                actions = {
+                    Box {
+                        IconButton(onClick = { topMenu = true }) { Icon(Icons.Default.MoreVert, "Menu") }
+                        DropdownMenu(expanded = topMenu, onDismissRequest = { topMenu = false }) {
+                            DropdownMenuItem(text = { Text(if (isGroup) "Group info" else "Contact info") }, onClick = { topMenu = false; onInfo() })
+                            if (mutedUntil != null) DropdownMenuItem(text = { Text("Unmute notifications") }, onClick = { topMenu = false; vm.mute("off") })
+                            else {
+                                DropdownMenuItem(text = { Text("Mute for 8 hours") }, onClick = { topMenu = false; vm.mute("8h") })
+                                DropdownMenuItem(text = { Text("Mute for 1 week") }, onClick = { topMenu = false; vm.mute("1w") })
+                                DropdownMenuItem(text = { Text("Mute always") }, onClick = { topMenu = false; vm.mute("always") })
+                            }
+                        }
+                    }
+                },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = Teal, titleContentColor = Color.White, navigationIconContentColor = Color.White
+                    containerColor = Teal, titleContentColor = Color.White,
+                    navigationIconContentColor = Color.White, actionIconContentColor = Color.White
                 )
             )
         },
@@ -170,7 +224,7 @@ fun ConversationScreen(convId: String, onBack: () -> Unit, vm: ConversationViewM
                 if (loading) CircularProgressIndicator(Modifier.align(Alignment.Center), color = Green)
                 LazyColumn(
                     state = listState, reverseLayout = true, modifier = Modifier.fillMaxSize(),
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 8.dp)
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp)
                 ) {
                     itemsIndexed(reversed, key = { _, m -> m.sync_id }) { i, m ->
                         val prev = reversed.getOrNull(i + 1) // older neighbour
@@ -180,6 +234,9 @@ fun ConversationScreen(convId: String, onBack: () -> Unit, vm: ConversationViewM
                             else Bubble(
                                 m, isGroup = isGroup, members = members.size,
                                 firstOfRun = prev == null || prev.sender != m.sender || prev.kind == "system" || dayKey(prev.server_ts) != dayKey(m.server_ts),
+                                canEdit = vm.canEdit(m),
+                                onEdit = { vm.startEdit(m) },
+                                onDelete = { vm.delete(m) },
                                 onReply = { vm.setReply(m) },
                                 onRetry = { vm.retry(m) },
                                 onImage = { viewing = it }
@@ -193,8 +250,30 @@ fun ConversationScreen(convId: String, onBack: () -> Unit, vm: ConversationViewM
                 text = text,
                 onText = { text = it; if (it.isNotBlank()) vm.onTyping() },
                 replyTo = replyTo,
+                editing = editing,
                 onCancelReply = { vm.setReply(null) },
+                onCancelEdit = { vm.startEdit(null); text = "" },
                 onAttach = { pick.launch("*/*") },
+                onCamera = {
+                    val (f, uri) = Media.newCameraTarget(ctx)
+                    cameraFile = f
+                    camera.launch(uri)
+                },
+                recording = recording,
+                onMicDown = {
+                    if (ContextCompat.checkSelfPermission(ctx, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+                        askMic.launch(Manifest.permission.RECORD_AUDIO)
+                        false
+                    } else recorder.start().also { recording = it }
+                },
+                onMicUp = { send ->
+                    recording = false
+                    if (send) {
+                        val f = recorder.stop()
+                        if (f != null) vm.sendVoice(f, recorder.mime)
+                        else Toast.makeText(ctx, "Hold the mic to record", Toast.LENGTH_SHORT).show()
+                    } else recorder.cancel()
+                },
                 onSend = { vm.sendText(text); text = "" }
             )
         }
@@ -225,11 +304,13 @@ private fun SystemLine(text: String) {
 @Composable
 private fun Bubble(
     m: Message, isGroup: Boolean, members: Int, firstOfRun: Boolean,
+    canEdit: Boolean, onEdit: () -> Unit, onDelete: () -> Unit,
     onReply: () -> Unit, onRetry: () -> Unit, onImage: (String) -> Unit
 ) {
     val ctx = LocalContext.current
     val mine = Session.isMe(m.sender)
     var menu by remember { mutableStateOf(false) }
+    var confirmDelete by remember { mutableStateOf(false) }
     val bg = when {
         mine && dark() -> BubbleOutDark
         mine -> BubbleOut
@@ -276,12 +357,13 @@ private fun Bubble(
                             model = authImage(ctx, att.sync_id), contentDescription = att.file_name, contentScale = ContentScale.Crop,
                             modifier = Modifier.padding(vertical = 2.dp).size(240.dp).clip(RoundedCornerShape(8.dp)).clickable { onImage(att.sync_id) }
                         )
+                        att != null && att.kind == "audio" -> VoiceNote(att.sync_id)
                         att != null -> Row(
                             Modifier.padding(vertical = 2.dp).clip(RoundedCornerShape(8.dp)).background(Color.Black.copy(alpha = 0.05f))
                                 .clickable { download(ctx, att.sync_id, att.file_name, att.mime) }.padding(10.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(when (att.kind) { "pdf" -> "📄"; "xlsx" -> "📊"; "audio" -> "🎤"; else -> "📎" }, fontSize = 26.sp)
+                            Text(when (att.kind) { "pdf" -> "📄"; "xlsx" -> "📊"; else -> "📎" }, fontSize = 26.sp)
                             Spacer(Modifier.width(8.dp))
                             Column(Modifier.widthIn(max = 200.dp)) {
                                 Text(att.file_name, maxLines = 2, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Medium)
@@ -290,7 +372,8 @@ private fun Bubble(
                             Icon(Icons.AutoMirrored.Filled.InsertDriveFile, null, Modifier.padding(start = 6.dp).size(20.dp))
                         }
                     }
-                    if (!(m.deleted || m.purged) && m.body.isNotBlank()) {
+                    val hideBody = att?.kind == "audio" && m.body.startsWith("🎤")
+                    if (!(m.deleted || m.purged) && m.body.isNotBlank() && !hideBody) {
                         Text(m.body, fontSize = 15.sp)
                     }
                     Row(Modifier.align(Alignment.End), verticalAlignment = Alignment.CenterVertically) {
@@ -305,13 +388,25 @@ private fun Bubble(
             }
             DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                 DropdownMenuItem(text = { Text("Reply") }, leadingIcon = { Icon(Icons.AutoMirrored.Filled.Reply, null) }, onClick = { menu = false; onReply() })
-                if (m.body.isNotBlank()) DropdownMenuItem(text = { Text("Copy") }, onClick = {
+                if (m.body.isNotBlank() && !m.deleted) DropdownMenuItem(text = { Text("Copy") }, onClick = {
                     menu = false
                     (ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("message", m.body))
                     Toast.makeText(ctx, "Copied", Toast.LENGTH_SHORT).show()
                 })
+                if (canEdit) DropdownMenuItem(text = { Text("Edit") }, onClick = { menu = false; onEdit() })
+                if (mine && !m.deleted && !m.pending && !m.failed) DropdownMenuItem(
+                    text = { Text("Delete for everyone", color = MaterialTheme.colorScheme.error) },
+                    onClick = { menu = false; confirmDelete = true }
+                )
                 if (m.failed) DropdownMenuItem(text = { Text("Send again") }, onClick = { menu = false; onRetry() })
             }
+            if (confirmDelete) AlertDialog(
+                onDismissRequest = { confirmDelete = false },
+                title = { Text("Delete message?") },
+                text = { Text("It will be deleted for everyone in this chat.") },
+                confirmButton = { TextButton(onClick = { confirmDelete = false; onDelete() }) { Text("Delete for everyone") } },
+                dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Cancel") } }
+            )
         }
     }
 }
@@ -333,27 +428,52 @@ private fun Ticks(m: Message, members: Int) {
 
 @Composable
 private fun Composer(
-    text: String, onText: (String) -> Unit, replyTo: Message?, onCancelReply: () -> Unit,
-    onAttach: () -> Unit, onSend: () -> Unit
+    text: String, onText: (String) -> Unit, replyTo: Message?, editing: Message?,
+    onCancelReply: () -> Unit, onCancelEdit: () -> Unit,
+    onAttach: () -> Unit, onCamera: () -> Unit,
+    recording: Boolean, onMicDown: () -> Boolean, onMicUp: (send: Boolean) -> Unit,
+    onSend: () -> Unit
 ) {
+    var recSeconds by remember { mutableStateOf(0) }
+    LaunchedEffect(recording) {
+        recSeconds = 0
+        while (recording) { delay(1000); recSeconds++ }
+    }
     Row(Modifier.fillMaxWidth().padding(6.dp).navigationBarsPadding(), verticalAlignment = Alignment.Bottom) {
         Surface(shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.surface, shadowElevation = 1.dp, modifier = Modifier.weight(1f)) {
             Column {
-                replyTo?.let { r ->
+                val bar: Pair<String, String>? = when {
+                    editing != null -> "Editing" to editing.body
+                    replyTo != null -> (if (Session.isMe(replyTo.sender)) "You" else replyTo.sender) to
+                        replyTo.body.ifBlank { replyTo.attachment?.file_name ?: "" }
+                    else -> null
+                }
+                if (bar != null) {
+                    val barColor = if (editing != null) Accent else nameColor(bar.first)
                     Row(
                         Modifier.fillMaxWidth().padding(start = 8.dp, end = 4.dp, top = 8.dp).clip(RoundedCornerShape(8.dp))
                             .background(Color.Black.copy(alpha = 0.06f)),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Box(Modifier.width(4.dp).height(44.dp).background(nameColor(r.sender)))
+                        Box(Modifier.width(4.dp).height(44.dp).background(barColor))
                         Column(Modifier.weight(1f).padding(6.dp)) {
-                            Text(if (Session.isMe(r.sender)) "You" else r.sender, color = nameColor(r.sender), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                            Text(r.body.ifBlank { r.attachment?.file_name ?: "" }, maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 13.sp)
+                            Text(bar.first, color = barColor, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                            Text(bar.second, maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 13.sp)
                         }
-                        IconButton(onClick = onCancelReply) { Icon(Icons.Default.Close, "Cancel reply", Modifier.size(18.dp)) }
+                        IconButton(onClick = if (editing != null) onCancelEdit else onCancelReply) {
+                            Icon(Icons.Default.Close, "Cancel", Modifier.size(18.dp))
+                        }
                     }
                 }
-                Row(verticalAlignment = Alignment.Bottom) {
+                if (recording) {
+                    Row(Modifier.fillMaxWidth().height(56.dp).padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.size(10.dp).clip(CircleShape).background(Color(0xFFE53935)))
+                        Spacer(Modifier.width(10.dp))
+                        Text(String.format(Locale.ENGLISH, "%d:%02d", recSeconds / 60, recSeconds % 60), fontSize = 16.sp)
+                        Spacer(Modifier.width(14.dp))
+                        Text("Release to send · slide away to cancel", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                } else Row(verticalAlignment = Alignment.Bottom) {
                     TextField(
                         value = text, onValueChange = onText, placeholder = { Text("Message") },
                         maxLines = 6, modifier = Modifier.weight(1f),
@@ -362,15 +482,85 @@ private fun Composer(
                             focusedIndicatorColor = Color.Transparent, unfocusedIndicatorColor = Color.Transparent
                         )
                     )
-                    IconButton(onClick = onAttach) { Icon(Icons.Default.AttachFile, "Send a photo or file") }
+                    if (editing == null) {
+                        IconButton(onClick = onAttach) { Icon(Icons.Default.AttachFile, "Send a photo or file") }
+                        if (text.isBlank()) IconButton(onClick = onCamera) { Icon(Icons.Default.CameraAlt, "Camera") }
+                    }
                 }
             }
         }
         Spacer(Modifier.width(6.dp))
+        val micMode = text.isBlank() && editing == null
+        val holdToRecord = Modifier.pointerInput(Unit) {
+            // Hold to record, release to send; drag away (more than 120 px) to cancel.
+            awaitEachGesture {
+                val down = awaitFirstDown()
+                if (!onMicDown()) return@awaitEachGesture
+                var cancelled = false
+                while (true) {
+                    val ev = awaitPointerEvent()
+                    val ch = ev.changes.firstOrNull { it.id == down.id } ?: break
+                    if ((ch.position - down.position).getDistance() > 120f) cancelled = true
+                    if (!ch.pressed) break
+                }
+                onMicUp(!cancelled)
+            }
+        }
         Box(
-            Modifier.size(50.dp).clip(CircleShape).background(Color(0xFF00A884)).clickable(enabled = text.isNotBlank(), onClick = onSend),
+            Modifier.size(if (recording) 64.dp else 50.dp).clip(CircleShape).background(Accent)
+                .then(if (micMode) holdToRecord else Modifier.clickable(enabled = text.isNotBlank(), onClick = onSend)),
             contentAlignment = Alignment.Center
-        ) { Icon(Icons.AutoMirrored.Filled.Send, "Send", tint = Color.White) }
+        ) {
+            Icon(
+                when {
+                    micMode -> Icons.Default.Mic
+                    editing != null -> Icons.Default.Check
+                    else -> Icons.AutoMirrored.Filled.Send
+                },
+                if (micMode) "Hold to record a voice message" else "Send", tint = Color.White
+            )
+        }
+    }
+}
+
+/** A voice note: play / pause with a progress bar (streams from the server). */
+@Composable
+private fun VoiceNote(attachmentId: String) {
+    val ctx = LocalContext.current
+    var playing by remember { mutableStateOf(false) }
+    var progress by remember { mutableStateOf(0f) }
+    var label by remember { mutableStateOf("Voice message") }
+    LaunchedEffect(playing) {
+        while (playing) {
+            val (pos, dur) = Media.Player.position()
+            if (dur > 0) {
+                progress = pos.toFloat() / dur
+                label = String.format(Locale.ENGLISH, "%d:%02d / %d:%02d", pos / 60000, pos / 1000 % 60, dur / 60000, dur / 1000 % 60)
+            }
+            delay(250)
+        }
+        progress = 0f
+    }
+    Row(Modifier.widthIn(min = 220.dp).padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        Box(
+            Modifier.size(42.dp).clip(CircleShape).background(Accent).clickable {
+                if (playing) Media.Player.stop()
+                else {
+                    playing = true
+                    Media.Player.play(ctx, attachmentId, Api.fileUrl(attachmentId)) { playing = false }
+                }
+            },
+            contentAlignment = Alignment.Center
+        ) { Icon(if (playing) Icons.Default.Pause else Icons.Default.PlayArrow, if (playing) "Pause" else "Play", tint = Color.White) }
+        Spacer(Modifier.width(10.dp))
+        Column(Modifier.weight(1f)) {
+            LinearProgressIndicator(
+                progress = { progress }, modifier = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)),
+                color = Accent
+            )
+            Spacer(Modifier.height(4.dp))
+            Text("🎤 $label", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
     }
 }
 

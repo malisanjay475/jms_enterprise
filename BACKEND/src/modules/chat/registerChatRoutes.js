@@ -26,6 +26,7 @@ const chatNotify = require('./chatNotify');
 const chatAdmin = require('./chatAdmin');
 const chatGate = require('./chatGate');
 const chatShare = require('./chatShare');
+const chatProfiles = require('./chatProfiles');
 const chatFcm = require('./chatFcm');
 const { registerChatAppAuthRoutes } = require('./chatAppAuth');
 
@@ -719,6 +720,8 @@ function registerChatRoutes(app, pool) {
   });
   chatAdmin.registerAdminRoutes(app, pool, { ready, fail, uploadRoot });
   chatFcm.registerFcmRoutes(app, pool, { ready, fail });
+  chatProfiles.registerProfileRoutes(app, pool, { ready, fail, uploadRoot, isOnline, activeUser });
+  chatProfiles.ensureProfileSchema(pool).catch((err) => console.warn('[chat] profile schema:', err.message));
   if (chatFcm.enabled()) chatFcm.ensureFcmSchema(pool).catch((err) => console.warn('[chat-fcm] schema:', err.message));
   chatAdmin.startRetentionJob(pool, { uploadRoot });
 
@@ -745,7 +748,9 @@ function registerChatRoutes(app, pool) {
     res.flushHeaders();
     res.write('data: {"type":"connected"}\n\n');
     addStream(req.auth.username, res);
+    chatProfiles.touch(pool, req.auth.username, true);
     const hb = setInterval(() => {
+      chatProfiles.touch(pool, req.auth.username);
       // Chat switched off (or this user's factory taken out of the rollout): end the
       // stream; the widget then finds /api/chat/me gone and removes itself.
       chatGate.access(pool, req.auth).then((a) => {
@@ -753,7 +758,7 @@ function registerChatRoutes(app, pool) {
         try { res.write(': hb\n\n'); } catch (_e) { clearInterval(hb); }
       }).catch(() => {});
     }, 20000);
-    req.on('close', () => clearInterval(hb));
+    req.on('close', () => { clearInterval(hb); chatProfiles.touch(pool, req.auth.username, true); });
   });
 
   // People you can start a chat with.
@@ -766,11 +771,17 @@ function registerChatRoutes(app, pool) {
           ORDER BY LOWER(username)`,
         [req.auth.username]
       );
+      const prof = await chatProfiles.lookup(pool, rows.map((u) => u.username));
       res.json({
         ok: true,
-        users: rows.map((u) => ({
-          username: u.username, role: u.role_code || '', line: u.line || '', online: isOnline(u.username)
-        }))
+        users: rows.map((u) => {
+          const p = prof.get(u.username.toLowerCase()) || {};
+          return {
+            username: u.username, role: u.role_code || '', line: u.line || '',
+            online: isOnline(u.username) || chatProfiles.isRecent(p.last_seen_at),
+            about: p.about || '', photo_v: p.photo_v || null, last_seen_at: p.last_seen_at || null
+          };
+        })
       });
     } catch (err) { fail(res, err, 'users'); }
   });
@@ -823,12 +834,20 @@ function registerChatRoutes(app, pool) {
         );
         if (!recent.length) await logAudit(pool, me, null, 'list_all');
       }
+      const peers = rows.filter((r) => r.type !== 'group')
+        .map((r) => (r.members || []).find((m) => m.toLowerCase() !== me.toLowerCase())).filter(Boolean);
+      const prof = await chatProfiles.lookup(pool, peers);
       res.json({
         ok: true,
         conversations: rows.map((r) => {
           const members = r.members || [];
           const others = members.filter((m) => m.toLowerCase() !== me.toLowerCase());
+          const peer = r.type === 'group' ? null : (others[0] || null);
+          const pp = peer ? (prof.get(peer.toLowerCase()) || {}) : {};
           return {
+            peer,
+            photo_v: pp.photo_v || null,
+            last_seen_at: pp.last_seen_at || null,
             sync_id: r.sync_id,
             type: r.type,
             title: r.type === 'group'
@@ -837,7 +856,7 @@ function registerChatRoutes(app, pool) {
             members,
             my_role: r.my_role || null,
             muted_until: chatNotify.muteOut(r.muted_until),
-            online: r.type === 'group' ? false : others.some(isOnline),
+            online: r.type === 'group' ? false : (others.some(isOnline) || chatProfiles.isRecent(pp.last_seen_at)),
             last_message_at: r.last_message_at,
             last_body: r.last_deleted ? 'This message was deleted' : previewText(r.last_kind, r.last_body, r.last_meta),
             last_sender: r.last_kind === 'system' ? '' : (r.last_sender || ''),
@@ -964,7 +983,17 @@ function registerChatRoutes(app, pool) {
         title: conv ? conv.title : null,
         my_role: member ? member.role : null,
         members: mem.map((m) => m.username),
-        member_roles: mem.map((m) => ({ username: m.username, role: m.role, online: isOnline(m.username) }))
+        member_roles: await (async () => {
+          const prof = await chatProfiles.lookup(pool, mem.map((m) => m.username));
+          return mem.map((m) => {
+            const p = prof.get(m.username.toLowerCase()) || {};
+            return {
+              username: m.username, role: m.role,
+              online: isOnline(m.username) || chatProfiles.isRecent(p.last_seen_at),
+              last_seen_at: p.last_seen_at || null, photo_v: p.photo_v || null
+            };
+          });
+        })()
       });
     } catch (err) { fail(res, err, 'messages'); }
   });

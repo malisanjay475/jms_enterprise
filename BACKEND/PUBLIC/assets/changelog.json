@@ -11,8 +11,34 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.135.0",
+  "latest": "1.136.1",
   "versions": [
+    {
+      "version": "1.136.1",
+      "date": "2026-10-21",
+      "title": "Moulding Alerts: Dungra units only",
+      "modules": [
+        {
+          "app": "all",
+          "changes": [
+            { "type": "fix", "text": "JMS Chat 'Moulding Alerts' group now gets machine-stopped alerts only for JOYO PLASTICS Dungra Unit-I and Unit-II. Machines of Shivani, Premier-Kachigam or any other factory are never posted there." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.136.0",
+      "date": "2026-10-21",
+      "title": "JMS Chat: profile photos, last seen, camera and voice messages",
+      "modules": [
+        {
+          "app": "all",
+          "changes": [
+            { "type": "feature", "text": "JMS Chat app: set a profile photo (camera or gallery) and an About line, see when people were last seen, take and send photos with the camera, hold the mic to send voice messages, edit or delete your messages for everyone, mute chats, and see contact and group info. Photos are made smaller before sending so they go much faster, and notifications show the sender's photo." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.135.0",
       "date": "2026-10-21",
