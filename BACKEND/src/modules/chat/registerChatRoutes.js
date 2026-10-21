@@ -26,6 +26,8 @@ const chatNotify = require('./chatNotify');
 const chatAdmin = require('./chatAdmin');
 const chatGate = require('./chatGate');
 const chatShare = require('./chatShare');
+const chatFcm = require('./chatFcm');
+const { registerChatAppAuthRoutes } = require('./chatAppAuth');
 
 const DM_ID = chatSync.deterministicIdSql('chat-dm', '$1::text');
 const MEMBER_ID = (conv, user) => chatSync.deterministicIdSql('chat-member', conv, `LOWER(${user})`);
@@ -466,7 +468,7 @@ function startLiveEvents(pool) {
         const { rows: [p] } = await c.query('SELECT pg_try_advisory_lock(hashtext($1)) AS ok', [chatNotify.PUSH_LOCK]);
         if (p.ok) {
           pushSender = true;
-          console.log(`[chat] web push sender (pid ${process.pid})`);
+          console.log(`[chat] push sender (pid ${process.pid})`);
           return;
         }
       }
@@ -698,6 +700,7 @@ function registerChatRoutes(app, pool) {
     uploadRoot, ensureSchema: () => ensureChatSchema(pool), getSettings: () => chatGate.ownSettings(pool)
   });
   registerChatSettingsRoutes(app, pool);
+  registerChatAppAuthRoutes(app, pool);
   // Kill switch / staged rollout: every /api/chat/* route answers 404 while chat is off
   // for this user (the sync routes under /api/sync/chat keep running).
   app.use('/api/chat', chatGate.middleware(pool));
@@ -715,6 +718,8 @@ function registerChatRoutes(app, pool) {
     dmIdSql: DM_ID, memberIdSql: MEMBER_ID('$1::uuid', '$2::text')
   });
   chatAdmin.registerAdminRoutes(app, pool, { ready, fail, uploadRoot });
+  chatFcm.registerFcmRoutes(app, pool, { ready, fail });
+  if (chatFcm.enabled()) chatFcm.ensureFcmSchema(pool).catch((err) => console.warn('[chat-fcm] schema:', err.message));
   chatAdmin.startRetentionJob(pool, { uploadRoot });
 
   app.get('/api/chat/me', async (req, res) => {

@@ -16,6 +16,7 @@
 //    repo. One worker (advisory lock) sends, so a message is pushed once.
 
 const chatSync = require('./chatSync');
+const chatFcm = require('./chatFcm');
 
 const PUSH_LOCK = 'jms_chat_push_sender';
 const MUTE_FOR = { '8h': "NOW() + INTERVAL '8 hours'", '1w': "NOW() + INTERVAL '7 days'", always: "'infinity'::timestamptz", off: 'NULL' };
@@ -131,8 +132,13 @@ function vapid() {
   return pub && priv ? { pub, priv, subject } : null;
 }
 
-function pushEnabled() {
+function webPushEnabled() {
   return !chatSync.isLocal() && Boolean(vapid());
+}
+
+// Any push channel: browser Web Push (VAPID) or the Android app (chatFcm.js).
+function pushEnabled() {
+  return webPushEnabled() || chatFcm.enabled();
 }
 
 let webpush = null;
@@ -147,7 +153,7 @@ function client() {
 // Push one new message to every subscribed member who should hear about it.
 async function sendPushForMessage(pool, messageSyncId) {
   const wp = client();
-  if (!wp) return { sent: 0 };
+  if (!wp && !chatFcm.enabled()) return { sent: 0 };
   const { rows: [m] } = await pool.query(
     `SELECT x.*, c.type AS conv_type, c.title AS conv_title,
             (SELECT r.sender FROM chat_messages r WHERE r.sync_id = x.reply_to_sync_id) AS replied_to
@@ -158,10 +164,10 @@ async function sendPushForMessage(pool, messageSyncId) {
     [messageSyncId]
   );
   if (!m) return { sent: 0 };
-  const { rows: subs } = await pool.query(
-    `SELECT s.*, (chat_mentions($3, mb.username) OR LOWER(mb.username) = LOWER($4)) AS mentioned
+  // Members who should hear about it (not muted, unless @mentioned or replied to).
+  const { rows: who } = await pool.query(
+    `SELECT mb.username, (chat_mentions($3, mb.username) OR LOWER(mb.username) = LOWER($4)) AS mentioned
        FROM chat_members mb
-       JOIN chat_push_subscriptions s ON LOWER(s.username) = LOWER(mb.username)
       WHERE mb.conversation_sync_id = $1 AND mb.left_at IS NULL AND LOWER(mb.username) <> LOWER($2)
         AND (mb.muted_until IS NULL OR mb.muted_until < NOW() OR chat_mentions($3, mb.username)
              OR LOWER(mb.username) = LOWER($4))`,
@@ -171,11 +177,36 @@ async function sendPushForMessage(pool, messageSyncId) {
     ? `${m.meta && m.meta.priority === 'urgent' ? '⚠ Urgent: ' : ''}🔗 ${(m.meta && m.meta.title) || 'Shared page'}`
     : { image: '📷 Photo', pdf: '📄 PDF', xlsx: '📊 Excel file', audio: '🎤 Audio' }[m.kind];
   const body = label ? (m.body ? `${label}: ${m.body}` : label) : m.body;
+  const title = m.conv_type === 'group' ? `${m.sender} in ${m.conv_title || 'Group'}` : m.sender;
   let sent = 0;
+
+  // Android app: one data message per person (mentioned or not), the app shows it.
+  for (const mentioned of [true, false]) {
+    const users = who.filter((w) => Boolean(w.mentioned) === mentioned).map((w) => w.username);
+    if (!users.length) continue;
+    const r = await chatFcm.sendToUsers(pool, users, {
+      type: 'chat',
+      title: String(title || ''),
+      body: (mentioned ? '@ ' : '') + String(body || '').slice(0, 300),
+      sender: String(m.sender || ''),
+      conversation_sync_id: String(m.conversation_sync_id),
+      message_sync_id: String(m.sync_id),
+      is_group: m.conv_type === 'group' ? '1' : '0'
+    }).catch((err) => { console.warn('[chat-fcm]', err.message); return { sent: 0 }; });
+    sent += r.sent;
+  }
+
+  if (!wp || !who.length) return { sent };
+  const mentionedSet = new Set(who.filter((w) => w.mentioned).map((w) => w.username.toLowerCase()));
+  const { rows: subs } = await pool.query(
+    'SELECT * FROM chat_push_subscriptions WHERE LOWER(username) = ANY($1::text[])',
+    [who.map((w) => w.username.toLowerCase())]
+  );
   for (const s of subs) {
+    s.mentioned = mentionedSet.has(String(s.username).toLowerCase());
     const payload = JSON.stringify({
       type: 'chat',
-      title: m.conv_type === 'group' ? `${m.sender} in ${m.conv_title || 'Group'}` : m.sender,
+      title,
       body: (s.mentioned ? '@ ' : '') + String(body || '').slice(0, 200),
       conversation_sync_id: m.conversation_sync_id,
       message_sync_id: m.sync_id
@@ -227,14 +258,14 @@ function registerNotifyRoutes(app, pool, { ready, membership, fail }) {
     try {
       if (!(await ready(req, res))) return;
       const v = vapid();
-      res.json({ ok: true, enabled: pushEnabled(), publicKey: pushEnabled() ? v.pub : null });
+      res.json({ ok: true, enabled: webPushEnabled(), publicKey: webPushEnabled() ? v.pub : null });
     } catch (err) { fail(res, err, 'push config'); }
   });
 
   app.post('/api/chat/push/subscribe', async (req, res) => {
     try {
       if (!(await ready(req, res))) return;
-      if (!pushEnabled()) return res.status(404).json({ ok: false, error: 'Push is not available on this server.' });
+      if (!webPushEnabled()) return res.status(404).json({ ok: false, error: 'Push is not available on this server.' });
       const sub = (req.body && req.body.subscription) || {};
       const endpoint = String(sub.endpoint || '');
       const keys = sub.keys || {};

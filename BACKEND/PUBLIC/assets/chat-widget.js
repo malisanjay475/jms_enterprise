@@ -29,6 +29,9 @@
   var serverInfo = { server_type: 'MAIN', factory_id: null };
   var soundOn = readPref('jmsChatSound', '1') === '1';
   var swReg = null; // service worker registration, when the page may use one
+  // JMS Chat app (chat_app.html, Android app, iPhone home screen): the chat is the whole
+  // page — always open, full screen, no floating buttons; ✕ becomes Sign out.
+  var appMode = window.__jmsChatAppMode === true;
 
   function readPref(k, d) { try { var v = localStorage.getItem(k); return v == null ? d : v; } catch (_e) { return d; } }
   function writePref(k, v) { try { localStorage.setItem(k, v); } catch (_e) { } }
@@ -127,6 +130,7 @@
 
   // ---------------- styles ----------------
   var CSS = [
+    '.jc-app .jc-panel{position:fixed;inset:0;right:0;bottom:0;width:100vw;max-width:100vw;height:100%;max-height:100%;border-radius:0;z-index:100001}.jc-app .jc-fab,.jc-app .jc-sharefab{display:none !important}',
     // the share sheet, mark bar and target banner live outside .jc-root: same colours
     '.jc-root,.jc-sheet-bg,.jc-tbanner,.jc-markbar{--jc-g:#00a884;--jc-gd:#008069;--jc-bg:#fff;--jc-bg2:#f0f2f5;--jc-chat:#efeae2;--jc-out:#d9fdd3;--jc-in:#fff;--jc-tx:#111b21;--jc-mu:#667781;--jc-bd:#e9edef;font-family:inherit;font-size:14px;color:var(--jc-tx)}',
     '.jc-fab{position:fixed;right:20px;bottom:20px;z-index:9990;width:56px;height:56px;border-radius:50%;border:0;background:var(--jc-g);color:#fff;box-shadow:0 4px 14px rgba(0,0,0,.25);cursor:pointer;display:flex;align-items:center;justify-content:center}',
@@ -429,8 +433,19 @@
       editBar: editBar, editTxt: editTxt, replyBar: replyBar, ment: ment, mMute: mMute, side: side };
 
     fab.addEventListener('click', function () { toggle(!open); });
-    closeBtn.addEventListener('click', function () { toggle(false); });
-    mClose.addEventListener('click', function () { toggle(false); });
+    if (appMode) {
+      root.classList.add('jc-app');
+      closeBtn.textContent = '⎋';
+      closeBtn.title = 'Sign out';
+      mClose.style.display = 'none';
+      closeBtn.addEventListener('click', function () {
+        if (!confirm('Sign out of JMS Chat?')) return;
+        if (window.JMSChatApp && window.JMSChatApp.signOut) window.JMSChatApp.signOut();
+      });
+    } else {
+      closeBtn.addEventListener('click', function () { toggle(false); });
+      mClose.addEventListener('click', function () { toggle(false); });
+    }
     back.addEventListener('click', function () { current = null; cancelEdit(); panel.classList.remove('jc-conv'); renderList(); });
     newBtn.addEventListener('click', function () { sIn.value = ''; sIn.focus(); showPeople(''); });
     groupBtn.addEventListener('click', function () { showNewGroup(); });
@@ -2392,7 +2407,7 @@
       isAdmin = d.isSuperadmin;
       serverInfo = { server_type: d.server_type || 'MAIN', factory_id: d.factory_id == null ? null : d.factory_id };
       build();
-      setupContextShare();
+      if (!appMode) setupContextShare();
       if (isAdmin) els.tabs.style.display = 'flex';
       updateBadge();
       connect();
@@ -2406,7 +2421,12 @@
       var reopen = null;
       try { reopen = sessionStorage.getItem('jmsChatReopen'); sessionStorage.removeItem('jmsChatReopen'); } catch (_e) { }
       if (reopen && !want) openChatById(reopen);
-    }).catch(function () { /* no session: no chat button */ });
+      if (appMode) toggle(true);
+      if (window.JMSChatApp && window.JMSChatApp.onReady) window.JMSChatApp.onReady(me);
+    }).catch(function () {
+      /* no session: no chat button */
+      if (window.JMSChatApp && window.JMSChatApp.onNoSession) window.JMSChatApp.onNoSession();
+    });
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start);
