@@ -120,6 +120,9 @@ services:
       VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
       # JMS Chat Android app push (Firebase service-account JSON, base64). Empty = off.
       FCM_SERVICE_ACCOUNT: ${FCM_SERVICE_ACCOUNT:-}
+      # JMS Chat voice calls: TURN relay (coturn REST secret). Empty = STUN only.
+      TURN_URLS: ${TURN_URLS:-}
+      TURN_SECRET: ${TURN_SECRET:-}
       VAPID_SUBJECT: ${VAPID_SUBJECT:-}
       # JMS Chat kill switch / staged rollout (override the Settings page when set):
       # CHAT_ENABLED=0 hides chat everywhere; CHAT_FACTORIES=1,3 limits it to those factories.

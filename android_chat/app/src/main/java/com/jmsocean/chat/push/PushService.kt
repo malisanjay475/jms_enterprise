@@ -49,6 +49,20 @@ class PushService : FirebaseMessagingService() {
             Notifier.show(this, "test", "JMS Chat", "JMS Chat", d["body"] ?: "Notifications are working", false)
             return
         }
+        if (d["type"] == "call") {
+            val id = d["call_id"] ?: return
+            val caller = d["caller"] ?: "Someone"
+            if (com.jmsocean.chat.call.CallEngine.busy) return // already on a call; the server marks it missed
+            com.jmsocean.chat.call.CallEngine.ringing(id, caller)
+            com.jmsocean.chat.call.CallNotifications.showIncoming(this, id, caller)
+            return
+        }
+        if (d["type"] == "call_end") {
+            val id = d["call_id"] ?: return
+            com.jmsocean.chat.call.CallNotifications.cancelIncoming(this, id)
+            com.jmsocean.chat.call.CallEngine.remoteEnded(id, d["reason"] ?: "ended")
+            return
+        }
         if (d["type"] != "chat") return
         val conv = d["conversation_sync_id"] ?: return
         val sender = d["sender"] ?: ""

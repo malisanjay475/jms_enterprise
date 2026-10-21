@@ -63,6 +63,12 @@ class ConversationViewModel(app: Application) : AndroidViewModel(app) {
                         typingClear?.cancel()
                         typingClear = viewModelScope.launch { delay(4000); typing.value = null }
                     }
+                    "reaction" -> if (ev.conversation_sync_id == convId) ev.message_sync_id?.let { id ->
+                        replace(id) { it.copy(reactions = ev.reactions) }
+                    }
+                    "task" -> if (ev.conversation_sync_id == convId) ev.message_sync_id?.let { id ->
+                        replace(id) { it.copy(task = com.jmsocean.chat.data.TaskStatus(ev.status ?: "open", ev.by)) }
+                    }
                     "conversation", "reconnect" -> refresh()
                 }
             }
@@ -187,6 +193,37 @@ class ConversationViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /** Several photos / videos picked at once (album): sent one after another, in order. */
+    fun sendMany(uris: List<Uri>) {
+        uris.take(10).forEach { sendFile(it, "") }
+    }
+
+    /** Compress to 480p first (a 1-minute clip ~8 MB), then send. */
+    private suspend fun sendVideo(uri: Uri, name: String) {
+        val ctx = getApplication<Application>()
+        val placeholderId = UUID.randomUUID().toString()
+        val local = Message(
+            sync_id = placeholderId, conversation_sync_id = convId, sender = Session.username ?: "",
+            body = "🎥 Preparing video…", server_ts = Instant.now().toString(), pending = true
+        )
+        messages.value = messages.value + local
+        val out = File(ctx.cacheDir, "video-${System.nanoTime()}.mp4")
+        val small = com.jmsocean.chat.data.VideoCompress.to480p(ctx, uri, out)
+        if (small == null) {
+            replace(placeholderId) { it.copy(pending = false, failed = true, body = "🎥 Video could not be prepared") }
+            error.value = "Could not prepare that video."
+            return
+        }
+        if (small.length() > 10L * 1024 * 1024) {
+            small.delete()
+            replace(placeholderId) { it.copy(pending = false, failed = true, body = "🎥 Video too long (about 1 minute max)") }
+            error.value = "Video is too long. Send up to about 1 minute."
+            return
+        }
+        messages.value = messages.value.filterNot { it.sync_id == placeholderId }
+        sendLocalFile(small, name.substringBeforeLast('.') + ".mp4", "video/mp4", "", "🎥 Video")
+    }
+
     /** A voice note just recorded (already a small file). */
     fun sendVoice(file: File, mime: String) = sendLocalFile(file, file.name, mime, "", "🎤 Voice message")
 
@@ -264,6 +301,7 @@ class ConversationViewModel(app: Application) : AndroidViewModel(app) {
                     size = c.getLong(1)
                 }
             }
+            if (mime.startsWith("video/")) { sendVideo(uri, name); return@launch }
             if (size > 10L * 1024 * 1024 && !mime.startsWith("image/")) { error.value = "File is too big (max 10 MB)."; return@launch }
             val tmp = File(ctx.cacheDir, "upload-${System.nanoTime()}")
             val ok = runCatching { cr.openInputStream(uri)!!.use { input -> tmp.outputStream().use { input.copyTo(it) } } }.isSuccess
@@ -302,4 +340,53 @@ class ConversationViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun clearError() { error.value = null }
+
+    /** My reaction (or "" to remove). Shown at once, then the server's list wins. */
+    fun react(m: Message, emoji: String) {
+        val me = Session.username ?: return
+        val mine = (m.reactions ?: emptyList()).map { r -> r.copy(users = r.users.filterNot { it.equals(me, true) }) }
+            .filter { it.users.isNotEmpty() }
+        val next = if (emoji.isEmpty()) mine else {
+            val hit = mine.firstOrNull { it.emoji == emoji }
+            if (hit != null) mine.map { if (it.emoji == emoji) it.copy(users = it.users + me) else it }
+            else mine + com.jmsocean.chat.data.Reaction(emoji, listOf(me))
+        }
+        replace(m.sync_id) { it.copy(reactions = next) }
+        viewModelScope.launch {
+            runCatching { Api.react(m.sync_id, emoji) }
+                .onSuccess { rx -> replace(m.sync_id) { it.copy(reactions = rx) } }
+                .onFailure { error.value = it.message }
+        }
+    }
+
+    fun myReaction(m: Message): String? =
+        m.reactions?.firstOrNull { r -> r.users.any { Session.isMe(it) } }?.emoji
+
+    fun star(m: Message) {
+        val on = !m.starred
+        replace(m.sync_id) { it.copy(starred = on) }
+        viewModelScope.launch {
+            runCatching { Api.star(m.sync_id, on) }.onFailure { e -> replace(m.sync_id) { it.copy(starred = !on) }; error.value = e.message }
+        }
+    }
+
+    fun setTask(m: Message, status: String) {
+        viewModelScope.launch {
+            runCatching { Api.setTask(m.sync_id, status) }
+                .onSuccess { t -> replace(m.sync_id) { it.copy(task = t) } }
+                .onFailure { error.value = it.message }
+        }
+    }
+
+    // ---- search inside this chat ----
+    val searchResults = MutableStateFlow<List<Message>?>(null)
+    private var searchJob: Job? = null
+    fun search(q: String) {
+        searchJob?.cancel()
+        if (q.trim().length < 2) { searchResults.value = null; return }
+        searchJob = viewModelScope.launch {
+            delay(300)
+            runCatching { Api.search(q.trim(), convId) }.onSuccess { r -> searchResults.value = r.map { it.message } }
+        }
+    }
 }

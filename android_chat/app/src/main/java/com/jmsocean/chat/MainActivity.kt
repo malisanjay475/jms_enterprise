@@ -35,6 +35,7 @@ import com.jmsocean.chat.ui.ChatListScreen
 import com.jmsocean.chat.ui.ConversationScreen
 import com.jmsocean.chat.ui.InfoScreen
 import com.jmsocean.chat.ui.ProfileScreen
+import com.jmsocean.chat.ui.StarredScreen
 import com.jmsocean.chat.ui.JmsChatTheme
 import com.jmsocean.chat.ui.LoginScreen
 import com.jmsocean.chat.ui.NewChatScreen
@@ -95,7 +96,8 @@ class MainActivity : ComponentActivity() {
                             onNewChat = { nav.navigate("new") },
                             onNewGroup = { nav.navigate("group") },
                             onSignOut = { signOut(nav) },
-                            onProfile = { nav.navigate("profile") }
+                            onProfile = { nav.navigate("profile") },
+                            onStarred = { nav.navigate("starred") }
                         )
                     }
                     composable("new") {
@@ -116,13 +118,16 @@ class MainActivity : ComponentActivity() {
                     }
                     composable("info/{id}") { entry ->
                         val id = entry.arguments?.getString("id") ?: return@composable
-                        InfoScreen(id, onBack = { nav.popBackStack() }, onMessage = { user ->
+                        InfoScreen(id, onBack = { nav.popBackStack() }, onLeft = { nav.navigate("list") { popUpTo(0) } }, onMessage = { user ->
                             scope.launch {
                                 runCatching { Api.openDirect(user) }
                                     .onSuccess { c -> nav.navigate("chat/${c.sync_id}") { popUpTo("list") } }
                                     .onFailure { Toast.makeText(this@MainActivity, it.message, Toast.LENGTH_LONG).show() }
                             }
                         })
+                    }
+                    composable("starred") {
+                        StarredScreen(onBack = { nav.popBackStack() }, onOpen = { id -> nav.navigate("chat/$id") })
                     }
                     composable("profile") {
                         ProfileScreen(onBack = { nav.popBackStack() }, onSignOut = { signOut(nav) })

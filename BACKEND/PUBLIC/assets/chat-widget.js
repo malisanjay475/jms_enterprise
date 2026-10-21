@@ -388,7 +388,7 @@
     attach.title = 'Send a photo, PDF, Excel or audio file (max 10 MB)';
     var fileIn = el('input');
     fileIn.type = 'file';
-    fileIn.accept = 'image/jpeg,image/png,image/gif,image/webp,application/pdf,.pdf,.xlsx,audio/*';
+    fileIn.accept = 'image/jpeg,image/png,image/gif,image/webp,application/pdf,.pdf,.xlsx,audio/*,video/mp4';
     fileIn.style.display = 'none';
     var ta = el('textarea');
     ta.rows = 1;
@@ -905,6 +905,17 @@
       img.addEventListener('click', function (e) { e.stopPropagation(); openViewerFor(m); });
       return img;
     }
+    if (a.kind === 'video') {
+      var vwrap = el('div');
+      var vid = el('video', 'jc-audio');
+      vid.controls = true;
+      vid.preload = 'metadata';
+      vid.style.maxWidth = '260px';
+      vid.style.borderRadius = '8px';
+      vid.src = fileUrl(a);
+      vwrap.appendChild(vid);
+      return vwrap;
+    }
     if (a.kind === 'audio') {
       var wrap = el('div');
       var au = el('audio', 'jc-audio');
@@ -1302,7 +1313,7 @@
   var toastEl = null, toastTimer = null;
   function previewOf(m) {
     if (m.attachment) {
-      var label = { image: '📷 Photo', pdf: '📄 PDF', xlsx: '📊 Excel file', audio: '🎤 Audio' }[m.attachment.kind] || '📎 File';
+      var label = { image: '📷 Photo', pdf: '📄 PDF', xlsx: '📊 Excel file', audio: '🎤 Audio', video: '🎥 Video' }[m.attachment.kind] || '📎 File';
       return m.body ? label + ': ' + m.body : label;
     }
     return m.body;
@@ -1881,7 +1892,7 @@
   // ================= Replies =================
   function lineOf(m) {
     if (m.deleted || m.purged) return '';
-    var label = { image: '📷 Photo', pdf: '📄 PDF', xlsx: '📊 Excel file', audio: '🎤 Audio' }[m.attachment ? m.attachment.kind : ''];
+    var label = { image: '📷 Photo', pdf: '📄 PDF', xlsx: '📊 Excel file', audio: '🎤 Audio', video: '🎥 Video' }[m.attachment ? m.attachment.kind : ''];
     if (m.kind === 'link' && m.link) return '🔗 ' + (m.link.title || 'Shared page') + (m.body ? ': ' + m.body : '');
     var t = String(m.body || '').replace(/\s+/g, ' ').trim();
     return label ? (t ? label + ': ' + t : label) : t;

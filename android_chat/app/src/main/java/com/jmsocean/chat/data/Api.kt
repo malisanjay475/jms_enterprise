@@ -149,6 +149,63 @@ object Api {
 
     suspend fun pushStatus(): PushStatus = get("/api/chat/fcm/status")
 
+    private fun jsonBody(vararg kv: Pair<String, Any?>) = buildJsonObject {
+        kv.forEach { (k, v) ->
+            when (v) {
+                null -> Unit
+                is Boolean -> put(k, v)
+                is Number -> put(k, v)
+                is List<*> -> putJsonArray(k) { v.forEach { add(it.toString()) } }
+                else -> put(k, v.toString())
+            }
+        }
+    }.toString().toRequestBody(JSON)
+
+    // ---- reactions, stars, info, forward ----
+    suspend fun react(messageId: String, emoji: String): List<Reaction> =
+        json.decodeFromString<ReactReply>(call("POST", "/api/chat/messages/$messageId/react", jsonBody("emoji" to emoji))).reactions
+
+    suspend fun star(messageId: String, on: Boolean) { call("POST", "/api/chat/messages/$messageId/star", jsonBody("on" to on)) }
+    suspend fun starred(): List<FoundMessage> = get<FoundReply>("/api/chat/starred").results
+    suspend fun messageInfo(messageId: String): MessageInfo = get("/api/chat/messages/$messageId/info")
+
+    suspend fun forward(messageId: String, to: List<String>): List<Message> =
+        json.decodeFromString<ForwardReply>(call("POST", "/api/chat/forward", jsonBody("message_sync_id" to messageId, "to" to to))).messages
+
+    suspend fun search(q: String, conversation: String? = null): List<FoundMessage> =
+        get<FoundReply>("/api/chat/search?q=" + java.net.URLEncoder.encode(q, "UTF-8") +
+            (conversation?.let { "&conversation=$it" } ?: "")).results
+
+    // ---- voice calls ----
+    suspend fun startCall(to: String): CallReply =
+        json.decodeFromString(call("POST", "/api/chat/calls", jsonBody("to" to to)))
+
+    /** accept / decline / end. accept also returns the ICE servers. */
+    suspend fun callAction(id: String, action: String): CallReply =
+        json.decodeFromString(call("POST", "/api/chat/calls/$id/$action", "{}".toRequestBody(JSON)))
+
+    suspend fun callSignal(id: String, kind: String, data: String) {
+        call("POST", "/api/chat/calls/$id/signal", jsonBody("kind" to kind, "data" to data))
+    }
+
+    suspend fun callSignals(id: String, after: Long): CallSignalsReply = get("/api/chat/calls/$id/signals?after=$after")
+
+    // ---- pin / archive ----
+    suspend fun pin(convId: String, on: Boolean) { call("POST", "/api/chat/conversations/$convId/pin", jsonBody("on" to on)) }
+    suspend fun archive(convId: String, on: Boolean) { call("POST", "/api/chat/conversations/$convId/archive", jsonBody("on" to on)) }
+
+    // ---- groups ----
+    suspend fun renameGroup(convId: String, title: String) { call("PATCH", "/api/chat/groups/$convId", jsonBody("title" to title)) }
+    suspend fun addMembers(convId: String, users: List<String>) { call("POST", "/api/chat/groups/$convId/members", jsonBody("members" to users)) }
+    suspend fun removeMember(convId: String, user: String) {
+        call("DELETE", "/api/chat/groups/$convId/members/" + java.net.URLEncoder.encode(user, "UTF-8"))
+    }
+    suspend fun leaveGroup(convId: String) { call("POST", "/api/chat/groups/$convId/leave", "{}".toRequestBody(JSON)) }
+
+    // ---- shared JMS work (link cards) ----
+    suspend fun setTask(messageId: String, status: String): TaskStatus =
+        json.decodeFromString<TaskReply>(call("POST", "/api/chat/tasks/$messageId", jsonBody("status" to status))).task ?: TaskStatus(status)
+
     /** Ask the server to push a test notification to my phones. Throws with the reason. */
     suspend fun pushTest() { call("POST", "/api/chat/fcm/test", "{}".toRequestBody(JSON)) }
 
