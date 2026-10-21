@@ -29,6 +29,7 @@ const chatShare = require('./chatShare');
 const chatProfiles = require('./chatProfiles');
 const chatExtras = require('./chatExtras');
 const chatAuto = require('./chatAuto');
+const chatCalls = require('./chatCalls');
 const chatFcm = require('./chatFcm');
 const { registerChatAppAuthRoutes } = require('./chatAppAuth');
 
@@ -748,6 +749,7 @@ function registerChatRoutes(app, pool) {
   chatExtras.ensureExtrasSchema(pool).catch((err) => console.warn('[chat] extras schema:', err.message));
   // factory groups + QC / machine alerts (MAIN only, one worker)
   if (!chatSync.isLocal()) chatAuto.start(pool);
+  chatCalls.registerCallRoutes(app, pool, { ready, fail, activeUser });
   if (chatFcm.enabled()) chatFcm.ensureFcmSchema(pool).catch((err) => console.warn('[chat-fcm] schema:', err.message));
   chatAdmin.startRetentionJob(pool, { uploadRoot });
 

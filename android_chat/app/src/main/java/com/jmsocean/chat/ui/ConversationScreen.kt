@@ -44,6 +44,7 @@ import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
 import androidx.compose.material.icons.automirrored.filled.Reply
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.AttachFile
+import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
@@ -221,6 +222,11 @@ fun ConversationScreen(convId: String, onBack: () -> Unit, onInfo: () -> Unit, v
                     }
                 },
                 actions = {
+                    if (!isGroup) peer?.let { p ->
+                        IconButton(onClick = { com.jmsocean.chat.call.CallActivity.call(ctx, p) }) {
+                            Icon(Icons.Default.Call, "Voice call")
+                        }
+                    }
                     Box {
                         IconButton(onClick = { topMenu = true }) { Icon(Icons.Default.MoreVert, "Menu") }
                         DropdownMenu(expanded = topMenu, onDismissRequest = { topMenu = false }) {

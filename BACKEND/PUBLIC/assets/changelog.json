@@ -13,6 +13,7 @@
   },
   "latest": "1.136.1",
   "versions": [
+    {"version": "1.139.0", "date": "2026-10-21", "title": "JMS Chat: voice calls", "modules": [{"app": "all", "changes": [{"type": "feature", "text": "JMS Chat app: call anyone with the phone button in a chat. Incoming calls ring like a normal phone call, even when the app is closed or the phone is locked. Mute, speaker and a call timer are on the call screen, and missed, declined and finished calls show in the chat."}]}]},
     {"version": "1.138.0", "date": "2026-10-21", "title": "JMS Chat: send videos and many photos at once", "modules": [{"app": "all", "changes": [{"type": "feature", "text": "JMS Chat app: send up to 10 photos and videos at once from the gallery. Videos are made smaller automatically (about 1 minute max) and play inside the chat; the website plays them too."}]}]},
     {"version": "1.137.0", "date": "2026-10-21", "title": "JMS Chat: reactions, forward, starred, factory groups and alerts", "modules": [{"app": "all", "changes": [{"type": "feature", "text": "JMS Chat app: react to messages with emoji, forward messages and files to up to 5 chats, star messages, see who read your message, pin and archive chats, search inside a chat, and manage groups (rename, add, remove, leave). Shared JMS work shows as a card with Start work / Mark done. Every factory gets an automatic 'All staff' group, and QC holds, releases and machine stops are posted there by JMS Alerts."}]}]},
     {
