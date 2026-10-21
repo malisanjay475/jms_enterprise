@@ -33,6 +33,8 @@ import com.jmsocean.chat.push.Notifier
 import com.jmsocean.chat.push.Push
 import com.jmsocean.chat.ui.ChatListScreen
 import com.jmsocean.chat.ui.ConversationScreen
+import com.jmsocean.chat.ui.InfoScreen
+import com.jmsocean.chat.ui.ProfileScreen
 import com.jmsocean.chat.ui.JmsChatTheme
 import com.jmsocean.chat.ui.LoginScreen
 import com.jmsocean.chat.ui.NewChatScreen
@@ -92,7 +94,8 @@ class MainActivity : ComponentActivity() {
                             onOpen = { nav.navigate("chat/$it") },
                             onNewChat = { nav.navigate("new") },
                             onNewGroup = { nav.navigate("group") },
-                            onSignOut = { signOut(nav) }
+                            onSignOut = { signOut(nav) },
+                            onProfile = { nav.navigate("profile") }
                         )
                     }
                     composable("new") {
@@ -105,7 +108,24 @@ class MainActivity : ComponentActivity() {
                     }
                     composable("chat/{id}") { entry ->
                         val id = entry.arguments?.getString("id") ?: return@composable
-                        ConversationScreen(id, onBack = { if (!nav.popBackStack("list", false)) nav.navigate("list") { popUpTo(0) } })
+                        ConversationScreen(
+                            id,
+                            onBack = { if (!nav.popBackStack("list", false)) nav.navigate("list") { popUpTo(0) } },
+                            onInfo = { nav.navigate("info/$id") }
+                        )
+                    }
+                    composable("info/{id}") { entry ->
+                        val id = entry.arguments?.getString("id") ?: return@composable
+                        InfoScreen(id, onBack = { nav.popBackStack() }, onMessage = { user ->
+                            scope.launch {
+                                runCatching { Api.openDirect(user) }
+                                    .onSuccess { c -> nav.navigate("chat/${c.sync_id}") { popUpTo("list") } }
+                                    .onFailure { Toast.makeText(this@MainActivity, it.message, Toast.LENGTH_LONG).show() }
+                            }
+                        })
+                    }
+                    composable("profile") {
+                        ProfileScreen(onBack = { nav.popBackStack() }, onSignOut = { signOut(nav) })
                     }
                 }
 

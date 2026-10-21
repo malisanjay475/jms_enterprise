@@ -109,6 +109,7 @@ fun ChatListScreen(
     onNewChat: () -> Unit,
     onNewGroup: () -> Unit,
     onSignOut: () -> Unit,
+    onProfile: () -> Unit,
     vm: ChatListViewModel = viewModel()
 ) {
     val chats by vm.chats.collectAsState()
@@ -156,6 +157,7 @@ fun ChatListScreen(
                         Box {
                             IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, "Menu") }
                             DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                                DropdownMenuItem(text = { Text("Profile") }, onClick = { menu = false; onProfile() })
                                 DropdownMenuItem(text = { Text("New group") }, onClick = { menu = false; onNewGroup() })
                                 DropdownMenuItem(text = { Text("Signed in as ${Session.username}") }, onClick = { menu = false }, enabled = false)
                                 DropdownMenuItem(text = { Text("Sign out") }, onClick = { menu = false; onSignOut() })
@@ -206,7 +208,7 @@ private fun ChatRow(c: Conversation, onClick: () -> Unit) {
         Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Avatar(c.name, 52.dp, group = c.isGroup, online = c.online)
+        Avatar(c.name, 52.dp, group = c.isGroup, online = c.online, photoUrl = c.peer?.let { Api.avatarUrl(it, c.photo_v) })
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {

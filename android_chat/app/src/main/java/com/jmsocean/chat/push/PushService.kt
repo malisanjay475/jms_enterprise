@@ -14,6 +14,28 @@ import kotlinx.coroutines.launch
  * { type: chat, title, body, sender, conversation_sync_id, message_sync_id, is_group }.
  */
 class PushService : FirebaseMessagingService() {
+    /** The sender's profile photo, round, for the notification (null when none or slow). */
+    private fun senderPhoto(sender: String): android.graphics.Bitmap? {
+        if (sender.isBlank()) return null
+        return runCatching {
+            val req = okhttp3.Request.Builder()
+                .url("${Api.base}/api/chat/avatars/${java.net.URLEncoder.encode(sender, "UTF-8")}").build()
+            Api.client.newBuilder().callTimeout(3, java.util.concurrent.TimeUnit.SECONDS).build()
+                .newCall(req).execute().use { r ->
+                    if (!r.isSuccessful) return null
+                    val src = android.graphics.BitmapFactory.decodeStream(r.body!!.byteStream()) ?: return null
+                    val size = minOf(src.width, src.height)
+                    val out = android.graphics.Bitmap.createBitmap(size, size, android.graphics.Bitmap.Config.ARGB_8888)
+                    val c = android.graphics.Canvas(out)
+                    val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
+                    c.drawCircle(size / 2f, size / 2f, size / 2f, paint)
+                    paint.xfermode = android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.SRC_IN)
+                    c.drawBitmap(src, ((size - src.width) / 2).toFloat(), ((size - src.height) / 2).toFloat(), paint)
+                    out
+                }
+        }.getOrNull()
+    }
+
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     override fun onNewToken(token: String) {
@@ -24,12 +46,14 @@ class PushService : FirebaseMessagingService() {
         val d = msg.data
         if (d["type"] != "chat" || !Session.signedIn) return
         val conv = d["conversation_sync_id"] ?: return
+        val sender = d["sender"] ?: ""
         Notifier.show(
             this, conv,
             title = d["title"] ?: "JMS Chat",
-            sender = d["sender"] ?: "",
+            sender = sender,
             text = d["body"] ?: "",
-            isGroup = d["is_group"] == "1"
+            isGroup = d["is_group"] == "1",
+            senderPhoto = senderPhoto(sender)
         )
     }
 }

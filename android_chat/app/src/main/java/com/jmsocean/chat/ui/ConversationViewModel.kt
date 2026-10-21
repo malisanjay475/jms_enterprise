@@ -6,7 +6,6 @@ import android.provider.OpenableColumns
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.jmsocean.chat.data.Api
-import com.jmsocean.chat.data.ChatUser
 import com.jmsocean.chat.data.Live
 import com.jmsocean.chat.data.Message
 import com.jmsocean.chat.data.ReplyQuote
@@ -32,6 +31,11 @@ class ConversationViewModel(app: Application) : AndroidViewModel(app) {
     val loadingOlder = MutableStateFlow(false)
     val error = MutableStateFlow<String?>(null)
     val replyTo = MutableStateFlow<Message?>(null)
+    val editing = MutableStateFlow<Message?>(null)
+    val peer = MutableStateFlow<String?>(null)
+    val peerPhoto = MutableStateFlow<String?>(null)
+    val lastSeen = MutableStateFlow<String?>(null)
+    val mutedUntil = MutableStateFlow<String?>(null)
     private var hasMore = false
     private var typingClear: Job? = null
     private var lastTypingSent = 0L
@@ -63,10 +67,21 @@ class ConversationViewModel(app: Application) : AndroidViewModel(app) {
                 }
             }
         }
+        // Direct chat: the other person's photo, online / last seen (refreshed every 30 s).
         viewModelScope.launch {
-            runCatching { Api.users() }.onSuccess { list: List<ChatUser> ->
-                if (!isGroup.value) online.value = list.any { u -> u.online && members.value.any { it.equals(u.username, true) && !Session.isMe(it) } }
+            while (true) {
+                peer.value?.let { p ->
+                    runCatching { Api.profileOf(p) }.onSuccess { pr ->
+                        online.value = pr.online
+                        lastSeen.value = pr.last_seen_at
+                        peerPhoto.value = pr.photo_v
+                    }
+                }
+                delay(30_000)
             }
+        }
+        viewModelScope.launch {
+            runCatching { Api.conversations() }.onSuccess { list -> mutedUntil.value = list.firstOrNull { it.sync_id == convId }?.muted_until }
         }
     }
 
@@ -79,6 +94,14 @@ class ConversationViewModel(app: Application) : AndroidViewModel(app) {
                     isGroup.value = r.type == "group"
                     members.value = r.members
                     title.value = r.title ?: r.members.firstOrNull { !Session.isMe(it) } ?: "Chat"
+                    if (r.type != "group") r.members.firstOrNull { !Session.isMe(it) }?.let { p ->
+                        if (peer.value == null) {
+                            peer.value = p
+                            runCatching { Api.profileOf(p) }.onSuccess { pr ->
+                                online.value = pr.online; lastSeen.value = pr.last_seen_at; peerPhoto.value = pr.photo_v
+                            }
+                        }
+                    }
                     error.value = null
                     Api.markRead(convId)
                 }
@@ -139,7 +162,58 @@ class ConversationViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch { Api.typing(convId) }
     }
 
-    fun setReply(m: Message?) { replyTo.value = m }
+    fun setReply(m: Message?) { editing.value = null; replyTo.value = m }
+
+    fun startEdit(m: Message?) { replyTo.value = null; editing.value = m }
+
+    /** Own text messages can be edited within 15 minutes (the server's window). */
+    fun canEdit(m: Message): Boolean {
+        if (!Session.isMe(m.sender) || m.deleted || m.kind != "text" || m.pending || m.failed) return false
+        val t = parseTs(m.server_ts) ?: return false
+        return java.time.Duration.between(t.toInstant(), Instant.now()).toMinutes() < 15
+    }
+
+    fun delete(m: Message) {
+        viewModelScope.launch {
+            runCatching { Api.deleteMessage(m.sync_id) }.onSuccess { upsert(it) }.onFailure { error.value = it.message }
+        }
+    }
+
+    fun mute(how: String) {
+        viewModelScope.launch {
+            runCatching { Api.mute(convId, how) }
+                .onSuccess { mutedUntil.value = if (how == "off") null else "muted" }
+                .onFailure { error.value = it.message }
+        }
+    }
+
+    /** A voice note just recorded (already a small file). */
+    fun sendVoice(file: File, mime: String) = sendLocalFile(file, file.name, mime, "", "🎤 Voice message")
+
+    /** A camera shot: shrunk to ~1600 px first so it sends fast. */
+    fun sendCameraPhoto(file: File) {
+        viewModelScope.launch {
+            val small = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                com.jmsocean.chat.data.Media.shrinkPhoto(file, File(getApplication<Application>().cacheDir, "send-${System.nanoTime()}.jpg"))
+            } ?: file
+            sendLocalFile(small, "IMG_${System.currentTimeMillis()}.jpg", "image/jpeg", "", "📷 Photo")
+        }
+    }
+
+    private fun sendLocalFile(file: File, name: String, mime: String, caption: String, placeholder: String) {
+        val reply = replyTo.value
+        replyTo.value = null
+        val id = UUID.randomUUID().toString()
+        val local = Message(
+            sync_id = id, conversation_sync_id = convId, sender = Session.username ?: "",
+            body = placeholder, server_ts = Instant.now().toString(), pending = true, reply_to = quoteOf(reply)
+        )
+        messages.value = messages.value + local
+        viewModelScope.launch {
+            deliver(local) { Api.sendFile(convId, file, name, mime, caption, reply?.sync_id, id) }
+            file.delete()
+        }
+    }
 
     private fun quoteOf(m: Message?) = m?.let {
         ReplyQuote(it.sync_id, it.sender, it.kind, it.body.ifBlank { it.attachment?.file_name ?: "" })
@@ -148,6 +222,16 @@ class ConversationViewModel(app: Application) : AndroidViewModel(app) {
     fun sendText(text: String) {
         val body = text.trim()
         if (body.isEmpty()) return
+        editing.value?.let { m ->
+            editing.value = null
+            if (body == m.body) return
+            replace(m.sync_id) { it.copy(body = body, edited_at = Instant.now().toString()) }
+            viewModelScope.launch {
+                runCatching { Api.editMessage(m.sync_id, body) }.onSuccess { upsert(it) }
+                    .onFailure { e -> replace(m.sync_id) { m }; error.value = e.message }
+            }
+            return
+        }
         val reply = replyTo.value
         replyTo.value = null
         val id = UUID.randomUUID().toString()
@@ -171,7 +255,7 @@ class ConversationViewModel(app: Application) : AndroidViewModel(app) {
         replyTo.value = null
         viewModelScope.launch {
             val cr = ctx.contentResolver
-            val mime = cr.getType(uri) ?: "application/octet-stream"
+            var mime = cr.getType(uri) ?: "application/octet-stream"
             var name = "file"
             var size = 0L
             cr.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE), null, null, null)?.use { c ->
@@ -180,10 +264,18 @@ class ConversationViewModel(app: Application) : AndroidViewModel(app) {
                     size = c.getLong(1)
                 }
             }
-            if (size > 10L * 1024 * 1024) { error.value = "File is too big (max 10 MB)."; return@launch }
+            if (size > 10L * 1024 * 1024 && !mime.startsWith("image/")) { error.value = "File is too big (max 10 MB)."; return@launch }
             val tmp = File(ctx.cacheDir, "upload-${System.nanoTime()}")
             val ok = runCatching { cr.openInputStream(uri)!!.use { input -> tmp.outputStream().use { input.copyTo(it) } } }.isSuccess
             if (!ok) { error.value = "Could not read the file."; return@launch }
+            // Photos (not GIFs) are shrunk before sending, like WhatsApp: much faster.
+            var upload = tmp
+            if (mime.startsWith("image/") && mime != "image/gif") {
+                val small = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    com.jmsocean.chat.data.Media.shrinkPhoto(tmp, File(ctx.cacheDir, "send-${System.nanoTime()}.jpg"))
+                }
+                if (small != null) { tmp.delete(); upload = small; mime = "image/jpeg"; name = name.substringBeforeLast('.') + ".jpg" }
+            }
             val id = UUID.randomUUID().toString()
             val local = Message(
                 sync_id = id, conversation_sync_id = convId, sender = Session.username ?: "",
@@ -191,8 +283,8 @@ class ConversationViewModel(app: Application) : AndroidViewModel(app) {
                 reply_to = quoteOf(reply)
             )
             messages.value = messages.value + local
-            deliver(local) { Api.sendFile(convId, tmp, name, mime, caption, reply?.sync_id, id) }
-            tmp.delete()
+            deliver(local) { Api.sendFile(convId, upload, name, mime, caption, reply?.sync_id, id) }
+            upload.delete()
         }
     }
 
