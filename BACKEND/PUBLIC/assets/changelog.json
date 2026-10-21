@@ -14,6 +14,19 @@
   "latest": "1.132.5",
   "versions": [
     {
+      "version": "1.134.0",
+      "date": "2026-10-21",
+      "title": "JMS Chat: native Android app",
+      "modules": [
+        {
+          "app": "all",
+          "changes": [
+            { "type": "feature", "text": "JMS Chat is now a real Android app: chat list, chats and groups, photos and files, replies, read ticks, typing, push notifications for new messages with Reply and Mark as read, and automatic updates like the QC and Shifting apps." }
+          ]
+        }
+      ]
+    },
+    {
       "version": "1.133.0",
       "date": "2026-10-21",
       "title": "JMS Chat app for phones",
