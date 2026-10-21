@@ -11,8 +11,27 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.132.5",
+  "latest": "1.135.0",
   "versions": [
+    {
+      "version": "1.135.0",
+      "date": "2026-10-21",
+      "title": "Machine Stopped filter and alerts",
+      "modules": [
+        {
+          "app": "dpr",
+          "changes": [
+            { "type": "feature", "text": "DPR Compliance Summary: new View filter '⛔ Machine Stopped' with 2 / 3 / 4 / 5 hours +. It lists machines that have produced nothing for that long (for any reason except Power Cut), longest stop first, with the stop time and reason on each machine." }
+          ]
+        },
+        {
+          "app": "all",
+          "changes": [
+            { "type": "feature", "text": "JMS Chat: when a machine has been stopped for 3 hours or more (any reason except Power Cut), an alert is posted in the 'Moulding Alerts' group, tagging everyone, with an Acknowledge button. Each stoppage is alerted once." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.134.0",
       "date": "2026-10-21",
