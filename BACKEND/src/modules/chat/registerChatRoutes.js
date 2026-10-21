@@ -26,6 +26,7 @@ const chatNotify = require('./chatNotify');
 const chatAdmin = require('./chatAdmin');
 const chatGate = require('./chatGate');
 const chatShare = require('./chatShare');
+const { registerChatAppAuthRoutes } = require('./chatAppAuth');
 
 const DM_ID = chatSync.deterministicIdSql('chat-dm', '$1::text');
 const MEMBER_ID = (conv, user) => chatSync.deterministicIdSql('chat-member', conv, `LOWER(${user})`);
@@ -698,6 +699,7 @@ function registerChatRoutes(app, pool) {
     uploadRoot, ensureSchema: () => ensureChatSchema(pool), getSettings: () => chatGate.ownSettings(pool)
   });
   registerChatSettingsRoutes(app, pool);
+  registerChatAppAuthRoutes(app, pool);
   // Kill switch / staged rollout: every /api/chat/* route answers 404 while chat is off
   // for this user (the sync routes under /api/sync/chat keep running).
   app.use('/api/chat', chatGate.middleware(pool));

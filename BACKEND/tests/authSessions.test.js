@@ -55,6 +55,10 @@ function buildApp(pool, { auth, guards }) {
     await auth.issueSession(pool, req, res, USERS[req.params.user]);
     res.json({ ok: true });
   });
+  app.post('/api/chat-login-as/:user', async (req, res) => {
+    const token = await auth.issueChatSession(pool, req, res, USERS[req.params.user]);
+    res.json({ ok: true, token });
+  });
   app.all(/^\/api\/.*/, (req, res) => res.json({ ok: true, who: req.headers['x-user-name'] || null, auth: req.auth }));
   return app;
 }
@@ -296,5 +300,49 @@ describe('User Management permission (server side)', () => {
     expect(auth.canManageUsers({ role: 'operator', permissions: { users: { delete: true } } })).toBe(true);
     expect(auth.canManageUsers({ role: 'operator', permissions: { __apps: { users: true } } })).toBe(true);
     expect(auth.canManageUsers({ role: 'admin', permissions: {} })).toBe(true);
+  });
+});
+
+describe('chat app session (chat-only scope)', () => {
+  async function chatLogin(app, user) {
+    const res = await request(app).post(`/api/chat-login-as/${user}`);
+    const cookie = (res.headers['set-cookie'] || []).find((c) => c.startsWith('jms_chat_session='));
+    return { cookie: cookie.split(';')[0], token: res.body.token };
+  }
+
+  it('identifies the user on /api/chat/*', async () => {
+    const mods = loadModules();
+    const app = buildApp(makePool(), mods);
+    const { cookie } = await chatLogin(app, 'alice');
+
+    const res = await request(app).get('/api/chat/me').set('Cookie', cookie).set('X-User-Name', 'root');
+
+    expect(res.body.who).toBe('alice');
+    expect(res.body.auth).toMatchObject({ username: 'alice', scope: 'chat' });
+  });
+
+  it('is no session anywhere else, as cookie or Bearer, and the cookie is kept', async () => {
+    const mods = loadModules();
+    const app = buildApp(makePool(), mods);
+    const { cookie, token } = await chatLogin(app, 'root');
+
+    for (const path of ['/api/orders', '/api/chat-app/x', '/api/chats', '/api/admin/backup']) {
+      const viaCookie = await request(app).get(path).set('Cookie', cookie);
+      expect(viaCookie.body.auth || null).toBeNull();
+      expect(viaCookie.headers['set-cookie'] || []).toEqual([]);
+      const viaBearer = await request(app).get(path).set('Authorization', `Bearer ${token}`);
+      expect(viaBearer.body.auth || null).toBeNull();
+    }
+    // a hard-locked admin route still refuses it
+    const backup = await request(app).get('/api/admin/backup').set('Cookie', cookie);
+    expect(backup.status).toBe(401);
+  });
+
+  it('a staff session still works everywhere', async () => {
+    const mods = loadModules();
+    const app = buildApp(makePool(), mods);
+    const staff = await sessionCookieFor(app, 'alice');
+    const res = await request(app).get('/api/orders').set('Cookie', staff);
+    expect(res.body.auth).toMatchObject({ username: 'alice', scope: 'full' });
   });
 });
