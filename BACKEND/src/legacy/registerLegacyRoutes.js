@@ -77,9 +77,11 @@ fs.mkdirSync(_qcAppDir, { recursive: true });
 // the same Docker volume, published through the same route with app=shifting.
 const _qcAppFeeds = {
   qc: { dir: _qcAppDir, apk: 'jms-qc.apk' },
-  shifting: { dir: path.join(_qcAppDir, 'shifting'), apk: 'jms-shifting.apk' }
+  shifting: { dir: path.join(_qcAppDir, 'shifting'), apk: 'jms-shifting.apk' },
+  chat: { dir: path.join(_qcAppDir, 'chat'), apk: 'jms-chat.apk' }
 };
 fs.mkdirSync(_qcAppFeeds.shifting.dir, { recursive: true });
+fs.mkdirSync(_qcAppFeeds.chat.dir, { recursive: true });
 // multer writes the file BEFORE the route checks the credentials, so it must not go
 // straight to the served name: a failed login used to leave an attacker's APK in place
 // as jms-qc.apk for every factory phone. It lands under a dot-name (never served by
@@ -199,7 +201,7 @@ module.exports = function registerLegacyRoutes({ app, pool, config, services }) 
     try {
       const { username, password, versionCode, versionName, notes } = req.body || {};
       const feed = _qcAppFeeds[String(req.body?.app || 'qc').toLowerCase()];
-      if (!feed) return res.status(400).json({ ok: false, error: 'app must be "qc" or "shifting"' });
+      if (!feed) return res.status(400).json({ ok: false, error: 'app must be "qc", "shifting" or "chat"' });
       if (!username || !password) {
         return res.status(400).json({ ok: false, error: 'username and password required' });
       }
