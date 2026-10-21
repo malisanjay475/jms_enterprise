@@ -169,8 +169,14 @@ data class CallInfo(
     val callee: String = "",
     val status: String = "",
     val peer: String = "",
-    val incoming: Boolean = false
+    val incoming: Boolean = false,
+    val created_at: String? = null,
+    val answered_at: String? = null,
+    val ended_at: String? = null
 )
+
+@Serializable
+data class CallLogReply(val calls: List<CallInfo> = emptyList())
 
 @Serializable
 data class CallReply(val call: CallInfo, val ice: List<IceServerConfig> = emptyList(), val ring_seconds: Int = 45)

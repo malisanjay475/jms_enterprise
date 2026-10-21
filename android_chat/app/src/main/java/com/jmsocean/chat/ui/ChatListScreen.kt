@@ -22,6 +22,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.filled.Archive
+import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.foundation.combinedClickable
@@ -142,7 +143,11 @@ fun ChatListScreen(
 
     var showArchived by remember { mutableStateOf(false) }
     val archivedCount = chats.count { it.archived }
-    val base = if (query.isNotBlank()) chats else chats.filter { it.archived == showArchived }
+    var tab by remember { mutableStateOf(0) }          // 0 = Chats, 1 = Calls
+    var filter by remember { mutableStateOf("all") }   // all / unread / groups
+    val base = (if (query.isNotBlank()) chats else chats.filter { it.archived == showArchived })
+        .filter { c -> when (filter) { "unread" -> c.unread > 0; "groups" -> c.isGroup; else -> true } }
+    val unreadChats = chats.count { it.unread > 0 && !it.archived }
     val shown = if (query.isBlank()) base else base.filter {
         it.name.contains(query, true) || (it.last_body ?: "").contains(query, true) ||
             it.members.any { m -> m.contains(query, true) }
@@ -188,19 +193,37 @@ fun ChatListScreen(
             }
         },
         floatingActionButton = {
-            FloatingActionButton(onClick = onNewChat, containerColor = Color(0xFF00A884), contentColor = Color.White) {
+            if (tab == 0) FloatingActionButton(onClick = onNewChat, containerColor = Color(0xFF00A884), contentColor = Color.White) {
                 Icon(Icons.AutoMirrored.Filled.Chat, "New chat")
+            }
+        },
+        bottomBar = {
+            androidx.compose.material3.NavigationBar(containerColor = MaterialTheme.colorScheme.surface, tonalElevation = 2.dp) {
+                androidx.compose.material3.NavigationBarItem(
+                    selected = tab == 0, onClick = { tab = 0 }, label = { Text("Chats") },
+                    icon = {
+                        androidx.compose.material3.BadgedBox(badge = {
+                            if (unreadChats > 0) androidx.compose.material3.Badge(containerColor = Color(0xFF25D366)) { Text("$unreadChats") }
+                        }) { Icon(Icons.AutoMirrored.Filled.Chat, null) }
+                    },
+                    colors = androidx.compose.material3.NavigationBarItemDefaults.colors(indicatorColor = Color(0x3300A884))
+                )
+                androidx.compose.material3.NavigationBarItem(
+                    selected = tab == 1, onClick = { tab = 1 }, label = { Text("Calls") },
+                    icon = { Icon(Icons.Default.Call, null) },
+                    colors = androidx.compose.material3.NavigationBarItemDefaults.colors(indicatorColor = Color(0x3300A884))
+                )
             }
         }
     ) { pad ->
-        PullToRefreshBox(
+        if (tab == 1) CallsTab(Modifier.padding(pad).fillMaxSize()) else PullToRefreshBox(
             isRefreshing = refreshing,
             onRefresh = { refreshing = true; vm.load() },
             modifier = Modifier.padding(pad).fillMaxSize()
         ) {
             when {
                 loading -> LinearProgressIndicator(Modifier.fillMaxWidth(), color = Green)
-                shown.isEmpty() -> Column(
+                shown.isEmpty() && filter == "all" -> Column(
                     Modifier.fillMaxSize().padding(32.dp),
                     horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center
                 ) {
@@ -212,6 +235,20 @@ fun ChatListScreen(
                     )
                 }
                 else -> LazyColumn(Modifier.fillMaxSize()) {
+                    if (query.isBlank() && !showArchived) item {
+                        Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            listOf("all" to "All", "unread" to "Unread", "groups" to "Groups").forEach { (k, label) ->
+                                androidx.compose.material3.FilterChip(
+                                    selected = filter == k, onClick = { filter = k }, label = { Text(label) },
+                                    shape = RoundedCornerShape(20.dp),
+                                    colors = androidx.compose.material3.FilterChipDefaults.filterChipColors(
+                                        selectedContainerColor = Color(0x3300A884), selectedLabelColor = Color(0xFF00785F)
+                                    )
+                                )
+                            }
+                        }
+                    }
                     if (query.isBlank() && (archivedCount > 0 || showArchived)) item {
                         Row(
                             Modifier.fillMaxWidth().clickable { showArchived = !showArchived }.padding(horizontal = 28.dp, vertical = 14.dp),
