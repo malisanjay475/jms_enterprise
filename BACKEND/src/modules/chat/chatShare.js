@@ -268,7 +268,10 @@ function registerShareRoutes(app, pool, h) {
         [id, m.conversation_sync_id, status, me, localFactoryId()]
       );
       if (t) {
-        const verb = { in_progress: 'started work', done: 'marked done', open: 'reopened' }[status];
+        // A machine-stop alert (machineStopAlerts.js) is "acknowledged" rather than done.
+        const isAlert = Boolean(m.meta && m.meta.alert);
+        const verb = isAlert && status === 'done' ? 'acknowledged'
+          : { in_progress: 'started work', done: 'marked done', open: 'reopened' }[status];
         await insertMessage(pool, { convId: m.conversation_sync_id, me, body: `${me} ${verb}`, kind: 'system', replyTo: id });
       }
       res.json({ ok: true, task: t ? { status: t.status, by: t.updated_by, at: t.updated_at } : { status } });

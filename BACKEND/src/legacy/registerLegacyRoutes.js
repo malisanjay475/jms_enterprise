@@ -19522,24 +19522,17 @@ async function resolveScopedReportFactoryId(req) {
 // several days so a machine stopped since a previous day is still reported, and
 // returns the stop reason (latest downtime/quick-action entry) for each.
 // Powers the "Machines Stopped" alert at the top of the DPR Compliance Summary.
-app.get('/api/dpr/stopped-machines', async (req, res) => {
-  try {
-    const factoryId = await resolveScopedReportFactoryId(req);
-    const STOP_MIN = Math.max(15, Number(req.query.minutes) || 120);
-    const WINDOW_DAYS = Math.max(1, Math.min(15, Number(req.query.days) || 5));
-    // Shared for 60 s: the answer only changes on a 15+ minute scale (a machine is
-    // "stopped" after STOP_MIN minutes), but every open DPR/Planning page asks for it
-    // and each call reads 5 days of dpr_hourly (~90 ms on factory-1, ~580 calls/day).
-    const stoppedCacheKey = `${factoryId ?? 'all'}|${STOP_MIN}|${WINDOW_DAYS}`;
-    const stoppedCached = ttlCacheGet('stoppedMachines', stoppedCacheKey);
-    if (stoppedCached) return res.json(stoppedCached);
+// Shared by the endpoint below and the "Moulding Alerts" chat job (machineStopAlerts.js).
+// factoryId null = every factory. Each item also carries factoryId and powerCut (the
+// reason keeping the machine down right now is a power failure / Power Cut quick action).
+async function computeStoppedMachines(factoryId, STOP_MIN, WINDOW_DAYS) {
     const now = Date.now();
     const normMach = s => String(s || '').toUpperCase().replace(/>/g, '-').replace(/\s+/g, ' ').trim();
 
     // 1. Machines that currently hold an active plan (Running/queued). Prefer the
     //    RUNNING plan's mould as the "running plan"; else the most recent one.
     const plans = await q(`
-      SELECT machine, mould_name, plan_id, order_no, status, updated_at
+      SELECT machine, mould_name, plan_id, order_no, status, updated_at, factory_id
         FROM plan_board
        WHERE status NOT IN ('COMPLETED','REJECTED')
          AND UPPER(COALESCE(jc_approval_status,'')) <> 'REJECTED'
@@ -19552,10 +19545,10 @@ app.get('/api/dpr/stopped-machines', async (req, res) => {
       const cur = planByMach.get(k);
       const rank = String(p.status || '').toUpperCase() === 'RUNNING' ? 0 : 1;
       if (!cur || rank < cur._rank || (rank === cur._rank && new Date(p.updated_at || 0) > new Date(cur.updated_at || 0))) {
-        planByMach.set(k, { machine: p.machine, mould_name: p.mould_name, plan_id: p.plan_id, order_no: p.order_no, status: p.status, updated_at: p.updated_at, _rank: rank });
+        planByMach.set(k, { machine: p.machine, mould_name: p.mould_name, plan_id: p.plan_id, order_no: p.order_no, status: p.status, updated_at: p.updated_at, factory_id: p.factory_id, _rank: rank });
       }
     }
-    if (!planByMach.size) return res.json({ ok: true, data: [], stopMinutes: STOP_MIN });
+    if (!planByMach.size) return [];
 
     // 2. Recent dpr_hourly for those machines over the lookback window.
     const dpr = await q(`
@@ -19575,6 +19568,11 @@ app.get('/api/dpr/stopped-machines', async (req, res) => {
       if (et && et !== 'Main') return et.replace(/([a-z])([A-Z])/g, '$1 $2');
       return '';
     };
+    // Code 8 = Power Failure/Pre Heating; PowerCut = the quick-action entry.
+    const isPowerCutEntry = (e) => {
+      const brk = (e && e.downtime_breakup && typeof e.downtime_breakup === 'object') ? e.downtime_breakup : {};
+      return Number(brk['8']) > 0 || String(e && e.entry_type || '') === 'PowerCut';
+    };
 
     // Group per machine → last production time + the reason-bearing entries. We keep
     // every entry that actually carries a downtime reason (downtime_breakup code or a
@@ -19592,7 +19590,7 @@ app.get('/api/dpr/stopped-machines', async (req, res) => {
       const produced = Number(e.good_qty || 0) > 0 || Number(e.shots || 0) > 0;
       if (produced && t > rec.lastProd) rec.lastProd = t;
       const rsn = reasonFromEntry(e);
-      if (rsn) rec.reasons.push({ t, reason: rsn });
+      if (rsn) rec.reasons.push({ t, reason: rsn, powerCut: isPowerCutEntry(e) });
     }
 
     const windowStart = now - WINDOW_DAYS * 86400000;
@@ -19617,6 +19615,7 @@ app.get('/api/dpr/stopped-machines', async (req, res) => {
 
       out.push({
         machine: plan.machine,
+        factoryId: plan.factory_id == null ? null : Number(plan.factory_id),
         mould: plan.mould_name || '-',
         planId: plan.plan_id || '',
         orderNo: plan.order_no || '',
@@ -19625,10 +19624,27 @@ app.get('/api/dpr/stopped-machines', async (req, res) => {
         silentHrs: Math.floor(silentMin / 60),
         silentMin,
         reason: reason || (lastProd ? 'No entry / unknown' : 'No production recorded'),
+        powerCut: stoppageReasons.length ? stoppageReasons[0].powerCut : false,
         carried
       });
     }
     out.sort((a, b) => b.silentMin - a.silentMin);
+    return out;
+}
+
+// GET /api/dpr/stopped-machines?minutes=120&days=5 — see computeStoppedMachines above.
+app.get('/api/dpr/stopped-machines', async (req, res) => {
+  try {
+    const factoryId = await resolveScopedReportFactoryId(req);
+    const STOP_MIN = Math.max(15, Number(req.query.minutes) || 120);
+    const WINDOW_DAYS = Math.max(1, Math.min(15, Number(req.query.days) || 5));
+    // Shared for 60 s: the answer only changes on a 15+ minute scale (a machine is
+    // "stopped" after STOP_MIN minutes), but every open DPR/Planning page asks for it
+    // and each call reads 5 days of dpr_hourly (~90 ms on factory-1, ~580 calls/day).
+    const stoppedCacheKey = `${factoryId ?? 'all'}|${STOP_MIN}|${WINDOW_DAYS}`;
+    const stoppedCached = ttlCacheGet('stoppedMachines', stoppedCacheKey);
+    if (stoppedCached) return res.json(stoppedCached);
+    const out = await computeStoppedMachines(factoryId, STOP_MIN, WINDOW_DAYS);
     const stoppedBody = { ok: true, data: out, stopMinutes: STOP_MIN, windowDays: WINDOW_DAYS };
     ttlCacheSet('stoppedMachines', stoppedCacheKey, stoppedBody, 60000);
     res.json(stoppedBody);
@@ -19637,6 +19653,10 @@ app.get('/api/dpr/stopped-machines', async (req, res) => {
     sendServerError(res, e);
   }
 });
+
+// Machines stopped 3 h+ (any reason except Power Cut) → one alert per stoppage in the
+// JMS Chat group "Moulding Alerts", with an Acknowledge button.
+require('../modules/machineStopAlerts').startMachineStopAlerts({ pool, q, computeStoppedMachines });
 
 // Excel: per-machine downtime report for a selected date + shift (Day/Night/Full).
 // Lists ALL machines that hold an active plan, with total shift time, available
