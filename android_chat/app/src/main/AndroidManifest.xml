@@ -5,6 +5,8 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- "Runs in background" button: lets the user exempt the app from battery limits -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <!-- Voice notes (asked the first time the mic button is held) -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <!-- Self-updater: install the downloaded APK -->

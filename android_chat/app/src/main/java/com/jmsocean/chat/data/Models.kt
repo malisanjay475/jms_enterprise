@@ -113,6 +113,12 @@ data class MessageReply(val message: Message? = null)
 data class UnreadReply(val unread: Int = 0)
 
 @Serializable
+data class PushDevice(val app_version: String? = null, val created_at: String? = null, val last_ok_at: String? = null, val failures: Int = 0)
+
+@Serializable
+data class PushStatus(val server: Boolean = false, val devices: List<PushDevice> = emptyList())
+
+@Serializable
 data class AppVersion(val versionCode: Int = 0, val versionName: String = "", val apk: String = "", val notes: String = "")
 
 /** One event from /api/chat/stream. */

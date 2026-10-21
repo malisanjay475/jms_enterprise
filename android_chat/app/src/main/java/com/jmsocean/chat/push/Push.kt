@@ -31,10 +31,11 @@ object Push {
     }
 
     /** Tell MAIN where to push this user's messages. Call after sign-in and at start. */
-    suspend fun register() {
-        if (!configured) return
-        runCatching { Api.registerPush(FirebaseMessaging.getInstance().token.await()) }
+    suspend fun register(): Boolean {
+        if (!configured) return false
+        return runCatching { Api.registerPush(FirebaseMessaging.getInstance().token.await()) }
             .onFailure { Log.w("JMSChat", "push register failed: ${it.message}") }
+            .isSuccess
     }
 
     /** On sign-out: stop pushes to this phone for that user. */

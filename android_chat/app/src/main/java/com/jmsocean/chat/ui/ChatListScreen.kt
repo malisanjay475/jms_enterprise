@@ -68,7 +68,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 
-class ChatListViewModel : ViewModel() {
+class ChatListViewModel(app: android.app.Application) : androidx.lifecycle.AndroidViewModel(app) {
     val chats = MutableStateFlow<List<Conversation>>(emptyList())
     val loading = MutableStateFlow(true)
     val error = MutableStateFlow<String?>(null)
@@ -89,7 +89,11 @@ class ChatListViewModel : ViewModel() {
     fun load() {
         viewModelScope.launch {
             runCatching { Api.conversations() }
-                .onSuccess { chats.value = it; error.value = null }
+                .onSuccess {
+                    chats.value = it; error.value = null
+                    // Everything read (here or on the website): clear notifications and the icon badge.
+                    if (it.none { c -> c.unread > 0 }) com.jmsocean.chat.push.Notifier.clearAll(getApplication())
+                }
                 .onFailure { error.value = it.message }
             loading.value = false
         }
