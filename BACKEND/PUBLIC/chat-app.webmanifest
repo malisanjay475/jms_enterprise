@@ -1,13 +1,18 @@
 {
+  "id": "/chat_app.html",
   "name": "JMS Chat",
   "short_name": "JMS Chat",
+  "description": "JMS Enterprise chat",
   "start_url": "/chat_app.html",
   "scope": "/",
   "display": "standalone",
-  "background_color": "#075e54",
+  "orientation": "portrait",
+  "background_color": "#f0f2f5",
   "theme_color": "#075e54",
   "icons": [
     { "src": "/apple-touch-icon.png", "sizes": "180x180", "type": "image/png" },
-    { "src": "/favicon.png", "sizes": "192x192", "type": "image/png" }
+    { "src": "/assets/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/assets/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/assets/icon-512-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
   ]
 }

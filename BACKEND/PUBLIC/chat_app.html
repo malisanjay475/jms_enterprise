@@ -6,38 +6,61 @@
   <meta name="theme-color" content="#075e54">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="JMS Chat">
   <link rel="manifest" href="/chat-app.webmanifest">
   <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
   <link rel="icon" href="/favicon.png">
   <title>JMS Chat</title>
   <!-- JMS Chat app: the chat alone, full screen, on the MAIN server. Sign-in is the
        chat-only login (/api/chat-app/login): any active user, from anywhere. Used by
        the Android app (android_chat/) and as an iPhone home-screen app. -->
   <style>
-    html, body { margin: 0; height: 100%; background: #f0f2f5; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
-    #login { display: none; min-height: 100%; box-sizing: border-box; flex-direction: column; align-items: center; justify-content: center; padding: 24px 16px; background: linear-gradient(#075e54 0 220px, #f0f2f5 220px); }
+    html, body { margin: 0; height: 100%; overscroll-behavior: none; -webkit-text-size-adjust: 100%; background: #f0f2f5; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+    #login { display: none; min-height: 100%; box-sizing: border-box; flex-direction: column; align-items: center; justify-content: center; padding: calc(24px + env(safe-area-inset-top)) calc(16px + env(safe-area-inset-right)) calc(24px + env(safe-area-inset-bottom)) calc(16px + env(safe-area-inset-left)); background: linear-gradient(#075e54 0 220px, #f0f2f5 220px); }
     #login.show { display: flex; }
-    .card { width: 100%; max-width: 380px; background: #fff; border-radius: 14px; box-shadow: 0 6px 24px rgba(0,0,0,.12); padding: 28px 22px; box-sizing: border-box; }
-    .logo { width: 64px; height: 64px; border-radius: 50%; background: #25d366; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 32px; margin: 0 auto 10px; }
-    h1 { text-align: center; font-size: 22px; margin: 0 0 4px; color: #111b21; }
-    .sub { text-align: center; color: #667781; font-size: 14px; margin: 0 0 22px; }
-    label { display: block; font-size: 13px; color: #54656f; margin: 12px 0 4px; }
-    input { width: 100%; box-sizing: border-box; font-size: 16px; padding: 12px; border: 1px solid #d1d7db; border-radius: 8px; outline: none; }
-    input:focus { border-color: #00a884; }
-    button { width: 100%; margin-top: 20px; padding: 13px; font-size: 16px; font-weight: 600; color: #fff; background: #00a884; border: 0; border-radius: 24px; cursor: pointer; }
-    button:disabled { opacity: .6; }
-    #err { color: #d32f2f; font-size: 14px; min-height: 18px; margin-top: 12px; text-align: center; }
-    .foot { color: #8696a0; font-size: 12px; text-align: center; margin-top: 18px; }
-    #loading { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; color: #667781; }
+    #login .card { width: 100%; max-width: 380px; background: #fff; border-radius: 14px; box-shadow: 0 6px 24px rgba(0,0,0,.12); padding: 28px 22px; box-sizing: border-box; }
+    #login .logo { display: block; width: 72px; height: 72px; border-radius: 18px; margin: 0 auto 10px; box-shadow: 0 2px 8px rgba(0,0,0,.15); }
+    #login h1 { text-align: center; font-size: 22px; margin: 0 0 4px; color: #111b21; }
+    #login .sub { text-align: center; color: #667781; font-size: 14px; margin: 0 0 22px; }
+    #login label { display: block; font-size: 13px; color: #54656f; margin: 12px 0 4px; }
+    #login input { width: 100%; box-sizing: border-box; font-size: 16px; padding: 12px; border: 1px solid #d1d7db; border-radius: 8px; outline: none; }
+    #login input:focus { border-color: #00a884; }
+    #login button { width: 100%; margin-top: 20px; padding: 13px; font-size: 16px; font-weight: 600; color: #fff; background: #00a884; border: 0; border-radius: 24px; cursor: pointer; }
+    #login button:disabled { opacity: .6; }
+    #login #err { color: #d32f2f; font-size: 14px; min-height: 18px; margin-top: 12px; text-align: center; }
+    #login .foot { color: #8696a0; font-size: 12px; text-align: center; margin-top: 18px; }
+    #loading { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; color: #667781; padding: 24px; text-align: center; }
+    /* Phone / iPhone home-screen app. --jc-vh / --jc-vt follow the visible area (it
+       shrinks when the keyboard opens), so the message box stays above the keyboard. */
+    html.jc-appmode, html.jc-appmode body { overflow: hidden; }
+    html.jc-appmode .jc-app .jc-panel { left: 0 !important; right: 0 !important; top: var(--jc-vt, 0px) !important; bottom: auto !important;
+      width: 100% !important; max-width: 100% !important; height: var(--jc-vh, 100%) !important; max-height: var(--jc-vh, 100%) !important;
+      box-sizing: border-box; padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right); }
+    html.jc-appmode .jc-app .jc-comp { padding-bottom: calc(8px + env(safe-area-inset-bottom)); }
+    html.jc-appmode.jc-kb .jc-app .jc-comp { padding-bottom: 8px; }
+    html.jc-appmode .jc-app .jc-list { padding-bottom: env(safe-area-inset-bottom); }
+    html.jc-appmode .jc-app .jc-msgs { -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
+    html.jc-appmode .jc-app .jc-list { -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
+    html.jc-appmode .jc-iv { padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
+    /* 16 px or more: iPhone Safari does not zoom in when a field gets the focus. */
+    html.jc-appmode input, html.jc-appmode textarea, html.jc-appmode select { font-size: 16px !important; }
+    html.jc-appmode .jc-ibtn, html.jc-appmode .jc-send, html.jc-appmode button { touch-action: manipulation; }
+    #tip { position: fixed; left: 12px; right: 12px; bottom: calc(12px + env(safe-area-inset-bottom)); z-index: 100020; display: none;
+      background: #111b21; color: #fff; border-radius: 12px; padding: 12px 40px 12px 14px; font-size: 14px; line-height: 1.4;
+      box-shadow: 0 8px 24px rgba(0,0,0,.3); }
+    #tip.show { display: block; }
+    #tip b { color: #25d366; }
+    #tip button { all: unset; position: absolute; top: 8px; right: 10px; font-size: 20px; line-height: 1; color: #aebac1; cursor: pointer; padding: 4px; }
+    #tip .act { all: unset; display: inline-block; margin-top: 8px; background: #00a884; color: #fff; border-radius: 16px; padding: 6px 14px; font-weight: 600; cursor: pointer; position: static; font-size: 14px; }
   </style>
 </head>
 <body>
   <div id="loading">Loading JMS Chat…</div>
   <div id="login">
     <form class="card" id="form" autocomplete="on">
-      <div class="logo">💬</div>
+      <img class="logo" src="/apple-touch-icon.png" alt="">
       <h1>JMS Chat</h1>
       <p class="sub">Sign in with your JMS username and password</p>
       <label for="u">Username</label>
@@ -49,10 +72,17 @@
       <div class="foot">Messages may be reviewed by administrators.</div>
     </form>
   </div>
+  <div id="tip" role="status"><button type="button" aria-label="Close">×</button><div id="tipText"></div></div>
   <script>
     (function () {
       'use strict';
       window.__jmsChatAppMode = true;
+      var doc = document.documentElement;
+      doc.classList.add('jc-appmode');
+      var ua = navigator.userAgent || '';
+      var isIOS = /iPhone|iPad|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+      var standalone = window.navigator.standalone === true ||
+        (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches);
       var loading = document.getElementById('loading');
       var login = document.getElementById('login');
       var form = document.getElementById('form');
@@ -66,6 +96,7 @@
           loading.style.display = 'none';
           login.classList.remove('show');
           if (native() && native().onSignedIn) native().onSignedIn(username);
+          if (!native()) setTimeout(showTip, 1500);
         },
         onNoSession: function () {
           loading.style.display = 'none';
@@ -88,14 +119,81 @@
         }
       };
 
+      // The service worker serves /assets/ from its cache first, so the widget URL must
+      // change with every release or a home-screen app keeps running an old copy.
       function loadChat() {
-        var s = document.createElement('script');
-        s.src = '/assets/chat-widget.js?v=1.133.0';
-        s.onerror = function () {
-          loading.textContent = 'Cannot reach the JMS server. Check your internet, then tap to retry.';
-          loading.onclick = function () { location.reload(); };
-        };
-        document.body.appendChild(s);
+        var done = false;
+        function inject(v) {
+          if (done) return;
+          done = true;
+          var s = document.createElement('script');
+          s.src = '/assets/chat-widget.js?v=' + encodeURIComponent(v);
+          s.onerror = function () {
+            loading.textContent = 'Cannot reach the JMS server. Check your internet, then tap to retry.';
+            loading.onclick = function () { location.reload(); };
+          };
+          document.body.appendChild(s);
+        }
+        var timer = setTimeout(function () { inject(String(Date.now())); }, 4000);
+        fetch('/api/version', { cache: 'no-store' })
+          .then(function (r) { return r.json(); })
+          .then(function (d) { clearTimeout(timer); inject((d && d.version) || String(Date.now())); })
+          .catch(function () { clearTimeout(timer); inject(String(Date.now())); });
+      }
+
+      // iPhone: the keyboard does not shrink the page, it covers it. Size the chat to
+      // the visible area instead so the message box sits right above the keyboard.
+      function fitViewport() {
+        var vv = window.visualViewport;
+        if (!vv) return;
+        doc.style.setProperty('--jc-vh', Math.round(vv.height) + 'px');
+        doc.style.setProperty('--jc-vt', Math.round(vv.offsetTop) + 'px');
+        doc.classList.toggle('jc-kb', window.innerHeight - vv.height > 120);
+        if (window.scrollY) window.scrollTo(0, 0);
+      }
+      if (window.visualViewport) {
+        window.visualViewport.addEventListener('resize', fitViewport);
+        window.visualViewport.addEventListener('scroll', fitViewport);
+      }
+      window.addEventListener('orientationchange', function () { setTimeout(fitViewport, 300); });
+      fitViewport();
+
+      // One hint at a time: in Safari, how to install; once installed, turn on notifications.
+      var tip = document.getElementById('tip');
+      var tipText = document.getElementById('tipText');
+      tip.querySelector('button').addEventListener('click', function () {
+        tip.classList.remove('show');
+        try { localStorage.setItem(tip.dataset.key, String(Date.now())); } catch (_e) { }
+      });
+      function recentlyClosed(key) {
+        try { return Date.now() - Number(localStorage.getItem(key) || 0) < 7 * 864e5; } catch (_e) { return false; }
+      }
+      function showTip() {
+        if (isIOS && !standalone) {
+          if (recentlyClosed('jmsChatTipInstall')) return;
+          tip.dataset.key = 'jmsChatTipInstall';
+          tipText.innerHTML = 'Install JMS Chat on this iPhone: tap <b>Share</b> ' +
+            '<span aria-hidden="true">⬆️</span> below, then <b>Add to Home Screen</b>. Open it from the new icon.';
+          tip.classList.add('show');
+          return;
+        }
+        if (!('Notification' in window) || Notification.permission !== 'default') return;
+        if (recentlyClosed('jmsChatTipNotify')) return;
+        tip.dataset.key = 'jmsChatTipNotify';
+        tipText.innerHTML = 'Get a notification for new messages.<br>';
+        var act = document.createElement('button');
+        act.type = 'button';
+        act.className = 'act';
+        act.textContent = 'Turn on notifications';
+        act.addEventListener('click', function () {
+          // Must run straight from the tap on iPhone.
+          Notification.requestPermission().then(function (p) {
+            tip.classList.remove('show');
+            if (p === 'granted') location.reload(); // the chat then registers for push
+          });
+        });
+        tipText.appendChild(act);
+        tip.classList.add('show');
       }
 
       form.addEventListener('submit', function (e) {
