@@ -44,7 +44,7 @@ self.addEventListener('notificationclick', (event) => {
     }
     // iPhone / iPad: Web Push only reaches the home-screen chat app, which signs in
     // with the chat-only session, so open that page rather than full JMS.
-    const ios = /iPhone|iPad|iPod/.test(self.navigator.userAgent || '');
+    const ios = /iPhone|iPad|iPod/.test((self.navigator && self.navigator.userAgent) || '');
     const page = ios ? '/chat_app.html' : '/index.html';
     return self.clients.openWindow(`${page}?chat=${encodeURIComponent(chat)}`);
   })());

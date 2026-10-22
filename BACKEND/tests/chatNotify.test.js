@@ -103,6 +103,13 @@ describe('sw-chat.js', () => {
     expect(t.opened).toEqual([`/index.html?chat=${chat}`]);
   });
 
+  test('on iPhone the click opens the chat app (home-screen web app)', async () => {
+    const t = load();
+    t.ctx.self.navigator = { userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)' };
+    await t.fire('notificationclick', { notification: { data: { chat }, close() {} } });
+    expect(t.opened).toEqual([`/chat_app.html?chat=${chat}`]);
+  });
+
   test('ignores other pushes and notifications', async () => {
     const t = load();
     await t.fire('push', pushEv({ type: 'other' }));
