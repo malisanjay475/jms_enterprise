@@ -14,6 +14,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -43,7 +44,7 @@ import com.jmsocean.chat.ui.NewChatScreen
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 
-class MainActivity : ComponentActivity() {
+class MainActivity : androidx.fragment.app.FragmentActivity() {
     /** Chat to open from a tapped notification. */
     private val openFromIntent = MutableStateFlow<String?>(null)
 
@@ -142,6 +143,16 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
+                val locked by com.jmsocean.chat.data.AppLock.locked.collectAsState()
+                if (locked && Session.signedIn) {
+                    androidx.activity.compose.BackHandler { moveTaskToBack(true) }
+                    com.jmsocean.chat.ui.LockScreen(
+                        mode = "unlock",
+                        onDone = {},
+                        onSignOut = { com.jmsocean.chat.data.AppLock.disable(); signOut(nav) }
+                    )
+                }
+
                 update?.let { v ->
                     AlertDialog(
                         onDismissRequest = { if (!updating) update = null },
@@ -178,6 +189,7 @@ class MainActivity : ComponentActivity() {
             Api.logout()
             Live.stop()
             Session.clear()
+            com.jmsocean.chat.data.AppLock.disable()
             Notifier.clearAll(this@MainActivity)
             nav.navigate("login") { popUpTo(0) }
         }
