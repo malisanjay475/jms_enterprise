@@ -52,6 +52,7 @@ fun VideoTile(att: Attachment, onPlay: () -> Unit) {
         Text("🎥 ${fileSize(att.size)}", color = Color.White, fontSize = 12.sp,
             modifier = Modifier.align(Alignment.BottomStart).padding(8.dp))
     }
+    DownloadLink(att)
 }
 
 /** Full-screen player; streams from the server with the chat session header. */
