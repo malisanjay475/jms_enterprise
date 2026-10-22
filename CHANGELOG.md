@@ -14,6 +14,9 @@ part of your PR. On release, the `[Unreleased]` items move under the new version
 ## [Unreleased]
 
 ### Fixed
+- JMS Chat on iPhone (chat_app.html): the screen shook / flashed when tapping the message box - the keyboard handler moved the chat and scrolled the page back on every scroll event, fighting Safari's own pan; it now follows the visible area once per animation frame and never scrolls the page. WhatsApp-style phone look in the app: green top bars with white icons, larger chat rows with avatars and dividers, rounded search, beige chat background, larger bubbles, rounded message box with round attach / send buttons; long-press a message opens its menu as a bottom sheet (own messages) or replies (others); no grey tap flash. No API changes.
+
+### Fixed
 - JMS Chat on iPhone (chat_app.html, Safari / Add to Home Screen): the login page's bare button / input / label styles leaked into the chat, so every chat button became full-width with big padding (broken headers, conversation pushed sideways); they are now scoped to the login form. The chat widget is loaded with the server version (/api/version) instead of a fixed ?v=1.133.0, which the service worker kept serving from cache, so home-screen apps ran an old chat; sw.js CACHE_VERSION bumped to drop it. The chat now follows the visible area (visualViewport) so the message box stays above the iPhone keyboard, keeps clear of the home indicator (safe-area insets), and fields are 16 px so Safari no longer zooms in. Status bar no longer translucent over the page; Safari shows an "Add to Home Screen" hint and the home-screen app a "Turn on notifications" button; a tapped push notification on iPhone opens the chat app instead of full JMS; the manifest lists real 192 / 512 / maskable icons. No API changes.
 
 ### Added
