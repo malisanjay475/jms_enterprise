@@ -1504,6 +1504,14 @@ function escHtml(value) {
             items: []
         },
         {
+            // Full-window chat (like WhatsApp Web): chats, groups, calls, photos, video.
+            id: 'jms_chat',
+            label: 'JMS Chat',
+            icon: 'bi-chat-dots',
+            href: 'chat_app.html',
+            items: []
+        },
+        {
             id: 'notifications',
             label: 'Notifications',
             icon: 'bi-bell',
@@ -2572,7 +2580,7 @@ function escHtml(value) {
   if (typeof document === 'undefined' || !document.querySelector) return;
   if (window.__jmsChatLoaded || document.querySelector('script[data-jms-chat]')) return;
   var s = document.createElement('script');
-  s.src = '/assets/chat-widget.js?v=9';
+  s.src = '/assets/chat-widget.js?v=10';
   s.defer = true;
   s.setAttribute('data-jms-chat', '1');
   (document.head || document.documentElement).appendChild(s);

@@ -538,6 +538,8 @@ function startLiveEvents(pool) {
       if (!convs.has(n.c)) convs.set(n.c, new Set());
       if (n.u) convs.get(n.c).add(n.u); // a removed member still hears about it
       if (!convTimer) convTimer = setTimeout(flushConvs, 200);
+    } else if (n.t === 'call') {
+      if (n.u && n.ev) pushTo([n.u], n.ev); // incoming call / call ended, for an open web page
     } else if (n.t === 'reaction') {
       const rx = (await chatExtras.reactionsFor(pool, [n.m])).get(n.m) || [];
       pushTo(await memberNames(pool, n.c), {
