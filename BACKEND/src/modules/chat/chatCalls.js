@@ -91,6 +91,11 @@ async function dmFor(pool, a, b) {
   return c.sync_id;
 }
 
+// Tell an open JMS web page (any worker) about a call: { type: 'call' | 'call_end' }.
+function liveCall(pool, username, event) {
+  pool.query("SELECT pg_notify('jms_chat', $1)", [JSON.stringify({ t: 'call', u: username, ev: event, e: true })]).catch(() => {});
+}
+
 async function historyLine(pool, call) {
   try {
     const conv = await dmFor(pool, call.caller, call.callee);
@@ -120,6 +125,8 @@ async function expireRinging(pool) {
   );
   for (const c of rows) {
     await historyLine(pool, c);
+    liveCall(pool, c.callee, { type: 'call_end', call_id: c.id, reason: 'missed' });
+    liveCall(pool, c.caller, { type: 'call_end', call_id: c.id, reason: 'missed' });
     chatFcm.sendToUsers(pool, [c.callee], { type: 'call_end', call_id: c.id, reason: 'missed', caller: c.caller }).catch(() => {});
   }
 }
@@ -168,6 +175,7 @@ function registerCallRoutes(app, pool, { ready, fail, activeUser }) {
       const { rows: [c] } = await pool.query(
         'INSERT INTO chat_calls (id, caller, callee) VALUES ($1, $2, $3) RETURNING *', [id, me, to]
       );
+      liveCall(pool, to, { type: 'call', call_id: id, caller: me });
       const push = await chatFcm.sendToUsers(pool, [to], { type: 'call', call_id: id, caller: me, title: me, body: 'Incoming voice call' })
         .catch(() => ({ sent: 0 }));
       res.json({ ok: true, call: out(c, me), ice: iceServers(me), ring_seconds: RING_SECONDS, pushed: push.sent > 0 });
@@ -211,6 +219,7 @@ function registerCallRoutes(app, pool, { ready, fail, activeUser }) {
             // stop the other phone ringing / end its call even if its app is in the background
             const other = isCallee ? c.caller : c.callee;
             chatFcm.sendToUsers(pool, [other], { type: 'call_end', call_id: c.id, reason: status, caller: c.caller }).catch(() => {});
+            liveCall(pool, other, { type: 'call_end', call_id: c.id, reason: status });
           } else {
             row = c; // already over
           }

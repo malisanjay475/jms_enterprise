@@ -177,6 +177,17 @@
         }
       };
 
+      // Opened from the JMS menu (already signed in to JMS): no second login, and the ⌂
+      // button goes back to JMS instead of signing out.
+      try {
+        if (!native() && localStorage.getItem('user')) {
+          window.JMSChatApp.backToJms = function () {
+            if (document.referrer && document.referrer.indexOf(location.origin) === 0 && history.length > 1) history.back();
+            else location.href = '/index.html';
+          };
+        }
+      } catch (_e) { /* storage blocked */ }
+
       // The service worker serves /assets/ from its cache first, so the widget URL must
       // change with every release or a home-screen app keeps running an old copy.
       function loadChat() {
