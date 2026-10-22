@@ -22,6 +22,8 @@ object Session {
 
     @Volatile var token: String? = null
         private set
+    /** From /api/chat/me: superadmins manage every group and can delete any message. */
+    @Volatile var isSuperadmin: Boolean = false
     @Volatile var username: String? = null
         private set
 

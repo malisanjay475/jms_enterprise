@@ -1128,7 +1128,9 @@ function registerChatRoutes(app, pool) {
     if (!UUID_RE.test(convId)) { res.status(400).json({ ok: false, error: 'Bad chat id.' }); return null; }
     const { rows: [conv] } = await pool.query('SELECT * FROM chat_conversations WHERE sync_id = $1', [convId]);
     if (!conv || conv.type !== 'group') { res.status(404).json({ ok: false, error: 'Group not found.' }); return null; }
-    const member = await membership(pool, convId, req.auth.username);
+    let member = await membership(pool, convId, req.auth.username);
+    // A superadmin manages every group, whoever made it and whether or not they are in it.
+    if (isSuperadmin(req.auth)) member = Object.assign({}, member || {}, { role: 'admin' });
     if (!member) { res.status(403).json({ ok: false, error: 'You are not in this group.' }); return null; }
     return { conv, member };
   }
@@ -1282,6 +1284,31 @@ function registerChatRoutes(app, pool) {
   });
 
   // Leave a group. If the last admin leaves, the longest-standing member becomes admin.
+  // Make someone a group admin, or take it away: { admin: true | false }. Group admins
+  // and superadmins.
+  app.post('/api/chat/groups/:id/members/:username/admin', async (req, res) => {
+    try {
+      if (!(await ready(req, res))) return;
+      const g = await groupFor(req, res, String(req.params.id || ''));
+      if (!g) return;
+      if (g.member.role !== 'admin') return res.status(403).json({ ok: false, error: 'Only a group admin can change admins.' });
+      const on = !(req.body && req.body.admin === false);
+      const me = req.auth.username;
+      const target = String(req.params.username || '');
+      const changed = await inTx(async (db) => {
+        const { rows } = await db.query(
+          `UPDATE chat_members SET role = $3, updated_at = NOW()
+            WHERE conversation_sync_id = $1 AND LOWER(username) = LOWER($2) AND left_at IS NULL AND role IS DISTINCT FROM $3
+            RETURNING username`,
+          [g.conv.sync_id, target, on ? 'admin' : 'member']
+        );
+        if (rows[0]) await systemMessage(db, g.conv.sync_id, me, on ? `${me} made ${rows[0].username} a group admin` : `${me} removed ${rows[0].username} as group admin`);
+        return rows[0] ? rows[0].username : null;
+      });
+      res.json({ ok: true, changed: Boolean(changed) });
+    } catch (err) { fail(res, err, 'group admin'); }
+  });
+
   app.post('/api/chat/groups/:id/leave', async (req, res) => {
     try {
       if (!(await ready(req, res))) return;
@@ -1506,17 +1533,18 @@ function registerChatRoutes(app, pool) {
   });
 
   // ---------------- edit / delete ----------------
-  async function ownMessage(req, res) {
+  async function ownMessage(req, res, { superadminToo = false } = {}) {
     const id = String(req.params.id || '');
     if (!UUID_RE.test(id)) { res.status(400).json({ ok: false, error: 'Bad message id.' }); return null; }
     const { rows: [m] } = await pool.query('SELECT * FROM chat_messages WHERE sync_id = $1', [id]);
     if (!m || m.kind === 'system') { res.status(404).json({ ok: false, error: 'Message not found.' }); return null; }
-    if (m.sender.toLowerCase() !== req.auth.username.toLowerCase()) {
+    const moderator = superadminToo && isSuperadmin(req.auth);
+    if (m.sender.toLowerCase() !== req.auth.username.toLowerCase() && !moderator) {
       res.status(403).json({ ok: false, error: 'You can only change your own messages.' });
       return null;
     }
     if (m.deleted_at || m.purged_at) { res.status(410).json({ ok: false, error: 'This message was deleted.' }); return null; }
-    if (!(await membership(pool, m.conversation_sync_id, req.auth.username))) {
+    if (!moderator && !(await membership(pool, m.conversation_sync_id, req.auth.username))) {
       res.status(403).json({ ok: false, error: 'You are not in this chat.' });
       return null;
     }
@@ -1557,7 +1585,7 @@ function registerChatRoutes(app, pool) {
   app.delete('/api/chat/messages/:id', async (req, res) => {
     try {
       if (!(await ready(req, res))) return;
-      const m = await ownMessage(req, res);
+      const m = await ownMessage(req, res, { superadminToo: true });
       if (!m) return;
       const { rows: [row] } = await pool.query(
         `UPDATE chat_messages SET deleted_at = NOW(), updated_at = NOW()

@@ -177,6 +177,7 @@
   // ---------------- styles ----------------
   var CSS = [
     '.jc-app .jc-side{width:32%;min-width:320px;max-width:440px}',
+    '.jc-dl{display:inline-block;margin-top:3px;font-size:12px;color:#027eb5;text-decoration:none}.jc-dl:hover{text-decoration:underline}',
     '.jc-av img{position:absolute;inset:0;width:100%;height:100%;border-radius:50%;object-fit:cover}',
     '.jc-chips{display:flex;gap:6px;padding:6px 10px;flex-wrap:wrap}.jc-chip{border:1px solid var(--jc-bd);background:transparent;border-radius:16px;padding:3px 12px;font-size:12px;cursor:pointer;color:inherit}.jc-chip.jc-on{background:rgba(0,168,132,.15);border-color:#00a884;color:#00785f}',
     '.jc-arch{display:flex;align-items:center;gap:10px;padding:8px 16px;cursor:pointer;font-weight:600;color:#00a884}',
@@ -910,8 +911,8 @@
     var c = current;
     var readOnly = c.is_member === false;
     els.mName.textContent = c.title;
-    els.mInfo.style.display = isGroup(c) && !readOnly ? '' : 'none';
-    els.mTitle.classList.toggle('jc-mh-click', isGroup(c) && !readOnly);
+    els.mInfo.style.display = isGroup(c) && (!readOnly || isAdmin) ? '' : 'none';
+    els.mTitle.classList.toggle('jc-mh-click', isGroup(c) && (!readOnly || isAdmin));
     var typing = typingText(c.sync_id);
     if (typing) { els.mSub.textContent = typing; els.mSub.className = 'jc-prev jc-typing'; return; }
     els.mSub.className = 'jc-prev';
@@ -1033,7 +1034,7 @@
         if (box.scrollHeight - box.scrollTop - box.clientHeight < 300) box.scrollTop = box.scrollHeight;
       });
       img.addEventListener('click', function (e) { e.stopPropagation(); openViewerFor(m); });
-      return img;
+      return withDownload(img, a);
     }
     if (a.kind === 'video') {
       var vwrap = el('div');
@@ -1044,7 +1045,7 @@
       vid.style.borderRadius = '8px';
       vid.src = fileUrl(a);
       vwrap.appendChild(vid);
-      return vwrap;
+      return withDownload(vwrap, a);
     }
     if (a.kind === 'audio') {
       var wrap = el('div');
@@ -1053,7 +1054,7 @@
       au.preload = 'none';
       au.src = fileUrl(a);
       wrap.appendChild(au);
-      return wrap;
+      return withDownload(wrap, a);
     }
     var link = el('a', 'jc-file');
     link.href = fileUrl(a, a.kind === 'xlsx');
@@ -1064,7 +1065,20 @@
     t.appendChild(el('b', null, a.file_name));
     t.appendChild(el('small', null, (a.kind === 'xlsx' ? 'Excel' : 'PDF') + ' · ' + fmtSize(a.size)));
     link.appendChild(t);
-    return link;
+    return a.kind === 'pdf' ? withDownload(link, a) : link;
+  }
+
+  // ⬇ Download under a photo / video / voice note (files already download on click).
+  function withDownload(node, a) {
+    var box = el('div', 'jc-dlwrap');
+    box.appendChild(node);
+    var dl = el('a', 'jc-dl', '⬇ Download');
+    dl.href = fileUrl(a, true);
+    dl.setAttribute('download', a.file_name || '');
+    dl.title = 'Download ' + (a.file_name || 'file') + ' (' + fmtSize(a.size) + ')';
+    dl.addEventListener('click', function (e) { e.stopPropagation(); });
+    box.appendChild(dl);
+    return box;
   }
 
   var openMenu = null;
@@ -1096,6 +1110,13 @@
         .then(function () { m.starred = on; redraw(); }).catch(function (e) { showErr(e.message); });
     });
     if (m.kind === 'text' && navigator.clipboard) item('Copy', function () { navigator.clipboard.writeText(m.body).catch(function () { }); });
+    if (!mine && isAdmin) {
+      item('Delete for everyone (superadmin)', function () {
+        if (!window.confirm('Delete this message for everyone?')) return;
+        api('DELETE', API + '/messages/' + encodeURIComponent(m.sync_id)).then(function (d) { applyUpdate(d.message); loadConvs(); })
+          .catch(function (e2) { showErr(e2.message); });
+      }, '#d93025');
+    }
     if (mine) {
       item('ⓘ Info', function () { infoDialog(m); });
       var canEdit = (m.kind === 'text' || m.attachment) && Date.now() - new Date(m.server_ts).getTime() < EDIT_MS;
@@ -1414,7 +1435,7 @@
     els.main.appendChild(head);
     els.main.appendChild(info);
     bk.addEventListener('click', function () { openConv(c); });
-    var admin = c.my_role === 'admin';
+    var admin = c.my_role === 'admin' || isAdmin; // superadmins manage every group
 
     // name
     var s1 = el('section');
@@ -1450,6 +1471,17 @@
       mid.appendChild(el('div', 'jc-name', same(r.username, me) ? r.username + ' (you)' : r.username));
       row.appendChild(av); row.appendChild(mid);
       if (r.role === 'admin') row.appendChild(el('span', 'jc-role', 'admin'));
+      if (admin && !same(r.username, me)) {
+        var mk = el('button', 'jc-ibtn', r.role === 'admin' ? '☆' : '★');
+        mk.title = r.role === 'admin' ? 'Remove as group admin' : 'Make group admin';
+        mk.addEventListener('click', function () {
+          api('POST', API + '/groups/' + encodeURIComponent(c.sync_id) + '/members/' + encodeURIComponent(r.username) + '/admin',
+            { admin: r.role !== 'admin' })
+            .then(function () { refreshInfo(c); })
+            .catch(function (e) { showErr(e.message); });
+        });
+        row.appendChild(mk);
+      }
       if (admin && !same(r.username, me)) {
         var rm = el('button', 'jc-ibtn', '✕');
         rm.title = 'Remove ' + r.username;
