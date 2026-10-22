@@ -3,10 +3,10 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
-  <meta name="theme-color" content="#075e54">
+  <meta name="theme-color" content="#008069">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
   <meta name="apple-mobile-web-app-title" content="JMS Chat">
   <link rel="manifest" href="/chat-app.webmanifest">
   <link rel="apple-touch-icon" href="/apple-touch-icon.png">
@@ -32,21 +32,79 @@
     #login #err { color: #d32f2f; font-size: 14px; min-height: 18px; margin-top: 12px; text-align: center; }
     #login .foot { color: #8696a0; font-size: 12px; text-align: center; margin-top: 18px; }
     #loading { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; color: #667781; padding: 24px; text-align: center; }
-    /* Phone / iPhone home-screen app. --jc-vh / --jc-vt follow the visible area (it
-       shrinks when the keyboard opens), so the message box stays above the keyboard. */
-    html.jc-appmode, html.jc-appmode body { overflow: hidden; }
-    html.jc-appmode .jc-app .jc-panel { left: 0 !important; right: 0 !important; top: var(--jc-vt, 0px) !important; bottom: auto !important;
+    /* ===== Phone / iPhone app: WhatsApp-style look =====
+       --jc-vh / --jc-vt follow the visible area (it shrinks when the keyboard opens),
+       so the message box stays right above the keyboard. */
+    html.jc-appmode, html.jc-appmode body { position: fixed; inset: 0; overflow: hidden; -webkit-tap-highlight-color: transparent; }
+    html.jc-appmode .jc-app .jc-panel { left: 0 !important; right: 0 !important; top: 0 !important; bottom: auto !important;
+      transform: translate3d(0, var(--jc-vt, 0px), 0); will-change: transform;
       width: 100% !important; max-width: 100% !important; height: var(--jc-vh, 100%) !important; max-height: var(--jc-vh, 100%) !important;
-      box-sizing: border-box; padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right); }
-    html.jc-appmode .jc-app .jc-comp { padding-bottom: calc(8px + env(safe-area-inset-bottom)); }
-    html.jc-appmode.jc-kb .jc-app .jc-comp { padding-bottom: 8px; }
-    html.jc-appmode .jc-app .jc-list { padding-bottom: env(safe-area-inset-bottom); }
-    html.jc-appmode .jc-app .jc-msgs { -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
-    html.jc-appmode .jc-app .jc-list { -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
+      box-sizing: border-box; padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right); background: #fff; }
+    html.jc-appmode .jc-root.jc-app { font-size: 16px; font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif; }
+    html.jc-appmode .jc-app * { -webkit-tap-highlight-color: transparent; }
+
+    /* Top bars: green, white text and icons */
+    html.jc-appmode .jc-app .jc-head { height: 58px; background: #008069; border: 0; color: #fff; padding: 0 6px 0 14px; gap: 2px; }
+    html.jc-appmode .jc-app .jc-head h3 { font-size: 21px; font-weight: 600; color: #fff; }
+    html.jc-appmode .jc-app .jc-head .jc-ibtn { color: #fff; font-size: 21px; width: 42px; height: 42px; padding: 0; border-radius: 50%;
+      filter: grayscale(1) brightness(0) invert(1); }
+    html.jc-appmode .jc-app .jc-head .jc-ibtn:active { background: rgba(255,255,255,.15); }
+    html.jc-appmode .jc-app .jc-head .jc-back { font-size: 24px; margin-left: -8px; }
+    html.jc-appmode .jc-app .jc-head .jc-name { color: #fff; font-size: 17px; }
+    html.jc-appmode .jc-app .jc-head .jc-prev { color: rgba(255,255,255,.85); font-size: 13px; }
+    html.jc-appmode .jc-app .jc-head .jc-av { width: 38px; height: 38px; }
+    html.jc-appmode .jc-app .jc-head .jc-av.jc-on::after { border-color: #008069; }
+
+    /* Chat list */
+    html.jc-appmode .jc-app .jc-search { padding: 8px 12px; border: 0; background: #fff; }
+    html.jc-appmode .jc-app .jc-search input { border-radius: 20px; padding: 9px 16px; background: #f0f2f5; }
+    html.jc-appmode .jc-app .jc-list { background: #fff; padding-bottom: env(safe-area-inset-bottom); -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
+    html.jc-appmode .jc-app .jc-item { padding: 0 0 0 14px; gap: 14px; min-height: 76px; border: 0; }
+    html.jc-appmode .jc-app .jc-item .jc-mid { align-self: stretch; display: flex; flex-direction: column; justify-content: center;
+      padding-right: 14px; border-bottom: 1px solid #e9edef; }
+    html.jc-appmode .jc-app .jc-item:active { background: #f0f2f5; }
+    html.jc-appmode .jc-app .jc-item:hover { background: transparent; }
+    html.jc-appmode .jc-app .jc-item .jc-av { width: 52px; height: 52px; font-size: 19px; }
+    html.jc-appmode .jc-app .jc-item .jc-name { font-size: 17px; font-weight: 500; color: #111b21; }
+    html.jc-appmode .jc-app .jc-item .jc-prev { font-size: 15px; margin-top: 3px; }
+    html.jc-appmode .jc-app .jc-item .jc-time { font-size: 12px; }
+    html.jc-appmode .jc-app .jc-unr { min-width: 22px; height: 22px; line-height: 22px; border-radius: 11px; font-size: 12px; background: #25d366; }
+    html.jc-appmode .jc-app .jc-notice { font-size: 13px; }
+
+    /* Conversation */
+    html.jc-appmode .jc-app .jc-main { background: #efeae2; }
+    html.jc-appmode .jc-app .jc-msgs { padding: 8px 10px; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
+    html.jc-appmode .jc-app .jc-msg { margin: 1px 0; }
+    html.jc-appmode .jc-app .jc-bub { max-width: 80%; padding: 6px 9px 5px; border-radius: 9px; font-size: 16px; line-height: 1.32;
+      box-shadow: 0 1px .5px rgba(11,20,26,.13); -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+    html.jc-appmode .jc-app .jc-out .jc-bub { background: #d9fdd3; }
+    html.jc-appmode .jc-app .jc-meta { font-size: 11px; margin-top: 8px; }
+    html.jc-appmode .jc-app .jc-day span { font-size: 12.5px; border-radius: 8px; padding: 5px 12px; }
+    /* Message menu: long-press the bubble (the ▾ button stays hidden but still anchors the menu) */
+    html.jc-appmode .jc-app .jc-opt { display: block !important; opacity: 0; pointer-events: none; }
+    html.jc-appmode .jc-app .jc-rbtn { display: none !important; }
+    html.jc-appmode .jc-app .jc-bub.jc-press { filter: brightness(.92); }
+    /* The message menu opens as a sheet at the bottom of the screen, like iOS. */
+    html.jc-appmode .jc-app .jc-menu { position: fixed !important; top: auto !important; right: 10px !important; left: 10px;
+      bottom: calc(10px + env(safe-area-inset-bottom)); z-index: 100005; border-radius: 14px; padding: 6px 0;
+      box-shadow: 0 0 0 100vmax rgba(0,0,0,.35), 0 8px 28px rgba(0,0,0,.25); }
+    html.jc-appmode .jc-app .jc-menu button { padding: 14px 20px; font-size: 17px; text-align: center; border-bottom: 1px solid #e9edef; }
+    html.jc-appmode .jc-app .jc-menu button:last-child { border-bottom: 0; }
+
+    /* Message box */
+    html.jc-appmode .jc-app .jc-comp { background: transparent; padding: 6px 8px calc(6px + env(safe-area-inset-bottom)); gap: 6px; align-items: flex-end; }
+    html.jc-appmode.jc-kb .jc-app .jc-comp { padding-bottom: 6px; }
+    html.jc-appmode .jc-app .jc-comp textarea { background: #fff; border-radius: 22px; padding: 11px 16px; line-height: 22px; min-height: 22px;
+      box-shadow: 0 1px .5px rgba(11,20,26,.13); }
+    html.jc-appmode .jc-app .jc-attach { width: 44px; height: 44px; border-radius: 50%; background: #fff; font-size: 20px; padding: 0;
+      box-shadow: 0 1px .5px rgba(11,20,26,.13); }
+    html.jc-appmode .jc-app .jc-send { width: 46px; height: 46px; background: #00a884; }
+    html.jc-appmode .jc-app .jc-replybar, html.jc-appmode .jc-app .jc-editbar { margin: 0 8px; border-radius: 10px 10px 0 0; }
+
     html.jc-appmode .jc-iv { padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
     /* 16 px or more: iPhone Safari does not zoom in when a field gets the focus. */
     html.jc-appmode input, html.jc-appmode textarea, html.jc-appmode select { font-size: 16px !important; }
-    html.jc-appmode .jc-ibtn, html.jc-appmode .jc-send, html.jc-appmode button { touch-action: manipulation; }
+    html.jc-appmode button { touch-action: manipulation; }
     #tip { position: fixed; left: 12px; right: 12px; bottom: calc(12px + env(safe-area-inset-bottom)); z-index: 100020; display: none;
       background: #111b21; color: #fff; border-radius: 12px; padding: 12px 40px 12px 14px; font-size: 14px; line-height: 1.4;
       box-shadow: 0 8px 24px rgba(0,0,0,.3); }
@@ -141,22 +199,57 @@
           .catch(function () { clearTimeout(timer); inject(String(Date.now())); });
       }
 
-      // iPhone: the keyboard does not shrink the page, it covers it. Size the chat to
-      // the visible area instead so the message box sits right above the keyboard.
-      function fitViewport() {
+      // iPhone: the keyboard does not shrink the page, it covers it (and pans the view).
+      // Size the chat to the visible area and follow the pan, once per frame and only
+      // when something changed. Never scroll the page back from here: fighting the
+      // browser's own pan is what made the screen shake when the keyboard opened.
+      var vvFrame = 0, lastH = -1, lastT = -1;
+      function applyViewport() {
+        vvFrame = 0;
         var vv = window.visualViewport;
         if (!vv) return;
-        doc.style.setProperty('--jc-vh', Math.round(vv.height) + 'px');
-        doc.style.setProperty('--jc-vt', Math.round(vv.offsetTop) + 'px');
-        doc.classList.toggle('jc-kb', window.innerHeight - vv.height > 120);
-        if (window.scrollY) window.scrollTo(0, 0);
+        var h = Math.round(vv.height), t = Math.max(0, Math.round(vv.offsetTop));
+        if (h !== lastH) { lastH = h; doc.style.setProperty('--jc-vh', h + 'px'); }
+        if (t !== lastT) { lastT = t; doc.style.setProperty('--jc-vt', t + 'px'); }
+        doc.classList.toggle('jc-kb', window.innerHeight - h > 150);
       }
+      function fitViewport() { if (!vvFrame) vvFrame = requestAnimationFrame(applyViewport); }
       if (window.visualViewport) {
         window.visualViewport.addEventListener('resize', fitViewport);
         window.visualViewport.addEventListener('scroll', fitViewport);
       }
       window.addEventListener('orientationchange', function () { setTimeout(fitViewport, 300); });
-      fitViewport();
+      applyViewport();
+
+      // Long-press a message (like WhatsApp) opens its menu.
+      (function () {
+        var timer = null, bub = null, x0 = 0, y0 = 0, fired = false;
+        function cancel() { clearTimeout(timer); timer = null; if (bub) bub.classList.remove('jc-press'); bub = null; }
+        document.addEventListener('touchstart', function (e) {
+          var b = e.target.closest && e.target.closest('.jc-app .jc-bub');
+          if (!b || e.touches.length > 1 || e.target.closest('a,button,audio,video,img')) return;
+          cancel();
+          fired = false;
+          bub = b; x0 = e.touches[0].clientX; y0 = e.touches[0].clientY;
+          timer = setTimeout(function () {
+            // Own messages: the full menu. Others: reply (swipe right also replies).
+            var opt = bub && (bub.querySelector('.jc-opt') || bub.querySelector('.jc-rbtn'));
+            if (opt) { fired = true; bub.classList.add('jc-press'); setTimeout(cancel, 180); opt.click(); }
+            timer = null;
+          }, 450);
+        }, { passive: true });
+        document.addEventListener('touchmove', function (e) {
+          if (!timer) return;
+          var t = e.touches[0];
+          if (Math.abs(t.clientX - x0) > 10 || Math.abs(t.clientY - y0) > 10) cancel();
+        }, { passive: true });
+        // After a long-press, the finger lift must not also "click" (that would close the menu).
+        document.addEventListener('touchend', function (e) {
+          if (timer) cancel();
+          if (fired) { fired = false; e.preventDefault(); }
+        }, { passive: false });
+        document.addEventListener('touchcancel', cancel, { passive: true });
+      }());
 
       // One hint at a time: in Safari, how to install; once installed, turn on notifications.
       var tip = document.getElementById('tip');
