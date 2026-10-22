@@ -109,6 +109,52 @@
 
   function isGroup(c) { return !!c && c.type === 'group'; }
 
+  // Avatar: profile photo when the person has one, else coloured initials.
+  function setAvatar(av, name, photoV, group) {
+    av.textContent = group ? '👥' : initials(name);
+    av.style.background = avatarColor(name);
+    if (!group && photoV && name) {
+      var im = document.createElement('img');
+      im.alt = '';
+      im.loading = 'lazy';
+      im.src = API + '/avatars/' + encodeURIComponent(name) + '?v=' + encodeURIComponent(photoV);
+      im.onerror = function () { im.remove(); };
+      av.appendChild(im);
+    }
+  }
+
+  function lastSeenText(online, iso) {
+    if (online) return 'online';
+    if (!iso) return '';
+    var t = new Date(iso), now = new Date();
+    var days = Math.round((new Date(now.toDateString()) - new Date(t.toDateString())) / 86400000);
+    var at = fmtTime(iso);
+    if (days === 0) return 'last seen today at ' + at;
+    if (days === 1) return 'last seen yesterday at ' + at;
+    if (days < 7) return 'last seen ' + t.toLocaleDateString(undefined, { weekday: 'long' }) + ' at ' + at;
+    return 'last seen ' + t.toLocaleDateString();
+  }
+
+  // Small dialog: { body, close }.
+  function modal(title) {
+    var wrap = document.createElement('div');
+    wrap.className = 'jc-modal';
+    var box = document.createElement('div');
+    if (title) { var h = document.createElement('h4'); h.textContent = title; box.appendChild(h); }
+    var body = document.createElement('div');
+    box.appendChild(body);
+    wrap.appendChild(box);
+    function close() { wrap.remove(); document.removeEventListener('keydown', onKey); }
+    function onKey(e) { if (e.key === 'Escape') close(); }
+    wrap.addEventListener('click', function (e) { if (e.target === wrap) close(); });
+    document.addEventListener('keydown', onKey);
+    document.body.appendChild(wrap);
+    return { box: box, body: body, close: close };
+  }
+
+  var QUICK_RX = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
+  var listFilter = 'all', showArchived = false, showStarred = false;
+
   function convById(id) { return convs.filter(function (x) { return x.sync_id === id; })[0] || (current && current.sync_id === id ? current : null); }
 
   function isMuted(c) { return !!(c && c.muted_until && new Date(c.muted_until) > new Date()); }
@@ -130,6 +176,16 @@
 
   // ---------------- styles ----------------
   var CSS = [
+    '.jc-app .jc-side{width:32%;min-width:320px;max-width:440px}',
+    '.jc-av img{position:absolute;inset:0;width:100%;height:100%;border-radius:50%;object-fit:cover}',
+    '.jc-chips{display:flex;gap:6px;padding:6px 10px;flex-wrap:wrap}.jc-chip{border:1px solid var(--jc-bd);background:transparent;border-radius:16px;padding:3px 12px;font-size:12px;cursor:pointer;color:inherit}.jc-chip.jc-on{background:rgba(0,168,132,.15);border-color:#00a884;color:#00785f}',
+    '.jc-arch{display:flex;align-items:center;gap:10px;padding:8px 16px;cursor:pointer;font-weight:600;color:#00a884}',
+    '.jc-pin{font-size:11px;margin-left:4px;opacity:.7}',
+    '.jc-rx{display:flex;gap:3px;margin-top:3px;flex-wrap:wrap}.jc-rx span{border:1px solid var(--jc-bd);border-radius:10px;padding:0 6px;font-size:12px;cursor:pointer;background:rgba(127,127,127,.08)}',
+    '.jc-emo{display:flex;gap:2px;padding:4px 6px;border-bottom:1px solid var(--jc-bd)}.jc-emo button{font-size:18px;padding:2px 4px;border:0;background:transparent;cursor:pointer;border-radius:50%}.jc-emo button.jc-on{background:rgba(0,168,132,.2)}',
+    '.jc-fwd{font-size:11px;font-style:italic;opacity:.7;margin-bottom:2px}',
+    '.jc-modal{position:fixed;inset:0;z-index:100010;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center}.jc-modal>div{background:var(--jc-bg);color:inherit;border-radius:12px;width:min(420px,92vw);max-height:80vh;overflow:auto;padding:14px;box-shadow:0 10px 40px rgba(0,0,0,.4)}.jc-modal h4{margin:0 0 10px}.jc-modal .jc-row2{display:flex;align-items:center;gap:10px;padding:6px 4px;cursor:pointer}.jc-modal .jc-act{display:flex;justify-content:flex-end;gap:8px;margin-top:12px}.jc-modal .jc-primary{background:#00a884;color:#fff;border:0;border-radius:18px;padding:6px 16px;cursor:pointer}.jc-modal .jc-plain{background:transparent;border:1px solid var(--jc-bd);border-radius:18px;padding:6px 14px;cursor:pointer;color:inherit}.jc-modal small{opacity:.7}',
+    '.jc-call{position:fixed;inset:0;z-index:100020;background:#0b141a;color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px}.jc-call .jc-av{width:110px;height:110px;font-size:40px}.jc-call h2{margin:0;font-weight:600}.jc-call p{margin:0;opacity:.8}.jc-cbtns{display:flex;gap:28px;margin-top:30px}.jc-cbtns button{width:64px;height:64px;border-radius:50%;border:0;font-size:24px;cursor:pointer;color:#fff;background:rgba(255,255,255,.15)}.jc-cbtns .jc-red{background:#e53935}.jc-cbtns .jc-green{background:#00a884}.jc-cbtns .jc-on{background:rgba(255,255,255,.4)}',
     '.jc-app .jc-panel{position:fixed;inset:0;right:0;bottom:0;width:100vw;max-width:100vw;height:100%;max-height:100%;border-radius:0;z-index:100001}.jc-app .jc-fab,.jc-app .jc-sharefab{display:none !important}',
     // the share sheet, mark bar and target banner live outside .jc-root: same colours
     '.jc-root,.jc-sheet-bg,.jc-tbanner,.jc-markbar{--jc-g:#00a884;--jc-gd:#008069;--jc-bg:#fff;--jc-bg2:#f0f2f5;--jc-chat:#efeae2;--jc-out:#d9fdd3;--jc-in:#fff;--jc-tx:#111b21;--jc-mu:#667781;--jc-bd:#e9edef;font-family:inherit;font-size:14px;color:var(--jc-tx)}',
@@ -345,7 +401,9 @@
     newBtn.title = 'New chat';
     var closeBtn = el('button', 'jc-ibtn', '✕');
     closeBtn.title = 'Close';
-    sh.appendChild(bellBtn); sh.appendChild(groupBtn); sh.appendChild(newBtn); sh.appendChild(closeBtn);
+    var starBtn = el('button', 'jc-ibtn', '⭐');
+    starBtn.title = 'Starred messages';
+    sh.appendChild(starBtn); sh.appendChild(bellBtn); sh.appendChild(groupBtn); sh.appendChild(newBtn); sh.appendChild(closeBtn);
     var search = el('div', 'jc-search');
     var sIn = el('input');
     sIn.placeholder = 'Search chats, people and messages';
@@ -375,7 +433,9 @@
     mInfo.title = 'Group info';
     var mClose = el('button', 'jc-ibtn', '✕');
     mClose.title = 'Close';
-    mh.appendChild(back); mh.appendChild(mAv); mh.appendChild(mTitle); mh.appendChild(mMute); mh.appendChild(mInfo); mh.appendChild(mClose);
+    var mCall = el('button', 'jc-ibtn', '📞');
+    mCall.title = 'Voice call';
+    mh.appendChild(back); mh.appendChild(mAv); mh.appendChild(mTitle); mh.appendChild(mCall); mh.appendChild(mMute); mh.appendChild(mInfo); mh.appendChild(mClose);
     var msgs = el('div', 'jc-msgs');
     var ro = el('div', 'jc-ro', 'Superadmin view: read-only. Your viewing is logged.');
     var editBar = el('div', 'jc-editbar');
@@ -432,15 +492,19 @@
     els = { panel: panel, list: list, sIn: sIn, tabs: tabs, tMine: tMine, tAll: tAll, err: err,
       main: main, mh: mh, mAv: mAv, mName: mName, mSub: mSub, mTitle: mTitle, mInfo: mInfo, msgs: msgs, ro: ro,
       comp: comp, ta: ta, send: send, ph: ph, badge: badge, newBtn: newBtn, fileIn: fileIn,
-      editBar: editBar, editTxt: editTxt, replyBar: replyBar, ment: ment, mMute: mMute, side: side };
+      editBar: editBar, editTxt: editTxt, replyBar: replyBar, ment: ment, mMute: mMute, side: side, mCall: mCall };
+    starBtn.addEventListener('click', function () { showStarred = !showStarred; sIn.value = ''; renderList(); });
+    mCall.addEventListener('click', function () { if (current && !isGroup(current)) webCall.start(current.title); });
 
     fab.addEventListener('click', function () { toggle(!open); });
     if (appMode) {
       root.classList.add('jc-app');
-      closeBtn.textContent = '⎋';
-      closeBtn.title = 'Sign out';
+      var inJms = !!(window.JMSChatApp && window.JMSChatApp.backToJms);
+      closeBtn.textContent = inJms ? '⌂' : '⎋';
+      closeBtn.title = inJms ? 'Back to JMS' : 'Sign out';
       mClose.style.display = 'none';
       closeBtn.addEventListener('click', function () {
+        if (inJms) { window.JMSChatApp.backToJms(); return; }
         if (!confirm('Sign out of JMS Chat?')) return;
         if (window.JMSChatApp && window.JMSChatApp.signOut) window.JMSChatApp.signOut();
       });
@@ -559,17 +623,39 @@
     var q = els.sIn.value.trim().toLowerCase();
     var list = els.list;
     list.textContent = '';
+    if (showStarred && !q) { renderStarred(list); return; }
+    if (!q && !adminAll) {
+      var chips = el('div', 'jc-chips');
+      [['all', 'All'], ['unread', 'Unread'], ['groups', 'Groups']].forEach(function (f) {
+        var b = el('button', 'jc-chip' + (listFilter === f[0] ? ' jc-on' : ''), f[1]);
+        b.addEventListener('click', function () { listFilter = f[0]; renderList(); });
+        chips.appendChild(b);
+      });
+      list.appendChild(chips);
+      var archived = convs.filter(function (c) { return c.archived; }).length;
+      if (archived || showArchived) {
+        var ar = el('div', 'jc-arch', showArchived ? '← Back to chats' : '🗄 Archived (' + archived + ')');
+        ar.addEventListener('click', function () { showArchived = !showArchived; renderList(); });
+        list.appendChild(ar);
+      }
+    }
     var shown = convs.filter(function (c) {
-      return !q || c.title.toLowerCase().indexOf(q) !== -1 || (c.members || []).join(' ').toLowerCase().indexOf(q) !== -1;
+      if (q) return c.title.toLowerCase().indexOf(q) !== -1 || (c.members || []).join(' ').toLowerCase().indexOf(q) !== -1;
+      if (adminAll) return true;
+      if (Boolean(c.archived) !== showArchived) return false;
+      if (listFilter === 'unread') return c.unread > 0;
+      if (listFilter === 'groups') return isGroup(c);
+      return true;
     });
     shown.forEach(function (c) {
       var it = el('div', 'jc-item' + (current && current.sync_id === c.sync_id ? ' jc-sel' : ''));
-      var av = el('div', 'jc-av' + (c.online ? ' jc-on' : ''), isGroup(c) ? '👥' : initials(c.title));
-      av.style.background = avatarColor(c.title);
+      var av = el('div', 'jc-av' + (c.online ? ' jc-on' : ''));
+      setAvatar(av, c.title, c.photo_v, isGroup(c));
       var mid = el('div', 'jc-mid');
       var r1 = el('div', 'jc-row');
       var nm = el('div', 'jc-name', c.title);
       if (isMuted(c)) { var mi = el('span', 'jc-mute', '🔕'); mi.title = muteLabel(c); nm.appendChild(mi); }
+      if (c.pinned) nm.appendChild(el('span', 'jc-pin', '📌'));
       r1.appendChild(nm);
       r1.appendChild(el('div', 'jc-time', fmtListTime(c.last_message_at)));
       var r2 = el('div', 'jc-row');
@@ -584,6 +670,10 @@
       mid.appendChild(r1); mid.appendChild(r2);
       it.appendChild(av); it.appendChild(mid);
       it.addEventListener('click', function () { openConv(c); });
+      if (!adminAll && c.is_member !== false) {
+        it.addEventListener('contextmenu', function (e) { e.preventDefault(); chatMenu(c); });
+        it.title = 'Right-click: pin or archive';
+      }
       list.appendChild(it);
     });
     if (q && !adminAll) {
@@ -593,6 +683,46 @@
     } else if (!shown.length) {
       list.appendChild(el('div', 'jc-empty', adminAll ? 'No chats yet.' : 'No chats yet. Press ✎ to message someone.'));
     }
+  }
+
+  function chatMenu(c) {
+    var m = modal(c.title);
+    [[c.pinned ? '📌 Unpin chat' : '📌 Pin chat', 'pin', !c.pinned], [c.archived ? '🗄 Unarchive chat' : '🗄 Archive chat', 'archive', !c.archived]]
+      .forEach(function (o) {
+        var r = el('div', 'jc-row2', o[0]);
+        r.addEventListener('click', function () {
+          m.close();
+          api('POST', API + '/conversations/' + encodeURIComponent(c.sync_id) + '/' + o[1], { on: o[2] })
+            .then(function () { loadConvs(); }).catch(function (e) { showErr(e.message); });
+        });
+        m.body.appendChild(r);
+      });
+  }
+
+  function renderStarred(list) {
+    var hd = el('div', 'jc-arch', '← Starred messages');
+    hd.addEventListener('click', function () { showStarred = false; renderList(); });
+    list.appendChild(hd);
+    api('GET', API + '/starred').then(function (d) {
+      var rs = d.results || [];
+      if (!rs.length) list.appendChild(el('div', 'jc-empty', 'No starred messages. Use ▾ on a message and choose Star.'));
+      rs.forEach(function (r) {
+        var it = el('div', 'jc-item');
+        var mid = el('div', 'jc-mid');
+        var r1 = el('div', 'jc-row');
+        r1.appendChild(el('div', 'jc-name', (same(r.message.sender, me) ? 'You' : r.message.sender) + ' → ' + r.conversation_title));
+        r1.appendChild(el('div', 'jc-time', fmtListTime(r.message.server_ts)));
+        mid.appendChild(r1);
+        mid.appendChild(el('div', 'jc-prev', '★ ' + (r.message.body || (r.message.attachment ? r.message.attachment.file_name : ''))));
+        it.appendChild(mid);
+        it.addEventListener('click', function () {
+          var c = convById(r.message.conversation_sync_id);
+          showStarred = false;
+          if (c) openConv(c, r.message.sync_id);
+        });
+        list.appendChild(it);
+      });
+    }).catch(function (e) { showErr(e.message); });
   }
 
   function loadUsers() {
@@ -786,13 +916,13 @@
     if (typing) { els.mSub.textContent = typing; els.mSub.className = 'jc-prev jc-typing'; return; }
     els.mSub.className = 'jc-prev';
     if (readOnly || isGroup(c)) els.mSub.textContent = (c.members || []).join(', ');
-    else els.mSub.textContent = c.online ? 'online' : '';
+    else els.mSub.textContent = lastSeenText(c.online, c.last_seen_at);
     if (isMuted(c)) els.mSub.textContent = '🔕 ' + muteLabel(c) + (els.mSub.textContent ? ' · ' + els.mSub.textContent : '');
     els.mMute.style.display = readOnly ? 'none' : '';
     els.mMute.textContent = isMuted(c) ? '🔕' : '🔔';
     els.mMute.title = isMuted(c) ? muteLabel(c) + ' (click to change)' : 'Mute notifications';
-    els.mAv.textContent = isGroup(c) ? '👥' : initials(c.title);
-    els.mAv.style.background = avatarColor(c.title);
+    setAvatar(els.mAv, c.title, c.photo_v, isGroup(c));
+    if (els.mCall) els.mCall.style.display = !isGroup(c) && !readOnly && serverInfo.server_type !== 'LOCAL' ? '' : 'none';
   }
 
   function openConv(c, focusId) {
@@ -942,35 +1072,119 @@
 
   function messageMenu(m, bub) {
     closeMenu();
+    var mine = same(m.sender, me);
     var menu = el('div', 'jc-menu');
-    var rp = el('button', null, '↩ Reply');
-    rp.addEventListener('click', function (e) { e.stopPropagation(); closeMenu(); startReply(m); });
-    menu.appendChild(rp);
-    var canEdit = (m.kind === 'text' || m.attachment) && Date.now() - new Date(m.server_ts).getTime() < EDIT_MS;
-    if (canEdit) {
-      var eb = el('button', null, m.kind === 'text' ? 'Edit' : 'Edit caption');
-      eb.addEventListener('click', function (e) { e.stopPropagation(); closeMenu(); startEdit(m); });
-      menu.appendChild(eb);
-    }
-    if (m.kind === 'text' && navigator.clipboard) {
-      var cp = el('button', null, 'Copy');
-      cp.addEventListener('click', function (e) { e.stopPropagation(); closeMenu(); navigator.clipboard.writeText(m.body).catch(function () { }); });
-      menu.appendChild(cp);
-    }
-    var db = el('button', null, 'Delete for everyone');
-    db.style.color = '#d93025';
-    db.addEventListener('click', function (e) {
-      e.stopPropagation();
-      closeMenu();
-      if (!window.confirm('Delete this message for everyone?')) return;
-      api('DELETE', API + '/messages/' + encodeURIComponent(m.sync_id)).then(function (d) {
-        applyUpdate(d.message);
-        loadConvs();
-      }).catch(function (e2) { showErr(e2.message); });
+    var emo = el('div', 'jc-emo');
+    var myRx = (m.reactions || []).filter(function (r) { return r.users.some(function (u) { return same(u, me); }); })[0];
+    QUICK_RX.forEach(function (e) {
+      var b = el('button', myRx && myRx.emoji === e ? 'jc-on' : '', e);
+      b.addEventListener('click', function (ev) { ev.stopPropagation(); closeMenu(); react(m, myRx && myRx.emoji === e ? '' : e); });
+      emo.appendChild(b);
     });
-    menu.appendChild(db);
+    menu.appendChild(emo);
+    function item(label, fn, color) {
+      var b = el('button', null, label);
+      if (color) b.style.color = color;
+      b.addEventListener('click', function (e) { e.stopPropagation(); closeMenu(); fn(); });
+      menu.appendChild(b);
+    }
+    item('↩ Reply', function () { startReply(m); });
+    item('↪ Forward', function () { forwardDialog(m); });
+    item(m.starred ? '☆ Unstar' : '★ Star', function () {
+      var on = !m.starred;
+      api('POST', API + '/messages/' + encodeURIComponent(m.sync_id) + '/star', { on: on })
+        .then(function () { m.starred = on; redraw(); }).catch(function (e) { showErr(e.message); });
+    });
+    if (m.kind === 'text' && navigator.clipboard) item('Copy', function () { navigator.clipboard.writeText(m.body).catch(function () { }); });
+    if (mine) {
+      item('ⓘ Info', function () { infoDialog(m); });
+      var canEdit = (m.kind === 'text' || m.attachment) && Date.now() - new Date(m.server_ts).getTime() < EDIT_MS;
+      if (canEdit) item(m.kind === 'text' ? 'Edit' : 'Edit caption', function () { startEdit(m); });
+      item('Delete for everyone', function () {
+        if (!window.confirm('Delete this message for everyone?')) return;
+        api('DELETE', API + '/messages/' + encodeURIComponent(m.sync_id)).then(function (d) {
+          applyUpdate(d.message);
+          loadConvs();
+        }).catch(function (e2) { showErr(e2.message); });
+      }, '#d93025');
+    }
     bub.appendChild(menu);
     openMenu = menu;
+  }
+
+  function rxEl(m) {
+    var box = el('div', 'jc-rx');
+    m.reactions.forEach(function (r) {
+      var sp = el('span', null, r.emoji + (r.users.length > 1 ? ' ' + r.users.length : ''));
+      sp.title = r.users.map(function (u) { return same(u, me) ? 'You' : u; }).join(', ');
+      sp.addEventListener('click', function (e) {
+        e.stopPropagation();
+        var mineHere = r.users.some(function (u) { return same(u, me); });
+        react(m, mineHere ? '' : r.emoji);
+      });
+      box.appendChild(sp);
+    });
+    return box;
+  }
+
+  function react(m, emoji) {
+    api('POST', API + '/messages/' + encodeURIComponent(m.sync_id) + '/react', { emoji: emoji })
+      .then(function (d) { m.reactions = d.reactions; redraw(); })
+      .catch(function (e) { showErr(e.message); });
+  }
+
+  function forwardDialog(m) {
+    var dlg = modal('Forward to… (up to 5)');
+    var picked = [];
+    convs.filter(function (c) { return c.is_member !== false; }).forEach(function (c) {
+      var r = el('label', 'jc-row2');
+      var cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.addEventListener('change', function () {
+        if (cb.checked) { if (picked.length >= 5) { cb.checked = false; return; } picked.push(c.sync_id); }
+        else picked = picked.filter(function (x) { return x !== c.sync_id; });
+        send.textContent = 'Send' + (picked.length ? ' (' + picked.length + ')' : '');
+      });
+      var av = el('div', 'jc-av');
+      av.style.width = av.style.height = '32px';
+      setAvatar(av, c.title, c.photo_v, isGroup(c));
+      r.appendChild(cb); r.appendChild(av); r.appendChild(el('span', null, c.title));
+      dlg.body.appendChild(r);
+    });
+    var act = el('div', 'jc-act');
+    var cancel = el('button', 'jc-plain', 'Cancel');
+    var send = el('button', 'jc-primary', 'Send');
+    cancel.addEventListener('click', dlg.close);
+    send.addEventListener('click', function () {
+      if (!picked.length) return;
+      send.disabled = true;
+      api('POST', API + '/forward', { message_sync_id: m.sync_id, to: picked })
+        .then(function () { dlg.close(); loadConvs(); })
+        .catch(function (e) { send.disabled = false; showErr(e.message); });
+    });
+    act.appendChild(cancel); act.appendChild(send);
+    dlg.box.appendChild(act);
+  }
+
+  function infoDialog(m) {
+    var dlg = modal('Message info');
+    dlg.body.textContent = 'Loading…';
+    api('GET', API + '/messages/' + encodeURIComponent(m.sync_id) + '/info').then(function (d) {
+      dlg.body.textContent = '';
+      function sect(title, rows) {
+        dlg.body.appendChild(el('b', null, title));
+        if (!rows.length) dlg.body.appendChild(el('div', 'jc-row2', '—'));
+        rows.forEach(function (r) {
+          var row = el('div', 'jc-row2');
+          row.appendChild(el('span', null, r.username));
+          if (r.at) row.appendChild(el('small', null, ' · ' + fmtDay(r.at) + ' ' + fmtTime(r.at)));
+          dlg.body.appendChild(row);
+        });
+      }
+      sect('✓✓ Read by', d.read || []);
+      sect('✓✓ Delivered to', d.delivered || []);
+      if ((d.pending || []).length) sect('✓ Not delivered yet', d.pending);
+    }).catch(function (e) { dlg.body.textContent = e.message; });
   }
 
   function redraw() {
@@ -1019,13 +1233,15 @@
       } else if (m.deleted) {
         b.appendChild(el('span', 'jc-del', '🚫 This message was deleted'));
       } else {
+        if (m.forwarded) b.appendChild(el('div', 'jc-fwd', '↪ Forwarded'));
         if (m.reply_to) b.appendChild(quoteEl(m.reply_to));
         if (m.kind === 'link' && m.link) b.appendChild(linkCardEl(m));
         if (m.attachment) b.appendChild(attachmentEl(m));
         else if (m.localFile) b.appendChild(el('div', 'jc-prev', '📎 ' + m.localFile.name + ' · ' + fmtSize(m.localFile.size)));
         if (m.body) appendBody(b, m.body);
       }
-      var meta = el('span', 'jc-meta', (m.edited_at && !m.deleted ? 'edited ' : '') + (m.pending ? '' : fmtTime(m.server_ts)));
+      if (m.reactions && m.reactions.length && !m.deleted) b.appendChild(rxEl(m));
+      var meta = el('span', 'jc-meta', (m.starred ? '★ ' : '') + (m.edited_at && !m.deleted ? 'edited ' : '') + (m.pending ? '' : fmtTime(m.server_ts)));
       if (mine && !adminView && !m.deleted && !m.purged) {
         var tk = tickFor(m);
         var tick = el('span', 'jc-tick' + tk.cls, tk.t);
@@ -1033,7 +1249,7 @@
         meta.appendChild(tick);
       }
       b.appendChild(meta);
-      if (mine && !adminView && !m.deleted && !m.purged && !m.pending && !m.failed) {
+      if (!adminView && !m.deleted && !m.purged && !m.pending && !m.failed && current && current.is_member !== false) {
         var opt = el('button', 'jc-opt', '▾');
         opt.title = 'Message options';
         opt.addEventListener('click', function (e) { e.stopPropagation(); messageMenu(m, b); });
@@ -1569,6 +1785,13 @@
       loaded.forEach(function (x) { if (x.sync_id === ev.message_sync_id) x.task = { status: ev.status, by: ev.by }; });
       if (current && current.sync_id === ev.conversation_sync_id) redraw();
       if (targetBanner && targetBanner.msgId === ev.message_sync_id) targetBanner.update(ev.status, ev.by);
+    } else if (ev.type === 'reaction') {
+      loaded.forEach(function (x) { if (x.sync_id === ev.message_sync_id) x.reactions = ev.reactions; });
+      if (current && current.sync_id === ev.conversation_sync_id) redraw();
+    } else if (ev.type === 'call') {
+      webCall.incoming(ev.call_id, ev.caller);
+    } else if (ev.type === 'call_end') {
+      webCall.remoteEnded(ev.call_id, ev.reason);
     } else if (ev.type === 'receipt') {
       if (current && current.sync_id === ev.conversation_sync_id && !same(ev.username, me)) {
         var ids = {};
@@ -2439,6 +2662,198 @@
     })();
   }
 
+
+  // ---------------- voice calls in the browser (WebRTC audio, same server set-up as the app) ----------------
+  var webCall = (function () {
+    var st = null; // { id, peer, incoming, pc, stream, audio, seq, timer, poll, ui, answeredAt, muted }
+    var ring = null;
+
+    function ui(peer, status, buttons) {
+      if (!st) return;
+      if (!st.ui) { st.ui = el('div', 'jc-call'); document.body.appendChild(st.ui); }
+      var u = st.ui;
+      u.textContent = '';
+      var av = el('div', 'jc-av');
+      var c = convs.filter(function (x) { return !isGroup(x) && same(x.title, peer); })[0];
+      setAvatar(av, peer, c && c.photo_v, false);
+      u.appendChild(av);
+      u.appendChild(el('h2', null, peer));
+      st.statusEl = el('p', null, status);
+      u.appendChild(st.statusEl);
+      var row = el('div', 'jc-cbtns');
+      buttons.forEach(function (b) {
+        var btn = el('button', b[2] || '', b[0]);
+        btn.title = b[1];
+        btn.addEventListener('click', b[3]);
+        row.appendChild(btn);
+      });
+      u.appendChild(row);
+    }
+
+    function startRing() {
+      try {
+        var AC = window.AudioContext || window.webkitAudioContext;
+        var ctx = new AC();
+        var on = true;
+        ring = { ctx: ctx, timer: setInterval(function () {
+          if (!on) return;
+          var o = ctx.createOscillator(), g = ctx.createGain();
+          o.frequency.value = 440; g.gain.value = 0.15;
+          o.connect(g); g.connect(ctx.destination);
+          o.start(); setTimeout(function () { o.stop(); }, 700);
+        }, 1600) };
+      } catch (_e) { ring = null; }
+    }
+    function stopRing() { if (ring) { clearInterval(ring.timer); try { ring.ctx.close(); } catch (_e) { } ring = null; } }
+
+    function controls() {
+      return [
+        [st && st.muted ? '🔇' : '🎤', st && st.muted ? 'Unmute' : 'Mute', st && st.muted ? 'jc-on' : '', function () {
+          st.muted = !st.muted;
+          st.stream.getAudioTracks().forEach(function (t) { t.enabled = !st.muted; });
+          ui(st.peer, st.statusEl.textContent, controls());
+        }],
+        ['📵', 'Hang up', 'jc-red', function () { hangUp(); }]
+      ];
+    }
+
+    function connect(ice) {
+      return navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } }).then(function (stream) {
+        st.stream = stream;
+        var pc = new RTCPeerConnection({ iceServers: ice || [] });
+        st.pc = pc;
+        stream.getTracks().forEach(function (t) { pc.addTrack(t, stream); });
+        st.audio = new Audio();
+        st.audio.autoplay = true;
+        pc.ontrack = function (e) { st.audio.srcObject = e.streams[0]; };
+        pc.onicecandidate = function (e) {
+          if (e.candidate) signal('ice', JSON.stringify({ sdpMid: e.candidate.sdpMid, sdpMLineIndex: e.candidate.sdpMLineIndex, candidate: e.candidate.candidate }));
+        };
+        pc.onconnectionstatechange = function () {
+          if (!st) return;
+          if (pc.connectionState === 'connected' && !st.answeredAt) {
+            st.answeredAt = Date.now();
+            st.timer = setInterval(function () {
+              if (!st) return;
+              var s = Math.floor((Date.now() - st.answeredAt) / 1000);
+              st.statusEl.textContent = Math.floor(s / 60) + ':' + ('0' + (s % 60)).slice(-2);
+            }, 1000);
+          } else if (pc.connectionState === 'failed') { hangUp('Connection lost'); }
+        };
+        return pc;
+      });
+    }
+
+    function signal(kind, data) {
+      if (!st) return Promise.resolve();
+      return api('POST', API + '/calls/' + st.id + '/signal', { kind: kind, data: data }).catch(function () { });
+    }
+
+    var pendingIce = [], remoteSet = false;
+    function poll() {
+      if (!st) return;
+      api('GET', API + '/calls/' + st.id + '/signals?after=' + st.seq).then(function (d) {
+        if (!st) return;
+        var chain = Promise.resolve();
+        (d.signals || []).forEach(function (sg) {
+          st.seq = Math.max(st.seq, sg.seq);
+          chain = chain.then(function () { return onSignal(sg.kind, JSON.parse(sg.data)); }).catch(function () { });
+        });
+        if (['ended', 'declined', 'missed', 'cancelled'].indexOf(d.status) !== -1) { finish(d.status === 'declined' ? 'Declined' : d.status === 'missed' ? 'No answer' : 'Call ended'); return; }
+        if (d.status === 'accepted' && !st.incoming && !st.answeredAt) st.statusEl.textContent = 'Connecting…';
+        st.poll = setTimeout(poll, st.answeredAt ? 2000 : 700);
+      }).catch(function () { if (st) st.poll = setTimeout(poll, 1500); });
+    }
+
+    function onSignal(kind, j) {
+      var pc = st && st.pc;
+      if (!pc) return Promise.resolve();
+      if (kind === 'offer') {
+        return pc.setRemoteDescription({ type: 'offer', sdp: j.sdp }).then(function () {
+          remoteSet = true; pendingIce.splice(0).forEach(function (c) { pc.addIceCandidate(c).catch(function () { }); });
+          return pc.createAnswer();
+        }).then(function (a) { return pc.setLocalDescription(a).then(function () { return signal('answer', JSON.stringify({ type: 'answer', sdp: a.sdp })); }); });
+      }
+      if (kind === 'answer') {
+        return pc.setRemoteDescription({ type: 'answer', sdp: j.sdp }).then(function () {
+          remoteSet = true; pendingIce.splice(0).forEach(function (c) { pc.addIceCandidate(c).catch(function () { }); });
+        });
+      }
+      if (kind === 'ice') {
+        var c = { sdpMid: j.sdpMid, sdpMLineIndex: j.sdpMLineIndex, candidate: j.candidate };
+        if (remoteSet) return pc.addIceCandidate(c).catch(function () { });
+        pendingIce.push(c);
+      }
+      return Promise.resolve();
+    }
+
+    function startCall(peer) {
+      if (st) return;
+      if (!window.RTCPeerConnection || !navigator.mediaDevices) { showErr('This browser cannot make calls.'); return; }
+      st = { peer: peer, incoming: false, seq: 0 };
+      remoteSet = false; pendingIce = [];
+      ui(peer, 'Calling…', [['📵', 'Cancel', 'jc-red', function () { hangUp(); }]]);
+      api('POST', API + '/calls', { to: peer }).then(function (d) {
+        if (!st) return;
+        st.id = d.call.id;
+        return connect(d.ice).then(function (pc) {
+          ui(peer, 'Ringing…', controls());
+          return pc.createOffer({ offerToReceiveAudio: true }).then(function (o) {
+            return pc.setLocalDescription(o).then(function () { return signal('offer', JSON.stringify({ type: 'offer', sdp: o.sdp })); });
+          });
+        }).then(poll);
+      }).catch(function (e) { finish(e.message || 'Call failed'); });
+    }
+
+    function incoming(id, caller) {
+      if (st) return; // already on a call; the server marks it missed after the ring time
+      st = { id: id, peer: caller, incoming: true, seq: 0 };
+      remoteSet = false; pendingIce = [];
+      startRing();
+      if (document.hidden && window.Notification && Notification.permission === 'granted') {
+        try { new Notification(caller, { body: 'Incoming voice call · JMS Chat', tag: 'jms-call' }); } catch (_e) { }
+      }
+      ui(caller, 'Incoming voice call', [
+        ['📵', 'Decline', 'jc-red', function () { api('POST', API + '/calls/' + id + '/decline', {}).catch(function () { }); finish('Declined'); }],
+        ['📞', 'Answer', 'jc-green', function () { answer(); }]
+      ]);
+    }
+
+    function answer() {
+      stopRing();
+      if (!st) return;
+      ui(st.peer, 'Connecting…', controls());
+      api('POST', API + '/calls/' + st.id + '/accept', {}).then(function (d) {
+        return connect(d.ice).then(poll);
+      }).catch(function (e) { finish(e.message || 'The call has ended.'); });
+    }
+
+    function hangUp(msg) {
+      if (st && st.id) api('POST', API + '/calls/' + st.id + '/end', {}).catch(function () { });
+      finish(msg || 'Call ended');
+    }
+
+    function remoteEnded(id, reason) {
+      if (!st || st.id !== id) return;
+      finish(reason === 'declined' ? 'Declined' : reason === 'missed' ? 'No answer' : 'Call ended');
+    }
+
+    function finish(msg) {
+      stopRing();
+      if (!st) return;
+      clearTimeout(st.poll); clearInterval(st.timer);
+      try { if (st.pc) st.pc.close(); } catch (_e) { }
+      if (st.stream) st.stream.getTracks().forEach(function (t) { t.stop(); });
+      if (st.audio) st.audio.srcObject = null;
+      var u = st.ui;
+      if (u && st.statusEl) { st.statusEl.textContent = msg; u.querySelector('.jc-cbtns').textContent = ''; }
+      st = null;
+      setTimeout(function () { if (u) u.remove(); }, 1500);
+      if (current) loadMessages(false);
+    }
+
+    return { start: startCall, incoming: incoming, remoteEnded: remoteEnded };
+  }());
 
   function start() {
     api('GET', API + '/me').then(function (d) {
