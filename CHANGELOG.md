@@ -13,6 +13,9 @@ part of your PR. On release, the `[Unreleased]` items move under the new version
 
 ## [Unreleased]
 
+### Added
+- JMS Chat for Mac: new mac_chat/ - a native SwiftUI macOS app (macOS 13+, universal Apple silicon + Intel), the twin of android_chat/. Same chat-only sign-in and Bearer token (kept in the Keychain), chat list with unread / pin / archive / mute / filters, conversations with ticks, replies, reactions, star, forward, info, edit / delete, typing, last seen, live updates over /api/chat/stream, photos and files by 📎 / drag and drop / paste (max 10 MB), link cards with work status, new chat / group, group admin, profile photo and About, starred messages, macOS notifications with Reply / Mark as read and a Dock unread badge. Built into an ad-hoc signed .dmg by .github/workflows/mac-chat-app.yml (macOS runner). No server changes; voice calls stay Android-only for now.
+
 ### Fixed
 - Deploy (v1.136.3): the 21-Oct production deploy stopped with "no running db container found" because the FCM_SERVICE_ACCOUNT secret was the raw (multi-line) Firebase JSON, which broke .env so docker compose could not read it. scripts/vps-safe-deploy.sh now normalises the push keys before writing .env (normalize_push_keys): raw JSON is base64-encoded (chatFcm.js reads JSON or base64), wrapped base64 is joined, a lone "{" left in a broken .env is dropped with a warning, and VAPID keys lose line breaks. Rollback: revert the script; set the secret as one-line base64.
 
