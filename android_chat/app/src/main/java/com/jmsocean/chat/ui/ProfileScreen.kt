@@ -144,6 +144,8 @@ fun ProfileScreen(onBack: () -> Unit, onSignOut: () -> Unit) {
             if (sub.isNotEmpty()) InfoRow(Icons.Default.Info, "Role", sub, null)
             Spacer(Modifier.height(8.dp))
             NotificationsSection()
+            Spacer(Modifier.height(8.dp))
+            AppLockSection()
             Spacer(Modifier.height(16.dp))
             Row(
                 Modifier.fillMaxWidth().clickable(onClick = onSignOut).padding(horizontal = 24.dp, vertical = 16.dp),

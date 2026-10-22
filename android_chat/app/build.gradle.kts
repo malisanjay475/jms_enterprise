@@ -21,7 +21,7 @@ android {
         // versionCode is set by CI (APP_VERSION_CODE = 1000 + run number) so it always
         // increases and phones auto-update. Local builds fall back to 1.
         versionCode = System.getenv("APP_VERSION_CODE")?.toIntOrNull() ?: 1
-        versionName = "2.7.0"
+        versionName = "2.8.0"
 
         // JMS Chat always talks to the MAIN server: everyone signs in there with the
         // chat-only login (/api/chat-app/login), from anywhere, no geofence.
@@ -87,6 +87,8 @@ dependencies {
 
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.core:core-splashscreen:1.0.1")
+    // App lock: fingerprint unlock
+    implementation("androidx.biometric:biometric:1.1.0")
     implementation("androidx.activity:activity-compose:1.9.2")
     // Firebase brings an old Fragment in; activity-result APIs need >= 1.3.0 (lint).
     implementation("androidx.fragment:fragment-ktx:1.8.4")
