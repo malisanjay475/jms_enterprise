@@ -472,11 +472,14 @@ private fun Bubble(
                     when {
                         m.deleted || m.purged -> Text(if (m.purged) "This message was removed" else "🚫 This message was deleted",
                             fontStyle = FontStyle.Italic, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        att != null && att.kind == "image" -> AsyncImage(
-                            model = authImage(ctx, att.sync_id), contentDescription = att.file_name, contentScale = ContentScale.Crop,
-                            modifier = Modifier.padding(vertical = 2.dp).size(240.dp).clip(RoundedCornerShape(8.dp)).clickable { onImage(att.sync_id) }
-                        )
-                        att != null && att.kind == "audio" -> VoiceNote(att.sync_id)
+                        att != null && att.kind == "image" -> Column {
+                            AsyncImage(
+                                model = authImage(ctx, att.sync_id), contentDescription = att.file_name, contentScale = ContentScale.Crop,
+                                modifier = Modifier.padding(vertical = 2.dp).size(240.dp).clip(RoundedCornerShape(8.dp)).clickable { onImage(att.sync_id) }
+                            )
+                            DownloadLink(att)
+                        }
+                        att != null && att.kind == "audio" -> Column { VoiceNote(att.sync_id); DownloadLink(att) }
                         att != null && att.kind == "video" -> VideoTile(att) { onImage("video:" + att.sync_id) }
                         att != null -> Row(
                             Modifier.padding(vertical = 2.dp).clip(RoundedCornerShape(8.dp)).background(Color.Black.copy(alpha = 0.05f))
@@ -521,7 +524,7 @@ private fun Bubble(
                     Toast.makeText(ctx, "Copied", Toast.LENGTH_SHORT).show()
                 })
                 if (canEdit) DropdownMenuItem(text = { Text("Edit") }, onClick = { menu = false; onEdit() })
-                if (mine && !m.deleted && !m.pending && !m.failed) DropdownMenuItem(
+                if ((mine || Session.isSuperadmin) && !m.deleted && !m.pending && !m.failed) DropdownMenuItem(
                     text = { Text("Delete for everyone", color = MaterialTheme.colorScheme.error) },
                     onClick = { menu = false; confirmDelete = true }
                 )
@@ -744,7 +747,17 @@ private fun authImage(ctx: Context, attachmentId: String) =
         .crossfade(true)
         .build()
 
-private fun download(ctx: Context, attachmentId: String, name: String, mime: String) {
+/** "⬇ Download (1.2 MB)" under a photo / video / voice note: saves it to Downloads. */
+@Composable
+fun DownloadLink(att: com.jmsocean.chat.data.Attachment) {
+    val ctx = LocalContext.current
+    Text(
+        "⬇ Download · ${fileSize(att.size)}", fontSize = 12.sp, color = Color(0xFF027EB5),
+        modifier = Modifier.clickable { download(ctx, att.sync_id, att.file_name, att.mime) }.padding(vertical = 4.dp)
+    )
+}
+
+fun download(ctx: Context, attachmentId: String, name: String, mime: String) {
     runCatching {
         val req = DownloadManager.Request(Uri.parse(Api.fileUrl(attachmentId)))
             .addRequestHeader("Authorization", "Bearer ${Session.token}")

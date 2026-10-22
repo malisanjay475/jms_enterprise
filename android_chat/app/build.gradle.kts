@@ -21,7 +21,7 @@ android {
         // versionCode is set by CI (APP_VERSION_CODE = 1000 + run number) so it always
         // increases and phones auto-update. Local builds fall back to 1.
         versionCode = System.getenv("APP_VERSION_CODE")?.toIntOrNull() ?: 1
-        versionName = "2.6.0"
+        versionName = "2.7.0"
 
         // JMS Chat always talks to the MAIN server: everyone signs in there with the
         // chat-only login (/api/chat-app/login), from anywhere, no geofence.

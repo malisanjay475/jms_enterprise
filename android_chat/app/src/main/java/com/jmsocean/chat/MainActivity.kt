@@ -58,7 +58,10 @@ class MainActivity : ComponentActivity() {
             ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
         ) askNotify.launch(Manifest.permission.POST_NOTIFICATIONS)
 
-        if (Session.signedIn) lifecycleScope.launch { Push.register() }
+        if (Session.signedIn) lifecycleScope.launch {
+            Push.register()
+            runCatching { Api.me() }.onSuccess { Session.isSuperadmin = it.isSuperadmin }
+        }
 
         setContent {
             JmsChatTheme {
@@ -88,7 +91,10 @@ class MainActivity : ComponentActivity() {
                     composable("login") {
                         LoginScreen(onSignedIn = {
                             Live.start()
-                            scope.launch { Push.register() }
+                            scope.launch {
+                                Push.register()
+                                runCatching { Api.me() }.onSuccess { Session.isSuperadmin = it.isSuperadmin }
+                            }
                             nav.navigate("list") { popUpTo(0) }
                         })
                     }

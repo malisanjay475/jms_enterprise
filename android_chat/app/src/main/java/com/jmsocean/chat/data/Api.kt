@@ -202,6 +202,9 @@ object Api {
     suspend fun removeMember(convId: String, user: String) {
         call("DELETE", "/api/chat/groups/$convId/members/" + java.net.URLEncoder.encode(user, "UTF-8"))
     }
+    suspend fun setGroupAdmin(convId: String, user: String, admin: Boolean) {
+        call("POST", "/api/chat/groups/$convId/members/" + java.net.URLEncoder.encode(user, "UTF-8") + "/admin", jsonBody("admin" to admin))
+    }
     suspend fun leaveGroup(convId: String) { call("POST", "/api/chat/groups/$convId/leave", "{}".toRequestBody(JSON)) }
 
     // ---- shared JMS work (link cards) ----

@@ -108,7 +108,8 @@ fun InfoScreen(convId: String, onBack: () -> Unit, onMessage: (String) -> Unit, 
                 if (sub.isNotEmpty()) InfoRow(Icons.Default.Info, "Role", sub, null)
             }
             if (group) {
-                val iAmAdmin = members.any { Session.isMe(it.username) && it.role == "admin" }
+                // group admins, and superadmins in every group
+                val iAmAdmin = Session.isSuperadmin || members.any { Session.isMe(it.username) && it.role == "admin" }
                 if (iAmAdmin) item {
                     InfoRow(androidx.compose.material.icons.Icons.Default.Edit, "Group name", title) { renaming = true }
                     Row(
@@ -144,6 +145,15 @@ fun InfoScreen(convId: String, onBack: () -> Unit, onMessage: (String) -> Unit, 
                         androidx.compose.material3.DropdownMenu(expanded = memberMenu == m.username, onDismissRequest = { memberMenu = null }) {
                             androidx.compose.material3.DropdownMenuItem(text = { Text("Message ${m.username}") },
                                 onClick = { memberMenu = null; onMessage(m.username) })
+                            if (iAmAdmin) androidx.compose.material3.DropdownMenuItem(
+                                text = { Text(if (m.role == "admin") "Remove as group admin" else "Make group admin") },
+                                onClick = {
+                                    memberMenu = null
+                                    val makeAdmin = m.role != "admin"
+                                    act(if (makeAdmin) "${m.username} is now a group admin" else "${m.username} is no longer admin") {
+                                        Api.setGroupAdmin(convId, m.username, makeAdmin)
+                                    }
+                                })
                             if (iAmAdmin) androidx.compose.material3.DropdownMenuItem(
                                 text = { Text("Remove ${m.username}", color = MaterialTheme.colorScheme.error) },
                                 onClick = { memberMenu = null; act("Removed ${m.username}") { Api.removeMember(convId, m.username) } })
