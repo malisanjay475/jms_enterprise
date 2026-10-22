@@ -190,6 +190,8 @@ object Api {
 
     suspend fun callSignals(id: String, after: Long): CallSignalsReply = get("/api/chat/calls/$id/signals?after=$after")
 
+    suspend fun callLog(): List<CallInfo> = get<CallLogReply>("/api/chat/calls").calls
+
     // ---- pin / archive ----
     suspend fun pin(convId: String, on: Boolean) { call("POST", "/api/chat/conversations/$convId/pin", jsonBody("on" to on)) }
     suspend fun archive(convId: String, on: Boolean) { call("POST", "/api/chat/conversations/$convId/archive", jsonBody("on" to on)) }
