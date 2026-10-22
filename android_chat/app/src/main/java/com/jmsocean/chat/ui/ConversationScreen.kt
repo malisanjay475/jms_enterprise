@@ -44,6 +44,10 @@ import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
 import androidx.compose.material.icons.automirrored.filled.Reply
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.AttachFile
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.ui.text.withLink
+import androidx.compose.foundation.layout.offset
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Check
@@ -191,9 +195,14 @@ fun ConversationScreen(convId: String, onBack: () -> Unit, onInfo: () -> Unit, v
     val listState = rememberLazyListState()
     val atTop by remember { derivedStateOf { listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index?.let { it >= reversed.size - 3 } ?: false } }
     LaunchedEffect(atTop, reversed.size) { if (atTop && reversed.isNotEmpty()) vm.loadOlder() }
+    var unseen by remember { mutableStateOf(0) }
+    val scrolledUp by remember { derivedStateOf { listState.firstVisibleItemIndex > 2 } }
     LaunchedEffect(messages.lastOrNull()?.sync_id) {
-        if (listState.firstVisibleItemIndex <= 2) listState.animateScrollToItem(0)
+        val last = messages.lastOrNull()
+        if (!scrolledUp || (last != null && Session.isMe(last.sender))) { listState.animateScrollToItem(0); unseen = 0 }
+        else if (last != null) unseen++
     }
+    LaunchedEffect(scrolledUp) { if (!scrolledUp) unseen = 0 }
 
     Scaffold(
         topBar = {
@@ -299,6 +308,20 @@ fun ConversationScreen(convId: String, onBack: () -> Unit, onInfo: () -> Unit, v
                     }
                     if (older) item { Box(Modifier.fillMaxWidth().padding(8.dp), Alignment.Center) { CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp) } }
                 }
+                if (scrolledUp) Box(Modifier.align(Alignment.BottomEnd).padding(12.dp)) {
+                    Surface(
+                        shape = CircleShape, color = MaterialTheme.colorScheme.surface, shadowElevation = 4.dp,
+                        modifier = Modifier.size(44.dp).clickable { uiScope.launch { listState.animateScrollToItem(0) } }
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(Icons.Default.KeyboardArrowDown, "Latest messages", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                    if (unseen > 0) Box(
+                        Modifier.align(Alignment.TopStart).size(20.dp).clip(CircleShape).background(Color(0xFF25D366)),
+                        contentAlignment = Alignment.Center
+                    ) { Text(if (unseen > 9) "9+" else "$unseen", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold) }
+                }
             }
             Composer(
                 text = text,
@@ -397,11 +420,27 @@ private fun Bubble(
         topStart = if (!mine && firstOfRun) 2.dp else 10.dp, topEnd = if (mine && firstOfRun) 2.dp else 10.dp,
         bottomStart = 10.dp, bottomEnd = 10.dp
     )
-    Column(Modifier.fillMaxWidth()) {
+    var dragX by remember { mutableStateOf(0f) }
+    val swipe = Modifier.pointerInput(m.sync_id) {
+        if (m.deleted || m.pending || m.failed || m.kind == "system") return@pointerInput
+        detectHorizontalDragGestures(
+            onDragEnd = { if (dragX > 140f) onReply(); dragX = 0f },
+            onDragCancel = { dragX = 0f }
+        ) { change, amount ->
+            val next = (dragX + amount).coerceIn(0f, 220f)
+            if (next != dragX) change.consume()
+            dragX = next
+        }
+    }
+    Column(Modifier.fillMaxWidth().then(swipe)) {
     Row(
-        Modifier.fillMaxWidth().padding(top = if (firstOfRun) 6.dp else 2.dp),
+        Modifier.fillMaxWidth().padding(top = if (firstOfRun) 6.dp else 2.dp)
+            .offset { androidx.compose.ui.unit.IntOffset(dragX.toInt() / 2, 0) },
         horizontalArrangement = if (mine) Arrangement.End else Arrangement.Start
     ) {
+        if (dragX > 40f) Icon(Icons.AutoMirrored.Filled.Reply, "Reply",
+            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = (dragX / 140f).coerceAtMost(1f)),
+            modifier = Modifier.align(Alignment.CenterVertically).padding(end = 6.dp))
         Box {
             Surface(
                 shape = shape, color = bg, shadowElevation = 1.dp,
@@ -455,7 +494,7 @@ private fun Bubble(
                     }
                     val hideBody = (att?.kind == "audio" && m.body.startsWith("🎤")) || (att?.kind == "video" && m.body.startsWith("🎥"))
                     if (!(m.deleted || m.purged) && m.body.isNotBlank() && !hideBody) {
-                        Text(m.body, fontSize = 15.sp)
+                        Text(linkify(m.body), fontSize = 15.sp)
                     }
                     Row(Modifier.align(Alignment.End), verticalAlignment = Alignment.CenterVertically) {
                         if (m.starred) Text("★ ", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -717,3 +756,27 @@ private fun download(ctx: Context, attachmentId: String, name: String, mime: Str
         Toast.makeText(ctx, "Downloading $name", Toast.LENGTH_SHORT).show()
     }.onFailure { Toast.makeText(ctx, "Download failed: ${it.message}", Toast.LENGTH_LONG).show() }
 }
+
+private val LINK_RE = Regex("""(https?://[^\s]+)|(www\.[^\s]+)|(\+?\d[\d -]{8,}\d)""")
+
+/** Web links open in the browser, phone numbers open the dialler (like WhatsApp). */
+private fun linkify(text: String): androidx.compose.ui.text.AnnotatedString =
+    androidx.compose.ui.text.buildAnnotatedString {
+        var at = 0
+        val style = androidx.compose.ui.text.TextLinkStyles(
+            androidx.compose.ui.text.SpanStyle(color = Color(0xFF027EB5), textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline)
+        )
+        for (m in LINK_RE.findAll(text)) {
+            append(text.substring(at, m.range.first))
+            val raw = m.value.trimEnd('.', ',', ')', ';', ':')
+            val url = when {
+                m.groups[3] != null -> "tel:" + raw.filter { it.isDigit() || it == '+' }
+                raw.startsWith("www.") -> "https://$raw"
+                else -> raw
+            }
+            withLink(androidx.compose.ui.text.LinkAnnotation.Url(url, style)) { append(raw) }
+            append(m.value.substring(raw.length))
+            at = m.range.last + 1
+        }
+        append(text.substring(at))
+    }
