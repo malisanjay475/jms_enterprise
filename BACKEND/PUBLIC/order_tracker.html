@@ -392,6 +392,11 @@
         .tl-det th { background: var(--grey-bg); border: 1px solid var(--line); font-size: 11px; padding: 6px; text-align: left; }
         .tl-det td { border: 1px solid var(--line2); padding: 6px; text-align: left; white-space: nowrap; }
         .tl-det td.r { text-align: right; }
+        .tl-det tr.ln td { background: var(--grey-bg); color: var(--ink2); font-size: 11px; padding: 3px 6px; border-color: var(--line2); }
+        .tl-det tr.ln td:first-child { padding-left: 22px; }
+        .tl-det tr.nc td { color: var(--mute); }
+        .tl-det .tl-sec { margin: 12px 0 6px; }
+        .tl-det .tl-sec:first-child { margin-top: 0; }
         .lg { display: inline-flex; align-items: center; gap: 5px; margin-right: 14px; font-size: 12px; color: var(--mute); }
         .lg i { width: 11px; height: 11px; border-radius: 3px; display: inline-block; }
         .tl th .qi { color: var(--blue); font-size: 10px; margin-left: 3px; cursor: help; }
@@ -1108,7 +1113,8 @@
             function verdictChip(r) {
                 if (r.tonnage == null) return '<span class="vchip none"><i class="bi bi-question-circle"></i>Add tonnage</span>';
                 if (r.shortage_machines > 0) return `<span class="vchip short"><i class="bi bi-arrow-up-circle-fill"></i>Short ${f2(r.shortage_machines)} m/c</span>`;
-                if (r.booked_pct >= 85) return '<span class="vchip tight"><i class="bi bi-exclamation-circle-fill"></i>Almost full</span>';
+                if (r.mould_limited_hours > 0) return `<span class="vchip short" title="Some moulds cannot finish by the date even on a machine of their own"><i class="bi bi-exclamation-octagon-fill"></i>${r.mould_limits.length} mould${r.mould_limits.length === 1 ? '' : 's'} late</span>`;
+                if (r.machine_count && r.machines_needed / r.machine_count >= 0.85) return '<span class="vchip tight"><i class="bi bi-exclamation-circle-fill"></i>Almost full</span>';
                 if (!r.load_hours) return '<span class="vchip none"><i class="bi bi-dash-circle"></i>No load</span>';
                 return `<span class="vchip ok"><i class="bi bi-check-circle-fill"></i>${f2(r.excess_machines)} m/c spare</span>`;
             }
@@ -1121,12 +1127,12 @@
                 ['Available hrs', '', 'Machine hours this tonnage can give between now and the "Plan until" date.', 'Machines × 24 × days left × efficiency %'],
                 ['Available days', '', 'The same capacity in machine days.', 'Machines × days left × efficiency %'],
                 ['Machines with us', '', 'Active moulding machines of this tonnage in the machine master, with how many are running or idle right now.', 'Count from Masters → Machines'],
-                ['Machines needed', '', 'How many machines of this tonnage we would need running full time to finish the load by the date.', 'Hrs required ÷ (24 × days left × efficiency %)'],
+                ['Machines needed', '', 'How many machines of this tonnage we would need running full time to finish the load by the date. Hours of a mould past what that one mould can run by the date (red "mould limit") are left out: more machines would not help them.', '(Hrs required − mould limit hrs) ÷ (24 × days left × efficiency %)'],
                 ['Machine shortage numbers', 'red', 'Extra machines we would need. Red means this tonnage cannot finish its load in time.', 'Machines needed − machines with us'],
-                ['Machine shortage days', 'red', 'Machine days of work that will not fit before the date.', 'Days required − available days'],
+                ['Machine shortage days', 'red', 'Machine days of work that will not fit before the date.', '(Hrs required − mould limit hrs) ÷ 24 − available days'],
                 ['Capacity booked', '', 'How full this tonnage is. Over 100% = overloaded, 85–100% = almost full, under 85% = room to spare.', 'Hrs required ÷ available hrs'],
                 ['Machine excess numbers', 'green', 'Machines of this tonnage that are spare and can take more work.', 'Machines with us − machines needed'],
-                ['Machine excess days', 'green', 'Spare machine days available before the date.', 'Available days − days required']
+                ['Machine excess days', 'green', 'Spare machine days available before the date.', 'Available days − (hrs required − mould limit hrs) ÷ 24']
             ];
             function guideHtml(r) {
                 const ex = r ? [
@@ -1136,6 +1142,8 @@
                 return `<summary><i class="bi bi-book" style="color:var(--blue)"></i> What does each column mean?<span class="muted small" style="font-weight:600;margin-left:auto">click to ${$('tguide').open ? 'close' : 'open'}</span></summary>
                     <table class="gtab"><tbody>${TCOLS.map((c, i) => `<tr><td>${c[0]}</td><td>${c[2]}</td><td class="f">${c[3]}</td><td class="ex">${r ? 'e.g. ' + esc(tonName(r.tonnage)) + ': ' + esc(ex[i]) : ''}</td></tr>`).join('')}
                     <tr><td>Not planned yet</td><td colspan="3">Moulds of open orders that are <b>not on any machine</b> on the plan board — no running plan and no queued plan. Their hours still count as load; Planning has to put them on a machine.</td></tr>
+                    <tr><td>Mould limit</td><td colspan="3">One mould runs on one machine at a time (more only when it is running on more machines now, i.e. there are copies). When the hours one mould still needs are more than the hours left until the date, the extra hours are a <b>mould limit</b>: the mould cannot finish in time however many machines we have. Open a row to see these moulds.</td></tr>
+                    <tr><td>Which orders</td><td colspan="3">Every open order: pending in the order master, a JR row the ERP has not closed, or a plan on the plan board. No date window and no limit. Moulds already complete and orders the ERP has closed are listed in the row (grey, "Show complete") but not counted. An order with no ERP mould BOM and no plan takes its moulds from the mould master by item code.</td></tr>
                     <tr><td>No tonnage</td><td colspan="3">Moulds with no tonnage in the mould master or ERP that never ran on a machine. They cannot be placed in a row, so they are shown apart and not in the total. Fill the tonnage in Masters → Moulds.</td></tr>
                     </tbody></table>`;
             }
@@ -1187,10 +1195,11 @@
                 const cell = (on, cls, v) => on ? `<td class="${cls}">${f2(v)}</td>` : '<td class="dash">-</td>';
                 return `<tr class="cls ${open ? 'open' : ''}" data-ton="${tonKey(r)}">
                     <td class="ton"><i class="bi bi-chevron-${open ? 'down' : 'right'} muted small"></i> ${tonName(r.tonnage)}
-                        <div class="muted small" style="font-weight:600">${r.orders} orders · ${r.moulds} moulds</div>${verdictChip(r)}</td>
+                        <div class="muted small" style="font-weight:600">${r.orders} orders · ${r.moulds} moulds${r.done_moulds ? ` · ${r.done_moulds} done` : ''}</div>${verdictChip(r)}</td>
                     <td>${f2(r.load_hours)}
                         <div class="split" title="Running ${f2(r.running_hours)} h · Queued ${f2(r.queued_hours)} h · Not planned yet ${f2(r.unplanned_hours)} h">
-                            <i style="width:${r.running_hours / L * 100}%;background:var(--blue)"></i><i style="width:${r.queued_hours / L * 100}%;background:var(--amber)"></i><i style="width:${r.unplanned_hours / L * 100}%;background:#94a3b8"></i></div></td>
+                            <i style="width:${r.running_hours / L * 100}%;background:var(--blue)"></i><i style="width:${r.queued_hours / L * 100}%;background:var(--amber)"></i><i style="width:${r.unplanned_hours / L * 100}%;background:#94a3b8"></i></div>
+                        ${r.mould_limited_hours ? `<div class="small" style="color:var(--red);font-weight:700" title="Hours of moulds that cannot finish by the date even on a machine of their own - not counted in Machines needed">${f2(r.mould_limited_hours)} h mould limit</div>` : ''}</td>
                     <td>${f2(r.load_days)}</td>
                     <td>${n0(r.avail_hours)}</td>
                     <td>${f2(r.avail_days)}</td>
@@ -1201,27 +1210,68 @@
                     ${cell(excessN, 'excess', r.excess_machines)}${cell(excessN, 'excess', r.excess_days)}
                 </tr>${open ? `<tr class="det"><td colspan="12">${tonDetail(r)}</td></tr>` : ''}`;
             }
+            const ISTAT = { COMPLETE: ['COMPLETE', 'Complete'], ERP_CLOSED: ['COMPLETE', 'Closed in ERP'], RUNNING: ['RUNNING', 'Running'], PLANNED: ['QUEUED', 'Planned'], PAUSED: ['PAUSED', 'Paused'], NOT_PLANNED: ['NOT_PLANNED', 'Not planned yet'] };
+            const iStat = i => { const s = ISTAT[i.status] || [i.status, i.status]; return `<span class="pill s-${esc(s[0])}" ${i.erp_state ? `title="${esc(i.erp_state)}"` : ''}>${esc(s[1])}</span>`; };
+            /* each machine of the tonnage: what it runs, its queue, booked and free hours till the date */
+            function machinesHtml(r) {
+                if (!r.machine_rows || !r.machine_rows.length) return '';
+                return `<div class="tl-sec"><b>Machines of ${esc(tonName(r.tonnage))}</b> <span class="muted small">booked = hours of running + queued plans · free = hours left till the date</span></div>
+                    <table><thead><tr><th>Machine</th><th>State</th><th>Running now</th><th class="r">Queued jobs</th><th class="r">Booked h</th><th class="r">Available h</th><th class="r">Free h</th><th>Booked</th><th>Free from</th></tr></thead><tbody>
+                    ${r.machine_rows.map(m => `<tr>
+                        <td class="b">${esc(m.machine)}${m.line ? ` <span class="muted small">${esc(m.line)}</span>` : ''}</td>
+                        <td>${pill(m.state)}</td>
+                        <td style="white-space:normal">${m.running.map(j => `<a class="lnk" data-order="${esc(j.order_no)}">${esc(j.order_no)}</a> · ${esc(short(j.mould_name))}${j.hours_left != null ? ` <span class="muted small">${hrs(j.hours_left)} left</span>` : ''}`).join('<br>') || '<span class="muted">—</span>'}</td>
+                        <td class="r">${m.queue_count || '—'}</td>
+                        <td class="r">${f2(m.booked_hours)}${m.no_rate ? ` <span class="muted small" title="${m.no_rate} job(s) with no rate">+?</span>` : ''}</td>
+                        <td class="r">${n0(m.avail_hours)}</td>
+                        <td class="r b" style="color:${m.free_hours > 0 ? 'var(--green)' : 'var(--red)'}">${f2(m.free_hours)}</td>
+                        <td><div class="bk"><b style="color:${bookTone(m.booked_pct)}">${m.booked_pct == null ? '—' : m.booked_pct + '%'}</b><span class="bar"><i style="width:${Math.min(100, m.booked_pct || 0)}%;background:${bookTone(m.booked_pct)}"></i></span></div></td>
+                        <td>${m.free_at ? fd(m.free_at, true) : '<span style="color:var(--green);font-weight:700">Free now</span>'}</td></tr>`).join('')}
+                    </tbody></table>`;
+            }
+            /* moulds that cannot finish by the date even on a machine of their own */
+            function limitsHtml(r) {
+                if (!r.mould_limits || !r.mould_limits.length) return '';
+                return `<div class="note a" style="margin:10px 0"><i class="bi bi-exclamation-triangle-fill"></i><div><b>${r.mould_limits.length} mould${r.mould_limits.length === 1 ? '' : 's'} cannot finish by the date on their own</b> - one mould runs on one machine at a time, so more machines will not help. These ${f2(r.mould_limited_hours)} h are left out of "Machines needed".
+                    <table style="margin-top:6px"><thead><tr><th>Mould</th><th class="r">Orders</th><th class="r">Copies</th><th class="r">Hours needed</th><th class="r">Hours it can run</th><th class="r">Past the date</th></tr></thead><tbody>
+                    ${r.mould_limits.map(g => `<tr><td>${esc(short(g.mould_name))} <span class="muted small">${esc(g.mould_no)}</span></td><td class="r">${g.orders}</td><td class="r">${g.copies}</td><td class="r">${f2(g.hours)}</td><td class="r">${f2(g.cap_hours)}</td><td class="r b" style="color:var(--red)">${f2(g.extra_hours)} h · ${f2(g.extra_days)} days</td></tr>`).join('')}
+                    </tbody></table></div></div>`;
+            }
+            /* job card / plan / colour lines under one mould */
+            const linesHtml = i => (i.lines || []).filter(l => l.plan_id || l.jc_no).map(l => `<tr class="ln">
+                <td colspan="2">${l.jc_no ? `JC ${esc(l.jc_no)}${l.jc_date ? ` <span class="muted">${fd(l.jc_date)}</span>` : ''}` : ''}</td>
+                <td colspan="2">${l.plan_id ? `${esc(l.plan_id)}${l.plan_date ? ` <span class="muted">${fd(l.plan_date)}</span>` : ''}${l.machine ? ` · ${esc(l.machine)}` : ''}` : '<span class="muted">no plan</span>'}</td>
+                <td>${esc(l.colour || '')}</td>
+                <td class="r">${l.plan_qty == null ? '' : n0(l.plan_qty)}</td><td class="r">${n0(l.produced)}</td><td class="r">${n0(l.balance)}</td>
+                <td colspan="3">${l.plan_id ? `${fd(l.plan_start, true)} → ${fd(l.plan_end, true)} · exp. ${fd(l.plan_exp, true)}` : ''}</td>
+                <td>${l.plan_id && l.status ? esc(LABEL[l.status] || l.status) : ''}</td></tr>`).join('');
             function tonDetail(r) {
-                if (!r.items.length) return '<div class="tl-det muted">No open load on this tonnage.</div>';
-                const where = i => i.status === 'RUNNING' ? `<span class="pill s-RUNNING">On ${esc(i.machines.join(', '))}</span>`
+                const live = r.items.filter(i => i.counted), done = r.items.filter(i => !i.counted);
+                const showDone = (S.tonDone || (S.tonDone = new Set())).has(tonKey(r));
+                const where = i => !i.counted ? '' : i.status === 'RUNNING' ? `<span class="pill s-RUNNING">On ${esc(i.machines.join(', '))}</span>`
                     : i.queue ? `<span class="pill s-QUEUED">Queued #${i.queue.position} on ${esc(i.queue.machine)}</span>` : '<span class="pill s-NOT_PLANNED" title="No plan on any machine yet - Planning must put it on the plan board">Not planned yet</span>';
-                const late = i => i.target_date && day(i.target_date) < todayStr();
-                return `<div class="tl-det">
-                    <div class="muted small" style="margin-bottom:8px"><b>Machines:</b> ${r.machines.map(m => `<span class="mc">${esc(m)}</span>`).join('') || '—'}</div>
-                    <table><thead><tr><th>Order</th><th>Client / product</th><th>Mould</th><th>Mould T</th><th>Target</th><th class="r">Balance pcs</th><th class="r">Rate /h</th><th class="r">Hours</th><th class="r">Days</th><th>Where</th><th>Start</th></tr></thead><tbody>
-                    ${r.items.map(i => `<tr>
-                        <td><a class="lnk" data-order="${esc(i.order_no)}">${esc(i.order_no)}</a></td>
+                const late = i => i.counted && i.target_date && day(i.target_date) < todayStr();
+                const row = i => `<tr class="${i.counted ? '' : 'nc'}">
+                        <td><a class="lnk" data-order="${esc(i.order_no)}">${esc(i.order_no)}</a><div class="muted small">${fd(i.order_date)}</div></td>
                         <td>${esc(short(i.client_name))}<div class="muted small">${esc(short(i.product_name))}</div></td>
-                        <td>${esc(short(i.mould_name))}</td>
+                        <td>${esc(short(i.mould_name))}<div class="muted small">${esc(i.mould_no)}${i.mould_source === 'item code' ? ' · <b title="No ERP mould BOM and no plan: mould matched by item code">by item code</b>' : ''}${i.mould_limited ? ' · <b style="color:var(--red)">mould limit</b>' : ''}</div></td>
                         <td>${i.mould_tonnage ? i.mould_tonnage + ' T' : '—'}<div class="muted small">${esc(i.tonnage_source || '')}${i.oversize ? ' · <b style="color:var(--red)">bigger than any machine</b>' : ''}</div></td>
                         <td ${late(i) ? 'style="color:var(--red);font-weight:700"' : ''}>${fd(i.target_date)}</td>
+                        <td class="r">${n0(i.required)}</td><td class="r">${n0(i.produced)}</td>
                         <td class="r">${n0(i.balance)}</td>
                         <td class="r">${i.rate_pph ? n0(i.rate_pph) : '<span style="color:var(--red)">no rate</span>'}</td>
-                        <td class="r b">${i.hours == null ? '—' : f2(i.hours)}</td>
-                        <td class="r">${i.hours == null ? '—' : f2(i.hours / 24)}</td>
-                        <td>${where(i)}</td>
-                        <td>${stHtml(i)}</td></tr>`).join('')}
-                    </tbody></table></div>`;
+                        <td class="r b">${!i.counted ? '<span class="muted" title="Not counted in the load">0</span>' : i.hours == null ? '—' : f2(i.hours)}</td>
+                        <td>${i.counted && i.status !== 'PAUSED' ? where(i) : iStat(i)}</td>
+                        <td>${i.counted ? stHtml(i) : ''}</td></tr>${linesHtml(i)}`;
+                return `<div class="tl-det">
+                    ${machinesHtml(r)}
+                    ${limitsHtml(r)}
+                    <div class="tl-sec"><b>Orders and moulds</b> <span class="muted small">${live.length} in the load${done.length ? ` · ${done.length} complete or closed in ERP (not counted)` : ''} · grey lines = job card / plan / colour</span></div>
+                    ${r.items.length ? `<table><thead><tr><th>Order / date</th><th>Client / product</th><th>Mould</th><th>Mould T</th><th>Target</th><th class="r">Required</th><th class="r">Produced</th><th class="r">Balance pcs</th><th class="r">Rate /h</th><th class="r">Hours</th><th>Status</th><th>Start</th></tr></thead><tbody>
+                    ${live.map(row).join('') || '<tr><td colspan="12" class="muted">No open load on this tonnage.</td></tr>'}
+                    ${done.length ? `<tr><td colspan="12"><a class="lnk" data-done="${tonKey(r)}">${showDone ? 'Hide' : 'Show'} ${done.length} complete / closed mould${done.length === 1 ? '' : 's'}</a></td></tr>` : ''}
+                    ${showDone ? done.map(row).join('') : ''}
+                    </tbody></table>` : '<div class="muted">No orders on this tonnage.</div>'}</div>`;
             }
 
             function renderTonnage() {
@@ -1231,14 +1281,14 @@
                 const shortRows = rows.filter(r => r.shortage_machines > 0);
                 $('tkpis').innerHTML = [
                     kpi('bi-cpu', 'grey', t.machine_count || 0, `Active machines · ${rows.length} tonnages${T.master && T.master.inactive ? ' · ' + T.master.inactive + ' inactive' : ''}`, null),
-                    kpi('bi-hourglass-split', 'blue', n0(t.load_hours), `Load hours · ${f2(t.load_days)} machine days`, null),
+                    kpi('bi-hourglass-split', 'blue', n0(t.load_hours), `Load hours · ${t.orders} open orders · ${t.closed_orders || 0} complete / closed not counted`, null),
                     kpi('bi-calendar-range', 'green', n0(t.avail_hours), `Available hours in ${f2(T.days)} days`, null),
                     kpi('bi-speedometer', t.booked_pct > 100 ? 'red' : t.booked_pct >= 85 ? 'amber' : 'green', t.booked_pct == null ? '—' : t.booked_pct + '%', 'Capacity booked', null),
                     kpi('bi-exclamation-triangle', shortRows.length ? 'red' : 'green', shortRows.length, shortRows.length ? 'Short: ' + shortRows.map(r => r.tonnage + ' T').join(', ') : 'No tonnage short', null)
                 ].join('');
                 const until = fd($('tuntil').value);
                 $('thelp').innerHTML = `<i class="bi bi-info-circle-fill"></i><div>
-                    <b>How to read:</b> Hrs required = pieces still to mould on ${$('tbasis').value === 'due' ? 'open orders due by ' + until : 'all open orders'} ÷ pieces per hour (live rate, else mould standard), grouped by the machine tonnage the mould needs.
+                    <b>How to read:</b> Hrs required = pieces still to mould on ${$('tbasis').value === 'due' ? 'open orders due by ' + until : 'all open orders (order master, ERP and plan board - ' + (t.all_orders || 0) + ' orders, of which ' + (t.closed_orders || 0) + ' are complete or closed in the ERP and not counted)'} ÷ pieces per hour (live rate, else mould standard), grouped by the machine tonnage the mould needs.
                     Available = machines × 24 h × ${f2(T.days)} days left until ${until} × ${Math.round(T.eff * 100)}% efficiency.
                     <b style="color:var(--red)">Red</b> = we need more machines than we have; <b style="color:var(--green)">green</b> = spare machines. Click a row to see the orders and moulds behind it. Hover a column heading, or open <b>What does each column mean?</b> below, for every column.
                     <div style="margin-top:6px"><span class="lg"><i style="background:var(--blue)"></i>Running now</span><span class="lg"><i style="background:var(--amber)"></i>Queued on a machine</span><span class="lg"><i style="background:#94a3b8"></i>Not planned yet (not on any machine)</span></div></div>`;
@@ -1263,7 +1313,16 @@
                         <td>${t.booked_pct == null ? '—' : t.booked_pct + '%'}</td><td>${f2(t.excess_machines)}</td><td>${n0(t.excess_days)}</td></tr></tfoot>
                 </table></div>
                 ${T.unknown.items.length ? `<div class="note a"><i class="bi bi-exclamation-triangle-fill"></i><div><b>${T.unknown.items.length} moulds (${f2(T.unknown.load_hours)} h) have no tonnage</b> in the mould master or ERP BOM and never ran on a machine, so they are not in the total. Add the tonnage in Masters → Moulds.</div></div>` : ''}
+                ${T.no_mould && T.no_mould.length ? `<details class="note a"><summary><i class="bi bi-exclamation-triangle-fill"></i> <b>${T.no_mould.length} open orders have no mould found</b> - no ERP mould BOM, no plan and no mould number starting with the item code, so they add no hours. Click to see them; they are also in the Excel.</summary>
+                    <div class="tl-det" style="padding:8px 0 0"><table><thead><tr><th>Order</th><th>Date</th><th>Client</th><th>Product</th><th>Item code</th><th class="r">Qty</th><th>From</th></tr></thead><tbody>
+                    ${T.no_mould.map(o => `<tr><td>${esc(o.order_no)}</td><td>${fd(o.order_date)}</td><td>${esc(short(o.client_name))}</td><td>${esc(short(o.product_name))}</td><td>${esc(o.item_code)}</td><td class="r">${o.order_qty ? n0(o.order_qty) : '—'}</td><td>${esc(o.source)}</td></tr>`).join('')}
+                    </tbody></table></div></details>` : ''}
                 ${t.no_rate ? `<div class="note a"><i class="bi bi-exclamation-triangle-fill"></i><div><b>${t.no_rate} moulds have no rate</b> (no DPR and no standard pcs/hour or cycle time), so their hours are not counted. Open a row to see them.</div></div>` : ''}`;
+                $('tlist').querySelectorAll('[data-done]').forEach(a => a.onclick = () => {
+                    const k = a.dataset.done, d = S.tonDone || (S.tonDone = new Set());
+                    if (d.has(k)) d.delete(k); else d.add(k);
+                    renderTonnage();
+                });
                 $('tlist').querySelectorAll('tr.cls').forEach(tr => tr.onclick = e => {
                     if (e.target.closest('[data-order]')) return;
                     const k = tr.dataset.ton; if (openSet.has(k)) openSet.delete(k); else openSet.add(k);
