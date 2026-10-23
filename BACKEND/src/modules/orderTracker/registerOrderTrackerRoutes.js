@@ -1063,7 +1063,14 @@ const OPEN_ORDERS_SQL = `
     FROM o
     LEFT JOIN LATERAL (
       SELECT created_at::date::text AS order_date, client_name, item_code, item_name, qty
-        FROM orders WHERE TRIM(order_no) = o.order_no ORDER BY id DESC LIMIT 1) m ON TRUE`;
+        FROM orders WHERE TRIM(order_no) = o.order_no ORDER BY id DESC LIMIT 1) m ON TRUE
+   /* another plant's order mis-filed under this factory (JR/JP/... is Kachigam's):
+      the plant code in the order no wins, as in Order Master */
+   WHERE $1::int IS NULL OR NOT EXISTS (
+     SELECT 1 FROM factories pf
+      WHERE pf.id <> $1
+        AND UPPER(SPLIT_PART(o.order_no, '/', 2))
+            = ANY(string_to_array(UPPER(REPLACE(COALESCE(pf.plant_codes, ''), ' ', '')), ',')))`;
 
 /* good pieces per plan and colour (latest edit of each hourly entry) */
 const COLOUR_SQL = `
