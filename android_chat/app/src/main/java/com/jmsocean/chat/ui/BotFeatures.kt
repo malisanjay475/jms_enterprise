@@ -56,13 +56,15 @@ import kotlinx.coroutines.launch
 /** "✋ I'm on it" under a JMS Alerts message (stops it escalating), or who took it. */
 @Composable
 fun AlertAck(a: AlertInfo, onAck: () -> Unit) {
+    val handover = a.kind == "handover"
     if (a.acked_by != null) {
-        Text("✋ ${if (Session.isMe(a.acked_by)) "You are" else "${a.acked_by} is"} on it", color = Color(0xFF12A66A),
+        Text(if (handover) "✓ Read by ${if (Session.isMe(a.acked_by)) "you" else a.acked_by}"
+            else "✋ ${if (Session.isMe(a.acked_by)) "You are" else "${a.acked_by} is"} on it", color = Color(0xFF12A66A),
             fontSize = 12.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 4.dp))
     } else {
-        Button(onClick = onAck, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE53935)),
+        Button(onClick = onAck, colors = ButtonDefaults.buttonColors(containerColor = if (handover) Color(0xFF00A884) else Color(0xFFE53935)),
             shape = RoundedCornerShape(16.dp), modifier = Modifier.padding(top = 6.dp).height(34.dp)) {
-            Text("✋ I'm on it", fontSize = 13.sp)
+            Text(if (handover) "✓ I read it" else "✋ I'm on it", fontSize = 13.sp)
         }
         if (a.escalated > 0) Text("⏫ Escalated to ${if (a.escalated > 1) "superadmins" else "managers"}",
             color = Color(0xFFE53935), fontSize = 11.sp)

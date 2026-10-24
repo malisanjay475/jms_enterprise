@@ -183,14 +183,16 @@ async function sendPushForMessage(pool, messageSyncId) {
     [messageSyncId]
   );
   if (!m) return { sent: 0 };
+  // "@Line3" / "@QC" ...: those teams count as @mentioned (chatTeam.js)
+  const team = [...await require('./chatTeam').teamMentions(pool, m.body).catch(() => new Set())];
   // Members who should hear about it (not muted, unless @mentioned or replied to).
   const { rows: who } = await pool.query(
-    `SELECT mb.username, (chat_mentions($3, mb.username) OR LOWER(mb.username) = LOWER($4)) AS mentioned
+    `SELECT mb.username, (chat_mentions($3, mb.username) OR LOWER(mb.username) = LOWER($4) OR LOWER(mb.username) = ANY($6::text[])) AS mentioned
        FROM chat_members mb
       WHERE mb.conversation_sync_id = $1 AND mb.left_at IS NULL AND LOWER(mb.username) <> LOWER($2)
         AND (mb.muted_until IS NULL OR mb.muted_until < NOW() OR chat_mentions($3, mb.username)
-             OR LOWER(mb.username) = LOWER($4) OR $5::boolean)`,
-    [m.conversation_sync_id, m.sender, m.body, m.replied_to || '', Boolean(m.meta && m.meta.urgent)]
+             OR LOWER(mb.username) = LOWER($4) OR $5::boolean OR LOWER(mb.username) = ANY($6::text[]))`,
+    [m.conversation_sync_id, m.sender, m.body, m.replied_to || '', Boolean(m.meta && m.meta.urgent), team]
   );
   // quiet hours: nobody in their quiet window is pushed, unless urgent or @mentioned
   const urgent = Boolean(m.meta && m.meta.urgent);

@@ -95,6 +95,9 @@ data class Message(
 )
 
 @Serializable
+data class TextReply(val text: String = "")
+
+@Serializable
 data class AlertInfo(val kind: String = "", val acked_by: String? = null, val acked_at: String? = null, val escalated: Int = 0)
 
 @Serializable

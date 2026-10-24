@@ -262,6 +262,8 @@ function start(pool) {
       await ensureAutoSchema(client);
       if (Date.now() - lastGroups > GROUP_EVERY_MS) {
         const groups = await syncGroups(client);
+        // line and department groups (chatTeam.js)
+        await require('./chatTeam').syncTeamGroups(client).catch((err) => console.warn('[chat-auto] team groups:', err.message));
         lastGroups = Date.now();
         if (groups.size) console.log(`[chat-auto] factory groups in sync (${groups.size})`);
       }

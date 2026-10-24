@@ -149,6 +149,18 @@ object Api {
 
     suspend fun pushStatus(): PushStatus = get("/api/chat/fcm/status")
 
+    // ---- team: handover, check-in, translate, voice-to-text ----
+    suspend fun handover(convId: String, running: String, problems: String, pendingQc: String, notes: String): Message =
+        json.decodeFromString<MessageReply>(call("POST", "/api/chat/handover", jsonBody("conversation_sync_id" to convId,
+            "running" to running, "problems" to problems, "pending_qc" to pendingQc, "notes" to notes))).message ?: throw ApiError("Not posted.")
+    suspend fun checkin(convId: String, lat: Double, lng: Double, acc: Float): Message =
+        json.decodeFromString<MessageReply>(call("POST", "/api/chat/checkin", jsonBody("conversation_sync_id" to convId,
+            "lat" to lat, "lng" to lng, "acc" to acc))).message ?: throw ApiError("Not posted.")
+    suspend fun translate(messageId: String, to: String): String =
+        json.decodeFromString<TextReply>(call("POST", "/api/chat/messages/$messageId/translate", jsonBody("to" to to))).text
+    suspend fun transcribe(messageId: String): String =
+        json.decodeFromString<TextReply>(call("POST", "/api/chat/messages/$messageId/transcribe", "{}".toRequestBody(JSON))).text
+
     // ---- JMS Bot ----
     suspend fun command(convId: String, text: String): Message =
         json.decodeFromString<MessageReply>(call("POST", "/api/chat/command", jsonBody("conversation_sync_id" to convId, "text" to text))).message
