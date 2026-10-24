@@ -296,7 +296,10 @@ function registerBotRoutes(app, pool, h) {
            acked_at = COALESCE(chat_alert_acks.acked_at, EXCLUDED.acked_at) RETURNING *`, [id, req.auth.username]
       );
       if (a.acked_by.toLowerCase() === req.auth.username.toLowerCase()) {
-        await post(pool, m.conversation_sync_id, BOT, `✋ ${req.auth.username} is on it: ${String(m.body).split('\n')[0]}`, { bot: true });
+        const handover = m.meta.alert.kind === 'handover';
+        await post(pool, m.conversation_sync_id, BOT, handover
+          ? `✓ ${req.auth.username} read the shift handover from ${m.sender}`
+          : `✋ ${req.auth.username} is on it: ${String(m.body).split('\n')[0]}`, { bot: true });
       }
       res.json({ ok: true, acked_by: a.acked_by, acked_at: a.acked_at });
     } catch (err) { fail(res, err, 'ack'); }
@@ -332,7 +335,8 @@ async function escalate(db) {
     `SELECT m.sync_id, m.body, m.server_ts, m.conversation_sync_id, COALESCE(a.escalated_level, 0) AS level,
             (SELECT g.key FROM chat_auto_groups g WHERE g.conversation_sync_id = m.conversation_sync_id LIMIT 1) AS gkey
        FROM chat_messages m LEFT JOIN chat_alert_acks a ON a.message_sync_id = m.sync_id
-      WHERE m.meta ? 'alert' AND m.server_ts > NOW() - INTERVAL '6 hours' AND a.acked_at IS NULL
+      WHERE m.meta ? 'alert' AND COALESCE(m.meta->'alert'->>'kind', '') <> 'handover'
+        AND m.server_ts > NOW() - INTERVAL '6 hours' AND a.acked_at IS NULL
         AND ((COALESCE(a.escalated_level, 0) = 0 AND m.server_ts < NOW() - INTERVAL '30 minutes')
           OR (COALESCE(a.escalated_level, 0) = 1 AND m.server_ts < NOW() - INTERVAL '60 minutes'))
       LIMIT 30`

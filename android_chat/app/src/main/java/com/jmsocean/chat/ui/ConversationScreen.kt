@@ -158,6 +158,14 @@ fun ConversationScreen(convId: String, onBack: () -> Unit, onInfo: () -> Unit, v
     var showPoll by remember { mutableStateOf(false) }
     var taskFor by remember { mutableStateOf<Message?>(null) }
     var ticketFor by remember { mutableStateOf<Message?>(null) }
+    var showHandover by remember { mutableStateOf(false) }
+    val extras by vm.extras.collectAsState()
+    val askLocation = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { r ->
+        if (r.values.any { it }) currentLocation(ctx) { loc ->
+            if (loc != null) vm.checkIn(loc.latitude, loc.longitude, loc.accuracy)
+            else Toast.makeText(ctx, "Turn on location and try again.", Toast.LENGTH_LONG).show()
+        } else Toast.makeText(ctx, "Location was not allowed.", Toast.LENGTH_SHORT).show()
+    }
     val myRole by vm.myRole.collectAsState()
     val pins by vm.pins.collectAsState()
     val pickMedia = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(10)) { uris ->
@@ -314,6 +322,9 @@ fun ConversationScreen(convId: String, onBack: () -> Unit, onInfo: () -> Unit, v
                                 onVote = { picks -> vm.vote(m, picks) },
                                 onMakeTask = { taskFor = m },
                                 onTicket = { ticketFor = m },
+                                extra = extras[m.sync_id],
+                                onTranslate = { to, label -> vm.translate(m, to, label) },
+                                onTranscribe = { vm.transcribe(m) },
                                 onAck = { vm.ack(m) },
                                 pinned = pins.any { it.sync_id == m.sync_id },
                                 onPin = { vm.togglePin(m) },
@@ -381,6 +392,7 @@ fun ConversationScreen(convId: String, onBack: () -> Unit, onInfo: () -> Unit, v
     }
     forwarding?.let { m -> ForwardSheet(m) { forwarding = null } }
     if (showPoll) PollDialog(onSend = { q, o, multi -> showPoll = false; vm.sendSpecial(q, poll = Triple(q, o, multi)) }, onClose = { showPoll = false })
+    if (showHandover) HandoverDialog(onPost = { r, p, q, n -> showHandover = false; vm.postHandover(r, p, q, n) }, onClose = { showHandover = false })
     ticketFor?.let { m ->
         TicketDialog(m, onRaise = { mach, prob, pr ->
             vm.raiseTicket(m, mach, prob, pr) { no -> Toast.makeText(ctx, "🔧 Ticket $no raised", Toast.LENGTH_LONG).show() }
@@ -418,6 +430,14 @@ fun ConversationScreen(convId: String, onBack: () -> Unit, onInfo: () -> Unit, v
             if (text.isBlank()) Toast.makeText(ctx, "Type the announcement first.", Toast.LENGTH_SHORT).show()
             else { vm.sendSpecial(text.trim(), announcement = true); text = "" }
         }) else null,
+        onHandover = { attachSheet = false; showHandover = true },
+        onCheckIn = {
+            attachSheet = false
+            if (hasLocation(ctx)) currentLocation(ctx) { loc ->
+                if (loc != null) vm.checkIn(loc.latitude, loc.longitude, loc.accuracy)
+                else Toast.makeText(ctx, "Turn on location and try again.", Toast.LENGTH_LONG).show()
+            } else askLocation.launch(arrayOf(android.Manifest.permission.ACCESS_FINE_LOCATION, android.Manifest.permission.ACCESS_COARSE_LOCATION))
+        },
         onSchedule = {
             attachSheet = false
             if (text.isBlank()) Toast.makeText(ctx, "Type the message first, then pick a time.", Toast.LENGTH_SHORT).show()
@@ -460,6 +480,7 @@ private fun Bubble(
     onInfo: () -> Unit, onTask: (String) -> Unit,
     onVote: (List<Int>) -> Unit, onMakeTask: () -> Unit, pinned: Boolean, onPin: () -> Unit,
     onTicket: () -> Unit, onAck: () -> Unit,
+    extra: Pair<String, String>?, onTranslate: (String, String) -> Unit, onTranscribe: () -> Unit,
     onReply: () -> Unit, onRetry: () -> Unit, onImage: (String) -> Unit
 ) {
     val ctx = LocalContext.current
@@ -566,6 +587,9 @@ private fun Bubble(
                         Text(linkify(m.body), fontSize = 15.sp)
                     }
                     m.alert?.let { al -> if (!m.deleted) AlertAck(al, onAck) }
+                    if (att?.kind == "audio" && extra == null && !m.deleted) Text("📝 Show as text", fontSize = 12.sp,
+                        color = Color(0xFF027EB5), modifier = Modifier.clickable(onClick = onTranscribe).padding(top = 4.dp))
+                    extra?.let { (label, t) -> ExtraText(label, t) }
                     Row(Modifier.align(Alignment.End), verticalAlignment = Alignment.CenterVertically) {
                         if (m.scheduled) Text("🕒 ", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         if (m.starred) Text("★ ", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -584,6 +608,11 @@ private fun Bubble(
                     DropdownMenuItem(text = { Text("Forward") }, onClick = { menu = false; onForward() })
                     DropdownMenuItem(text = { Text("📋 Make task") }, onClick = { menu = false; onMakeTask() })
                     DropdownMenuItem(text = { Text("🔧 Raise maintenance ticket") }, onClick = { menu = false; onTicket() })
+                    if (m.body.isNotBlank() && m.poll == null) {
+                        DropdownMenuItem(text = { Text("🌐 Translate → English") }, onClick = { menu = false; onTranslate("en", "English") })
+                        DropdownMenuItem(text = { Text("🌐 हिंदी में") }, onClick = { menu = false; onTranslate("hi", "हिंदी") })
+                        DropdownMenuItem(text = { Text("🌐 ગુજરાતીમાં") }, onClick = { menu = false; onTranslate("gu", "ગુજરાતી") })
+                    }
                     DropdownMenuItem(text = { Text(if (pinned) "📌 Unpin" else "📌 Pin") }, onClick = { menu = false; onPin() })
                     DropdownMenuItem(text = { Text(if (m.starred) "Unstar" else "Star") }, onClick = { menu = false; onStar() })
                     if (mine) DropdownMenuItem(text = { Text("Info") }, onClick = { menu = false; onInfo() })
@@ -732,7 +761,8 @@ private fun Composer(
 @Composable
 private fun AttachSheet(
     onDismiss: () -> Unit, onMedia: () -> Unit, onCamera: () -> Unit, onDocument: () -> Unit,
-    onPoll: () -> Unit, onUrgent: () -> Unit, onAnnounce: (() -> Unit)?, onSchedule: () -> Unit
+    onPoll: () -> Unit, onUrgent: () -> Unit, onAnnounce: (() -> Unit)?, onSchedule: () -> Unit,
+    onHandover: () -> Unit, onCheckIn: () -> Unit
 ) {
     androidx.compose.material3.ModalBottomSheet(onDismissRequest = onDismiss) {
         Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
@@ -745,6 +775,10 @@ private fun AttachSheet(
             AttachOption("⚠️", "Urgent", Color(0xFFE53935), onUrgent)
             if (onAnnounce != null) AttachOption("📢", "Announce", Color(0xFFF59E0B), onAnnounce)
             AttachOption("🕒", "Schedule", Color(0xFF6B5BD2), onSchedule)
+        }
+        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
+            AttachOption("🔁", "Handover", Color(0xFF0F766E), onHandover)
+            AttachOption("📍", "Check in", Color(0xFF2563EB), onCheckIn)
         }
         Text("Gallery: up to 10 photos and videos at once. Videos are made smaller (about 1 minute max).",
             fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 24.dp))

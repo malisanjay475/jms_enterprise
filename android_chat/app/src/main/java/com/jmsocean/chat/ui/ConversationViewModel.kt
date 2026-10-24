@@ -38,6 +38,8 @@ class ConversationViewModel(app: Application) : AndroidViewModel(app) {
     val mutedUntil = MutableStateFlow<String?>(null)
     val myRole = MutableStateFlow<String?>(null)
     val pins = MutableStateFlow<List<Message>>(emptyList())
+    /** message id -> (label, text) for translations and voice-note text shown under bubbles */
+    val extras = MutableStateFlow<Map<String, Pair<String, String>>>(emptyMap())
     private var hasMore = false
     private var typingClear: Job? = null
     private var lastTypingSent = 0L
@@ -362,6 +364,32 @@ class ConversationViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             runCatching { Api.raiseTicket(convId, m.sync_id, machine, problem, priority) }
                 .onSuccess { done(it.ticket_no); refresh() }.onFailure { error.value = it.message }
+        }
+    }
+
+    fun postHandover(running: String, problems: String, qc: String, notes: String) {
+        viewModelScope.launch { runCatching { Api.handover(convId, running, problems, qc, notes) }.onSuccess { upsert(it) }.onFailure { error.value = it.message } }
+    }
+
+    fun checkIn(lat: Double, lng: Double, acc: Float) {
+        viewModelScope.launch { runCatching { Api.checkin(convId, lat, lng, acc) }.onSuccess { upsert(it) }.onFailure { error.value = it.message } }
+    }
+
+    fun translate(m: Message, to: String, label: String) {
+        extras.value = extras.value + (m.sync_id to ("🌐 $label" to "Translating…"))
+        viewModelScope.launch {
+            runCatching { Api.translate(m.sync_id, to) }
+                .onSuccess { t -> extras.value = extras.value + (m.sync_id to ("🌐 $label" to t)) }
+                .onFailure { e -> extras.value = extras.value - m.sync_id; error.value = e.message }
+        }
+    }
+
+    fun transcribe(m: Message) {
+        extras.value = extras.value + (m.sync_id to ("📝 Voice message as text" to "Writing it down…"))
+        viewModelScope.launch {
+            runCatching { Api.transcribe(m.sync_id) }
+                .onSuccess { t -> extras.value = extras.value + (m.sync_id to ("📝 Voice message as text" to t)) }
+                .onFailure { e -> extras.value = extras.value - m.sync_id; error.value = e.message }
         }
     }
 

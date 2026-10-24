@@ -176,6 +176,7 @@
 
   // ---------------- styles ----------------
   var CSS = [
+    '.jc-tr{margin-top:6px;padding:6px 8px;border-radius:6px;background:rgba(0,168,132,.08);font-size:13px;white-space:pre-wrap}.jc-tr small{display:block;opacity:.65;font-size:11px}.jc-trbtn{border:0;background:transparent;color:#027eb5;cursor:pointer;font-size:12px;padding:2px 0}',
     '.jc-ack{display:inline-block;margin-top:6px;border:0;border-radius:14px;padding:4px 12px;background:#e53935;color:#fff;cursor:pointer;font-size:12px}.jc-acked{display:block;margin-top:4px;font-size:12px;color:#12a66a;font-weight:600}.jc-esc{display:block;font-size:11px;color:#e53935}',
     '.jc-bot{background:#eef6ff !important;border-left:3px solid #3b82f6}.jc-botl{font-size:11px;font-weight:700;color:#2563eb;margin-bottom:2px}',
     '.jc-appr{padding:10px 14px;border-bottom:1px solid var(--jc-bd)}.jc-appr b{display:block}.jc-appr small{opacity:.75}.jc-appr .jc-act{justify-content:flex-start;margin-top:6px}',
@@ -1142,6 +1143,11 @@
     item('↪ Forward', function () { forwardDialog(m); });
     item('📋 Make task', function () { taskDialog(m); });
     item('🔧 Raise maintenance ticket', function () { ticketDialog(m); });
+    if (m.body && !m.poll) {
+      item('🌐 Translate → English', function () { translate(m, 'en'); });
+      item('🌐 हिंदी में', function () { translate(m, 'hi'); });
+      item('🌐 ગુજરાતીમાં', function () { translate(m, 'gu'); });
+    }
     item('📌 Pin / unpin', function () {
       var pinned = (current && current.pins || []).some(function (p) { return p.sync_id === m.sync_id; });
       api(pinned ? 'DELETE' : 'POST', API + '/messages/' + encodeURIComponent(m.sync_id) + '/pin', {})
@@ -1308,6 +1314,13 @@
         if (m.poll) b.appendChild(pollEl(m));
         else if (m.body) appendBody(b, m.body);
         if (m.alert) b.appendChild(alertEl(m));
+        if (m.attachment && m.attachment.kind === 'audio' && !m._transcript) {
+          var tb = el('button', 'jc-trbtn', '📝 Show as text');
+          tb.addEventListener('click', function (e) { e.stopPropagation(); transcribe(m, tb); });
+          b.appendChild(tb);
+        }
+        if (m._transcript) { var tt = el('div', 'jc-tr', m._transcript); tt.insertBefore(el('small', null, '📝 Voice message as text'), tt.firstChild); b.appendChild(tt); }
+        if (m._tr) { var tr = el('div', 'jc-tr', m._tr.text); tr.insertBefore(el('small', null, '🌐 ' + m._tr.label), tr.firstChild); b.appendChild(tr); }
       }
       if (m.reactions && m.reactions.length && !m.deleted) b.appendChild(rxEl(m));
       var meta = el('span', 'jc-meta', (m.scheduled ? '🕒 ' : '') + (m.starred ? '★ ' : '') + (m.edited_at && !m.deleted ? 'edited ' : '') + (m.pending ? '' : fmtTime(m.server_ts)));
@@ -2977,7 +2990,9 @@
     var items = [
       { label: '📊 Poll', run: pollDialog },
       { label: '⚠ Send as URGENT (rings even if muted)', run: function () { sendSpecial({ urgent: true }); } },
-      { label: '🕒 Schedule message…', run: scheduleDialog }
+      { label: '🕒 Schedule message…', run: scheduleDialog },
+      { label: '🔁 Shift handover note…', run: handoverDialog },
+      { label: '📍 Check in (share my location)', run: checkIn }
     ];
     if (isGroup(current) && (current.my_role === 'admin' || isAdmin)) items.splice(1, 0, { label: '📢 Send as announcement', run: function () { sendSpecial({ announcement: true }); } });
     popup(anchor, els.main, items);
@@ -3157,9 +3172,13 @@
   function alertEl(m) {
     var box = el('div');
     var a = m.alert || {};
-    if (a.acked_by) box.appendChild(el('span', 'jc-acked', '✋ ' + (same(a.acked_by, me) ? 'You are' : a.acked_by + ' is') + ' on it'));
+    if (a.acked_by) box.appendChild(el('span', 'jc-acked', a.kind === 'handover'
+      ? '✓ Read by ' + (same(a.acked_by, me) ? 'you' : a.acked_by)
+      : '✋ ' + (same(a.acked_by, me) ? 'You are' : a.acked_by + ' is') + ' on it'));
     else {
-      var btn = el('button', 'jc-ack', '✋ I\'m on it');
+      var isHand = a.kind === 'handover';
+      var btn = el('button', 'jc-ack', isHand ? '✓ I read it' : '✋ I\'m on it');
+      if (isHand) btn.style.background = '#00a884';
       btn.addEventListener('click', function (e) {
         e.stopPropagation();
         btn.disabled = true;
@@ -3228,6 +3247,47 @@
         list.appendChild(row);
       });
     }).catch(function (e) { showErr(e.message); });
+  }
+
+  // ---------------- phase C: handover, check-in, translate, voice-to-text ----------------
+  function handoverDialog() {
+    var dlg = modal('🔁 Shift handover note');
+    var f1 = field('▶ Running jobs'), f2 = field('⚠ Problems'), f3 = field('🧪 Pending QC'), f4 = field('📝 Notes');
+    [f1, f2, f3, f4].forEach(function (f) { dlg.body.appendChild(f.wrap); });
+    dlg.body.appendChild(el('small', null, 'The next shift taps "✓ I read it".'));
+    dialogButtons(dlg, 'Post handover', function () {
+      api('POST', API + '/handover', { conversation_sync_id: current.sync_id, running: f1.input.value, problems: f2.input.value,
+        pending_qc: f3.input.value, notes: f4.input.value })
+        .then(function (d) { dlg.close(); loaded.push(d.message); redraw(); loadConvs(); })
+        .catch(function (e) { showErr(e.message); });
+    });
+  }
+
+  function checkIn() {
+    if (!navigator.geolocation) { showErr('This browser cannot share location.'); return; }
+    var conv = current;
+    navigator.geolocation.getCurrentPosition(function (p) {
+      api('POST', API + '/checkin', { conversation_sync_id: conv.sync_id, lat: p.coords.latitude, lng: p.coords.longitude, acc: p.coords.accuracy })
+        .then(function (d) { if (current === conv) { loaded.push(d.message); redraw(); } loadConvs(); })
+        .catch(function (e) { showErr(e.message); });
+    }, function () { showErr('Location was not allowed.'); }, { enableHighAccuracy: true, timeout: 15000 });
+  }
+
+  function translate(m, to) {
+    var label = { en: 'English', hi: 'हिंदी', gu: 'ગુજરાતી' }[to];
+    m._tr = { text: 'Translating…', label: label };
+    redraw();
+    api('POST', API + '/messages/' + encodeURIComponent(m.sync_id) + '/translate', { to: to })
+      .then(function (d) { m._tr = { text: d.text, label: label }; redraw(); })
+      .catch(function (e) { m._tr = null; redraw(); showErr(e.message); });
+  }
+
+  function transcribe(m, btn) {
+    btn.textContent = '📝 Writing it down…';
+    btn.disabled = true;
+    api('POST', API + '/messages/' + encodeURIComponent(m.sync_id) + '/transcribe', {})
+      .then(function (d) { m._transcript = d.text; redraw(); })
+      .catch(function (e) { btn.textContent = '📝 Show as text'; btn.disabled = false; showErr(e.message); });
   }
 
   function start() {
