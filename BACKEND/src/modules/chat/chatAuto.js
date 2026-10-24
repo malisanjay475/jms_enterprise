@@ -145,10 +145,10 @@ async function groupFor(db, factoryId) {
   return g ? g.conversation_sync_id : null;
 }
 
-async function post(db, convId, text) {
+async function post(db, convId, text, meta) {
   const { rows: [m] } = await db.query(
-    `INSERT INTO chat_messages (conversation_sync_id, sender, body, kind) VALUES ($1, $2, $3, 'text') RETURNING server_ts`,
-    [convId, BOT, text.slice(0, 4000)]
+    `INSERT INTO chat_messages (conversation_sync_id, sender, body, kind, meta) VALUES ($1, $2, $3, 'text', $4) RETURNING server_ts`,
+    [convId, BOT, text.slice(0, 4000), meta ? JSON.stringify(meta) : null]
   );
   await db.query('UPDATE chat_conversations SET last_message_at = $2, updated_at = NOW() WHERE sync_id = $1', [convId, m.server_ts]);
 }
@@ -188,7 +188,7 @@ async function alerts(db) {
     const { rows } = await db.query('SELECT * FROM qc_holds WHERE id > $1 ORDER BY id LIMIT 50', [Number(lastHold)]).catch(() => ({ rows: [] }));
     for (const h of rows) {
       const g = await groupFor(db, h.factory_id);
-      if (g) { await post(db, g, holdText(h)); sent.holds++; }
+      if (g) { await post(db, g, holdText(h), { alert: { kind: 'qc_hold', ref: h.id } }); sent.holds++; }
       await setState(db, 'qc_hold_id', h.id);
     }
   }
@@ -217,7 +217,8 @@ async function alerts(db) {
     for (const s of rows) {
       const g = await groupFor(db, s.factory_id);
       if (g) {
-        await post(db, g, `🔧 Machine ${s.machine} stopped · ${String(s.status || 'MAINTENANCE').replace(/_/g, ' ')}\nFrom ${fmtDate(s.start_date)} ${s.start_slot || ''}`.trim());
+        await post(db, g, `🔧 Machine ${s.machine} stopped · ${String(s.status || 'MAINTENANCE').replace(/_/g, ' ')}\nFrom ${fmtDate(s.start_date)} ${s.start_slot || ''}`.trim(),
+          { alert: { kind: 'machine_stop', ref: s.id } });
         sent.stops++;
       }
       await setState(db, 'machine_log_id', s.id);
