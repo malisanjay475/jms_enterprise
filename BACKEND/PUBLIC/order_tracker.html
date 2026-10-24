@@ -1121,7 +1121,7 @@
 
             /* every column: name, small line, what it means, how it is worked out */
             const TCOLS = [
-                ['M/c tonnage', '', 'The machine size (clamping force in tons) the mould needs. Each mould is counted under the smallest machine tonnage it fits.', 'Mould master tonnage → ERP BOM → machine it last ran on'],
+                ['M/c tonnage', '', 'The machine size (clamping force in tons) the mould needs. A mould running or queued on a machine counts on the tonnage of that machine; a mould not on any machine counts under the smallest machine tonnage it fits.', 'Machine it runs / is queued on → mould master tonnage → ERP BOM → machine it last ran on'],
                 ['Hrs required', 'open load', 'Machine hours still needed to finish the pieces of the open orders on this tonnage. The bar under it shows how much is running now (blue), waiting in a machine queue (amber) and not planned on any machine yet (grey).', 'Σ balance pcs ÷ pcs per hour'],
                 ['Days required', 'hrs ÷ 24', 'The same load in machine days (one machine running 24 hours = 1 day).', 'Hrs required ÷ 24'],
                 ['Available hrs', '', 'Machine hours this tonnage can give between now and the "Plan until" date.', 'Machines × 24 × days left × efficiency %'],
@@ -1255,7 +1255,7 @@
                         <td><a class="lnk" data-order="${esc(i.order_no)}">${esc(i.order_no)}</a><div class="muted small">${fd(i.order_date)}</div></td>
                         <td>${esc(short(i.client_name))}<div class="muted small">${esc(short(i.product_name))}</div></td>
                         <td>${esc(short(i.mould_name))}<div class="muted small">${esc(i.mould_no)}${i.mould_source === 'item code' ? ' · <b title="No ERP mould BOM and no plan: mould matched by item code">by item code</b>' : ''}${i.mould_limited ? ' · <b style="color:var(--red)">mould limit</b>' : ''}</div></td>
-                        <td>${i.mould_tonnage ? i.mould_tonnage + ' T' : '—'}<div class="muted small">${esc(i.tonnage_source || '')}${i.oversize ? ' · <b style="color:var(--red)">bigger than any machine</b>' : ''}</div></td>
+                        <td>${i.mould_tonnage ? i.mould_tonnage + ' T' : '—'}<div class="muted small">${esc(i.tonnage_source || '')}${i.on_machine_tonnage ? ` · <b title="Running or queued on a ${i.on_machine_tonnage} T machine, so it loads that tonnage">on ${i.on_machine_tonnage} T m/c</b>` : ''}${i.oversize ? ' · <b style="color:var(--red)">bigger than any machine</b>' : ''}</div></td>
                         <td ${late(i) ? 'style="color:var(--red);font-weight:700"' : ''}>${fd(i.target_date)}</td>
                         <td class="r">${n0(i.required)}</td><td class="r">${n0(i.produced)}</td>
                         <td class="r">${n0(i.balance)}</td>

@@ -285,7 +285,7 @@ async function buildTonnageWorkbook(T, { until, basis, factoryName }) {
             : i.queue ? `Queued #${i.queue.position} on ${i.queue.machine}` : 'Not planned yet';
       const row = body([i.order_no, day(i.order_date), i.client_name, i.product_name,
         i.mould_name + (i.mould_limited ? ' - mould limit' : ''), i.mould_no,
-        i.mould_tonnage ? `${i.mould_tonnage} T${i.tonnage_source ? ' · ' + i.tonnage_source : ''}` : '—', day(i.target_date),
+        (i.mould_tonnage ? `${i.mould_tonnage} T${i.tonnage_source ? ' · ' + i.tonnage_source : ''}` : '—') + (i.on_machine_tonnage ? ` · on ${i.on_machine_tonnage} T m/c` : ''), day(i.target_date),
         i.required, i.produced, i.balance, i.rate_pph || null, i.counted ? i.hours : 0, status], 1,
         { 9: '#,##0', 10: '#,##0', 11: '#,##0', 12: '#,##0', 13: '#,##0.00' });
       row.getCell(1).font = { bold: true, size: 9, color: { argb: 'FF1D4ED8' } };

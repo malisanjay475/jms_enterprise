@@ -731,8 +731,9 @@ const slim = o => {
 /* Open-order load per machine tonnage, against the machine hours the factory
    has until a chosen date - the monthly "machine planning summary" sheet.
    Load of a mould = balance pieces / pieces per hour on one machine. The mould
-   goes to the smallest machine class that fits its tonnage (mould master, ERP
-   BOM, else the machine it ran on). Days are 24 machine hours.
+   goes to the tonnage of the machine it is running or queued on, else to the
+   smallest machine class that fits its tonnage (mould master, ERP BOM, else the
+   machine it ran on). Days are 24 machine hours.
    Complete moulds and orders the ERP has closed are listed but not counted.
    A mould runs on one machine at a time (more only when it is running on more
    machines now, i.e. there are copies), so hours of one mould beyond the hours
@@ -797,15 +798,20 @@ function buildTonnageLoad(orders, board, { untilMs, eff, basis, colourByPlan }) 
         ton = Math.max(0, ...(m.all_machines || []).map(n => tonOf.get(key(n)) || 0));
         src = ton ? 'machine used' : null;
       }
-      const cls = ton ? fit(ton) : null;
       const rate = num(m.rate_pph);
       const done = m.status === 'COMPLETE' || m.balance <= 0;
       const counted = !done && !o.erp_closed;
+      /* work running or queued on a machine loads that machine's tonnage (a 60 T mould on an
+         80 T machine fills the 80 T machine); only work not on any machine goes by mould tonnage */
+      const onTon = counted ? Math.max(0, ...(m.status === 'RUNNING' ? m.machines || [] : []).map(n => tonOf.get(key(n)) || 0),
+        m.queue && m.status !== 'RUNNING' ? tonOf.get(key(m.queue.machine)) || 0 : 0) : 0;
+      const cls = onTon && rows.has(onTon) ? onTon : ton ? fit(ton) : null;
       const item = {
         order_no: o.order_no, order_date: o.order_date, client_name: o.client_name, product_name: o.product_name, target_date: o.target_date,
         due, mould_no: m.mould_no, mould_name: m.mould_name, mould_tonnage: ton || null, tonnage_source: src,
         mould_source: m.mould_source,
-        oversize: !!(ton && cls && ton > cls * 1.05),
+        oversize: !!(ton && cls && !onTon && ton > cls * 1.05),
+        on_machine_tonnage: onTon && cls === onTon && (!ton || fit(ton) !== onTon) ? onTon : null,
         required: m.required, produced: m.produced, balance: m.balance, rate_pph: rate,
         hours: counted ? (rate > 0 ? +(m.balance / rate).toFixed(1) : null) : 0,
         counted, status: done ? 'COMPLETE' : (o.erp_closed ? 'ERP_CLOSED' : m.status), erp_state: o.erp_state,
