@@ -148,10 +148,13 @@ async function cmdOrder(pool, arg) {
 }
 
 async function runCommand(pool, text, username) {
-  const m = /^\/(\w+)\s*(.*)$/.exec(String(text || '').trim());
-  if (!m) return null;
-  const cmd = m[1].toLowerCase();
-  const arg = m[2].trim().slice(0, 60);
+  // Parsed without a backtracking regex (CodeQL js/polynomial-redos), on a capped string.
+  const t = String(text || '').slice(0, 200).trim();
+  if (t[0] !== '/') return null;
+  const sp = t.search(/\s/);
+  const cmd = (sp === -1 ? t.slice(1) : t.slice(1, sp)).toLowerCase();
+  if (!/^\w{1,20}$/.test(cmd)) return null;
+  const arg = (sp === -1 ? '' : t.slice(sp + 1)).trim().slice(0, 60);
   const factories = await userFactoryIds(pool, username);
   if (cmd === 'help') return HELP;
   if (cmd === 'dpr') return cmdDpr(pool, arg, factories);
