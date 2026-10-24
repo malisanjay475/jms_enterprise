@@ -162,19 +162,6 @@ object Api {
         call("POST", "/api/chat/approvals/$id/action", jsonBody("action" to action, "remarks" to remarks))
     }
 
-    // ---- JMS Bot ----
-    suspend fun command(convId: String, text: String): Message =
-        json.decodeFromString<MessageReply>(call("POST", "/api/chat/command", jsonBody("conversation_sync_id" to convId, "text" to text))).message
-            ?: throw ApiError("No answer.")
-    suspend fun ack(messageId: String): AckReply = json.decodeFromString(call("POST", "/api/chat/messages/$messageId/ack", "{}".toRequestBody(JSON)))
-    suspend fun raiseTicket(convId: String, messageId: String?, machine: String, problem: String, priority: String): TicketRef =
-        json.decodeFromString<TicketReply>(call("POST", "/api/chat/maintenance", jsonBody("conversation_sync_id" to convId,
-            "message_sync_id" to messageId, "machine" to machine, "problem" to problem, "priority" to priority))).ticket ?: TicketRef()
-    suspend fun approvals(): ApprovalsReply = get("/api/chat/approvals")
-    suspend fun approvalAction(id: Int, action: String, remarks: String) {
-        call("POST", "/api/chat/approvals/$id/action", jsonBody("action" to action, "remarks" to remarks))
-    }
-
     // ---- urgent / announcement / poll ----
     suspend fun sendSpecial(convId: String, text: String, urgent: Boolean = false, announcement: Boolean = false,
                             poll: Triple<String, List<String>, Boolean>? = null): Message =
