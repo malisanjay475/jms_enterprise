@@ -155,6 +155,10 @@ fun ConversationScreen(convId: String, onBack: () -> Unit, onInfo: () -> Unit, v
     var forwarding by remember { mutableStateOf<Message?>(null) }
     var attachSheet by remember { mutableStateOf(false) }
     var playing by remember { mutableStateOf<String?>(null) }
+    var showPoll by remember { mutableStateOf(false) }
+    var taskFor by remember { mutableStateOf<Message?>(null) }
+    val myRole by vm.myRole.collectAsState()
+    val pins by vm.pins.collectAsState()
     val pickMedia = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(10)) { uris ->
         if (uris.isNotEmpty()) vm.sendMany(uris)
     }
@@ -263,6 +267,10 @@ fun ConversationScreen(convId: String, onBack: () -> Unit, onInfo: () -> Unit, v
         modifier = Modifier.chatWallpaper(dark())
     ) { pad ->
         Column(Modifier.padding(pad).fillMaxSize().imePadding()) {
+            PinnedBar(pins) { p ->
+                val idx = reversed.indexOfFirst { it.sync_id == p.sync_id }
+                if (idx >= 0) uiScope.launch { listState.animateScrollToItem(idx) }
+            }
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 if (loading) CircularProgressIndicator(Modifier.align(Alignment.Center), color = Green)
                 found?.let { results ->
@@ -302,6 +310,10 @@ fun ConversationScreen(convId: String, onBack: () -> Unit, onInfo: () -> Unit, v
                                 onStar = { vm.star(m) },
                                 onInfo = { infoFor = m.sync_id },
                                 onTask = { st -> vm.setTask(m, st) },
+                                onVote = { picks -> vm.vote(m, picks) },
+                                onMakeTask = { taskFor = m },
+                                pinned = pins.any { it.sync_id == m.sync_id },
+                                onPin = { vm.togglePin(m) },
                                 onEdit = { vm.startEdit(m) },
                                 onDelete = { vm.delete(m) },
                                 onReply = { vm.setReply(m) },
@@ -365,6 +377,13 @@ fun ConversationScreen(convId: String, onBack: () -> Unit, onInfo: () -> Unit, v
         else ImageViewer(id) { viewing = null }
     }
     forwarding?.let { m -> ForwardSheet(m) { forwarding = null } }
+    if (showPoll) PollDialog(onSend = { q, o, multi -> showPoll = false; vm.sendSpecial(q, poll = Triple(q, o, multi)) }, onClose = { showPoll = false })
+    taskFor?.let { m ->
+        TaskDialog(m, members, onCreate = { t, who, due ->
+            vm.makeTask(m, t, who, due) { Toast.makeText(ctx, "📋 Task created", Toast.LENGTH_SHORT).show() }
+            taskFor = null
+        }, onClose = { taskFor = null })
+    }
     playing?.let { id -> VideoPlayerDialog(id) { playing = null } }
     if (attachSheet) AttachSheet(
         onDismiss = { attachSheet = false },
@@ -378,7 +397,29 @@ fun ConversationScreen(convId: String, onBack: () -> Unit, onInfo: () -> Unit, v
             cameraFile = f
             camera.launch(uri)
         },
-        onDocument = { attachSheet = false; pick.launch("*/*") }
+        onDocument = { attachSheet = false; pick.launch("*/*") },
+        onPoll = { attachSheet = false; showPoll = true },
+        onUrgent = {
+            attachSheet = false
+            if (text.isBlank()) Toast.makeText(ctx, "Type the message first, then choose Urgent.", Toast.LENGTH_SHORT).show()
+            else { vm.sendSpecial(text.trim(), urgent = true); text = "" }
+        },
+        onAnnounce = if (isGroup && (myRole == "admin" || Session.isSuperadmin)) ({
+            attachSheet = false
+            if (text.isBlank()) Toast.makeText(ctx, "Type the announcement first.", Toast.LENGTH_SHORT).show()
+            else { vm.sendSpecial(text.trim(), announcement = true); text = "" }
+        }) else null,
+        onSchedule = {
+            attachSheet = false
+            if (text.isBlank()) Toast.makeText(ctx, "Type the message first, then pick a time.", Toast.LENGTH_SHORT).show()
+            else pickDateTime(ctx) { at ->
+                val body = text.trim()
+                vm.schedule(body, at) {
+                    text = ""
+                    Toast.makeText(ctx, "🕒 Scheduled for ${dayLabel(at)} ${timeOf(at)}", Toast.LENGTH_LONG).show()
+                }
+            }
+        }
     )
     infoFor?.let { id -> MessageInfoDialog(id) { infoFor = null } }
 }
@@ -408,6 +449,7 @@ private fun Bubble(
     canEdit: Boolean, onEdit: () -> Unit, onDelete: () -> Unit,
     myReaction: String?, onReact: (String) -> Unit, onForward: () -> Unit, onStar: () -> Unit,
     onInfo: () -> Unit, onTask: (String) -> Unit,
+    onVote: (List<Int>) -> Unit, onMakeTask: () -> Unit, pinned: Boolean, onPin: () -> Unit,
     onReply: () -> Unit, onRetry: () -> Unit, onImage: (String) -> Unit
 ) {
     val ctx = LocalContext.current
@@ -448,7 +490,12 @@ private fun Bubble(
         Box {
             Surface(
                 shape = shape, color = bg, shadowElevation = 1.5.dp, tonalElevation = 0.dp,
-                border = if (dark()) null else androidx.compose.foundation.BorderStroke(0.5.dp, Color.Black.copy(alpha = 0.04f)),
+                border = when {
+                    m.urgent && !m.deleted -> androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFFE53935))
+                    m.announcement && !m.deleted -> androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFFF59E0B))
+                    dark() -> null
+                    else -> androidx.compose.foundation.BorderStroke(0.5.dp, Color.Black.copy(alpha = 0.04f))
+                },
                 modifier = Modifier.widthIn(max = 300.dp).clip(shape).combinedClickable(
                     onClick = { if (m.failed) onRetry() },
                     onLongClick = { menu = true },
@@ -459,7 +506,10 @@ private fun Bubble(
                     if (isGroup && !mine && firstOfRun) Text(m.sender, color = nameColor(m.sender), fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
                     if (m.forwarded && !m.deleted) Text("↪ Forwarded", fontSize = 12.sp, fontStyle = FontStyle.Italic,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (m.announcement && !m.deleted) Text("📢 ANNOUNCEMENT", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFFB45309))
+                    if (m.urgent && !m.deleted) Text("⚠ URGENT", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFFE53935))
                     if (m.kind == "link" && !m.deleted && !m.purged) LinkCard(m, onTask)
+                    m.poll?.let { p -> if (!m.deleted) PollCard(p, onVote) }
                     m.reply_to?.let { q ->
                         Row(
                             Modifier.fillMaxWidth().padding(vertical = 3.dp).clip(RoundedCornerShape(6.dp))
@@ -505,6 +555,7 @@ private fun Bubble(
                         Text(linkify(m.body), fontSize = 15.sp)
                     }
                     Row(Modifier.align(Alignment.End), verticalAlignment = Alignment.CenterVertically) {
+                        if (m.scheduled) Text("🕒 ", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         if (m.starred) Text("★ ", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         if (m.edited_at != null && !m.deleted) Text("edited ", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Text(timeOf(m.server_ts), fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -519,6 +570,8 @@ private fun Bubble(
                 if (!m.deleted && !m.pending && !m.failed) ReactionBar(myReaction) { e -> menu = false; onReact(e) }
                 if (!m.deleted && !m.pending && !m.failed) {
                     DropdownMenuItem(text = { Text("Forward") }, onClick = { menu = false; onForward() })
+                    DropdownMenuItem(text = { Text("📋 Make task") }, onClick = { menu = false; onMakeTask() })
+                    DropdownMenuItem(text = { Text(if (pinned) "📌 Unpin" else "📌 Pin") }, onClick = { menu = false; onPin() })
                     DropdownMenuItem(text = { Text(if (m.starred) "Unstar" else "Star") }, onClick = { menu = false; onStar() })
                     if (mine) DropdownMenuItem(text = { Text("Info") }, onClick = { menu = false; onInfo() })
                 }
@@ -664,12 +717,21 @@ private fun Composer(
 /** 📎: photos & videos (up to 10 at once), camera, or a document. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun AttachSheet(onDismiss: () -> Unit, onMedia: () -> Unit, onCamera: () -> Unit, onDocument: () -> Unit) {
+private fun AttachSheet(
+    onDismiss: () -> Unit, onMedia: () -> Unit, onCamera: () -> Unit, onDocument: () -> Unit,
+    onPoll: () -> Unit, onUrgent: () -> Unit, onAnnounce: (() -> Unit)?, onSchedule: () -> Unit
+) {
     androidx.compose.material3.ModalBottomSheet(onDismissRequest = onDismiss) {
         Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
             AttachOption("🖼️", "Gallery", Color(0xFFBF59CF), onMedia)
             AttachOption("📷", "Camera", Color(0xFFE5486B), onCamera)
             AttachOption("📄", "Document", Color(0xFF5157AE), onDocument)
+        }
+        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
+            AttachOption("📊", "Poll", Color(0xFF02A6C6), onPoll)
+            AttachOption("⚠️", "Urgent", Color(0xFFE53935), onUrgent)
+            if (onAnnounce != null) AttachOption("📢", "Announce", Color(0xFFF59E0B), onAnnounce)
+            AttachOption("🕒", "Schedule", Color(0xFF6B5BD2), onSchedule)
         }
         Text("Gallery: up to 10 photos and videos at once. Videos are made smaller (about 1 minute max).",
             fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 24.dp))

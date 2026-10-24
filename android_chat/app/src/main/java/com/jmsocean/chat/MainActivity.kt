@@ -112,7 +112,8 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
                             onNewGroup = { nav.navigate("group") },
                             onSignOut = { signOut(nav) },
                             onProfile = { nav.navigate("profile") },
-                            onStarred = { nav.navigate("starred") }
+                            onStarred = { nav.navigate("starred") },
+                            onTasks = { nav.navigate("tasks") }
                         )
                     }
                     composable("new") {
@@ -140,6 +141,9 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
                                     .onFailure { Toast.makeText(this@MainActivity, it.message, Toast.LENGTH_LONG).show() }
                             }
                         })
+                    }
+                    composable("tasks") {
+                        com.jmsocean.chat.ui.TasksScreen(onBack = { nav.popBackStack() }, onOpen = { id -> nav.navigate("chat/$id") })
                     }
                     composable("starred") {
                         StarredScreen(onBack = { nav.popBackStack() }, onOpen = { id -> nav.navigate("chat/$id") })

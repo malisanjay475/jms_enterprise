@@ -30,6 +30,7 @@ const chatProfiles = require('./chatProfiles');
 const chatExtras = require('./chatExtras');
 const chatAuto = require('./chatAuto');
 const chatCalls = require('./chatCalls');
+const chatWork = require('./chatWork');
 const chatFcm = require('./chatFcm');
 const { registerChatAppAuthRoutes } = require('./chatAppAuth');
 
@@ -307,6 +308,9 @@ function messageOut(row, att, receipts) {
     purged: Boolean(row.purged_at), // emptied by the retention job
     reply_to_sync_id: row.reply_to_sync_id || null,
     forwarded: Boolean(row.meta && row.meta.forwarded),
+    urgent: Boolean(row.meta && row.meta.urgent),
+    announcement: Boolean(row.meta && row.meta.announcement),
+    scheduled: Boolean(row.meta && row.meta.scheduled),
     attachment: att && !row.deleted_at && !row.purged_at ? attachmentOut(att) : null
   };
   if (receipts) {
@@ -338,9 +342,10 @@ async function decorate(pool, rows, me) {
   // reactions and (for me) stars; extras tables live on each server only
   try {
     const ids = rows.map((r) => r.sync_id);
-    const [reactions, stars] = await Promise.all([
-      chatExtras.reactionsFor(pool, ids), chatExtras.starredAmong(pool, me, ids)
+    const [reactions, stars, polls] = await Promise.all([
+      chatExtras.reactionsFor(pool, ids), chatExtras.starredAmong(pool, me, ids), chatWork.pollsFor(pool, rows, me)
     ]);
+    outs.forEach((o) => { const p = polls.get(o.sync_id); if (p && !o.deleted) o.poll = p; });
     outs.forEach((o) => {
       const rx = reactions.get(o.sync_id);
       if (rx && rx.length) o.reactions = rx;
@@ -403,6 +408,9 @@ async function notify(pool, convId, event, extraNames = []) {
 }
 
 function previewText(kind, body, meta) {
+  if (meta && meta.poll) return `📊 ${body || 'Poll'}`;
+  if (meta && meta.announcement) return `📢 ${body || ''}`;
+  if (meta && meta.urgent) return `⚠ ${body || ''}`;
   if (kind === 'link') {
     const urgent = meta && meta.priority === 'urgent' ? '⚠ Urgent: ' : '';
     return `${urgent}🔗 ${(meta && meta.title) || 'Shared page'}${body ? ': ' + body : ''}`;
@@ -752,6 +760,9 @@ function registerChatRoutes(app, pool) {
   // factory groups + QC / machine alerts (MAIN only, one worker)
   if (!chatSync.isLocal()) chatAuto.start(pool);
   chatCalls.registerCallRoutes(app, pool, { ready, fail, activeUser });
+  chatWork.registerWorkRoutes(app, pool, { ready, fail, membership, decorate, localFactoryId });
+  chatWork.ensureWorkSchema(pool).catch((err) => console.warn('[chat] work schema:', err.message));
+  chatWork.start(pool, { localFactoryId });
   if (chatFcm.enabled()) chatFcm.ensureFcmSchema(pool).catch((err) => console.warn('[chat-fcm] schema:', err.message));
   chatAdmin.startRetentionJob(pool, { uploadRoot });
 
@@ -1057,13 +1068,28 @@ function registerChatRoutes(app, pool) {
       const replyTo = await chatShare.validReplyTarget(pool, convId, b.reply_to_sync_id);
       if (replyTo === undefined) return res.status(400).json({ ok: false, error: 'The message you replied to is not in this chat.' });
       const clientTs = b.client_ts ? new Date(String(b.client_ts)) : null;
+      // ⚠ urgent (rings through mute and quiet hours), 📢 announcement (group admins), 📊 poll
+      const meta = {};
+      if (b.urgent) meta.urgent = true;
+      const poll = chatWork.cleanPoll(b.poll);
+      if (b.poll && !poll) return res.status(400).json({ ok: false, error: 'A poll needs a question and at least 2 options.' });
+      if (poll) meta.poll = poll;
+      if (b.announcement) {
+        const { rows: [cv] } = await pool.query('SELECT type FROM chat_conversations WHERE sync_id = $1', [convId]);
+        const mem = await membership(pool, convId, me);
+        if (cv && cv.type === 'group' && !(mem && mem.role === 'admin') && !isSuperadmin(req.auth)) {
+          return res.status(403).json({ ok: false, error: 'Only a group admin can post announcements.' });
+        }
+        meta.announcement = true;
+      }
       const ins = await pool.query(
-        `INSERT INTO chat_messages (sync_id, conversation_sync_id, sender, body, client_ts, factory_id, reply_to_sync_id)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)
+        `INSERT INTO chat_messages (sync_id, conversation_sync_id, sender, body, client_ts, factory_id, reply_to_sync_id, meta)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
          ON CONFLICT (sync_id) DO NOTHING
          RETURNING *`,
         [syncId, convId, me, body,
-          clientTs && !Number.isNaN(clientTs.getTime()) ? clientTs.toISOString() : null, localFactoryId(), replyTo]
+          clientTs && !Number.isNaN(clientTs.getTime()) ? clientTs.toISOString() : null, localFactoryId(), replyTo,
+          Object.keys(meta).length ? JSON.stringify(meta) : null]
       );
       let row = ins.rows[0];
       const duplicate = !row;

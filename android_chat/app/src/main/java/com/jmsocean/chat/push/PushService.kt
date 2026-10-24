@@ -72,7 +72,8 @@ class PushService : FirebaseMessagingService() {
             sender = sender,
             text = d["body"] ?: "",
             isGroup = d["is_group"] == "1",
-            senderPhoto = senderPhoto(sender)
+            senderPhoto = senderPhoto(sender),
+            urgent = d["urgent"] == "1"
         )
     }
 }

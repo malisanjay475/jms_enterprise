@@ -77,6 +77,10 @@ data class Message(
     val delivered_to: List<String>? = null,
     val read_by: List<String>? = null,
     val forwarded: Boolean = false,
+    val urgent: Boolean = false,
+    val announcement: Boolean = false,
+    val scheduled: Boolean = false,
+    val poll: Poll? = null,
     val reactions: List<Reaction>? = null,
     val starred: Boolean = false,
     /** Shared JMS page (kind = link): title, url, excerpt, factory_name, priority. */
@@ -87,6 +91,33 @@ data class Message(
     val pending: Boolean = false,
     val failed: Boolean = false
 )
+
+@Serializable
+data class PollOption(val text: String, val votes: Int = 0, val voters: List<String> = emptyList())
+
+@Serializable
+data class Poll(val question: String = "", val multi: Boolean = false, val total: Int = 0, val mine: List<Int> = emptyList(), val options: List<PollOption> = emptyList())
+
+@Serializable
+data class Todo(
+    val id: String,
+    val conversation_sync_id: String,
+    val title: String = "",
+    val assignee: String = "",
+    val created_by: String = "",
+    val due_at: String? = null,
+    val done_at: String? = null,
+    val conv_title: String? = null
+)
+
+@Serializable
+data class TodosReply(val todos: List<Todo> = emptyList())
+
+@Serializable
+data class PinsReply(val pins: List<Message> = emptyList())
+
+@Serializable
+data class ChatSettings(val quiet_from: String = "", val quiet_to: String = "")
 
 @Serializable
 data class Reaction(val emoji: String, val users: List<String> = emptyList())
@@ -127,6 +158,7 @@ data class MessagesReply(
     val type: String = "direct",
     val title: String? = null,
     val members: List<String> = emptyList(),
+    val my_role: String? = null,
     val member_roles: List<Member> = emptyList()
 )
 
