@@ -372,7 +372,21 @@
     '.jc-root.jc-stack .jc-fab{right:34px;bottom:108px}',
     '.jc-root.jc-stack .jc-toast{right:108px;bottom:30px}',
     '.jc-root.jc-stack .jc-panel{right:108px;bottom:20px;max-width:calc(100vw - 128px);max-height:calc(100vh - 40px)}',
-    '@media (max-width:640px){.jc-panel{z-index:100001;right:0;bottom:0;width:100vw;max-width:100vw;height:100vh;max-height:100vh;border-radius:0}.jc-side{width:100%;border:0}.jc-main{display:none}.jc-panel.jc-conv .jc-side{display:none}.jc-panel.jc-conv .jc-main{display:flex}.jc-back{display:inline-block}.jc-fab{right:16px;bottom:16px}.jc-panel.jc-open~.jc-fab{display:none}.jc-root.jc-stack .jc-panel{right:0;bottom:0;max-width:100vw;max-height:100vh}.jc-opt{display:block}}'
+    '@media (max-width:640px){.jc-panel{z-index:100001;right:0;bottom:0;width:100vw;max-width:100vw;height:100vh;max-height:100vh;border-radius:0}.jc-side{width:100%;border:0}.jc-main{display:none}.jc-panel.jc-conv .jc-side{display:none}.jc-panel.jc-conv .jc-main{display:flex}.jc-back{display:inline-block}.jc-fab{right:16px;bottom:16px}.jc-panel.jc-open~.jc-fab{display:none}.jc-root.jc-stack .jc-panel{right:0;bottom:0;max-width:100vw;max-height:100vh}.jc-opt{display:block}}',
+    '/* premium look for the full-window chat (JMS Chat page) */ .jc-app{font-family:\'Segoe UI\',system-ui,-apple-system,Roboto,Helvetica,Arial,sans-serif}',
+    '.jc-app .jc-head{height:60px;background:linear-gradient(135deg,#075e54,#0b7c6e);color:#fff;border-bottom:0;box-shadow:0 1px 3px rgba(0,0,0,.12)}',
+    '.jc-app .jc-head h3,.jc-app .jc-head .jc-name{color:#fff}.jc-app .jc-head .jc-prev{color:rgba(255,255,255,.82)}',
+    '.jc-app .jc-head .jc-ibtn{color:#fff;border-radius:50%;transition:background .15s}.jc-app .jc-head .jc-ibtn:hover{background:rgba(255,255,255,.14)}',
+    '.jc-app .jc-search{padding:8px 12px;background:var(--jc-bg)}.jc-app .jc-search input{border-radius:20px;background:var(--jc-bg2);border:1px solid transparent;transition:border-color .15s,background .15s}.jc-app .jc-search input:focus{background:#fff;border-color:#00a884}',
+    '.jc-app .jc-item{transition:background .12s}.jc-app .jc-item:hover{background:#f5f6f6}.jc-app .jc-item.jc-sel{background:#e9f5f2}',
+    '.jc-app .jc-unr{background:#25d366;box-shadow:0 1px 2px rgba(0,0,0,.15)}',
+    '.jc-app .jc-msgs{background-color:#efeae2;background-image:radial-gradient(rgba(107,91,69,.09) 1.2px,transparent 1.4px);background-size:22px 22px;padding:16px 7%}',
+    '.jc-app .jc-bub{border-radius:10px;box-shadow:0 1px .5px rgba(11,20,26,.13),0 2px 6px rgba(11,20,26,.04)}',
+    '.jc-app .jc-day span{box-shadow:0 1px .5px rgba(11,20,26,.13);border-radius:8px}',
+    '.jc-app .jc-comp{background:#f0f2f5;padding:10px 16px;gap:10px}.jc-app .jc-comp textarea{border-radius:22px;padding:11px 16px;box-shadow:0 1px 2px rgba(0,0,0,.06)}',
+    '.jc-app .jc-send{border-radius:50%;box-shadow:0 2px 6px rgba(0,168,132,.35);transition:transform .1s}.jc-app .jc-send:active{transform:scale(.94)}',
+    '.jc-app .jc-chip{transition:all .12s}.jc-app .jc-chip:hover{border-color:#00a884}',
+    '.jc-app ::-webkit-scrollbar{width:7px;height:7px}.jc-app ::-webkit-scrollbar-thumb{background:rgba(0,0,0,.18);border-radius:4px}.jc-app ::-webkit-scrollbar-track{background:transparent}'
   ].join('\n');
 
   var ICON_CHAT = '<svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.03 2 11c0 2.4 1.05 4.58 2.75 6.19L4 22l4.6-2.1c1.05.3 2.19.46 3.4.46 5.52 0 10-4.03 10-9S17.52 2 12 2z"/></svg>';
