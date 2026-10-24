@@ -167,6 +167,8 @@ fun ConversationScreen(convId: String, onBack: () -> Unit, onInfo: () -> Unit, v
         } else Toast.makeText(ctx, "Location was not allowed.", Toast.LENGTH_SHORT).show()
     }
     val myRole by vm.myRole.collectAsState()
+    val isProtected by vm.isProtected.collectAsState()
+    SecureWindow(isProtected)
     val pins by vm.pins.collectAsState()
     val pickMedia = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(10)) { uris ->
         if (uris.isNotEmpty()) vm.sendMany(uris)
@@ -217,6 +219,7 @@ fun ConversationScreen(convId: String, onBack: () -> Unit, onInfo: () -> Unit, v
     }
     LaunchedEffect(scrolledUp) { if (!scrolledUp) unseen = 0 }
 
+    androidx.compose.runtime.CompositionLocalProvider(LocalProtected provides isProtected) {
     Scaffold(
         topBar = {
             if (searching) TopAppBar(
@@ -384,6 +387,7 @@ fun ConversationScreen(convId: String, onBack: () -> Unit, onInfo: () -> Unit, v
                 onSend = { vm.sendText(text); text = "" }
             )
         }
+    }
     }
 
     viewing?.let { id ->
@@ -605,7 +609,7 @@ private fun Bubble(
             DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                 if (!m.deleted && !m.pending && !m.failed) ReactionBar(myReaction) { e -> menu = false; onReact(e) }
                 if (!m.deleted && !m.pending && !m.failed) {
-                    DropdownMenuItem(text = { Text("Forward") }, onClick = { menu = false; onForward() })
+                    if (!LocalProtected.current) DropdownMenuItem(text = { Text("Forward") }, onClick = { menu = false; onForward() })
                     DropdownMenuItem(text = { Text("📋 Make task") }, onClick = { menu = false; onMakeTask() })
                     DropdownMenuItem(text = { Text("🔧 Raise maintenance ticket") }, onClick = { menu = false; onTicket() })
                     if (m.body.isNotBlank() && m.poll == null) {
@@ -864,6 +868,7 @@ private fun authImage(ctx: Context, attachmentId: String) =
 /** "⬇ Download (1.2 MB)" under a photo / video / voice note: saves it to Downloads. */
 @Composable
 fun DownloadLink(att: com.jmsocean.chat.data.Attachment) {
+    if (LocalProtected.current) return
     val ctx = LocalContext.current
     Text(
         "⬇ Download · ${fileSize(att.size)}", fontSize = 12.sp, color = Color(0xFF027EB5),

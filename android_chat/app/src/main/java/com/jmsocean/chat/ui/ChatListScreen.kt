@@ -27,6 +27,11 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.runtime.rememberCoroutineScope
+import com.jmsocean.chat.data.ChatFolder
+import kotlinx.coroutines.launch
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.NotificationsOff
 import androidx.compose.material.icons.filled.Search
@@ -147,9 +152,23 @@ fun ChatListScreen(
     var showArchived by remember { mutableStateOf(false) }
     val archivedCount = chats.count { it.archived }
     var tab by remember { mutableStateOf(0) }          // 0 = Chats, 1 = Calls
-    var filter by remember { mutableStateOf("all") }   // all / unread / groups
+    var filter by remember { mutableStateOf("all") }   // all / unread / groups / f:<folder id>
+    var folders by remember { mutableStateOf<List<ChatFolder>>(emptyList()) }
+    var folderTick by remember { mutableStateOf(0) }
+    LaunchedEffect(folderTick) { runCatching { Api.folders() }.onSuccess { folders = it } }
+    var showFolders by remember { mutableStateOf(false) }
+    var showDevices by remember { mutableStateOf(false) }
+    var securityFor by remember { mutableStateOf<Conversation?>(null) }
+    val listScope = rememberCoroutineScope()
     val base = (if (query.isNotBlank()) chats else chats.filter { it.archived == showArchived })
-        .filter { c -> when (filter) { "unread" -> c.unread > 0; "groups" -> c.isGroup; else -> true } }
+        .filter { c ->
+            when {
+                filter == "unread" -> c.unread > 0
+                filter == "groups" -> c.isGroup
+                filter.startsWith("f:") -> folders.firstOrNull { "f:" + it.id == filter }?.conversations?.contains(c.sync_id) ?: true
+                else -> true
+            }
+        }
     val unreadChats = chats.count { it.unread > 0 && !it.archived }
     val shown = if (query.isBlank()) base else base.filter {
         it.name.contains(query, true) || (it.last_body ?: "").contains(query, true) ||
@@ -189,6 +208,8 @@ fun ChatListScreen(
                                 DropdownMenuItem(text = { Text("Starred messages") }, onClick = { menu = false; onStarred() })
                                 DropdownMenuItem(text = { Text("📋 My tasks") }, onClick = { menu = false; onTasks() })
                                 DropdownMenuItem(text = { Text("✅ Approvals") }, onClick = { menu = false; onApprovals() })
+                                DropdownMenuItem(text = { Text("📁 Chat folders") }, onClick = { menu = false; showFolders = true })
+                                DropdownMenuItem(text = { Text("📱 My devices") }, onClick = { menu = false; showDevices = true })
                                 DropdownMenuItem(text = { Text("Signed in as ${Session.username}") }, onClick = { menu = false }, enabled = false)
                                 DropdownMenuItem(text = { Text("Sign out") }, onClick = { menu = false; onSignOut() })
                             }
@@ -241,9 +262,9 @@ fun ChatListScreen(
                 }
                 else -> LazyColumn(Modifier.fillMaxSize()) {
                     if (query.isBlank() && !showArchived) item {
-                        Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+                        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 6.dp),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            listOf("all" to "All", "unread" to "Unread", "groups" to "Groups").forEach { (k, label) ->
+                            (listOf("all" to "All", "unread" to "Unread", "groups" to "Groups") + folders.map { "f:" + it.id to "📁 " + it.name }).forEach { (k, label) ->
                                 androidx.compose.material3.FilterChip(
                                     selected = filter == k, onClick = { filter = k }, label = { Text(label) },
                                     shape = RoundedCornerShape(20.dp),
@@ -266,23 +287,41 @@ fun ChatListScreen(
                         }
                     }
                     items(shown, key = { it.sync_id }) { c ->
-                        ChatRow(c, onPin = { vm.pin(c) }, onArchive = { vm.archive(c) }) { onOpen(c.sync_id) }
+                        ChatRow(
+                            c, onPin = { vm.pin(c) }, onArchive = { vm.archive(c) }, folders = folders,
+                            onToggleFolder = { f ->
+                                val now = if (f.conversations.contains(c.sync_id)) f.conversations - c.sync_id else f.conversations + c.sync_id
+                                listScope.launch { runCatching { Api.setFolderChats(f.id, now) }.onSuccess { folderTick++ } }
+                            },
+                            onSecurity = if (!c.isGroup || c.my_role == "admin" || Session.isSuperadmin) ({ securityFor = c }) else null
+                        ) { onOpen(c.sync_id) }
                         HorizontalDivider(Modifier.padding(start = 80.dp), thickness = 0.5.dp)
                     }
                 }
             }
         }
     }
+    if (showFolders) FoldersDialog(folders, onChanged = { folderTick++ }, onClose = { showFolders = false })
+    if (showDevices) DevicesDialog { showDevices = false }
+    securityFor?.let { c -> SecurityDialog(c) { securityFor = null; vm.load() } }
 }
 
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
-private fun ChatRow(c: Conversation, onPin: () -> Unit, onArchive: () -> Unit, onClick: () -> Unit) {
+private fun ChatRow(
+    c: Conversation, onPin: () -> Unit, onArchive: () -> Unit,
+    folders: List<ChatFolder>, onToggleFolder: (ChatFolder) -> Unit, onSecurity: (() -> Unit)?, onClick: () -> Unit
+) {
     var menu by remember { mutableStateOf(false) }
     Box {
     DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
         DropdownMenuItem(text = { Text(if (c.pinned) "Unpin chat" else "Pin chat") }, onClick = { menu = false; onPin() })
         DropdownMenuItem(text = { Text(if (c.archived) "Unarchive chat" else "Archive chat") }, onClick = { menu = false; onArchive() })
+        folders.forEach { f ->
+            DropdownMenuItem(text = { Text(if (f.conversations.contains(c.sync_id)) "✓ In folder ${f.name}" else "📁 Add to ${f.name}") },
+                onClick = { menu = false; onToggleFolder(f) })
+        }
+        if (onSecurity != null) DropdownMenuItem(text = { Text("🔒 Security (disappearing, protected)") }, onClick = { menu = false; onSecurity() })
     }
     Row(
         Modifier.fillMaxWidth().combinedClickable(onClick = onClick, onLongClick = { menu = true })

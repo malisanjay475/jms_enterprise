@@ -77,7 +77,11 @@ object Api {
 
     // ---- sign-in ----
     suspend fun login(username: String, password: String): LoginReply {
-        val body = buildJsonObject { put("username", username); put("password", password) }
+        val body = buildJsonObject {
+            put("username", username); put("password", password)
+            put("device_id", Session.deviceId())
+            put("device_name", "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}".trim().take(60))
+        }
         return try {
             post("/api/chat-app/login", body)
         } catch (e: ApiError) {
@@ -262,6 +266,21 @@ object Api {
     // ---- pin / archive ----
     suspend fun pin(convId: String, on: Boolean) { call("POST", "/api/chat/conversations/$convId/pin", jsonBody("on" to on)) }
     suspend fun archive(convId: String, on: Boolean) { call("POST", "/api/chat/conversations/$convId/archive", jsonBody("on" to on)) }
+
+    // ---- security: per-chat settings, devices, folders ----
+    suspend fun setSecurity(convId: String, disappearSeconds: Int, protected: Boolean) {
+        call("PUT", "/api/chat/conversations/$convId/security", jsonBody("disappear_seconds" to disappearSeconds, "protected" to protected))
+    }
+    suspend fun devices(): List<Device> = get<DevicesReply>("/api/chat/devices").devices
+    suspend fun signOutDevice(id: String) { call("POST", "/api/chat/devices/$id/signout", "{}".toRequestBody(JSON)) }
+    suspend fun signOutOthers(): Int =
+        json.decodeFromString<SignOutReply>(call("POST", "/api/chat/devices/signout-others", "{}".toRequestBody(JSON))).signed_out
+    suspend fun folders(): List<ChatFolder> = get<FoldersReply>("/api/chat/folders").folders
+    suspend fun createFolder(name: String) { call("POST", "/api/chat/folders", jsonBody("name" to name)) }
+    suspend fun setFolderChats(id: String, conversations: List<String>) {
+        call("PUT", "/api/chat/folders/$id", jsonBody("conversations" to conversations))
+    }
+    suspend fun deleteFolder(id: String) { call("DELETE", "/api/chat/folders/$id") }
 
     // ---- groups ----
     suspend fun renameGroup(convId: String, title: String) { call("PATCH", "/api/chat/groups/$convId", jsonBody("title" to title)) }

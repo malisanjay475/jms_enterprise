@@ -2580,7 +2580,7 @@ function escHtml(value) {
   if (typeof document === 'undefined' || !document.querySelector) return;
   if (window.__jmsChatLoaded || document.querySelector('script[data-jms-chat]')) return;
   var s = document.createElement('script');
-  s.src = '/assets/chat-widget.js?v=11';
+  s.src = '/assets/chat-widget.js?v=12';
   s.defer = true;
   s.setAttribute('data-jms-chat', '1');
   (document.head || document.documentElement).appendChild(s);
