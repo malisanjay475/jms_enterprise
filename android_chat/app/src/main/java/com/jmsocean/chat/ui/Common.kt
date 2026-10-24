@@ -12,6 +12,10 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.getValue
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.padding
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import coil.compose.AsyncImage
@@ -54,7 +58,15 @@ fun JmsChatTheme(content: @Composable () -> Unit) {
         primary = Teal, onPrimary = Color.White, secondary = Green, primaryContainer = Color(0xFFDDF3EF),
         background = Color.White, surface = Color.White, surfaceVariant = Color(0xFFF0F2F5)
     )
-    MaterialTheme(colorScheme = colors, content = content)
+    // Slightly larger, calmer type for a cleaner, premium feel.
+    val base = androidx.compose.material3.Typography()
+    val type = base.copy(
+        titleLarge = base.titleLarge.copy(fontWeight = FontWeight.SemiBold, letterSpacing = 0.sp),
+        titleMedium = base.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+        bodyLarge = base.bodyLarge.copy(lineHeight = 22.sp),
+        bodyMedium = base.bodyMedium.copy(lineHeight = 20.sp)
+    )
+    MaterialTheme(colorScheme = colors, typography = type, content = content)
 }
 
 private val avatarColors = listOf(
@@ -150,6 +162,42 @@ fun lastSeenText(online: Boolean, iso: String?): String {
         days == 1L -> "last seen yesterday at $at"
         days < 7 -> "last seen ${t.format(weekday)} at $at"
         else -> "last seen ${t.format(dayFmt)}"
+    }
+}
+
+/** Chat background: a soft dotted pattern (drawn, no image file), like WhatsApp's wallpaper. */
+fun Modifier.chatWallpaper(dark: Boolean): Modifier = this.drawBehind {
+    drawRect(if (dark) ChatBgDark else ChatBg)
+    val dot = if (dark) Color.White.copy(alpha = 0.035f) else Color(0xFF6B5B45).copy(alpha = 0.07f)
+    val step = 26.dp.toPx()
+    var y = 0f
+    var row = 0
+    while (y < size.height) {
+        var x = if (row % 2 == 0) 0f else step / 2
+        while (x < size.width) {
+            drawCircle(dot, radius = 1.6.dp.toPx(), center = androidx.compose.ui.geometry.Offset(x, y))
+            x += step
+        }
+        y += step * 0.75f
+        row++
+    }
+}
+
+/** Three bouncing dots ("typing…"). */
+@Composable
+fun TypingDots(color: Color) {
+    val t = androidx.compose.animation.core.rememberInfiniteTransition(label = "typing")
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        repeat(3) { i ->
+            val a by t.animateFloat(
+                initialValue = 0.3f, targetValue = 1f,
+                animationSpec = androidx.compose.animation.core.infiniteRepeatable(
+                    androidx.compose.animation.core.tween(500, delayMillis = i * 150),
+                    androidx.compose.animation.core.RepeatMode.Reverse
+                ), label = "dot$i"
+            )
+            Box(Modifier.padding(horizontal = 1.5.dp).size(5.dp).clip(CircleShape).background(color.copy(alpha = a)))
+        }
     }
 }
 
