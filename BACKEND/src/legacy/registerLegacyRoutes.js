@@ -8536,19 +8536,28 @@ app.get('/api/dpr/plan-drilldown', async (req, res) => {
     if (!planId && !orderNo) return res.status(400).json({ ok: false, error: 'planId or orderNo required' });
     const factoryId = getFactoryId(req);
 
-    // 1. Fetch plan_board for colour plan quantities
+    // 1. Fetch plan_board for colour plan quantities.
+    // Plan IDs (PLN-2627-xxxx) are numbered per factory, so the same plan_id can
+    // exist in two factories — scope to this factory, else the popup shows another
+    // plant's colours/qty against this plant's DPR production.
     let planRow = null;
     if (planId) {
       const rows = await q(
         `SELECT id, plan_id, order_no, plan_qty, bal_qty, colour_details, mould_name, factory_id
-         FROM plan_board WHERE plan_id = $1 LIMIT 1`, [planId]
+         FROM plan_board
+         WHERE plan_id = $1 AND ($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL)
+         ORDER BY (factory_id IS NOT DISTINCT FROM $2::int) DESC, id DESC
+         LIMIT 1`, [planId, factoryId || null]
       );
       planRow = rows[0] || null;
     }
     if (!planRow && orderNo) {
       const rows = await q(
         `SELECT id, plan_id, order_no, plan_qty, bal_qty, colour_details, mould_name, factory_id
-         FROM plan_board WHERE order_no = $1 LIMIT 1`, [orderNo]
+         FROM plan_board
+         WHERE order_no = $1 AND ($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL)
+         ORDER BY (factory_id IS NOT DISTINCT FROM $2::int) DESC, id DESC
+         LIMIT 1`, [orderNo, factoryId || null]
       );
       planRow = rows[0] || null;
     }
@@ -8579,7 +8588,13 @@ app.get('/api/dpr/plan-drilldown', async (req, res) => {
 
     if (effectivePlanId) {
       params.push(effectivePlanId);
-      whereClauses.push(`(h.plan_id = $${params.length} OR h.plan_id = (SELECT id::text FROM plan_board WHERE plan_id = $${params.length} LIMIT 1))`);
+      if (planRow?.id) {
+        // Use this factory's plan row PK, not whichever row a bare plan_id lookup finds
+        params.push(String(planRow.id));
+        whereClauses.push(`(h.plan_id = $${params.length - 1} OR h.plan_id = $${params.length})`);
+      } else {
+        whereClauses.push(`h.plan_id = $${params.length}`);
+      }
     } else if (effectiveOrderNo) {
       params.push(effectiveOrderNo);
       whereClauses.push(`h.order_no = $${params.length}`);
@@ -29840,8 +29855,11 @@ app.post('/api/extra-qty/allow', async (req, res) => {
     // Resolve job context from plan_board (denormalized for the report)
     const pRows = await q(
       `SELECT order_no, machine, mould_name, factory_id
-         FROM plan_board WHERE plan_id = $1 LIMIT 1`,
-      [String(plan_id)]
+         FROM plan_board
+        WHERE plan_id = $1 AND ($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL)
+        ORDER BY (factory_id IS NOT DISTINCT FROM $2::int) DESC, id DESC
+        LIMIT 1`,
+      [String(plan_id), getFactoryId(req) || null]
     );
     if (!pRows.length) return res.json({ ok: false, error: 'Plan not found: ' + plan_id });
     const p = pRows[0];
