@@ -30056,6 +30056,9 @@ async function nextMaintenanceTicketNo(factoryId) {
   return `MNT-${yy}-${String(seq).padStart(4, '0')}`;
 }
 
+// JMS Chat raises the same tickets from a chat (src/modules/chat/chatBot.js).
+app.locals.jmsMaintenance = { nextMaintenanceTicketNo, notifyMaintenance };
+
 // POST /api/maintenance/tickets — open a ticket (any authenticated user; supervisors raise).
 app.post('/api/maintenance/tickets', async (req, res) => {
   try {

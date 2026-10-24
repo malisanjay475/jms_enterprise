@@ -263,6 +263,11 @@ class ConversationViewModel(app: Application) : AndroidViewModel(app) {
     fun sendText(text: String) {
         val body = text.trim()
         if (body.isEmpty()) return
+        // "/" = JMS Bot command (/dpr, /job, /order, /help)
+        if (body.startsWith("/") && editing.value == null) {
+            viewModelScope.launch { runCatching { Api.command(convId, body) }.onSuccess { upsert(it) }.onFailure { error.value = it.message } }
+            return
+        }
         editing.value?.let { m ->
             editing.value = null
             if (body == m.body) return
@@ -344,6 +349,21 @@ class ConversationViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun clearError() { error.value = null }
+
+    fun ack(m: Message) {
+        viewModelScope.launch {
+            runCatching { Api.ack(m.sync_id) }
+                .onSuccess { r -> replace(m.sync_id) { it.copy(alert = it.alert?.copy(acked_by = r.acked_by, acked_at = r.acked_at)) } }
+                .onFailure { error.value = it.message }
+        }
+    }
+
+    fun raiseTicket(m: Message, machine: String, problem: String, priority: String, done: (String) -> Unit) {
+        viewModelScope.launch {
+            runCatching { Api.raiseTicket(convId, m.sync_id, machine, problem, priority) }
+                .onSuccess { done(it.ticket_no); refresh() }.onFailure { error.value = it.message }
+        }
+    }
 
     fun loadPins() { viewModelScope.launch { runCatching { Api.pins(convId) }.onSuccess { pins.value = it } } }
 

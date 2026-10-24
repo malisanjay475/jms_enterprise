@@ -129,6 +129,7 @@ fun ChatListScreen(
     onProfile: () -> Unit,
     onStarred: () -> Unit,
     onTasks: () -> Unit,
+    onApprovals: () -> Unit,
     vm: ChatListViewModel = viewModel()
 ) {
     val chats by vm.chats.collectAsState()
@@ -187,6 +188,7 @@ fun ChatListScreen(
                                 DropdownMenuItem(text = { Text("New group") }, onClick = { menu = false; onNewGroup() })
                                 DropdownMenuItem(text = { Text("Starred messages") }, onClick = { menu = false; onStarred() })
                                 DropdownMenuItem(text = { Text("📋 My tasks") }, onClick = { menu = false; onTasks() })
+                                DropdownMenuItem(text = { Text("✅ Approvals") }, onClick = { menu = false; onApprovals() })
                                 DropdownMenuItem(text = { Text("Signed in as ${Session.username}") }, onClick = { menu = false }, enabled = false)
                                 DropdownMenuItem(text = { Text("Sign out") }, onClick = { menu = false; onSignOut() })
                             }

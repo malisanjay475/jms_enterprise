@@ -113,7 +113,8 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
                             onSignOut = { signOut(nav) },
                             onProfile = { nav.navigate("profile") },
                             onStarred = { nav.navigate("starred") },
-                            onTasks = { nav.navigate("tasks") }
+                            onTasks = { nav.navigate("tasks") },
+                            onApprovals = { nav.navigate("approvals") }
                         )
                     }
                     composable("new") {
@@ -142,6 +143,7 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
                             }
                         })
                     }
+                    composable("approvals") { com.jmsocean.chat.ui.ApprovalsScreen(onBack = { nav.popBackStack() }) }
                     composable("tasks") {
                         com.jmsocean.chat.ui.TasksScreen(onBack = { nav.popBackStack() }, onOpen = { id -> nav.navigate("chat/$id") })
                     }
