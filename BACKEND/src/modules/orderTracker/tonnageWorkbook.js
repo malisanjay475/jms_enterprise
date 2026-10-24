@@ -22,8 +22,8 @@ const dmy = iso => { const d = new Date(iso); return `${d.getUTCDate()}-${MON[d.
 async function buildTonnageWorkbook(T, { until, basis, factoryName }) {
   const wb = new ExcelJS.Workbook();
   wb.creator = 'JMS Order Tracker';
-  const ws = wb.addWorksheet('Machine planning summary', { views: [{ state: 'frozen', ySplit: 4 }] });
-  ws.columns = [14, 14, 12, 13, 12, 14, 12, 13, 13, 12, 13, 13, 12, 12, 13, 9, 9, 13].map(width => ({ width }));
+  const ws = wb.addWorksheet('Machine planning summary', { views: [{ state: 'frozen', xSplit: 1, ySplit: 4 }] });
+  ws.columns = [24, 17, 11, 12, 11, 15, 11, 12, 12, 16, 12, 12, 11, 11, 12].map(width => ({ width }));
   const today = new Date(Date.now() + 330 * 60000).toISOString().slice(0, 10);
   const monthName = new Date(until + 'T00:00:00Z').toLocaleString('en-GB', { month: 'long', year: 'numeric', timeZone: 'UTC' }).toUpperCase();
 
@@ -42,45 +42,80 @@ async function buildTonnageWorkbook(T, { until, basis, factoryName }) {
   [2, 4, 6, 8].forEach(c => { r2.getCell(c).fill = fill(YELLOW); r2.getCell(c).font = { bold: true }; r2.getCell(c).alignment = { horizontal: 'center' }; });
   [1, 3, 5, 7, 9].forEach(c => { r2.getCell(c).font = { bold: true, color: { argb: 'FF595959' } }; });
 
-  /* row 4: headers */
-  const heads = ['M/c Tonnage', 'Hrs Required', 'Days Required', 'Available Hrs', 'Available Days', 'Machines With Us',
-    'Total Machine Plan', 'Machine Shortage Numbers', 'Machine Shortage Days', 'Capacity Booked', 'Machine Excess Numbers',
-    'Machine Excess Days', 'Running Hrs', 'Queued Hrs', 'Not Planned Hrs', 'Orders', 'Moulds', 'Mould Limited Hrs'];
+  /* row 4: headers - the columns of the screen, then the load split the screen shows as a bar */
+  const heads = ['M/C TONNAGE', 'HRS REQUIRED\nopen load', 'DAYS REQUIRED\nhrs ÷ 24', `AVAILABLE HRS\nuntil ${dmy(until + 'T00:00:00Z')}`, 'AVAILABLE DAYS',
+    'MACHINES WITH US', 'MACHINES NEEDED', 'MACHINE SHORTAGE\nnumbers', 'MACHINE SHORTAGE\ndays', 'CAPACITY BOOKED',
+    'MACHINE EXCESS\nnumbers', 'MACHINE EXCESS\ndays', 'RUNNING HRS', 'QUEUED HRS', 'NOT PLANNED HRS'];
   const hr = ws.getRow(4);
-  hr.values = heads; hr.height = 44;
-  hr.eachCell(c => { c.font = { bold: true }; c.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true }; c.fill = fill(HEAD); c.border = box; });
+  hr.values = heads; hr.height = 40;
+  hr.eachCell((c, i) => {
+    c.font = { bold: true, size: 9, color: { argb: 'FF1E293B' } }; c.alignment = { horizontal: i === 1 ? 'left' : 'center', vertical: 'middle', wrapText: true };
+    c.fill = fill(i > 12 ? 'FFF1F5F9' : HEAD); c.border = box;
+  });
 
-  const nums = ['#,##0.00', '#,##0.00', '#,##0', '#,##0.00', '0', '#,##0.00', '#,##0.00', '#,##0.00', '0%', '#,##0.00', '#,##0.00', '#,##0.0', '#,##0.0', '#,##0.0', '0', '0', '#,##0.0'];
-  const put = (r, name, bold) => {
-    const row = ws.addRow([name, r.load_hours, r.load_days, r.avail_hours, r.avail_days, r.machine_count, r.machines_needed,
-      r.shortage_machines || null, r.shortage_days || null, r.booked_pct == null ? null : r.booked_pct / 100,
-      r.excess_machines || null, r.excess_days || null, r.running_hours, r.queued_hours, r.unplanned_hours, r.orders, r.moulds,
-      r.mould_limited_hours || null]);
+  const MUTED = 'FF64748B', DRED = 'FFDC2626', DGREEN = 'FF059669', AMBER = 'FFD97706', GREY = 'FF94A3B8', INK = 'FF0F172A';
+  const tone = p => p == null ? GREY : p > 100 ? DRED : p >= 85 ? AMBER : DGREEN;
+  const f2 = v => Number(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const inactiveOf = r => { const g = T.master && r.tonnage != null && (T.master.by_tonnage || []).find(x => x.tonnage === r.tonnage); return g ? g.inactive : 0; };
+  /* the coloured one-line answer the screen shows under the tonnage */
+  const verdict = r => {
+    if (r.tonnage == null) return ['? Add tonnage', GREY];
+    if (r.shortage_machines > 0) return [`▲ Short ${f2(r.shortage_machines)} m/c`, DRED];
+    if (r.mould_limited_hours > 0) { const n = (r.mould_limits || []).length; return [`! ${n} mould${n === 1 ? '' : 's'} late`, DRED]; }
+    if (r.machine_count && r.machines_needed / r.machine_count >= 0.85) return ['! Almost full', AMBER];
+    if (!r.load_hours) return ['– No load', GREY];
+    return [`✓ ${f2(r.excess_machines)} m/c spare`, DGREEN];
+  };
+  const small = (text, argb, bold) => ({ text, font: { size: 8, bold: !!bold, color: { argb } } });
+
+  const nums = ['#,##0.00', '#,##0.00', '#,##0', '#,##0.00', '0', '#,##0.00', '#,##0.00', '#,##0.00', '0%', '#,##0.00', '#,##0.00', '#,##0.0', '#,##0.0', '#,##0.0'];
+  const put = (r, total) => {
+    const short = r.shortage_machines > 0, spare = r.excess_machines > 0;
+    const row = ws.addRow([null, r.load_hours, r.load_days, r.avail_hours, r.avail_days, r.machine_count, r.machines_needed,
+      short ? r.shortage_machines : null, short ? r.shortage_days : null, r.booked_pct == null ? null : r.booked_pct / 100,
+      spare ? r.excess_machines : null, spare ? r.excess_days : null, r.running_hours, r.queued_hours, r.unplanned_hours]);
     row.eachCell({ includeEmpty: true }, (c, i) => {
-      c.border = box;
-      if (i > 1) { c.numFmt = nums[i - 2]; c.alignment = { horizontal: 'right' }; }
-      if (c.value == null && i > 1) { c.value = '-'; c.alignment = { horizontal: 'center' }; }
+      c.border = box; c.alignment = { horizontal: i === 1 ? 'left' : 'right', vertical: 'middle', wrapText: true };
+      if (i > 1) { c.numFmt = nums[i - 2]; c.font = { size: 10, color: { argb: i > 12 ? MUTED : INK } }; }
+      if (c.value == null && i > 1) { c.value = '-'; c.alignment = { horizontal: 'center', vertical: 'middle' }; c.font = { color: { argb: GREY } }; }
     });
-    row.getCell(1).font = { bold: true };
-    if (!bold) {
-      if (r.shortage_machines > 0) [8, 9].forEach(i => { row.getCell(i).fill = fill(RED); row.getCell(i).font = { bold: true, italic: true }; });
-      if (r.excess_machines > 0) [11, 12].forEach(i => { row.getCell(i).fill = fill(GREEN); row.getCell(i).font = { bold: true, italic: true }; });
+    if (total) return row;
+    row.height = 46;
+    const [vt, vc] = verdict(r);
+    row.getCell(1).value = { richText: [{ text: r.tonnage == null ? 'Unknown' : `${r.tonnage} T`, font: { size: 10, bold: true, color: { argb: INK } } },
+      small(`\n${r.orders || 0} orders · ${r.moulds || 0} moulds${r.done_moulds ? ` · ${r.done_moulds} done` : ''}`, MUTED, true), small(`\n${vt}`, vc, true)] };
+    if (r.mould_limited_hours) {
+      row.getCell(2).value = { richText: [{ text: f2(r.load_hours), font: { size: 10, color: { argb: INK } } }, small(`\n${f2(r.mould_limited_hours)} h mould limit`, DRED, true)] };
+    }
+    const ina = inactiveOf(r);
+    row.getCell(6).value = { richText: [{ text: String(r.machine_count || 0), font: { size: 10, color: { argb: INK } } },
+      small(`\n${r.running || 0} running · ${r.idle || 0} idle${ina ? ` · ${ina} inactive` : ''}`, MUTED)] };
+    if (r.machines_needed == null) row.getCell(7).value = '—';
+    if (short) [8, 9].forEach(i => { const c = row.getCell(i); c.fill = fill('FFEF4444'); c.font = { bold: true, italic: true, color: { argb: 'FFFFFFFF' } }; });
+    if (spare) [11, 12].forEach(i => { const c = row.getCell(i); c.fill = fill('FF16A34A'); c.font = { bold: true, italic: true, color: { argb: 'FFFFFFFF' } }; });
+    const bk = row.getCell(10);
+    if (r.booked_pct == null) { bk.value = '—'; bk.alignment = { horizontal: 'center', vertical: 'middle' }; } else {
+      bk.font = { bold: true, color: { argb: tone(r.booked_pct) } };
+      /* the booked bar of the screen, in the cell's own colour, full at 100% */
+      ws.addConditionalFormatting({ ref: bk.address, rules: [{ type: 'dataBar', gradient: false, color: { argb: tone(r.booked_pct) },
+        cfvo: [{ type: 'num', value: 0 }, { type: 'num', value: 1 }] }] });
     }
     return row;
   };
-  T.classes.forEach(r => put(r, `${r.tonnage}`));
-  const tot = put(T.total, 'Total', true);
+  const all = T.classes.concat(T.unknown.items.length ? [T.unknown] : []);
+  all.forEach(r => put(r, false));
+  const tot = put(T.total, true);
+  tot.getCell(1).value = 'Total'; tot.height = 22;
   tot.eachCell({ includeEmpty: true }, c => { c.fill = fill(NAVY); c.font = { bold: true, color: { argb: 'FFFFFFFF' } }; });
   if (T.unknown.items.length) {
-    const u = put(T.unknown, 'No tonnage', true);
-    u.getCell(1).font = { bold: true, color: { argb: 'FFC00000' } };
     ws.addRow([]);
-    ws.addRow([`${T.unknown.items.length} moulds have no tonnage in the mould master or ERP; they are not in the total.`]).getCell(1).font = { italic: true, color: { argb: 'FFC00000' } };
+    ws.addRow([`${T.unknown.items.length} moulds have no tonnage in the mould master or ERP (row "Unknown"); they are not in the total.`]).getCell(1).font = { italic: true, color: { argb: 'FFC00000' } };
   }
   ws.addRow([]);
   [`Hrs Required = balance pieces of open orders ÷ pieces per hour (live DPR rate, else mould standard). Available Hrs = machines × 24 h × days × efficiency.`,
+    'Capacity Booked = Hrs Required ÷ Available Hrs: red over 100%, amber 85-100%, green under 85%. Red shortage = more machines needed than we have; green excess = spare machines.',
     `Orders: ${T.total.all_orders || 0} open in the order master, ERP or plan board; ${T.total.closed_orders || 0} of them are complete or closed in the ERP: listed in Order detail, not counted.`,
-    'Mould Limited Hrs = hours of moulds that cannot finish by the date even on a machine of their own (one mould runs on one machine at a time). Machines needed and shortage leave these hours out, since more machines would not help. See the "Mould limits" sheet.']
+    'Mould limit = hours of moulds that cannot finish by the date even on a machine of their own (one mould runs on one machine at a time). Machines needed and shortage leave these hours out, since more machines would not help. See the "Mould limits" sheet.']
     .forEach(x => { ws.addRow([x]).getCell(1).font = { italic: true, color: { argb: 'FF595959' } }; });
 
   const head = sh => sh.getRow(1).eachCell(c => { c.font = { bold: true }; c.fill = fill(HEAD); c.border = box; c.alignment = { vertical: 'middle', wrapText: true }; });
