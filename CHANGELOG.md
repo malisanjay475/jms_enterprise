@@ -14,6 +14,7 @@ part of your PR. On release, the `[Unreleased]` items move under the new version
 ## [Unreleased]
 
 ### Added
+- JMS Chat look (v1.144.0): app 2.9.0 - dotted chat wallpaper drawn in code (chatWallpaper), softer raised bubbles with a hairline edge, slide/fade screen transitions, animated typing dots in the chat header, calmer typography; web full-window chat - teal gradient header bars, dotted chat background, softer bubble shadows, rounded search and message box, hover states, thin scrollbars (rules scoped to .jc-app, so the floating widget on other pages is unchanged); widget cache key v=11. No server changes.
 - Planning > Create Plan > Colour Wise Mould Plan (v1.145.0): lists every mould of the family instead of hiding used ones; each used mould is badged Running on <machine> / Already Planned / In Queue / Dropped (active plans of the selected order matched by mould code). No API changes.
 
 ### Fixed
