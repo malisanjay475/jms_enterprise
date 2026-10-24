@@ -153,7 +153,7 @@
   }
 
   var QUICK_RX = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
-  var listFilter = 'all', showArchived = false, showStarred = false;
+  var listFilter = 'all', showArchived = false, showStarred = false, showTodos = false;
 
   function convById(id) { return convs.filter(function (x) { return x.sync_id === id; })[0] || (current && current.sync_id === id ? current : null); }
 
@@ -176,6 +176,11 @@
 
   // ---------------- styles ----------------
   var CSS = [
+    '.jc-poll{min-width:230px;margin:2px 0}.jc-poll b{display:block;margin-bottom:6px}.jc-popt{position:relative;border:1px solid var(--jc-bd);border-radius:8px;padding:6px 8px;margin:4px 0;cursor:pointer;overflow:hidden;background:rgba(255,255,255,.5)}.jc-popt i{position:absolute;left:0;top:0;bottom:0;background:rgba(0,168,132,.18);font-style:normal}.jc-popt span{position:relative;display:flex;justify-content:space-between;gap:8px}.jc-popt.jc-mine{border-color:#00a884;font-weight:600}.jc-poll small{opacity:.7}',
+    '.jc-ann{border-left:4px solid #f59e0b;background:#fff8e6 !important}.jc-annl{font-size:11px;font-weight:700;color:#b45309;margin-bottom:2px}',
+    '.jc-urg{border:1.5px solid #e53935 !important}.jc-urgl{font-size:11px;font-weight:700;color:#e53935;margin-bottom:2px}',
+    '.jc-pinbar{display:flex;align-items:center;gap:8px;padding:6px 14px;background:var(--jc-bg);border-bottom:1px solid var(--jc-bd);cursor:pointer;font-size:13px}.jc-pinbar span{flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}',
+    '.jc-todo{display:flex;align-items:flex-start;gap:10px;padding:10px 14px;border-bottom:1px solid var(--jc-bd)}.jc-todo.jc-done{opacity:.55;text-decoration:line-through}.jc-todo small{display:block;opacity:.7;text-decoration:none}',
     '.jc-app .jc-side{width:32%;min-width:320px;max-width:440px}',
     '.jc-dl{display:inline-block;margin-top:3px;font-size:12px;color:#027eb5;text-decoration:none}.jc-dl:hover{text-decoration:underline}',
     '.jc-av img{position:absolute;inset:0;width:100%;height:100%;border-radius:50%;object-fit:cover}',
@@ -418,6 +423,9 @@
     closeBtn.title = 'Close';
     var starBtn = el('button', 'jc-ibtn', '⭐');
     starBtn.title = 'Starred messages';
+    var todoBtn = el('button', 'jc-ibtn', '📋');
+    todoBtn.title = 'My tasks';
+    sh.appendChild(todoBtn);
     sh.appendChild(starBtn); sh.appendChild(bellBtn); sh.appendChild(groupBtn); sh.appendChild(newBtn); sh.appendChild(closeBtn);
     var search = el('div', 'jc-search');
     var sIn = el('input');
@@ -472,7 +480,10 @@
     var send = el('button', 'jc-send');
     send.innerHTML = ICON_SEND;
     send.title = 'Send';
-    comp.appendChild(attach); comp.appendChild(fileIn); comp.appendChild(ta); comp.appendChild(send);
+    var moreBtn = el('button', 'jc-ibtn jc-attach', '➕');
+    moreBtn.title = 'Poll, announcement, urgent, schedule';
+    moreBtn.addEventListener('click', function (e) { e.stopPropagation(); composeMore(moreBtn); });
+    comp.appendChild(moreBtn); comp.appendChild(attach); comp.appendChild(fileIn); comp.appendChild(ta); comp.appendChild(send);
     var ment = el('div', 'jc-ment');
     var ph = el('div', 'jc-ph');
     ph.appendChild(el('div', null, '💬'));
@@ -508,7 +519,8 @@
       main: main, mh: mh, mAv: mAv, mName: mName, mSub: mSub, mTitle: mTitle, mInfo: mInfo, msgs: msgs, ro: ro,
       comp: comp, ta: ta, send: send, ph: ph, badge: badge, newBtn: newBtn, fileIn: fileIn,
       editBar: editBar, editTxt: editTxt, replyBar: replyBar, ment: ment, mMute: mMute, side: side, mCall: mCall };
-    starBtn.addEventListener('click', function () { showStarred = !showStarred; sIn.value = ''; renderList(); });
+    starBtn.addEventListener('click', function () { showStarred = !showStarred; showTodos = false; sIn.value = ''; renderList(); });
+    todoBtn.addEventListener('click', function () { showTodos = !showTodos; showStarred = false; sIn.value = ''; renderList(); });
     mCall.addEventListener('click', function () { if (current && !isGroup(current)) webCall.start(current.title); });
 
     fab.addEventListener('click', function () { toggle(!open); });
@@ -639,6 +651,7 @@
     var list = els.list;
     list.textContent = '';
     if (showStarred && !q) { renderStarred(list); return; }
+    if (showTodos && !q) { renderTodos(list); return; }
     if (!q && !adminAll) {
       var chips = el('div', 'jc-chips');
       [['all', 'All'], ['unread', 'Unread'], ['groups', 'Groups']].forEach(function (f) {
@@ -958,6 +971,7 @@
     loaded = [];
     if (!els.sIn.value.trim()) renderList();
     loadMessages(false, focusId);
+    loadPins(c);
     if (!readOnly) { els.ta.focus(); markRead(c.sync_id); }
   }
 
@@ -1118,6 +1132,12 @@
     }
     item('↩ Reply', function () { startReply(m); });
     item('↪ Forward', function () { forwardDialog(m); });
+    item('📋 Make task', function () { taskDialog(m); });
+    item('📌 Pin / unpin', function () {
+      var pinned = (current && current.pins || []).some(function (p) { return p.sync_id === m.sync_id; });
+      api(pinned ? 'DELETE' : 'POST', API + '/messages/' + encodeURIComponent(m.sync_id) + '/pin', {})
+        .then(function () { loadPins(current); }).catch(function (e) { showErr(e.message); });
+    });
     item(m.starred ? '☆ Unstar' : '★ Star', function () {
       var on = !m.starred;
       api('POST', API + '/messages/' + encodeURIComponent(m.sync_id) + '/star', { on: on })
@@ -1269,14 +1289,17 @@
         b.appendChild(el('span', 'jc-del', '🚫 This message was deleted'));
       } else {
         if (m.forwarded) b.appendChild(el('div', 'jc-fwd', '↪ Forwarded'));
+        if (m.announcement) { b.classList.add('jc-ann'); b.appendChild(el('div', 'jc-annl', '📢 ANNOUNCEMENT')); }
+        if (m.urgent) { b.classList.add('jc-urg'); b.appendChild(el('div', 'jc-urgl', '⚠ URGENT')); }
         if (m.reply_to) b.appendChild(quoteEl(m.reply_to));
         if (m.kind === 'link' && m.link) b.appendChild(linkCardEl(m));
         if (m.attachment) b.appendChild(attachmentEl(m));
         else if (m.localFile) b.appendChild(el('div', 'jc-prev', '📎 ' + m.localFile.name + ' · ' + fmtSize(m.localFile.size)));
-        if (m.body) appendBody(b, m.body);
+        if (m.poll) b.appendChild(pollEl(m));
+        else if (m.body) appendBody(b, m.body);
       }
       if (m.reactions && m.reactions.length && !m.deleted) b.appendChild(rxEl(m));
-      var meta = el('span', 'jc-meta', (m.starred ? '★ ' : '') + (m.edited_at && !m.deleted ? 'edited ' : '') + (m.pending ? '' : fmtTime(m.server_ts)));
+      var meta = el('span', 'jc-meta', (m.scheduled ? '🕒 ' : '') + (m.starred ? '★ ' : '') + (m.edited_at && !m.deleted ? 'edited ' : '') + (m.pending ? '' : fmtTime(m.server_ts)));
       if (mine && !adminView && !m.deleted && !m.purged) {
         var tk = tickFor(m);
         var tick = el('span', 'jc-tick' + tk.cls, tk.t);
@@ -1715,6 +1738,8 @@
     else if (st === 'denied') items.push({ label: 'Desktop notifications are blocked in this browser', run: function () { showErr('Allow notifications for this site in the browser settings (padlock icon), then try again.'); } });
     else if (st === 'unsupported') items.push({ label: 'This browser cannot show notifications', run: function () { } });
     else items.push({ label: 'Turn on desktop notifications', run: enableNotifications });
+    items.push({ sub: 'Quiet hours' });
+    items.push({ label: '🌙 Quiet hours (no notifications at night)…', run: quietDialog });
     items.push({ sub: 'Sound' });
     items.push({ label: soundOn ? '🔊 Sound on (click to turn off)' : '🔇 Sound off (click to turn on)', on: soundOn, run: function () {
       soundOn = !soundOn;
@@ -2900,6 +2925,215 @@
 
     return { start: startCall, incoming: incoming, remoteEnded: remoteEnded };
   }());
+
+  // ---------------- phase A: polls, announcements, urgent, schedule, tasks, pins, quiet hours ----------------
+  function pollEl(m) {
+    var p = m.poll;
+    var box = el('div', 'jc-poll');
+    box.appendChild(el('b', null, '📊 ' + p.question));
+    var max = Math.max(1, p.total);
+    p.options.forEach(function (o, i) {
+      var mine = (p.mine || []).indexOf(i) !== -1;
+      var row = el('div', 'jc-popt' + (mine ? ' jc-mine' : ''));
+      var bar = el('i');
+      bar.style.width = Math.round(o.votes * 100 / max) + '%';
+      var lab = el('span');
+      lab.appendChild(el('span', null, (mine ? '✓ ' : '') + o.text));
+      lab.appendChild(el('small', null, String(o.votes)));
+      row.title = o.voters.join(', ');
+      row.appendChild(bar); row.appendChild(lab);
+      row.addEventListener('click', function (e) {
+        e.stopPropagation();
+        var picks = p.multi ? (mine ? p.mine.filter(function (x) { return x !== i; }) : (p.mine || []).concat([i])) : (mine ? [] : [i]);
+        api('POST', API + '/messages/' + encodeURIComponent(m.sync_id) + '/vote', { options: picks })
+          .then(function (d) { Object.assign(m, d.message); redraw(); }).catch(function (e2) { showErr(e2.message); });
+      });
+      box.appendChild(row);
+    });
+    box.appendChild(el('small', null, p.total + ' voted' + (p.multi ? ' · more than one answer allowed' : '')));
+    return box;
+  }
+
+  function composeMore(anchor) {
+    if (!current || current.is_member === false) return;
+    var items = [
+      { label: '📊 Poll', run: pollDialog },
+      { label: '⚠ Send as URGENT (rings even if muted)', run: function () { sendSpecial({ urgent: true }); } },
+      { label: '🕒 Schedule message…', run: scheduleDialog }
+    ];
+    if (isGroup(current) && (current.my_role === 'admin' || isAdmin)) items.splice(1, 0, { label: '📢 Send as announcement', run: function () { sendSpecial({ announcement: true }); } });
+    popup(anchor, els.main, items);
+  }
+
+  function sendSpecial(extra) {
+    var text = els.ta.value.trim();
+    if (!text) { showErr('Type the message first, then choose this.'); return; }
+    els.ta.value = '';
+    api('POST', API + '/messages', Object.assign({ sync_id: uuid(), conversation_sync_id: current.sync_id, body: text, client_ts: new Date().toISOString() }, extra))
+      .then(function (d) { if (!loaded.some(function (x) { return x.sync_id === d.message.sync_id; })) loaded.push(d.message); redraw(); loadConvs(); })
+      .catch(function (e) { els.ta.value = text; showErr(e.message); });
+  }
+
+  function field(label, type, value) {
+    var wrap = el('label', 'jc-row2');
+    wrap.style.display = 'block';
+    wrap.appendChild(el('small', null, label));
+    var inp = document.createElement('input');
+    inp.type = type || 'text';
+    inp.className = 'jc-field';
+    inp.style.width = '100%';
+    if (value != null) inp.value = value;
+    wrap.appendChild(inp);
+    return { wrap: wrap, input: inp };
+  }
+
+  function dialogButtons(dlg, okLabel, onOk) {
+    var act = el('div', 'jc-act');
+    var cancel = el('button', 'jc-plain', 'Cancel');
+    var ok = el('button', 'jc-primary', okLabel);
+    cancel.addEventListener('click', dlg.close);
+    ok.addEventListener('click', onOk);
+    act.appendChild(cancel); act.appendChild(ok);
+    dlg.box.appendChild(act);
+  }
+
+  function pollDialog() {
+    var dlg = modal('📊 New poll');
+    var q = field('Question');
+    dlg.body.appendChild(q.wrap);
+    var opts = [];
+    function addOpt() { var f = field('Option ' + (opts.length + 1)); opts.push(f.input); dlg.body.insertBefore(f.wrap, more); }
+    var more = el('button', 'jc-plain', '+ Add option');
+    more.addEventListener('click', function () { if (opts.length < 10) addOpt(); });
+    dlg.body.appendChild(more);
+    addOpt(); addOpt();
+    var multiL = el('label', 'jc-row2');
+    var multi = document.createElement('input'); multi.type = 'checkbox';
+    multiL.appendChild(multi); multiL.appendChild(el('span', null, 'Allow more than one answer'));
+    dlg.body.appendChild(multiL);
+    dialogButtons(dlg, 'Send poll', function () {
+      var options = opts.map(function (i) { return i.value.trim(); }).filter(Boolean);
+      if (!q.input.value.trim() || options.length < 2) { showErr('Write a question and at least 2 options.'); return; }
+      api('POST', API + '/messages', { sync_id: uuid(), conversation_sync_id: current.sync_id, body: q.input.value.trim(),
+        poll: { question: q.input.value.trim(), options: options, multi: multi.checked } })
+        .then(function (d) { dlg.close(); loaded.push(d.message); redraw(); loadConvs(); })
+        .catch(function (e) { showErr(e.message); });
+    });
+    setTimeout(function () { q.input.focus(); }, 50);
+  }
+
+  function localInputValue(d) {
+    var z = new Date(d.getTime() - d.getTimezoneOffset() * 60000);
+    return z.toISOString().slice(0, 16);
+  }
+
+  function scheduleDialog() {
+    var dlg = modal('🕒 Schedule message');
+    var text = field('Message', 'text', els.ta.value.trim());
+    var when = field('Send at', 'datetime-local', localInputValue(new Date(Date.now() + 3600000)));
+    dlg.body.appendChild(text.wrap); dlg.body.appendChild(when.wrap);
+    var list = el('div');
+    dlg.body.appendChild(list);
+    api('GET', API + '/scheduled?conversation=' + encodeURIComponent(current.sync_id)).then(function (d) {
+      if (!(d.scheduled || []).length) return;
+      list.appendChild(el('b', null, 'Already scheduled here'));
+      d.scheduled.forEach(function (s2) {
+        var r = el('div', 'jc-row2');
+        r.appendChild(el('span', null, fmtDay(s2.send_at) + ' ' + fmtTime(s2.send_at) + ' · ' + s2.body.slice(0, 60)));
+        var x = el('button', 'jc-plain', 'Cancel');
+        x.addEventListener('click', function () { api('DELETE', API + '/scheduled/' + s2.id).then(function () { r.remove(); }); });
+        r.appendChild(x);
+        list.appendChild(r);
+      });
+    }).catch(function () { });
+    dialogButtons(dlg, 'Schedule', function () {
+      var at = new Date(when.input.value);
+      if (!text.input.value.trim() || isNaN(at.getTime())) { showErr('Write the message and pick a time.'); return; }
+      api('POST', API + '/scheduled', { conversation_sync_id: current.sync_id, body: text.input.value.trim(), send_at: at.toISOString() })
+        .then(function () { dlg.close(); els.ta.value = ''; toastText('🕒 Scheduled for ' + fmtDay(at.toISOString()) + ' ' + fmtTime(at.toISOString())); })
+        .catch(function (e) { showErr(e.message); });
+    });
+  }
+
+  function taskDialog(m) {
+    var dlg = modal('📋 Make task');
+    var title = field('Task', 'text', (m.body || (m.attachment ? m.attachment.file_name : '')).slice(0, 300));
+    dlg.body.appendChild(title.wrap);
+    var who = el('label', 'jc-row2'); who.style.display = 'block';
+    who.appendChild(el('small', null, 'Assign to'));
+    var sel = document.createElement('select'); sel.className = 'jc-field'; sel.style.width = '100%';
+    (current.members || []).forEach(function (u) { var o = document.createElement('option'); o.value = u; o.textContent = same(u, me) ? u + ' (me)' : u; sel.appendChild(o); });
+    sel.value = same(m.sender, me) ? me : m.sender;
+    who.appendChild(sel);
+    dlg.body.appendChild(who);
+    var due = field('Due (optional)', 'datetime-local', '');
+    dlg.body.appendChild(due.wrap);
+    dialogButtons(dlg, 'Create task', function () {
+      var at = due.input.value ? new Date(due.input.value) : null;
+      api('POST', API + '/todos', { conversation_sync_id: current.sync_id, message_sync_id: m.sync_id, title: title.input.value.trim(),
+        assignee: sel.value, due_at: at ? at.toISOString() : undefined })
+        .then(function () { dlg.close(); loadMessages(false); })
+        .catch(function (e) { showErr(e.message); });
+    });
+  }
+
+  function renderTodos(list) {
+    var hd = el('div', 'jc-arch', '← My tasks');
+    hd.addEventListener('click', function () { showTodos = false; renderList(); });
+    list.appendChild(hd);
+    api('GET', API + '/todos').then(function (d) {
+      var ts = d.todos || [];
+      if (!ts.length) list.appendChild(el('div', 'jc-empty', 'No tasks. Use ▾ on a message → Make task.'));
+      ts.forEach(function (t) {
+        var row = el('div', 'jc-todo' + (t.done_at ? ' jc-done' : ''));
+        var cb = document.createElement('input'); cb.type = 'checkbox'; cb.checked = !!t.done_at;
+        cb.addEventListener('change', function () {
+          api('POST', API + '/todos/' + t.id + '/done', { done: cb.checked }).then(function () { renderList(); }).catch(function (e) { showErr(e.message); });
+        });
+        var mid = el('div');
+        mid.appendChild(el('div', null, t.title));
+        var overdue = !t.done_at && t.due_at && new Date(t.due_at) < new Date();
+        mid.appendChild(el('small', null, (same(t.assignee, me) ? 'For me' : 'For ' + t.assignee) + (t.due_at ? ' · due ' + fmtDay(t.due_at) + ' ' + fmtTime(t.due_at) + (overdue ? ' ⚠ overdue' : '') : '') + ' · ' + (t.conv_title || 'chat')));
+        mid.style.cursor = 'pointer';
+        mid.addEventListener('click', function () { var c = convById(t.conversation_sync_id); showTodos = false; if (c) openConv(c); });
+        row.appendChild(cb); row.appendChild(mid);
+        list.appendChild(row);
+      });
+    }).catch(function (e) { showErr(e.message); });
+  }
+
+  function loadPins(c) {
+    if (!c || c.is_member === false && !isAdmin) return;
+    api('GET', API + '/conversations/' + encodeURIComponent(c.sync_id) + '/pins').then(function (d) {
+      if (current !== c) return;
+      c.pins = d.pins || [];
+      var old = els.main.querySelector('.jc-pinbar');
+      if (old) old.remove();
+      if (!c.pins.length) return;
+      var i = 0;
+      var bar = el('div', 'jc-pinbar');
+      var txt = el('span');
+      function show() { var p = c.pins[i]; txt.textContent = '📌 ' + (c.pins.length > 1 ? (i + 1) + '/' + c.pins.length + ' · ' : '') + (p.body || (p.attachment ? p.attachment.file_name : '')); }
+      show();
+      bar.appendChild(txt);
+      bar.title = 'Pinned message — click to see it';
+      bar.addEventListener('click', function () { flash(c.pins[i].sync_id); i = (i + 1) % c.pins.length; show(); });
+      els.main.insertBefore(bar, els.msgs);
+    }).catch(function () { });
+  }
+
+  function quietDialog() {
+    var dlg = modal('🌙 Quiet hours');
+    dlg.body.appendChild(el('small', null, 'No notifications in this time, except URGENT messages and @mentions. Leave empty to switch off.'));
+    var from = field('From', 'time', ''), to = field('To', 'time', '');
+    dlg.body.appendChild(from.wrap); dlg.body.appendChild(to.wrap);
+    api('GET', API + '/settings').then(function (d) { from.input.value = d.quiet_from || ''; to.input.value = d.quiet_to || ''; }).catch(function () { });
+    dialogButtons(dlg, 'Save', function () {
+      api('PUT', API + '/settings', { quiet_from: from.input.value, quiet_to: to.input.value })
+        .then(function (d) { dlg.close(); toastText(d.quiet_from ? '🌙 Quiet ' + d.quiet_from + '–' + d.quiet_to : 'Quiet hours off'); })
+        .catch(function (e) { showErr(e.message); });
+    });
+  }
 
   function start() {
     api('GET', API + '/me').then(function (d) {

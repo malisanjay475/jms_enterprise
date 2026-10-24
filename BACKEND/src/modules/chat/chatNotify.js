@@ -17,6 +17,7 @@
 
 const chatSync = require('./chatSync');
 const chatFcm = require('./chatFcm');
+const chatWork = require('./chatWork');
 
 const PUSH_LOCK = 'jms_chat_push_sender';
 const MUTE_FOR = { '8h': "NOW() + INTERVAL '8 hours'", '1w': "NOW() + INTERVAL '7 days'", always: "'infinity'::timestamptz", off: 'NULL' };
@@ -188,14 +189,21 @@ async function sendPushForMessage(pool, messageSyncId) {
        FROM chat_members mb
       WHERE mb.conversation_sync_id = $1 AND mb.left_at IS NULL AND LOWER(mb.username) <> LOWER($2)
         AND (mb.muted_until IS NULL OR mb.muted_until < NOW() OR chat_mentions($3, mb.username)
-             OR LOWER(mb.username) = LOWER($4))`,
-    [m.conversation_sync_id, m.sender, m.body, m.replied_to || '']
+             OR LOWER(mb.username) = LOWER($4) OR $5::boolean)`,
+    [m.conversation_sync_id, m.sender, m.body, m.replied_to || '', Boolean(m.meta && m.meta.urgent)]
   );
+  // quiet hours: nobody in their quiet window is pushed, unless urgent or @mentioned
+  const urgent = Boolean(m.meta && m.meta.urgent);
+  if (!urgent && who.length) {
+    const quiet = await chatWork.quietNow(pool, who.map((w) => w.username)).catch(() => new Set());
+    for (let i = who.length - 1; i >= 0; i--) if (quiet.has(who[i].username.toLowerCase()) && !who[i].mentioned) who.splice(i, 1);
+  }
   const label = m.kind === 'link'
     ? `${m.meta && m.meta.priority === 'urgent' ? '⚠ Urgent: ' : ''}🔗 ${(m.meta && m.meta.title) || 'Shared page'}`
     : { image: '📷 Photo', pdf: '📄 PDF', xlsx: '📊 Excel file', audio: '🎤 Audio', video: '🎥 Video' }[m.kind];
-  const body = label ? (m.body ? `${label}: ${m.body}` : label) : m.body;
-  const title = m.conv_type === 'group' ? `${m.sender} in ${m.conv_title || 'Group'}` : m.sender;
+  const pre = m.meta && m.meta.poll ? '📊 Poll: ' : m.meta && m.meta.announcement ? '📢 ' : '';
+  const body = pre + (label ? (m.body ? `${label}: ${m.body}` : label) : m.body);
+  const title = (urgent ? '⚠ URGENT · ' : '') + (m.conv_type === 'group' ? `${m.sender} in ${m.conv_title || 'Group'}` : m.sender);
   let sent = 0;
 
   // Android app: one data message per phone, with that person's total unread for the
@@ -213,7 +221,8 @@ async function sendPushForMessage(pool, messageSyncId) {
         conversation_sync_id: String(m.conversation_sync_id),
         message_sync_id: String(m.sync_id),
         is_group: m.conv_type === 'group' ? '1' : '0',
-        unread: String(unread.get(key) || 1)
+        unread: String(unread.get(key) || 1),
+        urgent: urgent ? '1' : '0'
       };
     }).catch((err) => { console.warn('[chat-fcm]', err.message); return { sent: 0 }; });
     sent += r.sent;
