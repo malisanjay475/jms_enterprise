@@ -13,6 +13,9 @@ part of your PR. On release, the `[Unreleased]` items move under the new version
 
 ## [Unreleased]
 
+### Added
+- Planning > Create Plan > Colour Wise Mould Plan (v1.145.0): lists every mould of the family instead of hiding used ones; each used mould is badged Running on <machine> / Already Planned / In Queue / Dropped (active plans of the selected order matched by mould code). No API changes.
+
 ### Fixed
 - JMS Chat on iPhone (chat_app.html): the screen shook / flashed when tapping the message box - the keyboard handler moved the chat and scrolled the page back on every scroll event, fighting Safari's own pan; it now follows the visible area once per animation frame and never scrolls the page. WhatsApp-style phone look in the app: green top bars with white icons, larger chat rows with avatars and dividers, rounded search, beige chat background, larger bubbles, rounded message box with round attach / send buttons; long-press a message opens its menu as a bottom sheet (own messages) or replies (others); no grey tap flash. No API changes.
 
