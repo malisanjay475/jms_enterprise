@@ -88,7 +88,13 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
                     }
                 }
 
-                NavHost(nav, startDestination = if (Session.signedIn) "list" else "login") {
+                NavHost(
+                    nav, startDestination = if (Session.signedIn) "list" else "login",
+                    enterTransition = { androidx.compose.animation.slideInHorizontally(androidx.compose.animation.core.tween(260)) { it / 3 } + androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(260)) },
+                    exitTransition = { androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(180)) },
+                    popEnterTransition = { androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(220)) },
+                    popExitTransition = { androidx.compose.animation.slideOutHorizontally(androidx.compose.animation.core.tween(240)) { it / 3 } + androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(240)) }
+                ) {
                     composable("login") {
                         LoginScreen(onSignedIn = {
                             Live.start()

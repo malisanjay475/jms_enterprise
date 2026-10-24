@@ -225,8 +225,11 @@ fun ConversationScreen(convId: String, onBack: () -> Unit, onInfo: () -> Unit, v
                         Spacer(Modifier.width(10.dp))
                         Column {
                             Text(title, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            if (subtitle.isNotEmpty()) Text(subtitle, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                                color = Color.White.copy(alpha = 0.85f))
+                            if (subtitle.isNotEmpty()) Row(verticalAlignment = Alignment.CenterVertically) {
+                                if (typing != null) { TypingDots(Color.White); Spacer(Modifier.width(4.dp)) }
+                                Text(subtitle, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                    color = Color.White.copy(alpha = 0.85f))
+                            }
                         }
                     }
                 },
@@ -256,7 +259,8 @@ fun ConversationScreen(convId: String, onBack: () -> Unit, onInfo: () -> Unit, v
                 )
             )
         },
-        containerColor = if (dark()) ChatBgDark else ChatBg
+        containerColor = Color.Transparent,
+        modifier = Modifier.chatWallpaper(dark())
     ) { pad ->
         Column(Modifier.padding(pad).fillMaxSize().imePadding()) {
             Box(Modifier.weight(1f).fillMaxWidth()) {
@@ -443,7 +447,8 @@ private fun Bubble(
             modifier = Modifier.align(Alignment.CenterVertically).padding(end = 6.dp))
         Box {
             Surface(
-                shape = shape, color = bg, shadowElevation = 1.dp,
+                shape = shape, color = bg, shadowElevation = 1.5.dp, tonalElevation = 0.dp,
+                border = if (dark()) null else androidx.compose.foundation.BorderStroke(0.5.dp, Color.Black.copy(alpha = 0.04f)),
                 modifier = Modifier.widthIn(max = 300.dp).clip(shape).combinedClickable(
                     onClick = { if (m.failed) onRetry() },
                     onLongClick = { menu = true },
