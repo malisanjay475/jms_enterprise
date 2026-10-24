@@ -32,6 +32,7 @@ const chatAuto = require('./chatAuto');
 const chatCalls = require('./chatCalls');
 const chatWork = require('./chatWork');
 const chatBot = require('./chatBot');
+const chatTeam = require('./chatTeam');
 const chatFcm = require('./chatFcm');
 const { registerChatAppAuthRoutes } = require('./chatAppAuth');
 
@@ -774,6 +775,8 @@ function registerChatRoutes(app, pool) {
   chatBot.registerBotRoutes(app, pool, { ready, fail, membership, decorate });
   chatBot.ensureBotSchema(pool).catch((err) => console.warn('[chat] bot schema:', err.message));
   chatBot.start(pool);
+  chatTeam.registerTeamRoutes(app, pool, { ready, fail, membership, decorate, localFactoryId, uploadRoot });
+  chatTeam.ensureTeamSchema(pool).catch((err) => console.warn('[chat] team schema:', err.message));
   if (chatFcm.enabled()) chatFcm.ensureFcmSchema(pool).catch((err) => console.warn('[chat-fcm] schema:', err.message));
   chatAdmin.startRetentionJob(pool, { uploadRoot });
 
