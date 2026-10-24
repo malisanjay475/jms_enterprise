@@ -11991,6 +11991,27 @@ app.delete('/api/planning/priority/:id', async (req, res) => {
 ============================================================ */
 
 // GET /api/planning/board?plant=DUNGRA&date=2025-12-12
+// Plan -> job card when the plan has none saved and no OR-JR remark names it.
+// Used inside the ORDER BY of an or_jr_report lateral aliased rpt, plan aliased pb.
+//   1 = rpt is the Nth job card of the OR by job card date, N = our_code batch
+//       number (JMSP-UI26272587-002 -> 2nd job card)
+//   2 = rpt is the job card the DPR booked the most good pieces on for this plan
+// Rollback: tag backup/before-v1.144.2.
+const JC_BY_BATCH_OR_DPR_SQL = `
+             WHEN substring(TRIM(COALESCE(pb.our_code, '')) from '-(\\d+)$') IS NOT NULL
+                  AND substring(TRIM(pb.our_code) from '-(\\d+)$')::int = 1 + (
+                    SELECT COUNT(DISTINCT TRIM(r2.job_card_no)) FROM or_jr_report r2
+                     WHERE TRIM(r2.or_jr_no) = TRIM(pb.order_no)
+                       AND NULLIF(TRIM(r2.job_card_no), '') IS NOT NULL
+                       AND (COALESCE(r2.job_card_date, DATE '9999-12-31'), TRIM(r2.job_card_no))
+                         < (COALESCE(rpt.job_card_date, DATE '9999-12-31'), TRIM(rpt.job_card_no))) THEN 1
+             WHEN NULLIF(TRIM(pb.plan_id), '') IS NOT NULL
+                  AND TRIM(rpt.job_card_no) = (
+                    SELECT TRIM(d.jobcard_no) FROM dpr_hourly d
+                     WHERE d.plan_id = TRIM(pb.plan_id) AND d.is_deleted IS NOT TRUE
+                       AND NULLIF(TRIM(d.jobcard_no), '') IS NOT NULL
+                     GROUP BY TRIM(d.jobcard_no) ORDER BY SUM(COALESCE(d.good_qty, 0)) DESC LIMIT 1) THEN 2`;
+
 app.get('/api/planning/board', async (req, res) => {
   try {
     // The self-heal block below is a set of idempotent data-normalisation UPDATEs.
@@ -12328,6 +12349,8 @@ app.get('/api/planning/board', async (req, res) => {
       -- only fall back to an arbitrary (but deterministic, lowest-id) job card for
       -- the OR when no row references this plan. Note: pb.job_card_no (persisted at
       -- link time) still wins over this via the COALESCE on the jcNo column above.
+      -- Between the two: the plan's batch number (our_code ...-002 = the OR's 2nd job
+      -- card by date), then the job card the DPR booked most pieces on for the plan.
       LEFT JOIN LATERAL (
          SELECT rpt.job_card_no, rpt.or_jr_date, rpt.job_card_date
          FROM or_jr_report rpt
@@ -12339,7 +12362,8 @@ app.get('/api/planning/board', async (req, res) => {
                   AND LOWER(COALESCE(rpt.remarks_all, '')) LIKE '%' || LOWER(TRIM(pb.plan_id)) || '%' THEN 0
              WHEN NULLIF(TRIM(pb.our_code), '') IS NOT NULL
                   AND LOWER(COALESCE(rpt.remarks_all, '')) LIKE '%' || LOWER(TRIM(pb.our_code)) || '%' THEN 0
-             ELSE 1
+             ${JC_BY_BATCH_OR_DPR_SQL}
+             ELSE 3
            END,
            rpt.id
          LIMIT 1
@@ -12484,7 +12508,8 @@ async function fetchMachineWisePlans({ factoryId, machine, orNos }) {
                  AND LOWER(COALESCE(rpt.remarks_all, '')) LIKE '%' || LOWER(TRIM(pb.plan_id)) || '%' THEN 0
             WHEN NULLIF(TRIM(pb.our_code), '') IS NOT NULL
                  AND LOWER(COALESCE(rpt.remarks_all, '')) LIKE '%' || LOWER(TRIM(pb.our_code)) || '%' THEN 0
-            ELSE 1
+            ${JC_BY_BATCH_OR_DPR_SQL}
+            ELSE 3
           END,
           (NULLIF(TRIM(rpt.job_card_no), '') IS NULL)::int,
           rpt.id
