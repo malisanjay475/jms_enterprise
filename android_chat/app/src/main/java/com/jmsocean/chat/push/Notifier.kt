@@ -22,6 +22,7 @@ import com.jmsocean.chat.R
  */
 object Notifier {
     const val CHANNEL = "messages"
+    const val CHANNEL_URGENT = "urgent"
     const val EXTRA_CONV = "conversation_sync_id"
     const val KEY_REPLY = "reply_text"
 
@@ -38,11 +39,19 @@ object Notifier {
             enableVibration(true)
         }
         ctx.getSystemService(NotificationManager::class.java).createNotificationChannel(ch)
+        ctx.getSystemService(NotificationManager::class.java).createNotificationChannel(
+            NotificationChannel(CHANNEL_URGENT, "Urgent messages", NotificationManager.IMPORTANCE_HIGH).apply {
+                description = "⚠ URGENT messages: ring even when a chat is muted"
+                enableVibration(true)
+                vibrationPattern = longArrayOf(0, 600, 300, 600, 300, 600)
+                setSound(android.media.RingtoneManager.getDefaultUri(android.media.RingtoneManager.TYPE_ALARM),
+                    android.media.AudioAttributes.Builder().setUsage(android.media.AudioAttributes.USAGE_NOTIFICATION_RINGTONE).build())
+            })
     }
 
     private fun notifId(conv: String) = conv.hashCode()
 
-    fun show(ctx: Context, conv: String, title: String, sender: String, text: String, isGroup: Boolean, senderPhoto: android.graphics.Bitmap? = null) {
+    fun show(ctx: Context, conv: String, title: String, sender: String, text: String, isGroup: Boolean, senderPhoto: android.graphics.Bitmap? = null, urgent: Boolean = false) {
         if (appInFront && openChat == conv) return
         if (Build.VERSION.SDK_INT >= 33 &&
             ContextCompat.checkSelfPermission(ctx, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
@@ -92,7 +101,7 @@ object Notifier {
             .setSemanticAction(NotificationCompat.Action.SEMANTIC_ACTION_MARK_AS_READ)
             .build()
 
-        val n = NotificationCompat.Builder(ctx, CHANNEL)
+        val n = NotificationCompat.Builder(ctx, if (urgent) CHANNEL_URGENT else CHANNEL)
             .setSmallIcon(R.drawable.ic_stat_chat)
             .setColor(0xFF075E54.toInt())
             .setStyle(style)

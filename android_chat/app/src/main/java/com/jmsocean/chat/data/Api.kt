@@ -149,13 +149,55 @@ object Api {
 
     suspend fun pushStatus(): PushStatus = get("/api/chat/fcm/status")
 
+    // ---- urgent / announcement / poll ----
+    suspend fun sendSpecial(convId: String, text: String, urgent: Boolean = false, announcement: Boolean = false,
+                            poll: Triple<String, List<String>, Boolean>? = null): Message =
+        post<MessageReply>("/api/chat/messages", buildJsonObject {
+            put("conversation_sync_id", convId)
+            put("body", text)
+            put("sync_id", UUID.randomUUID().toString())
+            put("client_ts", Instant.now().toString())
+            if (urgent) put("urgent", true)
+            if (announcement) put("announcement", true)
+            if (poll != null) put("poll", buildJsonObject {
+                put("question", poll.first)
+                putJsonArray("options") { poll.second.forEach { add(it) } }
+                put("multi", poll.third)
+            })
+        }).message ?: throw ApiError("Message not sent.")
+
+    suspend fun vote(messageId: String, options: List<Int>): Message =
+        json.decodeFromString<MessageReply>(call("POST", "/api/chat/messages/$messageId/vote", jsonBody("options" to options))).message
+            ?: throw ApiError("Vote not saved.")
+
+    suspend fun pins(convId: String): List<Message> = get<PinsReply>("/api/chat/conversations/$convId/pins").pins
+    suspend fun pin(messageId: String, on: Boolean) { call(if (on) "POST" else "DELETE", "/api/chat/messages/$messageId/pin", if (on) "{}".toRequestBody(JSON) else null) }
+
+    // ---- tasks ----
+    suspend fun createTodo(convId: String, messageId: String?, title: String, assignee: String, dueAt: String?) {
+        call("POST", "/api/chat/todos", jsonBody("conversation_sync_id" to convId, "message_sync_id" to messageId,
+            "title" to title, "assignee" to assignee, "due_at" to dueAt))
+    }
+    suspend fun todos(): List<Todo> = get<TodosReply>("/api/chat/todos").todos
+    suspend fun todoDone(id: String, done: Boolean) { call("POST", "/api/chat/todos/$id/done", jsonBody("done" to done)) }
+
+    // ---- scheduled ----
+    suspend fun schedule(convId: String, text: String, sendAt: String) {
+        call("POST", "/api/chat/scheduled", jsonBody("conversation_sync_id" to convId, "body" to text, "send_at" to sendAt))
+    }
+
+    // ---- quiet hours ----
+    suspend fun chatSettings(): ChatSettings = get("/api/chat/settings")
+    suspend fun saveQuiet(from: String, to: String): ChatSettings =
+        json.decodeFromString(call("PUT", "/api/chat/settings", jsonBody("quiet_from" to from, "quiet_to" to to)))
+
     private fun jsonBody(vararg kv: Pair<String, Any?>) = buildJsonObject {
         kv.forEach { (k, v) ->
             when (v) {
                 null -> Unit
                 is Boolean -> put(k, v)
                 is Number -> put(k, v)
-                is List<*> -> putJsonArray(k) { v.forEach { add(it.toString()) } }
+                is List<*> -> putJsonArray(k) { v.forEach { if (it is Number) add(it) else add(it.toString()) } }
                 else -> put(k, v.toString())
             }
         }

@@ -36,6 +36,8 @@ class ConversationViewModel(app: Application) : AndroidViewModel(app) {
     val peerPhoto = MutableStateFlow<String?>(null)
     val lastSeen = MutableStateFlow<String?>(null)
     val mutedUntil = MutableStateFlow<String?>(null)
+    val myRole = MutableStateFlow<String?>(null)
+    val pins = MutableStateFlow<List<Message>>(emptyList())
     private var hasMore = false
     private var typingClear: Job? = null
     private var lastTypingSent = 0L
@@ -98,6 +100,8 @@ class ConversationViewModel(app: Application) : AndroidViewModel(app) {
                     messages.value = r.messages
                     hasMore = r.has_more
                     isGroup.value = r.type == "group"
+                    myRole.value = r.my_role
+                    loadPins()
                     members.value = r.members
                     title.value = r.title ?: r.members.firstOrNull { !Session.isMe(it) } ?: "Chat"
                     if (r.type != "group") r.members.firstOrNull { !Session.isMe(it) }?.let { p ->
@@ -340,6 +344,33 @@ class ConversationViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun clearError() { error.value = null }
+
+    fun loadPins() { viewModelScope.launch { runCatching { Api.pins(convId) }.onSuccess { pins.value = it } } }
+
+    fun togglePin(m: Message) {
+        val on = pins.value.none { it.sync_id == m.sync_id }
+        viewModelScope.launch { runCatching { Api.pin(m.sync_id, on) }.onSuccess { loadPins() }.onFailure { error.value = it.message } }
+    }
+
+    fun vote(m: Message, picks: List<Int>) {
+        viewModelScope.launch { runCatching { Api.vote(m.sync_id, picks) }.onSuccess { upsert(it) }.onFailure { error.value = it.message } }
+    }
+
+    fun sendSpecial(text: String, urgent: Boolean = false, announcement: Boolean = false, poll: Triple<String, List<String>, Boolean>? = null) {
+        viewModelScope.launch {
+            runCatching { Api.sendSpecial(convId, text, urgent, announcement, poll) }.onSuccess { upsert(it) }.onFailure { error.value = it.message }
+        }
+    }
+
+    fun makeTask(m: Message, title: String, assignee: String, due: String?, done: () -> Unit) {
+        viewModelScope.launch {
+            runCatching { Api.createTodo(convId, m.sync_id, title, assignee, due) }.onSuccess { done(); refresh() }.onFailure { error.value = it.message }
+        }
+    }
+
+    fun schedule(text: String, at: String, done: () -> Unit) {
+        viewModelScope.launch { runCatching { Api.schedule(convId, text, at) }.onSuccess { done() }.onFailure { error.value = it.message } }
+    }
 
     /** My reaction (or "" to remove). Shown at once, then the server's list wins. */
     fun react(m: Message, emoji: String) {

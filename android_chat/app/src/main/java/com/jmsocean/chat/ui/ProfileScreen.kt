@@ -145,6 +145,8 @@ fun ProfileScreen(onBack: () -> Unit, onSignOut: () -> Unit) {
             Spacer(Modifier.height(8.dp))
             NotificationsSection()
             Spacer(Modifier.height(8.dp))
+            QuietHoursSection()
+            Spacer(Modifier.height(8.dp))
             AppLockSection()
             Spacer(Modifier.height(16.dp))
             Row(
