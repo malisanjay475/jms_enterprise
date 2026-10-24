@@ -157,6 +157,7 @@ fun ConversationScreen(convId: String, onBack: () -> Unit, onInfo: () -> Unit, v
     var playing by remember { mutableStateOf<String?>(null) }
     var showPoll by remember { mutableStateOf(false) }
     var taskFor by remember { mutableStateOf<Message?>(null) }
+    var ticketFor by remember { mutableStateOf<Message?>(null) }
     val myRole by vm.myRole.collectAsState()
     val pins by vm.pins.collectAsState()
     val pickMedia = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(10)) { uris ->
@@ -312,6 +313,8 @@ fun ConversationScreen(convId: String, onBack: () -> Unit, onInfo: () -> Unit, v
                                 onTask = { st -> vm.setTask(m, st) },
                                 onVote = { picks -> vm.vote(m, picks) },
                                 onMakeTask = { taskFor = m },
+                                onTicket = { ticketFor = m },
+                                onAck = { vm.ack(m) },
                                 pinned = pins.any { it.sync_id == m.sync_id },
                                 onPin = { vm.togglePin(m) },
                                 onEdit = { vm.startEdit(m) },
@@ -378,6 +381,12 @@ fun ConversationScreen(convId: String, onBack: () -> Unit, onInfo: () -> Unit, v
     }
     forwarding?.let { m -> ForwardSheet(m) { forwarding = null } }
     if (showPoll) PollDialog(onSend = { q, o, multi -> showPoll = false; vm.sendSpecial(q, poll = Triple(q, o, multi)) }, onClose = { showPoll = false })
+    ticketFor?.let { m ->
+        TicketDialog(m, onRaise = { mach, prob, pr ->
+            vm.raiseTicket(m, mach, prob, pr) { no -> Toast.makeText(ctx, "🔧 Ticket $no raised", Toast.LENGTH_LONG).show() }
+            ticketFor = null
+        }, onClose = { ticketFor = null })
+    }
     taskFor?.let { m ->
         TaskDialog(m, members, onCreate = { t, who, due ->
             vm.makeTask(m, t, who, due) { Toast.makeText(ctx, "📋 Task created", Toast.LENGTH_SHORT).show() }
@@ -450,6 +459,7 @@ private fun Bubble(
     myReaction: String?, onReact: (String) -> Unit, onForward: () -> Unit, onStar: () -> Unit,
     onInfo: () -> Unit, onTask: (String) -> Unit,
     onVote: (List<Int>) -> Unit, onMakeTask: () -> Unit, pinned: Boolean, onPin: () -> Unit,
+    onTicket: () -> Unit, onAck: () -> Unit,
     onReply: () -> Unit, onRetry: () -> Unit, onImage: (String) -> Unit
 ) {
     val ctx = LocalContext.current
@@ -508,6 +518,7 @@ private fun Bubble(
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                     if (m.announcement && !m.deleted) Text("📢 ANNOUNCEMENT", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFFB45309))
                     if (m.urgent && !m.deleted) Text("⚠ URGENT", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFFE53935))
+                    if (m.bot && !m.deleted) Text("🤖 JMS BOT", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF2563EB))
                     if (m.kind == "link" && !m.deleted && !m.purged) LinkCard(m, onTask)
                     m.poll?.let { p -> if (!m.deleted) PollCard(p, onVote) }
                     m.reply_to?.let { q ->
@@ -554,6 +565,7 @@ private fun Bubble(
                     if (!(m.deleted || m.purged) && m.body.isNotBlank() && !hideBody) {
                         Text(linkify(m.body), fontSize = 15.sp)
                     }
+                    m.alert?.let { al -> if (!m.deleted) AlertAck(al, onAck) }
                     Row(Modifier.align(Alignment.End), verticalAlignment = Alignment.CenterVertically) {
                         if (m.scheduled) Text("🕒 ", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         if (m.starred) Text("★ ", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -571,6 +583,7 @@ private fun Bubble(
                 if (!m.deleted && !m.pending && !m.failed) {
                     DropdownMenuItem(text = { Text("Forward") }, onClick = { menu = false; onForward() })
                     DropdownMenuItem(text = { Text("📋 Make task") }, onClick = { menu = false; onMakeTask() })
+                    DropdownMenuItem(text = { Text("🔧 Raise maintenance ticket") }, onClick = { menu = false; onTicket() })
                     DropdownMenuItem(text = { Text(if (pinned) "📌 Unpin" else "📌 Pin") }, onClick = { menu = false; onPin() })
                     DropdownMenuItem(text = { Text(if (m.starred) "Unstar" else "Star") }, onClick = { menu = false; onStar() })
                     if (mine) DropdownMenuItem(text = { Text("Info") }, onClick = { menu = false; onInfo() })

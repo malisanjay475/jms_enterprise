@@ -153,7 +153,7 @@
   }
 
   var QUICK_RX = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
-  var listFilter = 'all', showArchived = false, showStarred = false, showTodos = false;
+  var listFilter = 'all', showArchived = false, showStarred = false, showTodos = false, showApprovals = false;
 
   function convById(id) { return convs.filter(function (x) { return x.sync_id === id; })[0] || (current && current.sync_id === id ? current : null); }
 
@@ -176,6 +176,9 @@
 
   // ---------------- styles ----------------
   var CSS = [
+    '.jc-ack{display:inline-block;margin-top:6px;border:0;border-radius:14px;padding:4px 12px;background:#e53935;color:#fff;cursor:pointer;font-size:12px}.jc-acked{display:block;margin-top:4px;font-size:12px;color:#12a66a;font-weight:600}.jc-esc{display:block;font-size:11px;color:#e53935}',
+    '.jc-bot{background:#eef6ff !important;border-left:3px solid #3b82f6}.jc-botl{font-size:11px;font-weight:700;color:#2563eb;margin-bottom:2px}',
+    '.jc-appr{padding:10px 14px;border-bottom:1px solid var(--jc-bd)}.jc-appr b{display:block}.jc-appr small{opacity:.75}.jc-appr .jc-act{justify-content:flex-start;margin-top:6px}',
     '.jc-poll{min-width:230px;margin:2px 0}.jc-poll b{display:block;margin-bottom:6px}.jc-popt{position:relative;border:1px solid var(--jc-bd);border-radius:8px;padding:6px 8px;margin:4px 0;cursor:pointer;overflow:hidden;background:rgba(255,255,255,.5)}.jc-popt i{position:absolute;left:0;top:0;bottom:0;background:rgba(0,168,132,.18);font-style:normal}.jc-popt span{position:relative;display:flex;justify-content:space-between;gap:8px}.jc-popt.jc-mine{border-color:#00a884;font-weight:600}.jc-poll small{opacity:.7}',
     '.jc-ann{border-left:4px solid #f59e0b;background:#fff8e6 !important}.jc-annl{font-size:11px;font-weight:700;color:#b45309;margin-bottom:2px}',
     '.jc-urg{border:1.5px solid #e53935 !important}.jc-urgl{font-size:11px;font-weight:700;color:#e53935;margin-bottom:2px}',
@@ -425,6 +428,9 @@
     starBtn.title = 'Starred messages';
     var todoBtn = el('button', 'jc-ibtn', '📋');
     todoBtn.title = 'My tasks';
+    var apprBtn = el('button', 'jc-ibtn', '✅');
+    apprBtn.title = 'Approvals waiting for me';
+    sh.appendChild(apprBtn);
     sh.appendChild(todoBtn);
     sh.appendChild(starBtn); sh.appendChild(bellBtn); sh.appendChild(groupBtn); sh.appendChild(newBtn); sh.appendChild(closeBtn);
     var search = el('div', 'jc-search');
@@ -475,7 +481,7 @@
     fileIn.style.display = 'none';
     var ta = el('textarea');
     ta.rows = 1;
-    ta.placeholder = 'Type a message';
+    ta.placeholder = 'Type a message  ( /help for JMS commands )';
     ta.maxLength = 4000;
     var send = el('button', 'jc-send');
     send.innerHTML = ICON_SEND;
@@ -520,7 +526,8 @@
       comp: comp, ta: ta, send: send, ph: ph, badge: badge, newBtn: newBtn, fileIn: fileIn,
       editBar: editBar, editTxt: editTxt, replyBar: replyBar, ment: ment, mMute: mMute, side: side, mCall: mCall };
     starBtn.addEventListener('click', function () { showStarred = !showStarred; showTodos = false; sIn.value = ''; renderList(); });
-    todoBtn.addEventListener('click', function () { showTodos = !showTodos; showStarred = false; sIn.value = ''; renderList(); });
+    todoBtn.addEventListener('click', function () { showTodos = !showTodos; showStarred = false; showApprovals = false; sIn.value = ''; renderList(); });
+    apprBtn.addEventListener('click', function () { showApprovals = !showApprovals; showTodos = false; showStarred = false; sIn.value = ''; renderList(); });
     mCall.addEventListener('click', function () { if (current && !isGroup(current)) webCall.start(current.title); });
 
     fab.addEventListener('click', function () { toggle(!open); });
@@ -652,6 +659,7 @@
     list.textContent = '';
     if (showStarred && !q) { renderStarred(list); return; }
     if (showTodos && !q) { renderTodos(list); return; }
+    if (showApprovals && !q) { renderApprovals(list); return; }
     if (!q && !adminAll) {
       var chips = el('div', 'jc-chips');
       [['all', 'All'], ['unread', 'Unread'], ['groups', 'Groups']].forEach(function (f) {
@@ -1133,6 +1141,7 @@
     item('↩ Reply', function () { startReply(m); });
     item('↪ Forward', function () { forwardDialog(m); });
     item('📋 Make task', function () { taskDialog(m); });
+    item('🔧 Raise maintenance ticket', function () { ticketDialog(m); });
     item('📌 Pin / unpin', function () {
       var pinned = (current && current.pins || []).some(function (p) { return p.sync_id === m.sync_id; });
       api(pinned ? 'DELETE' : 'POST', API + '/messages/' + encodeURIComponent(m.sync_id) + '/pin', {})
@@ -1291,12 +1300,14 @@
         if (m.forwarded) b.appendChild(el('div', 'jc-fwd', '↪ Forwarded'));
         if (m.announcement) { b.classList.add('jc-ann'); b.appendChild(el('div', 'jc-annl', '📢 ANNOUNCEMENT')); }
         if (m.urgent) { b.classList.add('jc-urg'); b.appendChild(el('div', 'jc-urgl', '⚠ URGENT')); }
+        if (m.bot) { b.classList.add('jc-bot'); b.appendChild(el('div', 'jc-botl', '🤖 JMS BOT')); }
         if (m.reply_to) b.appendChild(quoteEl(m.reply_to));
         if (m.kind === 'link' && m.link) b.appendChild(linkCardEl(m));
         if (m.attachment) b.appendChild(attachmentEl(m));
         else if (m.localFile) b.appendChild(el('div', 'jc-prev', '📎 ' + m.localFile.name + ' · ' + fmtSize(m.localFile.size)));
         if (m.poll) b.appendChild(pollEl(m));
         else if (m.body) appendBody(b, m.body);
+        if (m.alert) b.appendChild(alertEl(m));
       }
       if (m.reactions && m.reactions.length && !m.deleted) b.appendChild(rxEl(m));
       var meta = el('span', 'jc-meta', (m.scheduled ? '🕒 ' : '') + (m.starred ? '★ ' : '') + (m.edited_at && !m.deleted ? 'edited ' : '') + (m.pending ? '' : fmtTime(m.server_ts)));
@@ -1375,6 +1386,13 @@
       return;
     }
     if (!text) return;
+    if (/^\/\w+/.test(text)) {
+      els.ta.value = '';
+      api('POST', API + '/command', { conversation_sync_id: current.sync_id, text: text })
+        .then(function (d) { if (!loaded.some(function (x) { return x.sync_id === d.message.sync_id; })) loaded.push(d.message); redraw(); els.msgs.scrollTop = els.msgs.scrollHeight; loadConvs(); })
+        .catch(function (e) { els.ta.value = text; showErr(e.message); });
+      return;
+    }
     var m = { sync_id: uuid(), conversation_sync_id: current.sync_id, sender: me, body: text, kind: 'text',
       server_ts: new Date().toISOString(), pending: true, reply_to: replyQuote(), reply_to_sync_id: replying && replying.sync_id };
     cancelReply();
@@ -3133,6 +3151,83 @@
         .then(function (d) { dlg.close(); toastText(d.quiet_from ? '🌙 Quiet ' + d.quiet_from + '–' + d.quiet_to : 'Quiet hours off'); })
         .catch(function (e) { showErr(e.message); });
     });
+  }
+
+  // ---------------- phase B: JMS Bot, alerts, maintenance, approvals ----------------
+  function alertEl(m) {
+    var box = el('div');
+    var a = m.alert || {};
+    if (a.acked_by) box.appendChild(el('span', 'jc-acked', '✋ ' + (same(a.acked_by, me) ? 'You are' : a.acked_by + ' is') + ' on it'));
+    else {
+      var btn = el('button', 'jc-ack', '✋ I\'m on it');
+      btn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        btn.disabled = true;
+        api('POST', API + '/messages/' + encodeURIComponent(m.sync_id) + '/ack', {})
+          .then(function (d) { m.alert.acked_by = d.acked_by; m.alert.acked_at = d.acked_at; redraw(); })
+          .catch(function (e2) { btn.disabled = false; showErr(e2.message); });
+      });
+      box.appendChild(btn);
+      if (a.escalated) box.appendChild(el('span', 'jc-esc', '⏫ Escalated to ' + (a.escalated > 1 ? 'superadmins' : 'managers')));
+    }
+    return box;
+  }
+
+  function ticketDialog(m) {
+    var dlg = modal('🔧 Raise maintenance ticket');
+    var mach = field('Machine (e.g. M-07)', 'text', ((m.body || '').match(/\bM[- ]?\d+\b/i) || [''])[0]);
+    var prob = field('Problem', 'text', (m.body || '').slice(0, 500));
+    dlg.body.appendChild(mach.wrap); dlg.body.appendChild(prob.wrap);
+    var pr = el('label', 'jc-row2'); pr.style.display = 'block';
+    pr.appendChild(el('small', null, 'Priority'));
+    var sel = document.createElement('select'); sel.className = 'jc-field'; sel.style.width = '100%';
+    [['breakdown', '🛑 Breakdown (machine stopped)'], ['high', 'High'], ['normal', 'Normal'], ['low', 'Low']].forEach(function (o) {
+      var op = document.createElement('option'); op.value = o[0]; op.textContent = o[1]; sel.appendChild(op);
+    });
+    sel.value = 'high';
+    pr.appendChild(sel);
+    dlg.body.appendChild(pr);
+    dialogButtons(dlg, 'Raise ticket', function () {
+      api('POST', API + '/maintenance', { conversation_sync_id: current.sync_id, message_sync_id: m.sync_id,
+        machine: mach.input.value.trim(), problem: prob.input.value.trim(), priority: sel.value })
+        .then(function (d) { dlg.close(); toastText('🔧 Ticket ' + d.ticket.ticket_no + ' raised'); loadMessages(false); })
+        .catch(function (e) { showErr(e.message); });
+    });
+  }
+
+  function renderApprovals(list) {
+    var hd = el('div', 'jc-arch', '← Approvals waiting for me');
+    hd.addEventListener('click', function () { showApprovals = false; renderList(); });
+    list.appendChild(hd);
+    list.appendChild(el('div', 'jc-empty', 'Loading…'));
+    api('GET', API + '/approvals').then(function (d) {
+      list.removeChild(list.lastChild);
+      if (!d.allowed) { list.appendChild(el('div', 'jc-empty', 'Approvals from chat need full JMS access (global login). Use the Planning page.')); return; }
+      var items = (d.items || []).filter(function (x) { return x.can_approve !== false; });
+      if (!items.length) { list.appendChild(el('div', 'jc-empty', 'Nothing waiting for you. ✅')); return; }
+      items.forEach(function (p) {
+        var row = el('div', 'jc-appr');
+        row.appendChild(el('b', null, (p.job_card_no ? 'JC ' + p.job_card_no + ' · ' : '') + (p.plan_id || '')));
+        row.appendChild(el('small', null, [p.item_name || p.product_name, p.machine && 'Machine ' + p.machine, p.order_no && 'Order ' + p.order_no,
+          p.approval_stage_label || p.jc_approval_status].filter(Boolean).join(' · ')));
+        var act = el('div', 'jc-act');
+        var rej = el('button', 'jc-plain', 'Reject');
+        var ok = el('button', 'jc-primary', 'Approve');
+        function doIt(action) {
+          var remarks = '';
+          if (action === 'REJECTED') { remarks = window.prompt('Reason for rejecting (required):') || ''; if (!remarks.trim()) return; }
+          ok.disabled = rej.disabled = true;
+          api('POST', API + '/approvals/' + encodeURIComponent(p.id) + '/action', { action: action, remarks: remarks })
+            .then(function () { row.remove(); toastText(action === 'APPROVED' ? '✅ Approved' : '❌ Rejected'); })
+            .catch(function (e) { ok.disabled = rej.disabled = false; showErr(e.message); });
+        }
+        rej.addEventListener('click', function () { doIt('REJECTED'); });
+        ok.addEventListener('click', function () { doIt('APPROVED'); });
+        act.appendChild(rej); act.appendChild(ok);
+        row.appendChild(act);
+        list.appendChild(row);
+      });
+    }).catch(function (e) { showErr(e.message); });
   }
 
   function start() {

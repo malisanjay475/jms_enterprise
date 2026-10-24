@@ -81,6 +81,10 @@ data class Message(
     val announcement: Boolean = false,
     val scheduled: Boolean = false,
     val poll: Poll? = null,
+    val bot: Boolean = false,
+    val alert: AlertInfo? = null,
+    val bot: Boolean = false,
+    val alert: AlertInfo? = null,
     val reactions: List<Reaction>? = null,
     val starred: Boolean = false,
     /** Shared JMS page (kind = link): title, url, excerpt, factory_name, priority. */
@@ -91,6 +95,62 @@ data class Message(
     val pending: Boolean = false,
     val failed: Boolean = false
 )
+
+@Serializable
+data class AlertInfo(val kind: String = "", val acked_by: String? = null, val acked_at: String? = null, val escalated: Int = 0)
+
+@Serializable
+data class AckReply(val acked_by: String? = null, val acked_at: String? = null)
+
+@Serializable
+data class ApprovalItem(
+    val id: Int,
+    val plan_id: String? = null,
+    val job_card_no: String? = null,
+    val machine: String? = null,
+    val order_no: String? = null,
+    val item_name: String? = null,
+    val product_name: String? = null,
+    val approval_stage_label: String? = null,
+    val can_approve: Boolean? = null
+)
+
+@Serializable
+data class ApprovalsReply(val allowed: Boolean = false, val items: List<ApprovalItem> = emptyList())
+
+@Serializable
+data class TicketRef(val sync_id: String = "", val ticket_no: String = "")
+
+@Serializable
+data class TicketReply(val ticket: TicketRef? = null)
+
+@Serializable
+data class AlertInfo(val kind: String = "", val acked_by: String? = null, val acked_at: String? = null, val escalated: Int = 0)
+
+@Serializable
+data class AckReply(val acked_by: String? = null, val acked_at: String? = null)
+
+@Serializable
+data class ApprovalItem(
+    val id: Int,
+    val plan_id: String? = null,
+    val job_card_no: String? = null,
+    val machine: String? = null,
+    val order_no: String? = null,
+    val item_name: String? = null,
+    val product_name: String? = null,
+    val approval_stage_label: String? = null,
+    val can_approve: Boolean? = null
+)
+
+@Serializable
+data class ApprovalsReply(val allowed: Boolean = false, val items: List<ApprovalItem> = emptyList())
+
+@Serializable
+data class TicketRef(val sync_id: String = "", val ticket_no: String = "")
+
+@Serializable
+data class TicketReply(val ticket: TicketRef? = null)
 
 @Serializable
 data class PollOption(val text: String, val votes: Int = 0, val voters: List<String> = emptyList())

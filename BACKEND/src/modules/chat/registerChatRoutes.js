@@ -31,6 +31,7 @@ const chatExtras = require('./chatExtras');
 const chatAuto = require('./chatAuto');
 const chatCalls = require('./chatCalls');
 const chatWork = require('./chatWork');
+const chatBot = require('./chatBot');
 const chatFcm = require('./chatFcm');
 const { registerChatAppAuthRoutes } = require('./chatAppAuth');
 
@@ -311,6 +312,8 @@ function messageOut(row, att, receipts) {
     urgent: Boolean(row.meta && row.meta.urgent),
     announcement: Boolean(row.meta && row.meta.announcement),
     scheduled: Boolean(row.meta && row.meta.scheduled),
+    bot: Boolean(row.meta && row.meta.bot),
+    alert: row.meta && row.meta.alert ? { kind: row.meta.alert.kind } : null,
     attachment: att && !row.deleted_at && !row.purged_at ? attachmentOut(att) : null
   };
   if (receipts) {
@@ -342,9 +345,14 @@ async function decorate(pool, rows, me) {
   // reactions and (for me) stars; extras tables live on each server only
   try {
     const ids = rows.map((r) => r.sync_id);
-    const [reactions, stars, polls] = await Promise.all([
-      chatExtras.reactionsFor(pool, ids), chatExtras.starredAmong(pool, me, ids), chatWork.pollsFor(pool, rows, me)
+    const [reactions, stars, polls, acks] = await Promise.all([
+      chatExtras.reactionsFor(pool, ids), chatExtras.starredAmong(pool, me, ids), chatWork.pollsFor(pool, rows, me),
+      chatBot.acksFor(pool, rows)
     ]);
+    outs.forEach((o) => {
+      const a = acks.get(o.sync_id);
+      if (o.alert) o.alert = Object.assign(o.alert, a && a.acked_at ? { acked_by: a.acked_by, acked_at: a.acked_at } : {}, a ? { escalated: a.escalated_level } : {});
+    });
     outs.forEach((o) => { const p = polls.get(o.sync_id); if (p && !o.deleted) o.poll = p; });
     outs.forEach((o) => {
       const rx = reactions.get(o.sync_id);
@@ -763,6 +771,9 @@ function registerChatRoutes(app, pool) {
   chatWork.registerWorkRoutes(app, pool, { ready, fail, membership, decorate, localFactoryId });
   chatWork.ensureWorkSchema(pool).catch((err) => console.warn('[chat] work schema:', err.message));
   chatWork.start(pool, { localFactoryId });
+  chatBot.registerBotRoutes(app, pool, { ready, fail, membership, decorate });
+  chatBot.ensureBotSchema(pool).catch((err) => console.warn('[chat] bot schema:', err.message));
+  chatBot.start(pool);
   if (chatFcm.enabled()) chatFcm.ensureFcmSchema(pool).catch((err) => console.warn('[chat-fcm] schema:', err.message));
   chatAdmin.startRetentionJob(pool, { uploadRoot });
 
