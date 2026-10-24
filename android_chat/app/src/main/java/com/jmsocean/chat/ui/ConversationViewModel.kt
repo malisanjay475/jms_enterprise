@@ -349,7 +349,7 @@ class ConversationViewModel(app: Application) : AndroidViewModel(app) {
 
     fun togglePin(m: Message) {
         val on = pins.value.none { it.sync_id == m.sync_id }
-        viewModelScope.launch { runCatching { Api.pin(m.sync_id, on) }.onSuccess { loadPins() }.onFailure { error.value = it.message } }
+        viewModelScope.launch { runCatching { Api.pinMessage(m.sync_id, on) }.onSuccess { loadPins() }.onFailure { error.value = it.message } }
     }
 
     fun vote(m: Message, picks: List<Int>) {

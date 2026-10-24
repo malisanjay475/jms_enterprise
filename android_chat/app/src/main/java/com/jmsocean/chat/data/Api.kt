@@ -171,7 +171,7 @@ object Api {
             ?: throw ApiError("Vote not saved.")
 
     suspend fun pins(convId: String): List<Message> = get<PinsReply>("/api/chat/conversations/$convId/pins").pins
-    suspend fun pin(messageId: String, on: Boolean) { call(if (on) "POST" else "DELETE", "/api/chat/messages/$messageId/pin", if (on) "{}".toRequestBody(JSON) else null) }
+    suspend fun pinMessage(messageId: String, on: Boolean) { call(if (on) "POST" else "DELETE", "/api/chat/messages/$messageId/pin", if (on) "{}".toRequestBody(JSON) else null) }
 
     // ---- tasks ----
     suspend fun createTodo(convId: String, messageId: String?, title: String, assignee: String, dueAt: String?) {
