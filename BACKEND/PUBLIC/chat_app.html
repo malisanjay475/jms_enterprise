@@ -300,6 +300,17 @@
         tip.classList.add('show');
       }
 
+      // a stable id per browser, so 'My devices' can sign this one out
+      function deviceId() {
+        var k = 'jmsChatDevice', v = null;
+        try { v = localStorage.getItem(k); } catch (_e) { }
+        if (!v || !/^[A-Za-z0-9_-]{8,64}$/.test(v)) {
+          v = Array.prototype.map.call(crypto.getRandomValues(new Uint8Array(16)), function (b) { return ('0' + b.toString(16)).slice(-2); }).join('');
+          try { localStorage.setItem(k, v); } catch (_e) { }
+        }
+        return v;
+      }
+
       form.addEventListener('submit', function (e) {
         e.preventDefault();
         err.textContent = '';
@@ -308,7 +319,8 @@
           method: 'POST',
           credentials: 'same-origin',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ username: document.getElementById('u').value.trim(), password: document.getElementById('p').value })
+          body: JSON.stringify({ username: document.getElementById('u').value.trim(), password: document.getElementById('p').value,
+            device_id: deviceId(), device_name: 'Browser · ' + (navigator.platform || 'web') })
         }).then(function (r) {
           return r.json().catch(function () { return { ok: false }; });
         }).then(function (d) {

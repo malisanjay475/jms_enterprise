@@ -37,6 +37,9 @@ class ConversationViewModel(app: Application) : AndroidViewModel(app) {
     val lastSeen = MutableStateFlow<String?>(null)
     val mutedUntil = MutableStateFlow<String?>(null)
     val myRole = MutableStateFlow<String?>(null)
+    /** protected chat: no screenshots, download or forward */
+    val isProtected = MutableStateFlow(false)
+    val disappearSeconds = MutableStateFlow(0)
     val pins = MutableStateFlow<List<Message>>(emptyList())
     /** message id -> (label, text) for translations and voice-note text shown under bubbles */
     val extras = MutableStateFlow<Map<String, Pair<String, String>>>(emptyMap())
@@ -91,7 +94,12 @@ class ConversationViewModel(app: Application) : AndroidViewModel(app) {
             }
         }
         viewModelScope.launch {
-            runCatching { Api.conversations() }.onSuccess { list -> mutedUntil.value = list.firstOrNull { it.sync_id == convId }?.muted_until }
+            runCatching { Api.conversations() }.onSuccess { list ->
+                val c = list.firstOrNull { it.sync_id == convId }
+                mutedUntil.value = c?.muted_until
+                isProtected.value = c?.protected == true
+                disappearSeconds.value = c?.disappear_seconds ?: 0
+            }
         }
     }
 

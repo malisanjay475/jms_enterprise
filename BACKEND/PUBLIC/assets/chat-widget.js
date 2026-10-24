@@ -153,6 +153,7 @@
   }
 
   var QUICK_RX = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
+  var folders = [];
   var listFilter = 'all', showArchived = false, showStarred = false, showTodos = false, showApprovals = false;
 
   function convById(id) { return convs.filter(function (x) { return x.sync_id === id; })[0] || (current && current.sync_id === id ? current : null); }
@@ -663,11 +664,20 @@
     if (showApprovals && !q) { renderApprovals(list); return; }
     if (!q && !adminAll) {
       var chips = el('div', 'jc-chips');
-      [['all', 'All'], ['unread', 'Unread'], ['groups', 'Groups']].forEach(function (f) {
-        var b = el('button', 'jc-chip' + (listFilter === f[0] ? ' jc-on' : ''), f[1]);
-        b.addEventListener('click', function () { listFilter = f[0]; renderList(); });
-        chips.appendChild(b);
-      });
+      [['all', 'All'], ['unread', 'Unread'], ['groups', 'Groups']].concat(folders.map(function (f) { return ['f:' + f.id, '📁 ' + f.name]; }))
+        .forEach(function (f) {
+          var b = el('button', 'jc-chip' + (listFilter === f[0] ? ' jc-on' : ''), f[1]);
+          b.addEventListener('click', function () { listFilter = f[0]; renderList(); });
+          if (f[0].indexOf('f:') === 0) {
+            b.title = 'Right-click: rename or delete';
+            b.addEventListener('contextmenu', function (e) { e.preventDefault(); folderMenu(f[0].slice(2)); });
+          }
+          chips.appendChild(b);
+        });
+      var nf = el('button', 'jc-chip', '＋ Folder');
+      nf.title = 'New chat folder';
+      nf.addEventListener('click', function () { folderDialog(null); });
+      chips.appendChild(nf);
       list.appendChild(chips);
       var archived = convs.filter(function (c) { return c.archived; }).length;
       if (archived || showArchived) {
@@ -682,6 +692,10 @@
       if (Boolean(c.archived) !== showArchived) return false;
       if (listFilter === 'unread') return c.unread > 0;
       if (listFilter === 'groups') return isGroup(c);
+      if (listFilter.indexOf('f:') === 0) {
+        var fo = folders.filter(function (f) { return 'f:' + f.id === listFilter; })[0];
+        return !fo || fo.conversations.indexOf(c.sync_id) !== -1;
+      }
       return true;
     });
     shown.forEach(function (c) {
@@ -734,6 +748,117 @@
         });
         m.body.appendChild(r);
       });
+    folders.forEach(function (f) {
+      var inIt = f.conversations.indexOf(c.sync_id) !== -1;
+      var r = el('div', 'jc-row2', (inIt ? '✓ In folder ' : '📁 Add to folder ') + f.name);
+      r.addEventListener('click', function () {
+        m.close();
+        var list = inIt ? f.conversations.filter(function (x) { return x !== c.sync_id; }) : f.conversations.concat([c.sync_id]);
+        saveFolder(f.id, { conversations: list });
+      });
+      m.body.appendChild(r);
+    });
+    if (canSecure(c)) {
+      var d = el('div', 'jc-row2', '⏳ Disappearing messages: ' + disappearLabel(c.disappear_seconds) + '…');
+      d.addEventListener('click', function () { m.close(); disappearDialog(c); });
+      m.body.appendChild(d);
+      var p = el('div', 'jc-row2', c.protected ? '🔓 Turn off protected chat' : '🔒 Make protected (no screenshots, downloads, forwarding)');
+      p.addEventListener('click', function () { m.close(); setSecurity(c, { protected: !c.protected }); });
+      m.body.appendChild(p);
+    }
+  }
+
+  // ---------------- phase D: folders, disappearing, protected chats, devices ----------------
+  var DISAPPEAR = [[0, 'Off'], [86400, '24 hours'], [604800, '7 days'], [7776000, '90 days']];
+  function disappearLabel(s) { var o = DISAPPEAR.filter(function (x) { return x[0] === (s || 0); })[0]; return o ? o[1] : 'Off'; }
+  function canSecure(c) {
+    return !!c && c.is_member !== false && (!isGroup(c) || c.my_role === 'admin' || isAdmin);
+  }
+  function isProtected(convId) { var c = convById(convId); return !!(c && c.protected); }
+
+  function loadFolders() {
+    return api('GET', API + '/folders').then(function (d) { folders = d.folders || []; renderListIfIdle(); }).catch(function () {});
+  }
+  function saveFolder(id, body) {
+    api(id ? 'PUT' : 'POST', API + '/folders' + (id ? '/' + encodeURIComponent(id) : ''), body)
+      .then(loadFolders).catch(function (e) { showErr(e.message); });
+  }
+  function folderDialog(f) {
+    var dlg = modal(f ? 'Rename folder' : '📁 New chat folder');
+    var n = field('Folder name', 'text', f ? f.name : '');
+    dlg.body.appendChild(n.wrap);
+    if (!f) dlg.body.appendChild(el('small', null, 'Then right-click a chat → "Add to folder".'));
+    dialogButtons(dlg, f ? 'Save' : 'Create', function () {
+      var name = n.input.value.trim();
+      if (!name) return;
+      dlg.close();
+      saveFolder(f ? f.id : null, { name: name });
+    });
+    setTimeout(function () { n.input.focus(); }, 30);
+  }
+  function folderMenu(id) {
+    var f = folders.filter(function (x) { return x.id === id; })[0];
+    if (!f) return;
+    var m = modal('📁 ' + f.name);
+    var r1 = el('div', 'jc-row2', '✎ Rename');
+    r1.addEventListener('click', function () { m.close(); folderDialog(f); });
+    var r2 = el('div', 'jc-row2', '🗑 Delete folder (chats stay)');
+    r2.addEventListener('click', function () {
+      m.close();
+      api('DELETE', API + '/folders/' + encodeURIComponent(id)).then(function () {
+        if (listFilter === 'f:' + id) listFilter = 'all';
+        loadFolders();
+      }).catch(function (e) { showErr(e.message); });
+    });
+    m.body.appendChild(r1); m.body.appendChild(r2);
+  }
+
+  function setSecurity(c, body) {
+    api('PUT', API + '/conversations/' + encodeURIComponent(c.sync_id) + '/security', body)
+      .then(function (d) { c.disappear_seconds = d.disappear_seconds; c.protected = d.protected; loadConvs(); if (current && current.sync_id === c.sync_id) redraw(); })
+      .catch(function (e) { showErr(e.message); });
+  }
+  function disappearDialog(c) {
+    var m = modal('⏳ Disappearing messages');
+    m.body.appendChild(el('small', null, 'New messages are deleted for everyone after this time.'));
+    DISAPPEAR.forEach(function (o) {
+      var r = el('div', 'jc-row2', ((c.disappear_seconds || 0) === o[0] ? '● ' : '○ ') + o[1]);
+      r.addEventListener('click', function () { m.close(); setSecurity(c, { disappear_seconds: o[0] }); });
+      m.body.appendChild(r);
+    });
+  }
+
+  function devicesDialog() {
+    var dlg = modal('📱 My devices');
+    function draw() {
+      dlg.body.textContent = '';
+      api('GET', API + '/devices').then(function (d) {
+        var ds = d.devices || [];
+        if (!ds.length) dlg.body.appendChild(el('div', 'jc-empty', 'No chat-app sign-ins yet.'));
+        ds.forEach(function (x) {
+          var r = el('div', 'jc-row2');
+          r.appendChild(el('div', 'jc-name', (x.platform === 'android-app' ? '📱 ' : '💻 ') + (x.name || 'Device') + (x.current ? ' (this one)' : '')));
+          r.appendChild(el('small', null, (x.approved ? (x.signed_in ? 'Signed in' : 'Signed out') : '⏳ Waiting for approval') +
+            (x.last_seen_at ? ' · last used ' + fmtListTime(x.last_seen_at) : '')));
+          if (x.signed_in && !x.current) {
+            var b = el('button', 'jc-plain', 'Sign out');
+            b.addEventListener('click', function () {
+              api('POST', API + '/devices/' + encodeURIComponent(x.id) + '/signout').then(draw).catch(function (e) { showErr(e.message); });
+            });
+            r.appendChild(b);
+          }
+          dlg.body.appendChild(r);
+        });
+        var all = el('button', 'jc-plain', 'Sign out all other devices');
+        all.style.color = '#d33';
+        all.addEventListener('click', function () {
+          api('POST', API + '/devices/signout-others').then(function (r) { toastText('Signed out ' + r.signed_out + ' device(s)'); draw(); })
+            .catch(function (e) { showErr(e.message); });
+        });
+        dlg.body.appendChild(all);
+      }).catch(function (e) { showErr(e.message); });
+    }
+    draw();
   }
 
   function renderStarred(list) {
@@ -1107,6 +1232,7 @@
 
   // ⬇ Download under a photo / video / voice note (files already download on click).
   function withDownload(node, a) {
+    if (current && isProtected(current.sync_id)) return node;
     var box = el('div', 'jc-dlwrap');
     box.appendChild(node);
     var dl = el('a', 'jc-dl', '⬇ Download');
@@ -1140,7 +1266,7 @@
       menu.appendChild(b);
     }
     item('↩ Reply', function () { startReply(m); });
-    item('↪ Forward', function () { forwardDialog(m); });
+    if (!isProtected(m.conversation_sync_id)) item('↪ Forward', function () { forwardDialog(m); });
     item('📋 Make task', function () { taskDialog(m); });
     item('🔧 Raise maintenance ticket', function () { ticketDialog(m); });
     if (m.body && !m.poll) {
@@ -1771,6 +1897,8 @@
     else items.push({ label: 'Turn on desktop notifications', run: enableNotifications });
     items.push({ sub: 'Quiet hours' });
     items.push({ label: '🌙 Quiet hours (no notifications at night)…', run: quietDialog });
+    items.push({ sub: 'Security' });
+    items.push({ label: '📱 My devices (sign out a phone)…', run: devicesDialog });
     items.push({ sub: 'Sound' });
     items.push({ label: soundOn ? '🔊 Sound on (click to turn off)' : '🔇 Sound off (click to turn on)', on: soundOn, run: function () {
       soundOn = !soundOn;
@@ -3298,6 +3426,7 @@
       build();
       if (!appMode) setupContextShare();
       if (isAdmin) els.tabs.style.display = 'flex';
+      loadFolders();
       updateBadge();
       connect();
       setupServiceWorker();
