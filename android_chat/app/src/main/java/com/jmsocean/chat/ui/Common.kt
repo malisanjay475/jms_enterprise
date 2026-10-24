@@ -16,6 +16,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import coil.compose.AsyncImage
