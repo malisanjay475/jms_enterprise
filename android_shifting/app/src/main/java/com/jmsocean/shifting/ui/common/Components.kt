@@ -4,6 +4,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -33,6 +35,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.jmsocean.shifting.data.remote.BoardColour
+import com.jmsocean.shifting.data.remote.ShiftState
+import com.jmsocean.shifting.ui.theme.Crit
+import com.jmsocean.shifting.ui.theme.Good
+import com.jmsocean.shifting.ui.theme.Steel
+import com.jmsocean.shifting.ui.theme.Warn
 import java.text.NumberFormat
 import java.util.Locale
 
@@ -138,4 +146,56 @@ fun EmptyNote(text: String, modifier: Modifier = Modifier) {
         fontSize = 14.sp,
         textAlign = androidx.compose.ui.text.style.TextAlign.Center
     )
+}
+
+/** Colour of a shifting state: green ready, amber partly, grey waiting / done. */
+fun ShiftState.tint(): Color = when (this) {
+    ShiftState.READY -> Good
+    ShiftState.PARTLY -> Warn
+    ShiftState.WAITING_QC -> Steel
+    ShiftState.SHIFTED -> Steel
+    ShiftState.NOT_PRODUCED -> Steel
+    ShiftState.UNKNOWN -> Color.Unspecified
+}
+
+private fun ShiftState.icon(): String = when (this) {
+    ShiftState.READY -> "✅"
+    ShiftState.PARTLY -> "🟡"
+    ShiftState.WAITING_QC -> "⏳"
+    ShiftState.SHIFTED -> "✔"
+    else -> ""
+}
+
+/** "✅ QC complete · ready 1,200" badge; nothing for an older server (UNKNOWN). */
+@Composable
+fun ShiftStateBadge(state: ShiftState, readyQty: Double? = null) {
+    if (state == ShiftState.UNKNOWN) return
+    val text = buildString {
+        append(state.icon()).append(' ').append(state.label)
+        if (readyQty != null && readyQty > 0 && (state == ShiftState.READY || state == ShiftState.PARTLY)) append(" ").append(qty(readyQty))
+    }
+    Pill(text, state.tint().copy(alpha = 0.15f), if (state == ShiftState.WAITING_QC || state == ShiftState.SHIFTED) MaterialTheme.colorScheme.onSurfaceVariant else state.tint())
+}
+
+/** Tag for a job PPC has completed: moulding over, only QC / shifting left. */
+@Composable
+fun PpcCompletedTag() = Pill("PPC completed", Crit.copy(alpha = 0.12f), Crit)
+
+/** One chip per colour: "Red ✅ 1,200 · Blue ⏳ QC" — what can be shifted, colour by colour. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun ColourStateChips(colours: List<BoardColour>) {
+    val shown = colours.filter { it.colour.isNotBlank() && it.state != ShiftState.UNKNOWN && it.state != ShiftState.NOT_PRODUCED }
+    if (shown.isEmpty()) return
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        shown.sortedBy { it.state.rank }.forEach { c ->
+            val tail = when (c.state) {
+                ShiftState.READY, ShiftState.PARTLY -> "${c.state.icon()} ${qty(c.ready)}"
+                ShiftState.WAITING_QC -> "${c.state.icon()} QC"
+                ShiftState.SHIFTED -> "${c.state.icon()} done"
+                else -> ""
+            }
+            Pill("${c.colour} $tail", c.state.tint().copy(alpha = 0.12f), MaterialTheme.colorScheme.onSurface)
+        }
+    }
 }

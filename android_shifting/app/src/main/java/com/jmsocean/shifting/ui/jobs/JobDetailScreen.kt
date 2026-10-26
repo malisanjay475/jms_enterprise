@@ -16,6 +16,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Button
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilterChip
@@ -38,6 +40,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.jmsocean.shifting.data.ShiftClock
+import com.jmsocean.shifting.data.remote.Availability
 import com.jmsocean.shifting.data.remote.ShiftEntry
 import com.jmsocean.shifting.ui.common.AppTopBar
 import com.jmsocean.shifting.ui.common.ErrorCard
@@ -165,6 +168,7 @@ fun JobDetailScreen(onBack: () -> Unit, vm: JobDetailViewModel = viewModel()) {
             }
 
             s.avail?.let { JobAvailabilityCard(it) }
+            s.avail?.takeIf { it.ppcCompleted }?.let { a -> CloseShiftingCard(a, s, vm) }
 
             if (job.recent.isNotEmpty()) {
                 Text("Recent shifts", fontWeight = FontWeight.Bold, fontSize = 15.sp)
@@ -200,6 +204,45 @@ fun EntryRow(e: ShiftEntry, showMachine: Boolean = false) {
             Column {
                 Text(qty(e.quantity), fontWeight = FontWeight.ExtraBold, fontSize = 16.sp, color = MaterialTheme.colorScheme.primary)
                 if (e.weightKg > 0) Text("${com.jmsocean.shifting.ui.common.kg(e.weightKg)} kg", fontSize = 11.sp)
+            }
+        }
+    }
+}
+
+/**
+ * PPC completed the job but some pieces will never be shifted (scrap, count mismatch):
+ * Shifting Supervisor / PPC closes it with a reason so it leaves the list; Re-open undoes it.
+ */
+@Composable
+private fun CloseShiftingCard(a: Availability, s: JobDetailUiState, vm: JobDetailViewModel) {
+    val left = (a.produced - a.shifted).coerceAtLeast(0.0)
+    if (a.closure == null && left <= 0) return
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (a.closure != null) {
+                Text("Shifting is closed for this job.", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                OutlinedButton(onClick = { vm.closeShifting(reopen = true) }, enabled = !s.saving, modifier = Modifier.fillMaxWidth()) {
+                    Text("Re-open shifting")
+                }
+            } else if (!s.closing) {
+                Text("PPC completed · ${qty(left)} pcs not shifted yet", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                Text(
+                    "It stays on the list until everything is shifted. Close it only if the rest will never be shifted.",
+                    fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                OutlinedButton(onClick = { vm.openClose(true) }, modifier = Modifier.fillMaxWidth()) { Text("Close shifting…") }
+            } else {
+                Text("Close shifting · ${qty(left)} pcs left", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                OutlinedTextField(
+                    value = s.closeReason, onValueChange = vm::setCloseReason,
+                    label = { Text("Reason (scrap, count mismatch …)") }, modifier = Modifier.fillMaxWidth()
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextButton(onClick = { vm.openClose(false) }, modifier = Modifier.weight(1f)) { Text("Cancel") }
+                    Button(onClick = { vm.closeShifting() }, enabled = !s.saving && s.closeReason.isNotBlank(), modifier = Modifier.weight(1f)) {
+                        Text(if (s.saving) "Saving…" else "Close", fontWeight = FontWeight.Bold)
+                    }
+                }
             }
         }
     }
