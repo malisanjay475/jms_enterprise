@@ -74,6 +74,7 @@ async function ensureFcmSchema(pool) {
       failures INTEGER NOT NULL DEFAULT 0
     );
     CREATE INDEX IF NOT EXISTS idx_chat_fcm_user ON chat_fcm_devices (LOWER(username));
+    ALTER TABLE chat_fcm_devices ADD COLUMN IF NOT EXISTS device_id UUID;
   `);
 }
 
@@ -162,9 +163,10 @@ function registerFcmRoutes(app, pool, { ready, fail }) {
       if (!token || token.length > 4096) return res.status(400).json({ ok: false, error: 'Bad device token.' });
       await ensureFcmSchema(pool);
       await pool.query(
-        `INSERT INTO chat_fcm_devices (username, token, app_version) VALUES ($1, $2, $3)
-         ON CONFLICT (token) DO UPDATE SET username = EXCLUDED.username, app_version = EXCLUDED.app_version, failures = 0`,
-        [req.auth.username, token, String((req.body && req.body.app_version) || '').slice(0, 40)]
+        `INSERT INTO chat_fcm_devices (username, token, app_version, device_id) VALUES ($1, $2, $3, $4)
+         ON CONFLICT (token) DO UPDATE SET username = EXCLUDED.username, app_version = EXCLUDED.app_version,
+           device_id = EXCLUDED.device_id, failures = 0`,
+        [req.auth.username, token, String((req.body && req.body.app_version) || '').slice(0, 40), req.auth.deviceId || null]
       );
       res.json({ ok: true, push: enabled() });
     } catch (err) { fail(res, err, 'fcm register'); }

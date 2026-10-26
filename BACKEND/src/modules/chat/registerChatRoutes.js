@@ -33,6 +33,7 @@ const chatCalls = require('./chatCalls');
 const chatWork = require('./chatWork');
 const chatBot = require('./chatBot');
 const chatTeam = require('./chatTeam');
+const chatSecure = require('./chatSecure');
 const chatFcm = require('./chatFcm');
 const { registerChatAppAuthRoutes } = require('./chatAppAuth');
 
@@ -777,6 +778,10 @@ function registerChatRoutes(app, pool) {
   chatBot.start(pool);
   chatTeam.registerTeamRoutes(app, pool, { ready, fail, membership, decorate, localFactoryId, uploadRoot });
   chatTeam.ensureTeamSchema(pool).catch((err) => console.warn('[chat] team schema:', err.message));
+  chatSecure.registerSecureRoutes(app, pool, { ready, fail, membership, localFactoryId });
+  chatSecure.ensureSecureSchema(pool).catch((err) => console.warn('[chat] secure schema:', err.message));
+  require('../../app/auth').setChatTokenCheck(chatSecure.tokenStillValid);
+  if (!chatSync.isLocal()) chatSecure.start(pool);
   if (chatFcm.enabled()) chatFcm.ensureFcmSchema(pool).catch((err) => console.warn('[chat-fcm] schema:', err.message));
   chatAdmin.startRetentionJob(pool, { uploadRoot });
 
@@ -895,6 +900,7 @@ function registerChatRoutes(app, pool) {
       const peers = rows.filter((r) => r.type !== 'group')
         .map((r) => (r.members || []).find((m) => m.toLowerCase() !== me.toLowerCase())).filter(Boolean);
       const prof = await chatProfiles.lookup(pool, peers);
+      const sec = await chatSecure.settingsFor(pool, rows.map((r) => r.sync_id)).catch(() => new Map());
       res.json({
         ok: true,
         conversations: rows.map((r) => {
@@ -905,6 +911,8 @@ function registerChatRoutes(app, pool) {
           const pref = prefs.get(r.sync_id) || {};
           return {
             pinned: Boolean(pref.pinned_at),
+            disappear_seconds: (sec.get(r.sync_id) || {}).disappear_seconds || 0,
+            protected: Boolean((sec.get(r.sync_id) || {}).protected),
             archived: Boolean(pref.archived_at),
             peer,
             photo_v: pp.photo_v || null,
@@ -1497,6 +1505,9 @@ function registerChatRoutes(app, pool) {
           return res.status(503).json({ ok: false, error: 'This file is still on its way from the other server. Try again in a minute.' });
         }
       }
+      const prot = await chatSecure.isProtected(pool, a.conversation_sync_id).catch(() => false);
+      if (prot && req.query.download === '1') return res.status(403).json({ ok: false, error: 'This is a protected chat: files cannot be downloaded.' });
+      if (prot && a.kind === 'xlsx') return res.status(403).json({ ok: false, error: 'This is a protected chat: files cannot be downloaded.' });
       const inline = a.kind !== 'xlsx' && req.query.download !== '1';
       res.setHeader('Content-Type', a.mime);
       res.setHeader('X-Content-Type-Options', 'nosniff');

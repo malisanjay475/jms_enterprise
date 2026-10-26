@@ -42,11 +42,31 @@ data class Conversation(
     val archived: Boolean = false,
     val peer: String? = null,
     val photo_v: String? = null,
-    val last_seen_at: String? = null
+    val last_seen_at: String? = null,
+    val disappear_seconds: Int = 0,
+    val protected: Boolean = false
 ) {
     val isGroup get() = type == "group"
     val name get() = title ?: "Chat"
 }
+
+@Serializable
+data class Device(
+    val id: String, val name: String? = null, val platform: String? = null, val approved: Boolean = true,
+    val signed_in: Boolean = false, val last_seen_at: String? = null, val current: Boolean = false
+)
+
+@Serializable
+data class DevicesReply(val devices: List<Device> = emptyList())
+
+@Serializable
+data class SignOutReply(val signed_out: Int = 0)
+
+@Serializable
+data class ChatFolder(val id: String, val name: String = "", val conversations: List<String> = emptyList())
+
+@Serializable
+data class FoldersReply(val folders: List<ChatFolder> = emptyList())
 
 @Serializable
 data class ConversationsReply(val conversations: List<Conversation> = emptyList())

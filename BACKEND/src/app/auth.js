@@ -121,10 +121,10 @@ function cookieOptions(req, maxAgeMs) {
 
 // `issuedAtMs` is stored in the token so "log out other devices" can revoke every
 // session issued before a cutoff with millisecond precision (JWT `iat` is seconds).
-async function signSession(pool, user, issuedAtMs = Date.now(), typ = TOKEN_TYPE) {
+async function signSession(pool, user, issuedAtMs = Date.now(), typ = TOKEN_TYPE, extra = {}) {
   const key = await getSigningKey(pool);
   return jwt.sign(
-    { typ, sub: String(user.username), uid: user.id ?? null, sat: issuedAtMs },
+    { ...extra, typ, sub: String(user.username), uid: user.id ?? null, sat: issuedAtMs },
     key,
     { algorithm: 'HS256', expiresIn: Math.floor(SESSION_TTL_MS / 1000) }
   );
@@ -140,8 +140,9 @@ function clearSession(req, res) {
   res.clearCookie(COOKIE_NAME, cookieOptions(req));
 }
 
-async function issueChatSession(pool, req, res, user, issuedAtMs) {
-  const token = await signSession(pool, user, issuedAtMs, CHAT_TOKEN_TYPE);
+// `deviceId` (chatSecure.js) ties the session to one signed-in device, for remote sign-out.
+async function issueChatSession(pool, req, res, user, issuedAtMs, deviceId) {
+  const token = await signSession(pool, user, issuedAtMs, CHAT_TOKEN_TYPE, deviceId ? { did: deviceId } : {});
   res.cookie(CHAT_COOKIE_NAME, token, cookieOptions(req, SESSION_TTL_MS));
   return token;
 }
@@ -151,6 +152,10 @@ function clearChatSession(req, res) {
 }
 
 const userCache = new Map();
+
+// chatSecure.js plugs in here: is this chat-app token still signed in on its device?
+let chatTokenCheck = null;
+function setChatTokenCheck(fn) { chatTokenCheck = fn; }
 
 function invalidateUserCache(username) {
   if (username === undefined) userCache.clear();
@@ -203,6 +208,7 @@ function createAuthMiddleware(pool) {
       const cutoff = user.logout_all_after ? new Date(user.logout_all_after).getTime() : 0;
       const issuedAt = Number(payload.sat) || Number(payload.iat) * 1000 || 0;
       if (cutoff && issuedAt < cutoff) throw new Error('session revoked');
+      if (chatToken && chatTokenCheck && !(await chatTokenCheck(pool, payload))) throw new Error('device signed out');
 
       req.auth = {
         id: user.id,
@@ -210,7 +216,8 @@ function createAuthMiddleware(pool) {
         role: String(user.role_code || '').toLowerCase(),
         permissions: (user.permissions && typeof user.permissions === 'object') ? user.permissions : {},
         globalAccess: user.global_access === true,
-        scope: chatToken ? 'chat' : 'full'
+        scope: chatToken ? 'chat' : 'full',
+        deviceId: chatToken && payload.did ? String(payload.did) : null
       };
       // The verified identity wins over whatever the client claimed.
       req.headers['x-user-name'] = user.username;
@@ -225,7 +232,7 @@ function createAuthMiddleware(pool) {
 
       if (found.fromCookie && Date.now() - issuedAt > REFRESH_AFTER_MS) {
         const reissue = found.chatCookie ? issueChatSession : issueSession;
-        await reissue(pool, req, res, user).catch(() => {});
+        await reissue(pool, req, res, user, undefined, found.chatCookie ? payload.did : undefined).catch(() => {});
       }
     } catch (err) {
       // Expired, tampered, revoked or unknown: stop the browser sending it. The
@@ -278,6 +285,7 @@ module.exports = {
   issueChatSession,
   clearChatSession,
   isChatScope,
+  setChatTokenCheck,
   signSession,
   invalidateUserCache,
   parseCookies,

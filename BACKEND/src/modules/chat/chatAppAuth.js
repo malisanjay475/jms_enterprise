@@ -13,6 +13,7 @@ const { issueChatSession, clearChatSession } = require('../../app/auth');
 const lockout = require('../../app/loginLockout');
 const chatSync = require('./chatSync');
 const chatGate = require('./chatGate');
+const chatSecure = require('./chatSecure');
 
 function clientIp(req) {
   return String(req.headers['x-forwarded-for'] || req.socket?.remoteAddress || '').split(',')[0].trim();
@@ -50,14 +51,18 @@ function registerChatAppAuthRoutes(app, pool) {
 
       // The cookie serves chat_app.html; the native app sends the same token as
       // "Authorization: Bearer" (auth.js accepts it on /api/chat/* only).
-      const token = await issueChatSession(pool, req, res, u);
+      const device = await chatSecure.registerDevice(pool, u, req);
+      if (!device.approved) {
+        return res.status(403).json({ ok: false, pending: true, error: 'This phone or browser is new. Ask your JMS admin to approve it, then sign in again.' });
+      }
+      const token = await issueChatSession(pool, req, res, u, undefined, device.id);
       const ua = String(req.headers['user-agent'] || '');
       pool.query(
         `INSERT INTO user_activity_log (username, role_code, app_id, action, page, device_type, ip_address, user_agent, created_at)
          VALUES ($1,$2,'chat_app','login',NULL,$3,$4,$5,NOW())`,
         [u.username, u.role_code || '', /mobile|android|iphone|ipad/i.test(ua) ? 'mobile' : 'desktop', clientIp(req), ua.slice(0, 500)]
       ).catch(() => {});
-      res.json({ ok: true, username: u.username, token });
+      res.json({ ok: true, username: u.username, token, device_id: device.id });
     } catch (err) {
       console.error('[chat] app login:', err);
       res.status(500).json({ ok: false, error: 'Sign-in failed. Please try again.' });
