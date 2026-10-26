@@ -11,8 +11,9 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.152.0",
+  "latest": "1.152.1",
   "versions": [
+    {"version": "1.152.1", "date": "2026-10-26", "title": "Shifting: only the last 3 days of completed jobs", "modules": [{"app": "shifting_supervisor_app", "changes": [{"type": "fix", "text": "The Shifting app now lists only jobs completed by PPC with production in the last 3 days (plus all running jobs), instead of every completed job that was not fully shifted."}]}]},
     {"version": "1.152.0", "date": "2026-10-26", "title": "Shifting: QC-approved stock shown colour-wise, completed jobs stay until shifted", "modules": [{"app": "shifting_supervisor_app", "changes": [{"type": "feature", "text": "Shifting app 1.7.0: every job and every colour shows its status - QC complete and ready (green), Partly ready (amber), Waiting for QC or Fully shifted - and the job list puts ready jobs first, oldest first, instead of going by date."}, {"type": "feature", "text": "A job completed by PPC stays in the Shifting app (tagged PPC completed) until all its production is shifted, even when QC or shifting is days late. If the rest will never be shifted (scrap, count mismatch), the Shifting Supervisor or PPC can close shifting of the job with a reason, and re-open it if needed."}]}]},
     {"version": "1.151.0", "date": "2026-10-21", "title": "JMS Chat phase D: security and folders", "modules": [{"app": "all", "changes": [{"type": "feature", "text": "Disappearing messages (24 h / 7 days / 90 days), protected chats with no screenshots, downloads or forwarding, My devices with remote sign-out, optional admin approval of new phones, and your own chat folders. Chat app 3.3.0."}]}]},
     {"version": "1.150.0", "date": "2026-10-21", "title": "JMS Chat phase C: teams, handover, check-in, translate", "modules": [{"app": "all", "changes": [{"type": "feature", "text": "Line and department groups, @Line3 / @QC mentions, shift handover notes with 'I read it', location check-in, translate messages to English/Hindi/Gujarati, and voice notes as text. Chat app 3.2.0."}]}]},
