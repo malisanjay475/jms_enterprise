@@ -63,7 +63,7 @@ object CallEngine {
 
     val busy get() = _state.value.phase.let { it != CallState.Phase.IDLE && it != CallState.Phase.ENDED }
 
-    private fun factory(ctx: Context): PeerConnectionFactory {
+    internal fun factory(ctx: Context): PeerConnectionFactory {
         factory?.let { return it }
         app = ctx.applicationContext
         PeerConnectionFactory.initialize(PeerConnectionFactory.InitializationOptions.builder(app).createInitializationOptions())

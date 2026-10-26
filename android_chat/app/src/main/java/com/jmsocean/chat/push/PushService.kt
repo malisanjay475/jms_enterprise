@@ -68,9 +68,20 @@ class PushService : FirebaseMessagingService() {
             com.jmsocean.chat.call.CallEngine.remoteEnded(id, d["reason"] ?: "ended")
             return
         }
+        if (d["type"] == "group_call") {
+            val room = d["room_id"] ?: return
+            val conv = d["conversation_sync_id"] ?: return
+            if (com.jmsocean.chat.call.GroupCallEngine.active || com.jmsocean.chat.call.CallEngine.busy) return
+            com.jmsocean.chat.call.CallNotifications.showGroupInvite(this, room, conv, d["title"] ?: "Group", d["caller"] ?: "Someone")
+            return
+        }
         if (d["type"] != "chat") return
         val conv = d["conversation_sync_id"] ?: return
         val sender = d["sender"] ?: ""
+        // 📻 walkie-talkie: play it out loud when walkie-talkie is on for this chat
+        if (d["ptt"] == "1") d["file_id"]?.takeIf { it.isNotBlank() && com.jmsocean.chat.data.Walkie.isOn(this, conv) }?.let {
+            com.jmsocean.chat.data.Walkie.play(this, it)
+        }
         Notifier.show(
             this, conv,
             title = d["title"] ?: "JMS Chat",
