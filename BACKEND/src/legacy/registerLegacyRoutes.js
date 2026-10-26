@@ -6334,6 +6334,25 @@ async function initializeLegacyRuntime() {
     `);
     await qIdx(`CREATE UNIQUE INDEX IF NOT EXISTS uq_shifting_line_teams ON shifting_line_teams ((COALESCE(factory_id, 0)), line, dpr_date, shift)`);
 
+    // SHIFTING CLOSURES — a PPC-completed job stays on the Shifting app until all its
+    // production is shifted; a leftover that will never be shifted (scrap, count mismatch)
+    // is closed here by hand with a reason. Keyed by plan code (stable across servers).
+    // active = FALSE re-opens it.
+    await q(`
+      CREATE TABLE IF NOT EXISTS shifting_closures (
+        id            SERIAL PRIMARY KEY,
+        factory_id    INTEGER,
+        plan_code     TEXT NOT NULL,
+        leftover_qty  NUMERIC DEFAULT 0,
+        reason        TEXT,
+        closed_by     TEXT,
+        closed_at     TIMESTAMPTZ DEFAULT NOW(),
+        active        BOOLEAN DEFAULT TRUE,
+        updated_at    TIMESTAMPTZ DEFAULT NOW()
+      );
+    `);
+    await qIdx(`CREATE UNIQUE INDEX IF NOT EXISTS uq_shifting_closures ON shifting_closures ((COALESCE(factory_id, 0)), plan_code)`);
+
     // QC MATERIAL ISSUES — internal issue reporting with media, assignments, audit trail
     await q(`
       CREATE TABLE IF NOT EXISTS qc_material_issues (
@@ -10016,16 +10035,45 @@ app.get('/api/shifting/dashboard', async (req, res) => {
   }
 });
 
+// A PPC-completed job stays listed while produced > shifted (QC / shifting are often
+// days behind moulding), unless its shifting was closed by hand. The look-back only
+// keeps very old count mismatches off the list.
+const SHIFTING_PENDING_LOOKBACK_DAYS = 60;
+const SHIFTING_STATE_RANK = { READY: 0, PARTLY: 1, WAITING_QC: 2, SHIFTED: 3 };
+
+// READY = everything still on the floor is QC verified; PARTLY = some verified, some not;
+// WAITING_QC = nothing verified yet; SHIFTED = nothing left on the floor. A server without
+// QC verification data treats the whole floor balance as ready.
+function shiftingState({ floor, ready, notVerified, enforced }) {
+  if (!(floor > 0)) return 'SHIFTED';
+  if (!enforced) return 'READY';
+  if (!(ready > 0)) return 'WAITING_QC';
+  return notVerified > 0 ? 'PARTLY' : 'READY';
+}
+
+// Ready first, then partly ready, then waiting for QC; oldest production first in each
+// group so delayed stock is not forgotten.
+function compareShiftingJobs(a, b, machineOrder) {
+  const ra = SHIFTING_STATE_RANK[a.shift_state] ?? 9;
+  const rb = SHIFTING_STATE_RANK[b.shift_state] ?? 9;
+  if (ra !== rb) return ra - rb;
+  const ta = a.last_dpr_date ? new Date(a.last_dpr_date).getTime() : Infinity;
+  const tb = b.last_dpr_date ? new Date(b.last_dpr_date).getTime() : Infinity;
+  if (ta !== tb) return ta - tb;
+  return machineOrder ? machineOrder(a.machine, b.machine) : 0;
+}
+
 // GET /api/shifting/jobs — Shifting Supervisor job list.
-// Running plans, plus completed/closed plans that had DPR production or labels printed
-// in the last ?days= days (default 7). end_date is not filled on completed plans and
+// Running plans; completed/closed plans that had DPR production or labels printed in the
+// last ?days= days (default 7); and completed plans that still have unshifted production
+// (see SHIFTING_PENDING_LOOKBACK_DAYS). end_date is not filled on completed plans and
 // updated_at is bumped by sync, so recent DPR / label activity is the reliable signal.
 // Totals are aggregated in one query per source table for all listed plans (the old
 // per-row subqueries scanned the label log with TRIM(), ~20 s for 6000+ plans).
 async function shiftingJobRows(req, { days, line }) {
   await ensureJobCardLabelLogTable();
   const factoryId = getFactoryId(req);
-  const params = [days];
+  const params = [days, SHIFTING_PENDING_LOOKBACK_DAYS];
   let filters = '';
 
   if (line) {
@@ -10046,13 +10094,27 @@ async function shiftingJobRows(req, { days, line }) {
               UPPER(COALESCE(pb.status, '')) = 'RUNNING'
            OR (UPPER(COALESCE(pb.status, '')) IN ('COMPLETED', 'CLOSED')
                AND COALESCE(pb.plan_id, '') <> ''
+               AND NOT EXISTS (SELECT 1 FROM shifting_closures sc
+                                WHERE sc.plan_code = pb.plan_id AND sc.active IS TRUE
+                                  AND (sc.factory_id IS NULL OR pb.factory_id IS NULL OR sc.factory_id = pb.factory_id))
                AND (EXISTS (SELECT 1 FROM dpr_hourly dh
                              WHERE dh.plan_id = pb.plan_id
                                AND dh.dpr_date >= CURRENT_DATE - $1::int
                                AND dh.is_deleted IS NOT TRUE)
                  OR EXISTS (SELECT 1 FROM job_card_label_print_log jl
                              WHERE jl.plan_id = pb.plan_id
-                               AND jl.printed_at >= CURRENT_DATE - $1::int)))
+                               AND jl.printed_at >= CURRENT_DATE - $1::int)
+                 -- PPC completed, moulding done, but QC / shifting not finished yet.
+                 OR (EXISTS (SELECT 1 FROM dpr_hourly dh
+                              WHERE dh.plan_id = pb.plan_id
+                                AND dh.dpr_date >= CURRENT_DATE - $2::int
+                                AND dh.is_deleted IS NOT TRUE)
+                     AND (SELECT COALESCE(SUM(dh.good_qty), 0) FROM dpr_hourly dh
+                           WHERE dh.plan_id = pb.plan_id AND dh.is_deleted IS NOT TRUE
+                             AND (dh.factory_id IS NULL OR pb.factory_id IS NULL OR dh.factory_id = pb.factory_id))
+                       > (SELECT COALESCE(SUM(sr.quantity), 0) FROM shifting_records sr
+                           WHERE sr.plan_id = pb.id
+                             AND (sr.factory_id IS NULL OR pb.factory_id IS NULL OR sr.factory_id = pb.factory_id)))))
             )
             ${filters}`,
     params
@@ -10159,9 +10221,14 @@ async function shiftingJobRows(req, { days, line }) {
     r.ready_qty = av ? av.ready : 0;
     // Colour-wise produced / verified / shifted / ready, and shifts saved without a colour.
     r.colours = av ? [...av.colours.values()].filter(c => c.colour).map(c => ({
-      colour: c.colour, produced: c.produced, verified: c.verified, not_verified: c.not_verified, shifted: c.shifted, ready: c.ready
-    })) : [];
+      colour: c.colour, produced: c.produced, verified: c.verified, not_verified: c.not_verified, shifted: c.shifted, ready: c.ready,
+      shift_state: shiftingState({ floor: c.produced - c.shifted, ready: c.ready, notVerified: c.not_verified, enforced: verifyEnforced })
+    })).sort((a, b) => (SHIFTING_STATE_RANK[a.shift_state] - SHIFTING_STATE_RANK[b.shift_state])) : [];
     r.unassigned_shifted = av && av.unassigned ? av.unassigned.shifted : 0;
+    const floor = Math.max((Number(r.total_produced) || 0) - (Number(r.total_shifted) || 0), 0);
+    r.on_floor_qty = floor;
+    r.shift_state = shiftingState({ floor, ready: Math.min(r.ready_qty, floor), notVerified: r.total_not_verified, enforced: verifyEnforced });
+    r.ppc_completed = ['COMPLETED', 'CLOSED'].includes(String(r.status || '').toUpperCase());
     const pack = shiftingJobPacking(jobPacking, r.mould_name, r.mould_code);
     r.sfg_std = pack.std;
     r.sfg_pack_type = pack.pack_type;
@@ -10174,18 +10241,9 @@ async function shiftingJobRows(req, { days, line }) {
   });
 
   const machineOrder = makeMachineOrder(machineRows);
-  const isRunning = r => String(r.status || '').toUpperCase() === 'RUNNING';
-  rows.sort((a, b) => {
-    if (isRunning(a) !== isRunning(b)) return isRunning(a) ? -1 : 1;
-    if (!isRunning(a)) {
-      const ta = a.last_dpr_date ? new Date(a.last_dpr_date).getTime() : 0;
-      const tb = b.last_dpr_date ? new Date(b.last_dpr_date).getTime() : 0;
-      if (ta !== tb) return tb - ta;
-    }
-    return machineOrder(a.machine, b.machine);
-  });
+  rows.sort((a, b) => compareShiftingJobs(a, b, machineOrder));
 
-  return { rows, machineRows, verifyEnforced };
+  return { rows, machineRows, verifyEnforced, machineOrder };
 }
 
 app.get('/api/shifting/jobs', async (req, res) => {
@@ -10252,7 +10310,8 @@ app.get('/api/shifting/machine-board', async (req, res) => {
         pending: floor > 0,
         sfg_std: r.sfg_std || 0, sfg_pack_type: r.sfg_pack_type || '', sfg_bag_size: r.sfg_bag_size || '',
         unit_weight_kg: r.unit_weight_kg || 0,
-        colours: r.colours || [], unassigned_shifted: r.unassigned_shifted || 0
+        colours: r.colours || [], unassigned_shifted: r.unassigned_shifted || 0,
+        shift_state: r.shift_state, ppc_completed: !!r.ppc_completed, last_dpr_date: r.last_dpr_date || null
       });
       b.on_hold = b.on_hold || !!r.on_hold;
       if (running && !b.running_item) b.running_item = String(r.item_name || r.mould_name || '').trim();
@@ -10263,7 +10322,7 @@ app.get('/api/shifting/machine-board', async (req, res) => {
 
     const order = makeMachineOrder(machineRows.length ? machineRows : master);
     const data = [...board.values()]
-      .map(({ _best, ...b }) => b)
+      .map(({ _best, ...b }) => ({ ...b, job_list: b.job_list.sort((x, y) => compareShiftingJobs(x, y)) }))
       .sort((a, b) => order(a.machine, b.machine));
     res.json({ ok: true, data, days, verification_enforced: verifyEnforced });
   } catch (e) {
@@ -10986,7 +11045,7 @@ app.get('/api/shifting/availability', async (req, res) => {
     const plan = planRows[0];
     if (!plan) return res.status(404).json({ ok: false, error: 'Job not found.' });
     const fid = normalizeFactoryId(plan.factory_id) ?? factoryId;
-    const [avail, holds, orderRows, enforced, recentRows] = await Promise.all([
+    const [avail, holds, orderRows, enforced, recentRows, closureRows] = await Promise.all([
       shiftingAvailabilityMap([{ pk: plan.id, code: plan.plan_id, order_no: plan.order_no }], fid),
       shiftingHoldsByMachine([plan.machine], fid),
       q(`SELECT ojr.job_card_no, COALESCE(ojr.client_name, o.client_name) AS client_name
@@ -11001,7 +11060,10 @@ app.get('/api/shifting/availability', async (req, res) => {
                 shifted_by, scan_mode, label_no, total_labels, created_at
            FROM shifting_records
           WHERE plan_id = $1 AND ($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL)
-          ORDER BY created_at DESC LIMIT 15`, [plan.id, fid])
+          ORDER BY created_at DESC LIMIT 15`, [plan.id, fid]),
+      q(`SELECT leftover_qty, reason, closed_by, closed_at FROM shifting_closures
+          WHERE plan_code = $1 AND active IS TRUE AND ($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL)
+          ORDER BY closed_at DESC LIMIT 1`, [String(plan.plan_id || '').trim(), fid])
     ]);
     const agg = avail.get(String(plan.id)) || { produced: 0, verified: 0, not_verified: 0, shifted: 0, ready: 0, colours: new Map(), by_location: new Map(), unassigned: { shifted: 0, by_location: new Map() } };
     const locList = (m) => [...(m || new Map()).entries()].map(([location, qty]) => ({ location, qty })).sort((a, b) => b.qty - a.qty);
@@ -11046,6 +11108,11 @@ app.get('/api/shifting/availability', async (req, res) => {
           produced: agg.produced, verified: agg.verified, not_verified: agg.not_verified, shifted: agg.shifted, ready: agg.ready,
           by_location: locList(agg.by_location)
         },
+        shift_state: agg.produced > 0
+          ? shiftingState({ floor: agg.produced - agg.shifted, ready: agg.ready, notVerified: agg.not_verified, enforced })
+          : 'NOT_PRODUCED',
+        ppc_completed: ['COMPLETED', 'CLOSED'].includes(String(plan.status || '').toUpperCase()),
+        shifting_closure: closureRows[0] || null,
         recent: recentRows.map(r => ({
           id: r.id, qty: Number(r.quantity || 0), kg: Number(r.weight_kg || 0), location: r.location, colour: r.colour || '',
           by: r.shifted_by || '', mode: r.scan_mode || '', label: r.total_labels ? `${r.label_no}/${r.total_labels}` : '',
@@ -11055,10 +11122,71 @@ app.get('/api/shifting/availability', async (req, res) => {
         unassigned: { shifted: agg.unassigned.shifted, by_location: locList(agg.unassigned.by_location) },
         colours: colourKeys.map(k => {
           const c = agg.colours.get(k) || { colour: '', produced: 0, verified: 0, not_verified: 0, shifted: 0, ready: 0, by_location: new Map() };
-          return { ...c, colour: c.colour || k, plan_qty: planByColour.get(k) || 0, by_location: locList(c.by_location) };
+          const shift_state = c.produced > 0
+            ? shiftingState({ floor: c.produced - c.shifted, ready: c.ready, notVerified: c.not_verified, enforced })
+            : 'NOT_PRODUCED';
+          return { ...c, colour: c.colour || k, plan_qty: planByColour.get(k) || 0, by_location: locList(c.by_location), shift_state };
         })
       }
     });
+  } catch (e) {
+    sendServerError(res, e);
+  }
+});
+
+// POST /api/shifting/close { planId, reason, reopen? } — clears a PPC-completed job off
+// the Shifting app when its leftover will never be shifted (scrap, count mismatch).
+// Shifting Supervisor, PPC and admins; a reason is required. reopen: true puts it back.
+const SHIFTING_CLOSE_ROLES = new Set(['shifting_supervisor', 'planner', 'ppc_ass_manager', 'ppc_assistant_manager', 'ppc_manager', 'sr_ppc_manager', 'sr__ppc_manager']);
+app.post('/api/shifting/close', async (req, res) => {
+  try {
+    const auth = req.auth;
+    if (!auth) return res.status(401).json({ ok: false, error: 'Please log in again.' });
+    const role = String(auth.role || '').toLowerCase();
+    if (!isAdminLikeRole({ role_code: auth.role }) && !SHIFTING_CLOSE_ROLES.has(role)) {
+      return res.status(403).json({ ok: false, error: 'Only the Shifting Supervisor or PPC can close shifting of a job.' });
+    }
+    const factoryId = getFactoryId(req);
+    const planRef = String(req.body?.planId || '').trim();
+    const reopen = req.body?.reopen === true;
+    const reason = normalizeOptionalText(req.body?.reason);
+    if (!planRef) return res.status(400).json({ ok: false, error: 'Select the job.' });
+    if (!reopen && !reason) return res.status(400).json({ ok: false, error: 'Enter the reason for closing (e.g. scrap, count mismatch).' });
+
+    const planRows = await q(
+      `SELECT id, plan_id, status, factory_id FROM plan_board
+        WHERE (CAST(id AS TEXT) = $1 OR TRIM(COALESCE(plan_id, '')) = $1)
+          AND ($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL)
+        ORDER BY id DESC LIMIT 1`,
+      [planRef, factoryId || null]
+    );
+    const plan = planRows[0];
+    if (!plan) return res.status(404).json({ ok: false, error: 'Job not found.' });
+    const planCode = String(plan.plan_id || '').trim();
+    if (!planCode) return res.status(400).json({ ok: false, error: 'This job has no plan code.' });
+    if (!reopen && !['COMPLETED', 'CLOSED'].includes(String(plan.status || '').toUpperCase())) {
+      return res.status(400).json({ ok: false, error: 'Only a job completed by PPC can be closed for shifting.' });
+    }
+    const planFactoryId = normalizeFactoryId(plan.factory_id) ?? factoryId ?? null;
+
+    if (reopen) {
+      await q(`UPDATE shifting_closures SET active = FALSE, updated_at = NOW()
+                WHERE plan_code = $1 AND COALESCE(factory_id, 0) = COALESCE($2::int, 0)`, [planCode, planFactoryId]);
+    } else {
+      const agg = (await shiftingAvailabilityMap([{ pk: plan.id, code: planCode }], planFactoryId)).get(String(plan.id));
+      const leftover = agg ? Math.max(agg.produced - agg.shifted, 0) : 0;
+      await q(
+        `INSERT INTO shifting_closures (factory_id, plan_code, leftover_qty, reason, closed_by, closed_at, active, updated_at)
+         VALUES ($1, $2, $3, $4, $5, NOW(), TRUE, NOW())
+         ON CONFLICT ((COALESCE(factory_id, 0)), plan_code)
+         DO UPDATE SET leftover_qty = EXCLUDED.leftover_qty, reason = EXCLUDED.reason, closed_by = EXCLUDED.closed_by,
+                       closed_at = NOW(), active = TRUE, updated_at = NOW()`,
+        [planFactoryId, planCode, leftover, reason, auth.username || getRequestUsername(req) || 'unknown']
+      );
+    }
+    console.log(`[AUDIT] Shifting ${reopen ? 're-opened' : 'closed'} for plan ${planCode} by ${auth.username}${reason ? ` (${reason})` : ''}`);
+    syncService.triggerSync();
+    res.json({ ok: true, closed: !reopen });
   } catch (e) {
     sendServerError(res, e);
   }

@@ -210,6 +210,7 @@ const SYNC_ALL = [
     'raw_material_issues',
     'roles',
     'shift_teams',
+    'shifting_closures',
     'shifting_line_teams',
     'shifting_locations',
     'shifting_records',
@@ -365,6 +366,8 @@ const CONFLICT_KEYS = {
     shifting_records: 'sync_id',
     // Shifting app team per line/date/shift — same shape and key as qc_line_teams.
     shifting_line_teams: 'line, dpr_date, shift, factory_id',
+    // Shifting closed by hand for a PPC-completed job — one row per (factory, plan code).
+    shifting_closures: 'plan_code, factory_id',
     std_actual: 'plan_id, shift, dpr_date, machine',
     // Natural key matches uq_eqa_natural — serial id diverges LOCAL↔MAIN
     extra_qty_allowances: 'plan_id, colour, allowed_by, allowed_at',
@@ -535,7 +538,9 @@ const RAW_CONFLICT_TARGETS = {
     // dpr_date, shift) is an EXPRESSION index — reproduce it or every row fails with 42P10.
     qc_line_teams: `COALESCE(factory_id, 0), line, dpr_date, shift`,
     // Same expression index shape (uq_shifting_line_teams).
-    shifting_line_teams: `COALESCE(factory_id, 0), line, dpr_date, shift`
+    shifting_line_teams: `COALESCE(factory_id, 0), line, dpr_date, shift`,
+    // Same shape (uq_shifting_closures).
+    shifting_closures: `COALESCE(factory_id, 0), plan_code`
 };
 
 const SYNC_CONFLICT_INDEXES = {
@@ -643,7 +648,8 @@ const SYNC_SCHEMA_READY_KEY = 'SYNC_SCHEMA_READY_VERSION';
 // 2026-10-05: shifting_line_teams (Shifting app team) replicates, natural key like qc_line_teams.
 // 2026-10-06: qc_verifications replicate (sync_id; linked to dpr_hourly by dpr_global_id).
 // 2026-10-14: npd_products / npd_files replicate both ways (sync_id; files by product_sync_id).
-const SYNC_SCHEMA_READY_VERSION = '2026-10-14-npd-v12';
+// 2026-10-26: shifting_closures (job shifting closed by hand) replicates, natural key.
+const SYNC_SCHEMA_READY_VERSION = '2026-10-26-shifting-closures-v13';
 
 // "Sync token" columns: app-schema UNIQUE columns that carry a per-row identity
 // token (a UUID) MAIN considers authoritative, but which a LOCAL row may have been
