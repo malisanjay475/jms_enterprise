@@ -19,7 +19,7 @@ data class JobsUiState(
     val search: String = "",
     val pendingOnly: Boolean = true
 ) {
-    /** Running jobs first, then by machine (Line, then machine number). */
+    /** QC-ready first, then partly ready, waiting for QC, shifted; oldest production first in each, then by machine. */
     val visible: List<Job>
         get() {
             val q = search.trim().lowercase()
@@ -29,7 +29,7 @@ data class JobsUiState(
                     q.isEmpty() || listOf(it.machine, it.itemName, it.mouldName, it.orderNo, it.jcNo, it.planCode)
                         .any { f -> f.lowercase().contains(q) }
                 }
-                .sortedWith(compareBy<Job>({ !it.isRunning }, { lineKey(it.line) }, { machineNo(it.machine) }, { it.machine }))
+                .sortedWith(compareBy<Job>({ it.shiftState.rank }, { it.lastDprDate.ifBlank { "9" } }, { lineKey(it.line) }, { machineNo(it.machine) }, { it.machine }))
         }
 }
 
