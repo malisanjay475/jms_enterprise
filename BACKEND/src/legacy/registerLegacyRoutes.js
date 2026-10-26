@@ -10035,10 +10035,10 @@ app.get('/api/shifting/dashboard', async (req, res) => {
   }
 });
 
-// A PPC-completed job stays listed while produced > shifted (QC / shifting are often
-// days behind moulding), unless its shifting was closed by hand. The look-back only
-// keeps very old count mismatches off the list.
-const SHIFTING_PENDING_LOOKBACK_DAYS = 60;
+// A PPC-completed job is listed only while it had production or labels in the last 3 days
+// (owner's call, 26-Oct-2026: "only last 3 days completed jobs, not all"), and not after
+// its shifting was closed by hand.
+const SHIFTING_COMPLETED_DAYS = 3;
 const SHIFTING_STATE_RANK = { READY: 0, PARTLY: 1, WAITING_QC: 2, SHIFTED: 3 };
 
 // READY = everything still on the floor is QC verified; PARTLY = some verified, some not;
@@ -10064,16 +10064,15 @@ function compareShiftingJobs(a, b, machineOrder) {
 }
 
 // GET /api/shifting/jobs — Shifting Supervisor job list.
-// Running plans; completed/closed plans that had DPR production or labels printed in the
-// last ?days= days (default 7); and completed plans that still have unshifted production
-// (see SHIFTING_PENDING_LOOKBACK_DAYS). end_date is not filled on completed plans and
+// Running plans, and completed/closed plans that had DPR production or labels printed in
+// the last ?days= days, at most SHIFTING_COMPLETED_DAYS. end_date is not filled on completed plans and
 // updated_at is bumped by sync, so recent DPR / label activity is the reliable signal.
 // Totals are aggregated in one query per source table for all listed plans (the old
 // per-row subqueries scanned the label log with TRIM(), ~20 s for 6000+ plans).
 async function shiftingJobRows(req, { days, line }) {
   await ensureJobCardLabelLogTable();
   const factoryId = getFactoryId(req);
-  const params = [days, SHIFTING_PENDING_LOOKBACK_DAYS];
+  const params = [Math.min(days, SHIFTING_COMPLETED_DAYS)];
   let filters = '';
 
   if (line) {
@@ -10103,18 +10102,7 @@ async function shiftingJobRows(req, { days, line }) {
                                AND dh.is_deleted IS NOT TRUE)
                  OR EXISTS (SELECT 1 FROM job_card_label_print_log jl
                              WHERE jl.plan_id = pb.plan_id
-                               AND jl.printed_at >= CURRENT_DATE - $1::int)
-                 -- PPC completed, moulding done, but QC / shifting not finished yet.
-                 OR (EXISTS (SELECT 1 FROM dpr_hourly dh
-                              WHERE dh.plan_id = pb.plan_id
-                                AND dh.dpr_date >= CURRENT_DATE - $2::int
-                                AND dh.is_deleted IS NOT TRUE)
-                     AND (SELECT COALESCE(SUM(dh.good_qty), 0) FROM dpr_hourly dh
-                           WHERE dh.plan_id = pb.plan_id AND dh.is_deleted IS NOT TRUE
-                             AND (dh.factory_id IS NULL OR pb.factory_id IS NULL OR dh.factory_id = pb.factory_id))
-                       > (SELECT COALESCE(SUM(sr.quantity), 0) FROM shifting_records sr
-                           WHERE sr.plan_id = pb.id
-                             AND (sr.factory_id IS NULL OR pb.factory_id IS NULL OR sr.factory_id = pb.factory_id)))))
+                               AND jl.printed_at >= CURRENT_DATE - $1::int)))
             )
             ${filters}`,
     params

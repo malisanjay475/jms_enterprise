@@ -79,15 +79,14 @@ describe('Shifting: QC-ready state per colour', () => {
   });
 });
 
-describe('Shifting: PPC-completed jobs stay listed', () => {
-  it('job list asks for completed plans with unshifted production and skips closed ones', async () => {
+describe('Shifting: PPC-completed jobs of the last 3 days', () => {
+  it('job list keeps completed plans of the last 3 days only, and skips closed ones', async () => {
     const { app, calls } = createApp();
-    const res = await request(app).get('/api/shifting/jobs?days=7').set('x-factory-id', '1');
+    const res = await request(app).get('/api/shifting/jobs?days=30').set('x-factory-id', '1');
     expect(res.status).toBe(200);
     const listQuery = calls.find(c => /FROM plan_board pb\s+WHERE \(/.test(c.text));
     expect(listQuery.text).toMatch(/shifting_closures/);
-    expect(listQuery.text).toMatch(/SUM\(dh\.good_qty\)[\s\S]*> \(SELECT COALESCE\(SUM\(sr\.quantity\)/);
-    expect(listQuery.params.slice(0, 2)).toEqual([7, 60]);
+    expect(listQuery.params[0]).toBe(3);
   });
 });
 
