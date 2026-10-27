@@ -576,6 +576,7 @@
           <label class="mw-chk"><input type="checkbox" value="std_cycle"  onchange="onMouldFieldChange()"> STD Cycle Time</label>
           <label class="mw-chk"><input type="checkbox" value="avg_cycle"  onchange="onMouldFieldChange()"> Average Cycle Time</label>
           <label class="mw-chk"><input type="checkbox" value="std_weight" onchange="onMouldFieldChange()"> STD Weight</label>
+          <label class="mw-chk"><input type="checkbox" value="avg_weight" onchange="onMouldFieldChange()"> Average Weight</label>
           <label class="mw-chk"><input type="checkbox" value="downtime"   onchange="onMouldFieldChange()"> Downtime (reason + min)</label>
           <label class="mw-chk"><input type="checkbox" value="reject_qty" onchange="onMouldFieldChange()"> Reject Qty</label>
           <label class="mw-chk"><input type="checkbox" value="reject_pct" onchange="onMouldFieldChange()"> Reject %</label>
@@ -1155,6 +1156,7 @@
       if (on.has('std_cycle'))  metricCols.push({ label: 'STD Cycle (s)', get: r => r.stdCycle || '', num: true });
       if (on.has('avg_cycle'))  metricCols.push({ label: 'Avg Cycle (s)', get: r => r.avgCycle || '', num: true, avg: true, rawKey: 'avgCycle' });
       if (on.has('std_weight')) metricCols.push({ label: 'STD Wt (kg)',  get: r => r.stdWeight || '', num: true });
+      if (on.has('avg_weight')) metricCols.push({ label: 'Avg Wt',       get: r => r.avgWeight || '', num: true, avg: true, rawKey: 'avgWeight' });
       if (on.has('efficiency')) metricCols.push({ label: 'Eff %',       get: r => r.efficiency + '%', num: true });
       if (on.has('downtime'))   metricCols.push({ label: 'Downtime',    get: r => (r.downtimeMin ? r.downtimeMin + 'm' : '') + (r.downtimeReason ? ' — ' + r.downtimeReason : ''), num: false });
       if (on.has('reject_qty')) metricCols.push({ label: 'Reject Qty',  get: r => r.rejectQty, num: true, sum: true });
@@ -1199,7 +1201,7 @@
               : Number(r[c.rawKey]) > 0);
             if (!src.length) return '<td></td>';
             const avg = src.reduce((a, r) => a + Number(r[c.rawKey] || 0), 0) / src.length;
-            const val = Math.round(avg * 100) / 100;
+            const val = c.rawKey === 'avgWeight' ? Math.round(avg * 1000) / 1000 : Math.round(avg * 100) / 100;
             return `<td>${c.pct ? val + '%' : val}</td>`;
           }
           return '<td></td>';
@@ -1259,6 +1261,7 @@
         ['std_cycle', { key: 'stdCycle', label: 'STD Cycle (s)', fmt: v => v ? Number(v).toFixed(2) : '' }],
         ['avg_cycle', { key: 'avgCycle', label: 'Avg Cycle (s)', fmt: v => v ? Number(v).toFixed(2) : '' }],
         ['std_weight', { key: 'stdWeight', label: 'STD Wt (kg)', fmt: v => v ? Number(v).toFixed(3) : '' }],
+        ['avg_weight', { key: 'avgWeight', label: 'Avg Wt', fmt: v => v ? Number(v).toFixed(3) : '' }],
         ['efficiency', { key: 'efficiency', label: 'Eff %', fmt: v => (v || v === 0) ? v + '%' : '' }],
         ['reject_qty', { key: 'rejectQty', label: 'Reject Qty', fmt: v => num(v) }],
         ['reject_pct', { key: 'rejectPct', label: 'Reject %', fmt: v => (v || v === 0) ? v + '%' : '' }]

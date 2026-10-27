@@ -20741,6 +20741,9 @@ async function buildMouldWiseReport({ requestFactoryId, from, to, search, reques
     "MAX(COALESCE(m.pcs_per_hour, 0)) AS pcs_per_hour",
     "MAX(COALESCE(m.cycle_time, 0)) AS std_cycle",
     "MAX(COALESCE(m.std_wt_kg, 0)) AS std_weight",
+    // Average actual article weight from the DPR setup entries (std_actual)
+    // recorded for the same date + machine + order.
+    "AVG(sa.avg_weight) AS avg_weight",
     // Actual cycle time = productive run seconds / shots, aggregated over the
     // hourly slots in this group. Each dpr_hourly row is a 60-min slot; run
     // seconds = (60 - downtime_min) minutes * 60. Matches the act_cycle formula
@@ -20768,6 +20771,20 @@ async function buildMouldWiseReport({ requestFactoryId, from, to, search, reques
     LEFT JOIN moulds m
       ON TRIM(COALESCE(m.mould_number, '')) = TRIM(COALESCE(d.mould_no, ''))
      AND ($4::int IS NULL OR m.factory_id = $4 OR m.factory_id IS NULL)
+    LEFT JOIN (
+      -- Pre-aggregated to one row per key so the join can't fan out quantities.
+      SELECT dpr_date, TRIM(LOWER(machine)) AS machine_k, TRIM(COALESCE(order_no, '')) AS order_k,
+             AVG(NULLIF(article_act, 0)) AS avg_weight
+        FROM std_actual
+       WHERE COALESCE(is_deleted, false) = false
+         AND ($1::date IS NULL OR dpr_date >= $1::date)
+         AND ($2::date IS NULL OR dpr_date <= $2::date)
+         AND ($4::int IS NULL OR factory_id = $4 OR factory_id IS NULL)
+       GROUP BY 1, 2, 3
+    ) sa
+      ON sa.dpr_date = d.dpr_date
+     AND sa.machine_k = TRIM(LOWER(d.machine))
+     AND sa.order_k = TRIM(COALESCE(d.order_no, ''))
     WHERE COALESCE(d.is_deleted, false) = false
       AND TRIM(COALESCE(d.mould_no, '')) <> ''
       AND ($1::date IS NULL OR d.dpr_date >= $1::date)
@@ -20822,6 +20839,7 @@ async function buildMouldWiseReport({ requestFactoryId, from, to, search, reques
     // cycle time = total productive run seconds / total shots for this group.
     const stdCycle = Number(r.std_cycle) || 0;
     const stdWeight = Number(r.std_weight) || 0;
+    const avgWeight = Number(r.avg_weight) || 0;
     const shots = Number(r.shots) || 0;
     const runSeconds = Number(r.run_seconds) || 0;
     const avgCycle = shots > 0 ? runSeconds / shots : 0;
@@ -20856,6 +20874,7 @@ async function buildMouldWiseReport({ requestFactoryId, from, to, search, reques
       stdCycle: Math.round(stdCycle * 100) / 100,
       avgCycle: Math.round(avgCycle * 100) / 100,
       stdWeight: Math.round(stdWeight * 1000) / 1000,
+      avgWeight: Math.round(avgWeight * 1000) / 1000,
       // Raw pcs/hour so the Detail (pivot) view can show Prod (STD)/day = pcs/hr x 24.
       pcsPerHour,
       shots, runSeconds
@@ -20910,7 +20929,7 @@ function buildMouldWiseDetailPivot(data, { from, to }) {
       let rec = byRow.get(key);
       if (!rec) {
         rec = { machine, mouldNo: g.mouldNo, mouldName: g.mouldName || g.mouldNo, cells: {},
-          _pcs: 0, _stdCycle: 0, _stdWt: 0, _shots: 0, _run: 0, _total: 0, _std: 0, _rej: 0 };
+          _pcs: 0, _stdCycle: 0, _stdWt: 0, _wtSum: 0, _wtN: 0, _shots: 0, _run: 0, _total: 0, _std: 0, _rej: 0 };
         byRow.set(key, rec);
       }
       const date = String(row.date).slice(0, 10);
@@ -20920,6 +20939,7 @@ function buildMouldWiseDetailPivot(data, { from, to }) {
       rec._pcs = Math.max(rec._pcs, Number(row.pcsPerHour) || 0);
       rec._stdCycle = Math.max(rec._stdCycle, Number(row.stdCycle) || 0);
       rec._stdWt = Math.max(rec._stdWt, Number(row.stdWeight) || 0);
+      if (Number(row.avgWeight) > 0) { rec._wtSum += Number(row.avgWeight); rec._wtN++; }
       rec._shots += Number(row.shots) || 0;
       rec._run += Number(row.runSeconds) || 0;
       rec._total += Number(row.total) || 0;
@@ -20937,6 +20957,7 @@ function buildMouldWiseDetailPivot(data, { from, to }) {
     stdCycle: r2(rec._stdCycle),
     avgCycle: rec._shots > 0 ? r2(rec._run / rec._shots) : 0,
     stdWeight: r3(rec._stdWt),
+    avgWeight: rec._wtN > 0 ? r3(rec._wtSum / rec._wtN) : 0,
     efficiency: rec._std > 0 ? r1((rec._total / rec._std) * 100) : 0,
     rejectQty: rec._rej,
     rejectPct: (rec._total + rec._rej) > 0 ? r1((rec._rej / (rec._total + rec._rej)) * 100) : 0,
@@ -21050,6 +21071,7 @@ app.get('/api/reports/mould-wise-qty.xlsx', async (req, res) => {
         ['std_cycle', { key: 'stdCycle', label: 'STD Cycle (s)', w: 12 }],
         ['avg_cycle', { key: 'avgCycle', label: 'Avg Cycle (s)', w: 12 }],
         ['std_weight', { key: 'stdWeight', label: 'STD Wt (kg)', w: 12 }],
+        ['avg_weight', { key: 'avgWeight', label: 'Avg Wt', w: 12 }],
         ['efficiency', { key: 'efficiency', label: 'Eff %', w: 10, pct: true }],
         ['reject_qty', { key: 'rejectQty', label: 'Reject Qty', w: 12 }],
         ['reject_pct', { key: 'rejectPct', label: 'Reject %', w: 10, pct: true }]
@@ -21117,7 +21139,7 @@ app.get('/api/reports/mould-wise-qty.xlsx', async (req, res) => {
 
       const numFmtD = key => key === 'efficiency' || key === 'rejectPct' ? '0.0"%"'
         : key === 'avgCycle' || key === 'stdCycle' ? '#,##0.00'
-          : key === 'stdWeight' ? '#,##0.000' : '#,##0';
+          : key === 'stdWeight' || key === 'avgWeight' ? '#,##0.000' : '#,##0';
 
       let rr = HR3 + 1;
       let band = 0;
@@ -21212,6 +21234,7 @@ app.get('/api/reports/mould-wise-qty.xlsx', async (req, res) => {
     if (on.has('std_cycle'))  cols.push({ key: 'stdCycle', label: 'STD Cycle (s)', w: 12, num: true });
     if (on.has('avg_cycle'))  cols.push({ key: 'avgCycle', label: 'Avg Cycle (s)', w: 12, num: true });
     if (on.has('std_weight')) cols.push({ key: 'stdWeight', label: 'STD Wt (kg)', w: 12, num: true });
+    if (on.has('avg_weight')) cols.push({ key: 'avgWeight', label: 'Avg Wt', w: 12, num: true });
     if (on.has('efficiency')) cols.push({ key: 'efficiency', label: 'Eff %', w: 10, num: true });
     if (on.has('downtime'))   cols.push({ key: 'downtimeReason', label: 'Downtime', w: 30 });
     if (on.has('reject_qty')) cols.push({ key: 'rejectQty', label: 'Reject Qty', w: 12, num: true });
@@ -21266,7 +21289,7 @@ app.get('/api/reports/mould-wise-qty.xlsx', async (req, res) => {
     const numFmtFor = (key) => {
       if (key === 'efficiency' || key === 'rejectPct') return '0.0"%"';
       if (key === 'avgCycle' || key === 'stdCycle') return '#,##0.00';
-      if (key === 'stdWeight') return '#,##0.000';
+      if (key === 'stdWeight' || key === 'avgWeight') return '#,##0.000';
       return '#,##0';
     };
     const idxOf = key => cols.findIndex(c => c.key === key) + 1;   // 0 = not present
@@ -21297,7 +21320,7 @@ app.get('/api/reports/mould-wise-qty.xlsx', async (req, res) => {
       //   avg   -> Avg Cycle Time (over rows that ran), Reject % (over produced days)
       const totalColIdx = idxOf('total'), dayColIdx = idxOf('day'), nightColIdx = idxOf('night');
       const stdProdIdx = idxOf('stdProd'), rejectQtyIdx = idxOf('rejectQty');
-      const avgCycleIdx = idxOf('avgCycle'), rejectPctIdx = idxOf('rejectPct');
+      const avgCycleIdx = idxOf('avgCycle'), avgWeightIdx = idxOf('avgWeight'), rejectPctIdx = idxOf('rejectPct');
       for (let ci = 1; ci <= NCOL; ci++) {
         const cell = ws.getCell(r, ci);
         cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: SUBFILL } };
@@ -21319,10 +21342,11 @@ app.get('/api/reports/mould-wise-qty.xlsx', async (req, res) => {
         if (!idx) return;
         const rows = g.rows.filter(filter);
         const avg = rows.length ? rows.reduce((a, x) => a + (Number(x[key]) || 0), 0) / rows.length : 0;
-        ws.getCell(r, idx).value = rows.length ? Math.round(avg * 100) / 100 : '';
+        ws.getCell(r, idx).value = rows.length ? Math.round(avg * 1000) / 1000 : '';
         ws.getCell(r, idx).numFmt = numFmtFor(key); ws.getCell(r, idx).alignment = { horizontal: 'right' };
       };
       avgCol(avgCycleIdx, 'avgCycle', x => Number(x.avgCycle) > 0);
+      avgCol(avgWeightIdx, 'avgWeight', x => Number(x.avgWeight) > 0);
       avgCol(rejectPctIdx, 'rejectPct', x => Number(x.total) > 0);
 
       r++; bandToggle = 0;
