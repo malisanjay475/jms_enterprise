@@ -11,8 +11,9 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.153.1",
+  "latest": "1.153.3",
   "versions": [
+    {"version": "1.153.3", "date": "2026-10-27", "title": "Sidebar fits phones and tablets", "modules": [{"app": "all", "changes": [{"type": "fix", "text": "On phones and tablets the side menu now opens as a clean full list: an open group's pages show under it instead of squeezed beside it, the module search box is readable, and the menu button no longer covers the JMS OCEAN logo while the menu is open."}]}]},
     {
       "version": "1.153.2",
       "date": "2026-10-27",
