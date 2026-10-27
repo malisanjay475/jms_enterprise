@@ -4185,6 +4185,16 @@
                         opt.textContent = label;
                         sel.appendChild(opt);
                     });
+                    // /factories returns only the units this login may see. "All" is kept
+                    // only for users with all-factory rights (the server would collapse it to
+                    // the home unit otherwise); everyone else picks one of their own units.
+                    const canAll = r.can_select_all_factories === true || (J.auth.isAdminLike && J.auth.isAdminLike());
+                    const allOpt = Array.from(sel.options).find(o => o.value === '');
+                    if (!canAll && allOpt && (r.data || []).length) {
+                        const wasAll = sel.value === '';
+                        allOpt.remove();
+                        if (wasAll) { sel.value = sel.options[0].value; loadSummary(); }
+                    }
                 }).catch(() => {});
 
                 loadSummary();
