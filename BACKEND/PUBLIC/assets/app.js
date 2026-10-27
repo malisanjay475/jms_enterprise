@@ -1844,10 +1844,10 @@ function escHtml(value) {
         </div>
         
         <div class="sidebar-user-actions">
-             ${canSwitchFactory ? `
-            <button onclick="JPSMS.factories.openSwitcher()" class="btn btn-outline" style="padding:2px 4px;font-size:0.9rem;border:none;background:transparent;color:var(--sidebar-text);" title="Switch Factory">
+             ${`
+            <button id="jms-factory-switch-btn" onclick="JPSMS.factories.openSwitcher()" class="btn btn-outline" style="display:${canSwitchFactory ? 'inline-block' : 'none'};padding:2px 4px;font-size:0.9rem;border:none;background:transparent;color:var(--sidebar-text);" title="Switch Factory">
                 <i class="bi bi-arrow-repeat"></i>
-            </button>` : ''}
+            </button>`}
 
             <button onclick="JPSMS.auth.showMyDevices()" class="btn btn-outline" style="padding:2px 4px;font-size:1rem;border:none;background:transparent;color:var(--sidebar-text);" title="My Logged-in Devices">
                 <i class="bi bi-laptop"></i>
@@ -1873,6 +1873,18 @@ function escHtml(value) {
 
         // Live "pending FPA approvals" badge + sound for approver roles.
         try { startFpaPendingWatch(user); } catch (_) {}
+
+        // The factory list stored at login can be stale (access added later, or the login
+        // picked one unit). Refresh it so anyone with more than one factory gets the switch.
+        if (user && user.username) {
+            request('/factories', { skipLoader: true }).then(res => {
+                if (!res || !res.ok || !Array.isArray(res.data)) return;
+                localStorage.setItem('jpsms_allowed_factories', JSON.stringify(res.data));
+                if (res.can_select_all_factories === true) localStorage.setItem('jpsms_can_all_factories', 'true');
+                const btn = document.getElementById('jms-factory-switch-btn');
+                if (btn && userCanSwitchFactory(user)) btn.style.display = 'inline-block';
+            }).catch(() => {});
+        }
 
         // Restore Collapsed State
         const isCollapsed = localStorage.getItem('sidebar_collapsed') === 'true';
