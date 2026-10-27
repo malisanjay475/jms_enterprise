@@ -378,7 +378,9 @@ function escHtml(value) {
 
         // Inject Factory Context
         const factoryId = localStorage.getItem('jpsms_factory_id');
-        if (factoryId) headers['X-Factory-ID'] = factoryId;
+        // A caller may scope one request to another unit (e.g. the DPR Compliance Factory
+        // dropdown); the server still checks it against the user's factory access.
+        if (factoryId && !headers['X-Factory-ID']) headers['X-Factory-ID'] = factoryId;
         const writeFactoryId = localStorage.getItem('jpsms_write_factory_id');
         if (writeFactoryId) headers['X-Write-Factory-ID'] = writeFactoryId;
 
