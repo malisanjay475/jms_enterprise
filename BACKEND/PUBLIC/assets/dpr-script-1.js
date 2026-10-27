@@ -1893,7 +1893,10 @@
 
                     // Prepare Requests based on Shift Mode
                     const promises = [];
-                    const scopedMachinesPromise = J.api.get(`/masters/machines?process=${encodeURIComponent(dprProcess)}`);
+                    // Machine list follows the Factory dropdown, not the login unit — otherwise
+                    // picking another factory filtered its machines out and showed 0 machines.
+                    const scopedMachinesPromise = J.api.request(`/masters/machines?process=${encodeURIComponent(dprProcess)}`,
+                        { headers: { 'X-Factory-ID': selectedFactory || 'all' } });
                     // Open machine maintenance tickets → chip on the machine's summary cell
                     // (remarks + "Available by" ETA) so everyone sees it's down & when it returns.
                     const maintPromise = J.api.get('/maintenance/tickets?open=1&type=machine').catch(() => ({ ok: false, data: [] }));
