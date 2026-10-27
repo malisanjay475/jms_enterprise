@@ -8858,6 +8858,55 @@ app.get('/api/planning/machine-jobs', async (req, res) => {
 /* ============================================================
    JOB SUMMARY (Admin Visualization)
 ============================================================ */
+// Job Summary page: order numbers for the search box, and the moulds of one order.
+app.get('/api/planning/element-view', async (req, res) => {
+  try {
+    const factoryId = getFactoryId(req);
+    const rows = await q(`
+      SELECT or_jr_no FROM (
+        SELECT TRIM(or_jr_no) AS or_jr_no FROM mould_planning_summary
+         WHERE or_jr_no IS NOT NULL AND ($1::int IS NULL OR factory_id = $1 OR factory_id IS NULL)
+        UNION
+        SELECT TRIM(order_no) FROM plan_board
+         WHERE order_no IS NOT NULL AND ($1::int IS NULL OR factory_id = $1 OR factory_id IS NULL)
+      ) x
+      WHERE or_jr_no <> ''
+      ORDER BY or_jr_no DESC
+      LIMIT 5000
+    `, [factoryId]);
+    res.json({ ok: true, data: rows });
+  } catch (e) {
+    console.error('element-view API error:', e);
+    res.status(500).json({ ok: false, error: 'Failed to load orders' });
+  }
+});
+
+app.get('/api/planning/element-view/details', async (req, res) => {
+  try {
+    const orderNo = String(req.query.or_jr_no || '').trim();
+    if (!orderNo) return res.status(400).json({ ok: false, error: 'or_jr_no required' });
+    const factoryId = getFactoryId(req);
+    const moulds = await q(`
+      SELECT mould_no, mould_name FROM (
+        SELECT NULLIF(TRIM(mould_no), '') AS mould_no, NULLIF(TRIM(mould_name), '') AS mould_name
+          FROM mould_planning_summary
+         WHERE TRIM(or_jr_no) = $1 AND ($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL)
+        UNION
+        SELECT NULL, NULLIF(TRIM(mould_name), '') FROM plan_board
+         WHERE TRIM(order_no) = $1 AND ($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL)
+      ) x
+      WHERE mould_name IS NOT NULL OR mould_no IS NOT NULL
+      ORDER BY mould_name, mould_no
+    `, [orderNo, factoryId]);
+    // A plan_board row repeats a summary mould without its number: keep the numbered one.
+    const numbered = new Set(moulds.filter(m => m.mould_no).map(m => m.mould_name));
+    res.json({ ok: true, moulds: moulds.filter(m => m.mould_no || !numbered.has(m.mould_name)) });
+  } catch (e) {
+    console.error('element-view details API error:', e);
+    res.status(500).json({ ok: false, error: 'Failed to load moulds' });
+  }
+});
+
 app.get('/api/dpr/job-summary', async (req, res) => {
   try {
     const { orderNo, mouldNo, date } = req.query;
