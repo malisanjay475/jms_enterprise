@@ -11,8 +11,25 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.153.1",
+  "latest": "1.153.3",
   "versions": [
+    {"version": "1.153.3", "date": "2026-10-27", "title": "Sidebar fits phones and tablets", "modules": [{"app": "all", "changes": [{"type": "fix", "text": "On phones and tablets the side menu now opens as a clean full list: an open group's pages show under it instead of squeezed beside it, the module search box is readable, and the menu button no longer covers the JMS OCEAN logo while the menu is open."}]}]},
+    {
+      "version": "1.153.2",
+      "date": "2026-10-27",
+      "title": "Planning: easier-to-read buttons and labels",
+      "modules": [
+        {
+          "app": "planning",
+          "changes": [
+            {
+              "type": "fix",
+              "text": "Planning: the Plan Selected, Confirm and Complete Production Plan buttons now show white text on a stronger colour, and small grey, green and blue labels are darker, so they are easy to read on bright screens. Layout and behaviour are unchanged."
+            }
+          ]
+        }
+      ]
+    },
     {"version": "1.153.1", "date": "2026-10-27", "title": "DPR Compliance: other factories show their machines", "modules": [{"app": "dpr", "changes": [{"type": "fix", "text": "DPR Compliance Summary: choosing another factory in the Factory list now shows that factory's machines and figures. Before, it showed 0 machines and all zeros because the machine list still came from the factory you signed in with."}]}]},
     {"version": "1.153.0", "date": "2026-10-27", "title": "Switch factory from the sidebar", "modules": [{"app": "all", "changes": [{"type": "feature", "text": "Users with access to more than one factory now get a Switch Factory button next to their name in the sidebar. It shows whichever factory they signed in with, is refreshed from the server so newly given access also shows, lists only the factories they have access to and switches the page to the chosen factory without signing out."}]}, {"app": "dpr", "changes": [{"type": "improvement", "text": "DPR Compliance Summary: the Factory list shows only the factories you have access to, and All is offered only to users allowed to see every factory."}]}]},
     {"version": "1.152.1", "date": "2026-10-26", "title": "Shifting: only the last 3 days of completed jobs", "modules": [{"app": "shifting_supervisor_app", "changes": [{"type": "fix", "text": "The Shifting app now lists only jobs completed by PPC with production in the last 3 days (plus all running jobs), instead of every completed job that was not fully shifted."}]}]},
