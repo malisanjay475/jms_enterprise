@@ -22,6 +22,7 @@ part of your PR. On release, the `[Unreleased]` items move under the new version
 - Planning > Create Plan > Colour Wise Mould Plan (v1.145.0): lists every mould of the family instead of hiding used ones; each used mould is badged Running on <machine> / Already Planned / In Queue / Dropped (active plans of the selected order matched by mould code). No API changes.
 
 ### Fixed
+- Planning contrast (v1.153.2): planning.html `.btn.primary` now sets white text (it inherited the dark page colour) on #2563eb to #1d4ed8; Confirm button #3b82f6 to #2563eb; Complete Production Plan white on #15803d; text #94a3b8 to #5b6b80, #16a34a to #15803d, #0284c7 to #0369a1 (icons unchanged). All pairs pass WCAG AA 4.5:1.
 - JMS Chat (v1.149.1): chatBot.runCommand parses '/cmd arg' without a backtracking regex and on a 200-character cap (CodeQL js/polynomial-redos, high, introduced in v1.149.0).
 - JMS Chat on iPhone (chat_app.html): the screen shook / flashed when tapping the message box - the keyboard handler moved the chat and scrolled the page back on every scroll event, fighting Safari's own pan; it now follows the visible area once per animation frame and never scrolls the page. WhatsApp-style phone look in the app: green top bars with white icons, larger chat rows with avatars and dividers, rounded search, beige chat background, larger bubbles, rounded message box with round attach / send buttons; long-press a message opens its menu as a bottom sheet (own messages) or replies (others); no grey tap flash. No API changes.
 
