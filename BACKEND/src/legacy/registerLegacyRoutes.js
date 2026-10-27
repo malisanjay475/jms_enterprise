@@ -7942,10 +7942,8 @@ app.post('/api/dpr/submit', async (req, res) => {
     //     it should still inherit the colour that was running so it never lands in "Default".
     if (PlanID && !String(Colour || '').trim()) {
       try {
-        const pcRows = await q(
-          'SELECT colour_details FROM plan_board WHERE CAST(id AS TEXT)=$1 OR CAST(plan_id AS TEXT)=$1 LIMIT 1',
-          [String(PlanID)]
-        );
+        const pcRow = await findDprPlanRow(PlanID, factoryId);
+        const pcRows = pcRow ? [pcRow] : [];
         let configuredColours = 0;
         if (pcRows.length && pcRows[0].colour_details) {
           let cd = pcRows[0].colour_details;
@@ -7997,11 +7995,8 @@ app.post('/api/dpr/submit', async (req, res) => {
     // no colour qty configured.
     if (PlanID && String(Colour || '').trim() && toNum(GoodQty) > 0) {
       try {
-        const capRows = await q(
-          'SELECT colour_details FROM plan_board WHERE CAST(id AS TEXT)=$1 OR CAST(plan_id AS TEXT)=$1 LIMIT 1',
-          [String(PlanID)]
-        );
-        let cd = capRows.length ? capRows[0].colour_details : null;
+        const capRow = await findDprPlanRow(PlanID, factoryId);
+        let cd = capRow ? capRow.colour_details : null;
         if (typeof cd === 'string') { try { cd = JSON.parse(cd); } catch (_) { cd = null; } }
 
         if (Array.isArray(cd) && cd.length) {
@@ -8015,9 +8010,9 @@ app.post('/api/dpr/submit', async (req, res) => {
 
           let planQty = 0;
           cd.forEach(c => {
-            const nm = c.colourName || c.itemColour || c.colour || c.color || c.name || '';
-            if (lastSeg(nm) === wanted) {
-              planQty += Number(c.planQty ?? c.useQty ?? c.batchQty ?? c.qty ?? 0) || 0;
+            const nm = getDprColourName(c);
+            if (String(nm).trim().toUpperCase() === wanted || lastSeg(nm) === wanted) {
+              planQty += colourRowPlanQty(c);
             }
           });
 
@@ -8397,16 +8392,14 @@ app.post('/api/dpr/superadmin-set-qty', async (req, res) => {
     const newProduced = Math.round(Number(newTotRows[0]?.total || 0));
 
     // Also fetch planQty for this colour from colour_details
-    const pbRows = await q(`SELECT colour_details FROM plan_board WHERE plan_id=$1 LIMIT 1`, [String(planId)]);
+    const pbRow = await findDprPlanRow(planId, factoryId);
     let planQtyForColour = 0;
-    if (pbRows.length) {
-      let cd = pbRows[0].colour_details || [];
+    if (pbRow) {
+      let cd = pbRow.colour_details || [];
       if (typeof cd === 'string') { try { cd = JSON.parse(cd); } catch(_) { cd = []; } }
-      const match = (Array.isArray(cd) ? cd : []).find(r => {
-        const n = String(r.colourName||r.itemColour||r.colour||r.color||r.name||'').trim().toUpperCase();
-        return n === upperColour;
+      (Array.isArray(cd) ? cd : []).forEach(r => {
+        if (getDprColourName(r).toUpperCase() === upperColour) planQtyForColour += colourRowPlanQty(r);
       });
-      if (match) planQtyForColour = Number(match.planQty??match.batchQty??match.qty??0)||0;
     }
 
     console.log(`[SUPERADMIN-DPR] planId=${planId} colour=${colour} ${current}→${newProduced} (target=${target}) by ${callerName}`);
@@ -8593,8 +8586,9 @@ app.get('/api/dpr/plan-drilldown', async (req, res) => {
           : planRow.colour_details;
         if (Array.isArray(cd)) {
           cd.forEach(c => {
-            const name = (c.colourName || c.itemColour || c.colour || c.color || c.name || '').trim() || 'Default';
-            const qty  = Number(c.planQty ?? c.useQty ?? c.batchQty ?? c.qty ?? 0) || 0;
+            const rawName = getDprColourName(c);
+            const name = rawName === 'Unknown' ? 'Default' : rawName;
+            const qty  = colourRowPlanQty(c);
             colourPlanMap[name] = (colourPlanMap[name] || 0) + qty;
           });
         }
@@ -13560,6 +13554,32 @@ function getDprColourName(row) {
     row?.item_name ||
     'Unknown'
   ).trim() || 'Unknown';
+}
+
+// Plan qty for one colour_details row. Same field order the Job Detail
+// colour breakdown uses (getDprColourPlanQty), so the DPR cap and the
+// breakdown can never disagree on a colour's plan.
+function colourRowPlanQty(row) {
+  return getDprColourPlanQty(row);
+}
+
+// The plan_board row a DPR entry belongs to. Plan IDs are numbered per factory,
+// so a bare `plan_id = $1 LIMIT 1` can return another plant's (or an older) row
+// with different colour qtys. Prefer the exact PK, then this factory's row,
+// then the newest.
+async function findDprPlanRow(planId, factoryId, columns = 'id, plan_id, colour_details') {
+  const rows = await q(
+    `SELECT ${columns}
+       FROM plan_board
+      WHERE (CAST(id AS TEXT) = $1 OR CAST(plan_id AS TEXT) = $1)
+        AND ($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL)
+      ORDER BY (CAST(id AS TEXT) = $1) DESC,
+               (factory_id IS NOT DISTINCT FROM $2::int) DESC,
+               id DESC
+      LIMIT 1`,
+    [String(planId), factoryId || null]
+  );
+  return rows[0] || null;
 }
 
 function getDprColourPlanQty(row) {
