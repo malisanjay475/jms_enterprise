@@ -61,19 +61,21 @@ jobs:
           LOCAL_FACTORY_ID: "1"
           SYNC_API_KEY: pr-ci
           GEMINI_API_KEY: dummy-key
-          # Keep browser binaries next to the checkout so launch always finds them.
-          PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/BACKEND/.pw-browsers
+          # Keep Playwright OUTSIDE BACKEND/node_modules — server Updater runs
+          # `npm install` after listen and strips --no-save packages.
+          PLAYWRIGHT_CORE_PATH: ${{ github.workspace }}/.smoke-pw/node_modules/playwright-core
+          PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.smoke-pw/browsers
+          NODE_PATH: ${{ github.workspace }}/.smoke-pw/node_modules
         shell: bash
         run: |
           set -euo pipefail
           npm ci
-          npm install --no-save playwright-core@1.55.0
-          PW_CORE="$(node -p "require('path').join(process.cwd(),'node_modules','playwright-core')")"
-          test -d "$PW_CORE"
-          export PLAYWRIGHT_CORE_PATH="$PW_CORE"
-          export NODE_PATH="$(pwd)/node_modules${NODE_PATH:+:$NODE_PATH}"
-          npx playwright-core install --with-deps chromium
-          node -e "const p=require('playwright-core'); console.log('playwright-core ok', require.resolve('playwright-core'));"
+
+          mkdir -p "${GITHUB_WORKSPACE}/.smoke-pw"
+          npm install --prefix "${GITHUB_WORKSPACE}/.smoke-pw" --no-save --no-package-lock playwright-core@1.55.0
+          test -d "${PLAYWRIGHT_CORE_PATH}"
+          npx --prefix "${GITHUB_WORKSPACE}/.smoke-pw" playwright-core install --with-deps chromium
+          node -e "const p=require(process.env.PLAYWRIGHT_CORE_PATH); console.log('playwright-core ok', !!p.chromium);"
 
           umask 022
           cat > .env <<'EOF'
@@ -96,7 +98,7 @@ jobs:
           SERVER_PID=$!
           cleanup() {
             echo "::group::server.log (tail)"
-            tail -n 80 server.log || true
+            tail -n 120 server.log || true
             echo "::endgroup::"
             kill "$SERVER_PID" 2>/dev/null || true
             wait "$SERVER_PID" 2>/dev/null || true
@@ -118,9 +120,19 @@ jobs:
           curl -fsS http://127.0.0.1:3000/health
           echo
 
-          echo "Probing chromium.launch…"
+          # Updater may still be rewriting BACKEND/node_modules after listen.
+          echo "Waiting for Updater to finish (or 90s)…"
+          for i in $(seq 1 45); do
+            if grep -q '\[Updater\] Disabled' server.log 2>/dev/null; then
+              echo "Updater settled after ${i} poll(s)"
+              break
+            fi
+            sleep 2
+          done
+
+          echo "Probing chromium.launch via external playwright-core…"
           node -e "
-            const pw = require(process.env.PLAYWRIGHT_CORE_PATH || 'playwright-core');
+            const pw = require(process.env.PLAYWRIGHT_CORE_PATH);
             pw.chromium.launch({ headless: true }).then(async (b) => {
               console.log('chromium launch ok');
               await b.close();
@@ -128,7 +140,6 @@ jobs:
           "
 
           echo "Running page smoke…"
-          # Logged-out: LOGIN is fine; FAIL (broken JS / same-origin 4xx-5xx) is the signal.
           set +e
           node scripts/smoke-pages.js --base http://127.0.0.1:3000 --only login,dpr,planning,supervisor,masters,npd,purchase_vendors,raw_material_jobwise,barcode_printer,dpr_daily_report,job_summary
           SMOKE_EC=$?
