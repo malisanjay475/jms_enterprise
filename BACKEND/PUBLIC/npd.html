@@ -70,6 +70,14 @@
         .ps-On.Schedule, .ps-OnSchedule { background: var(--p-bg); color: var(--p-ink); }
         .ps-Cancelled { background: #e5e7eb; color: #374151; text-decoration: line-through; }
         textarea.rm { width: 220px; min-height: 34px; border: 1px solid var(--line); border-radius: 7px; padding: 5px; font-size: 12px; resize: vertical; font-family: inherit; }
+        .g tr.child td { background: #fbfdff; }
+        .g tr.child td.c1 { padding-left: 22px; }
+        .g tr.child td.c1 .nm, .g tr.child td.c1 input { font-weight: 600 !important; }
+        .mtag { display: inline-block; font-size: 10px; font-weight: 700; color: #7c3aed; background: #ede9fe; border-radius: 5px; padding: 1px 5px; margin-bottom: 2px; }
+        .addm { color: #7c3aed !important; }
+        .sdone { display: block; font-size: 10px; color: var(--c-ink); font-weight: 700; text-align: center; margin-top: 2px; }
+        .srm { display: block; font-size: 10px; color: var(--mute); text-align: center; margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 120px; cursor: help; }
+        .lock { opacity: .85; }
         .empty { padding: 60px 20px; text-align: center; color: var(--mute); }
         .ro-note { color: var(--mute); font-size: 12px; }
         /* modal */
@@ -148,9 +156,36 @@
         <div class="md" style="max-width:460px">
             <h3>Add NPD Product</h3>
             <div class="row2"><label>Product *</label><input class="inp" id="aName" maxlength="300"></div>
+            <div class="row2"><label>Child moulds</label><textarea class="inp" id="aMoulds" rows="4" placeholder="One mould per line (optional)&#10;e.g. Body mould&#10;Lid mould" style="font-family:inherit;resize:vertical"></textarea></div>
             <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
                 <button class="btn" data-close="addModal">Cancel</button>
                 <button class="btn pri" id="aSave">Add</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- add child mould -->
+    <div class="mb" id="mouldModal">
+        <div class="md" style="max-width:460px">
+            <h3>Add Child Mould</h3>
+            <div class="none" id="mParent"></div>
+            <div class="row2"><label>Mould name *</label><input class="inp" id="mName" maxlength="300"></div>
+            <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
+                <button class="btn" data-close="mouldModal">Cancel</button>
+                <button class="btn pri" id="mSave">Add Mould</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- mandatory remark for a stage change -->
+    <div class="mb" id="rmModal">
+        <div class="md" style="max-width:460px">
+            <h3>Stage Remark</h3>
+            <div class="none" id="rmWhat"></div>
+            <div class="row2"><label>Remarks *</label><textarea class="inp" id="rmText" rows="3" maxlength="1000" style="font-family:inherit;resize:vertical"></textarea></div>
+            <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
+                <button class="btn" id="rmCancel">Cancel</button>
+                <button class="btn pri" id="rmSave">Save</button>
             </div>
         </div>
     </div>
@@ -231,7 +266,7 @@
             const COLS = GROUPS.flatMap(g => g.cols);
             const STATE = [['pending', 'Pending'], ['in_progress', 'In Progress'], ['complete', 'Complete'], ['na', 'N/A']];
             const PSTAT = ['Hold', 'Launched', 'Delayed', 'On Schedule', 'Cancelled'];
-            const S = { rows: [], canEdit: false, q: '', fstat: '', open: null };
+            const S = { rows: [], canEdit: false, canDelete: false, editable: new Set(), depts: [], q: '', fstat: '', open: null, pending: null };
             const $ = id => document.getElementById(id);
             const esc = v => String(v == null ? '' : v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
             const psClass = s => 'ps-' + String(s || '').replace(/\s+/g, '');
@@ -243,39 +278,55 @@
                     const res = await api('/npd/products');
                     S.rows = res.data || [];
                     S.canEdit = !!res.can_edit;
+                    S.canDelete = !!res.can_delete;
+                    S.editable = new Set(res.editable_stages || []);
+                    S.depts = res.departments || [];
                     $('addBtn').style.display = S.canEdit ? '' : 'none';
-                    $('roNote').textContent = S.canEdit ? '' : 'View only - editing is for PPC managers';
+                    $('roNote').textContent = S.canEdit ? ''
+                        : S.editable.size ? `You can edit ${S.depts.join(' / ')} stages only`
+                        : 'View only - editing is for admin and the stage departments';
                     render();
                 } catch (e) { }
             }
 
+            /* a stage is editable only by its department (or a PPC manager);
+               a completed stage shows the day it was completed, every stage its last remark */
             function stageCell(p, c) {
                 const [key, , , type] = c;
                 const v = (p.stages || {})[key];
+                const info = (p.stage_info || {})[key] || {};
+                const ed = S.editable.has(key);
+                const rm = info.remarks ? `<span class="srm" title="${esc(info.remarks)}${info.by ? ' - ' + esc(info.by) : ''}${info.at ? ' · ' + esc(new Date(info.at).toLocaleString('en-GB')) : ''}"><i class="bi bi-chat-left-text"></i> ${esc(info.remarks)}</span>` : '';
                 if (type === 'date') {
-                    if (!S.canEdit) return `<td>${v ? esc(fmtDate(v)) : '<span class="none">—</span>'}</td>`;
-                    return `<td><input type="date" class="dt" data-id="${p.id}" data-stage="${key}" value="${esc(v || '')}"></td>`;
+                    if (!ed) return `<td class="lock">${v ? esc(fmtDate(v)) : '<span class="none">—</span>'}${rm}</td>`;
+                    return `<td><input type="date" class="dt" data-id="${p.id}" data-stage="${key}" value="${esc(v || '')}">${rm}</td>`;
                 }
                 const st = v || 'pending';
-                if (!S.canEdit) return `<td><span class="cell st-${st}">${(STATE.find(s => s[0] === st) || STATE[0])[1]}</span></td>`;
-                return `<td><select class="cell st-${st}" data-id="${p.id}" data-stage="${key}">${STATE.map(([k, l]) => `<option value="${k}"${k === st ? ' selected' : ''}>${l}</option>`).join('')}</select></td>`;
+                const done = st === 'complete' && info.completed_on ? `<span class="sdone"><i class="bi bi-check2-circle"></i> ${esc(fmtDate(info.completed_on))}</span>` : '';
+                if (!ed) return `<td class="lock"><span class="cell st-${st}">${(STATE.find(s => s[0] === st) || STATE[0])[1]}</span>${done}${rm}</td>`;
+                return `<td><select class="cell st-${st}" data-id="${p.id}" data-stage="${key}">${STATE.map(([k, l]) => `<option value="${k}"${k === st ? ' selected' : ''}>${l}</option>`).join('')}</select>${done}${rm}</td>`;
             }
             function fmtDate(v) { const d = new Date(v + 'T00:00:00'); return isNaN(d) ? v : d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: '2-digit' }); }
 
             function render() {
                 const q = S.q.toLowerCase();
-                const rows = S.rows.filter(p => (!q || (p.product_name + ' ' + (p.sr_no || '')).toLowerCase().includes(q)) && (!S.fstat || (p.status || 'No status') === S.fstat));
+                const parents = S.rows.filter(p => !p.parent_sync_id);
+                const kidsOf = p => S.rows.filter(c => c.parent_sync_id && String(c.parent_sync_id) === String(p.sync_id));
+                /* a product matches the search by its own name or a child mould's name */
+                const rows = parents.filter(p => (!q || [p, ...kidsOf(p)].some(x => (x.product_name + ' ' + (x.sr_no || '')).toLowerCase().includes(q))) && (!S.fstat || (p.status || 'No status') === S.fstat))
+                    .flatMap(p => [p, ...kidsOf(p)]);
                 const counts = {};
-                S.rows.forEach(p => { const k = p.status || 'No status'; counts[k] = (counts[k] || 0) + 1; });
-                $('tiles').innerHTML = [['', 'All', S.rows.length], ...PSTAT.map(s => [s, s, counts[s] || 0])]
+                parents.forEach(p => { const k = p.status || 'No status'; counts[k] = (counts[k] || 0) + 1; });
+                $('tiles').innerHTML = [['', 'All', parents.length], ...PSTAT.map(s => [s, s, counts[s] || 0])]
                     .map(([k, l, n]) => `<span class="tile${S.fstat === k ? ' on' : ''}" data-f="${esc(k)}">${esc(l)}<b>${n}</b></span>`).join('');
 
-                let h = `<thead><tr class="grp"><th class="fix c0" rowspan="2" style="top:0">Sr</th><th class="fix c1" rowspan="2" style="top:0;text-align:left">Product</th>`;
+                let h = `<thead><tr class="grp"><th class="fix c0" rowspan="2" style="top:0">Sr</th><th class="fix c1" rowspan="2" style="top:0;text-align:left">Product / Child Mould</th>`;
                 GROUPS.forEach(g => { h += `<th colspan="${g.cols.length}">${esc(g.label)}</th>`; });
-                h += `<th rowspan="2" style="top:0;min-width:140px">Status</th><th rowspan="2" style="top:0;min-width:230px">Remarks</th>${S.canEdit ? '<th rowspan="2" style="top:0"></th>' : ''}</tr><tr class="col">`;
+                h += `<th rowspan="2" style="top:0;min-width:140px">Status</th><th rowspan="2" style="top:0;min-width:230px">Remarks</th>${S.canDelete ? '<th rowspan="2" style="top:0"></th>' : ''}</tr><tr class="col">`;
                 COLS.forEach(c => { h += `<th>${esc(c[1])}${c[2] ? `<small>${esc(c[2])}</small>` : ''}</th>`; });
                 h += `</tr></thead><tbody>`;
                 rows.forEach(p => {
+                    const child = !!p.parent_sync_id;
                     const reps = p.files.filter(f => f.kind === 'report').length, imgs = p.files.filter(f => f.kind === 'image').length;
                     /* latest product photo after trial, else a placeholder; click opens the files */
                     const img = p.files.filter(f => f.kind === 'image').pop();
@@ -283,19 +334,20 @@
                     const name = S.canEdit
                         ? `<input class="inp" style="width:100%;padding:4px 6px;font-weight:700" data-id="${p.id}" data-f="product_name" value="${esc(p.product_name)}">`
                         : `<div class="nm">${esc(p.product_name)}</div>`;
-                    h += `<tr><td class="fix c0"><b>${esc(p.sr_no || '')}</b></td>
-                        <td class="fix c1"><div class="pc">${thumb}<div>${name}<div class="meta"><a data-files="${p.id}"><i class="bi bi-file-earmark-text"></i> Trial report (${reps})</a><a data-files="${p.id}"><i class="bi bi-images"></i> Images (${imgs})</a></div></div></div></td>`;
+                    const addMould = S.canEdit && !child ? `<a class="addm" data-addm="${p.id}" title="Add a child mould under this product"><i class="bi bi-plus-circle"></i> Mould</a>` : '';
+                    h += `<tr${child ? ' class="child"' : ''}><td class="fix c0">${child ? '<span class="none">↳</span>' : `<b>${esc(p.sr_no || '')}</b>`}</td>
+                        <td class="fix c1"><div class="pc">${thumb}<div>${child ? '<span class="mtag">CHILD MOULD</span>' : ''}${name}<div class="meta"><a data-files="${p.id}"><i class="bi bi-file-earmark-text"></i> Trial report (${reps})</a><a data-files="${p.id}"><i class="bi bi-images"></i> Images (${imgs})</a>${addMould}</div></div></div></td>`;
                     COLS.forEach(c => { h += stageCell(p, c); });
                     h += S.canEdit
                         ? `<td><select class="ps ${psClass(p.status)}" data-id="${p.id}" data-f="status"><option value="">— Select —</option>${PSTAT.map(s => `<option${s === p.status ? ' selected' : ''}>${s}</option>`).join('')}</select></td>
-                           <td><textarea class="rm" data-id="${p.id}" data-f="remarks">${esc(p.remarks || '')}</textarea></td>
-                           <td><button class="btn sm danger" data-del="${p.id}" title="Delete"><i class="bi bi-trash"></i></button></td>`
+                           <td><textarea class="rm" data-id="${p.id}" data-f="remarks">${esc(p.remarks || '')}</textarea></td>`
                         : `<td>${p.status ? `<span class="chip ${psClass(p.status)}">${esc(p.status)}</span>` : '<span class="none">—</span>'}</td><td style="min-width:230px">${esc(p.remarks || '')}</td>`;
+                    if (S.canDelete) h += `<td><button class="btn sm danger" data-del="${p.id}" title="Delete"><i class="bi bi-trash"></i></button></td>`;
                     h += '</tr>';
                 });
                 $('grid').innerHTML = h + '</tbody>';
                 $('empty').style.display = rows.length ? 'none' : '';
-                $('empty').textContent = S.rows.length ? 'No product matches the filter.' : (S.canEdit ? 'No NPD products yet. Click "Add Product" to start.' : 'No NPD products yet.');
+                $('empty').textContent = parents.length ? 'No product matches the filter.' : (S.canEdit ? 'No NPD products yet. Click "Add Product" to start.' : 'No NPD products yet.');
             }
 
             async function save(id, body) {
@@ -312,14 +364,48 @@
                 if (!id) return;
                 if (t.dataset.stage) {
                     if (t.tagName === 'SELECT') t.className = 'cell st-' + t.value;
-                    save(id, { stages: { [t.dataset.stage]: t.value } });
+                    askRemark(id, t.dataset.stage, t.value);
                 } else if (t.dataset.f) {
                     if (t.dataset.f === 'product_name' && !t.value.trim()) { toast('Product name is required', 'error'); load(); return; }
                     if (t.dataset.f === 'status') { t.className = 'ps ' + psClass(t.value); save(id, { status: t.value }).then(ok => ok && render()); return; }
                     save(id, { [t.dataset.f]: t.value });
                 }
             });
+            /* every stage change needs a remark before it is saved; cancel puts the cell back */
+            function askRemark(id, key, value) {
+                const p = S.rows.find(r => r.id === id), c = COLS.find(x => x[0] === key);
+                const label = c[3] === 'date' ? (value ? fmtDate(value) : 'cleared') : (STATE.find(s => s[0] === value) || STATE[0])[1];
+                S.pending = { id, key, value };
+                $('rmWhat').textContent = `${p ? p.product_name : ''} · ${c[1]} → ${label}`;
+                $('rmText').value = '';
+                $('rmModal').classList.add('on');
+                $('rmText').focus();
+            }
+            $('rmCancel').onclick = () => { S.pending = null; $('rmModal').classList.remove('on'); render(); };
+            $('rmSave').onclick = async () => {
+                const txt = $('rmText').value.trim();
+                if (!txt) return toast('Remarks are mandatory', 'error');
+                const pd = S.pending;
+                if (!pd) return;
+                $('rmSave').disabled = true;
+                const ok = await save(pd.id, { stages: { [pd.key]: pd.value }, stage_remarks: { [pd.key]: txt } });
+                $('rmSave').disabled = false;
+                if (!ok) return;
+                S.pending = null;
+                $('rmModal').classList.remove('on');
+                render();
+            };
             $('grid').addEventListener('click', async e => {
+                const am = e.target.closest('[data-addm]');
+                if (am) {
+                    const p = S.rows.find(r => r.id === Number(am.dataset.addm));
+                    S.mouldParent = p.id;
+                    $('mParent').textContent = `Under product: ${p.product_name}`;
+                    $('mName').value = '';
+                    $('mouldModal').classList.add('on');
+                    $('mName').focus();
+                    return;
+                }
                 const th = e.target.closest('[data-thumb]');
                 if (th) {
                     const p = S.rows.find(r => r.id === Number(th.dataset.thumb));
@@ -331,8 +417,9 @@
                 const d = e.target.closest('[data-del]');
                 if (d) {
                     const p = S.rows.find(r => r.id === Number(d.dataset.del));
-                    if (!p || !confirm(`Delete "${p.product_name}" with its trial reports and images?`)) return;
-                    try { await api(`/npd/products/${p.id}`, { method: 'DELETE' }); S.rows = S.rows.filter(r => r.id !== p.id); render(); }
+                    const kids = p ? S.rows.filter(c => c.parent_sync_id && String(c.parent_sync_id) === String(p.sync_id)) : [];
+                    if (!p || !confirm(`Delete "${p.product_name}"${kids.length ? ` and its ${kids.length} child mould(s)` : ''} with trial reports and images?`)) return;
+                    try { await api(`/npd/products/${p.id}`, { method: 'DELETE' }); S.rows = S.rows.filter(r => r.id !== p.id && !kids.includes(r)); render(); }
                     catch (err) { }
                 }
             });
@@ -366,13 +453,22 @@
             };
 
             document.querySelectorAll('[data-close]').forEach(b => b.onclick = () => $(b.dataset.close).classList.remove('on'));
-            $('addBtn').onclick = () => { $('aName').value = ''; $('addModal').classList.add('on'); $('aName').focus(); };
+            $('addBtn').onclick = () => { $('aName').value = ''; $('aMoulds').value = ''; $('addModal').classList.add('on'); $('aName').focus(); };
             $('aSave').onclick = async () => {
                 const name = $('aName').value.trim();
                 if (!name) return toast('Product name is required', 'error');
                 try {
-                    const res = await api('/npd/products', { method: 'POST', body: JSON.stringify({ product_name: name }) });
-                    S.rows.push(res.data); $('addModal').classList.remove('on'); render();
+                    const moulds = $('aMoulds').value.split('\n').map(m => m.trim()).filter(Boolean);
+                    const res = await api('/npd/products', { method: 'POST', body: JSON.stringify({ product_name: name, moulds }) });
+                    S.rows.push(res.data, ...(res.children || [])); $('addModal').classList.remove('on'); render();
+                } catch (e) { }
+            };
+            $('mSave').onclick = async () => {
+                const name = $('mName').value.trim();
+                if (!name) return toast('Mould name is required', 'error');
+                try {
+                    const res = await api('/npd/products', { method: 'POST', body: JSON.stringify({ product_name: name, parent_id: S.mouldParent }) });
+                    S.rows.push(res.data); $('mouldModal').classList.remove('on'); render();
                 } catch (e) { }
             };
 
@@ -579,7 +675,7 @@
             if (window.JPSMS && JPSMS.renderShell) JPSMS.renderShell();
             /* the shell moves the page into .main-content, which has a transform, so a
                position:fixed overlay inside it would not cover the sidebar */
-            ['viewer', 'fileModal', 'addModal'].forEach(id => document.body.appendChild($(id)));
+            ['viewer', 'fileModal', 'addModal', 'mouldModal', 'rmModal'].forEach(id => document.body.appendChild($(id)));
             load();
         })();
     </script>
