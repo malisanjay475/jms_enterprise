@@ -97,7 +97,7 @@ async function approvalOn(pool) {
 }
 
 function platformOf(ua) {
-  if (/JMSChatApp\/[^ ]* \(macOS\)/i.test(ua)) return 'mac-app';
+  if (ua.startsWith('JMSChatApp/') && ua.includes('(macOS)')) return 'mac-app'; // plain checks: no regex on user input
   if (/JMSChat|okhttp/i.test(ua)) return 'android-app';
   if (/android/i.test(ua)) return 'android-web';
   if (/iphone|ipad/i.test(ua)) return 'iphone-web';
