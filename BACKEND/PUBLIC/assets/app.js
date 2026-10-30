@@ -146,7 +146,7 @@ function escHtml(value) {
         'shifting.html': 'shifting_module',
         'wip.html': 'wip_internal',
         'reports.html': 'reports',
-        'users.html': 'users',
+        'users.html': 'users', 'chat_users.html': 'users',
         'notifications.html': 'notifications',
         'settings.html': 'settings',
         'packing_settings.html': 'settings',
@@ -1551,7 +1551,11 @@ function escHtml(value) {
             label: 'User Management',
             icon: 'bi-person-gear',
             href: 'users.html',
-            items: []
+            items: [
+                { id: 'users_list', label: 'Users', icon: 'bi-people', href: 'users.html' },
+                // Sign-up requests, who uses chat, last seen, devices and IP (chatSignup.js)
+                { id: 'users_chat', label: 'JMS Chat · Users', icon: 'bi-chat-dots', href: 'chat_users.html', visibleIf: (user) => isAdminLikeUser(user) }
+            ]
         },
         {
             id: 'activity_monitor',
@@ -2498,7 +2502,7 @@ function escHtml(value) {
     'shifting_shift_report.html': 'shifting_module',
     'shifting_manual_entry.html': 'shifting_module',
     'shifting.html': 'shifting_module', 'wip.html': 'wip_internal',
-    'reports.html': 'reports', 'users.html': 'users',
+    'reports.html': 'reports', 'users.html': 'users', 'chat_users.html': 'users',
     'notifications.html': 'notifications', 'settings.html': 'settings',
     'packing_settings.html': 'settings', 'joy.html': 'joy_learning',
     'grinding.html': 'grinding', 'assembly.html': 'packing',
