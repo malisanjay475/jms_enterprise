@@ -43,13 +43,20 @@ function loadPlaywright() {
             return null;
         }
     };
-    // Prefer an install next to BACKEND/ (CI: npm i playwright-core in BACKEND/).
+    // Absolute path from CI (GITHUB_ENV) or a local install next to BACKEND/.
+    if (process.env.PLAYWRIGHT_CORE_PATH) {
+        const fromEnv = tryRequire('PLAYWRIGHT_CORE_PATH', () => require(process.env.PLAYWRIGHT_CORE_PATH));
+        if (fromEnv) return fromEnv;
+    }
+    const backendRoot = path.join(__dirname, '..');
     const local = tryRequire('BACKEND/node_modules', () =>
-        require(require.resolve('playwright-core', { paths: [path.join(__dirname, '..'), process.cwd()] }))
+        require(require.resolve('playwright-core', { paths: [backendRoot, process.cwd(), process.env.NODE_PATH || backendRoot] }))
     );
     if (local) return local;
     const bare = tryRequire("require('playwright-core')", () => require('playwright-core'));
     if (bare) return bare;
+    const direct = tryRequire('direct path', () => require(path.join(backendRoot, 'node_modules', 'playwright-core')));
+    if (direct) return direct;
     try {
         const globalRoot = execSync('npm root -g', { encoding: 'utf8' }).trim();
         const fromCli = tryRequire('@playwright/cli', () =>
@@ -121,30 +128,44 @@ async function main() {
     }
     if (args.shots) fs.mkdirSync(args.shots, { recursive: true });
 
+    const log = (...parts) => {
+        // stderr is line-buffered even when Actions captures output (stdout may not be).
+        process.stderr.write(`${parts.join(' ')}\n`);
+    };
+
+    log(`loading playwright-core…`);
     const { chromium } = loadPlaywright();
+    log(`launching chromium…`);
     // Prefer plain Chromium (CI / playwright install). Fall back to system Chrome when present.
-    const browser = await chromium.launch().catch(() => chromium.launch({ channel: 'chrome' }));
+    const browser = await chromium.launch({ headless: true }).catch((err) => {
+        log(`chromium.launch failed (${err.message}); trying channel=chrome`);
+        return chromium.launch({ channel: 'chrome', headless: true });
+    });
     const context = await browser.newContext({
         storageState: args.state || undefined,
         viewport: { width: 1366, height: 768 },
     });
 
-    console.log(`Smoke testing ${pages.length} pages on ${args.base}${args.state ? ' (logged in)' : ' (not logged in)'}\n`);
+    log(`Smoke testing ${pages.length} pages on ${args.base}${args.state ? ' (logged in)' : ' (not logged in)'}`);
     const results = [];
     for (const file of pages) {
         const r = await checkPage(context, args.base, file, args);
         r.verdict = verdict(r);
         results.push(r);
-        console.log(`${r.verdict.padEnd(5)} ${file.padEnd(32)} ${String(r.ms).padStart(6)} ms`);
-        for (const e of r.jsErrors) console.log(`        js:      ${e}`);
-        for (const e of [...new Set(r.failedRequests)]) console.log(`        request: ${e}`);
-        for (const e of [...new Set(r.consoleErrors)].slice(0, 3)) console.log(`        console: ${e}`);
+        log(`${r.verdict.padEnd(5)} ${file.padEnd(32)} ${String(r.ms).padStart(6)} ms`);
+        for (const e of r.jsErrors) log(`        js:      ${e}`);
+        for (const e of [...new Set(r.failedRequests)]) log(`        request: ${e}`);
+        for (const e of [...new Set(r.consoleErrors)].slice(0, 3)) log(`        console: ${e}`);
     }
     await browser.close();
 
     const count = (v) => results.filter((r) => r.verdict === v).length;
-    console.log(`\nOK ${count('OK')} | WARN ${count('WARN')} | FAIL ${count('FAIL')} | LOGIN ${count('LOGIN')}`);
-    process.exitCode = count('FAIL') ? 1 : 0;
+    log(`\nOK ${count('OK')} | WARN ${count('WARN')} | FAIL ${count('FAIL')} | LOGIN ${count('LOGIN')}`);
+    // Explicit exit so CI always sees the code even if something else holds the event loop.
+    process.exit(count('FAIL') ? 1 : 0);
 }
 
-main().catch((err) => { console.error(err); process.exitCode = 2; });
+main().catch((err) => {
+    console.error(err);
+    process.exit(2);
+});

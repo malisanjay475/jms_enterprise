@@ -61,16 +61,21 @@ jobs:
           LOCAL_FACTORY_ID: "1"
           SYNC_API_KEY: pr-ci
           GEMINI_API_KEY: dummy-key
+          # Keep browser binaries next to the checkout so launch always finds them.
+          PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/BACKEND/.pw-browsers
         shell: bash
         run: |
           set -euo pipefail
           npm ci
           npm install --no-save playwright-core@1.55.0
+          PW_CORE="$(node -p "require('path').join(process.cwd(),'node_modules','playwright-core')")"
+          test -d "$PW_CORE"
+          export PLAYWRIGHT_CORE_PATH="$PW_CORE"
+          export NODE_PATH="$(pwd)/node_modules${NODE_PATH:+:$NODE_PATH}"
           npx playwright-core install --with-deps chromium
-          test -d node_modules/playwright-core
-          export NODE_PATH="$PWD/node_modules${NODE_PATH:+:$NODE_PATH}"
-          node -e "console.log('playwright-core', require.resolve('playwright-core'))"
+          node -e "const p=require('playwright-core'); console.log('playwright-core ok', require.resolve('playwright-core'));"
 
+          umask 022
           cat > .env <<'EOF'
           GEMINI_API_KEY=dummy-key
           DB_USER=postgres
@@ -89,19 +94,47 @@ jobs:
 
           node server.js > server.log 2>&1 &
           SERVER_PID=$!
-          trap 'kill $SERVER_PID 2>/dev/null || true' EXIT
+          cleanup() {
+            echo "::group::server.log (tail)"
+            tail -n 80 server.log || true
+            echo "::endgroup::"
+            kill "$SERVER_PID" 2>/dev/null || true
+            wait "$SERVER_PID" 2>/dev/null || true
+          }
+          trap cleanup EXIT
 
+          echo "Waiting for /health…"
           for i in $(seq 1 90); do
             if curl -fsS http://127.0.0.1:3000/health >/dev/null; then
+              echo "healthy after ${i} attempt(s)"
               break
+            fi
+            if ! kill -0 "$SERVER_PID" 2>/dev/null; then
+              echo "server exited early" >&2
+              exit 1
             fi
             sleep 2
           done
           curl -fsS http://127.0.0.1:3000/health
-          test -d node_modules/playwright-core
+          echo
 
+          echo "Probing chromium.launch…"
+          node -e "
+            const pw = require(process.env.PLAYWRIGHT_CORE_PATH || 'playwright-core');
+            pw.chromium.launch({ headless: true }).then(async (b) => {
+              console.log('chromium launch ok');
+              await b.close();
+            }).catch((err) => { console.error(err); process.exit(2); });
+          "
+
+          echo "Running page smoke…"
           # Logged-out: LOGIN is fine; FAIL (broken JS / same-origin 4xx-5xx) is the signal.
+          set +e
           node scripts/smoke-pages.js --base http://127.0.0.1:3000 --only login,dpr,planning,supervisor,masters,npd,purchase_vendors,raw_material_jobwise,barcode_printer,dpr_daily_report,job_summary
+          SMOKE_EC=$?
+          set -e
+          echo "smoke exit code: ${SMOKE_EC}"
+          exit "${SMOKE_EC}"
 
       - name: Upload backend logs on failure
         if: failure()
