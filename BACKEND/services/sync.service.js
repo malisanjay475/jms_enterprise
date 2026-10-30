@@ -492,7 +492,8 @@ const SYNC_UPDATED_AT_SOURCE_COLUMNS = {
     wip_stock_movements: 'created_at',
     // job_card_label_print_log has no updated_at — use printed_at as the source column
     // so existing rows get updated_at = printed_at (not just NOW())
-    job_card_label_print_log: 'printed_at'
+    job_card_label_print_log: 'printed_at',
+    qc_verifications: 'verified_at'
 };
 
 // Tables whose ON CONFLICT target must be a raw expression rather than a plain
