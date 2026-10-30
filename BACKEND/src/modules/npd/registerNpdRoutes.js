@@ -38,15 +38,17 @@ const SHEET_ROLES = new Set(['ppcassmanager', 'ppcmanager', 'srppcmanager']);
 /* Department roles, matched on the role code or its label with everything but
    letters / digits removed (so 'sr__ppc_manager' and 'Sr. PPC Manager' are the
    same); a RegExp entry matches any role containing it (Purchase roles are
-   created in Settings with varying names). Stages of HO, Production and W/H
-   are admin only. */
+   created in Settings with varying names). Production (printing / tufting) is
+   run by Moulding; W/H is the Dispatch Manager. HO stages are admin only. */
 const DEPT_ROLES = {
   'Tool Room': ['toolroommanager'],
   Moulding: ['mouldingmanager'],
   Planning: ['srppcmanager', 'ppcmanager', 'ppcassmanager'],
   QC: ['quality', 'qchod', 'qualityassmanager', 'qualityasstmanager', 'qcassmanager'],
   Packing: ['packingmanager'],
-  Purchase: [/purchase/]
+  Purchase: [/purchase/],
+  Production: ['mouldingmanager'],
+  'W/H': ['dispatchmanager']
 };
 const norm = v => String(v || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 const userKeys = u => [norm(u && u.role_code), norm(u && u.role_label)].filter(Boolean);
