@@ -48,18 +48,7 @@ jobs:
           cache: "npm"
           cache-dependency-path: BACKEND/package-lock.json
 
-      - name: Install backend dependencies
-        working-directory: BACKEND
-        run: npm ci
-
-      - name: Install playwright-core + Chromium
-        working-directory: BACKEND
-        run: |
-          npm install --no-save playwright-core@1.55.0
-          npx playwright-core install --with-deps chromium
-          node -e "const p=require('playwright-core'); console.log('playwright-core OK', require.resolve('playwright-core'));"
-
-      - name: Boot backend and smoke PUBLIC pages
+      - name: Install backend, Playwright, boot, and smoke pages
         working-directory: BACKEND
         env:
           NODE_ENV: test
@@ -74,6 +63,14 @@ jobs:
           GEMINI_API_KEY: dummy-key
         shell: bash
         run: |
+          set -euo pipefail
+          npm ci
+          npm install --no-save playwright-core@1.55.0
+          npx playwright-core install --with-deps chromium
+          test -d node_modules/playwright-core
+          export NODE_PATH="$PWD/node_modules${NODE_PATH:+:$NODE_PATH}"
+          node -e "console.log('playwright-core', require.resolve('playwright-core'))"
+
           cat > .env <<'EOF'
           GEMINI_API_KEY=dummy-key
           DB_USER=postgres
@@ -85,7 +82,6 @@ jobs:
           LOCAL_FACTORY_ID=1
           SYNC_API_KEY=pr-ci
           EOF
-          # Strip accidental leading spaces from the indented heredoc above.
           sed -i 's/^[[:space:]]\+//' .env
 
           node scripts/wait-for-postgres.js
@@ -102,6 +98,7 @@ jobs:
             sleep 2
           done
           curl -fsS http://127.0.0.1:3000/health
+          test -d node_modules/playwright-core
 
           # Logged-out: LOGIN is fine; FAIL (broken JS / same-origin 4xx-5xx) is the signal.
           node scripts/smoke-pages.js --base http://127.0.0.1:3000 --only login,dpr,planning,supervisor,masters,npd,purchase_vendors,raw_material_jobwise,barcode_printer,dpr_daily_report,job_summary
