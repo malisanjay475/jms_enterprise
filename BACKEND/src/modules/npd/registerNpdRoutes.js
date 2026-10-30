@@ -10,8 +10,16 @@
  * status (Hold / Launched / Delayed / On Schedule / Cancelled), remarks, the
  * trial reports and the product photos taken after the trial.
  *
- * Everyone who can open the page can view. Only PPC Ass. Manager, PPC Manager,
- * Sr. PPC Manager (and admin / superadmin) can add, edit, upload or delete.
+ * Everyone who can open the page can view. Admin / superadmin edit every
+ * stage; only superadmin deletes products and child moulds. PPC managers add
+ * products and child moulds, set name / status / remarks and upload files.
+ * Department roles (DEPT_ROLES) edit only their department's stages
+ * (STAGES[].depts), on products and child moulds alike.
+ *
+ * A product can have child moulds: rows with parent_sync_id = the product's
+ * sync_id, tracked through the same stages and shown under their product.
+ * Every stage change needs a remark; stage_info[key] keeps the latest remark,
+ * who changed it and when, and the date the stage was completed.
  */
 
 const fs = require('fs');
@@ -21,34 +29,55 @@ const multer = require('multer');
 const { getRequestUsername } = require('../../app/requestContext');
 const { sendServerError } = require('../../app/httpErrors');
 
-const EDIT_ROLES = new Set(['ppc_ass_manager', 'ppc_manager', 'sr_ppc_manager', 'sr__ppc_manager', 'admin', 'superadmin']);
+/* Admin / superadmin edit everything. Only superadmin deletes products / moulds.
+   PPC managers also run the sheet itself (add products and moulds, name,
+   status, remarks, files). */
+const ADMIN_ROLES = new Set(['admin', 'superadmin']);
+const SHEET_ROLES = new Set(['ppcassmanager', 'ppcmanager', 'srppcmanager']);
+
+/* Department roles, matched on the role code or its label with everything but
+   letters / digits removed (so 'sr__ppc_manager' and 'Sr. PPC Manager' are the
+   same). Stages of Purchase, HO, Production and W/H are admin only. */
+const DEPT_ROLES = {
+  'Tool Room': ['toolroommanager'],
+  Moulding: ['mouldingmanager'],
+  Planning: ['srppcmanager', 'ppcmanager', 'ppcassmanager'],
+  QC: ['quality', 'qchod', 'qualityassmanager', 'qualityasstmanager', 'qcassmanager'],
+  Packing: ['packingmanager']
+};
+const norm = v => String(v || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+const userKeys = u => [norm(u && u.role_code), norm(u && u.role_label)].filter(Boolean);
+function roleDepts(u) {
+  const keys = userKeys(u);
+  return Object.keys(DEPT_ROLES).filter(d => DEPT_ROLES[d].some(k => keys.includes(k)));
+}
 
 /* Columns of the NPD tracking sheet, in sheet order. type 'status' cells hold a
    stage state, type 'date' cells hold a YYYY-MM-DD date. Keep in sync with npd.html. */
 const STAGES = [
-  { key: 'mould_received', type: 'status', group: 'Mould & Trial', label: 'Final mould received @ factory (Tool Room)' },
-  { key: 'mould_trials', type: 'status', group: 'Mould & Trial', label: 'Product mould final trials @ factory (Moulding)' },
-  { key: 'rm_colour', type: 'status', group: 'Mould & Trial', label: 'RM & colour finalization (Planning / Moulding)' },
-  { key: 'samples_ho', type: 'status', group: 'Mould & Trial', label: 'Final samples sent to HO for approval & photo shoot (QC)' },
-  { key: 'pilot_drop_test', type: 'status', group: 'Mould & Trial', label: 'Pilot run & drop test @ factory (Moulding / QC)' },
-  { key: 'qc_approval_ho', type: 'status', group: 'Mould & Trial', label: 'Final QC testing & approval from HO (QC)' },
-  { key: 'packing_material', type: 'status', group: 'Packing, BOM & ERP', label: 'Packing material finalization (Packing)' },
-  { key: 'bom_approval', type: 'status', group: 'Packing, BOM & ERP', label: 'Product BOM finalization / approval (Planning)' },
-  { key: 'packing_receiving', type: 'status', group: 'Packing, BOM & ERP', label: 'Packing material follow up & receiving @ factory (Purchase)' },
-  { key: 'or_jr_erp', type: 'status', group: 'Packing, BOM & ERP', label: 'OR-JR making in ERP (HO)' },
-  { key: 'production_planning', type: 'status', group: 'Packing, BOM & ERP', label: 'Production planning as per OR-JR ERP (Planning)' },
-  { key: 'jc_start_date', type: 'date', group: 'Packing, BOM & ERP', label: 'Planned job card start date (Planning)' },
-  { key: 'jc_end_date', type: 'date', group: 'Packing, BOM & ERP', label: 'Planned job card completion date (Planning)' },
-  { key: 'launch_date', type: 'date', group: 'Packing, BOM & ERP', label: 'Launch date finalization (Planning)' },
-  { key: 'mass_moulding', type: 'status', group: 'Mass Production', label: 'Mass production - moulding (Moulding)' },
-  { key: 'mass_printing', type: 'status', group: 'Mass Production', label: 'Mass production - printing / tufting (Production)' },
-  { key: 'mass_packaging', type: 'status', group: 'Mass Production', label: 'Mass production - packaging (Packing)' },
-  { key: 'fg_receiving', type: 'status', group: 'Mass Production', label: 'Finish goods receiving (W/H)' },
-  { key: 'ex_factory_cost', type: 'status', group: 'Costing & Launch', label: 'Ex factory cost finalization (Planning)' },
-  { key: 'price_final', type: 'status', group: 'Costing & Launch', label: 'Price finalization (HO)' },
-  { key: 'post_card_receiving', type: 'status', group: 'Costing & Launch', label: 'Final post card follow up & receiving (Planning)' },
-  { key: 'post_card_posting', type: 'status', group: 'Costing & Launch', label: 'Posting post card in new product launch group (Planning)' },
-  { key: 'dispatch_date', type: 'date', group: 'Costing & Launch', label: 'Actual dispatch date' }
+  { key: 'mould_received', type: 'status', group: 'Mould & Trial', label: 'Final mould received @ factory (Tool Room)', depts: ['Tool Room'] },
+  { key: 'mould_trials', type: 'status', group: 'Mould & Trial', label: 'Product mould final trials @ factory (Moulding)', depts: ['Moulding'] },
+  { key: 'rm_colour', type: 'status', group: 'Mould & Trial', label: 'RM & colour finalization (Planning / Moulding)', depts: ['Planning', 'Moulding'] },
+  { key: 'samples_ho', type: 'status', group: 'Mould & Trial', label: 'Final samples sent to HO for approval & photo shoot (QC)', depts: ['QC'] },
+  { key: 'pilot_drop_test', type: 'status', group: 'Mould & Trial', label: 'Pilot run & drop test @ factory (Moulding / QC)', depts: ['Moulding', 'QC'] },
+  { key: 'qc_approval_ho', type: 'status', group: 'Mould & Trial', label: 'Final QC testing & approval from HO (QC)', depts: ['QC'] },
+  { key: 'packing_material', type: 'status', group: 'Packing, BOM & ERP', label: 'Packing material finalization (Packing)', depts: ['Packing'] },
+  { key: 'bom_approval', type: 'status', group: 'Packing, BOM & ERP', label: 'Product BOM finalization / approval (Planning)', depts: ['Planning'] },
+  { key: 'packing_receiving', type: 'status', group: 'Packing, BOM & ERP', label: 'Packing material follow up & receiving @ factory (Purchase)', depts: ['Purchase'] },
+  { key: 'or_jr_erp', type: 'status', group: 'Packing, BOM & ERP', label: 'OR-JR making in ERP (HO)', depts: ['HO'] },
+  { key: 'production_planning', type: 'status', group: 'Packing, BOM & ERP', label: 'Production planning as per OR-JR ERP (Planning)', depts: ['Planning'] },
+  { key: 'jc_start_date', type: 'date', group: 'Packing, BOM & ERP', label: 'Planned job card start date (Planning)', depts: ['Planning'] },
+  { key: 'jc_end_date', type: 'date', group: 'Packing, BOM & ERP', label: 'Planned job card completion date (Planning)', depts: ['Planning'] },
+  { key: 'launch_date', type: 'date', group: 'Packing, BOM & ERP', label: 'Launch date finalization (Planning)', depts: ['Planning'] },
+  { key: 'mass_moulding', type: 'status', group: 'Mass Production', label: 'Mass production - moulding (Moulding)', depts: ['Moulding'] },
+  { key: 'mass_printing', type: 'status', group: 'Mass Production', label: 'Mass production - printing / tufting (Production)', depts: ['Production'] },
+  { key: 'mass_packaging', type: 'status', group: 'Mass Production', label: 'Mass production - packaging (Packing)', depts: ['Packing'] },
+  { key: 'fg_receiving', type: 'status', group: 'Mass Production', label: 'Finish goods receiving (W/H)', depts: ['W/H'] },
+  { key: 'ex_factory_cost', type: 'status', group: 'Costing & Launch', label: 'Ex factory cost finalization (Planning)', depts: ['Planning'] },
+  { key: 'price_final', type: 'status', group: 'Costing & Launch', label: 'Price finalization (HO)', depts: ['HO'] },
+  { key: 'post_card_receiving', type: 'status', group: 'Costing & Launch', label: 'Final post card follow up & receiving (Planning)', depts: ['Planning'] },
+  { key: 'post_card_posting', type: 'status', group: 'Costing & Launch', label: 'Posting post card in new product launch group (Planning)', depts: ['Planning'] },
+  { key: 'dispatch_date', type: 'date', group: 'Costing & Launch', label: 'Actual dispatch date', depts: ['Planning', 'W/H'] }
 ];
 /* Excel export: same words and colours as the page (Blue pending, Yellow in
    progress, Green complete, Red N/A) */
@@ -91,6 +120,7 @@ const upload = multer({
   }
 });
 
+const todayIST = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
 const clean = (v, max = 500) => String(v == null ? '' : v).trim().slice(0, max);
 const isDate = v => /^\d{4}-\d{2}-\d{2}$/.test(String(v || ''));
 
@@ -158,6 +188,10 @@ async function ensureNpdSchema(pool) {
     ALTER TABLE npd_files DROP CONSTRAINT IF EXISTS npd_files_product_id_fkey;
     ALTER TABLE npd_files ALTER COLUMN product_id DROP NOT NULL;
     CREATE INDEX IF NOT EXISTS idx_npd_files_product_sync ON npd_files(product_sync_id);
+    /* child moulds point at their product; stage_info = per stage remark / completion date */
+    ALTER TABLE npd_products ADD COLUMN IF NOT EXISTS parent_sync_id UUID;
+    ALTER TABLE npd_products ADD COLUMN IF NOT EXISTS stage_info JSONB NOT NULL DEFAULT '{}'::jsonb;
+    CREATE INDEX IF NOT EXISTS idx_npd_products_parent ON npd_products(parent_sync_id);
 
     /* Sr No: MAIN and a LOCAL can both hand out the same next number while apart.
        MAIN decides: a row arriving with a number another product already has gets
@@ -210,15 +244,27 @@ function registerNpdRoutes(app, pool) {
   async function sessionUser(req) {
     const username = getRequestUsername(req);
     if (!username) return null;
-    const r = await pool.query('SELECT username, role_code FROM users WHERE username = $1 LIMIT 1', [username]);
+    const r = await pool.query(
+      `SELECT u.username, u.role_code, r.label AS role_label
+         FROM users u LEFT JOIN roles r ON r.code = u.role_code
+        WHERE u.username = $1 LIMIT 1`, [username]);
     return r.rows[0] || null;
   }
-  const canEdit = u => !!u && EDIT_ROLES.has(String(u.role_code || '').toLowerCase());
+  const isAdmin = u => !!u && ADMIN_ROLES.has(norm(u.role_code));
+  const isSuperadmin = u => !!u && norm(u.role_code) === 'superadmin';
+  const canEdit = u => isAdmin(u) || (!!u && userKeys(u).some(k => SHEET_ROLES.has(k)));
+  /* stage keys this user may change */
+  const editableStages = u => {
+    if (!u) return [];
+    if (isAdmin(u)) return STAGES.map(s => s.key);
+    const d = roleDepts(u);
+    return STAGES.filter(s => s.depts.some(x => d.includes(x))).map(s => s.key);
+  };
 
   async function requireEditor(req, res) {
     const u = await sessionUser(req);
     if (!u) { res.status(401).json({ ok: false, error: 'Unauthorized' }); return null; }
-    if (!canEdit(u)) { res.status(403).json({ ok: false, error: 'Only PPC Ass. Manager, PPC Manager and Sr. PPC Manager can edit NPD' }); return null; }
+    if (!canEdit(u)) { res.status(403).json({ ok: false, error: 'Only admin and PPC managers can do this in NPD' }); return null; }
     return u;
   }
 
@@ -239,6 +285,9 @@ function registerNpdRoutes(app, pool) {
       res.json({
         ok: true,
         can_edit: canEdit(u),
+        can_delete: isSuperadmin(u),
+        editable_stages: editableStages(u),
+        departments: u ? (isAdmin(u) ? ['All'] : roleDepts(u)) : [],
         data: products.rows.map(p => ({ ...p, files: byProduct.get(String(p.sync_id)) || [] }))
       });
     } catch (err) { sendServerError(res, err); }
@@ -257,15 +306,17 @@ function registerNpdRoutes(app, pool) {
         pool.query('SELECT product_sync_id, kind, COUNT(*)::int AS n FROM npd_files GROUP BY product_sync_id, kind')
       ]);
       const count = new Map(files.rows.map(f => [`${f.product_sync_id}:${f.kind}`, f.n]));
-      const rows = products.rows.filter(p =>
+      const parents = products.rows.filter(p => !p.parent_sync_id).filter(p =>
         (!status || (p.status || 'No status') === status) &&
         (!q || `${p.product_name} ${p.sr_no || ''}`.toLowerCase().includes(q)));
+      /* each product followed by its child moulds */
+      const rows = parents.flatMap(p => [p, ...products.rows.filter(c => String(c.parent_sync_id) === String(p.sync_id))]);
 
       const ExcelJS = require('exceljs');
       const wb = new ExcelJS.Workbook();
       wb.creator = 'JMS';
       const ws = wb.addWorksheet('NPD Tracker', { views: [{ state: 'frozen', xSplit: 2, ySplit: 3 }] });
-      const head = ['Sr No', 'Product', ...STAGES.map(s => s.label), 'Status', 'Remarks', 'Trial reports', 'Images', 'Last updated by', 'Last updated'];
+      const head = ['Sr No', 'Product / Mould', ...STAGES.map(s => s.label), 'Status', 'Remarks', 'Trial reports', 'Images', 'Last updated by', 'Last updated'];
       const last = head.length;
       const thin = { style: 'thin', color: { argb: 'FFCBD5E1' } };
       const border = { top: thin, left: thin, bottom: thin, right: thin };
@@ -301,11 +352,16 @@ function registerNpdRoutes(app, pool) {
 
       rows.forEach(p => {
         const st = p.stages || {};
-        const vals = [/^\d+$/.test(p.sr_no || '') ? Number(p.sr_no) : (p.sr_no || ''), p.product_name];
+        const info = p.stage_info || {};
+        const vals = [/^\d+$/.test(p.sr_no || '') ? Number(p.sr_no) : (p.sr_no || ''),
+          p.parent_sync_id ? `   ↳ Mould: ${p.product_name}` : p.product_name];
         STAGES.forEach(s => {
           const v = st[s.key];
           if (s.type === 'date') vals.push(v ? new Date(v + 'T00:00:00Z') : null);
-          else vals.push((STATE_STYLE[v] || STATE_STYLE.pending).text);
+          else {
+            const done = v === 'complete' && info[s.key] && info[s.key].completed_on;
+            vals.push((STATE_STYLE[v] || STATE_STYLE.pending).text + (done ? ` (${done})` : ''));
+          }
         });
         vals.push(p.status || '', p.remarks || '', count.get(`${p.sync_id}:report`) || 0, count.get(`${p.sync_id}:image`) || 0,
           p.updated_by || '', p.updated_at ? new Date(p.updated_at) : null);
@@ -324,7 +380,11 @@ function registerNpdRoutes(app, pool) {
             c.alignment = { horizontal: 'center', vertical: 'middle' };
           }
         });
-        r.getCell(2).font = { bold: true };
+        STAGES.forEach((s, i) => {
+          const rm = (p.stage_info || {})[s.key];
+          if (rm && rm.remarks) r.getCell(i + 3).note = `${rm.remarks}${rm.by ? ` - ${rm.by}` : ''}`;
+        });
+        r.getCell(2).font = { bold: !p.parent_sync_id, italic: !!p.parent_sync_id };
         const ps = STATUS_STYLE[p.status];
         if (ps) {
           const c = r.getCell(STAGES.length + 3);
@@ -360,6 +420,17 @@ function registerNpdRoutes(app, pool) {
       const name = clean(req.body?.product_name, 300);
       if (!name) return res.status(400).json({ ok: false, error: 'Product name is required' });
       const status = clean(req.body?.status, 40);
+      /* child mould of an existing product: no Sr No of its own */
+      const parentId = parseInt(req.body?.parent_id, 10);
+      if (parentId) {
+        const par = await pool.query('SELECT sync_id, parent_sync_id FROM npd_products WHERE id = $1', [parentId]);
+        if (!par.rows.length || par.rows[0].parent_sync_id) return res.status(400).json({ ok: false, error: 'Parent product not found' });
+        const c = await pool.query(
+          `INSERT INTO npd_products (sr_no, product_name, parent_sync_id, created_by, updated_by)
+           VALUES (NULL, $1, $2, $3, $3) RETURNING *`, [name, par.rows[0].sync_id, u.username]);
+        pushNow();
+        return res.json({ ok: true, data: { ...c.rows[0], files: [] } });
+      }
       /* Sr No is automatic: one more than the highest number used so far. */
       const r = await pool.query(
         `INSERT INTO npd_products (sr_no, product_name, stages, status, remarks, created_by, updated_by)
@@ -369,19 +440,66 @@ function registerNpdRoutes(app, pool) {
         [name, JSON.stringify(cleanStages(req.body?.stages)),
           PRODUCT_STATUSES.has(status) ? status : '', clean(req.body?.remarks, 2000), u.username]
       );
+      const out = [{ ...r.rows[0], files: [] }];
+      /* child moulds given with the new product */
+      const moulds = Array.isArray(req.body?.moulds) ? req.body.moulds.map(m => clean(m, 300)).filter(Boolean).slice(0, 50) : [];
+      for (const m of moulds) {
+        const c = await pool.query(
+          `INSERT INTO npd_products (sr_no, product_name, parent_sync_id, created_by, updated_by)
+           VALUES (NULL, $1, $2, $3, $3) RETURNING *`, [m, r.rows[0].sync_id, u.username]);
+        out.push({ ...c.rows[0], files: [] });
+      }
       pushNow();
-      res.json({ ok: true, data: { ...r.rows[0], files: [] } });
+      res.json({ ok: true, data: out[0], children: out.slice(1) });
     } catch (err) { sendServerError(res, err); }
   });
 
-  /* Partial update: any of product_name, status, remarks, stages (merged). */
+  /* Partial update: any of product_name, status, remarks, stages (merged).
+     Sheet owners may send anything; department users only stages of their
+     department. Every stage in the body needs a remark in stage_remarks. */
   app.put('/api/npd/products/:id', async (req, res) => {
     try {
       await ensureTables();
-      const u = await requireEditor(req, res);
-      if (!u) return;
+      const u = await sessionUser(req);
+      if (!u) return res.status(401).json({ ok: false, error: 'Unauthorized' });
       const id = parseInt(req.params.id, 10);
       const b = req.body || {};
+      const owner = canEdit(u);
+      if (!owner && (b.product_name !== undefined || b.status !== undefined || b.remarks !== undefined)) {
+        return res.status(403).json({ ok: false, error: 'Only admin and PPC managers can change product name, status or remarks' });
+      }
+      let stageInfo = null;
+      if (b.stages !== undefined) {
+        const allowed = new Set(editableStages(u));
+        const keys = Object.keys(b.stages || {});
+        if (!keys.length) return res.status(400).json({ ok: false, error: 'Nothing to update' });
+        const denied = keys.find(k => !allowed.has(k));
+        if (denied) {
+          const s = STAGES.find(x => x.key === denied);
+          return res.status(403).json({ ok: false, error: `You cannot edit "${s ? s.label : denied}" - only ${s ? s.depts.join(' / ') : 'its department'} can` });
+        }
+        const remarks = b.stage_remarks || {};
+        const missing = keys.find(k => !clean(remarks[k], 1000));
+        if (missing) return res.status(400).json({ ok: false, error: 'Remarks are mandatory for every stage change' });
+        const cur = await pool.query('SELECT stages, stage_info FROM npd_products WHERE id = $1', [id]);
+        if (!cur.rows.length) return res.status(404).json({ ok: false, error: 'Product not found' });
+        const cleaned = cleanStages(b.stages);
+        if (Object.keys(cleaned).length !== keys.length) return res.status(400).json({ ok: false, error: 'Invalid stage value' });
+        stageInfo = {};
+        const prevInfo = cur.rows[0].stage_info || {};
+        const prevStages = cur.rows[0].stages || {};
+        const now = new Date().toISOString();
+        for (const k of keys) {
+          const old = prevInfo[k] || {};
+          const v = cleaned[k];
+          let completedOn = old.completed_on || null;
+          if (STAGE_TYPE.get(k) === 'status') {
+            if (v !== 'complete') completedOn = null;
+            else if (prevStages[k] !== 'complete' || !completedOn) completedOn = todayIST();
+          }
+          stageInfo[k] = { remarks: clean(remarks[k], 1000), by: u.username, at: now, completed_on: completedOn };
+        }
+      }
       const sets = [];
       const vals = [];
       const add = (sql, v) => { vals.push(v); sets.push(sql.replace('?', '$' + vals.length)); };
@@ -395,7 +513,10 @@ function registerNpdRoutes(app, pool) {
         add('status = ?', b.status);
       }
       if (b.remarks !== undefined) add('remarks = ?', clean(b.remarks, 2000));
-      if (b.stages !== undefined) add('stages = stages || ?::jsonb', JSON.stringify(cleanStages(b.stages)));
+      if (b.stages !== undefined) {
+        add('stages = stages || ?::jsonb', JSON.stringify(cleanStages(b.stages)));
+        add('stage_info = stage_info || ?::jsonb', JSON.stringify(stageInfo));
+      }
       if (!sets.length) return res.status(400).json({ ok: false, error: 'Nothing to update' });
       add('updated_by = ?', u.username);
       vals.push(id);
@@ -410,13 +531,17 @@ function registerNpdRoutes(app, pool) {
   app.delete('/api/npd/products/:id', async (req, res) => {
     try {
       await ensureTables();
-      const u = await requireEditor(req, res);
-      if (!u) return;
+      const u = await sessionUser(req);
+      if (!u) return res.status(401).json({ ok: false, error: 'Unauthorized' });
+      if (!isSuperadmin(u)) return res.status(403).json({ ok: false, error: 'Only superadmin can delete NPD products and child moulds' });
       const id = parseInt(req.params.id, 10);
       const r = await pool.query('DELETE FROM npd_products WHERE id = $1 RETURNING sync_id', [id]);
       if (!r.rowCount) return res.status(404).json({ ok: false, error: 'Product not found' });
+      /* its child moulds go with it */
+      const kids = await pool.query('DELETE FROM npd_products WHERE parent_sync_id = $1 RETURNING sync_id', [r.rows[0].sync_id]);
+      const gone = [r.rows[0].sync_id, ...kids.rows.map(k => k.sync_id)];
       /* row by row (not a cascade) so each file's deletion is recorded for sync too */
-      const files = await pool.query('DELETE FROM npd_files WHERE product_sync_id = $1 RETURNING file_path', [r.rows[0].sync_id]);
+      const files = await pool.query('DELETE FROM npd_files WHERE product_sync_id = ANY($1::uuid[]) RETURNING file_path', [gone]);
       files.rows.forEach(f => removeFile(f.file_path));
       pushNow();
       res.json({ ok: true });
