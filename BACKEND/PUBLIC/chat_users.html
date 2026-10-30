@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>JMS OCEAN - Chat Users</title>
+  <meta name="theme-color" content="#008069">
+  <link rel="stylesheet" href="/assets/bootstrap-icons.min.css">
+  <!-- JMS Chat user management (admins and superadmins): sign-up requests (who asked,
+       who approved and when), people (chat app installed, online / last seen, device,
+       IP) and every device. Data: /api/chat/signups, /api/chat/admin/people,
+       /api/chat/admin/devices (chatSignup.js, chatSecure.js). -->
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #f1f5f9; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: #0f172a; }
+    .hd { background: linear-gradient(135deg, #075e54, #00a884); color: #fff; padding: 14px 20px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .hd h1 { margin: 0; font-size: 1.1rem; font-weight: 800; flex: 1; }
+    .hd a { color: #e2f7f2; text-decoration: none; font-size: .85rem; }
+    .stats { display: flex; gap: 10px; flex-wrap: wrap; padding: 14px 20px 0; }
+    .stat { background: #fff; border-radius: 10px; padding: 10px 14px; min-width: 130px; box-shadow: 0 1px 3px rgba(0,0,0,.08); cursor: pointer; }
+    .stat b { display: block; font-size: 1.4rem; }
+    .stat span { font-size: .75rem; color: #64748b; font-weight: 700; text-transform: uppercase; }
+    .tabs { display: flex; gap: 4px; padding: 14px 20px 0; flex-wrap: wrap; }
+    .tab { border: 0; background: #e2e8f0; color: #334155; padding: 9px 16px; border-radius: 8px 8px 0 0; font: inherit; font-weight: 700; cursor: pointer; }
+    .tab.on { background: #fff; color: #0f172a; }
+    .tab .n { display: inline-block; min-width: 20px; border-radius: 10px; background: #dc2626; color: #fff; font-size: .72rem; padding: 0 6px; margin-left: 4px; }
+    .pane { background: #fff; margin: 0 20px 20px; border-radius: 0 10px 10px 10px; box-shadow: 0 1px 3px rgba(0,0,0,.08); overflow: hidden; }
+    .filters { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; padding: 12px 16px; border-bottom: 1px solid #e2e8f0; }
+    .filters input, .filters select { border: 1px solid #cbd5e1; border-radius: 6px; padding: 7px 10px; font: inherit; font-size: .9rem; }
+    .filters input { min-width: 220px; flex: 1; max-width: 360px; }
+    .filters .count { color: #64748b; font-size: .85rem; margin-left: auto; }
+    .wrap { overflow-x: auto; max-height: 70vh; }
+    table { width: 100%; border-collapse: collapse; font-size: .86rem; }
+    th { text-align: left; background: #f8fafc; color: #475569; font-size: .72rem; text-transform: uppercase; padding: 9px 12px; position: sticky; top: 0; white-space: nowrap; z-index: 1; }
+    td { padding: 9px 12px; border-top: 1px solid #f1f5f9; vertical-align: top; }
+    td small { display: block; color: #64748b; font-size: .76rem; margin-top: 2px; }
+    .pill { display: inline-block; border-radius: 10px; padding: 2px 9px; font-size: .74rem; font-weight: 700; white-space: nowrap; }
+    .p-pending { background: #fef3c7; color: #92400e; }
+    .p-approved { background: #dcfce7; color: #15803d; }
+    .p-rejected { background: #fee2e2; color: #b91c1c; }
+    .p-on { background: #dcfce7; color: #15803d; }
+    .p-off { background: #f1f5f9; color: #475569; }
+    .p-never { background: #f8fafc; color: #94a3b8; }
+    .p-app { background: #e0f2fe; color: #0369a1; }
+    .p-block { background: #fee2e2; color: #b91c1c; }
+    .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: #22c55e; margin-right: 5px; }
+    .btn { border: 0; border-radius: 6px; padding: 6px 11px; font: inherit; font-size: .82rem; font-weight: 700; cursor: pointer; background: #00a884; color: #fff; white-space: nowrap; }
+    .btn.alt { background: #e2e8f0; color: #0f172a; }
+    .btn.red { background: #fee2e2; color: #b91c1c; }
+    .btn:disabled { opacity: .5; cursor: default; }
+    .acts { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+    .acts input, .acts select { border: 1px solid #cbd5e1; border-radius: 6px; padding: 5px 8px; font: inherit; font-size: .82rem; width: 150px; }
+    .empty { padding: 40px 20px; text-align: center; color: #64748b; }
+    .msg { padding: 10px 16px; color: #b91c1c; display: none; }
+    .err { color: #b91c1c; font-size: .78rem; }
+    .gate { max-width: 460px; margin: 60px auto; background: #fff; border-radius: 12px; padding: 28px; text-align: center; box-shadow: 0 4px 16px rgba(0,0,0,.08); display: none; }
+    @media (max-width: 760px) { .pane { margin: 0 8px 12px; } .tabs, .stats { padding-left: 8px; padding-right: 8px; } .filters input { min-width: 0; } }
+  </style>
+</head>
+<body>
+  <div class="hd">
+    <h1><i class="bi bi-people-fill"></i> JMS Chat · Users</h1>
+    <a href="users.html"><i class="bi bi-person-gear"></i> User Management</a>
+    <a href="chat_app.html"><i class="bi bi-chat-dots"></i> Open chat</a>
+  </div>
+
+  <div class="gate" id="gate"></div>
+
+  <div id="app" style="display:none">
+    <div class="stats">
+      <div class="stat" data-goto="requests:pending"><b id="sPending">–</b><span>Requests pending</span></div>
+      <div class="stat" data-goto="people:online"><b id="sOnline">–</b><span>Online now</span></div>
+      <div class="stat" data-goto="people:using"><b id="sUsing">–</b><span>Use JMS Chat</span></div>
+      <div class="stat" data-goto="people:app"><b id="sApp">–</b><span>Android app installed</span></div>
+      <div class="stat" data-goto="people:never"><b id="sNever">–</b><span>Never used chat</span></div>
+    </div>
+
+    <div class="tabs">
+      <button class="tab on" data-tab="requests">Sign-up requests<span class="n" id="tPending" style="display:none"></span></button>
+      <button class="tab" data-tab="people">People</button>
+      <button class="tab" data-tab="devices">Devices</button>
+    </div>
+
+    <!-- Sign-up requests -->
+    <div class="pane" id="pane-requests">
+      <div class="filters">
+        <select id="rqStatus">
+          <option value="pending">Pending</option>
+          <option value="approved">Approved</option>
+          <option value="rejected">Rejected</option>
+          <option value="">All</option>
+        </select>
+        <input id="rqSearch" placeholder="Search name, mobile, department, HOD…">
+        <span class="count" id="rqCount"></span>
+      </div>
+      <div class="msg" id="rqMsg"></div>
+      <div class="wrap"><table>
+        <thead><tr><th>Name</th><th>Mobile</th><th>Designation / Department</th><th>HOD</th><th>Requested</th><th>Status</th><th>Approved / rejected by</th><th>Action</th></tr></thead>
+        <tbody id="rqBody"></tbody>
+      </table></div>
+    </div>
+
+    <!-- People -->
+    <div class="pane" id="pane-people" style="display:none">
+      <div class="filters">
+        <select id="plFilter">
+          <option value="all">Everyone</option>
+          <option value="online">Online now</option>
+          <option value="using">Use JMS Chat</option>
+          <option value="app">Android app installed</option>
+          <option value="signup">Joined by sign-up</option>
+          <option value="never">Never used chat</option>
+        </select>
+        <input id="plSearch" placeholder="Search name, role, department, IP…">
+        <span class="count" id="plCount"></span>
+      </div>
+      <div class="msg" id="plMsg"></div>
+      <div class="wrap"><table>
+        <thead><tr><th>User</th><th>Role / Department</th><th>Status</th><th>Last seen</th><th>Chat on</th><th>Last device · IP</th><th>Joined chat</th></tr></thead>
+        <tbody id="plBody"></tbody>
+      </table></div>
+    </div>
+
+    <!-- Devices -->
+    <div class="pane" id="pane-devices" style="display:none">
+      <div class="filters">
+        <select id="dvFilter">
+          <option value="all">All devices</option>
+          <option value="in">Signed in</option>
+          <option value="pending">Waiting for approval</option>
+          <option value="android-app">Android app</option>
+          <option value="mac-app">Mac app</option>
+          <option value="iphone-web">iPhone</option>
+          <option value="android-web">Android browser</option>
+          <option value="web">Desktop browser</option>
+        </select>
+        <input id="dvSearch" placeholder="Search user, device, IP…">
+        <span class="count" id="dvCount"></span>
+      </div>
+      <div class="msg" id="dvMsg"></div>
+      <div class="wrap"><table>
+        <thead><tr><th>User</th><th>Device</th><th>IP</th><th>First used</th><th>Signed in</th><th>Last seen</th><th>Status</th><th>Action</th></tr></thead>
+        <tbody id="dvBody"></tbody>
+      </table></div>
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      'use strict';
+      var state = { requests: [], factories: [], people: [], devices: [], reqLoaded: '' };
+      var $ = function (id) { return document.getElementById(id); };
+
+      function esc(v) {
+        return String(v == null ? '' : v).replace(/[&<>"']/g, function (c) {
+          return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+        });
+      }
+      function when(ts) {
+        if (!ts) return '';
+        var d = new Date(ts);
+        return d.toLocaleString([], { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+      }
+      function ago(ts) {
+        if (!ts) return 'Never';
+        var s = Math.max(0, (Date.now() - new Date(ts).getTime()) / 1000);
+        if (s < 60) return 'just now';
+        if (s < 3600) return Math.floor(s / 60) + ' min ago';
+        if (s < 86400) return Math.floor(s / 3600) + ' h ago';
+        if (s < 86400 * 30) return Math.floor(s / 86400) + ' days ago';
+        return when(ts);
+      }
+      var PLATFORM = {
+        'android-app': ['bi-phone', 'Android app'],
+        'mac-app': ['bi-laptop', 'Mac app'],
+        'iphone-web': ['bi-apple', 'iPhone'],
+        'android-web': ['bi-phone', 'Android browser'],
+        web: ['bi-pc-display', 'Desktop browser']
+      };
+      function platform(p) {
+        var x = PLATFORM[p] || ['bi-question-circle', p || 'Unknown'];
+        return '<i class="bi ' + x[0] + '"></i> ' + esc(x[1]);
+      }
+
+      function api(method, url, body) {
+        return fetch(url, {
+          method: method, credentials: 'same-origin', cache: 'no-store',
+          headers: body ? { 'Content-Type': 'application/json' } : undefined,
+          body: body ? JSON.stringify(body) : undefined
+        }).then(function (r) {
+          return r.json().catch(function () { return {}; }).then(function (d) {
+            if (!r.ok || d.ok === false) { var e = new Error(d.error || ('Error ' + r.status)); e.status = r.status; throw e; }
+            return d;
+          });
+        });
+      }
+
+      function gate(text) {
+        $('app').style.display = 'none';
+        $('gate').style.display = 'block';
+        $('gate').innerHTML = text;
+      }
+
+      // ---- tabs ----
+      var tab = 'requests';
+      function showTab(t) {
+        tab = t;
+        Array.prototype.forEach.call(document.querySelectorAll('.tab'), function (b) { b.classList.toggle('on', b.getAttribute('data-tab') === t); });
+        ['requests', 'people', 'devices'].forEach(function (x) { $('pane-' + x).style.display = x === t ? '' : 'none'; });
+      }
+      Array.prototype.forEach.call(document.querySelectorAll('.tab'), function (b) {
+        b.addEventListener('click', function () { showTab(b.getAttribute('data-tab')); });
+      });
+      Array.prototype.forEach.call(document.querySelectorAll('[data-goto]'), function (s) {
+        s.addEventListener('click', function () {
+          var g = s.getAttribute('data-goto').split(':');
+          if (g[0] === 'requests') { $('rqStatus').value = g[1]; loadRequests(); }
+          else { $('plFilter').value = g[1]; renderPeople(); }
+          showTab(g[0]);
+        });
+      });
+
+      // ---- sign-up requests ----
+      function loadRequests() {
+        var st = $('rqStatus').value;
+        return api('GET', '/api/chat/signups' + (st === 'pending' ? '' : '?status=all')).then(function (d) {
+          state.requests = d.requests || [];
+          state.factories = d.factories || [];
+          state.reqLoaded = st;
+          renderRequests();
+        }).catch(function (e) { $('rqMsg').style.display = 'block'; $('rqMsg').textContent = e.message; });
+      }
+      function pendingCount() {
+        return api('GET', '/api/chat/signups').then(function (d) {
+          var n = (d.requests || []).length;
+          $('sPending').textContent = n;
+          $('tPending').textContent = n;
+          $('tPending').style.display = n ? '' : 'none';
+        }).catch(function () { });
+      }
+      function renderRequests() {
+        var st = $('rqStatus').value, q = $('rqSearch').value.trim().toLowerCase();
+        var rows = state.requests.filter(function (r) {
+          if (st && r.status !== st) return false;
+          if (!q) return true;
+          return [r.name, r.mobile, r.designation, r.department, r.hod_name, r.username, r.decided_by].join(' ').toLowerCase().indexOf(q) >= 0;
+        });
+        $('rqCount').textContent = rows.length + ' request' + (rows.length === 1 ? '' : 's');
+        $('rqMsg').style.display = 'none';
+        var body = $('rqBody');
+        if (!rows.length) { body.innerHTML = '<tr><td colspan="8" class="empty">No requests here.</td></tr>'; return; }
+        body.innerHTML = '';
+        rows.forEach(function (r) {
+          var tr = document.createElement('tr');
+          var decided = r.status === 'pending' ? '<span style="color:#94a3b8">—</span>'
+            : esc(r.decided_by || '') + '<small>' + esc(when(r.decided_at)) + '</small>' + (r.username ? '<small>Username: <b>' + esc(r.username) + '</b></small>' : '');
+          tr.innerHTML =
+            '<td><b>' + esc(r.name) + '</b></td>' +
+            '<td><a href="tel:' + esc(r.mobile) + '">' + esc(r.mobile) + '</a></td>' +
+            '<td>' + esc(r.designation) + '<small>' + esc(r.department) + '</small></td>' +
+            '<td>' + esc(r.hod_name) + '</td>' +
+            '<td>' + esc(when(r.created_at)) + '<small>' + esc(ago(r.created_at)) + '</small></td>' +
+            '<td><span class="pill p-' + esc(r.status) + '">' + esc(r.status[0].toUpperCase() + r.status.slice(1)) + '</span></td>' +
+            '<td>' + decided + '</td><td></td>';
+          if (r.status === 'pending') tr.lastChild.appendChild(requestActions(r));
+          body.appendChild(tr);
+        });
+      }
+      function requestActions(r) {
+        var box = document.createElement('div');
+        box.className = 'acts';
+        var un = document.createElement('input');
+        un.value = r.suggested_username || r.name;
+        un.title = 'Username they will sign in with';
+        un.maxLength = 40;
+        box.appendChild(un);
+        var fac = null;
+        if (state.factories.length) {
+          fac = document.createElement('select');
+          fac.innerHTML = '<option value="">Factory: not set</option>' + state.factories.map(function (f) {
+            return '<option value="' + esc(f.id) + '">' + esc(f.name) + '</option>';
+          }).join('');
+          box.appendChild(fac);
+        }
+        var ok = document.createElement('button'); ok.className = 'btn'; ok.textContent = 'Approve';
+        var no = document.createElement('button'); no.className = 'btn red'; no.textContent = 'Reject';
+        var err = document.createElement('div'); err.className = 'err';
+        box.appendChild(ok); box.appendChild(no); box.appendChild(err);
+        function act(kind) {
+          if (kind === 'reject' && !confirm('Reject the request from ' + r.name + '?')) return;
+          ok.disabled = no.disabled = true;
+          err.textContent = '';
+          api('POST', '/api/chat/signups/' + r.id + '/' + kind,
+            kind === 'approve' ? { username: un.value.trim(), factory_id: fac && fac.value ? Number(fac.value) : null } : {})
+            .then(function () { refreshAll(); })
+            .catch(function (e) { ok.disabled = no.disabled = false; err.textContent = e.message; });
+        }
+        ok.addEventListener('click', function () { act('approve'); });
+        no.addEventListener('click', function () { act('reject'); });
+        return box;
+      }
+
+      // ---- people ----
+      function chatOn(p) {
+        var out = [];
+        if (p.android_app) out.push('<span class="pill p-app"><i class="bi bi-phone"></i> Android app</span>');
+        if (p.mac_app) out.push('<span class="pill p-app"><i class="bi bi-laptop"></i> Mac app</span>');
+        if (p.iphone) out.push('<span class="pill p-app"><i class="bi bi-apple"></i> iPhone</span>');
+        if (!out.length && p.devices) out.push('<span class="pill p-off">Browser</span>');
+        if (!out.length && p.last_seen_at) out.push('<span class="pill p-off">JMS website</span>');
+        if (!out.length) out.push('<span class="pill p-never">Never</span>');
+        if (p.devices) out.push('<small>' + p.devices + ' device' + (p.devices === 1 ? '' : 's') + '</small>');
+        return out.join(' ');
+      }
+      function usesChat(p) { return !!(p.devices || p.last_seen_at); }
+      function loadPeople() {
+        return api('GET', '/api/chat/admin/people').then(function (d) {
+          state.people = d.people || [];
+          var act = state.people.filter(function (p) { return p.active; });
+          $('sOnline').textContent = act.filter(function (p) { return p.online; }).length;
+          $('sUsing').textContent = act.filter(usesChat).length;
+          $('sApp').textContent = act.filter(function (p) { return p.android_app; }).length;
+          $('sNever').textContent = act.filter(function (p) { return !usesChat(p); }).length;
+          renderPeople();
+        }).catch(function (e) { $('plMsg').style.display = 'block'; $('plMsg').textContent = e.message; });
+      }
+      function renderPeople() {
+        var f = $('plFilter').value, q = $('plSearch').value.trim().toLowerCase();
+        var rows = state.people.filter(function (p) {
+          if (f !== 'all' && !p.active) return false;
+          if (f === 'online' && !p.online) return false;
+          if (f === 'using' && !usesChat(p)) return false;
+          if (f === 'app' && !p.android_app) return false;
+          if (f === 'signup' && !p.via_signup) return false;
+          if (f === 'never' && usesChat(p)) return false;
+          if (!q) return true;
+          return [p.username, p.role_code, p.line, p.designation, p.department, p.mobile, p.last_ip, p.last_device].join(' ').toLowerCase().indexOf(q) >= 0;
+        });
+        $('plCount').textContent = rows.length + ' people';
+        $('plMsg').style.display = 'none';
+        var body = $('plBody');
+        if (!rows.length) { body.innerHTML = '<tr><td colspan="7" class="empty">Nobody here.</td></tr>'; return; }
+        body.innerHTML = rows.slice(0, 1500).map(function (p) {
+          var seen = p.last_seen_at || p.device_seen_at;
+          var status = !p.active ? '<span class="pill p-block">Inactive user</span>'
+            : p.online ? '<span class="pill p-on"><span class="dot"></span>Online</span>'
+            : usesChat(p) ? '<span class="pill p-off">Offline</span>' : '<span class="pill p-never">Never used</span>';
+          var dept = p.designation ? esc(p.designation) + '<small>' + esc(p.department) + '</small>' : esc(p.role_code || '') + (p.line ? '<small>' + esc(p.line) + '</small>' : '');
+          var dev = p.last_platform ? platform(p.last_platform) + '<small>' + esc(p.last_device || '') + '</small><small>IP ' + esc(p.last_ip || '—') + '</small>' : '<span style="color:#94a3b8">—</span>';
+          var joined = p.via_signup
+            ? 'Sign-up<small>Approved by ' + esc(p.approved_by) + '</small><small>' + esc(when(p.approved_at)) + '</small>' + (p.password_set ? '' : '<small style="color:#b45309">Password not set yet</small>')
+            : p.first_device_at ? 'JMS account<small>First device ' + esc(when(p.first_device_at)) + '</small>' : 'JMS account';
+          return '<tr><td><b>' + esc(p.username) + '</b>' + (p.mobile ? '<small><a href="tel:' + esc(p.mobile) + '">' + esc(p.mobile) + '</a></small>' : '') + '</td>' +
+            '<td>' + dept + '</td><td>' + status + '</td>' +
+            '<td>' + (p.online ? 'Now' : esc(ago(seen))) + (seen && !p.online ? '<small>' + esc(when(seen)) + '</small>' : '') + '</td>' +
+            '<td>' + chatOn(p) + '</td><td>' + dev + '</td><td>' + joined + '</td></tr>';
+        }).join('');
+      }
+
+      // ---- devices ----
+      function loadDevices() {
+        return api('GET', '/api/chat/admin/devices').then(function (d) {
+          state.devices = d.devices || [];
+          renderDevices();
+        }).catch(function (e) { $('dvMsg').style.display = 'block'; $('dvMsg').textContent = e.message; });
+      }
+      function renderDevices() {
+        var f = $('dvFilter').value, q = $('dvSearch').value.trim().toLowerCase();
+        var rows = state.devices.filter(function (d) {
+          if (f === 'in' && !d.signed_in) return false;
+          if (f === 'pending' && d.approved) return false;
+          if (PLATFORM[f] && d.platform !== f) return false;
+          if (!q) return true;
+          return [d.username, d.name, d.ip, d.platform].join(' ').toLowerCase().indexOf(q) >= 0;
+        });
+        $('dvCount').textContent = rows.length + ' device' + (rows.length === 1 ? '' : 's');
+        $('dvMsg').style.display = 'none';
+        var body = $('dvBody');
+        if (!rows.length) { body.innerHTML = '<tr><td colspan="8" class="empty">No devices here.</td></tr>'; return; }
+        body.innerHTML = '';
+        rows.forEach(function (d) {
+          var tr = document.createElement('tr');
+          var st = !d.approved ? '<span class="pill p-pending">Waiting for approval</span>'
+            : d.signed_in ? '<span class="pill p-on">Signed in</span>' : '<span class="pill p-off">Signed out</span>';
+          tr.innerHTML = '<td><b>' + esc(d.username) + '</b></td>' +
+            '<td>' + platform(d.platform) + '<small>' + esc(d.name || '') + '</small></td>' +
+            '<td>' + esc(d.ip || '—') + '</td>' +
+            '<td>' + esc(when(d.created_at)) + '</td>' +
+            '<td>' + esc(when(d.signed_in_at)) + '</td>' +
+            '<td>' + esc(ago(d.last_seen_at)) + '<small>' + esc(when(d.last_seen_at)) + '</small></td>' +
+            '<td>' + st + '</td><td></td>';
+          var box = document.createElement('div');
+          box.className = 'acts';
+          function btn(label, cls, action, ask) {
+            var b = document.createElement('button');
+            b.className = 'btn ' + cls; b.textContent = label;
+            b.addEventListener('click', function () {
+              if (ask && !confirm(ask)) return;
+              b.disabled = true;
+              api('POST', '/api/chat/admin/devices/' + d.id, { action: action })
+                .then(loadDevices).then(loadPeople)
+                .catch(function (e) { b.disabled = false; alert(e.message); });
+            });
+            box.appendChild(b);
+          }
+          if (!d.approved) btn('Approve', '', 'approve');
+          if (d.signed_in) btn('Sign out', 'alt', 'signout', 'Sign ' + d.username + ' out of this device?');
+          if (d.approved) btn('Block', 'red', 'block', 'Block this device for ' + d.username + '? It is signed out and cannot sign in again until approved.');
+          tr.lastChild.appendChild(box);
+          body.appendChild(tr);
+        });
+      }
+
+      $('rqStatus').addEventListener('change', loadRequests);
+      $('rqSearch').addEventListener('input', renderRequests);
+      $('plFilter').addEventListener('change', renderPeople);
+      $('plSearch').addEventListener('input', renderPeople);
+      $('dvFilter').addEventListener('change', renderDevices);
+      $('dvSearch').addEventListener('input', renderDevices);
+
+      function refreshAll() { return Promise.all([loadRequests(), pendingCount(), loadPeople(), loadDevices()]); }
+
+      api('GET', '/api/chat/me').then(function (me) {
+        if (!(me.isAdmin || me.isSuperadmin)) {
+          gate('<h2>Admins only</h2><p>Only an admin or superadmin can see chat users.</p><p><a href="index.html">Back to JMS</a></p>');
+          return;
+        }
+        $('app').style.display = '';
+        refreshAll();
+        setInterval(function () { if (!document.hidden) refreshAll(); }, 30000);
+      }).catch(function (e) {
+        if (e.status === 401) gate('<h2>Please sign in</h2><p>Sign in to JMS first.</p><p><a href="login.html">Go to sign in</a></p>');
+        else gate('<h2>Chat is not available</h2><p>' + esc(e.message) + '</p>');
+      });
+    }());
+  </script>
+</body>
+</html>

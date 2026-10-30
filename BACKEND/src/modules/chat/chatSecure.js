@@ -97,6 +97,7 @@ async function approvalOn(pool) {
 }
 
 function platformOf(ua) {
+  if (/JMSChatApp\/[^ ]* \(macOS\)/i.test(ua)) return 'mac-app';
   if (/JMSChat|okhttp/i.test(ua)) return 'android-app';
   if (/android/i.test(ua)) return 'android-web';
   if (/iphone|ipad/i.test(ua)) return 'iphone-web';

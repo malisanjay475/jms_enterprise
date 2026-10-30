@@ -2761,7 +2761,13 @@
     var x = el('button', 'jc-ibtn', '✕');
     h.appendChild(x);
     var body = el('div', 'jc-sbody');
-    sh.appendChild(h); sh.appendChild(body);
+    var foot = el('div', 'jc-sfoot');
+    var all = el('a', null, 'All requests, users and devices ↗');
+    all.href = '/chat_users.html';
+    all.target = '_blank';
+    all.rel = 'noopener';
+    foot.appendChild(all);
+    sh.appendChild(h); sh.appendChild(body); sh.appendChild(foot);
     bg.appendChild(sh);
     document.body.appendChild(bg);
     signupState.sheetBody = body;

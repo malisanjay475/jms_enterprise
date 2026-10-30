@@ -20,6 +20,8 @@ const bcrypt = require('bcryptjs');
 const { isAdminLike } = require('../../app/auth');
 const lockout = require('../../app/loginLockout');
 const chatSync = require('./chatSync');
+const chatSecure = require('./chatSecure');
+const chatProfiles = require('./chatProfiles');
 
 const ROLE = 'chat_user';
 const TOKEN_RE = /^[a-f0-9]{48}$/;
@@ -257,7 +259,7 @@ async function needsFirstPassword(pool, username) {
 }
 
 /** Admin routes (chat session; admin or superadmin). */
-function registerSignupAdminRoutes(app, pool, { ready, fail, pushTo }) {
+function registerSignupAdminRoutes(app, pool, { ready, fail, pushTo, isOnline = () => false }) {
   function adminOnly(req, res) {
     if (isAdminLike(req.auth)) return true;
     res.status(403).json({ ok: false, error: 'Only an admin can manage sign-up requests.' });
@@ -287,6 +289,50 @@ function registerSignupAdminRoutes(app, pool, { ready, fail, pushTo }) {
       }
       res.json({ ok: true, requests: list, factories: await factories() });
     } catch (err) { fail(res, err, 'signups'); }
+  });
+
+  // Chat users page (chat_users.html): every JMS user with chat last seen, devices and
+  // how they joined.
+  app.get('/api/chat/admin/people', async (req, res) => {
+    try {
+      if (!(await ready(req, res)) || !adminOnly(req, res)) return;
+      await Promise.all([ensureSignupSchema(pool), chatSecure.ensureSecureSchema(pool), chatProfiles.ensureProfileSchema(pool)]);
+      const { rows } = await pool.query(`
+        WITH dev AS (
+          SELECT LOWER(username) AS k, COUNT(*)::int AS devices,
+                 BOOL_OR(platform = 'android-app') AS android_app,
+                 BOOL_OR(platform = 'mac-app') AS mac_app,
+                 BOOL_OR(platform = 'iphone-web') AS iphone,
+                 MAX(last_seen_at) AS device_seen_at, MIN(created_at) AS first_device_at,
+                 (ARRAY_AGG(platform ORDER BY last_seen_at DESC NULLS LAST))[1] AS last_platform,
+                 (ARRAY_AGG(name ORDER BY last_seen_at DESC NULLS LAST))[1] AS last_device,
+                 (ARRAY_AGG(ip ORDER BY last_seen_at DESC NULLS LAST))[1] AS last_ip
+            FROM chat_devices GROUP BY 1),
+        su AS (
+          SELECT DISTINCT ON (LOWER(username)) LOWER(username) AS k, mobile, designation, department, hod_name,
+                 decided_by AS approved_by, decided_at AS approved_at, created_at AS requested_at, password_set
+            FROM chat_signups WHERE status = 'approved' AND username IS NOT NULL
+           ORDER BY LOWER(username), decided_at DESC)
+        SELECT u.username, u.role_code, u.line, COALESCE(u.is_active, TRUE) AS active,
+               p.last_seen_at, dev.devices, dev.android_app, dev.mac_app, dev.iphone, dev.device_seen_at, dev.first_device_at,
+               dev.last_platform, dev.last_device, dev.last_ip,
+               su.mobile, su.designation, su.department, su.hod_name, su.approved_by, su.approved_at, su.requested_at, su.password_set
+          FROM users u
+          LEFT JOIN chat_presence p ON p.username_lower = LOWER(u.username)
+          LEFT JOIN dev ON dev.k = LOWER(u.username)
+          LEFT JOIN su ON su.k = LOWER(u.username)
+         ORDER BY GREATEST(p.last_seen_at, dev.device_seen_at) DESC NULLS LAST, LOWER(u.username)
+         LIMIT 3000`);
+      res.json({
+        ok: true,
+        people: rows.map((r) => ({
+          ...r,
+          devices: r.devices || 0,
+          online: Boolean(r.active) && (isOnline(r.username) || chatProfiles.isRecent(r.last_seen_at)),
+          via_signup: !!r.approved_at
+        }))
+      });
+    } catch (err) { fail(res, err, 'chat people'); }
   });
 
   app.post('/api/chat/signups/:id/approve', async (req, res) => {

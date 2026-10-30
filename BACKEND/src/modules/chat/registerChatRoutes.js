@@ -780,7 +780,7 @@ function registerChatRoutes(app, pool) {
   chatTeam.registerTeamRoutes(app, pool, { ready, fail, membership, decorate, localFactoryId, uploadRoot });
   chatTeam.ensureTeamSchema(pool).catch((err) => console.warn('[chat] team schema:', err.message));
   chatSecure.registerSecureRoutes(app, pool, { ready, fail, membership, localFactoryId });
-  chatSignup.registerSignupAdminRoutes(app, pool, { ready, fail, pushTo });
+  chatSignup.registerSignupAdminRoutes(app, pool, { ready, fail, pushTo, isOnline });
   chatSecure.ensureSecureSchema(pool).catch((err) => console.warn('[chat] secure schema:', err.message));
   require('../../app/auth').setChatTokenCheck(chatSecure.tokenStillValid);
   if (!chatSync.isLocal()) chatSecure.start(pool);
