@@ -651,6 +651,7 @@
       showErr('');
       if (!els.groupMode) renderList();
       updateBadge();
+      saveBootSoon();
     }).catch(function (e) { showErr(e.message); });
   }
 
@@ -786,7 +787,7 @@
   function isProtected(convId) { var c = convById(convId); return !!(c && c.protected); }
 
   function loadFolders() {
-    return api('GET', API + '/folders').then(function (d) { folders = d.folders || []; renderListIfIdle(); }).catch(function () {});
+    return api('GET', API + '/folders').then(function (d) { folders = d.folders || []; renderListIfIdle(); saveBootSoon(); }).catch(function () {});
   }
   function saveFolder(id, body) {
     api(id ? 'PUT' : 'POST', API + '/folders' + (id ? '/' + encodeURIComponent(id) : ''), body)
@@ -1097,6 +1098,7 @@
   }
 
   function openConv(c, focusId) {
+    if (current && current !== c && loaded.length) cacheMessages(current.sync_id, loaded);
     current = c;
     cancelEdit();
     oldestTs = null; hasMore = false;
@@ -1112,6 +1114,8 @@
     convHeader();
     els.msgs.textContent = '';
     loaded = [];
+    var saved = !focusId && cachedMessages(c.sync_id);
+    if (saved) { renderMessages(saved.map(function (m) { return Object.assign({}, m); }), false); els.msgs.scrollTop = els.msgs.scrollHeight; }
     if (!els.sIn.value.trim()) renderList();
     loadMessages(false, focusId);
     loadPins(c);
@@ -1142,6 +1146,7 @@
       } else {
         renderMessages(ms, false);
         box.scrollTop = box.scrollHeight;
+        cacheMessages(c.sync_id, ms);
       }
       if (focusId) flash(focusId);
     }).catch(function (e) { showErr(e.message); });
@@ -1758,6 +1763,7 @@
       els.badge.style.display = n ? 'block' : 'none';
       var base = document.title.replace(/^\(\d+\+?\) /, '');
       document.title = n ? '(' + (n > 99 ? '99+' : n) + ') ' + base : base;
+      try { if (navigator.setAppBadge) { if (n) navigator.setAppBadge(n); else navigator.clearAppBadge(); } } catch (_e) { }
     }).catch(function () { });
   }
 
@@ -3531,13 +3537,77 @@
       .catch(function (e) { btn.textContent = '📝 Show as text'; btn.disabled = false; showErr(e.message); });
   }
 
+  // ---- instant start (chat app) ----
+  // The app draws the last-known chat list and the recent messages of each chat straight
+  // from this device, then refreshes them from the server: no blank "Loading…" on every
+  // open. Kept per user, in localStorage, small (the 300 chats of the list, 40 messages
+  // for the 15 most recent chats).
+  var BOOT_KEY = 'jmsChatBoot', MSG_KEY = 'jmsChatMsgs', bootSaveTimer = null, msgCache = null;
+  function readBoot() {
+    try { var b = JSON.parse(localStorage.getItem(BOOT_KEY) || 'null'); return b && b.me && b.me.username ? b : null; } catch (_e) { return null; }
+  }
+  function saveBootSoon() {
+    if (!appMode || adminAll || !me) return;
+    clearTimeout(bootSaveTimer);
+    bootSaveTimer = setTimeout(function () {
+      try {
+        localStorage.setItem(BOOT_KEY, JSON.stringify({
+          me: { username: me, isSuperadmin: isAdmin, isAdmin: canApprove, server_type: serverInfo.server_type, factory_id: serverInfo.factory_id },
+          convs: convs.slice(0, 300), folders: folders, at: Date.now()
+        }));
+      } catch (_e) { /* storage full or blocked: just no instant start */ }
+    }, 800);
+  }
+  function clearBoot() { try { localStorage.removeItem(BOOT_KEY); localStorage.removeItem(MSG_KEY); } catch (_e) { } msgCache = null; }
+  function msgStore() {
+    if (msgCache) return msgCache;
+    try { msgCache = JSON.parse(localStorage.getItem(MSG_KEY) || '{}'); } catch (_e) { msgCache = {}; }
+    if (!msgCache || typeof msgCache !== 'object' || msgCache.u !== String(me).toLowerCase()) msgCache = { u: String(me).toLowerCase(), c: {} };
+    return msgCache;
+  }
+  function cachedMessages(convId) {
+    if (!appMode) return null;
+    var e = msgStore().c[convId];
+    return e && e.m && e.m.length ? e.m : null;
+  }
+  function cacheMessages(convId, list) {
+    if (!appMode || !convId) return;
+    var st = msgStore();
+    st.c[convId] = { at: Date.now(), m: list.filter(function (m) { return !m.pending && !m.failed; }).slice(-40) };
+    var ids = Object.keys(st.c).sort(function (a, b) { return st.c[b].at - st.c[a].at; });
+    ids.slice(15).forEach(function (id) { delete st.c[id]; });
+    try { localStorage.setItem(MSG_KEY, JSON.stringify(st)); } catch (_e) { st.c = {}; try { localStorage.removeItem(MSG_KEY); } catch (_e2) { } }
+  }
+  function applyMe(d) {
+    me = d.username;
+    isAdmin = !!d.isSuperadmin;
+    canApprove = !!(d.isAdmin || d.isSuperadmin);
+    serverInfo = { server_type: d.server_type || 'MAIN', factory_id: d.factory_id == null ? null : d.factory_id };
+  }
+
   function start() {
-    api('GET', API + '/me').then(function (d) {
-      me = d.username;
-      isAdmin = d.isSuperadmin;
-      canApprove = !!(d.isAdmin || d.isSuperadmin);
-      serverInfo = { server_type: d.server_type || 'MAIN', factory_id: d.factory_id == null ? null : d.factory_id };
+    var boot = appMode ? readBoot() : null;
+    if (boot) {
+      // Draw the saved chats at once; the server answer below confirms or replaces them.
+      applyMe(boot.me);
       build();
+      convs = boot.convs || [];
+      folders = boot.folders || [];
+      open = true;
+      showNoticeOnce();
+      els.panel.classList.add('jc-open');
+      renderList();
+      if (window.JMSChatApp && window.JMSChatApp.onReady) window.JMSChatApp.onReady(me);
+    }
+    fetch(API + '/me', { credentials: 'same-origin', cache: 'no-store' }).then(function (r) {
+      if (!r.ok) { var e = new Error('HTTP ' + r.status); e.status = r.status; throw e; }
+      return r.json();
+    }).then(function (d) {
+      if (boot && String(boot.me.username).toLowerCase() !== String(d.username).toLowerCase()) {
+        clearBoot(); location.reload(); return; // someone else signed in on this device
+      }
+      applyMe(d);
+      if (!boot) build();
       if (!appMode) setupContextShare();
       if (isAdmin) els.tabs.style.display = 'flex';
       loadFolders();
@@ -3555,11 +3625,36 @@
       try { reopen = sessionStorage.getItem('jmsChatReopen'); sessionStorage.removeItem('jmsChatReopen'); } catch (_e) { }
       if (reopen && !want) openChatById(reopen);
       if (appMode) toggle(true);
-      if (window.JMSChatApp && window.JMSChatApp.onReady) window.JMSChatApp.onReady(me);
-    }).catch(function () {
+      if (!boot && window.JMSChatApp && window.JMSChatApp.onReady) window.JMSChatApp.onReady(me);
+    }).catch(function (e) {
+      if (boot && !e.status) {
+        // Offline: keep the saved chats on screen and try again shortly.
+        showErr('No connection — showing saved chats.');
+        setTimeout(retryStart, 5000);
+        return;
+      }
+      if (boot) { clearBoot(); if (root) root.remove(); }
       /* no session: no chat button */
       if (window.JMSChatApp && window.JMSChatApp.onNoSession) window.JMSChatApp.onNoSession();
     });
+  }
+
+  // Offline at start with saved chats: once the server answers, finish starting.
+  function retryStart() {
+    fetch(API + '/me', { credentials: 'same-origin', cache: 'no-store' }).then(function (r) {
+      if (r.status === 401 || r.status === 403) { clearBoot(); location.reload(); return; }
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json().then(function (d) {
+        applyMe(d);
+        showErr('');
+        loadFolders();
+        if (canApprove) loadSignups();
+        updateBadge();
+        connect();
+        setupServiceWorker();
+        loadConvs();
+      });
+    }).catch(function () { setTimeout(retryStart, 8000); });
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start);

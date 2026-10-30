@@ -12,6 +12,7 @@
   <link rel="apple-touch-icon" href="/apple-touch-icon.png">
   <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
   <link rel="icon" href="/favicon.png">
+  <link rel="stylesheet" href="/assets/bootstrap-icons.min.css">
   <title>JMS Chat</title>
   <!-- JMS Chat app: the chat alone, full screen, on the MAIN server. Sign-in is the
        chat-only login (/api/chat-app/login): any active user, from anywhere. Used by
@@ -112,6 +113,160 @@
     /* 16 px or more: iPhone Safari does not zoom in when a field gets the focus. */
     html.jc-appmode input, html.jc-appmode textarea, html.jc-appmode select { font-size: 16px !important; }
     html.jc-appmode button { touch-action: manipulation; }
+    html.jc-appmode .jc-comp textarea::placeholder { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+    /* ===== Icons: clean line icons instead of emoji on every chat button ===== */
+    html.jc-appmode .jc-ibtn[data-ic] { filter: none !important; display: inline-flex; align-items: center; justify-content: center; }
+    html.jc-appmode .jc-ibtn[data-ic] .bi { font-size: 20px; line-height: 1; }
+    html.jc-appmode .jc-app .jc-head .jc-ibtn[data-ic] { color: #fff; }
+
+    /* ===== Splash while the chat code starts (only the very first open) ===== */
+    #loading .spl { display: flex; flex-direction: column; align-items: center; gap: 18px; }
+    #loading .spl img { width: 76px; height: 76px; border-radius: 20px; box-shadow: 0 6px 24px rgba(0,0,0,.12); }
+    #loading .spl b { font-size: 18px; color: #111b21; font-weight: 600; }
+    #loading .bar { width: 220px; height: 3px; border-radius: 3px; background: #e9edef; overflow: hidden; position: relative; }
+    #loading .bar::after { content: ""; position: absolute; inset: 0; width: 40%; background: #00a884; border-radius: 3px; animation: jcbar 1.1s ease-in-out infinite; }
+    @keyframes jcbar { 0% { transform: translateX(-100%); } 100% { transform: translateX(260%); } }
+    #loading small { color: #8696a0; font-size: 13px; }
+
+    /* ===== Desktop (wide windows): WhatsApp-Desktop-style layout with JMS touches ===== */
+    #rail { display: none; }
+    @media (min-width: 900px) {
+      html.jc-appmode body { background: #dfe5e7; }
+      html.jc-appmode .jc-app .jc-panel { left: 64px !important; width: calc(100% - 64px) !important; max-width: none !important; padding: 0 !important; background: #fff; }
+      #rail { display: flex; position: fixed; left: 0; top: 0; bottom: 0; width: 64px; z-index: 100002; flex-direction: column; align-items: center;
+        background: #f0f2f5; border-right: 1px solid #e3e6e8; padding: 12px 0; gap: 6px; }
+      #rail .logo { width: 38px; height: 38px; border-radius: 11px; margin-bottom: 10px; box-shadow: 0 2px 8px rgba(0,0,0,.12); }
+      #rail button { all: unset; position: relative; width: 44px; height: 44px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+        color: #54656f; font-size: 21px; cursor: pointer; transition: background .15s, color .15s; }
+      #rail button:hover { background: #e2e5e8; color: #111b21; }
+      #rail button.on { background: #d9fdd3; color: #008069; }
+      #rail button .n { position: absolute; top: 4px; right: 3px; min-width: 18px; height: 18px; padding: 0 5px; box-sizing: border-box; border-radius: 9px;
+        background: #25d366; color: #fff; font-size: 11px; font-weight: 700; line-height: 18px; text-align: center; display: none; }
+      #rail .gap { flex: 1; }
+      #rail .sep { width: 28px; height: 1px; background: #d1d7db; margin: 6px 0; }
+      #rail button[data-tip]:hover::after { content: attr(data-tip); position: absolute; left: 54px; top: 50%; transform: translateY(-50%); white-space: nowrap;
+        background: #111b21; color: #fff; font: 500 12.5px/1 -apple-system, "Segoe UI", Roboto, sans-serif; padding: 7px 10px; border-radius: 6px; pointer-events: none; }
+
+      /* list pane */
+      html.jc-appmode .jc-app .jc-side { width: 30% !important; min-width: 340px !important; max-width: 460px !important; border-right: 1px solid #e9edef !important; background: #fff; }
+      html.jc-appmode .jc-app .jc-side .jc-head { background: #fff; height: 64px; padding: 0 12px 0 20px; }
+      html.jc-appmode .jc-app .jc-side .jc-head h3 { color: #111b21; font-size: 22px; font-weight: 700; letter-spacing: -.2px; }
+      html.jc-appmode .jc-app .jc-side .jc-head .jc-ibtn, html.jc-appmode .jc-app .jc-side .jc-head .jc-ibtn[data-ic] { color: #54656f; filter: none; }
+      html.jc-appmode .jc-app .jc-side .jc-head .jc-ibtn:hover { background: #f0f2f5; }
+      html.jc-appmode .jc-app .jc-side .jc-head .jc-ibtn.jc-onrail { display: none !important; }
+      html.jc-appmode .jc-app .jc-search { padding: 4px 14px 8px; }
+      html.jc-appmode .jc-app .jc-search input { border-radius: 10px; padding: 9px 14px 9px 40px; background: #f0f2f5 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='%2354656f' viewBox='0 0 16 16'%3E%3Cpath d='M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85zm-5.242 1.656a5 5 0 1 1 0-10 5 5 0 0 1 0 10'/%3E%3C/svg%3E") no-repeat 14px center; }
+      html.jc-appmode .jc-app .jc-item { min-height: 72px; padding-left: 14px; cursor: pointer; transition: background .12s; }
+      html.jc-appmode .jc-app .jc-item:hover { background: #f5f6f6; }
+      html.jc-appmode .jc-app .jc-item.jc-sel { background: #f0f2f5; }
+      html.jc-appmode .jc-app .jc-item .jc-av { width: 49px; height: 49px; font-size: 18px; }
+      html.jc-appmode .jc-app .jc-item .jc-name { font-size: 16.5px; }
+      html.jc-appmode .jc-app .jc-item .jc-prev { font-size: 14px; }
+
+      /* chat pane */
+      html.jc-appmode .jc-app .jc-main { background-color: #efeae2;
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120' viewBox='0 0 120 120'%3E%3Cg fill='none' stroke='%23d8d1c6' stroke-width='1.2' opacity='.55'%3E%3Ccircle cx='20' cy='22' r='6'/%3E%3Cpath d='M70 14h18v12H70z'/%3E%3Cpath d='M98 62l8 8-8 8-8-8z'/%3E%3Cpath d='M14 84q8-10 16 0t16 0'/%3E%3Ccircle cx='66' cy='92' r='3'/%3E%3Cpath d='M40 50l6 10H34z'/%3E%3C/g%3E%3C/svg%3E"); }
+      html.jc-appmode .jc-app .jc-main .jc-head { background: #f0f2f5; height: 60px; padding: 0 12px 0 16px; border-left: 0; }
+      html.jc-appmode .jc-app .jc-main .jc-head .jc-name { color: #111b21; font-size: 16px; }
+      html.jc-appmode .jc-app .jc-main .jc-head .jc-prev { color: #667781; }
+      html.jc-appmode .jc-app .jc-main .jc-head .jc-ibtn, html.jc-appmode .jc-app .jc-main .jc-head .jc-ibtn[data-ic] { color: #54656f; filter: none; }
+      html.jc-appmode .jc-app .jc-main .jc-head .jc-ibtn:hover { background: rgba(11,20,26,.06); }
+      html.jc-appmode .jc-app .jc-main .jc-head .jc-av.jc-on::after { border-color: #f0f2f5; }
+      html.jc-appmode .jc-app .jc-msgs { padding: 14px 7% 10px; }
+      html.jc-appmode .jc-app .jc-bub { max-width: 65%; font-size: 14.6px; line-height: 1.4; -webkit-user-select: text; user-select: text; }
+      html.jc-appmode .jc-app .jc-comp { background: #f0f2f5; padding: 8px 16px; gap: 8px; }
+      html.jc-appmode .jc-app .jc-comp textarea { border-radius: 10px; box-shadow: none; padding: 10px 14px; font-size: 15px !important; }
+      html.jc-appmode .jc-app .jc-attach { background: transparent; box-shadow: none; color: #54656f; }
+      html.jc-appmode .jc-app .jc-ph { background: #f7f8fa; }
+      html.jc-appmode .jc-app .jc-main .jc-head { gap: 12px; }
+      html.jc-appmode .jc-app .jc-main .jc-head .jc-back { display: none !important; }
+      html.jc-appmode .jc-app .jc-ph .jc-desk-ph { display: flex; }
+    }
+    .jc-desk-ph { display: none; flex-direction: column; align-items: center; justify-content: center; height: 100%; text-align: center; color: #667781; gap: 14px; padding: 40px; }
+    .jc-desk-ph img { width: 96px; height: 96px; border-radius: 26px; box-shadow: 0 8px 30px rgba(0,0,0,.12); }
+    .jc-desk-ph h2 { margin: 6px 0 0; font-size: 30px; font-weight: 300; color: #41525d; }
+    .jc-desk-ph p { margin: 0; max-width: 460px; line-height: 1.55; font-size: 14px; }
+    .jc-desk-ph .keys { display: grid; grid-template-columns: auto auto; gap: 6px 14px; font-size: 12.5px; margin-top: 8px; text-align: left; }
+    .jc-desk-ph kbd { background: #fff; border: 1px solid #d1d7db; border-bottom-width: 2px; border-radius: 5px; padding: 1px 6px; font: 600 11.5px/1.5 ui-monospace, monospace; color: #3b4a54; }
+    .jc-desk-ph .foot { position: absolute; bottom: 28px; font-size: 13px; color: #8696a0; display: flex; gap: 6px; align-items: center; }
+
+    /* ===== Dark theme ===== */
+    html.jc-dark body { background: #0c1317 !important; }
+    html.jc-dark .jc-root, html.jc-dark .jc-sheet-bg { --jc-bg: #111b21; --jc-bg2: #202c33; --jc-chat: #0b141a; --jc-out: #005c4b; --jc-in: #202c33; --jc-tx: #e9edef; --jc-mu: #8696a0; --jc-bd: #222d34; --jc-gd: #00a884; }
+    html.jc-dark .jc-app .jc-panel, html.jc-dark .jc-app .jc-side, html.jc-dark .jc-app .jc-list, html.jc-dark .jc-app .jc-search,
+    html.jc-dark .jc-app .jc-side .jc-head { background: #111b21 !important; color: #e9edef; }
+    html.jc-dark .jc-app .jc-side .jc-head h3, html.jc-dark .jc-app .jc-item .jc-name, html.jc-dark .jc-app .jc-main .jc-head .jc-name { color: #e9edef !important; }
+    html.jc-dark .jc-app .jc-item .jc-mid { border-color: #222d34 !important; }
+    html.jc-dark .jc-app .jc-item:hover { background: #202c33 !important; }
+    html.jc-dark .jc-app .jc-item.jc-sel { background: #2a3942 !important; }
+    html.jc-dark .jc-app .jc-search input, html.jc-dark .jc-app .jc-comp textarea { background-color: #202c33 !important; color: #e9edef; }
+    html.jc-dark .jc-app .jc-main, html.jc-dark .jc-app .jc-msgs { background-color: #0b141a !important; }
+    html.jc-dark .jc-app .jc-msgs { background-image: none !important; }
+    html.jc-dark .jc-app .jc-in .jc-bub, html.jc-dark .jc-app .jc-msg:not(.jc-out) .jc-bub { background: #202c33; }
+    html.jc-dark .jc-app .jc-out .jc-bub { background: #005c4b; }
+    html.jc-dark .jc-app .jc-main .jc-head, html.jc-dark .jc-app .jc-comp { background: #202c33 !important; }
+    html.jc-dark .jc-app .jc-main .jc-head .jc-ibtn, html.jc-dark .jc-app .jc-side .jc-head .jc-ibtn { color: #aebac1 !important; }
+    html.jc-dark .jc-app .jc-bub { color: #e9edef; box-shadow: none; }
+    html.jc-dark .jc-app .jc-day span, html.jc-dark .jc-app .jc-sys span { background: #182229 !important; color: #8696a0 !important; }
+    html.jc-dark .jc-app .jc-chip { background: #202c33; color: #aebac1; border-color: #2a3942; }
+    html.jc-dark .jc-app .jc-chip.jc-on { background: #0a332c; color: #00a884; }
+    html.jc-dark .jc-app .jc-menu, html.jc-dark .jc-sheet, html.jc-dark .jc-app .jc-replybar, html.jc-dark .jc-app .jc-editbar,
+    html.jc-dark .jc-app .jc-pop { background: #233138 !important; color: #e9edef; }
+    html.jc-dark .jc-app .jc-menu button, html.jc-dark .jc-sheet { color: #e9edef; }
+    html.jc-dark .jc-app .jc-menu button:hover { background: #182229 !important; }
+    html.jc-dark .jc-app .jc-notice { background: #2a2a12; color: #e9d77a; }
+    html.jc-dark .jc-app .jc-ph, html.jc-dark .jc-desk-ph { background: #222e35 !important; color: #8696a0; }
+    html.jc-dark .jc-desk-ph h2 { color: #e9edef; }
+    html.jc-dark .jc-desk-ph kbd { background: #111b21; border-color: #2a3942; color: #aebac1; }
+    html.jc-dark #rail { background: #202c33; border-color: #2a3942; }
+    html.jc-dark #rail button { color: #aebac1; }
+    html.jc-dark #rail button:hover { background: #2a3942; color: #e9edef; }
+    html.jc-dark #rail button.on { background: #103529; color: #00a884; }
+    html.jc-dark #loading { background: #111b21; }
+    html.jc-dark #loading .spl b { color: #e9edef; }
+
+    /* ===== App lock ===== */
+    #lock { position: fixed; inset: 0; z-index: 2147483000; display: none; align-items: center; justify-content: center;
+      background: radial-gradient(1200px 600px at 50% 0%, #0b7c6e 0%, #075e54 45%, #053f38 100%); color: #fff; font-family: -apple-system, "Segoe UI", Roboto, sans-serif; }
+    #lock.show { display: flex; }
+    #lock .box { width: 320px; max-width: calc(100vw - 32px); text-align: center; }
+    #lock img { width: 72px; height: 72px; border-radius: 20px; box-shadow: 0 8px 28px rgba(0,0,0,.25); }
+    #lock h2 { margin: 16px 0 4px; font-size: 22px; font-weight: 600; }
+    #lock p { margin: 0 0 20px; opacity: .85; font-size: 14px; }
+    #lock .dots { display: flex; justify-content: center; gap: 14px; margin: 8px 0 22px; height: 16px; }
+    #lock .dots i { width: 14px; height: 14px; border-radius: 50%; border: 2px solid rgba(255,255,255,.8); display: block; }
+    #lock .dots i.on { background: #fff; }
+    #lock .shake { animation: jcshake .35s; }
+    @keyframes jcshake { 20%, 60% { transform: translateX(-8px); } 40%, 80% { transform: translateX(8px); } }
+    #lock .pad { display: grid; grid-template-columns: repeat(3, 72px); gap: 14px; justify-content: center; }
+    #lock .pad button { all: unset; width: 72px; height: 72px; border-radius: 50%; background: rgba(255,255,255,.12); font-size: 26px; font-weight: 500;
+      display: flex; align-items: center; justify-content: center; cursor: pointer; transition: background .12s; }
+    #lock .pad button:hover { background: rgba(255,255,255,.22); }
+    #lock .pad button.ghost { background: transparent; font-size: 22px; }
+    #lock .err { color: #ffd6d6; min-height: 20px; font-size: 13.5px; margin-top: 14px; }
+    #lock .forgot { all: unset; margin-top: 10px; font-size: 13px; opacity: .8; cursor: pointer; text-decoration: underline; }
+    html.jc-locked .jc-root, html.jc-locked #rail { filter: blur(18px); pointer-events: none; }
+
+    /* small popover / dialog used for lock settings and shortcuts */
+    .jc-dlg-bg { position: fixed; inset: 0; z-index: 2147482000; background: rgba(11,20,26,.45); display: flex; align-items: center; justify-content: center; padding: 16px; }
+    .jc-dlg { width: 400px; max-width: 100%; background: #fff; color: #111b21; border-radius: 14px; box-shadow: 0 24px 60px rgba(0,0,0,.3); padding: 22px; font-family: -apple-system, "Segoe UI", Roboto, sans-serif; }
+    .jc-dlg h3 { margin: 0 0 6px; font-size: 18px; }
+    .jc-dlg p { margin: 0 0 14px; color: #667781; font-size: 13.5px; line-height: 1.5; }
+    .jc-dlg label { display: block; font-size: 12.5px; font-weight: 600; color: #54656f; margin: 12px 0 5px; }
+    .jc-dlg input, .jc-dlg select { width: 100%; box-sizing: border-box; border: 1px solid #d1d7db; border-radius: 8px; padding: 10px 12px; font: inherit; font-size: 15px; }
+    .jc-dlg .row { display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px; }
+    .jc-dlg .row button { border: 0; border-radius: 20px; padding: 9px 18px; font: inherit; font-weight: 600; cursor: pointer; background: #00a884; color: #fff; }
+    .jc-dlg .row button.alt { background: #f0f2f5; color: #111b21; }
+    .jc-dlg .row button.red { background: #fde8e8; color: #c62828; }
+    .jc-dlg .msg { color: #c62828; font-size: 13px; min-height: 18px; margin-top: 8px; }
+    .jc-dlg table { width: 100%; font-size: 13.5px; border-collapse: collapse; }
+    .jc-dlg td { padding: 6px 0; border-bottom: 1px solid #f0f2f5; }
+    .jc-dlg td:last-child { text-align: right; }
+    html.jc-dark .jc-dlg { background: #233138; color: #e9edef; }
+    html.jc-dark .jc-dlg input, html.jc-dark .jc-dlg select { background: #111b21; color: #e9edef; border-color: #2a3942; }
+    html.jc-dark .jc-dlg .row button.alt { background: #2a3942; color: #e9edef; }
+    html.jc-dark .jc-dlg td { border-color: #2a3942; }
     #tip { position: fixed; left: 12px; right: 12px; bottom: calc(12px + env(safe-area-inset-bottom)); z-index: 100020; display: none;
       background: #111b21; color: #fff; border-radius: 12px; padding: 12px 40px 12px 14px; font-size: 14px; line-height: 1.4;
       box-shadow: 0 8px 24px rgba(0,0,0,.3); }
@@ -122,7 +277,18 @@
   </style>
 </head>
 <body>
-  <div id="loading">Loading JMS Chat…</div>
+  <div id="loading"><div class="spl"><img src="/apple-touch-icon.png" alt=""><b>JMS Chat</b><div class="bar"></div><small>Loading your chats…</small></div></div>
+  <div id="lock" role="dialog" aria-modal="true" aria-label="JMS Chat is locked">
+    <div class="box">
+      <img src="/apple-touch-icon.png" alt="">
+      <h2>JMS Chat is locked</h2>
+      <p>Enter your PIN to open</p>
+      <div class="dots" id="lockDots"></div>
+      <div class="pad" id="lockPad"></div>
+      <div class="err" id="lockErr"></div>
+      <button class="forgot" id="lockForgot" type="button">Forgot PIN? Sign out</button>
+    </div>
+  </div>
   <div id="login">
     <form class="card" id="form" autocomplete="on">
       <img class="logo" src="/apple-touch-icon.png" alt="">
@@ -209,6 +375,7 @@
           loading.style.display = 'none';
           login.classList.remove('show');
           signup.signedIn();
+          desk.ready();
           if (native() && native().onSignedIn) native().onSignedIn(username);
           if (!native()) setTimeout(showTip, 1500);
         },
@@ -219,6 +386,7 @@
           if (native() && native().onSignedOut) native().onSignedOut();
         },
         signOut: function () {
+          try { ['jmsChatBoot', 'jmsChatMsgs', 'jmsChatLock'].forEach(function (k) { localStorage.removeItem(k); }); } catch (_e) { }
           fetch('/api/chat-app/logout', { method: 'POST', credentials: 'same-origin' })
             .catch(function () { })
             .then(function () { location.reload(); });
@@ -247,24 +415,39 @@
 
       // The service worker serves /assets/ from its cache first, so the widget URL must
       // change with every release or a home-screen app keeps running an old copy.
+      // Fast start: inject the widget at once with the version seen last time (served
+      // from the service-worker cache), and check /api/version alongside. After a
+      // release the versions differ: reload once so the new widget runs.
       function loadChat() {
-        var done = false;
+        var VKEY = 'jmsChatWidgetV', last = null;
+        try { last = localStorage.getItem(VKEY); } catch (_e) { }
         function inject(v) {
-          if (done) return;
-          done = true;
-          var s = document.createElement('script');
-          s.src = '/assets/chat-widget.js?v=' + encodeURIComponent(v);
-          s.onerror = function () {
+          var sc = document.createElement('script');
+          sc.src = '/assets/chat-widget.js?v=' + encodeURIComponent(v);
+          sc.onerror = function () {
             loading.textContent = 'Cannot reach the JMS server. Check your internet, then tap to retry.';
             loading.onclick = function () { location.reload(); };
           };
-          document.body.appendChild(s);
+          document.body.appendChild(sc);
         }
-        var timer = setTimeout(function () { inject(String(Date.now())); }, 4000);
-        fetch('/api/version', { cache: 'no-store' })
-          .then(function (r) { return r.json(); })
-          .then(function (d) { clearTimeout(timer); inject((d && d.version) || String(Date.now())); })
-          .catch(function () { clearTimeout(timer); inject(String(Date.now())); });
+        function remember(v) { try { localStorage.setItem(VKEY, v); } catch (_e) { } }
+        var check = fetch('/api/version', { cache: 'no-store' }).then(function (r) { return r.json(); })
+          .then(function (d) { return (d && d.version) || null; }).catch(function () { return null; });
+        if (last) {
+          inject(last);
+          check.then(function (v) {
+            if (v && v !== last) {
+              remember(v);
+              var key = 'jmsChatReloadedFor';
+              var done = null;
+              try { done = sessionStorage.getItem(key); sessionStorage.setItem(key, v); } catch (_e) { }
+              if (done !== v) location.reload();
+            }
+          });
+        } else {
+          var t = setTimeout(function () { inject(String(Date.now())); }, 4000);
+          check.then(function (v) { clearTimeout(t); if (v) remember(v); inject(v || String(Date.now())); });
+        }
       }
 
       // iPhone: the keyboard does not shrink the page, it covers it (and pans the view).
@@ -389,6 +572,345 @@
           go.disabled = false;
         });
       });
+
+      // ===== Desktop app: icons, side rail, dark mode, PIN lock, shortcuts, install =====
+      var desk = (function () {
+        var $ = function (id) { return document.getElementById(id); };
+        var started = false, railView = 'chats', installEvt = null;
+        function pref(k, d) { try { var v = localStorage.getItem(k); return v == null ? d : v; } catch (_e) { return d; } }
+        function setPref(k, v) { try { if (v == null) localStorage.removeItem(k); else localStorage.setItem(k, v); } catch (_e) { } }
+
+        // ---- icons for the chat's buttons (by their tooltip) ----
+        var ICONS = [
+          ['Notifications and sound', 'bi-bell'], ['New group', 'bi-people'], ['New chat', 'bi-pencil-square'],
+          ['Sign out', 'bi-box-arrow-right'], ['Back to JMS', 'bi-house'], ['Starred messages', 'bi-star'],
+          ['My tasks', 'bi-clipboard-check'], ['Approvals waiting for me', 'bi-check2-square'], ['Back to chat', 'bi-arrow-left'],
+          ['Back', 'bi-arrow-left'], ['Mute notifications', 'bi-bell-slash'], ['Unmute', 'bi-bell'], ['Group info', 'bi-info-circle'],
+          ['Contact info', 'bi-info-circle'], ['Voice call', 'bi-telephone'], ['Video call', 'bi-camera-video'],
+          ['Cancel', 'bi-x-lg'], ['Close', 'bi-x-lg'], ['Send a photo', 'bi-paperclip'], ['Poll, announcement', 'bi-plus-lg'],
+          ['Remove ', 'bi-x'], ['Search', 'bi-search']
+        ];
+        function iconFor(title) {
+          for (var i = 0; i < ICONS.length; i++) if (title.indexOf(ICONS[i][0]) === 0) return ICONS[i][1];
+          return null;
+        }
+        function iconize(btn) {
+          var ic = iconFor(btn.title || '');
+          if (!ic) return;
+          var cur = btn.firstElementChild;
+          if (btn.childNodes.length === 1 && cur && cur.classList.contains(ic)) return;
+          btn.innerHTML = '<i class="bi ' + ic + '" aria-hidden="true"></i>';
+          btn.setAttribute('data-ic', '1');
+          if (!btn.getAttribute('aria-label')) btn.setAttribute('aria-label', btn.title);
+        }
+        function iconizeAll(rootNode) {
+          Array.prototype.forEach.call((rootNode || document).querySelectorAll('.jc-ibtn[title]'), iconize);
+        }
+        var obs = new MutationObserver(function (list) {
+          for (var i = 0; i < list.length; i++) {
+            var t = list[i].target;
+            var btn = t.nodeType === 1 ? (t.closest && t.closest('.jc-ibtn[title]')) : (t.parentNode && t.parentNode.closest && t.parentNode.closest('.jc-ibtn[title]'));
+            if (btn) { iconize(btn); continue; }
+            if (list[i].addedNodes) Array.prototype.forEach.call(list[i].addedNodes, function (n) {
+              if (n.nodeType !== 1) return;
+              if (n.matches && n.matches('.jc-ibtn[title]')) iconize(n); else iconizeAll(n);
+            });
+          }
+        });
+
+        // ---- theme ----
+        function applyTheme() {
+          var t = pref('jmsChatTheme', 'light');
+          var dark = t === 'dark' || (t === 'system' && window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches);
+          doc.classList.toggle('jc-dark', dark);
+          var mt = document.querySelector('meta[name=theme-color]');
+          if (mt) mt.setAttribute('content', dark ? '#202c33' : '#008069');
+          var b = $('railTheme');
+          if (b) { b.innerHTML = '<i class="bi ' + (dark ? 'bi-sun' : 'bi-moon-stars') + '"></i>'; b.setAttribute('data-tip', dark ? 'Light theme' : 'Dark theme'); }
+        }
+
+        // ---- rail ----
+        function btnByTitle(t) { return document.querySelector('.jc-side .jc-head .jc-ibtn[title="' + t + '"]'); }
+        function railButton(icon, tip, onClick, id) {
+          var b = document.createElement('button');
+          b.type = 'button';
+          b.innerHTML = '<i class="bi ' + icon + '"></i><span class="n"></span>';
+          b.setAttribute('data-tip', tip);
+          b.setAttribute('aria-label', tip);
+          if (id) b.id = id;
+          b.addEventListener('click', onClick);
+          return b;
+        }
+        var VIEWS = { starred: 'Starred messages', tasks: 'My tasks', approvals: 'Approvals waiting for me' };
+        function showView(v) {
+          if (v === railView) v = 'chats';
+          // the header buttons toggle their view; turn the current one off first
+          if (railView !== 'chats' && VIEWS[railView]) { var off = btnByTitle(VIEWS[railView]); if (off) off.click(); }
+          if (v !== 'chats' && VIEWS[v]) { var on = btnByTitle(VIEWS[v]); if (on) on.click(); }
+          railView = v;
+          Array.prototype.forEach.call($('rail').querySelectorAll('[data-view]'), function (b) { b.classList.toggle('on', b.getAttribute('data-view') === v); });
+        }
+        function buildRail() {
+          var rail = document.createElement('nav');
+          rail.id = 'rail';
+          rail.setAttribute('aria-label', 'JMS Chat');
+          var logo = document.createElement('img');
+          logo.className = 'logo'; logo.src = '/apple-touch-icon.png'; logo.alt = 'JMS';
+          rail.appendChild(logo);
+          [['chats', 'bi-chat-text-fill', 'Chats'], ['starred', 'bi-star', 'Starred messages'],
+            ['tasks', 'bi-clipboard-check', 'My tasks'], ['approvals', 'bi-check2-square', 'Approvals']].forEach(function (v) {
+            var b = railButton(v[1], v[2], function () { showView(v[0]); });
+            b.setAttribute('data-view', v[0]);
+            if (v[0] === 'chats') { b.classList.add('on'); b.id = 'railChats'; }
+            rail.appendChild(b);
+          });
+          var sep = document.createElement('div'); sep.className = 'sep'; rail.appendChild(sep);
+          rail.appendChild(railButton('bi-pencil-square', 'New chat  (Ctrl+Alt+N)', function () { showView('chats'); var b = btnByTitle('New chat'); if (b) b.click(); }));
+          rail.appendChild(railButton('bi-people', 'New group', function () { showView('chats'); var b = btnByTitle('New group'); if (b) b.click(); }));
+          var gap = document.createElement('div'); gap.className = 'gap'; rail.appendChild(gap);
+          var inst = railButton('bi-download', 'Install as a desktop app', install, 'railInstall');
+          inst.style.display = 'none';
+          rail.appendChild(inst);
+          rail.appendChild(railButton('bi-moon-stars', 'Dark theme', function () {
+            setPref('jmsChatTheme', doc.classList.contains('jc-dark') ? 'light' : 'dark'); applyTheme();
+          }, 'railTheme'));
+          rail.appendChild(railButton('bi-lock', 'App lock  (Ctrl+L)', lockMenu, 'railLock'));
+          rail.appendChild(railButton('bi-keyboard', 'Keyboard shortcuts  (Ctrl+/)', shortcutsHelp));
+          var out = btnByTitle('Sign out') || btnByTitle('Back to JMS');
+          if (out) rail.appendChild(railButton(out.title === 'Sign out' ? 'bi-box-arrow-right' : 'bi-house', out.title, function () { out.click(); }));
+          document.body.appendChild(rail);
+          // these now live on the rail (wide windows)
+          ['Starred messages', 'My tasks', 'Approvals waiting for me', 'New group', 'Sign out', 'Back to JMS'].forEach(function (t) {
+            var b = btnByTitle(t); if (b) b.classList.add('jc-onrail');
+          });
+          applyTheme();
+        }
+        function railBadge() {
+          var src = document.querySelector('.jc-badge');
+          var n = src && src.style.display !== 'none' ? src.textContent : '';
+          var dot = $('railChats') && $('railChats').querySelector('.n');
+          if (dot) { dot.textContent = n; dot.style.display = n && n !== '0' ? 'block' : 'none'; }
+        }
+
+        // ---- empty chat pane (wide windows) ----
+        function placeholder() {
+          var ph = document.querySelector('.jc-ph');
+          if (!ph || ph.querySelector('.jc-desk-ph')) return;
+          var d = document.createElement('div');
+          d.className = 'jc-desk-ph';
+          var mod = /Mac/.test(navigator.platform) ? '⌘' : 'Ctrl';
+          d.innerHTML = '<img src="/apple-touch-icon.png" alt=""><h2>JMS Chat for desktop</h2>' +
+            '<p>Message your team, share JMS pages and files, and follow up on work — all inside JMS. Pick a chat on the left to start.</p>' +
+            '<div class="keys"><span><kbd>' + mod + '</kbd> <kbd>K</kbd></span><span>Search chats</span>' +
+            '<span><kbd>' + mod + '</kbd> <kbd>Alt</kbd> <kbd>N</kbd></span><span>New chat</span>' +
+            '<span><kbd>Alt</kbd> <kbd>↑</kbd> <kbd>↓</kbd></span><span>Previous / next chat</span>' +
+            '<span><kbd>' + mod + '</kbd> <kbd>L</kbd></span><span>Lock the app</span></div>' +
+            '<div class="foot"><i class="bi bi-shield-lock"></i> Your messages stay on the JMS server</div>';
+          ph.style.position = 'relative';
+          Array.prototype.forEach.call(ph.children, function (c) { c.classList.add('jc-old-ph'); });
+          ph.appendChild(d);
+          var st = document.createElement('style');
+          st.textContent = '@media (min-width: 900px) { html.jc-appmode .jc-ph > .jc-old-ph { display: none; } }';
+          document.head.appendChild(st);
+        }
+
+        // ---- app lock (PIN, this device) ----
+        var lockCfg = null, entered = '', idleTimer = null, lastActive = Date.now();
+        function readLock() { try { lockCfg = JSON.parse(localStorage.getItem('jmsChatLock') || 'null'); } catch (_e) { lockCfg = null; } return lockCfg; }
+        function hash(pin, salt) {
+          var data = new TextEncoder().encode(salt + ':' + pin);
+          return crypto.subtle.digest('SHA-256', data).then(function (buf) {
+            return Array.prototype.map.call(new Uint8Array(buf), function (b) { return ('0' + b.toString(16)).slice(-2); }).join('');
+          });
+        }
+        function dots() {
+          var len = lockCfg ? lockCfg.len : 4, h = '';
+          for (var i = 0; i < len; i++) h += '<i class="' + (i < entered.length ? 'on' : '') + '"></i>';
+          $('lockDots').innerHTML = h;
+        }
+        function lockNow() {
+          if (!readLock()) return;
+          entered = '';
+          dots();
+          $('lockErr').textContent = '';
+          $('lock').classList.add('show');
+          doc.classList.add('jc-locked');
+          if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+        }
+        function unlocked() {
+          $('lock').classList.remove('show');
+          doc.classList.remove('jc-locked');
+          lastActive = Date.now();
+        }
+        function isLocked() { return $('lock').classList.contains('show'); }
+        function press(k) {
+          if (!lockCfg) return;
+          if (k === 'del') entered = entered.slice(0, -1);
+          else if (entered.length < lockCfg.len) entered += k;
+          dots();
+          if (entered.length === lockCfg.len) {
+            var try_ = entered;
+            hash(try_, lockCfg.salt).then(function (h) {
+              if (h === lockCfg.hash) { unlocked(); return; }
+              entered = '';
+              $('lockErr').textContent = 'Wrong PIN. Try again.';
+              var d = $('lockDots'); d.classList.remove('shake'); void d.offsetWidth; d.classList.add('shake');
+              dots();
+            });
+          }
+        }
+        function buildPad() {
+          var pad = $('lockPad');
+          ['1', '2', '3', '4', '5', '6', '7', '8', '9', '', '0', 'del'].forEach(function (k) {
+            var b = document.createElement('button');
+            b.type = 'button';
+            if (!k) { b.className = 'ghost'; b.disabled = true; b.style.visibility = 'hidden'; }
+            else if (k === 'del') { b.className = 'ghost'; b.innerHTML = '<i class="bi bi-backspace"></i>'; b.setAttribute('aria-label', 'Delete'); }
+            else b.textContent = k;
+            b.addEventListener('click', function () { if (k) press(k); });
+            pad.appendChild(b);
+          });
+          $('lockForgot').addEventListener('click', function () {
+            if (!confirm('Sign out of JMS Chat on this device? You can sign in again with your username and password, then set a new PIN.')) return;
+            setPref('jmsChatLock', null);
+            window.JMSChatApp.signOut();
+          });
+          document.addEventListener('keydown', function (e) {
+            if (!isLocked()) return;
+            if (/^[0-9]$/.test(e.key)) { press(e.key); e.preventDefault(); }
+            else if (e.key === 'Backspace') { press('del'); e.preventDefault(); }
+          }, true);
+        }
+        function activity() { lastActive = Date.now(); }
+        function startIdle() {
+          ['mousemove', 'keydown', 'touchstart', 'wheel'].forEach(function (ev) { document.addEventListener(ev, activity, { passive: true }); });
+          clearInterval(idleTimer);
+          idleTimer = setInterval(function () {
+            if (!readLock() || isLocked() || !lockCfg.after) return;
+            if (Date.now() - lastActive > lockCfg.after * 60000) lockNow();
+          }, 15000);
+          document.addEventListener('visibilitychange', function () {
+            if (document.hidden) setPref('jmsChatHiddenAt', String(Date.now()));
+            else if (readLock() && lockCfg.after && Date.now() - Number(pref('jmsChatHiddenAt', Date.now())) > lockCfg.after * 60000) lockNow();
+          });
+        }
+        function dialog(html) {
+          var bg = document.createElement('div');
+          bg.className = 'jc-dlg-bg';
+          bg.innerHTML = '<div class="jc-dlg" role="dialog" aria-modal="true">' + html + '</div>';
+          bg.addEventListener('click', function (e) { if (e.target === bg) bg.remove(); });
+          document.addEventListener('keydown', function esc(e) { if (e.key === 'Escape') { bg.remove(); document.removeEventListener('keydown', esc); } });
+          document.body.appendChild(bg);
+          return bg;
+        }
+        var AFTER = [[1, '1 minute'], [5, '5 minutes'], [15, '15 minutes'], [30, '30 minutes'], [60, '1 hour'], [0, 'Only when I lock it']];
+        function lockMenu() {
+          readLock();
+          if (!lockCfg) return setupPin();
+          var opts = AFTER.map(function (a) { return '<option value="' + a[0] + '"' + (a[0] === lockCfg.after ? ' selected' : '') + '>' + a[1] + '</option>'; }).join('');
+          var bg = dialog('<h3><i class="bi bi-lock"></i> App lock is on</h3><p>JMS Chat on this device asks for your PIN when it opens and after it has been idle.</p>' +
+            '<label>Lock automatically after</label><select id="dlgAfter">' + opts + '</select>' +
+            '<div class="row"><button class="red" id="dlgOff">Turn off</button><button class="alt" id="dlgChange">Change PIN</button><button id="dlgLock">Lock now</button></div>');
+          bg.querySelector('#dlgAfter').addEventListener('change', function (e) { lockCfg.after = Number(e.target.value); setPref('jmsChatLock', JSON.stringify(lockCfg)); });
+          bg.querySelector('#dlgLock').addEventListener('click', function () { bg.remove(); lockNow(); });
+          bg.querySelector('#dlgChange').addEventListener('click', function () { bg.remove(); setupPin(); });
+          bg.querySelector('#dlgOff').addEventListener('click', function () {
+            if (!confirm('Turn off the app lock on this device?')) return;
+            setPref('jmsChatLock', null); lockCfg = null; bg.remove();
+          });
+        }
+        function setupPin() {
+          var opts = AFTER.map(function (a) { return '<option value="' + a[0] + '"' + (a[0] === 5 ? ' selected' : '') + '>' + a[1] + '</option>'; }).join('');
+          var bg = dialog('<h3><i class="bi bi-lock"></i> Set an app lock PIN</h3><p>Anyone using this computer will need the PIN to open JMS Chat. The PIN stays on this device.</p>' +
+            '<label>New PIN (4 to 6 digits)</label><input id="dlgPin1" type="password" inputmode="numeric" maxlength="6" autocomplete="new-password">' +
+            '<label>Type it again</label><input id="dlgPin2" type="password" inputmode="numeric" maxlength="6" autocomplete="new-password">' +
+            '<label>Lock automatically after</label><select id="dlgAfter">' + opts + '</select>' +
+            '<div class="msg" id="dlgMsg"></div><div class="row"><button class="alt" id="dlgCancel">Cancel</button><button id="dlgSave">Turn on lock</button></div>');
+          bg.querySelector('#dlgPin1').focus();
+          bg.querySelector('#dlgCancel').addEventListener('click', function () { bg.remove(); });
+          bg.querySelector('#dlgSave').addEventListener('click', function () {
+            var a = bg.querySelector('#dlgPin1').value, b = bg.querySelector('#dlgPin2').value, msg = bg.querySelector('#dlgMsg');
+            if (!/^\d{4,6}$/.test(a)) { msg.textContent = 'Use 4 to 6 digits.'; return; }
+            if (a !== b) { msg.textContent = 'The two PINs are not the same.'; return; }
+            if (!window.crypto || !crypto.subtle) { msg.textContent = 'This browser cannot store a PIN safely.'; return; }
+            var salt = Array.prototype.map.call(crypto.getRandomValues(new Uint8Array(12)), function (x) { return ('0' + x.toString(16)).slice(-2); }).join('');
+            hash(a, salt).then(function (h) {
+              lockCfg = { hash: h, salt: salt, len: a.length, after: Number(bg.querySelector('#dlgAfter').value) };
+              setPref('jmsChatLock', JSON.stringify(lockCfg));
+              bg.remove();
+            });
+          });
+        }
+
+        // ---- keyboard shortcuts ----
+        function shortcutsHelp() {
+          var m = /Mac/.test(navigator.platform) ? '⌘' : 'Ctrl';
+          var rows = [[m + ' K', 'Search chats'], [m + ' Alt N', 'New chat'], [m + ' Shift N', 'New group'], ['Alt ↑ / Alt ↓', 'Previous / next chat'],
+            ['Esc', 'Close the open chat'], [m + ' L', 'Lock the app'], [m + ' Shift D', 'Dark / light theme'], [m + ' /', 'This list']];
+          var bg = dialog('<h3><i class="bi bi-keyboard"></i> Keyboard shortcuts</h3><table>' +
+            rows.map(function (r) { return '<tr><td>' + r[1] + '</td><td><kbd>' + r[0].split(' ').join('</kbd> <kbd>') + '</kbd></td></tr>'; }).join('') +
+            '</table><div class="row"><button id="dlgOk">OK</button></div>');
+          bg.querySelector('#dlgOk').addEventListener('click', function () { bg.remove(); });
+        }
+        function stepChat(dir) {
+          var items = Array.prototype.slice.call(document.querySelectorAll('.jc-list .jc-item'));
+          if (!items.length) return;
+          var i = items.findIndex(function (x) { return x.classList.contains('jc-sel'); });
+          var next = items[Math.max(0, Math.min(items.length - 1, i < 0 ? 0 : i + dir))];
+          if (next) { next.click(); next.scrollIntoView({ block: 'nearest' }); }
+        }
+        function shortcuts(e) {
+          if (isLocked()) return;
+          var mod = e.ctrlKey || e.metaKey, k = (e.key || '').toLowerCase();
+          if (mod && !e.shiftKey && !e.altKey && k === 'k') { e.preventDefault(); showView('chats'); var s = document.querySelector('.jc-search input'); if (s) { s.focus(); s.select(); } }
+          else if (mod && e.altKey && k === 'n') { e.preventDefault(); var b = btnByTitle('New chat'); if (b) b.click(); }
+          else if (mod && e.shiftKey && k === 'n') { e.preventDefault(); var g = btnByTitle('New group'); if (g) g.click(); }
+          else if (mod && !e.shiftKey && k === 'l') { e.preventDefault(); if (readLock()) lockNow(); else setupPin(); }
+          else if (mod && e.shiftKey && k === 'd') { e.preventDefault(); setPref('jmsChatTheme', doc.classList.contains('jc-dark') ? 'light' : 'dark'); applyTheme(); }
+          else if (mod && k === '/') { e.preventDefault(); shortcutsHelp(); }
+          else if (e.altKey && !mod && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) { e.preventDefault(); stepChat(e.key === 'ArrowDown' ? 1 : -1); }
+          else if (e.key === 'Escape' && !document.querySelector('.jc-dlg-bg, .jc-sheet-bg, .jc-iv, .jc-menu')) {
+            var back = document.querySelector('.jc-panel.jc-conv .jc-back');
+            if (back) back.click();
+          }
+        }
+
+        // ---- install as a desktop app (Chrome / Edge) ----
+        window.addEventListener('beforeinstallprompt', function (e) {
+          e.preventDefault();
+          installEvt = e;
+          var b = $('railInstall'); if (b) b.style.display = '';
+        });
+        window.addEventListener('appinstalled', function () { var b = $('railInstall'); if (b) b.style.display = 'none'; installEvt = null; });
+        function install() { if (installEvt) { installEvt.prompt(); installEvt = null; $('railInstall').style.display = 'none'; } }
+
+        // the lock shows before anything else when a PIN is set
+        buildPad();
+        if (readLock()) lockNow();
+        applyTheme();
+        if (window.matchMedia) {
+          var mq = matchMedia('(prefers-color-scheme: dark)');
+          if (mq.addEventListener) mq.addEventListener('change', applyTheme);
+        }
+
+        return {
+          ready: function () {
+            if (started) return;
+            started = true;
+            var root = document.querySelector('.jc-root');
+            iconizeAll(root);
+            if (root) obs.observe(root, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['title'] });
+            obs.observe(document.body, { childList: true });
+            buildRail();
+            placeholder();
+            railBadge();
+            var badge = document.querySelector('.jc-badge');
+            if (badge) new MutationObserver(railBadge).observe(badge, { childList: true, characterData: true, subtree: true, attributes: true });
+            document.addEventListener('keydown', shortcuts);
+            startIdle();
+          }
+        };
+      }());
 
       // ===== Sign-up (chatSignup.js) =====
       // First open on this phone: the request form. While a request waits: the waiting
