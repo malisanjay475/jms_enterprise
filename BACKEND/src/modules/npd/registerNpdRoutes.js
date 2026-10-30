@@ -37,19 +37,23 @@ const SHEET_ROLES = new Set(['ppcassmanager', 'ppcmanager', 'srppcmanager']);
 
 /* Department roles, matched on the role code or its label with everything but
    letters / digits removed (so 'sr__ppc_manager' and 'Sr. PPC Manager' are the
-   same). Stages of Purchase, HO, Production and W/H are admin only. */
+   same); a RegExp entry matches any role containing it (Purchase roles are
+   created in Settings with varying names). Stages of HO, Production and W/H
+   are admin only. */
 const DEPT_ROLES = {
   'Tool Room': ['toolroommanager'],
   Moulding: ['mouldingmanager'],
   Planning: ['srppcmanager', 'ppcmanager', 'ppcassmanager'],
   QC: ['quality', 'qchod', 'qualityassmanager', 'qualityasstmanager', 'qcassmanager'],
-  Packing: ['packingmanager']
+  Packing: ['packingmanager'],
+  Purchase: [/purchase/]
 };
 const norm = v => String(v || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 const userKeys = u => [norm(u && u.role_code), norm(u && u.role_label)].filter(Boolean);
 function roleDepts(u) {
   const keys = userKeys(u);
-  return Object.keys(DEPT_ROLES).filter(d => DEPT_ROLES[d].some(k => keys.includes(k)));
+  return Object.keys(DEPT_ROLES).filter(d => DEPT_ROLES[d].some(k =>
+    k instanceof RegExp ? keys.some(x => k.test(x)) : keys.includes(k)));
 }
 
 /* Columns of the NPD tracking sheet, in sheet order. type 'status' cells hold a
