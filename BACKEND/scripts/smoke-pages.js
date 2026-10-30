@@ -98,7 +98,8 @@ async function main() {
     if (args.shots) fs.mkdirSync(args.shots, { recursive: true });
 
     const { chromium } = loadPlaywright();
-    const browser = await chromium.launch({ channel: 'chrome' }).catch(() => chromium.launch());
+    // Prefer plain Chromium (CI / playwright install). Fall back to system Chrome when present.
+    const browser = await chromium.launch().catch(() => chromium.launch({ channel: 'chrome' }));
     const context = await browser.newContext({
         storageState: args.state || undefined,
         viewport: { width: 1366, height: 768 },

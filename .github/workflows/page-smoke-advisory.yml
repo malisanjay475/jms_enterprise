@@ -1,0 +1,110 @@
+name: JMS Page smoke (advisory)
+
+# Opens PUBLIC/*.html against a booted backend (logged-out). LOGIN is expected;
+# FAIL (JS parse errors, 4xx/5xx same-origin) fails the job but continue-on-error
+# keeps it non-blocking until the suite is trusted. See BACKEND/scripts/smoke-pages.js.
+
+on:
+  pull_request:
+    branches: [develop, main]
+    paths:
+      - 'BACKEND/PUBLIC/**'
+      - 'BACKEND/scripts/smoke-pages.js'
+      - '.github/workflows/page-smoke-advisory.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: page-smoke-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  page_smoke:
+    name: smoke-pages
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    services:
+      postgres:
+        image: postgres:14-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: jpsms
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d jpsms"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: "24"
+          cache: "npm"
+          cache-dependency-path: BACKEND/package-lock.json
+
+      - name: Install backend dependencies
+        working-directory: BACKEND
+        run: npm ci
+
+      - name: Install playwright-core + Chromium
+        working-directory: BACKEND
+        run: |
+          npm install --no-save playwright-core@1.55.0
+          npx playwright-core install --with-deps chromium
+
+      - name: Boot backend and smoke PUBLIC pages
+        working-directory: BACKEND
+        env:
+          NODE_ENV: test
+          DB_HOST: 127.0.0.1
+          DB_PORT: 5432
+          DB_USER: postgres
+          DB_PASSWORD: postgres
+          DB_NAME: jpsms
+          SERVER_TYPE: STANDALONE
+          LOCAL_FACTORY_ID: "1"
+          SYNC_API_KEY: pr-ci
+          GEMINI_API_KEY: dummy-key
+        shell: bash
+        run: |
+          cat > .env <<'EOF'
+          GEMINI_API_KEY=dummy-key
+          DB_USER=postgres
+          DB_PASSWORD=postgres
+          DB_HOST=127.0.0.1
+          DB_PORT=5432
+          DB_NAME=jpsms
+          SERVER_TYPE=STANDALONE
+          LOCAL_FACTORY_ID=1
+          SYNC_API_KEY=pr-ci
+          EOF
+
+          node scripts/wait-for-postgres.js
+          node scripts/auto-import-db-if-needed.js
+
+          node server.js > server.log 2>&1 &
+          SERVER_PID=$!
+          trap 'kill $SERVER_PID 2>/dev/null || true' EXIT
+
+          for i in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:3000/health >/dev/null; then
+              break
+            fi
+            sleep 2
+          done
+          curl -fsS http://127.0.0.1:3000/health
+
+          # Logged-out: LOGIN is fine; FAIL (broken JS / same-origin 4xx-5xx) is the signal.
+          node scripts/smoke-pages.js --base http://127.0.0.1:3000 --only login,dpr,planning,supervisor,masters,npd,purchase_vendors,raw_material_jobwise,barcode_printer,dpr_daily_report,job_summary
+
+      - name: Upload backend logs on failure
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: page-smoke-logs
+          path: BACKEND/server.log
