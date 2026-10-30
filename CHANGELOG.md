@@ -13,6 +13,9 @@ part of your PR. On release, the `[Unreleased]` items move under the new version
 
 ## [Unreleased]
 
+### Changed
+- NPD Tracker (v1.155.1): Moulding Manager also edits the Production column (Mass production - printing / tufting); Dispatch Manager edits the W/H columns (Finish goods receiving, Actual dispatch date).
+
 ### Added
 - JMS Chat sign-up in the Android app (app 3.4.0, v1.155.1): the sign-in screen opens on "Join JMS Chat" the first time (name, mobile, designation, department, HOD name); a sent request shows a waiting screen that asks GET /api/chat-app/signup/status every 15 s; once approved it shows "You're approved! Your username is …" and sets the first password (POST /api/chat-app/set-password with the phone's request token, or the request's mobile number on another phone), then opens the chat; a rejected request is forgotten and the form shows again. Sign-in also asks for a first password when the server answers set_password. The web menu has "JMS Chat · Users" (chat_users.html) as a sub-menu under User Management for admins and superadmins. No server API changes.
 
