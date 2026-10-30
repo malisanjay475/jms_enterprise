@@ -19,6 +19,7 @@
   var MAX_FILE = 10 * 1024 * 1024;
   var EDIT_MS = 15 * 60 * 1000;
   var me = null, isAdmin = false;
+  var canApprove = false; // admin or superadmin: sees chat sign-up requests (chatSignup.js)
   var convs = [], current = null, users = [];
   var adminAll = false, open = false, es = null, retry = 0;
   var oldestTs = null, hasMore = false;
@@ -292,6 +293,12 @@
     '.jc-ment div:hover,.jc-ment div.jc-on{background:var(--jc-bg2)}',
     '.jc-notice{display:flex;gap:8px;align-items:flex-start;background:#fff8d6;color:#5f5300;font-size:12px;padding:8px 10px;border-bottom:1px solid var(--jc-bd)}',
     '.jc-notice span{flex:1}',
+    '.jc-signupbar{align-items:center;font-size:13px;font-weight:600}',
+    '.jc-sucard{border:1px solid var(--jc-bd);border-radius:10px;padding:12px;margin-bottom:12px}',
+    '.jc-sucard b{font-size:15px}',
+    '.jc-sumeta{display:block;font-size:13px;color:var(--jc-mu);margin-top:2px;text-decoration:none}',
+    '.jc-sucard .jc-field{border:1px solid #cbd5e1;background:#fff}',
+    '.jc-sucard .jc-sfoot{padding:10px 0 0;border:0}',
     '.jc-notice button{border:0;border-radius:12px;background:#5f5300;color:#fff;font:inherit;font-size:11px;padding:3px 10px;cursor:pointer}',
     '.jc-ph small{display:block;margin-top:14px;font-size:11px}',
     // share button, mark mode, compose sheet, link cards, target banner
@@ -382,7 +389,7 @@
     '.jc-root.jc-stack .jc-fab{right:34px;bottom:108px}',
     '.jc-root.jc-stack .jc-toast{right:108px;bottom:30px}',
     '.jc-root.jc-stack .jc-panel{right:108px;bottom:20px;max-width:calc(100vw - 128px);max-height:calc(100vh - 40px)}',
-    '@media (max-width:640px){.jc-panel{z-index:100001;right:0;bottom:0;width:100vw;max-width:100vw;height:100vh;max-height:100vh;border-radius:0}.jc-side{width:100%;border:0}.jc-main{display:none}.jc-panel.jc-conv .jc-side{display:none}.jc-panel.jc-conv .jc-main{display:flex}.jc-back{display:inline-block}.jc-fab{right:16px;bottom:16px}.jc-panel.jc-open~.jc-fab{display:none}.jc-root.jc-stack .jc-panel{right:0;bottom:0;max-width:100vw;max-height:100vh}.jc-opt{display:block}}',
+    '@media (max-width:640px){.jc-panel{z-index:100001;right:0;bottom:0;width:100vw;max-width:100vw;height:100vh;max-height:100vh;border-radius:0}.jc-side,.jc-app .jc-side{width:100%;min-width:0;max-width:none;border:0}.jc-main{display:none}.jc-panel.jc-conv .jc-side{display:none}.jc-panel.jc-conv .jc-main{display:flex}.jc-back{display:inline-block}.jc-fab{right:16px;bottom:16px}.jc-panel.jc-open~.jc-fab{display:none}.jc-root.jc-stack .jc-panel{right:0;bottom:0;max-width:100vw;max-height:100vh}.jc-opt{display:block}}',
     '/* premium look for the full-window chat (JMS Chat page) */ .jc-app{font-family:\'Segoe UI\',system-ui,-apple-system,Roboto,Helvetica,Arial,sans-serif}',
     '.jc-app .jc-head{height:60px;background:linear-gradient(135deg,#075e54,#0b7c6e);color:#fff;border-bottom:0;box-shadow:0 1px 3px rgba(0,0,0,.12)}',
     '.jc-app .jc-head h3,.jc-app .jc-head .jc-name{color:#fff}.jc-app .jc-head .jc-prev{color:rgba(255,255,255,.82)}',
@@ -446,7 +453,9 @@
     tabs.style.display = 'none';
     var err = el('div', 'jc-err');
     var list = el('div', 'jc-list');
-    side.appendChild(sh); side.appendChild(search); side.appendChild(tabs); side.appendChild(err); side.appendChild(list);
+    var signupBar = el('div', 'jc-notice jc-signupbar');
+    signupBar.style.display = 'none';
+    side.appendChild(sh); side.appendChild(search); side.appendChild(tabs); side.appendChild(err); side.appendChild(signupBar); side.appendChild(list);
 
     // main
     var main = el('div', 'jc-main');
@@ -523,7 +532,7 @@
     setTimeout(stack, 2000);
     setTimeout(stack, 6000);
 
-    els = { panel: panel, list: list, sIn: sIn, tabs: tabs, tMine: tMine, tAll: tAll, err: err,
+    els = { signupBar: signupBar, panel: panel, list: list, sIn: sIn, tabs: tabs, tMine: tMine, tAll: tAll, err: err,
       main: main, mh: mh, mAv: mAv, mName: mName, mSub: mSub, mTitle: mTitle, mInfo: mInfo, msgs: msgs, ro: ro,
       comp: comp, ta: ta, send: send, ph: ph, badge: badge, newBtn: newBtn, fileIn: fileIn,
       editBar: editBar, editTxt: editTxt, replyBar: replyBar, ment: ment, mMute: mMute, side: side, mCall: mCall };
@@ -2047,6 +2056,11 @@
         if (current) convHeader();
         renderListIfIdle();
       }, 4100);
+    } else if (ev.type === 'signup_request' || ev.type === 'signup_update') {
+      if (canApprove) {
+        loadSignups();
+        if (ev.type === 'signup_request' && ev.request) toastText('🙋 New sign-up request', ev.request.name + ' · ' + ev.request.designation + ', ' + ev.request.department);
+      }
     } else if (ev.type === 'conversation') {
       // Group created, renamed, or people added/removed/left.
       var cid = ev.conversation_sync_id;
@@ -2715,6 +2729,99 @@
     t.appendChild(el('span', null, text));
     root.appendChild(t);
     setTimeout(function () { t.remove(); }, 4000);
+  }
+
+  // ---- chat sign-up requests (admins and superadmins) ----
+  var signupState = { list: [], factories: [] };
+
+  function loadSignups() {
+    if (!canApprove || !els.signupBar) return Promise.resolve();
+    return api('GET', API + '/signups').then(function (d) {
+      signupState = { list: d.requests || [], factories: d.factories || [] };
+      renderSignupBar();
+      if (signupState.sheetBody) renderSignupSheet();
+    }).catch(function () { /* older server: no sign-up */ });
+  }
+
+  function renderSignupBar() {
+    var bar = els.signupBar, n = signupState.list.length;
+    bar.innerHTML = '';
+    bar.style.display = n ? '' : 'none';
+    if (!n) return;
+    bar.appendChild(el('span', null, '🙋 ' + n + ' sign-up request' + (n === 1 ? '' : 's') + ' waiting for approval'));
+    var b = el('button', null, 'Review');
+    b.addEventListener('click', showSignups);
+    bar.appendChild(b);
+  }
+
+  function showSignups() {
+    var bg = el('div', 'jc-sheet-bg');
+    var sh = el('div', 'jc-sheet');
+    var h = el('h3', null, '🙋 Sign-up requests');
+    var x = el('button', 'jc-ibtn', '✕');
+    h.appendChild(x);
+    var body = el('div', 'jc-sbody');
+    sh.appendChild(h); sh.appendChild(body);
+    bg.appendChild(sh);
+    document.body.appendChild(bg);
+    signupState.sheetBody = body;
+    function close() { bg.remove(); signupState.sheetBody = null; }
+    x.addEventListener('click', close);
+    bg.addEventListener('click', function (e) { if (e.target === bg) close(); });
+    renderSignupSheet();
+    loadSignups();
+  }
+
+  function renderSignupSheet() {
+    var body = signupState.sheetBody;
+    body.innerHTML = '';
+    if (!signupState.list.length) { body.appendChild(el('div', 'jc-empty', 'No requests waiting.')); return; }
+    signupState.list.forEach(function (r) {
+      var card = el('div', 'jc-sucard');
+      card.appendChild(el('b', null, r.name));
+      card.appendChild(el('div', 'jc-sumeta', r.designation + ' · ' + r.department));
+      var tel = el('a', 'jc-sumeta', '📞 ' + r.mobile);
+      tel.href = 'tel:' + r.mobile;
+      card.appendChild(tel);
+      card.appendChild(el('div', 'jc-sumeta', 'HOD: ' + r.hod_name + ' · ' + new Date(r.created_at).toLocaleString([], { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })));
+      card.appendChild(el('div', 'jc-slabel', 'Username they will sign in with'));
+      var un = el('input', 'jc-field');
+      un.value = r.suggested_username || r.name;
+      un.maxLength = 40;
+      card.appendChild(un);
+      var fac = null;
+      if (signupState.factories.length) {
+        card.appendChild(el('div', 'jc-slabel', 'Factory'));
+        fac = el('select', 'jc-field');
+        var none = el('option', null, '— Not set —'); none.value = '';
+        fac.appendChild(none);
+        signupState.factories.forEach(function (f) { var o = el('option', null, f.name); o.value = f.id; fac.appendChild(o); });
+        card.appendChild(fac);
+      }
+      var msg = el('div', 'jc-sumeta');
+      var row = el('div', 'jc-sfoot');
+      var rej = el('button', 'jc-btn jc-danger', 'Reject');
+      var ok = el('button', 'jc-btn', 'Approve');
+      row.appendChild(msg); msg.style.flex = '1';
+      row.appendChild(rej); row.appendChild(ok);
+      card.appendChild(row);
+      function act(kind) {
+        if (kind === 'reject' && !confirm('Reject the request from ' + r.name + '?')) return;
+        ok.disabled = rej.disabled = true;
+        msg.textContent = '';
+        var payload = kind === 'approve' ? { username: un.value.trim(), factory_id: fac && fac.value ? Number(fac.value) : null } : {};
+        api('POST', API + '/signups/' + r.id + '/' + kind, payload).then(function (d) {
+          signupState.list = signupState.list.filter(function (q) { return q.id !== r.id; });
+          renderSignupBar();
+          renderSignupSheet();
+          toastText(kind === 'approve' ? '✅ Approved' : 'Rejected',
+            kind === 'approve' ? r.name + ' can now sign in as "' + d.request.username + '".' : r.name + "'s request was rejected.");
+        }).catch(function (e) { ok.disabled = rej.disabled = false; msg.textContent = e.message; msg.style.color = '#d93025'; });
+      }
+      ok.addEventListener('click', function () { act('approve'); });
+      rej.addEventListener('click', function () { act('reject'); });
+      body.appendChild(card);
+    });
   }
 
   // ---- link cards ----
@@ -3422,11 +3529,13 @@
     api('GET', API + '/me').then(function (d) {
       me = d.username;
       isAdmin = d.isSuperadmin;
+      canApprove = !!(d.isAdmin || d.isSuperadmin);
       serverInfo = { server_type: d.server_type || 'MAIN', factory_id: d.factory_id == null ? null : d.factory_id };
       build();
       if (!appMode) setupContextShare();
       if (isAdmin) els.tabs.style.display = 'flex';
       loadFolders();
+      if (canApprove) loadSignups();
       updateBadge();
       connect();
       setupServiceWorker();

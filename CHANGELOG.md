@@ -13,6 +13,12 @@ part of your PR. On release, the `[Unreleased]` items move under the new version
 
 ## [Unreleased]
 
+### Added
+- JMS Chat sign-up (v1.155.0): new src/modules/chat/chatSignup.js (MAIN only). The chat app (chat_app.html) opens on a "Join JMS Chat" form the first time on a phone: name, mobile, designation, department and HOD name. POST /api/chat-app/signup stores the request in chat_signups (only a hash of the phone's request token; one waiting request per mobile; 40 requests / hour per address). Admins and superadmins get a live "New sign-up request" toast and a "🙋 N sign-up requests waiting · Review" bar in the chat list; GET /api/chat/signups, POST /api/chat/signups/:id/approve (username editable, defaults to the name or name + last 4 of the mobile; optional factory) and /reject. Approve creates a users row with role chat_user, no password and no JMS permissions (About line = designation · department). The app checks GET /api/chat-app/signup/status every 15 s while waiting, then shows "You're approved! Your username is …" and asks for a password; POST /api/chat-app/set-password needs the request token from that phone or the request's mobile number, then signs in. /api/chat-app/login answers set_password for such an account until the password is set. Rejected requests are quietly forgotten by the app. /api/chat/me also returns isAdmin. Rollback: redeploy 1.154.3; the chat_signups table and chat_user accounts can stay.
+
+### Fixed
+- JMS Chat on phones: the chat list only filled about 80% of the screen width (a desktop rule .jc-app .jc-side{min-width:320px} beat the phone rule); it fills the screen again.
+
 ### Fixed
 - NPD Tracker (v1.154.3): Purchase users can now edit the Purchase column ("Packing material follow up & receiving"). Any role whose code or name contains "purchase" gets it.
 
