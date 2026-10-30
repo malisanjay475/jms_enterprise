@@ -6,7 +6,30 @@ import kotlinx.serialization.Serializable
 // fields are ignored, missing ones fall back to the defaults.
 
 @Serializable
-data class LoginReply(val ok: Boolean = false, val error: String? = null, val username: String? = null, val token: String? = null)
+data class LoginReply(
+    val ok: Boolean = false,
+    val error: String? = null,
+    val username: String? = null,
+    val token: String? = null,
+    /** Approved through sign-up and no password yet: ask for one (chatSignup.js). */
+    val set_password: Boolean = false,
+    /** set-password: this phone has no request token, ask for the request's mobile number. */
+    val need_mobile: Boolean = false
+)
+
+/** POST /api/chat-app/signup: the token stays on this phone to follow the request. */
+@Serializable
+data class SignupReply(val ok: Boolean = false, val error: String? = null, val token: String? = null)
+
+/** GET /api/chat-app/signup/status: pending / approved / rejected / unknown. */
+@Serializable
+data class SignupStatus(
+    val ok: Boolean = false,
+    val status: String = "unknown",
+    val name: String? = null,
+    val username: String? = null,
+    val password_set: Boolean = false
+)
 
 @Serializable
 data class Me(val ok: Boolean = false, val username: String = "", val isSuperadmin: Boolean = false)
