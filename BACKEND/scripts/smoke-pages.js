@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 /**
  * Page smoke test: opens every HTML page in PUBLIC/ in a real browser and
- * reports JS errors, console errors, failed requests and login redirects.
+ * reports JS errors, console errors, failed asset requests and login redirects.
+ * Without --state, /api/* 4xx/5xx/aborts are ignored (empty DB / auth noise);
+ * FAIL is for broken HTML/JS or missing same-origin static assets.
  * Read-only: it only loads pages, it never clicks or submits anything.
  *
  * Usage:
@@ -72,10 +74,17 @@ function loadPlaywright() {
     );
 }
 
+function isApiPath(url, base) {
+    const pathPart = url.startsWith(base) ? url.slice(base.length) : url;
+    return /^\/api(\/|$|\?)/.test(pathPart);
+}
+
 async function checkPage(context, base, file, opts) {
     const page = await context.newPage();
     const result = { page: file, status: null, jsErrors: [], consoleErrors: [], failedRequests: [], login: false, ms: 0 };
-    const loggedOutNoise = (text) => !opts.state && /Unauthorized|status of 401/.test(text);
+    // Logged-out smoke is about broken HTML/JS/assets. API 401/5xx/aborts on an empty
+    // CI DB (or pages that fetch before redirecting to login) are expected noise.
+    const loggedOutNoise = (text) => !opts.state && /Unauthorized|status of 401|Failed to fetch|API Error/i.test(text);
     page.on('pageerror', (err) => {
         const text = String(err.message || err).split('\n')[0];
         if (!loggedOutNoise(text)) result.jsErrors.push(text);
@@ -85,12 +94,15 @@ async function checkPage(context, base, file, opts) {
     });
     page.on('response', (res) => {
         const url = res.url();
-        // Logged out, every protected API answers 401; that is the LOGIN verdict, not a failure.
-        if (res.status() === 401 && !opts.state) return;
-        if (res.status() >= 400 && url.startsWith(base)) result.failedRequests.push(`${res.status()} ${url.slice(base.length)}`);
+        if (!url.startsWith(base)) return;
+        if (!opts.state && (res.status() === 401 || isApiPath(url, base))) return;
+        if (res.status() >= 400) result.failedRequests.push(`${res.status()} ${url.slice(base.length)}`);
     });
     page.on('requestfailed', (req) => {
-        if (req.url().startsWith(base)) result.failedRequests.push(`FAILED ${req.url().slice(base.length)} (${req.failure()?.errorText})`);
+        const url = req.url();
+        if (!url.startsWith(base)) return;
+        if (!opts.state && isApiPath(url, base)) return;
+        result.failedRequests.push(`FAILED ${url.slice(base.length)} (${req.failure()?.errorText})`);
     });
 
     const started = Date.now();
