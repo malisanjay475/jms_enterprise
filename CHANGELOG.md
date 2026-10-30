@@ -14,6 +14,7 @@ part of your PR. On release, the `[Unreleased]` items move under the new version
 ## [Unreleased]
 
 ### Added
+- NPD Tracker (npd.html, v1.154.0): stage editing by role (Admin / Superadmin all columns; Tool Room, Moulding, Planning, QC and Packing roles only their own columns), only Superadmin deletes, child moulds under each product with the same columns, completion date shown on Complete stages, and a mandatory remark on every stage change.
 - Page smoke test (v1.153.4): new BACKEND/scripts/smoke-pages.js opens every PUBLIC/*.html page in a real browser (playwright-core, or the copy bundled with the global @playwright/cli) and reports JS errors, console errors, failed / 4xx-5xx same-origin requests and login redirects; read-only, exit code 1 on any FAIL. Options --base, --state (logged-in storage state), --only, --shots.
 
 ### Fixed
