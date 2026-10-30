@@ -36,9 +36,33 @@ function parseArgs(argv) {
 }
 
 function loadPlaywright() {
-    try { return require('playwright-core'); } catch (_) { /* fall through to global */ }
-    const globalRoot = execSync('npm root -g', { encoding: 'utf8' }).trim();
-    return require(path.join(globalRoot, '@playwright', 'cli', 'node_modules', 'playwright-core'));
+    const tried = [];
+    const tryRequire = (label, loader) => {
+        try { return loader(); } catch (err) {
+            tried.push(`${label}: ${String(err && err.message || err).split('\n')[0]}`);
+            return null;
+        }
+    };
+    // Prefer an install next to BACKEND/ (CI: npm i playwright-core in BACKEND/).
+    const local = tryRequire('BACKEND/node_modules', () =>
+        require(require.resolve('playwright-core', { paths: [path.join(__dirname, '..'), process.cwd()] }))
+    );
+    if (local) return local;
+    const bare = tryRequire("require('playwright-core')", () => require('playwright-core'));
+    if (bare) return bare;
+    try {
+        const globalRoot = execSync('npm root -g', { encoding: 'utf8' }).trim();
+        const fromCli = tryRequire('@playwright/cli', () =>
+            require(path.join(globalRoot, '@playwright', 'cli', 'node_modules', 'playwright-core'))
+        );
+        if (fromCli) return fromCli;
+    } catch (err) {
+        tried.push(`npm root -g: ${String(err && err.message || err).split('\n')[0]}`);
+    }
+    throw new Error(
+        'playwright-core not found. Install with: npm i -D playwright-core && npx playwright-core install chromium\n' +
+        tried.map((t) => `  - ${t}`).join('\n')
+    );
 }
 
 async function checkPage(context, base, file, opts) {

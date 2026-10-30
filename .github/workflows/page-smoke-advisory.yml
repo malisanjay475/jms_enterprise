@@ -57,6 +57,7 @@ jobs:
         run: |
           npm install --no-save playwright-core@1.55.0
           npx playwright-core install --with-deps chromium
+          node -e "const p=require('playwright-core'); console.log('playwright-core OK', require.resolve('playwright-core'));"
 
       - name: Boot backend and smoke PUBLIC pages
         working-directory: BACKEND
@@ -84,6 +85,8 @@ jobs:
           LOCAL_FACTORY_ID=1
           SYNC_API_KEY=pr-ci
           EOF
+          # Strip accidental leading spaces from the indented heredoc above.
+          sed -i 's/^[[:space:]]\+//' .env
 
           node scripts/wait-for-postgres.js
           node scripts/auto-import-db-if-needed.js
@@ -92,7 +95,7 @@ jobs:
           SERVER_PID=$!
           trap 'kill $SERVER_PID 2>/dev/null || true' EXIT
 
-          for i in $(seq 1 60); do
+          for i in $(seq 1 90); do
             if curl -fsS http://127.0.0.1:3000/health >/dev/null; then
               break
             fi
