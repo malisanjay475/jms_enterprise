@@ -266,7 +266,7 @@
             const COLS = GROUPS.flatMap(g => g.cols);
             const STATE = [['pending', 'Pending'], ['in_progress', 'In Progress'], ['complete', 'Complete'], ['na', 'N/A']];
             const PSTAT = ['Hold', 'Launched', 'Delayed', 'On Schedule', 'Cancelled'];
-            const S = { rows: [], canEdit: false, editable: new Set(), depts: [], q: '', fstat: '', open: null, pending: null };
+            const S = { rows: [], canEdit: false, canDelete: false, editable: new Set(), depts: [], q: '', fstat: '', open: null, pending: null };
             const $ = id => document.getElementById(id);
             const esc = v => String(v == null ? '' : v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
             const psClass = s => 'ps-' + String(s || '').replace(/\s+/g, '');
@@ -278,12 +278,13 @@
                     const res = await api('/npd/products');
                     S.rows = res.data || [];
                     S.canEdit = !!res.can_edit;
+                    S.canDelete = !!res.can_delete;
                     S.editable = new Set(res.editable_stages || []);
                     S.depts = res.departments || [];
                     $('addBtn').style.display = S.canEdit ? '' : 'none';
                     $('roNote').textContent = S.canEdit ? ''
                         : S.editable.size ? `You can edit ${S.depts.join(' / ')} stages only`
-                        : 'View only - editing is for PPC managers and the stage departments';
+                        : 'View only - editing is for admin and the stage departments';
                     render();
                 } catch (e) { }
             }
@@ -321,7 +322,7 @@
 
                 let h = `<thead><tr class="grp"><th class="fix c0" rowspan="2" style="top:0">Sr</th><th class="fix c1" rowspan="2" style="top:0;text-align:left">Product / Child Mould</th>`;
                 GROUPS.forEach(g => { h += `<th colspan="${g.cols.length}">${esc(g.label)}</th>`; });
-                h += `<th rowspan="2" style="top:0;min-width:140px">Status</th><th rowspan="2" style="top:0;min-width:230px">Remarks</th>${S.canEdit ? '<th rowspan="2" style="top:0"></th>' : ''}</tr><tr class="col">`;
+                h += `<th rowspan="2" style="top:0;min-width:140px">Status</th><th rowspan="2" style="top:0;min-width:230px">Remarks</th>${S.canDelete ? '<th rowspan="2" style="top:0"></th>' : ''}</tr><tr class="col">`;
                 COLS.forEach(c => { h += `<th>${esc(c[1])}${c[2] ? `<small>${esc(c[2])}</small>` : ''}</th>`; });
                 h += `</tr></thead><tbody>`;
                 rows.forEach(p => {
@@ -339,9 +340,9 @@
                     COLS.forEach(c => { h += stageCell(p, c); });
                     h += S.canEdit
                         ? `<td><select class="ps ${psClass(p.status)}" data-id="${p.id}" data-f="status"><option value="">— Select —</option>${PSTAT.map(s => `<option${s === p.status ? ' selected' : ''}>${s}</option>`).join('')}</select></td>
-                           <td><textarea class="rm" data-id="${p.id}" data-f="remarks">${esc(p.remarks || '')}</textarea></td>
-                           <td><button class="btn sm danger" data-del="${p.id}" title="Delete"><i class="bi bi-trash"></i></button></td>`
+                           <td><textarea class="rm" data-id="${p.id}" data-f="remarks">${esc(p.remarks || '')}</textarea></td>`
                         : `<td>${p.status ? `<span class="chip ${psClass(p.status)}">${esc(p.status)}</span>` : '<span class="none">—</span>'}</td><td style="min-width:230px">${esc(p.remarks || '')}</td>`;
+                    if (S.canDelete) h += `<td><button class="btn sm danger" data-del="${p.id}" title="Delete"><i class="bi bi-trash"></i></button></td>`;
                     h += '</tr>';
                 });
                 $('grid').innerHTML = h + '</tbody>';

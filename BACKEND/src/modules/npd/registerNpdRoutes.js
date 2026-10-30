@@ -10,11 +10,11 @@
  * status (Hold / Launched / Delayed / On Schedule / Cancelled), remarks, the
  * trial reports and the product photos taken after the trial.
  *
- * Everyone who can open the page can view. PPC Ass. Manager, PPC Manager,
- * Sr. PPC Manager, General Manager (and admin / superadmin) own the sheet: they
- * add / delete products and child moulds, set status, upload files and can edit
- * every stage. Department roles (Tool Room, Moulding, Planning, QC, ...) edit
- * only the stages of their own department (STAGES[].depts).
+ * Everyone who can open the page can view. Admin / superadmin edit every
+ * stage; only superadmin deletes products and child moulds. PPC managers add
+ * products and child moulds, set name / status / remarks and upload files.
+ * Department roles (DEPT_ROLES) edit only their department's stages
+ * (STAGES[].depts), on products and child moulds alike.
  *
  * A product can have child moulds: rows with parent_sync_id = the product's
  * sync_id, tracked through the same stages and shown under their product.
@@ -29,24 +29,27 @@ const multer = require('multer');
 const { getRequestUsername } = require('../../app/requestContext');
 const { sendServerError } = require('../../app/httpErrors');
 
-const EDIT_ROLES = new Set(['ppc_ass_manager', 'ppc_manager', 'sr_ppc_manager', 'sr__ppc_manager', 'general_manager', 'admin', 'superadmin']);
+/* Admin / superadmin edit everything. Only superadmin deletes products / moulds.
+   PPC managers also run the sheet itself (add products and moulds, name,
+   status, remarks, files). */
+const ADMIN_ROLES = new Set(['admin', 'superadmin']);
+const SHEET_ROLES = new Set(['ppcassmanager', 'ppcmanager', 'srppcmanager']);
 
-/* Department roles: which NPD departments a role code edits. Matched by pattern
-   so roles added later from Settings (e.g. 'packing_supervisor') work too. */
-const DEPT_RULES = [
-  [/tool/, 'Tool Room'],
-  [/mould|moulding|^supervisor$|shifting/, 'Moulding'],
-  [/ppc|planner|planning/, 'Planning'],
-  [/^quality$|qc/, 'QC'],
-  [/packing|packaging/, 'Packing'],
-  [/purchase/, 'Purchase'],
-  [/printing|tufting|production/, 'Production'],
-  [/store|warehouse|^wh_|_wh$/, 'W/H'],
-  [/^ho_|head_office/, 'HO']
-];
-function roleDepts(roleCode) {
-  const r = String(roleCode || '').toLowerCase();
-  return DEPT_RULES.filter(([re]) => re.test(r)).map(([, d]) => d);
+/* Department roles, matched on the role code or its label with everything but
+   letters / digits removed (so 'sr__ppc_manager' and 'Sr. PPC Manager' are the
+   same). Stages of Purchase, HO, Production and W/H are admin only. */
+const DEPT_ROLES = {
+  'Tool Room': ['toolroommanager'],
+  Moulding: ['mouldingmanager'],
+  Planning: ['srppcmanager', 'ppcmanager', 'ppcassmanager'],
+  QC: ['quality', 'qchod', 'qualityassmanager', 'qualityasstmanager', 'qcassmanager'],
+  Packing: ['packingmanager']
+};
+const norm = v => String(v || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+const userKeys = u => [norm(u && u.role_code), norm(u && u.role_label)].filter(Boolean);
+function roleDepts(u) {
+  const keys = userKeys(u);
+  return Object.keys(DEPT_ROLES).filter(d => DEPT_ROLES[d].some(k => keys.includes(k)));
 }
 
 /* Columns of the NPD tracking sheet, in sheet order. type 'status' cells hold a
@@ -241,22 +244,27 @@ function registerNpdRoutes(app, pool) {
   async function sessionUser(req) {
     const username = getRequestUsername(req);
     if (!username) return null;
-    const r = await pool.query('SELECT username, role_code FROM users WHERE username = $1 LIMIT 1', [username]);
+    const r = await pool.query(
+      `SELECT u.username, u.role_code, r.label AS role_label
+         FROM users u LEFT JOIN roles r ON r.code = u.role_code
+        WHERE u.username = $1 LIMIT 1`, [username]);
     return r.rows[0] || null;
   }
-  const canEdit = u => !!u && EDIT_ROLES.has(String(u.role_code || '').toLowerCase());
+  const isAdmin = u => !!u && ADMIN_ROLES.has(norm(u.role_code));
+  const isSuperadmin = u => !!u && norm(u.role_code) === 'superadmin';
+  const canEdit = u => isAdmin(u) || (!!u && userKeys(u).some(k => SHEET_ROLES.has(k)));
   /* stage keys this user may change */
   const editableStages = u => {
     if (!u) return [];
-    if (canEdit(u)) return STAGES.map(s => s.key);
-    const d = roleDepts(u.role_code);
+    if (isAdmin(u)) return STAGES.map(s => s.key);
+    const d = roleDepts(u);
     return STAGES.filter(s => s.depts.some(x => d.includes(x))).map(s => s.key);
   };
 
   async function requireEditor(req, res) {
     const u = await sessionUser(req);
     if (!u) { res.status(401).json({ ok: false, error: 'Unauthorized' }); return null; }
-    if (!canEdit(u)) { res.status(403).json({ ok: false, error: 'Only PPC Ass. Manager, PPC Manager and Sr. PPC Manager can edit NPD' }); return null; }
+    if (!canEdit(u)) { res.status(403).json({ ok: false, error: 'Only admin and PPC managers can do this in NPD' }); return null; }
     return u;
   }
 
@@ -277,8 +285,9 @@ function registerNpdRoutes(app, pool) {
       res.json({
         ok: true,
         can_edit: canEdit(u),
+        can_delete: isSuperadmin(u),
         editable_stages: editableStages(u),
-        departments: u ? (canEdit(u) ? ['All'] : roleDepts(u.role_code)) : [],
+        departments: u ? (isAdmin(u) ? ['All'] : roleDepts(u)) : [],
         data: products.rows.map(p => ({ ...p, files: byProduct.get(String(p.sync_id)) || [] }))
       });
     } catch (err) { sendServerError(res, err); }
@@ -457,7 +466,7 @@ function registerNpdRoutes(app, pool) {
       const b = req.body || {};
       const owner = canEdit(u);
       if (!owner && (b.product_name !== undefined || b.status !== undefined || b.remarks !== undefined)) {
-        return res.status(403).json({ ok: false, error: 'Only PPC managers can change product name, status or remarks' });
+        return res.status(403).json({ ok: false, error: 'Only admin and PPC managers can change product name, status or remarks' });
       }
       let stageInfo = null;
       if (b.stages !== undefined) {
@@ -522,8 +531,9 @@ function registerNpdRoutes(app, pool) {
   app.delete('/api/npd/products/:id', async (req, res) => {
     try {
       await ensureTables();
-      const u = await requireEditor(req, res);
-      if (!u) return;
+      const u = await sessionUser(req);
+      if (!u) return res.status(401).json({ ok: false, error: 'Unauthorized' });
+      if (!isSuperadmin(u)) return res.status(403).json({ ok: false, error: 'Only superadmin can delete NPD products and child moulds' });
       const id = parseInt(req.params.id, 10);
       const r = await pool.query('DELETE FROM npd_products WHERE id = $1 RETURNING sync_id', [id]);
       if (!r.rowCount) return res.status(404).json({ ok: false, error: 'Product not found' });
