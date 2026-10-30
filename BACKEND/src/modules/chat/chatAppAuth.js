@@ -14,12 +14,37 @@ const lockout = require('../../app/loginLockout');
 const chatSync = require('./chatSync');
 const chatGate = require('./chatGate');
 const chatSecure = require('./chatSecure');
+const chatSignup = require('./chatSignup');
 
 function clientIp(req) {
   return String(req.headers['x-forwarded-for'] || req.socket?.remoteAddress || '').split(',')[0].trim();
 }
 
-function registerChatAppAuthRoutes(app, pool) {
+function registerChatAppAuthRoutes(app, pool, { pushTo = () => {} } = {}) {
+  // After the password (or a first password) checked out: chat rollout, device, session.
+  async function completeLogin(req, res, u) {
+    // Chat switched off, or this user's factory not yet in the rollout.
+    const a = await chatGate.access(pool, { username: u.username, role: String(u.role_code || '').toLowerCase() });
+    if (!a.ok) return res.status(403).json({ ok: false, error: 'Chat is not available for your login yet.' });
+
+    // The cookie serves chat_app.html; the native app sends the same token as
+    // "Authorization: Bearer" (auth.js accepts it on /api/chat/* only).
+    const device = await chatSecure.registerDevice(pool, u, req);
+    if (!device.approved) {
+      return res.status(403).json({ ok: false, pending: true, error: 'This phone or browser is new. Ask your JMS admin to approve it, then sign in again.' });
+    }
+    const token = await issueChatSession(pool, req, res, u, undefined, device.id);
+    const ua = String(req.headers['user-agent'] || '');
+    pool.query(
+      `INSERT INTO user_activity_log (username, role_code, app_id, action, page, device_type, ip_address, user_agent, created_at)
+       VALUES ($1,$2,'chat_app','login',NULL,$3,$4,$5,NOW())`,
+      [u.username, u.role_code || '', /mobile|android|iphone|ipad/i.test(ua) ? 'mobile' : 'desktop', clientIp(req), ua.slice(0, 500)]
+    ).catch(() => {});
+    return res.json({ ok: true, username: u.username, token, device_id: device.id });
+  }
+
+  chatSignup.registerSignupPublicRoutes(app, pool, { completeLogin, pushTo });
+
   app.post('/api/chat-app/login', async (req, res) => {
     try {
       if (chatSync.isLocal()) {
@@ -27,7 +52,7 @@ function registerChatAppAuthRoutes(app, pool) {
       }
       const username = String(req.body?.username || '').trim();
       const password = String(req.body?.password || '');
-      if (!username || !password) return res.status(400).json({ ok: false, error: 'Enter your username and password.' });
+      if (!username) return res.status(400).json({ ok: false, error: 'Enter your username and password.' });
 
       const lockMsg = lockout.checkBruteForce(username, req.ip);
       if (lockMsg) return res.status(429).json({ ok: false, error: lockMsg });
@@ -38,31 +63,17 @@ function registerChatAppAuthRoutes(app, pool) {
           ORDER BY (username = $1) DESC LIMIT 1`,
         [username]
       );
+      // Approved through sign-up and never signed in: the app asks for a first password.
+      if (u && !String(u.password || '').trim() && await chatSignup.needsFirstPassword(pool, u.username)) {
+        return res.status(409).json({ ok: false, set_password: true, username: u.username, error: 'Welcome! Set your password to finish signing in.' });
+      }
       const valid = !!u && String(u.password || '').startsWith('$2') && await bcrypt.compare(password, u.password);
       if (!valid) {
         lockout.recordLoginFailure(username, req.ip);
         return res.status(401).json({ ok: false, error: 'Invalid username or password' });
       }
       lockout.clearLoginFailures(username, req.ip);
-
-      // Chat switched off, or this user's factory not yet in the rollout.
-      const a = await chatGate.access(pool, { username: u.username, role: String(u.role_code || '').toLowerCase() });
-      if (!a.ok) return res.status(403).json({ ok: false, error: 'Chat is not available for your login yet.' });
-
-      // The cookie serves chat_app.html; the native app sends the same token as
-      // "Authorization: Bearer" (auth.js accepts it on /api/chat/* only).
-      const device = await chatSecure.registerDevice(pool, u, req);
-      if (!device.approved) {
-        return res.status(403).json({ ok: false, pending: true, error: 'This phone or browser is new. Ask your JMS admin to approve it, then sign in again.' });
-      }
-      const token = await issueChatSession(pool, req, res, u, undefined, device.id);
-      const ua = String(req.headers['user-agent'] || '');
-      pool.query(
-        `INSERT INTO user_activity_log (username, role_code, app_id, action, page, device_type, ip_address, user_agent, created_at)
-         VALUES ($1,$2,'chat_app','login',NULL,$3,$4,$5,NOW())`,
-        [u.username, u.role_code || '', /mobile|android|iphone|ipad/i.test(ua) ? 'mobile' : 'desktop', clientIp(req), ua.slice(0, 500)]
-      ).catch(() => {});
-      res.json({ ok: true, username: u.username, token, device_id: device.id });
+      await completeLogin(req, res, u);
     } catch (err) {
       console.error('[chat] app login:', err);
       res.status(500).json({ ok: false, error: 'Sign-in failed. Please try again.' });

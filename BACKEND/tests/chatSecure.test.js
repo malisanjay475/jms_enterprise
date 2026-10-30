@@ -37,6 +37,8 @@ describe('device sessions', () => {
   test('platform from the user agent', () => {
     const { platformOf } = chatSecure.__test;
     expect(platformOf('okhttp/4.12.0')).toBe('android-app');
+    expect(platformOf('JMSChatApp/2.6.0 (Android)')).toBe('android-app');
+    expect(platformOf('JMSChatApp/1.0.0 (macOS)')).toBe('mac-app');
     expect(platformOf('Mozilla/5.0 (Linux; Android 14)')).toBe('android-web');
     expect(platformOf('Mozilla/5.0 (Windows NT 10.0)')).toBe('web');
   });

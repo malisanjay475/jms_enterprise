@@ -19,7 +19,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const multer = require('multer');
-const { isSuperadmin } = require('../../app/auth');
+const { isSuperadmin, isAdminLike } = require('../../app/auth');
 const { sniffAttachment } = require('./attachmentType');
 const chatSync = require('./chatSync');
 const chatNotify = require('./chatNotify');
@@ -36,6 +36,7 @@ const chatTeam = require('./chatTeam');
 const chatSecure = require('./chatSecure');
 const chatFcm = require('./chatFcm');
 const { registerChatAppAuthRoutes } = require('./chatAppAuth');
+const chatSignup = require('./chatSignup');
 
 const DM_ID = chatSync.deterministicIdSql('chat-dm', '$1::text');
 const MEMBER_ID = (conv, user) => chatSync.deterministicIdSql('chat-member', conv, `LOWER(${user})`);
@@ -744,7 +745,7 @@ function registerChatRoutes(app, pool) {
     uploadRoot, ensureSchema: () => ensureChatSchema(pool), getSettings: () => chatGate.ownSettings(pool)
   });
   registerChatSettingsRoutes(app, pool);
-  registerChatAppAuthRoutes(app, pool);
+  registerChatAppAuthRoutes(app, pool, { pushTo });
   // Kill switch / staged rollout: every /api/chat/* route answers 404 while chat is off
   // for this user (the sync routes under /api/sync/chat keep running).
   app.use('/api/chat', chatGate.middleware(pool));
@@ -779,6 +780,7 @@ function registerChatRoutes(app, pool) {
   chatTeam.registerTeamRoutes(app, pool, { ready, fail, membership, decorate, localFactoryId, uploadRoot });
   chatTeam.ensureTeamSchema(pool).catch((err) => console.warn('[chat] team schema:', err.message));
   chatSecure.registerSecureRoutes(app, pool, { ready, fail, membership, localFactoryId });
+  chatSignup.registerSignupAdminRoutes(app, pool, { ready, fail, pushTo, isOnline });
   chatSecure.ensureSecureSchema(pool).catch((err) => console.warn('[chat] secure schema:', err.message));
   require('../../app/auth').setChatTokenCheck(chatSecure.tokenStillValid);
   if (!chatSync.isLocal()) chatSecure.start(pool);
@@ -790,7 +792,7 @@ function registerChatRoutes(app, pool) {
       if (!(await ready(req, res))) return;
       const rt = chatSync.runtime();
       res.json({
-        ok: true, username: req.auth.username, isSuperadmin: isSuperadmin(req.auth),
+        ok: true, username: req.auth.username, isSuperadmin: isSuperadmin(req.auth), isAdmin: isAdminLike(req.auth),
         server_type: rt.serverType, factory_id: rt.serverType === 'LOCAL' ? localFactoryId() : null
       });
     } catch (err) { fail(res, err, 'me'); }

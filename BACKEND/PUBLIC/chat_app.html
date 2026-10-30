@@ -19,7 +19,8 @@
   <style>
     html, body { margin: 0; height: 100%; overscroll-behavior: none; -webkit-text-size-adjust: 100%; background: #f0f2f5; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
     #login { display: none; min-height: 100%; box-sizing: border-box; flex-direction: column; align-items: center; justify-content: center; padding: calc(24px + env(safe-area-inset-top)) calc(16px + env(safe-area-inset-right)) calc(24px + env(safe-area-inset-bottom)) calc(16px + env(safe-area-inset-left)); background: linear-gradient(#075e54 0 220px, #f0f2f5 220px); }
-    #login.show { display: flex; }
+    #login.show { display: flex; position: fixed; inset: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; justify-content: flex-start; }
+    #login.show > .card { margin: auto 0; flex: none; }
     #login .card { width: 100%; max-width: 380px; background: #fff; border-radius: 14px; box-shadow: 0 6px 24px rgba(0,0,0,.12); padding: 28px 22px; box-sizing: border-box; }
     #login .logo { display: block; width: 72px; height: 72px; border-radius: 18px; margin: 0 auto 10px; box-shadow: 0 2px 8px rgba(0,0,0,.15); }
     #login h1 { text-align: center; font-size: 22px; margin: 0 0 4px; color: #111b21; }
@@ -30,6 +31,12 @@
     #login button { width: 100%; margin-top: 20px; padding: 13px; font-size: 16px; font-weight: 600; color: #fff; background: #00a884; border: 0; border-radius: 24px; cursor: pointer; }
     #login button:disabled { opacity: .6; }
     #login #err { color: #d32f2f; font-size: 14px; min-height: 18px; margin-top: 12px; text-align: center; }
+    #login .alt { display: block; text-align: center; margin-top: 16px; color: #54656f; font-size: 14px; text-decoration: none; }
+    #login .alt b { color: #008069; }
+    #login .msg { color: #d32f2f; font-size: 14px; min-height: 18px; margin-top: 12px; text-align: center; }
+    #login .big { font-size: 46px; text-align: center; margin-bottom: 6px; }
+    #login .small { font-size: 12.5px; margin-top: -12px; }
+    #login #waitCheck { background: #fff; color: #008069; border: 1px solid #008069; }
     #login .foot { color: #8696a0; font-size: 12px; text-align: center; margin-top: 18px; }
     #loading { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; color: #667781; padding: 24px; text-align: center; }
     /* ===== Phone / iPhone app: WhatsApp-style look =====
@@ -128,6 +135,54 @@
       <button id="go" type="submit">Sign in</button>
       <div id="err"></div>
       <div class="foot">Messages may be reviewed by administrators.</div>
+      <a class="alt" href="#" data-go="suForm">New here? <b>Request access</b></a>
+    </form>
+
+    <!-- Sign-up request (chatSignup.js): an admin approves it -->
+    <form class="card" id="suForm" autocomplete="on" style="display:none">
+      <img class="logo" src="/apple-touch-icon.png" alt="">
+      <h1>Join JMS Chat</h1>
+      <p class="sub">Send your details. An admin will approve your account.</p>
+      <label for="suName">Full name</label>
+      <input id="suName" name="name" autocomplete="name" maxlength="60" required>
+      <label for="suMobile">Mobile number</label>
+      <input id="suMobile" name="tel" type="tel" inputmode="numeric" autocomplete="tel" maxlength="16" placeholder="10-digit mobile number" required>
+      <label for="suDesig">Designation</label>
+      <input id="suDesig" name="designation" maxlength="60" placeholder="e.g. Operator, Supervisor" required>
+      <label for="suDept">Department</label>
+      <input id="suDept" name="department" maxlength="60" placeholder="e.g. Moulding, QC, Store" required>
+      <label for="suHod">HOD name</label>
+      <input id="suHod" name="hod" maxlength="60" required>
+      <button id="suGo" type="submit">Send request</button>
+      <div class="msg" id="suErr"></div>
+      <a class="alt" href="#" data-go="form">Already have an account? <b>Sign in</b></a>
+    </form>
+
+    <!-- Waiting for an admin -->
+    <div class="card" id="waitCard" style="display:none">
+      <div class="big">⏳</div>
+      <h1>Request sent</h1>
+      <p class="sub" id="waitText">Waiting for approval from your admin.</p>
+      <p class="sub small">You can close the app. Open it again any time to check; this screen updates by itself.</p>
+      <button id="waitCheck" type="button">Check now</button>
+      <a class="alt" href="#" data-go="form">Have an account already? <b>Sign in</b></a>
+    </div>
+
+    <!-- First sign-in after approval: set the password -->
+    <form class="card" id="pwForm" style="display:none">
+      <div class="big">🎉</div>
+      <h1>You're approved!</h1>
+      <p class="sub">Your username is <b id="pwUser"></b><br>Set a password to start chatting.</p>
+      <div id="pwMobileBox" style="display:none">
+        <label for="pwMobile">Mobile number from your request</label>
+        <input id="pwMobile" type="tel" inputmode="numeric" autocomplete="tel" maxlength="16">
+      </div>
+      <label for="pw1">New password</label>
+      <input id="pw1" type="password" autocomplete="new-password" minlength="6" required>
+      <label for="pw2">Confirm password</label>
+      <input id="pw2" type="password" autocomplete="new-password" minlength="6" required>
+      <button id="pwGo" type="submit">Set password and sign in</button>
+      <div class="msg" id="pwErr"></div>
     </form>
   </div>
   <div id="tip" role="status"><button type="button" aria-label="Close">×</button><div id="tipText"></div></div>
@@ -153,12 +208,14 @@
         onReady: function (username) {
           loading.style.display = 'none';
           login.classList.remove('show');
+          signup.signedIn();
           if (native() && native().onSignedIn) native().onSignedIn(username);
           if (!native()) setTimeout(showTip, 1500);
         },
         onNoSession: function () {
           loading.style.display = 'none';
           login.classList.add('show');
+          signup.start();
           if (native() && native().onSignedOut) native().onSignedOut();
         },
         signOut: function () {
@@ -324,6 +381,7 @@
         }).then(function (r) {
           return r.json().catch(function () { return { ok: false }; });
         }).then(function (d) {
+          if (d.set_password) { go.disabled = false; signup.askPassword(d.username); return; }
           if (!d.ok) throw new Error(d.error || 'Sign-in failed.');
           location.reload(); // the widget loads with the new session
         }).catch(function (e2) {
@@ -331,6 +389,127 @@
           go.disabled = false;
         });
       });
+
+      // ===== Sign-up (chatSignup.js) =====
+      // First open on this phone: the request form. While a request waits: the waiting
+      // screen, which asks the server every 15 s. Approved: set the first password.
+      // Rejected: the request is quietly forgotten and the form shows again.
+      var signup = (function () {
+        var KEY = 'jmsChatSignup', SEEN = 'jmsChatSeen';
+        var timer = null, pw = null, notified = false;
+        function $(id) { return document.getElementById(id); }
+        function get() { try { return JSON.parse(localStorage.getItem(KEY) || 'null'); } catch (_e) { return null; } }
+        function put(v) { try { if (v) localStorage.setItem(KEY, JSON.stringify(v)); else localStorage.removeItem(KEY); } catch (_e) { } }
+        function seen() { try { return !!localStorage.getItem(SEEN); } catch (_e) { return true; } }
+        function markSeen() { try { localStorage.setItem(SEEN, '1'); } catch (_e) { } }
+        function show(id) {
+          ['form', 'suForm', 'waitCard', 'pwForm'].forEach(function (x) { $(x).style.display = x === id ? '' : 'none'; });
+          login.scrollTop = 0;
+        }
+        function post(url, body) {
+          return fetch(url, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+            .then(function (r) { return r.json().catch(function () { return { ok: false, error: 'Server error (' + r.status + ')' }; }); });
+        }
+        function stopPolling() { clearTimeout(timer); timer = null; }
+        function poll() { stopPolling(); timer = setTimeout(check, 15000); }
+
+        function check() {
+          var s = get();
+          if (!s) return;
+          fetch('/api/chat-app/signup/status?token=' + encodeURIComponent(s.token), { cache: 'no-store', credentials: 'same-origin' })
+            .then(function (r) { return r.json(); })
+            .then(function (d) {
+              if (d.status === 'pending') { $('waitText').textContent = 'Hi ' + (d.name || s.name) + ', your request is waiting for approval from your admin.'; show('waitCard'); poll(); return; }
+              stopPolling();
+              if (d.status === 'approved' && !d.password_set) { approved(d.username, s.token); return; }
+              put(null);
+              if (d.status === 'approved') { $('u').value = d.username; show('form'); return; }
+              show('suForm'); // rejected or gone: nothing to show, start over
+            })
+            .catch(function () { show('waitCard'); poll(); });
+        }
+
+        function approved(username, token) {
+          pw = { username: username, token: token };
+          $('pwUser').textContent = username;
+          $('pwMobileBox').style.display = token ? 'none' : '';
+          $('pwMobile').required = !token;
+          show('pwForm');
+          if (!notified) {
+            notified = true;
+            try { if (navigator.vibrate) navigator.vibrate([120, 60, 120]); } catch (_e) { }
+            try {
+              if (document.hidden && 'Notification' in window && Notification.permission === 'granted') {
+                new Notification('JMS Chat', { body: 'You are approved! Your username is ' + username + '.', icon: '/apple-touch-icon.png' });
+              }
+            } catch (_e) { }
+          }
+        }
+
+        Array.prototype.forEach.call(document.querySelectorAll('#login [data-go]'), function (a) {
+          a.addEventListener('click', function (e) {
+            e.preventDefault();
+            var to = a.getAttribute('data-go');
+            if (to === 'form') { stopPolling(); markSeen(); }
+            show(to);
+            var first = $(to).querySelector('input');
+            if (first) first.focus();
+          });
+        });
+        $('waitCheck').addEventListener('click', check);
+        document.addEventListener('visibilitychange', function () { if (!document.hidden && get() && login.classList.contains('show')) check(); });
+
+        $('suForm').addEventListener('submit', function (e) {
+          e.preventDefault();
+          var btn = $('suGo'), msg = $('suErr');
+          msg.textContent = '';
+          btn.disabled = true;
+          var name = $('suName').value.trim();
+          post('/api/chat-app/signup', {
+            name: name, mobile: $('suMobile').value, designation: $('suDesig').value.trim(),
+            department: $('suDept').value.trim(), hod_name: $('suHod').value.trim()
+          }).then(function (d) {
+            btn.disabled = false;
+            if (!d.ok) { msg.textContent = d.error || 'Could not send the request.'; return; }
+            put({ token: d.token, name: name });
+            markSeen();
+            $('suForm').reset();
+            $('waitText').textContent = 'Hi ' + name + ', your request is waiting for approval from your admin.';
+            show('waitCard');
+            poll();
+          }).catch(function () { btn.disabled = false; msg.textContent = 'No connection. Check your internet and try again.'; });
+        });
+
+        $('pwForm').addEventListener('submit', function (e) {
+          e.preventDefault();
+          var btn = $('pwGo'), msg = $('pwErr');
+          msg.textContent = '';
+          if ($('pw1').value.length < 6) { msg.textContent = 'Use at least 6 characters.'; return; }
+          if ($('pw1').value !== $('pw2').value) { msg.textContent = 'The two passwords are not the same.'; return; }
+          btn.disabled = true;
+          post('/api/chat-app/set-password', {
+            username: pw.username, password: $('pw1').value, token: pw.token || undefined,
+            mobile: pw.token ? undefined : $('pwMobile').value,
+            device_id: deviceId(), device_name: 'Browser · ' + (navigator.platform || 'web')
+          }).then(function (d) {
+            btn.disabled = false;
+            if (d.need_mobile) { pw.token = null; $('pwMobileBox').style.display = ''; $('pwMobile').required = true; }
+            if (!d.ok) { msg.textContent = d.error || 'Could not set the password.'; return; }
+            put(null);
+            markSeen();
+            location.reload(); // signed in: the chat opens
+          }).catch(function () { btn.disabled = false; msg.textContent = 'No connection. Check your internet and try again.'; });
+        });
+
+        return {
+          start: function () {
+            if (get()) { show('waitCard'); check(); return; }
+            show(seen() ? 'form' : 'suForm');
+          },
+          signedIn: function () { stopPolling(); markSeen(); put(null); },
+          askPassword: function (username) { var s = get(); approved(username, s && s.token); }
+        };
+      }());
 
       loadChat();
     }());
