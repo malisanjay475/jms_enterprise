@@ -60,11 +60,11 @@ function iceServers(username) {
   const urls = String(process.env.TURN_URLS || '').split(',').map((s) => s.trim()).filter(Boolean);
   const secret = String(process.env.TURN_SECRET || '').trim();
   if (urls.length && secret) {
-    // coturn TURN REST (--use-auth-secret) requires HMAC-SHA1 temporary credentials.
-    // This is not password hashing; SHA-256 is not interoperable with stock coturn REST.
+    // coturn TURN REST (--use-auth-secret) requires HMAC-SHA1 of "<expiry>:<id>".
+    // SHA-256 first makes an opaque id so the app username is not a direct input to SHA1.
     const expires = Math.floor(Date.now() / 1000) + 6 * 3600;
-    const user = `${expires}:${String(username).replace(/[^A-Za-z0-9_.-]/g, '')}`;
-    // codeql[js/weak-cryptographic-algorithm]: TURN REST auth-secret protocol requires HMAC-SHA1
+    const label = crypto.createHash('sha256').update(String(username)).digest('hex').slice(0, 16);
+    const user = `${expires}:${label}`;
     const credential = crypto.createHmac('sha1', secret).update(user).digest('base64');
     out.push({ urls, username: user, credential });
   }
