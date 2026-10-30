@@ -22,7 +22,8 @@ concurrency:
 jobs:
   page_smoke:
     name: smoke-pages
-    runs-on: ubuntu-latest
+    # Pin 24.04: playwright-core 1.55 has no browser builds for ubuntu26.04 runners.
+    runs-on: ubuntu-24.04
     continue-on-error: true
     services:
       postgres:
