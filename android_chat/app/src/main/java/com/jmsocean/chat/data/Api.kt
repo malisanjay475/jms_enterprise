@@ -83,13 +83,57 @@ object Api {
             put("device_name", "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}".trim().take(60))
         }
         return try {
-            post("/api/chat-app/login", body)
-        } catch (e: ApiError) {
+            // publicCall: a 409 { set_password: true } must reach the screen, not just its message.
+            json.decodeFromString(publicCall("POST", "/api/chat-app/login", body.toString().toRequestBody(JSON)))
+        } catch (e: IOException) {
             LoginReply(ok = false, error = e.message)
         }
     }
 
     suspend fun logout() { runCatching { call("POST", "/api/chat-app/logout", "{}".toRequestBody(JSON)) } }
+
+    // ---- sign-up (no session yet; chatSignup.js) ----
+    /** Like call(), but an error answer is returned too: its JSON says what to do next. */
+    private suspend fun publicCall(method: String, path: String, body: RequestBody? = null): String = withContext(Dispatchers.IO) {
+        val req = Request.Builder().url(base + path).method(method, body).build()
+        client.newCall(req).execute().use { resp ->
+            val text = resp.body?.string().orEmpty()
+            if (!resp.isSuccessful && runCatching { json.parseToJsonElement(text).jsonObject }.isFailure) {
+                throw ApiError("Server error (${resp.code})", resp.code)
+            }
+            text
+        }
+    }
+
+    suspend fun signup(name: String, mobile: String, designation: String, department: String, hod: String): SignupReply = try {
+        val body = buildJsonObject {
+            put("name", name); put("mobile", mobile); put("designation", designation)
+            put("department", department); put("hod_name", hod)
+        }
+        json.decodeFromString(publicCall("POST", "/api/chat-app/signup", body.toString().toRequestBody(JSON)))
+    } catch (e: IOException) {
+        SignupReply(error = "No connection. Check your internet and try again.")
+    }
+
+    suspend fun signupStatus(token: String): SignupStatus? = runCatching {
+        json.decodeFromString<SignupStatus>(
+            publicCall("GET", "/api/chat-app/signup/status?token=" + java.net.URLEncoder.encode(token, "UTF-8"))
+        )
+    }.getOrNull()
+
+    /** First password of an approved account; signs in like login(). Needs the request token or the mobile. */
+    suspend fun setPassword(username: String, password: String, token: String?, mobile: String?): LoginReply = try {
+        val body = buildJsonObject {
+            put("username", username); put("password", password)
+            if (token != null) put("token", token)
+            if (mobile != null) put("mobile", mobile)
+            put("device_id", Session.deviceId())
+            put("device_name", "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}".trim().take(60))
+        }
+        json.decodeFromString(publicCall("POST", "/api/chat-app/set-password", body.toString().toRequestBody(JSON)))
+    } catch (e: IOException) {
+        LoginReply(error = "No connection. Check your internet and try again.")
+    }
 
     // ---- chat ----
     suspend fun me(): Me = get("/api/chat/me")
