@@ -13,6 +13,9 @@ part of your PR. On release, the `[Unreleased]` items move under the new version
 
 ## [Unreleased]
 
+### Fixed
+- NPD Tracker (v1.154.3): Purchase users can now edit the Purchase column ("Packing material follow up & receiving"). Any role whose code or name contains "purchase" gets it.
+
 ### Added
 - Compliance job flow (v1.154.2): GET /api/shifting/job-flow plus flow strips on every Compliance Summary machine cell and DPR job popup. Existing qc_verifications sync_id replication on MAIN is preserved.
 - NPD Tracker (npd.html, v1.154.0): stage editing by role (Admin / Superadmin all columns; Tool Room, Moulding, Planning, QC and Packing roles only their own columns), only Superadmin deletes, child moulds under each product with the same columns, completion date shown on Complete stages, and a mandatory remark on every stage change.
