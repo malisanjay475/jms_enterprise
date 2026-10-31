@@ -140,3 +140,7 @@ MOBILE_APP/
     │       └── res/          # Branded icons, colors, splash screen styles
     └── gradlew               # Gradle wrapper executable
 ```
+
+## Debug APK (1.0.1)
+
+Phone install APK: https://github.com/malisanjay475/jms_enterprise/releases/download/jms-ocean-mobile-1.0.1-debug/app-debug.apk
