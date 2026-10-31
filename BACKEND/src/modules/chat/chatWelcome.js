@@ -2,17 +2,23 @@
 
 // JMS Chat welcome message (MAIN only, one worker at a time).
 //
-// Every active user gets one welcome from the verified "JMS" sender: existing users once,
-// after this ships, and new users within a minute of being created / approved. It opens a
-// small group "JMS Team · <name>" with just the person. The superadmins join it only when
-// the person replies (addTeamOnReply, called on send), so they are not sent every welcome.
-// chat_welcome remembers who was greeted, so nobody gets it twice.
+// Every active user gets one welcome from the verified "JMS" sender in a direct chat
+// ("JMS ✓" for them): existing users once, new users within a minute of being created or
+// approved. Only the welcome viewers (CHAT_WELCOME_VIEWERS in server_config or the
+// environment, usernames, comma separated) are also in these chats, as admins, to read the
+// welcomes and answer replies; nobody else sees them. chat_welcome remembers who was greeted.
+//
+// Clean-up of the first versions (runs every time, does nothing once tidy): they made a
+// "JMS Team · <name>" group per person, with every superadmin, and the factory servers
+// made more copies. Each person keeps one chat (the oldest, turned into the direct chat);
+// everyone leaves the other copies, so they vanish from every chat list.
 
 const chatSync = require('./chatSync');
 
 const SENDER = 'JMS';
 const LOCK = 'jms_chat_welcome';
 const BATCH = 25; // per minute, so greeting everyone at once does not flood the server
+const DEFAULT_VIEWERS = 'Sanjay,Hitesh Joshi,admin,Earth Patel';
 const MEMBER_ID = chatSync.deterministicIdSql('chat-member', '$1::uuid', 'LOWER($2::text)');
 
 function welcomeText(name) {
@@ -28,6 +34,8 @@ function welcomeText(name) {
   ].join('\n');
 }
 
+const dmKey = (username) => `jms-welcome|${String(username).toLowerCase()}`;
+
 async function ensureWelcomeSchema(db) {
   await db.query(`
     CREATE TABLE IF NOT EXISTS chat_welcome (
@@ -38,23 +46,96 @@ async function ensureWelcomeSchema(db) {
   `);
 }
 
-async function addMember(db, convId, username, role) {
+/** The viewers' exact usernames (only active users). */
+async function viewers(db) {
+  let list = String(process.env.CHAT_WELCOME_VIEWERS || '').trim();
+  if (!list) {
+    const { rows: [r] } = await db.query("SELECT value FROM server_config WHERE key = 'CHAT_WELCOME_VIEWERS'")
+      .catch(() => ({ rows: [] }));
+    list = (r && String(r.value || '').trim()) || DEFAULT_VIEWERS;
+  }
+  const wanted = list.split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
+  const { rows } = await db.query(
+    'SELECT username FROM users WHERE LOWER(username) = ANY($1::text[]) AND COALESCE(is_active, TRUE) = TRUE', [wanted]
+  );
+  return rows.map((r) => r.username);
+}
+
+// The greeted person of a JMS chat: the member who is neither JMS nor an admin.
+const GREETED = `SELECT m.username FROM chat_members m
+                  WHERE m.conversation_sync_id = c.sync_id AND m.role = 'member' AND LOWER(m.username) <> LOWER('${SENDER}')
+                  ORDER BY m.id LIMIT 1`;
+const RANKED = `SELECT c.sync_id, c.type, c.dm_key, (${GREETED}) AS person,
+                       ROW_NUMBER() OVER (PARTITION BY LOWER((${GREETED})) ORDER BY c.created_at, c.sync_id) AS rn
+                  FROM chat_conversations c
+                 WHERE c.created_by = $1 AND (${GREETED}) IS NOT NULL`;
+
+const tidied = new Map(); // chat id -> viewer list it was set up with (this process)
+
+async function tidy(db, viewerNames) {
+  // 1. one chat per person: everyone leaves every copy but the oldest
+  const { rowCount: removed } = await db.query(
+    `WITH g AS (${RANKED})
+     UPDATE chat_members cm SET left_at = NOW(), updated_at = NOW()
+       FROM g WHERE cm.conversation_sync_id = g.sync_id AND g.rn > 1 AND cm.left_at IS NULL`, [SENDER]
+  );
+  // 2. the kept chat becomes the direct "JMS" chat with the person, JMS and the viewers only
+  const { rows: kept } = await db.query(`WITH g AS (${RANKED}) SELECT sync_id, type, dm_key, person FROM g WHERE rn = 1`, [SENDER]);
+  let converted = 0;
+  const sig = viewerNames.map((v) => v.toLowerCase()).sort().join(',');
+  for (const k of kept) {
+    if (k.type === 'direct' && k.dm_key === dmKey(k.person) && tidied.get(k.sync_id) === sig) continue; // already done
+    if (k.type !== 'direct' || k.dm_key !== dmKey(k.person)) {
+      await db.query(
+        `UPDATE chat_conversations SET type = 'direct', dm_key = $2, title = $3, updated_at = NOW() WHERE sync_id = $1`,
+        [k.sync_id, dmKey(k.person), `JMS · ${k.person}`]
+      );
+      converted++;
+    }
+    await db.query(
+      `UPDATE chat_members SET left_at = NOW(), updated_at = NOW()
+        WHERE conversation_sync_id = $1 AND left_at IS NULL AND NOT (LOWER(username) = ANY($2::text[]))`,
+      [k.sync_id, [k.person, SENDER, ...viewerNames].map((u) => u.toLowerCase())]
+    );
+    await setMembers(db, k.sync_id, k.person, viewerNames);
+    await db.query(
+      'INSERT INTO chat_welcome (username_lower, conversation_sync_id) VALUES (LOWER($1), $2) ON CONFLICT DO NOTHING',
+      [k.person, k.sync_id]
+    );
+    tidied.set(k.sync_id, sig);
+  }
+  return { removed, converted };
+}
+
+async function upsertMember(db, convId, username, role) {
   await db.query(
     `INSERT INTO chat_members (sync_id, conversation_sync_id, username, role)
      VALUES (${MEMBER_ID}, $1, $2, $3)
-     ON CONFLICT (conversation_sync_id, (LOWER(username))) DO NOTHING`,
+     ON CONFLICT (conversation_sync_id, (LOWER(username)))
+     DO UPDATE SET left_at = NULL, role = EXCLUDED.role, updated_at = NOW()
+     WHERE chat_members.left_at IS NOT NULL OR chat_members.role IS DISTINCT FROM EXCLUDED.role`,
     [convId, username, role]
   );
 }
 
-async function welcomeOne(db, user) {
+async function setMembers(db, convId, person, viewerNames) {
+  await upsertMember(db, convId, person, 'member');
+  await upsertMember(db, convId, SENDER, 'member');
+  for (const v of viewerNames) {
+    if (v.toLowerCase() === String(person).toLowerCase()) continue;
+    await upsertMember(db, convId, v, 'admin');
+  }
+}
+
+async function welcomeOne(db, user, viewerNames) {
   const name = user.display_name || user.username;
   const { rows: [c] } = await db.query(
-    `INSERT INTO chat_conversations (type, title, created_by, last_message_at)
-     VALUES ('group', $1, $2, NOW()) RETURNING sync_id`,
-    [`JMS Team · ${String(name).slice(0, 60)}`, SENDER]
+    `INSERT INTO chat_conversations (type, dm_key, title, created_by, last_message_at)
+     VALUES ('direct', $1, $2, $3, NOW()) ON CONFLICT DO NOTHING RETURNING sync_id`,
+    [dmKey(user.username), `JMS · ${String(name).slice(0, 60)}`, SENDER]
   );
-  await addMember(db, c.sync_id, user.username, 'member');
+  if (!c) return false; // already has one
+  await setMembers(db, c.sync_id, user.username, viewerNames);
   const { rows: [m] } = await db.query(
     `INSERT INTO chat_messages (conversation_sync_id, sender, body, kind, meta)
      VALUES ($1, $2, $3, 'text', $4) RETURNING server_ts`,
@@ -65,71 +146,32 @@ async function welcomeOne(db, user) {
     'INSERT INTO chat_welcome (username_lower, conversation_sync_id) VALUES (LOWER($1), $2) ON CONFLICT DO NOTHING',
     [user.username, c.sync_id]
   );
-}
-
-// the person already has a welcome group (made here, or synced in from a factory server)
-const HAS_GROUP = `SELECT 1 FROM chat_conversations c JOIN chat_members m ON m.conversation_sync_id = c.sync_id
-                    WHERE c.type = 'group' AND c.created_by = 'JMS' AND LOWER(m.username) = LOWER(u.username)`;
-
-// v1.159.0 also ran on the factory (LOCAL) servers, which greeted everyone again. Keep each
-// person's oldest welcome group and take everyone out of the others (unless the person has
-// written in one), so the copies leave every chat list.
-async function removeDuplicates(db) {
-  const { rowCount } = await db.query(
-    `WITH g AS (
-       SELECT c.sync_id, ROW_NUMBER() OVER (PARTITION BY LOWER(m.username) ORDER BY c.created_at, c.sync_id) AS rn
-         FROM chat_conversations c JOIN chat_members m ON m.conversation_sync_id = c.sync_id
-        WHERE c.type = 'group' AND c.created_by = $1 AND m.role = 'member'
-     )
-     UPDATE chat_members cm SET left_at = NOW(), updated_at = NOW()
-       FROM g
-      WHERE cm.conversation_sync_id = g.sync_id AND g.rn > 1 AND cm.left_at IS NULL
-        AND NOT EXISTS (SELECT 1 FROM chat_messages x WHERE x.conversation_sync_id = g.sync_id
-                         AND x.sender <> $1 AND x.kind <> 'system')`, [SENDER]
-  );
-  return rowCount;
+  return true;
 }
 
 async function run(db) {
   await ensureWelcomeSchema(db);
-  const dups = await removeDuplicates(db);
-  if (dups) console.log(`[chat-welcome] removed ${dups} member(s) from duplicate welcome groups`);
-  if (!cleaned) {
-    // v1.159.0 put every superadmin in every welcome group, so each welcome reached them
-    // too. Take them out again wherever the person has not replied yet.
-    await db.query(
-      `UPDATE chat_members m SET left_at = NOW(), updated_at = NOW()
-         FROM chat_welcome w
-        WHERE m.conversation_sync_id = w.conversation_sync_id AND m.left_at IS NULL
-          AND LOWER(m.username) <> w.username_lower
-          AND NOT EXISTS (SELECT 1 FROM chat_messages x WHERE x.conversation_sync_id = w.conversation_sync_id
-                           AND x.sender <> $1 AND x.kind <> 'system')`, [SENDER]
-    );
-    cleaned = true;
-  }
-  // a chat sign-up's real name, when there is one
-  const { rows: todo } = await db.query(
-    `SELECT u.username,
-            (SELECT s.name FROM chat_signups s WHERE LOWER(s.username) = LOWER(u.username) ORDER BY s.id DESC LIMIT 1) AS display_name
+  const viewerNames = await viewers(db);
+  const t = await tidy(db, viewerNames);
+  if (t.removed || t.converted) console.log(`[chat-welcome] tidied: ${t.removed} member(s) out of copies, ${t.converted} chat(s) made direct`);
+  const excluded = viewerNames.map((v) => v.toLowerCase());
+  const pending = (withName) => db.query(
+    `SELECT u.username, ${withName
+      ? '(SELECT s.name FROM chat_signups s WHERE LOWER(s.username) = LOWER(u.username) ORDER BY s.id DESC LIMIT 1)'
+      : 'NULL'} AS display_name
        FROM users u
       WHERE COALESCE(u.is_active, TRUE) = TRUE AND LOWER(COALESCE(u.role_code, '')) <> 'superadmin'
+        AND NOT (LOWER(u.username) = ANY($2::text[]))
         AND NOT EXISTS (SELECT 1 FROM chat_welcome w WHERE w.username_lower = LOWER(u.username))
-        AND NOT EXISTS (${HAS_GROUP})
-      ORDER BY u.id LIMIT $1`, [BATCH]
-  ).catch(() => db.query(
-    `SELECT u.username, NULL AS display_name FROM users u
-      WHERE COALESCE(u.is_active, TRUE) = TRUE AND LOWER(COALESCE(u.role_code, '')) <> 'superadmin'
-        AND NOT EXISTS (SELECT 1 FROM chat_welcome w WHERE w.username_lower = LOWER(u.username))
-        AND NOT EXISTS (${HAS_GROUP})
-      ORDER BY u.id LIMIT $1`, [BATCH]
-  )); // no chat_signups table yet
+      ORDER BY u.id LIMIT $1`, [BATCH, excluded]
+  );
+  const { rows: todo } = await pending(true).catch(() => pending(false)); // no chat_signups table yet
   let sent = 0;
   for (const u of todo) {
     await db.query('BEGIN');
     try {
-      await welcomeOne(db, u);
+      if (await welcomeOne(db, u, viewerNames)) sent++;
       await db.query('COMMIT');
-      sent++;
     } catch (err) {
       await db.query('ROLLBACK').catch(() => {});
       console.warn('[chat-welcome]', u.username, err.message);
@@ -138,32 +180,7 @@ async function run(db) {
   return sent;
 }
 
-let cleaned = false;
-
-// A reply in a welcome group brings in the JMS Team (the active superadmins), before the
-// message is stored so they are notified of it.
-async function addTeamOnReply(pool, convId, sender) {
-  if (String(sender).toLowerCase() === SENDER.toLowerCase()) return;
-  const { rows: [c] } = await pool.query(
-    `SELECT 1 FROM chat_conversations WHERE sync_id = $1 AND type = 'group' AND created_by = $2`, [convId, SENDER]
-  );
-  if (!c) return;
-  const { rows: admins } = await pool.query(
-    `SELECT username FROM users WHERE LOWER(role_code) = 'superadmin' AND COALESCE(is_active, TRUE) = TRUE`
-  );
-  for (const a of admins) {
-    await pool.query(
-      `INSERT INTO chat_members (sync_id, conversation_sync_id, username, role)
-       VALUES (${MEMBER_ID}, $1, $2, 'admin')
-       ON CONFLICT (conversation_sync_id, (LOWER(username)))
-       DO UPDATE SET left_at = NULL, updated_at = NOW() WHERE chat_members.left_at IS NOT NULL`,
-      [convId, a.username]
-    );
-  }
-}
-
 function start(pool) {
-  if (chatSync.isLocal()) return;
   let running = false;
   async function tick() {
     // the server type can be known only after start-up (sync settings), so check every time
@@ -192,4 +209,4 @@ function start(pool) {
   if (every.unref) every.unref();
 }
 
-module.exports = { start, welcomeText, addTeamOnReply, SENDER, __test: { run, ensureWelcomeSchema, removeDuplicates } };
+module.exports = { start, welcomeText, SENDER, __test: { run, tidy, viewers, ensureWelcomeSchema } };

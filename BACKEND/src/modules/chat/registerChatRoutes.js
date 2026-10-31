@@ -868,7 +868,7 @@ function registerChatRoutes(app, pool) {
         : `AND EXISTS (SELECT 1 FROM chat_members mm WHERE mm.conversation_sync_id = c.sync_id
                          AND LOWER(mm.username) = LOWER($1) AND mm.left_at IS NULL)`;
       const { rows } = await pool.query(
-        `SELECT c.sync_id, c.type, c.title, c.last_message_at,
+        `SELECT c.sync_id, c.type, c.title, c.created_by, c.last_message_at,
                 (SELECT m.role FROM chat_members m WHERE m.conversation_sync_id = c.sync_id
                     AND LOWER(m.username) = LOWER($1) AND m.left_at IS NULL) AS my_role,
                 (SELECT m.muted_until FROM chat_members m WHERE m.conversation_sync_id = c.sync_id
@@ -913,7 +913,9 @@ function registerChatRoutes(app, pool) {
         conversations: rows.map((r) => {
           const members = r.members || [];
           const others = members.filter((m) => m.toLowerCase() !== me.toLowerCase());
-          const peer = r.type === 'group' ? null : (others[0] || null);
+          // the JMS welcome chat: "JMS" for the person, "JMS · <name>" for the viewers (admins)
+          const system = r.type === 'direct' && r.created_by === 'JMS';
+          const peer = r.type === 'group' || system ? null : (others[0] || null);
           const pp = peer ? (prof.get(peer.toLowerCase()) || {}) : {};
           const pref = prefs.get(r.sync_id) || {};
           return {
@@ -926,13 +928,14 @@ function registerChatRoutes(app, pool) {
             last_seen_at: pp.last_seen_at || null,
             sync_id: r.sync_id,
             type: r.type,
-            title: r.type === 'group'
+            system,
+            title: system && r.my_role !== 'admin' ? 'JMS' : r.type === 'group'
               ? (r.title || 'Group')
               : (r.title || (all && others.length > 1 ? members.join(' ↔ ') : (others[0] || me))),
             members,
             my_role: r.my_role || null,
             muted_until: chatNotify.muteOut(r.muted_until),
-            online: r.type === 'group' ? false : (others.some(isOnline) || chatProfiles.isRecent(pp.last_seen_at)),
+            online: r.type === 'group' || system ? false : (others.some(isOnline) || chatProfiles.isRecent(pp.last_seen_at)),
             last_message_at: r.last_message_at,
             last_body: r.last_deleted ? 'This message was deleted' : previewText(r.last_kind, r.last_body, r.last_meta),
             last_sender: r.last_kind === 'system' ? '' : (r.last_sender || ''),
@@ -1111,8 +1114,6 @@ function registerChatRoutes(app, pool) {
         }
         meta.announcement = true;
       }
-      // a reply to the JMS welcome reaches the JMS Team
-      await require('./chatWelcome').addTeamOnReply(pool, convId, me).catch((err) => console.warn('[chat-welcome] reply:', err.message));
       const ins = await pool.query(
         `INSERT INTO chat_messages (sync_id, conversation_sync_id, sender, body, client_ts, factory_id, reply_to_sync_id, meta)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
