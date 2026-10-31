@@ -13,6 +13,9 @@ part of your PR. On release, the `[Unreleased]` items move under the new version
 
 ## [Unreleased]
 
+### Added
+- JMS Chat desktop (v1.160.1): hovering a message shows the ▾ options arrow (no need to know right-click) and a ☺ react button beside it, like WhatsApp Desktop. The react button opens a bar of quick reactions with "+" for more; the options menu has a "React" entry too.
+
 ### Changed
 - JMS Chat (v1.160.0): no more automatic groups - the factory "All staff" and line / department groups are no longer created or kept in sync (CHAT_AUTO_GROUPS=1 turns it back on; existing groups stay as they are). Only admins and superadmins can create groups: the "New group" button is shown only to them and the server refuses others.
 

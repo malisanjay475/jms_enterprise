@@ -99,6 +99,9 @@
       box-shadow: 0 0 0 100vmax rgba(0,0,0,.35), 0 8px 28px rgba(0,0,0,.25); }
     html.jc-appmode .jc-app .jc-menu button { padding: 14px 20px; font-size: 17px; text-align: center; border-bottom: 1px solid #e9edef; }
     html.jc-appmode .jc-app .jc-menu button:last-child { border-bottom: 0; }
+    /* the reaction bar is a small pill, not the bottom sheet */
+    html.jc-appmode .jc-app .jc-menu.jc-rxbar { right: auto !important; bottom: auto !important; box-shadow: 0 6px 24px rgba(11,20,26,.25); }
+    html.jc-appmode .jc-app .jc-menu.jc-rxbar button { border-bottom: 0; }
     /* Desktop: a compact popover instead of the phone sheet. */
     html.jc-appmode .jc-app .jc-menu.jc-pop { right: auto !important; bottom: auto !important; width: 230px; max-height: calc(100vh - 16px);
       overflow-y: auto; border-radius: 10px; padding: 6px 0; box-shadow: 0 6px 24px rgba(11,20,26,.22); }
@@ -154,6 +157,13 @@
     /* ===== Desktop (wide windows): WhatsApp-Desktop-style layout with JMS touches ===== */
     #rail { display: none; }
     @media (min-width: 900px) {
+      /* Desktop: the options arrow shows on hover, so people can find the menu without right-click. */
+      html.jc-appmode .jc-app .jc-msg:hover .jc-opt { opacity: 1; pointer-events: auto; }
+      html.jc-appmode .jc-app .jc-opt { width: 24px; height: 24px; line-height: 24px; font-size: 13px; box-shadow: 0 1px 3px rgba(0,0,0,.15); }
+      html.jc-dark .jc-app .jc-opt { background: rgba(32,44,51,.95); color: #aebac1; }
+      html.jc-dark .jc-app .jc-rxbtn { background: rgba(255,255,255,.08); color: #aebac1; }
+      html.jc-dark .jc-app .jc-rxbar { background: #233138 !important; }
+      html.jc-dark .jc-app .jc-rxbar button:hover, html.jc-dark .jc-app .jc-rxbar .jc-rxmore { background: #2a3942 !important; }
       html.jc-appmode body { background: #dfe5e7; }
       html.jc-appmode .jc-app .jc-panel { left: 64px !important; width: calc(100% - 64px) !important; max-width: none !important; padding: 0 !important; background: #fff; }
       #rail { display: flex; position: fixed; left: 0; top: 0; bottom: 0; width: 64px; z-index: 100002; flex-direction: column; align-items: center;
