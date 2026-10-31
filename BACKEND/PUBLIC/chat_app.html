@@ -308,6 +308,67 @@
     #tip b { color: #25d366; }
     #tip button { all: unset; position: absolute; top: 8px; right: 10px; font-size: 20px; line-height: 1; color: #aebac1; cursor: pointer; padding: 4px; }
     #tip .act { all: unset; display: inline-block; margin-top: 8px; background: #00a884; color: #fff; border-radius: 16px; padding: 6px 14px; font-weight: 600; cursor: pointer; position: static; font-size: 14px; }
+
+    /* ===== Phone: floating bottom bar + "You" page (like WhatsApp on iPhone) ===== */
+    #tabbar, #youPage { display: none; }
+    @media (max-width: 899px) {
+      html.jc-appmode #tabbar { display: flex; position: fixed; z-index: 100004; left: 14px; right: 14px; bottom: calc(10px + env(safe-area-inset-bottom));
+        height: 64px; padding: 0 6px; border-radius: 32px; align-items: center; justify-content: space-around;
+        background: rgba(255,255,255,.82); -webkit-backdrop-filter: saturate(180%) blur(18px); backdrop-filter: saturate(180%) blur(18px);
+        box-shadow: 0 6px 24px rgba(11,20,26,.16), inset 0 0 0 1px rgba(0,0,0,.05); }
+      html.jc-appmode.jc-chat-open #tabbar, html.jc-appmode.jc-locked #tabbar { display: none; }
+      #tabbar button { position: relative; flex: 1; height: 56px; margin: 0 2px; border: 0; border-radius: 28px; background: none; color: #111b21;
+        display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; font: 600 11.5px/1 system-ui, -apple-system, sans-serif; cursor: pointer; }
+      #tabbar button i { font-size: 23px; line-height: 1; }
+      #tabbar button.on { background: rgba(0,0,0,.07); }
+      #tabbar button.on i { color: #008069; }
+      #tabbar .n { position: absolute; top: 2px; left: calc(50% + 6px); min-width: 20px; height: 20px; padding: 0 6px; box-sizing: border-box; border-radius: 10px;
+        background: #25d366; color: #fff; font-size: 11.5px; line-height: 20px; display: none; }
+      #tabbar .me { width: 28px; height: 28px; border-radius: 50%; overflow: hidden; background: #dfe5e7; display: flex; align-items: center; justify-content: center;
+        font-size: 12px; color: #fff; box-shadow: 0 0 0 2px #fff; }
+      #tabbar button.on .me { box-shadow: 0 0 0 2px #008069; }
+      #tabbar .me img { width: 100%; height: 100%; object-fit: cover; }
+      html.jc-appmode .jc-app .jc-list { padding-bottom: calc(90px + env(safe-area-inset-bottom)); }
+      /* these move to the bar and the You page */
+      html.jc-appmode .jc-side .jc-head .jc-ibtn[title="Starred messages"], html.jc-appmode .jc-side .jc-head .jc-ibtn[title="My tasks"],
+      html.jc-appmode .jc-side .jc-head .jc-ibtn[title="Approvals waiting for me"], html.jc-appmode .jc-side .jc-head .jc-ibtn[title="Sign out"],
+      html.jc-appmode .jc-side .jc-head .jc-ibtn[title="Back to JMS"], html.jc-appmode .jc-side .jc-head .jc-meav { display: none !important; }
+
+      html.jc-appmode #youPage.show { display: block; position: fixed; inset: 0; z-index: 100003; overflow-y: auto; -webkit-overflow-scrolling: touch;
+        background: #f2f2f7; padding: calc(20px + env(safe-area-inset-top)) 16px calc(100px + env(safe-area-inset-bottom)); box-sizing: border-box;
+        font-family: system-ui, -apple-system, "Segoe UI", sans-serif; color: #111b21; }
+      #youPage .top { display: flex; justify-content: flex-end; }
+      #youPage .round { width: 46px; height: 46px; border-radius: 50%; border: 0; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.08); font-size: 19px; color: #111b21; }
+      #youPage .hero { text-align: center; margin: 8px 0 26px; }
+      #youPage .bubble { display: inline-block; max-width: 80%; margin-bottom: 10px; padding: 10px 16px; border-radius: 20px; background: #fff; font-size: 15px;
+        box-shadow: 0 1px 3px rgba(0,0,0,.06); }
+      #youPage .bubble:empty { display: none; }
+      #youPage .pic { width: 132px; height: 132px; margin: 0 auto; border-radius: 50%; overflow: hidden; background: #00a884; color: #fff;
+        display: flex; align-items: center; justify-content: center; font-size: 44px; font-weight: 600; cursor: pointer; }
+      #youPage .pic img { width: 100%; height: 100%; object-fit: cover; }
+      #youPage h2 { margin: 14px 0 2px; font-size: 27px; font-weight: 700; }
+      #youPage .sub { color: #667781; font-size: 15px; }
+      #youPage .grp { background: #fff; border-radius: 18px; margin-bottom: 18px; overflow: hidden; }
+      #youPage .row { display: flex; align-items: center; gap: 16px; width: 100%; padding: 0 16px; min-height: 54px; border: 0; background: none;
+        font: inherit; font-size: 17px; color: inherit; text-align: left; cursor: pointer; }
+      #youPage .row i.ic { font-size: 22px; width: 26px; text-align: center; color: #111b21; }
+      #youPage .row span { flex: 1; padding: 16px 0; border-bottom: 1px solid #e9edef; }
+      #youPage .row:last-child span { border-bottom: 0; }
+      #youPage .row .val { flex: none; border: 0; padding: 0; color: #8696a0; font-size: 15px; }
+      #youPage .row i.go { color: #c4cbd0; font-size: 15px; }
+      #youPage .row.red, #youPage .row.red i.ic { color: #ea0038; }
+      #youPage .row:active { background: #f0f2f5; }
+      #youPage .ver { text-align: center; color: #8696a0; font-size: 13px; margin-top: 6px; }
+      html.jc-dark #tabbar { background: rgba(32,44,51,.85); box-shadow: 0 6px 24px rgba(0,0,0,.4), inset 0 0 0 1px rgba(255,255,255,.06); }
+      html.jc-dark #tabbar button { color: #e9edef; }
+      html.jc-dark #tabbar button.on { background: rgba(255,255,255,.1); }
+      html.jc-dark #tabbar button.on i { color: #21c063; }
+      html.jc-dark #youPage.show { background: #0b141a; color: #e9edef; }
+      html.jc-dark #youPage .grp, html.jc-dark #youPage .bubble, html.jc-dark #youPage .round { background: #1f2c34; color: #e9edef; }
+      html.jc-dark #youPage .row i.ic { color: #e9edef; }
+      html.jc-dark #youPage .row span { border-color: #2a3942; }
+      html.jc-dark #youPage .row:active { background: #2a3942; }
+    }
   </style>
 </head>
 <body>
@@ -980,6 +1041,126 @@
           if (mq.addEventListener) mq.addEventListener('change', applyTheme);
         }
 
+
+        // ---- phone: floating bottom bar and the "You" page ----
+        var tab = 'chats';
+        function setTab(t) {
+          var you = $('youPage');
+          if (t === 'you') { renderYou(); meAvatar(); you.classList.add('show'); you.scrollTop = 0; }
+          else { you.classList.remove('show'); showView(t); }
+          tab = t;
+          Array.prototype.forEach.call($('tabbar').querySelectorAll('button'), function (b) { b.classList.toggle('on', b.getAttribute('data-tab') === t); });
+        }
+        function buildTabbar() {
+          var bar = document.createElement('nav');
+          bar.id = 'tabbar';
+          bar.setAttribute('aria-label', 'JMS Chat');
+          var items = [['chats', 'bi-chat-dots', 'Chats'], ['starred', 'bi-star', 'Starred'], ['tasks', 'bi-clipboard-check', 'Tasks']];
+          if (btnByTitle('Approvals waiting for me')) items.push(['approvals', 'bi-check2-square', 'Approvals']);
+          items.forEach(function (it) {
+            var b = document.createElement('button');
+            b.type = 'button'; b.setAttribute('data-tab', it[0]);
+            b.innerHTML = '<i class="bi ' + it[1] + '"></i><span>' + it[2] + '</span>' + (it[0] === 'chats' ? '<span class="n" id="tabChats"></span>' : '');
+            b.addEventListener('click', function () { setTab(railView === it[0] && it[0] !== 'chats' ? 'chats' : it[0]); });
+            bar.appendChild(b);
+          });
+          var y = document.createElement('button');
+          y.type = 'button'; y.setAttribute('data-tab', 'you');
+          y.innerHTML = '<span class="me" id="tabMe"></span><span>You</span>';
+          y.addEventListener('click', function () { setTab(tab === 'you' ? 'chats' : 'you'); });
+          bar.appendChild(y);
+          bar.firstChild.classList.add('on');
+          document.body.appendChild(bar);
+          var page = document.createElement('div');
+          page.id = 'youPage';
+          document.body.appendChild(page);
+          // hide the bar while a chat is open or the app is locked
+          var panel = document.querySelector('.jc-panel');
+          function sync() {
+            doc.classList.toggle('jc-chat-open', !!(panel && panel.classList.contains('jc-conv')));
+            doc.classList.toggle('jc-locked', !!($('lock') && $('lock').classList.contains('show')));
+          }
+          if (panel) new MutationObserver(sync).observe(panel, { attributes: true, attributeFilter: ['class'] });
+          if ($('lock')) new MutationObserver(sync).observe($('lock'), { attributes: true, attributeFilter: ['class'] });
+          sync();
+          meAvatar();
+        }
+        function meInfo() { return (window.JMSChatUI && window.JMSChatUI.me()) || { username: '', name: '' }; }
+        function initialsOf(n) { return String(n || '?').trim().split(/\s+/).slice(0, 2).map(function (w) { return w[0]; }).join('').toUpperCase(); }
+        function fillPic(el, m) {
+          el.textContent = '';
+          if (m.avatar) { var im = new Image(); im.alt = ''; im.src = m.avatar; im.onerror = function () { el.textContent = initialsOf(m.name); }; el.appendChild(im); }
+          else el.textContent = initialsOf(m.name);
+        }
+        function meAvatar() {
+          var el = $('tabMe'); if (!el) return;
+          fetch('/api/chat/profile', { credentials: 'same-origin' }).then(function (r) { return r.json(); }).then(function (d) {
+            var m = meInfo();
+            if (d && d.profile) {
+              m.name = d.profile.display_name || m.username; m.about = d.profile.about || '';
+              if (d.profile.photo_v) m.avatar = '/api/chat/avatars/' + encodeURIComponent(m.username) + '?v=' + encodeURIComponent(d.profile.photo_v);
+            }
+            youMe = m; fillPic(el, m); el.style.background = m.avatar ? '' : '#00a884';
+            if ($('youPage') && $('youPage').classList.contains('show')) renderYou();
+          }).catch(function () { fillPic(el, meInfo()); });
+        }
+        var youMe = null;
+        function row(icon, label, onClick, opts) {
+          opts = opts || {};
+          var b = document.createElement('button');
+          b.type = 'button'; b.className = 'row' + (opts.red ? ' red' : '');
+          b.innerHTML = '<i class="bi ' + icon + ' ic"></i><span>' + label + '</span>' + (opts.val ? '<em class="val">' + opts.val + '</em>' : '') + (opts.red ? '' : '<i class="bi bi-chevron-right go"></i>');
+          b.addEventListener('click', onClick);
+          return b;
+        }
+        function group(rows) { var g = document.createElement('div'); g.className = 'grp'; rows.filter(Boolean).forEach(function (r) { g.appendChild(r); }); return g; }
+        function themeLabel() { var t = pref('jmsChatTheme', 'system'); return t === 'dark' ? 'Dark' : t === 'light' ? 'Light' : 'System'; }
+        function renderYou() {
+          var m = youMe || meInfo(), page = $('youPage');
+          page.textContent = '';
+          var top = document.createElement('div'); top.className = 'top';
+          var edit = document.createElement('button'); edit.className = 'round'; edit.type = 'button'; edit.setAttribute('aria-label', 'Edit profile');
+          edit.innerHTML = '<i class="bi bi-pencil"></i>';
+          edit.addEventListener('click', function () { if (window.JMSChatUI) window.JMSChatUI.profile(); });
+          top.appendChild(edit); page.appendChild(top);
+          var hero = document.createElement('div'); hero.className = 'hero';
+          var bub = document.createElement('div'); bub.className = 'bubble'; bub.textContent = m.about || '';
+          var pic = document.createElement('div'); pic.className = 'pic'; fillPic(pic, m);
+          pic.addEventListener('click', function () { if (window.JMSChatUI) window.JMSChatUI.profile(); });
+          var h = document.createElement('h2'); h.textContent = m.name || m.username;
+          var sub = document.createElement('div'); sub.className = 'sub'; sub.textContent = '@' + (m.username || '');
+          hero.appendChild(bub); hero.appendChild(pic); hero.appendChild(h); hero.appendChild(sub);
+          page.appendChild(hero);
+          var go = function (t) { return function () { setTab(t); }; };
+          var click = function (title) { return function () { var b = btnByTitle(title); setTab('chats'); if (b) b.click(); }; };
+          page.appendChild(group([
+            row('bi-star', 'Starred messages', go('starred')),
+            row('bi-clipboard-check', 'My tasks', go('tasks')),
+            btnByTitle('Approvals waiting for me') ? row('bi-check2-square', 'Approvals', go('approvals')) : null,
+            row('bi-laptop', 'Linked devices', function () { if (window.JMSChatUI) window.JMSChatUI.devices(); })
+          ]));
+          page.appendChild(group([
+            row('bi-person-circle', 'Profile', function () { if (window.JMSChatUI) window.JMSChatUI.profile(); }),
+            row('bi-bell', 'Notifications and sound', click('Notifications and sound')),
+            row('bi-lock', 'App lock', lockMenu, { val: readLock() ? 'On' : 'Off' }),
+            row('bi-palette', 'Appearance', function () {
+              var t = pref('jmsChatTheme', 'system');
+              setPref('jmsChatTheme', t === 'system' ? 'dark' : t === 'dark' ? 'light' : 'system'); applyTheme(); renderYou();
+            }, { val: themeLabel() }),
+            installEvt ? row('bi-download', 'Install app', function () { install(); renderYou(); }) : null
+          ]));
+          var out = btnByTitle('Sign out') || btnByTitle('Back to JMS');
+          if (out) page.appendChild(group([row(out.title === 'Sign out' ? 'bi-box-arrow-right' : 'bi-house', out.title, function () { out.click(); }, { red: out.title === 'Sign out' })]));
+          var ver = document.createElement('div'); ver.className = 'ver';
+          var v = null; try { v = localStorage.getItem('jmsChatWidgetV'); } catch (_e) { }
+          ver.textContent = 'JMS Chat' + (v ? ' · v' + v : '');
+          page.appendChild(ver);
+        }
+        function tabBadge() {
+          var src = document.querySelector('.jc-badge'), dot = $('tabChats');
+          var n = src && src.style.display !== 'none' ? src.textContent : '';
+          if (dot) { dot.textContent = n; dot.style.display = n && n !== '0' ? 'block' : 'none'; }
+        }
         return {
           ready: function () {
             if (started) return;
@@ -989,10 +1170,12 @@
             if (root) obs.observe(root, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['title'] });
             obs.observe(document.body, { childList: true });
             buildRail();
+            buildTabbar();
+            tabBadge();
             placeholder();
             railBadge();
             var badge = document.querySelector('.jc-badge');
-            if (badge) new MutationObserver(railBadge).observe(badge, { childList: true, characterData: true, subtree: true, attributes: true });
+            if (badge) new MutationObserver(function () { railBadge(); tabBadge(); }).observe(badge, { childList: true, characterData: true, subtree: true, attributes: true });
             document.addEventListener('keydown', shortcuts);
             startIdle();
           }
