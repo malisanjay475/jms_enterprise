@@ -410,7 +410,8 @@
     '.jc-app .jc-send{border-radius:50%;box-shadow:0 2px 6px rgba(0,168,132,.35);transition:transform .1s}.jc-app .jc-send:active{transform:scale(.94)}',
     '.jc-app .jc-chip{transition:all .12s}.jc-app .jc-chip:hover{border-color:#00a884}',
     '.jc-modal{font-family:\'Segoe UI\',system-ui,-apple-system,Roboto,Helvetica,Arial,sans-serif}',
-    '.jc-meav{width:34px;height:34px;font-size:13px;cursor:pointer;border:2px solid rgba(255,255,255,.6);box-sizing:border-box}',
+    '.jc-srow{display:flex;align-items:center;gap:10px}.jc-srow input{flex:1;min-width:0}',
+    '.jc-meav{width:36px;height:36px;font-size:13px;cursor:pointer;border:2px solid #fff;box-shadow:0 0 0 1.5px #00a884;box-sizing:border-box;transition:transform .12s}.jc-meav:hover{transform:scale(1.06)}',
     '.jc-prof{width:min(440px,94vw) !important;padding:0 !important}.jc-prof h4{display:none}',
     '.jc-prof .jc-ph{background:linear-gradient(135deg,#075e54,#0b7c6e);color:#fff;padding:26px 16px 18px;text-align:center;border-radius:12px 12px 0 0;position:relative}',
     '.jc-prof .jc-ph .jc-x{position:absolute;top:8px;right:10px;border:0;background:rgba(255,255,255,.15);color:#fff;width:32px;height:32px;border-radius:50%;cursor:pointer;font-size:16px}',
@@ -453,7 +454,6 @@
     meAv.title = 'My profile';
     meAv.setAttribute('role', 'button');
     meAv.addEventListener('click', function () { profileDialog(); });
-    sh.appendChild(meAv);
     sh.appendChild(el('h3', null, 'Chats'));
     var bellBtn = el('button', 'jc-ibtn', '🔔');
     bellBtn.title = 'Notifications and sound';
@@ -475,6 +475,8 @@
     var search = el('div', 'jc-search');
     var sIn = el('input');
     sIn.placeholder = 'Search chats, people and messages';
+    search.classList.add('jc-srow');
+    search.appendChild(meAv);
     search.appendChild(sIn);
     var tabs = el('div', 'jc-tabs');
     var tMine = el('button', 'jc-tab jc-on', 'My chats');
