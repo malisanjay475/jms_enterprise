@@ -17,6 +17,7 @@ const {
   norm,
   editableStageKeys,
   canEditSheet,
+  canAddItems,
   isNpdAdmin,
   isNpdSuperadmin
 } = require('../src/modules/npd/registerNpdRoutes');
@@ -119,5 +120,26 @@ describe('NPD role access', () => {
     expect(qc.has('mass_printing')).toBe(false);
     expect(qc.has('fg_receiving')).toBe(false);
     expect(qc.has('samples_ho')).toBe(true);
+  });
+});
+
+describe('NPD Sales Co-ordinator (add only)', () => {
+  const u = (role_code, role_label) => ({ role_code, role_label });
+
+  test('Sales Co-ordinator can add products but not edit the sheet or stages', () => {
+    for (const s of [u('sales_coordinator'), u('x', 'Sales Co-ordinator'), u('sales_coord')]) {
+      expect(canAddItems(s)).toBe(true);
+      expect(canEditSheet(s)).toBe(false);
+      expect(editableStageKeys(s)).toEqual([]);
+      expect(isNpdSuperadmin(s)).toBe(false);
+    }
+  });
+
+  test('sheet owners can still add; other roles cannot', () => {
+    expect(canAddItems(u('ppc_manager'))).toBe(true);
+    expect(canAddItems(u('admin'))).toBe(true);
+    expect(canAddItems(u('moulding_manager'))).toBe(false);
+    expect(canAddItems(u('sales_manager'))).toBe(false);
+    expect(canAddItems(null)).toBe(false);
   });
 });
