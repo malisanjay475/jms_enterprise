@@ -163,11 +163,13 @@ object Api {
             if (replyTo != null) put("reply_to_sync_id", replyTo)
         }).message ?: throw ApiError("Message not sent.")
 
-    suspend fun sendFile(convId: String, file: File, fileName: String, mime: String, caption: String, replyTo: String?, syncId: String): Message {
+    suspend fun sendFile(convId: String, file: File, fileName: String, mime: String, caption: String, replyTo: String?, syncId: String,
+                         ptt: Boolean = false): Message {
         val form = MultipartBody.Builder().setType(MultipartBody.FORM)
             .addFormDataPart("conversation_sync_id", convId)
             .addFormDataPart("sync_id", syncId)
             .addFormDataPart("body", caption)
+            .apply { if (ptt) addFormDataPart("ptt", "1") }
             .apply { if (replyTo != null) addFormDataPart("reply_to_sync_id", replyTo) }
             .addFormDataPart("file", fileName, file.asRequestBodyCompat(mime))
             .build()
@@ -306,6 +308,18 @@ object Api {
     suspend fun callSignals(id: String, after: Long): CallSignalsReply = get("/api/chat/calls/$id/signals?after=$after")
 
     suspend fun callLog(): List<CallInfo> = get<CallLogReply>("/api/chat/calls").calls
+
+    // ---- group calls (start or join) ----
+    suspend fun joinGroupCall(convId: String): GroupCallReply =
+        json.decodeFromString(call("POST", "/api/chat/groups/$convId/call", "{}".toRequestBody(JSON)))
+
+    suspend fun roomSignal(roomId: String, to: String, kind: String, data: String) {
+        call("POST", "/api/chat/rooms/$roomId/signal", jsonBody("to" to to, "kind" to kind, "data" to data))
+    }
+
+    suspend fun roomPoll(roomId: String, after: Long): RoomPoll = get("/api/chat/rooms/$roomId/poll?after=$after")
+    suspend fun leaveRoom(roomId: String) { call("POST", "/api/chat/rooms/$roomId/leave", "{}".toRequestBody(JSON)) }
+    suspend fun activeRooms(): List<ActiveRoom> = get<ActiveRoomsReply>("/api/chat/rooms/active").rooms
 
     // ---- pin / archive ----
     suspend fun pin(convId: String, on: Boolean) { call("POST", "/api/chat/conversations/$convId/pin", jsonBody("on" to on)) }
