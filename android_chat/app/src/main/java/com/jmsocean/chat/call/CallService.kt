@@ -42,8 +42,9 @@ class CallService : Service() {
 
         private fun ongoing(ctx: Context): Notification {
             val s = CallEngine.state.value
+            val group = GroupCallEngine.state.value.takeIf { GroupCallEngine.active }
             val open = PendingIntent.getActivity(
-                ctx, 1, Intent(ctx, CallActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP),
+                ctx, 1, Intent(ctx, if (group != null) GroupCallActivity::class.java else CallActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP),
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
             )
             val end = PendingIntent.getBroadcast(
@@ -52,8 +53,8 @@ class CallService : Service() {
             )
             return NotificationCompat.Builder(ctx, CallNotifications.CHANNEL_ONGOING)
                 .setSmallIcon(R.drawable.ic_stat_chat)
-                .setContentTitle(s.peer.ifBlank { "JMS Chat" })
-                .setContentText("Voice call")
+                .setContentTitle(group?.title ?: s.peer.ifBlank { "JMS Chat" })
+                .setContentText(if (group != null) "Group call" else "Voice call")
                 .setOngoing(true)
                 .setCategory(NotificationCompat.CATEGORY_CALL)
                 .setContentIntent(open)

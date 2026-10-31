@@ -52,12 +52,18 @@ class ConversationViewModel(app: Application) : AndroidViewModel(app) {
         if (started) return
         started = true
         convId = id
+        walkie.value = com.jmsocean.chat.data.Walkie.isOn(getApplication(), id)
         load()
         viewModelScope.launch {
             Live.events.collect { ev ->
                 when (ev.type) {
                     "message" -> ev.message?.takeIf { it.conversation_sync_id == convId }?.let { m ->
+                        val isNew = messages.value.none { it.sync_id == m.sync_id }
                         upsert(m)
+                        // the chat is open: a walkie-talkie clip plays straight away
+                        if (isNew && m.ptt && !Session.isMe(m.sender)) m.attachment?.let {
+                            com.jmsocean.chat.data.Walkie.play(getApplication(), it.sync_id)
+                        }
                         if (!Session.isMe(m.sender)) {
                             if (typing.value == m.sender) typing.value = null
                             Api.markRead(convId)
@@ -239,7 +245,15 @@ class ConversationViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /** A voice note just recorded (already a small file). */
-    fun sendVoice(file: File, mime: String) = sendLocalFile(file, file.name, mime, "", "🎤 Voice message")
+    fun sendVoice(file: File, mime: String, ptt: Boolean = false) =
+        sendLocalFile(file, file.name, mime, "", if (ptt) "📻 Walkie-talkie" else "🎤 Voice message", ptt)
+
+    /** 📻 walkie-talkie for this chat: the mic sends clips that play by themselves (also in the background). */
+    val walkie = MutableStateFlow(false)
+    fun toggleWalkie() {
+        walkie.value = !walkie.value
+        com.jmsocean.chat.data.Walkie.set(getApplication(), convId, walkie.value)
+    }
 
     /** A camera shot: shrunk to ~1600 px first so it sends fast. */
     fun sendCameraPhoto(file: File) {
@@ -251,7 +265,7 @@ class ConversationViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    private fun sendLocalFile(file: File, name: String, mime: String, caption: String, placeholder: String) {
+    private fun sendLocalFile(file: File, name: String, mime: String, caption: String, placeholder: String, ptt: Boolean = false) {
         val reply = replyTo.value
         replyTo.value = null
         val id = UUID.randomUUID().toString()
@@ -261,7 +275,7 @@ class ConversationViewModel(app: Application) : AndroidViewModel(app) {
         )
         messages.value = messages.value + local
         viewModelScope.launch {
-            deliver(local) { Api.sendFile(convId, file, name, mime, caption, reply?.sync_id, id) }
+            deliver(local) { Api.sendFile(convId, file, name, mime, caption, reply?.sync_id, id, ptt) }
             file.delete()
         }
     }
