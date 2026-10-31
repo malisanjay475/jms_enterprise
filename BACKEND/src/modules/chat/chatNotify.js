@@ -203,9 +203,17 @@ async function sendPushForMessage(pool, messageSyncId) {
   const label = m.kind === 'link'
     ? `${m.meta && m.meta.priority === 'urgent' ? '⚠ Urgent: ' : ''}🔗 ${(m.meta && m.meta.title) || 'Shared page'}`
     : { image: '📷 Photo', pdf: '📄 PDF', xlsx: '📊 Excel file', audio: '🎤 Audio', video: '🎥 Video' }[m.kind];
+  const ptt = Boolean(m.meta && m.meta.ptt);
+  // 📻 walkie-talkie: the app plays the clip by itself when walkie-talkie is on for that chat
+  const pttFile = ptt
+    ? (await pool.query('SELECT sync_id FROM chat_attachments WHERE message_sync_id = $1', [m.sync_id]).catch(() => ({ rows: [] }))).rows[0]
+    : null;
   const pre = m.meta && m.meta.poll ? '📊 Poll: ' : m.meta && m.meta.announcement ? '📢 ' : '';
-  const body = pre + (label ? (m.body ? `${label}: ${m.body}` : label) : m.body);
-  const title = (urgent ? '⚠ URGENT · ' : '') + (m.conv_type === 'group' ? `${m.sender} in ${m.conv_title || 'Group'}` : m.sender);
+  const body = ptt ? '📻 Walkie-talkie message' : pre + (label ? (m.body ? `${label}: ${m.body}` : label) : m.body);
+  // the approved display name, like everywhere else in the apps
+  const senderName = await require('./chatProfiles').lookup(pool, [m.sender])
+    .then((mp) => (mp.get(String(m.sender).toLowerCase()) || {}).display_name || m.sender).catch(() => m.sender);
+  const title = (urgent ? '⚠ URGENT · ' : '') + (m.conv_type === 'group' ? `${senderName} in ${m.conv_title || 'Group'}` : senderName);
   let sent = 0;
 
   // Android app: one data message per phone, with that person's total unread for the
@@ -220,11 +228,14 @@ async function sendPushForMessage(pool, messageSyncId) {
         title: String(title || ''),
         body: (mentionedSet.has(key) ? '@ ' : '') + String(body || '').slice(0, 300),
         sender: String(m.sender || ''),
+        sender_name: String(senderName || m.sender || ''),
         conversation_sync_id: String(m.conversation_sync_id),
         message_sync_id: String(m.sync_id),
         is_group: m.conv_type === 'group' ? '1' : '0',
         unread: String(unread.get(key) || 1),
-        urgent: urgent ? '1' : '0'
+        urgent: urgent ? '1' : '0',
+        ptt: ptt ? '1' : '0',
+        file_id: pttFile ? String(pttFile.sync_id) : ''
       };
     }).catch((err) => { console.warn('[chat-fcm]', err.message); return { sent: 0 }; });
     sent += r.sent;

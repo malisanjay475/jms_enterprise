@@ -77,6 +77,7 @@ struct Conversation: Decodable, Identifiable, Hashable {
     var lastMessageAt: String?
     var lastBody: String?
     var lastSender: String?
+    var lastSenderName: String?
     var unread = 0
     var pinned = false
     var archived = false
@@ -96,7 +97,7 @@ extension Conversation {
         syncId = c.v("sync_id", "")
         type = c.v("type", "direct"); title = c.o("title"); members = c.v("members", [])
         myRole = c.o("my_role"); mutedUntil = c.o("muted_until"); online = c.v("online", false)
-        lastMessageAt = c.o("last_message_at"); lastBody = c.o("last_body"); lastSender = c.o("last_sender")
+        lastMessageAt = c.o("last_message_at"); lastBody = c.o("last_body"); lastSender = c.o("last_sender"); lastSenderName = c.o("last_sender_name")
         unread = c.v("unread", 0); pinned = c.v("pinned", false); archived = c.v("archived", false)
         peer = c.o("peer"); photoV = c.s("photo_v"); lastSeenAt = c.o("last_seen_at")
     }
@@ -125,12 +126,14 @@ struct ReplyQuote: Decodable, Equatable {
     var text = ""
     var deleted = false
     var image: String?
+    var senderName = ""
+    var shownSender: String { senderName.isEmpty ? sender : senderName }
 }
 
 extension ReplyQuote {
     init(from d: Decoder) throws {
         let c = try d.container(keyedBy: JK.self)
-        syncId = c.v("sync_id", ""); sender = c.v("sender", ""); kind = c.v("kind", "text")
+        syncId = c.v("sync_id", ""); sender = c.v("sender", ""); kind = c.v("kind", "text"); senderName = c.v("sender_name", "")
         text = c.v("text", ""); deleted = c.v("deleted", false); image = c.o("image")
     }
 
@@ -184,6 +187,9 @@ struct Message: Decodable, Identifiable, Equatable {
     var syncId: String
     var conversationSyncId: String
     var sender = ""
+    /** Approved display name (login name until one is approved). */
+    var senderName = ""
+    var shownSender: String { senderName.isEmpty ? sender : senderName }
     var body = ""
     var kind = "text"
     var serverTs: String?
@@ -213,7 +219,7 @@ extension Message {
     init(from d: Decoder) throws {
         let c = try d.container(keyedBy: JK.self)
         syncId = c.v("sync_id", ""); conversationSyncId = c.v("conversation_sync_id", "")
-        sender = c.v("sender", ""); body = c.v("body", ""); kind = c.v("kind", "text")
+        sender = c.v("sender", ""); senderName = c.v("sender_name", ""); body = c.v("body", ""); kind = c.v("kind", "text")
         serverTs = c.o("server_ts"); editedAt = c.o("edited_at")
         deleted = c.v("deleted", false); purged = c.v("purged", false)
         replyToSyncId = c.o("reply_to_sync_id"); replyTo = c.o("reply_to"); attachment = c.o("attachment")
@@ -352,15 +358,30 @@ extension CommonGroup {
     }
 }
 
+struct SharedLink: Decodable, Identifiable {
+    var syncId = ""
+    var title: String?
+    var url = ""
+    var id: String { syncId }
+}
+
+extension SharedLink {
+    init(from d: Decoder) throws {
+        let c = try d.container(keyedBy: JK.self)
+        syncId = c.v("sync_id", ""); title = c.o("title"); url = c.v("url", "")
+    }
+}
+
 struct SharedReply: Decodable {
     var media: [Attachment] = []
+    var links: [SharedLink] = []
     var groups: [CommonGroup] = []
 }
 
 extension SharedReply {
     init(from d: Decoder) throws {
         let c = try d.container(keyedBy: JK.self)
-        media = c.v("media", []); groups = c.v("groups", [])
+        media = c.v("media", []); links = c.v("links", []); groups = c.v("groups", [])
     }
 }
 
@@ -389,6 +410,7 @@ struct NameRequest: Decodable, Identifiable {
     var currentName = ""
     var requestedName = ""
     var photoV: String?
+    var sameName: [String] = []
     var id: String { username }
 }
 
@@ -397,6 +419,7 @@ extension NameRequest {
         let c = try d.container(keyedBy: JK.self)
         username = c.v("username", ""); role = c.v("role", ""); line = c.v("line", "")
         currentName = c.v("current_name", ""); requestedName = c.v("requested_name", ""); photoV = c.s("photo_v")
+        sameName = c.v("same_name", [])
     }
 }
 
@@ -425,6 +448,9 @@ struct LiveEvent: Decodable {
     var status: String?
     var by: String?
     var adminCopy = false
+    /** type "notice": name request / decision. */
+    var title: String?
+    var body: String?
 }
 
 extension LiveEvent {
@@ -433,7 +459,7 @@ extension LiveEvent {
         type = c.v("type", ""); message = c.o("message"); conversationSyncId = c.o("conversation_sync_id")
         username = c.o("username"); kind = c.o("kind"); messageSyncIds = c.o("message_sync_ids")
         messageSyncId = c.o("message_sync_id"); reactions = c.o("reactions"); status = c.o("status")
-        by = c.o("by"); adminCopy = c.v("adminCopy", false)
+        by = c.o("by"); adminCopy = c.v("adminCopy", false); title = c.o("title"); body = c.o("body")
     }
 }
 

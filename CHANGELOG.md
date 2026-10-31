@@ -14,6 +14,9 @@ part of your PR. On release, the `[Unreleased]` items move under the new version
 ## [Unreleased]
 
 ### Added
+- JMS Chat phone app (v1.161.0): a floating bottom bar like WhatsApp on iPhone - Chats (unread count), Starred, Tasks, Approvals (if you have any) and You (your photo). It hides while a chat is open. The new "You" page shows your photo, name and about, with Starred messages, My tasks, Approvals, Linked devices, Profile, Notifications and sound, App lock, Appearance (System / Dark / Light), Install app and Sign out. The header no longer repeats those buttons on phones.
+
+### Added
 - JMS Chat desktop (v1.160.1): hovering a message shows the ▾ options arrow (no need to know right-click) and a ☺ react button beside it, like WhatsApp Desktop. The react button opens a bar of quick reactions with "+" for more; the options menu has a "React" entry too.
 
 ### Changed
@@ -62,9 +65,11 @@ part of your PR. On release, the `[Unreleased]` items move under the new version
 - JMS Chat on phones: the chat list only filled about 80% of the screen width (a desktop rule .jc-app .jc-side{min-width:320px} beat the phone rule); it fills the screen again.
 
 ### Fixed
+- Planning Board machine cards (v1.161.1): flipped Machines-view cards now compute Balance and Done % as plan qty − DPR produced (same as Master Plan / View full details), instead of the stored plan_board.bal_qty that only updates on plan edit.
 - NPD Tracker (v1.154.3): Purchase users can now edit the Purchase column ("Packing material follow up & receiving"). Any role whose code or name contains "purchase" gets it.
 
 ### Added
+- JMS Chat phase E (v1.162.0): group voice calls (up to 8, WebRTC mesh, Join notification, call line in the group) and push-to-talk walkie-talkie clips that play by themselves; Android app 3.4.0. Needs TURN for mobile↔mobile on cellular.
 - Compliance job flow (v1.154.2): GET /api/shifting/job-flow plus flow strips on every Compliance Summary machine cell and DPR job popup. Existing qc_verifications sync_id replication on MAIN is preserved.
 - NPD Tracker (npd.html, v1.154.0): stage editing by role (Admin / Superadmin all columns; Tool Room, Moulding, Planning, QC and Packing roles only their own columns), only Superadmin deletes, child moulds under each product with the same columns, completion date shown on Complete stages, and a mandatory remark on every stage change.
 - Page smoke test (v1.153.4): new BACKEND/scripts/smoke-pages.js opens every PUBLIC/*.html page in a real browser (playwright-core, or the copy bundled with the global @playwright/cli) and reports JS errors, console errors, failed / 4xx-5xx same-origin requests and login redirects; read-only, exit code 1 on any FAIL. Options --base, --state (logged-in storage state), --only, --shots.
@@ -76,7 +81,6 @@ part of your PR. On release, the `[Unreleased]` items move under the new version
 - DPR Daily Report (dpr_daily_report.html, v1.153.4): the chartjs-plugin-datalabels vendor file had no .js extension and was served as application/octet-stream, which the browser refused to run; moved to chartjs-plugin-datalabels@2.0.0/chartjs-plugin-datalabels.min.js.
 - Job Summary (job_summary.html, v1.153.4): the order search box and mould list called /api/planning/element-view and /details, which never existed (404). New routes in registerLegacyRoutes.js: GET /api/planning/element-view (order numbers from mould_planning_summary + plan_board, factory-scoped, max 5000) and GET /api/planning/element-view/details?or_jr_no= (that order's moulds). Read-only.
 
-### Added
 - JMS Chat phase D (v1.151.0): new src/modules/chat/chatSecure.js - chat_conv_settings (disappear_seconds, protected; PUT /api/chat/conversations/:id/security; one-worker purge every minute of messages sent since it was turned on), protected chats block download / forward server-side and set FLAG_SECURE in the app, chat_devices (chat-app login registers a device; JWT did claim; auth.js setChatTokenCheck refuses signed-out / blocked devices; GET /api/chat/devices, POST /:id/signout, /signout-others incl. old tokens via chat_signout; admin GET/POST /api/chat/admin/devices, superadmin PUT /api/chat/admin/device-approval = CHAT_DEVICE_APPROVAL), FCM tokens tied to the device and dropped on sign-out, chat_folders (GET/POST/PUT/DELETE /api/chat/folders). Web widget v=12 + app 3.3.0.
 - JMS Chat phase C (v1.150.0): line/department groups, @team mentions, shift handover, check-in, translation, voice-to-text (app 3.2.0)
 - JMS Chat phase B (v1.149.0): new src/modules/chat/chatBot.js - POST /api/chat/command (/dpr, /job, /order, /help; answer posted by 'JMS Bot', meta.bot), POST /api/chat/maintenance (same maintenance_tickets row, number and manager notifications via app.locals.jmsMaintenance set in the legacy module; status changes posted back to the chat by a one-worker job), GET /api/chat/approvals and POST /api/chat/approvals/:id/action (the existing job-card approval route called internally with a session for that user; only global-access or admin users), POST /api/chat/messages/:id/ack (chat_alert_acks), escalation of unacknowledged JMS Alerts holds / stops (meta.alert) to factory managers after 30 min and superadmins after 60 min, shift summary to each factory group at 08:05 / 20:05 IST. Messages carry bot and alert (acked_by, escalated). Web and app 3.1.0: '/' commands from the message box, ✋ I'm on it, Raise maintenance ticket, ✅ Approvals list.

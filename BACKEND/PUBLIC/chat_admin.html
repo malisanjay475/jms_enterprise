@@ -409,12 +409,33 @@
         chg.appendChild(el('s', null, r.current_name)); chg.appendChild(document.createTextNode('  →  ')); chg.appendChild(el('b', null, r.requested_name));
         who.appendChild(chg);
         who.appendChild(el('small', null, 'Login: ' + r.username + (r.role ? ' · ' + r.role.replace(/_/g, ' ') : '') + (r.line ? ' · ' + r.line : '') + ' · asked ' + ist(r.requested_at)));
+        if (r.same_name && r.same_name.length) {
+          var warn = el('small', null, '⚠ Already used by ' + r.same_name.join(', '));
+          warn.style.color = '#b45309'; warn.style.fontWeight = '700';
+          who.appendChild(warn);
+        }
         row.appendChild(who);
         var ok = el('button', 'ca-btn'); ok.type = 'button'; ok.innerHTML = '<i class="bi bi-check-lg"></i> Approve';
         var no = el('button', 'ca-btn no'); no.type = 'button'; no.innerHTML = '<i class="bi bi-x-lg"></i> Reject';
         function decide(action) {
           var note = '';
-          if (action === 'reject') { note = prompt('Reason (shown to ' + r.current_name + '):', ''); if (note === null) return; }
+          if (action === 'reject') {
+            if (row.querySelector('.ca-why')) return; // reason box already open
+            var box = el('div', 'ca-why');
+            box.style.cssText = 'flex-basis:100%;display:flex;gap:8px;margin-top:6px';
+            var inp = el('input'); inp.maxLength = 140; inp.placeholder = 'Reason (shown to ' + r.current_name + ')';
+            inp.style.cssText = 'flex:1;border:1px solid #cbd5e1;border-radius:6px;padding:6px 9px;font:inherit';
+            var go = el('button', 'ca-btn no'); go.type = 'button'; go.textContent = 'Reject';
+            var cancel = el('button', 'ca-btn alt'); cancel.type = 'button'; cancel.textContent = 'Cancel';
+            cancel.addEventListener('click', function () { box.remove(); });
+            go.addEventListener('click', function () { box.remove(); send('reject', inp.value.trim()); });
+            box.appendChild(inp); box.appendChild(go); box.appendChild(cancel);
+            row.appendChild(box); inp.focus();
+            return;
+          }
+          send(action, note);
+        }
+        function send(action, note) {
           ok.disabled = no.disabled = true;
           api('/api/chat/name-requests/' + encodeURIComponent(r.username), {
             method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: action, note: note })

@@ -137,6 +137,7 @@ fun ConversationScreen(convId: String, onBack: () -> Unit, onInfo: () -> Unit, v
     val messages by vm.messages.collectAsState()
     val title by vm.title.collectAsState()
     val isGroup by vm.isGroup.collectAsState()
+    val walkie by vm.walkie.collectAsState()
     val members by vm.members.collectAsState()
     val online by vm.online.collectAsState()
     val typing by vm.typing.collectAsState()
@@ -254,12 +255,23 @@ fun ConversationScreen(convId: String, onBack: () -> Unit, onInfo: () -> Unit, v
                         IconButton(onClick = { com.jmsocean.chat.call.CallActivity.call(ctx, p) }) {
                             Icon(Icons.Default.Call, "Voice call")
                         }
+                    } else {
+                        IconButton(onClick = { com.jmsocean.chat.call.GroupCallActivity.join(ctx, convId, title) }) {
+                            Icon(Icons.Default.Call, "Group call")
+                        }
                     }
                     Box {
                         IconButton(onClick = { topMenu = true }) { Icon(Icons.Default.MoreVert, "Menu") }
                         DropdownMenu(expanded = topMenu, onDismissRequest = { topMenu = false }) {
                             DropdownMenuItem(text = { Text(if (isGroup) "Group info" else "Contact info") }, onClick = { topMenu = false; onInfo() })
                             DropdownMenuItem(text = { Text("Search") }, onClick = { topMenu = false; searching = true })
+                            DropdownMenuItem(
+                                text = { Text(if (walkie) "📻 Walkie-talkie: ON (tap to turn off)" else "📻 Walkie-talkie mode") },
+                                onClick = {
+                                    topMenu = false; vm.toggleWalkie()
+                                    Toast.makeText(ctx, if (!walkie) "Walkie-talkie on: hold the mic to talk, clips play out loud"
+                                        else "Walkie-talkie off", Toast.LENGTH_LONG).show()
+                                })
                             if (mutedUntil != null) DropdownMenuItem(text = { Text("Unmute notifications") }, onClick = { topMenu = false; vm.mute("off") })
                             else {
                                 DropdownMenuItem(text = { Text("Mute for 8 hours") }, onClick = { topMenu = false; vm.mute("8h") })
@@ -295,7 +307,7 @@ fun ConversationScreen(convId: String, onBack: () -> Unit, onInfo: () -> Unit, v
                                     searching = false; query = ""; vm.search("")
                                     if (idx >= 0) uiScope.launch { listState.scrollToItem(idx) }
                                 }.padding(horizontal = 16.dp, vertical = 10.dp)) {
-                                    Text("${if (Session.isMe(m.sender)) "You" else m.sender} · ${dayLabel(m.server_ts)} ${timeOf(m.server_ts)}",
+                                    Text("${if (Session.isMe(m.sender)) "You" else m.sender_name.ifBlank { m.sender }} · ${dayLabel(m.server_ts)} ${timeOf(m.server_ts)}",
                                         fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     Text(m.body, maxLines = 3, overflow = TextOverflow.Ellipsis)
                                 }
@@ -380,7 +392,7 @@ fun ConversationScreen(convId: String, onBack: () -> Unit, onInfo: () -> Unit, v
                     recording = false
                     if (send) {
                         val f = recorder.stop()
-                        if (f != null) vm.sendVoice(f, recorder.mime)
+                        if (f != null) vm.sendVoice(f, recorder.mime, ptt = walkie)
                         else Toast.makeText(ctx, "Hold the mic to record", Toast.LENGTH_SHORT).show()
                     } else recorder.cancel()
                 },
@@ -538,7 +550,7 @@ private fun Bubble(
                 )
             ) {
                 Column(Modifier.padding(horizontal = 8.dp, vertical = 5.dp)) {
-                    if (isGroup && !mine && firstOfRun) Text(m.sender, color = nameColor(m.sender), fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                    if (isGroup && !mine && firstOfRun) Text(m.sender_name.ifBlank { m.sender }, color = nameColor(m.sender), fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
                     if (m.forwarded && !m.deleted) Text("↪ Forwarded", fontSize = 12.sp, fontStyle = FontStyle.Italic,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                     if (m.announcement && !m.deleted) Text("📢 ANNOUNCEMENT", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFFB45309))
@@ -553,7 +565,7 @@ private fun Bubble(
                         ) {
                             Box(Modifier.width(4.dp).heightIn(min = 36.dp).background(nameColor(q.sender)))
                             Column(Modifier.padding(6.dp)) {
-                                Text(if (Session.isMe(q.sender)) "You" else q.sender, color = nameColor(q.sender), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                                Text(if (Session.isMe(q.sender)) "You" else q.sender_name.ifBlank { q.sender }, color = nameColor(q.sender), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                                 Text(if (q.deleted) "Original message deleted" else q.text, fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }

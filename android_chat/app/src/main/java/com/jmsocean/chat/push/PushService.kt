@@ -49,6 +49,11 @@ class PushService : FirebaseMessagingService() {
             Notifier.show(this, "test", "JMS Chat", "JMS Chat", d["body"] ?: "Notifications are working", false)
             return
         }
+        // Name request (to admins) or the decision (to the person).
+        if (d["type"] == "notice") {
+            Notifier.show(this, "notice", d["title"] ?: "JMS Chat", "JMS Chat", d["body"] ?: "", false)
+            return
+        }
         if (d["type"] == "call") {
             val id = d["call_id"] ?: return
             val caller = d["caller"] ?: "Someone"
@@ -63,13 +68,24 @@ class PushService : FirebaseMessagingService() {
             com.jmsocean.chat.call.CallEngine.remoteEnded(id, d["reason"] ?: "ended")
             return
         }
+        if (d["type"] == "group_call") {
+            val room = d["room_id"] ?: return
+            val conv = d["conversation_sync_id"] ?: return
+            if (com.jmsocean.chat.call.GroupCallEngine.active || com.jmsocean.chat.call.CallEngine.busy) return
+            com.jmsocean.chat.call.CallNotifications.showGroupInvite(this, room, conv, d["title"] ?: "Group", d["caller"] ?: "Someone")
+            return
+        }
         if (d["type"] != "chat") return
         val conv = d["conversation_sync_id"] ?: return
         val sender = d["sender"] ?: ""
+        // 📻 walkie-talkie: play it out loud when walkie-talkie is on for this chat
+        if (d["ptt"] == "1") d["file_id"]?.takeIf { it.isNotBlank() && com.jmsocean.chat.data.Walkie.isOn(this, conv) }?.let {
+            com.jmsocean.chat.data.Walkie.play(this, it)
+        }
         Notifier.show(
             this, conv,
             title = d["title"] ?: "JMS Chat",
-            sender = sender,
+            sender = d["sender_name"]?.ifBlank { null } ?: sender,
             text = d["body"] ?: "",
             isGroup = d["is_group"] == "1",
             senderPhoto = senderPhoto(sender),

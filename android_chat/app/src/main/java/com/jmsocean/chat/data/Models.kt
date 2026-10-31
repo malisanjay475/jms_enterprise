@@ -61,6 +61,7 @@ data class Conversation(
     val last_message_at: String? = null,
     val last_body: String? = null,
     val last_sender: String? = null,
+    val last_sender_name: String? = null,
     val unread: Int = 0,
     val pinned: Boolean = false,
     val archived: Boolean = false,
@@ -102,13 +103,15 @@ data class ConversationReply(val conversation: Conversation? = null)
 data class Attachment(val sync_id: String, val kind: String = "", val mime: String = "", val file_name: String = "", val size: Long = 0)
 
 @Serializable
-data class ReplyQuote(val sync_id: String = "", val sender: String = "", val kind: String = "text", val text: String = "", val deleted: Boolean = false, val image: String? = null)
+data class ReplyQuote(val sync_id: String = "", val sender: String = "", val kind: String = "text", val text: String = "", val deleted: Boolean = false, val image: String? = null, val sender_name: String = "")
 
 @Serializable
 data class Message(
     val sync_id: String,
     val conversation_sync_id: String,
     val sender: String = "",
+    /** Approved display name of the sender (login name until one is approved). */
+    val sender_name: String = "",
     val body: String = "",
     val kind: String = "text",
     val server_ts: String? = null,
@@ -126,6 +129,8 @@ data class Message(
     val scheduled: Boolean = false,
     val poll: Poll? = null,
     val bot: Boolean = false,
+    /** 📻 walkie-talkie clip: plays by itself */
+    val ptt: Boolean = false,
     val alert: AlertInfo? = null,
     val reactions: List<Reaction>? = null,
     val starred: Boolean = false,
@@ -278,9 +283,16 @@ data class SharedFile(val sync_id: String, val kind: String = "", val mime: Stri
 @Serializable
 data class CommonGroup(val sync_id: String, val title: String? = null, val members: Int = 0)
 
-/** Contact info extras: media in our direct chat and groups in common. */
 @Serializable
-data class SharedReply(val media: List<SharedFile> = emptyList(), val groups: List<CommonGroup> = emptyList())
+data class SharedLink(val sync_id: String, val title: String? = null, val url: String = "")
+
+/** Contact info extras: media and shared JMS pages in our direct chat, groups in common. */
+@Serializable
+data class SharedReply(
+    val media: List<SharedFile> = emptyList(),
+    val links: List<SharedLink> = emptyList(),
+    val groups: List<CommonGroup> = emptyList()
+)
 
 @Serializable
 data class NameChange(
@@ -301,7 +313,9 @@ data class NameRequest(
     val current_name: String = "",
     val requested_name: String = "",
     val requested_at: String? = null,
-    val photo_v: String? = null
+    val photo_v: String? = null,
+    /** Other people already shown with this name (warn before approving a look-alike). */
+    val same_name: List<String> = emptyList()
 )
 
 @Serializable
@@ -346,6 +360,34 @@ data class CallReply(val call: CallInfo, val ice: List<IceServerConfig> = emptyL
 
 @Serializable
 data class CallSignal(val seq: Long, val kind: String, val data: String)
+
+// ---- phase E: group calls ----
+@Serializable
+data class RoomInfo(val id: String, val conversation_sync_id: String = "", val title: String = "", val started_at: String? = null)
+
+@Serializable
+data class RoomPerson(val username: String, val joined_at: String = "")
+
+@Serializable
+data class GroupCallReply(
+    val started: Boolean = false,
+    val room: RoomInfo,
+    val me: RoomPerson,
+    val participants: List<RoomPerson> = emptyList(),
+    val ice: List<IceServerConfig> = emptyList()
+)
+
+@Serializable
+data class RoomSignal(val seq: Long, val from: String, val kind: String, val data: String)
+
+@Serializable
+data class RoomPoll(val status: String = "", val participants: List<RoomPerson> = emptyList(), val signals: List<RoomSignal> = emptyList())
+
+@Serializable
+data class ActiveRoom(val id: String, val conversation_sync_id: String, val started_by: String = "", val people: Int = 0, val joined: Boolean = false)
+
+@Serializable
+data class ActiveRoomsReply(val rooms: List<ActiveRoom> = emptyList())
 
 @Serializable
 data class CallSignalsReply(val status: String = "", val signals: List<CallSignal> = emptyList())
