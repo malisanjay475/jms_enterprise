@@ -4282,6 +4282,17 @@
     serverInfo = { server_type: d.server_type || 'MAIN', factory_id: d.factory_id == null ? null : d.factory_id };
   }
 
+  // for the chat app shell (chat_app.html): its phone "You" page
+  window.JMSChatUI = {
+    me: function () {
+      var p = myProfile || {};
+      return { username: me, name: p.display_name || me, about: p.about || '', photo_v: p.photo_v || null, admin: canApprove,
+        avatar: me && p.photo_v ? API + '/avatars/' + encodeURIComponent(me) + '?v=' + encodeURIComponent(p.photo_v) : null };
+    },
+    profile: function () { profileDialog(); },
+    devices: function () { devicesDialog(); }
+  };
+
   function start() {
     var boot = appMode ? readBoot() : null;
     if (boot) {
