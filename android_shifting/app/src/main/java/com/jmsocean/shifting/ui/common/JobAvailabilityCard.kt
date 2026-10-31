@@ -29,6 +29,7 @@ import androidx.compose.ui.unit.sp
 import com.jmsocean.shifting.data.ShiftClock
 import com.jmsocean.shifting.data.remote.Availability
 import com.jmsocean.shifting.data.remote.LocQty
+import com.jmsocean.shifting.data.remote.ShiftState
 import com.jmsocean.shifting.ui.theme.Crit
 import com.jmsocean.shifting.ui.theme.Good
 import com.jmsocean.shifting.ui.theme.Steel
@@ -112,8 +113,16 @@ private fun JobSummaryContent(a: Availability) {
         when {
             a.holdCount > 0 -> Pill("QC HOLD", Crit.copy(alpha = 0.15f), Crit)
             a.status.equals("running", ignoreCase = true) -> Pill("Running", Good.copy(alpha = 0.15f), Good)
+            a.ppcCompleted -> PpcCompletedTag()
             a.status.isNotBlank() -> Pill(a.status, Steel.copy(alpha = 0.15f), Steel)
         }
+    }
+    ShiftStateBadge(a.shiftState, a.ready)
+    a.closure?.let {
+        Text(
+            "Shifting closed by ${it.closedBy.ifBlank { "—" }}: ${it.reason.ifBlank { "no reason" }} (left ${qty(it.leftoverQty)} pcs)",
+            fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Steel
+        )
     }
     FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         if (a.orderNo.isNotBlank()) InfoChip("OR", a.orderNo)
@@ -179,6 +188,9 @@ private fun JobBreakdownContent(a: Availability, leadingDivider: Boolean) {
                     Text(qty(c.notVerified), Modifier.weight(1f), fontSize = 12.sp, color = if (c.notVerified > 0) Crit else Color.Unspecified)
                     Text(qty(c.shifted), Modifier.weight(1f), fontSize = 12.sp)
                     Text(qty(c.ready), Modifier.weight(1f), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = if (c.ready > 0) Good else Color.Unspecified)
+                }
+                if (c.state != ShiftState.UNKNOWN && c.state != ShiftState.NOT_PRODUCED) {
+                    Row(Modifier.padding(top = 2.dp)) { ShiftStateBadge(c.state, c.ready) }
                 }
                 if (a.hasSfgStd && c.ready > 0) {
                     Text("Ready ${packText(c.ready, a.sfgStd, a.packName)}", fontSize = 11.sp, color = Good, fontWeight = FontWeight.SemiBold)

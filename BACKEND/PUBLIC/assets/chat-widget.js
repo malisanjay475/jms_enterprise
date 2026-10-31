@@ -19,6 +19,7 @@
   var MAX_FILE = 10 * 1024 * 1024;
   var EDIT_MS = 15 * 60 * 1000;
   var me = null, isAdmin = false;
+  var canApprove = false; // admin or superadmin: sees chat sign-up requests (chatSignup.js)
   var convs = [], current = null, users = [];
   var adminAll = false, open = false, es = null, retry = 0;
   var oldestTs = null, hasMore = false;
@@ -109,6 +110,62 @@
 
   function isGroup(c) { return !!c && c.type === 'group'; }
 
+  // Approved display names by login (from messages, members and the chat list), so every
+  // place shows the same name as the chat list and contact info.
+  var displayNames = {};
+  function rememberName(user, name) { if (user && name) displayNames[String(user).toLowerCase()] = name; }
+  function nameOf(user, given) {
+    if (given) { rememberName(user, given); return given; }
+    return displayNames[String(user || '').toLowerCase()] || user;
+  }
+
+  // Avatar: profile photo when the person has one, else coloured initials.
+  function setAvatar(av, name, photoV, group) {
+    av.textContent = group ? '👥' : initials(name);
+    av.style.background = avatarColor(name);
+    if (!group && photoV && name) {
+      var im = document.createElement('img');
+      im.alt = '';
+      im.loading = 'lazy';
+      im.src = API + '/avatars/' + encodeURIComponent(name) + '?v=' + encodeURIComponent(photoV);
+      im.onerror = function () { im.remove(); };
+      av.appendChild(im);
+    }
+  }
+
+  function lastSeenText(online, iso) {
+    if (online) return 'online';
+    if (!iso) return '';
+    var t = new Date(iso), now = new Date();
+    var days = Math.round((new Date(now.toDateString()) - new Date(t.toDateString())) / 86400000);
+    var at = fmtTime(iso);
+    if (days === 0) return 'last seen today at ' + at;
+    if (days === 1) return 'last seen yesterday at ' + at;
+    if (days < 7) return 'last seen ' + t.toLocaleDateString(undefined, { weekday: 'long' }) + ' at ' + at;
+    return 'last seen ' + t.toLocaleDateString();
+  }
+
+  // Small dialog: { body, close }.
+  function modal(title) {
+    var wrap = document.createElement('div');
+    wrap.className = 'jc-modal';
+    var box = document.createElement('div');
+    if (title) { var h = document.createElement('h4'); h.textContent = title; box.appendChild(h); }
+    var body = document.createElement('div');
+    box.appendChild(body);
+    wrap.appendChild(box);
+    function close() { wrap.remove(); document.removeEventListener('keydown', onKey); }
+    function onKey(e) { if (e.key === 'Escape') close(); }
+    wrap.addEventListener('click', function (e) { if (e.target === wrap) close(); });
+    document.addEventListener('keydown', onKey);
+    document.body.appendChild(wrap);
+    return { box: box, body: body, close: close };
+  }
+
+  var QUICK_RX = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
+  var folders = [];
+  var listFilter = 'all', showArchived = false, showStarred = false, showTodos = false, showApprovals = false;
+
   function convById(id) { return convs.filter(function (x) { return x.sync_id === id; })[0] || (current && current.sync_id === id ? current : null); }
 
   function isMuted(c) { return !!(c && c.muted_until && new Date(c.muted_until) > new Date()); }
@@ -130,9 +187,29 @@
 
   // ---------------- styles ----------------
   var CSS = [
+    '.jc-tr{margin-top:6px;padding:6px 8px;border-radius:6px;background:rgba(0,168,132,.08);font-size:13px;white-space:pre-wrap}.jc-tr small{display:block;opacity:.65;font-size:11px}.jc-trbtn{border:0;background:transparent;color:#027eb5;cursor:pointer;font-size:12px;padding:2px 0}',
+    '.jc-ack{display:inline-block;margin-top:6px;border:0;border-radius:14px;padding:4px 12px;background:#e53935;color:#fff;cursor:pointer;font-size:12px}.jc-acked{display:block;margin-top:4px;font-size:12px;color:#12a66a;font-weight:600}.jc-esc{display:block;font-size:11px;color:#e53935}',
+    '.jc-bot{background:#eef6ff !important;border-left:3px solid #3b82f6}.jc-botl{font-size:11px;font-weight:700;color:#2563eb;margin-bottom:2px}',
+    '.jc-appr{padding:10px 14px;border-bottom:1px solid var(--jc-bd)}.jc-appr b{display:block}.jc-appr small{opacity:.75}.jc-appr .jc-act{justify-content:flex-start;margin-top:6px}',
+    '.jc-poll{min-width:230px;margin:2px 0}.jc-poll b{display:block;margin-bottom:6px}.jc-popt{position:relative;border:1px solid var(--jc-bd);border-radius:8px;padding:6px 8px;margin:4px 0;cursor:pointer;overflow:hidden;background:rgba(255,255,255,.5)}.jc-popt i{position:absolute;left:0;top:0;bottom:0;background:rgba(0,168,132,.18);font-style:normal}.jc-popt span{position:relative;display:flex;justify-content:space-between;gap:8px}.jc-popt.jc-mine{border-color:#00a884;font-weight:600}.jc-poll small{opacity:.7}',
+    '.jc-ann{border-left:4px solid #f59e0b;background:#fff8e6 !important}.jc-annl{font-size:11px;font-weight:700;color:#b45309;margin-bottom:2px}',
+    '.jc-urg{border:1.5px solid #e53935 !important}.jc-urgl{font-size:11px;font-weight:700;color:#e53935;margin-bottom:2px}',
+    '.jc-pinbar{display:flex;align-items:center;gap:8px;padding:6px 14px;background:var(--jc-bg);border-bottom:1px solid var(--jc-bd);cursor:pointer;font-size:13px}.jc-pinbar span{flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}',
+    '.jc-todo{display:flex;align-items:flex-start;gap:10px;padding:10px 14px;border-bottom:1px solid var(--jc-bd)}.jc-todo.jc-done{opacity:.55;text-decoration:line-through}.jc-todo small{display:block;opacity:.7;text-decoration:none}',
+    '.jc-app .jc-side{width:32%;min-width:320px;max-width:440px}',
+    '.jc-dl{display:inline-block;margin-top:3px;font-size:12px;color:#027eb5;text-decoration:none}.jc-dl:hover{text-decoration:underline}',
+    '.jc-av img{position:absolute;inset:0;width:100%;height:100%;border-radius:50%;object-fit:cover}',
+    '.jc-chips{display:flex;gap:6px;padding:6px 10px;flex-wrap:wrap}.jc-chip{border:1px solid var(--jc-bd);background:transparent;border-radius:16px;padding:3px 12px;font-size:12px;cursor:pointer;color:inherit}.jc-chip.jc-on{background:rgba(0,168,132,.15);border-color:#00a884;color:#00785f}',
+    '.jc-arch{display:flex;align-items:center;gap:10px;padding:8px 16px;cursor:pointer;font-weight:600;color:#00a884}',
+    '.jc-pin{font-size:11px;margin-left:4px;opacity:.7}',
+    '.jc-rx{display:flex;gap:3px;margin-top:3px;flex-wrap:wrap}.jc-rx span{border:1px solid var(--jc-bd);border-radius:10px;padding:0 6px;font-size:12px;cursor:pointer;background:rgba(127,127,127,.08)}',
+    '.jc-emo{display:flex;gap:2px;padding:4px 6px;border-bottom:1px solid var(--jc-bd)}.jc-emo button{font-size:18px;padding:2px 4px;border:0;background:transparent;cursor:pointer;border-radius:50%}.jc-emo button.jc-on{background:rgba(0,168,132,.2)}',
+    '.jc-fwd{font-size:11px;font-style:italic;opacity:.7;margin-bottom:2px}',
+    '.jc-modal{position:fixed;inset:0;z-index:100010;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center}.jc-modal>div{background:var(--jc-bg);color:inherit;border-radius:12px;width:min(420px,92vw);max-height:80vh;overflow:auto;padding:14px;box-shadow:0 10px 40px rgba(0,0,0,.4)}.jc-modal h4{margin:0 0 10px}.jc-modal .jc-row2{display:flex;align-items:center;gap:10px;padding:6px 4px;cursor:pointer}.jc-modal .jc-act{display:flex;justify-content:flex-end;gap:8px;margin-top:12px}.jc-modal .jc-primary{background:#00a884;color:#fff;border:0;border-radius:18px;padding:6px 16px;cursor:pointer}.jc-modal .jc-plain{background:transparent;border:1px solid var(--jc-bd);border-radius:18px;padding:6px 14px;cursor:pointer;color:inherit}.jc-modal small{opacity:.7}',
+    '.jc-call{position:fixed;inset:0;z-index:100020;background:#0b141a;color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px}.jc-call .jc-av{width:110px;height:110px;font-size:40px}.jc-call h2{margin:0;font-weight:600}.jc-call p{margin:0;opacity:.8}.jc-cbtns{display:flex;gap:28px;margin-top:30px}.jc-cbtns button{width:64px;height:64px;border-radius:50%;border:0;font-size:24px;cursor:pointer;color:#fff;background:rgba(255,255,255,.15)}.jc-cbtns .jc-red{background:#e53935}.jc-cbtns .jc-green{background:#00a884}.jc-cbtns .jc-on{background:rgba(255,255,255,.4)}',
     '.jc-app .jc-panel{position:fixed;inset:0;right:0;bottom:0;width:100vw;max-width:100vw;height:100%;max-height:100%;border-radius:0;z-index:100001}.jc-app .jc-fab,.jc-app .jc-sharefab{display:none !important}',
     // the share sheet, mark bar and target banner live outside .jc-root: same colours
-    '.jc-root,.jc-sheet-bg,.jc-tbanner,.jc-markbar{--jc-g:#00a884;--jc-gd:#008069;--jc-bg:#fff;--jc-bg2:#f0f2f5;--jc-chat:#efeae2;--jc-out:#d9fdd3;--jc-in:#fff;--jc-tx:#111b21;--jc-mu:#667781;--jc-bd:#e9edef;font-family:inherit;font-size:14px;color:var(--jc-tx)}',
+    '.jc-root,.jc-sheet-bg,.jc-tbanner,.jc-markbar,.jc-modal{--jc-g:#00a884;--jc-gd:#008069;--jc-bg:#fff;--jc-bg2:#f0f2f5;--jc-chat:#efeae2;--jc-out:#d9fdd3;--jc-in:#fff;--jc-tx:#111b21;--jc-mu:#667781;--jc-bd:#e9edef;font-family:inherit;font-size:14px;color:var(--jc-tx)}',
     '.jc-fab{position:fixed;right:20px;bottom:20px;z-index:9990;width:56px;height:56px;border-radius:50%;border:0;background:var(--jc-g);color:#fff;box-shadow:0 4px 14px rgba(0,0,0,.25);cursor:pointer;display:flex;align-items:center;justify-content:center}',
     '.jc-fab:hover{background:var(--jc-gd)}',
     '.jc-fab svg{width:28px;height:28px;fill:#fff}',
@@ -181,6 +258,20 @@
     '.jc-tick.jc-read{color:#53bdeb}',
     '.jc-pend{opacity:.6}',
     '.jc-del{font-style:italic;color:var(--jc-mu)}',
+    '.jc-verified{display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;margin-left:4px;border-radius:50%;background:#1d9bf0;color:#fff;font-size:9px;font-weight:700;vertical-align:1px}',
+    '.jc-rxbtn{flex:none;align-self:center;width:28px;height:28px;margin:0 6px;border:0;border-radius:50%;background:rgba(0,0,0,.06);color:var(--jc-mu);font-size:17px;line-height:28px;padding:0;cursor:pointer;opacity:0;transition:opacity .12s}',
+    '.jc-msg:hover .jc-rxbtn,.jc-rxbtn:focus{opacity:1}.jc-rxbtn:hover{background:rgba(0,0,0,.12)}',
+    '@media (hover:none){.jc-rxbtn{display:none}}',
+    '.jc-rxbar{position:fixed!important;z-index:2147483000;display:flex;align-items:center;gap:2px;padding:6px 8px!important;border-radius:28px!important;min-width:0!important;width:auto!important;box-shadow:0 6px 24px rgba(11,20,26,.25)}',
+    '.jc-rxbar button{width:38px!important;height:38px;padding:0!important;border:0!important;border-radius:50%;font-size:24px!important;text-align:center!important;background:none;cursor:pointer;transition:transform .1s}',
+    '.jc-rxbar button:hover{transform:scale(1.2);background:var(--jc-bg2)}.jc-rxbar button.jc-on{background:var(--jc-bg2)}',
+    '.jc-rxbar .jc-rxmore{font-size:22px!important;color:var(--jc-mu);background:var(--jc-bg2)}',
+    '.jc-rxbar.jc-rxgrid{flex-wrap:wrap;width:290px!important;border-radius:16px!important}',
+    '.jc-msep{height:1px;background:var(--jc-bd);margin:4px 0}',
+    '.jc-selbar{display:flex;align-items:center;gap:8px;padding:8px 12px;background:var(--jc-bg2);border-bottom:1px solid var(--jc-bd)}',
+    '.jc-selbar .jc-selcount{flex:1;font-weight:600}',
+    '.jc-selrow{cursor:pointer;border-radius:6px}.jc-selrow:hover{background:rgba(0,168,132,.06)}',
+    '.jc-sel{background:rgba(0,168,132,.16)!important}',
     '.jc-opt{position:absolute;top:2px;right:2px;display:none;border:0;border-radius:50%;width:22px;height:22px;background:rgba(255,255,255,.9);cursor:pointer;color:var(--jc-mu);font-size:12px;line-height:22px;padding:0}',
     '.jc-bub:hover .jc-opt{display:block}',
     '.jc-menu{position:absolute;z-index:3;top:26px;right:2px;background:#fff;border-radius:6px;box-shadow:0 4px 14px rgba(0,0,0,.2);padding:4px 0;min-width:150px;white-space:nowrap}',
@@ -225,6 +316,12 @@
     '.jc-ment div:hover,.jc-ment div.jc-on{background:var(--jc-bg2)}',
     '.jc-notice{display:flex;gap:8px;align-items:flex-start;background:#fff8d6;color:#5f5300;font-size:12px;padding:8px 10px;border-bottom:1px solid var(--jc-bd)}',
     '.jc-notice span{flex:1}',
+    '.jc-signupbar{align-items:center;font-size:13px;font-weight:600}',
+    '.jc-sucard{border:1px solid var(--jc-bd);border-radius:10px;padding:12px;margin-bottom:12px}',
+    '.jc-sucard b{font-size:15px}',
+    '.jc-sumeta{display:block;font-size:13px;color:var(--jc-mu);margin-top:2px;text-decoration:none}',
+    '.jc-sucard .jc-field{border:1px solid #cbd5e1;background:#fff}',
+    '.jc-sucard .jc-sfoot{padding:10px 0 0;border:0}',
     '.jc-notice button{border:0;border-radius:12px;background:#5f5300;color:#fff;font:inherit;font-size:11px;padding:3px 10px;cursor:pointer}',
     '.jc-ph small{display:block;margin-top:14px;font-size:11px}',
     // share button, mark mode, compose sheet, link cards, target banner
@@ -315,7 +412,52 @@
     '.jc-root.jc-stack .jc-fab{right:34px;bottom:108px}',
     '.jc-root.jc-stack .jc-toast{right:108px;bottom:30px}',
     '.jc-root.jc-stack .jc-panel{right:108px;bottom:20px;max-width:calc(100vw - 128px);max-height:calc(100vh - 40px)}',
-    '@media (max-width:640px){.jc-panel{z-index:100001;right:0;bottom:0;width:100vw;max-width:100vw;height:100vh;max-height:100vh;border-radius:0}.jc-side{width:100%;border:0}.jc-main{display:none}.jc-panel.jc-conv .jc-side{display:none}.jc-panel.jc-conv .jc-main{display:flex}.jc-back{display:inline-block}.jc-fab{right:16px;bottom:16px}.jc-panel.jc-open~.jc-fab{display:none}.jc-root.jc-stack .jc-panel{right:0;bottom:0;max-width:100vw;max-height:100vh}.jc-opt{display:block}}'
+    '@media (max-width:640px){.jc-panel{z-index:100001;right:0;bottom:0;width:100vw;max-width:100vw;height:100vh;max-height:100vh;border-radius:0}.jc-side,.jc-app .jc-side{width:100%;min-width:0;max-width:none;border:0}.jc-main{display:none}.jc-panel.jc-conv .jc-side{display:none}.jc-panel.jc-conv .jc-main{display:flex}.jc-back{display:inline-block}.jc-fab{right:16px;bottom:16px}.jc-panel.jc-open~.jc-fab{display:none}.jc-root.jc-stack .jc-panel{right:0;bottom:0;max-width:100vw;max-height:100vh}.jc-opt{display:block}}',
+    '/* premium look for the full-window chat (JMS Chat page) */ .jc-app{font-family:\'Segoe UI\',system-ui,-apple-system,Roboto,Helvetica,Arial,sans-serif}',
+    '.jc-app .jc-head{height:60px;background:linear-gradient(135deg,#075e54,#0b7c6e);color:#fff;border-bottom:0;box-shadow:0 1px 3px rgba(0,0,0,.12)}',
+    '.jc-app .jc-head h3,.jc-app .jc-head .jc-name{color:#fff}.jc-app .jc-head .jc-prev{color:rgba(255,255,255,.82)}',
+    '.jc-app .jc-head .jc-ibtn{color:#fff;border-radius:50%;transition:background .15s}.jc-app .jc-head .jc-ibtn:hover{background:rgba(255,255,255,.14)}',
+    '.jc-app .jc-search{padding:8px 12px;background:var(--jc-bg)}.jc-app .jc-search input{border-radius:20px;background:var(--jc-bg2);border:1px solid transparent;transition:border-color .15s,background .15s}.jc-app .jc-search input:focus{background:#fff;border-color:#00a884}',
+    '.jc-app .jc-item{transition:background .12s}.jc-app .jc-item:hover{background:#f5f6f6}.jc-app .jc-item.jc-sel{background:#e9f5f2}',
+    '.jc-app .jc-unr{background:#25d366;box-shadow:0 1px 2px rgba(0,0,0,.15)}',
+    '.jc-app .jc-msgs{background-color:#efeae2;background-image:radial-gradient(rgba(107,91,69,.09) 1.2px,transparent 1.4px);background-size:22px 22px;padding:16px 7%}',
+    '.jc-app .jc-bub{border-radius:10px;box-shadow:0 1px .5px rgba(11,20,26,.13),0 2px 6px rgba(11,20,26,.04)}',
+    '.jc-app .jc-day span{box-shadow:0 1px .5px rgba(11,20,26,.13);border-radius:8px}',
+    '.jc-app .jc-comp{background:#f0f2f5;padding:10px 16px;gap:10px}.jc-app .jc-comp textarea{border-radius:22px;padding:11px 16px;box-shadow:0 1px 2px rgba(0,0,0,.06)}',
+    '.jc-app .jc-send{border-radius:50%;box-shadow:0 2px 6px rgba(0,168,132,.35);transition:transform .1s}.jc-app .jc-send:active{transform:scale(.94)}',
+    '.jc-app .jc-chip{transition:all .12s}.jc-app .jc-chip:hover{border-color:#00a884}',
+    '.jc-modal{font-family:\'Segoe UI\',system-ui,-apple-system,Roboto,Helvetica,Arial,sans-serif}',
+    '.jc-srow{display:flex;align-items:center;gap:10px}.jc-srow input{flex:1;min-width:0}',
+    '.jc-hasunr .jc-name{font-weight:700}.jc-hasunr .jc-prev{color:var(--jc-tx);font-weight:500}.jc-hasunr .jc-time{color:#00a884;font-weight:600}',
+    '.jc-prof.jc-ci .jc-ph{background:var(--jc-bg);color:var(--jc-tx);padding:28px 16px 14px}.jc-prof.jc-ci .jc-ph .jc-x{background:var(--jc-bg2);color:var(--jc-tx);left:10px;right:auto}',
+    '.jc-ci .jc-pav .jc-av{cursor:zoom-in;transition:transform .15s}.jc-ci .jc-pav .jc-av:hover{transform:scale(1.03)}',
+    '.jc-prof.jc-ci .jc-pn{color:var(--jc-tx)}.jc-prof.jc-ci .jc-pu{color:var(--jc-mu);opacity:1}.jc-ci .jc-dd{margin-top:6px;font-size:14px;font-weight:600;color:#00a884}.jc-ci .jc-ls{font-size:12px;color:var(--jc-mu);margin-top:3px}',
+    '.jc-acts{display:flex;gap:10px;padding:4px 16px 14px;background:var(--jc-bg)}.jc-acts button{flex:1;border:0;border-radius:12px;background:var(--jc-bg2);color:var(--jc-tx);padding:12px 4px 10px;cursor:pointer;font:inherit;font-size:13px;display:flex;flex-direction:column;align-items:center;gap:4px}.jc-acts button i{font-style:normal;font-size:20px;color:#00a884}.jc-acts button:hover{filter:brightness(.96)}',
+    '.jc-card{margin:0 12px 12px;border-radius:12px;background:var(--jc-bg2);overflow:hidden}.jc-card .jc-ttl{font-size:12px;color:var(--jc-mu);padding:10px 14px 0}',
+    '.jc-crow{display:flex;align-items:center;gap:14px;padding:12px 14px;cursor:pointer;border-top:1px solid var(--jc-bd)}.jc-crow:first-child{border-top:0}.jc-crow:hover{filter:brightness(.97)}.jc-crow .jc-ci-ic{width:22px;text-align:center;font-size:17px;opacity:.85}.jc-crow span{flex:1;min-width:0}.jc-crow em{font-style:normal;color:var(--jc-mu);font-size:13px}.jc-crow em::after{content:" \\203A";font-size:16px}.jc-crow.jc-static{cursor:default}.jc-crow.jc-static em::after{content:""}',
+    '.jc-crow small{display:block;color:var(--jc-mu);font-size:12px;margin-top:1px}',
+    '.jc-about{padding:10px 14px 12px;white-space:pre-wrap;overflow-wrap:anywhere}',
+    '.jc-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;padding:4px 10px 12px}.jc-grid a,.jc-grid div{aspect-ratio:1;border-radius:6px;overflow:hidden;background:var(--jc-bg);display:flex;align-items:center;justify-content:center;flex-direction:column;font-size:11px;color:var(--jc-tx);text-decoration:none;text-align:center;padding:2px;cursor:pointer}.jc-grid img{width:100%;height:100%;object-fit:cover}.jc-grid b{font-size:22px}',
+    '.jc-lb{position:fixed;inset:0;z-index:100030;background:rgba(0,0,0,.92);display:flex;align-items:center;justify-content:center;flex-direction:column;gap:12px;cursor:zoom-out}.jc-lb img{max-width:92vw;max-height:84vh;border-radius:6px;box-shadow:0 10px 50px rgba(0,0,0,.6)}.jc-lb b{color:#fff;font-size:16px}.jc-lb button{position:absolute;top:14px;right:16px;border:0;background:rgba(255,255,255,.15);color:#fff;width:40px;height:40px;border-radius:50%;font-size:20px;cursor:pointer}',
+    '.jc-meav{width:36px;height:36px;font-size:13px;cursor:pointer;border:2px solid #fff;box-shadow:0 0 0 1.5px #00a884;box-sizing:border-box;transition:transform .12s}.jc-meav:hover{transform:scale(1.06)}',
+    '.jc-prof{width:min(440px,94vw) !important;padding:0 !important}.jc-prof h4{display:none}',
+    '.jc-prof .jc-ph{background:linear-gradient(135deg,#075e54,#0b7c6e);color:#fff;padding:26px 16px 18px;text-align:center;border-radius:12px 12px 0 0;position:relative}',
+    '.jc-prof .jc-ph .jc-x{position:absolute;top:8px;right:10px;border:0;background:rgba(255,255,255,.15);color:#fff;width:32px;height:32px;border-radius:50%;cursor:pointer;font-size:16px}',
+    '.jc-prof .jc-pav{position:relative;width:132px;height:132px;margin:0 auto}.jc-prof .jc-pav .jc-av{width:132px;height:132px;font-size:46px;box-shadow:0 4px 18px rgba(0,0,0,.25)}',
+    '.jc-prof .jc-cam{position:absolute;right:2px;bottom:2px;width:42px;height:42px;border-radius:50%;border:3px solid #fff;background:#00a884;color:#fff;font-size:18px;cursor:pointer}',
+    '.jc-prof .jc-pn{font-size:22px;font-weight:700;margin-top:12px}.jc-prof .jc-pu{opacity:.8;font-size:13px}',
+    '.jc-prof .jc-pb{padding:8px 16px 16px}',
+    '.jc-prof .jc-sec{padding:12px 4px;border-bottom:1px solid var(--jc-bd)}.jc-prof .jc-sec small{display:block;color:#00a884;font-weight:600;margin-bottom:6px;opacity:1}',
+    '.jc-prof .jc-line{display:flex;gap:8px;align-items:center}.jc-prof .jc-line .jc-field{flex:1;border:1px solid var(--jc-bd)}',
+    '.jc-prof .jc-hint{font-size:12px;opacity:.65;margin-top:4px}',
+    '.jc-prof .jc-ban{display:flex;gap:10px;align-items:center;border-radius:10px;padding:10px 12px;margin:10px 0 2px;font-size:13px}.jc-prof .jc-ban span{flex:1}',
+    '.jc-prof .jc-ban.jc-wait{background:#fff4ce;color:#7a5b00}.jc-prof .jc-ban.jc-no{background:#fde7e9;color:#b3261e}',
+    '.jc-prof .jc-ban button{border:0;background:rgba(0,0,0,.08);color:inherit;border-radius:14px;padding:4px 10px;cursor:pointer;font-weight:600}',
+    '.jc-prof .jc-nreq{display:flex;align-items:center;gap:10px;width:100%;margin-top:12px;border:1px solid var(--jc-bd);background:transparent;color:inherit;border-radius:10px;padding:10px 12px;cursor:pointer;font:inherit;text-align:left}.jc-prof .jc-nreq span{flex:1}',
+    '.jc-cnt{background:#25d366;color:#fff;border-radius:10px;padding:0 7px;font-size:12px;font-weight:700}',
+    '.jc-nr{display:flex;gap:10px;align-items:center;padding:10px 4px;border-bottom:1px solid var(--jc-bd)}.jc-nr .jc-mid{flex:1;min-width:0}.jc-nr s{opacity:.55}.jc-nr b{color:#00a884}',
+    '.jc-nr .jc-ok{background:#00a884;color:#fff;border:0;border-radius:16px;padding:5px 12px;cursor:pointer}.jc-nr .jc-rej{background:#fde7e9;color:#b3261e;border:0;border-radius:16px;padding:5px 12px;cursor:pointer}',
+    '.jc-app ::-webkit-scrollbar{width:7px;height:7px}.jc-app ::-webkit-scrollbar-thumb{background:rgba(0,0,0,.18);border-radius:4px}.jc-app ::-webkit-scrollbar-track{background:transparent}'
   ].join('\n');
 
   var ICON_CHAT = '<svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.03 2 11c0 2.4 1.05 4.58 2.75 6.19L4 22l4.6-2.1c1.05.3 2.19.46 3.4.46 5.52 0 10-4.03 10-9S17.52 2 12 2z"/></svg>';
@@ -336,19 +478,34 @@
     // side
     var side = el('div', 'jc-side');
     var sh = el('div', 'jc-head');
+    var meAv = el('div', 'jc-av jc-meav');
+    meAv.title = 'My profile';
+    meAv.setAttribute('role', 'button');
+    meAv.addEventListener('click', function () { profileDialog(); });
     sh.appendChild(el('h3', null, 'Chats'));
     var bellBtn = el('button', 'jc-ibtn', '🔔');
     bellBtn.title = 'Notifications and sound';
     var groupBtn = el('button', 'jc-ibtn', '👥');
     groupBtn.title = 'New group';
+    if (!canApprove) groupBtn.style.display = 'none'; // only admins and superadmins make groups
     var newBtn = el('button', 'jc-ibtn', '✎');
     newBtn.title = 'New chat';
     var closeBtn = el('button', 'jc-ibtn', '✕');
     closeBtn.title = 'Close';
-    sh.appendChild(bellBtn); sh.appendChild(groupBtn); sh.appendChild(newBtn); sh.appendChild(closeBtn);
+    var starBtn = el('button', 'jc-ibtn', '⭐');
+    starBtn.title = 'Starred messages';
+    var todoBtn = el('button', 'jc-ibtn', '📋');
+    todoBtn.title = 'My tasks';
+    var apprBtn = el('button', 'jc-ibtn', '✅');
+    apprBtn.title = 'Approvals waiting for me';
+    sh.appendChild(apprBtn);
+    sh.appendChild(todoBtn);
+    sh.appendChild(starBtn); sh.appendChild(bellBtn); sh.appendChild(groupBtn); sh.appendChild(newBtn); sh.appendChild(closeBtn);
     var search = el('div', 'jc-search');
     var sIn = el('input');
     sIn.placeholder = 'Search chats, people and messages';
+    search.classList.add('jc-srow');
+    search.appendChild(meAv);
     search.appendChild(sIn);
     var tabs = el('div', 'jc-tabs');
     var tMine = el('button', 'jc-tab jc-on', 'My chats');
@@ -357,7 +514,9 @@
     tabs.style.display = 'none';
     var err = el('div', 'jc-err');
     var list = el('div', 'jc-list');
-    side.appendChild(sh); side.appendChild(search); side.appendChild(tabs); side.appendChild(err); side.appendChild(list);
+    var signupBar = el('div', 'jc-notice jc-signupbar');
+    signupBar.style.display = 'none';
+    side.appendChild(sh); side.appendChild(search); side.appendChild(tabs); side.appendChild(err); side.appendChild(signupBar); side.appendChild(list);
 
     // main
     var main = el('div', 'jc-main');
@@ -375,7 +534,9 @@
     mInfo.title = 'Group info';
     var mClose = el('button', 'jc-ibtn', '✕');
     mClose.title = 'Close';
-    mh.appendChild(back); mh.appendChild(mAv); mh.appendChild(mTitle); mh.appendChild(mMute); mh.appendChild(mInfo); mh.appendChild(mClose);
+    var mCall = el('button', 'jc-ibtn', '📞');
+    mCall.title = 'Voice call';
+    mh.appendChild(back); mh.appendChild(mAv); mh.appendChild(mTitle); mh.appendChild(mCall); mh.appendChild(mMute); mh.appendChild(mInfo); mh.appendChild(mClose);
     var msgs = el('div', 'jc-msgs');
     var ro = el('div', 'jc-ro', 'Superadmin view: read-only. Your viewing is logged.');
     var editBar = el('div', 'jc-editbar');
@@ -392,12 +553,15 @@
     fileIn.style.display = 'none';
     var ta = el('textarea');
     ta.rows = 1;
-    ta.placeholder = 'Type a message';
+    ta.placeholder = 'Type a message  ( /help for JMS commands )';
     ta.maxLength = 4000;
     var send = el('button', 'jc-send');
     send.innerHTML = ICON_SEND;
     send.title = 'Send';
-    comp.appendChild(attach); comp.appendChild(fileIn); comp.appendChild(ta); comp.appendChild(send);
+    var moreBtn = el('button', 'jc-ibtn jc-attach', '➕');
+    moreBtn.title = 'Poll, announcement, urgent, schedule';
+    moreBtn.addEventListener('click', function (e) { e.stopPropagation(); composeMore(moreBtn); });
+    comp.appendChild(moreBtn); comp.appendChild(attach); comp.appendChild(fileIn); comp.appendChild(ta); comp.appendChild(send);
     var ment = el('div', 'jc-ment');
     var ph = el('div', 'jc-ph');
     ph.appendChild(el('div', null, '💬'));
@@ -429,18 +593,25 @@
     setTimeout(stack, 2000);
     setTimeout(stack, 6000);
 
-    els = { panel: panel, list: list, sIn: sIn, tabs: tabs, tMine: tMine, tAll: tAll, err: err,
+    els = { signupBar: signupBar, panel: panel, list: list, sIn: sIn, tabs: tabs, tMine: tMine, tAll: tAll, err: err,
       main: main, mh: mh, mAv: mAv, mName: mName, mSub: mSub, mTitle: mTitle, mInfo: mInfo, msgs: msgs, ro: ro,
       comp: comp, ta: ta, send: send, ph: ph, badge: badge, newBtn: newBtn, fileIn: fileIn,
-      editBar: editBar, editTxt: editTxt, replyBar: replyBar, ment: ment, mMute: mMute, side: side };
+      editBar: editBar, editTxt: editTxt, replyBar: replyBar, ment: ment, mMute: mMute, side: side, mCall: mCall, meAv: meAv };
+    refreshMeAvatar();
+    starBtn.addEventListener('click', function () { showStarred = !showStarred; showTodos = false; sIn.value = ''; renderList(); });
+    todoBtn.addEventListener('click', function () { showTodos = !showTodos; showStarred = false; showApprovals = false; sIn.value = ''; renderList(); });
+    apprBtn.addEventListener('click', function () { showApprovals = !showApprovals; showTodos = false; showStarred = false; sIn.value = ''; renderList(); });
+    mCall.addEventListener('click', function () { if (current && !isGroup(current)) webCall.start(current.title); });
 
     fab.addEventListener('click', function () { toggle(!open); });
     if (appMode) {
       root.classList.add('jc-app');
-      closeBtn.textContent = '⎋';
-      closeBtn.title = 'Sign out';
+      var inJms = !!(window.JMSChatApp && window.JMSChatApp.backToJms);
+      closeBtn.textContent = inJms ? '⌂' : '⎋';
+      closeBtn.title = inJms ? 'Back to JMS' : 'Sign out';
       mClose.style.display = 'none';
       closeBtn.addEventListener('click', function () {
+        if (inJms) { window.JMSChatApp.backToJms(); return; }
         if (!confirm('Sign out of JMS Chat?')) return;
         if (window.JMSChatApp && window.JMSChatApp.signOut) window.JMSChatApp.signOut();
       });
@@ -463,10 +634,12 @@
       fileIn.value = '';
       if (f) sendFile(f);
     });
-    mTitle.addEventListener('click', function () { if (isGroup(current)) showGroupInfo(); });
+    mTitle.addEventListener('click', function () { if (isGroup(current)) showGroupInfo(); else if (current) contactInfo(current); });
+    mAv.style.cursor = 'pointer';
+    mAv.addEventListener('click', function () { if (isGroup(current)) showGroupInfo(); else if (current) contactInfo(current); });
     bellBtn.addEventListener('click', function (e) { e.stopPropagation(); showSettings(bellBtn); });
     mMute.addEventListener('click', function (e) { e.stopPropagation(); showMuteMenu(mMute); });
-    mInfo.addEventListener('click', function () { if (isGroup(current)) showGroupInfo(); });
+    mInfo.addEventListener('click', function () { if (isGroup(current)) showGroupInfo(); else if (current) contactInfo(current); });
     editX.addEventListener('click', cancelEdit);
     ta.addEventListener('keydown', function (e) {
       if (mentionOpen() && (e.key === 'Enter' || e.key === 'Tab')) { e.preventDefault(); pickMention(0); return; }
@@ -493,7 +666,10 @@
     document.addEventListener('click', function (e) {
       if (openMenu && !openMenu.contains(e.target)) closeMenu();
     });
-    document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && open) toggle(false); });
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape' && selecting) { e.stopImmediatePropagation(); endSelect(); }
+    }, true);
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && open && !appMode) toggle(false); }); // the app has no panel to close
   }
 
   function showErr(msg) {
@@ -542,6 +718,7 @@
       showErr('');
       if (!els.groupMode) renderList();
       updateBadge();
+      saveBootSoon();
     }).catch(function (e) { showErr(e.message); });
   }
 
@@ -559,17 +736,55 @@
     var q = els.sIn.value.trim().toLowerCase();
     var list = els.list;
     list.textContent = '';
+    if (showStarred && !q) { renderStarred(list); return; }
+    if (showTodos && !q) { renderTodos(list); return; }
+    if (showApprovals && !q) { renderApprovals(list); return; }
+    if (!q && !adminAll) {
+      var chips = el('div', 'jc-chips');
+      [['all', 'All'], ['unread', 'Unread'], ['groups', 'Groups']].concat(folders.map(function (f) { return ['f:' + f.id, '📁 ' + f.name]; }))
+        .forEach(function (f) {
+          var b = el('button', 'jc-chip' + (listFilter === f[0] ? ' jc-on' : ''), f[1]);
+          b.addEventListener('click', function () { listFilter = f[0]; renderList(); });
+          if (f[0].indexOf('f:') === 0) {
+            b.title = 'Right-click: rename or delete';
+            b.addEventListener('contextmenu', function (e) { e.preventDefault(); folderMenu(f[0].slice(2)); });
+          }
+          chips.appendChild(b);
+        });
+      var nf = el('button', 'jc-chip', '＋ Folder');
+      nf.title = 'New chat folder';
+      nf.addEventListener('click', function () { folderDialog(null); });
+      chips.appendChild(nf);
+      list.appendChild(chips);
+      var archived = convs.filter(function (c) { return c.archived; }).length;
+      if (archived || showArchived) {
+        var ar = el('div', 'jc-arch', showArchived ? '← Back to chats' : '🗄 Archived (' + archived + ')');
+        ar.addEventListener('click', function () { showArchived = !showArchived; renderList(); });
+        list.appendChild(ar);
+      }
+    }
     var shown = convs.filter(function (c) {
-      return !q || c.title.toLowerCase().indexOf(q) !== -1 || (c.members || []).join(' ').toLowerCase().indexOf(q) !== -1;
+      if (q) return c.title.toLowerCase().indexOf(q) !== -1 || (c.members || []).join(' ').toLowerCase().indexOf(q) !== -1;
+      if (adminAll) return true;
+      if (Boolean(c.archived) !== showArchived) return false;
+      if (listFilter === 'unread') return c.unread > 0;
+      if (listFilter === 'groups') return isGroup(c);
+      if (listFilter.indexOf('f:') === 0) {
+        var fo = folders.filter(function (f) { return 'f:' + f.id === listFilter; })[0];
+        return !fo || fo.conversations.indexOf(c.sync_id) !== -1;
+      }
+      return true;
     });
     shown.forEach(function (c) {
       var it = el('div', 'jc-item' + (current && current.sync_id === c.sync_id ? ' jc-sel' : ''));
-      var av = el('div', 'jc-av' + (c.online ? ' jc-on' : ''), isGroup(c) ? '👥' : initials(c.title));
-      av.style.background = avatarColor(c.title);
+      var av = el('div', 'jc-av' + (c.online ? ' jc-on' : ''));
+      setAvatar(av, c.title, c.photo_v, isGroup(c));
       var mid = el('div', 'jc-mid');
       var r1 = el('div', 'jc-row');
       var nm = el('div', 'jc-name', c.title);
+      if (c.system) nm.appendChild(el('span', 'jc-verified', '✓'));
       if (isMuted(c)) { var mi = el('span', 'jc-mute', '🔕'); mi.title = muteLabel(c); nm.appendChild(mi); }
+      if (c.pinned) nm.appendChild(el('span', 'jc-pin', '📌'));
       r1.appendChild(nm);
       r1.appendChild(el('div', 'jc-time', fmtListTime(c.last_message_at)));
       var r2 = el('div', 'jc-row');
@@ -577,13 +792,17 @@
       var prefix = '';
       if (c.last_sender) {
         if (same(c.last_sender, me) && !adminAll) prefix = 'You: ';
-        else if (adminAll || isGroup(c)) prefix = c.last_sender + ': ';
+        else if (adminAll || isGroup(c)) prefix = nameOf(c.last_sender, c.last_sender_name) + ': ';
       }
       r2.appendChild(el('div', 'jc-prev' + (typing ? ' jc-typing' : ''), typing || (prefix + (c.last_body || ''))));
-      if (c.unread && c.is_member) r2.appendChild(el('div', 'jc-unr', String(c.unread)));
+      if (c.unread && c.is_member) { r2.appendChild(el('div', 'jc-unr', String(c.unread))); it.classList.add('jc-hasunr'); }
       mid.appendChild(r1); mid.appendChild(r2);
       it.appendChild(av); it.appendChild(mid);
       it.addEventListener('click', function () { openConv(c); });
+      if (!adminAll && c.is_member !== false) {
+        it.addEventListener('contextmenu', function (e) { e.preventDefault(); chatMenu(c); });
+        it.title = 'Right-click: pin or archive';
+      }
       list.appendChild(it);
     });
     if (q && !adminAll) {
@@ -593,6 +812,536 @@
     } else if (!shown.length) {
       list.appendChild(el('div', 'jc-empty', adminAll ? 'No chats yet.' : 'No chats yet. Press ✎ to message someone.'));
     }
+  }
+
+  function chatMenu(c) {
+    var m = modal(c.title);
+    [[c.pinned ? '📌 Unpin chat' : '📌 Pin chat', 'pin', !c.pinned], [c.archived ? '🗄 Unarchive chat' : '🗄 Archive chat', 'archive', !c.archived]]
+      .forEach(function (o) {
+        var r = el('div', 'jc-row2', o[0]);
+        r.addEventListener('click', function () {
+          m.close();
+          api('POST', API + '/conversations/' + encodeURIComponent(c.sync_id) + '/' + o[1], { on: o[2] })
+            .then(function () { loadConvs(); }).catch(function (e) { showErr(e.message); });
+        });
+        m.body.appendChild(r);
+      });
+    folders.forEach(function (f) {
+      var inIt = f.conversations.indexOf(c.sync_id) !== -1;
+      var r = el('div', 'jc-row2', (inIt ? '✓ In folder ' : '📁 Add to folder ') + f.name);
+      r.addEventListener('click', function () {
+        m.close();
+        var list = inIt ? f.conversations.filter(function (x) { return x !== c.sync_id; }) : f.conversations.concat([c.sync_id]);
+        saveFolder(f.id, { conversations: list });
+      });
+      m.body.appendChild(r);
+    });
+    if (canSecure(c)) {
+      var d = el('div', 'jc-row2', '⏳ Disappearing messages: ' + disappearLabel(c.disappear_seconds) + '…');
+      d.addEventListener('click', function () { m.close(); disappearDialog(c); });
+      m.body.appendChild(d);
+      var p = el('div', 'jc-row2', c.protected ? '🔓 Turn off protected chat' : '🔒 Make protected (no screenshots, downloads, forwarding)');
+      p.addEventListener('click', function () { m.close(); setSecurity(c, { protected: !c.protected }); });
+      m.body.appendChild(p);
+    }
+  }
+
+  // ---------------- phase D: folders, disappearing, protected chats, devices ----------------
+  var DISAPPEAR = [[0, 'Off'], [86400, '24 hours'], [604800, '7 days'], [7776000, '90 days']];
+  function disappearLabel(s) { var o = DISAPPEAR.filter(function (x) { return x[0] === (s || 0); })[0]; return o ? o[1] : 'Off'; }
+  function canSecure(c) {
+    return !!c && c.is_member !== false && (!isGroup(c) || c.my_role === 'admin' || isAdmin);
+  }
+  function isProtected(convId) { var c = convById(convId); return !!(c && c.protected); }
+
+  function loadFolders() {
+    return api('GET', API + '/folders').then(function (d) { folders = d.folders || []; renderListIfIdle(); saveBootSoon(); }).catch(function () {});
+  }
+  function saveFolder(id, body) {
+    api(id ? 'PUT' : 'POST', API + '/folders' + (id ? '/' + encodeURIComponent(id) : ''), body)
+      .then(loadFolders).catch(function (e) { showErr(e.message); });
+  }
+  function folderDialog(f) {
+    var dlg = modal(f ? 'Rename folder' : '📁 New chat folder');
+    var n = field('Folder name', 'text', f ? f.name : '');
+    dlg.body.appendChild(n.wrap);
+    if (!f) dlg.body.appendChild(el('small', null, 'Then right-click a chat → "Add to folder".'));
+    dialogButtons(dlg, f ? 'Save' : 'Create', function () {
+      var name = n.input.value.trim();
+      if (!name) return;
+      dlg.close();
+      saveFolder(f ? f.id : null, { name: name });
+    });
+    setTimeout(function () { n.input.focus(); }, 30);
+  }
+  function folderMenu(id) {
+    var f = folders.filter(function (x) { return x.id === id; })[0];
+    if (!f) return;
+    var m = modal('📁 ' + f.name);
+    var r1 = el('div', 'jc-row2', '✎ Rename');
+    r1.addEventListener('click', function () { m.close(); folderDialog(f); });
+    var r2 = el('div', 'jc-row2', '🗑 Delete folder (chats stay)');
+    r2.addEventListener('click', function () {
+      m.close();
+      api('DELETE', API + '/folders/' + encodeURIComponent(id)).then(function () {
+        if (listFilter === 'f:' + id) listFilter = 'all';
+        loadFolders();
+      }).catch(function (e) { showErr(e.message); });
+    });
+    m.body.appendChild(r1); m.body.appendChild(r2);
+  }
+
+  function setSecurity(c, body) {
+    api('PUT', API + '/conversations/' + encodeURIComponent(c.sync_id) + '/security', body)
+      .then(function (d) { c.disappear_seconds = d.disappear_seconds; c.protected = d.protected; loadConvs(); if (current && current.sync_id === c.sync_id) redraw(); })
+      .catch(function (e) { showErr(e.message); });
+  }
+  function disappearDialog(c) {
+    var m = modal('⏳ Disappearing messages');
+    m.body.appendChild(el('small', null, 'New messages are deleted for everyone after this time.'));
+    DISAPPEAR.forEach(function (o) {
+      var r = el('div', 'jc-row2', ((c.disappear_seconds || 0) === o[0] ? '● ' : '○ ') + o[1]);
+      r.addEventListener('click', function () { m.close(); setSecurity(c, { disappear_seconds: o[0] }); });
+      m.body.appendChild(r);
+    });
+  }
+
+  // ---- my profile (like WhatsApp): photo, name (needs admin approval), About ----
+  var myProfile = null;
+  function refreshMeAvatar() {
+    if (!els.meAv || !me) return;
+    var p = myProfile || {};
+    els.meAv.textContent = '';
+    setAvatar(els.meAv, me, p.photo_v);
+    if (els.meAv.firstChild) els.meAv.firstChild.nodeValue = initials(p.display_name || me);
+    if (!myProfile) api('GET', API + '/profile').then(function (d) { myProfile = d.profile; refreshMeAvatar(); }).catch(function () { });
+  }
+
+  function profileDialog() {
+    var dlg = modal('My profile');
+    dlg.box.classList.add('jc-prof');
+    var fileIn = document.createElement('input');
+    fileIn.type = 'file'; fileIn.accept = 'image/*'; fileIn.style.display = 'none';
+    dlg.box.appendChild(fileIn);
+    // errors show inside the dialog (a toast would sit behind it)
+    var perr = el('div', 'jc-perr');
+    perr.style.cssText = 'display:none;margin:0 16px 14px;padding:9px 12px;border-radius:10px;background:#fde7e9;color:#b3261e;font-size:13px';
+    function showPerr(msg) {
+      perr.textContent = msg; perr.style.display = 'block';
+      clearTimeout(showPerr.t); showPerr.t = setTimeout(function () { perr.style.display = 'none'; }, 6000);
+    }
+    function save(promise, okText) {
+      return promise.then(function (d) {
+        if (d.profile) { myProfile = d.profile; refreshMeAvatar(); draw(); }
+        var msg = d.message || okText;
+        if (msg) toastText('Profile', msg);
+      }).catch(function (e) { showPerr(e.message); });
+    }
+    fileIn.addEventListener('change', function () {
+      var f = fileIn.files && fileIn.files[0];
+      fileIn.value = '';
+      if (!f) return;
+      if (f.size > 5 * 1024 * 1024) { showPerr('Photo is too big (max 5 MB).'); return; }
+      var fd = new FormData(); fd.append('photo', f);
+      save(api('POST', API + '/profile/photo', fd), 'Profile photo updated');
+    });
+    function draw() {
+      var p = myProfile;
+      dlg.body.textContent = '';
+      if (!p) { dlg.body.appendChild(el('div', 'jc-empty', 'Loading…')); return; }
+      var shown = p.display_name || p.username;
+      var head = el('div', 'jc-ph');
+      var x = el('button', 'jc-x', '✕'); x.title = 'Close'; x.addEventListener('click', dlg.close);
+      var pav = el('div', 'jc-pav');
+      var av = el('div', 'jc-av');
+      setAvatar(av, p.username, p.photo_v);
+      if (av.firstChild) av.firstChild.nodeValue = initials(shown);
+      var cam = el('button', 'jc-cam', '📷'); cam.title = 'Change photo';
+      cam.addEventListener('click', function () {
+        if (!p.photo_v) { fileIn.click(); return; }
+        var m = modal('Profile photo');
+        var r1 = el('div', 'jc-row2', '🖼 Upload new photo'); r1.addEventListener('click', function () { m.close(); fileIn.click(); });
+        var r2 = el('div', 'jc-row2', '🗑 Remove photo'); r2.style.color = '#d33';
+        r2.addEventListener('click', function () { m.close(); save(api('DELETE', API + '/profile/photo'), 'Photo removed'); });
+        m.body.appendChild(r1); m.body.appendChild(r2);
+      });
+      pav.appendChild(av); pav.appendChild(cam);
+      head.appendChild(x); head.appendChild(pav);
+      head.appendChild(el('div', 'jc-pn', shown));
+      head.appendChild(el('div', 'jc-pu', '@' + p.username));
+      dlg.body.appendChild(head);
+
+      var b = el('div', 'jc-pb');
+      if (p.pending_name) {
+        var w = el('div', 'jc-ban jc-wait');
+        w.appendChild(el('span', null, '⏳ "' + p.pending_name + '" is waiting for admin approval. Others still see "' + shown + '".'));
+        var wd = el('button', null, 'Withdraw');
+        wd.addEventListener('click', function () { save(api('DELETE', API + '/profile/name'), 'Request withdrawn'); });
+        w.appendChild(wd);
+        b.appendChild(w);
+      } else if (p.name_note) {
+        var n = el('div', 'jc-ban jc-no');
+        n.appendChild(el('span', null, '✕ Name change not approved: ' + p.name_note));
+        b.appendChild(n);
+      }
+
+      function section(label, value, placeholder, max, hint, onSave) {
+        var sec = el('div', 'jc-sec');
+        sec.appendChild(el('small', null, label));
+        var line = el('div', 'jc-line');
+        var inp = el('input', 'jc-field'); inp.value = value; inp.maxLength = max; inp.placeholder = placeholder;
+        var ok = el('button', 'jc-primary', 'Save');
+        ok.style.cssText = 'background:#00a884;color:#fff;border:0;border-radius:18px;padding:7px 16px;cursor:pointer';
+        function go() { ok.disabled = true; onSave(inp.value.trim()).then(function () { ok.disabled = false; }); }
+        ok.addEventListener('click', go);
+        inp.addEventListener('keydown', function (e) { if (e.key === 'Enter') go(); });
+        line.appendChild(inp); line.appendChild(ok);
+        sec.appendChild(line);
+        if (hint) sec.appendChild(el('div', 'jc-hint', hint));
+        b.appendChild(sec);
+      }
+      section('Your name', p.pending_name || shown, 'Your name', 40,
+        'This is the name your colleagues see. A new name is shown after an admin approves it.',
+        function (v) {
+          if (v.length < 2) { showPerr('Name must be 2 to 40 characters.'); return Promise.resolve(); }
+          if (v === (p.pending_name || shown)) return Promise.resolve();
+          return save(api('PUT', API + '/profile', { name: v }));
+        });
+      section('About', p.about || '', 'Hey there! I am using JMS Chat.', 140, null,
+        function (v) { return save(api('PUT', API + '/profile', { about: v }), 'About saved'); });
+      section('Designation', p.designation || '', 'e.g. Supervisor, Operator', 60, null,
+        function (v) { return save(api('PUT', API + '/profile', { designation: v }), 'Designation saved'); });
+      section('Department', p.department || '', 'e.g. Moulding, QC, Store', 60, 'Shown as Designation | Department on your contact info.',
+        function (v) { return save(api('PUT', API + '/profile', { department: v }), 'Department saved'); });
+      var info = el('div', 'jc-sec');
+      info.appendChild(el('small', null, 'Login ID'));
+      info.appendChild(el('div', null, p.username + ([p.role && String(p.role).replace(/_/g, ' '), p.line].filter(Boolean).length ? ' · ' + [p.role && String(p.role).replace(/_/g, ' '), p.line].filter(Boolean).join(' · ') : '')));
+      b.appendChild(info);
+      if (p.can_approve_names) {
+        var nr = el('button', 'jc-nreq');
+        nr.appendChild(el('b', null, '🪪'));
+        nr.appendChild(el('span', null, 'Name requests — approve or reject new names'));
+        if (p.name_requests) nr.appendChild(el('i', 'jc-cnt', String(p.name_requests)));
+        nr.addEventListener('click', function () { nameRequestsDialog(function () { myProfile = null; reload(); }); });
+        b.appendChild(nr);
+      }
+      dlg.body.appendChild(b);
+      dlg.body.appendChild(perr);
+    }
+    function reload() { api('GET', API + '/profile').then(function (d) { myProfile = d.profile; refreshMeAvatar(); draw(); }).catch(function (e) { showPerr(e.message); }); }
+    draw();
+    reload();
+  }
+
+  function nameRequestsDialog(onChange) {
+    var dlg = modal('🪪 Name requests');
+    function draw() {
+      dlg.body.textContent = '';
+      dlg.body.appendChild(el('div', 'jc-empty', 'Loading…'));
+      api('GET', API + '/name-requests').then(function (d) {
+        dlg.body.textContent = '';
+        if (!d.requests.length) dlg.body.appendChild(el('div', 'jc-empty', '🎉 No name changes waiting.'));
+        d.requests.forEach(function (r) {
+          var row = el('div', 'jc-nr');
+          var av = el('div', 'jc-av'); setAvatar(av, r.username, r.photo_v);
+          if (av.firstChild) av.firstChild.nodeValue = initials(r.current_name);
+          var mid = el('div', 'jc-mid');
+          var chg = el('div');
+          chg.appendChild(el('s', null, r.current_name)); chg.appendChild(document.createTextNode(' → ')); chg.appendChild(el('b', null, r.requested_name));
+          mid.appendChild(chg);
+          mid.appendChild(el('small', null, ['@' + r.username, String(r.role || '').replace(/_/g, ' '), r.line].filter(Boolean).join(' · ')));
+          if (r.same_name && r.same_name.length) {
+            var warn = el('small', null, '⚠ Already used by @' + r.same_name.join(', @'));
+            warn.style.cssText = 'display:block;color:#b45309;font-weight:600';
+            mid.appendChild(warn);
+          }
+          var ok = el('button', 'jc-ok', '✓ Approve');
+          var no = el('button', 'jc-rej', '✕');
+          no.title = 'Reject';
+          function decide(action, note) {
+            ok.disabled = no.disabled = true;
+            api('POST', API + '/name-requests/' + encodeURIComponent(r.username), { action: action, note: note || '' })
+              .then(function () { draw(); if (onChange) onChange(); })
+              .catch(function (e) { ok.disabled = no.disabled = false; showErr(e.message); });
+          }
+          ok.addEventListener('click', function () { decide('approve'); });
+          no.addEventListener('click', function () {
+            var rd = modal('Reject "' + r.requested_name + '"?');
+            var f = field('Reason (shown to ' + r.current_name + ')', 'text', '');
+            f.input.maxLength = 140;
+            f.input.placeholder = 'e.g. Please use your full name';
+            rd.body.appendChild(f.wrap);
+            dialogButtons(rd, 'Reject', function () { rd.close(); decide('reject', f.input.value.trim()); });
+            setTimeout(function () { f.input.focus(); }, 30);
+          });
+          row.appendChild(av); row.appendChild(mid); row.appendChild(ok); row.appendChild(no);
+          dlg.body.appendChild(row);
+        });
+        if (d.recent.length) {
+          var h = el('div', null, 'Recent decisions'); h.style.cssText = 'margin:14px 0 4px;font-weight:700;color:#00a884';
+          dlg.body.appendChild(h);
+          d.recent.slice(0, 15).forEach(function (x) {
+            var r2 = el('div', 'jc-row2');
+            r2.style.cursor = 'default';
+            r2.appendChild(el('span', null, (x.status === 'approved' ? '✅ ' : '❌ ') + (x.old_name || x.username) + ' → ' + x.new_name));
+            r2.appendChild(el('small', null, (x.reviewed_by ? 'by ' + x.reviewed_by : '') + (x.note ? ' · ' + x.note : '')));
+            dlg.body.appendChild(r2);
+          });
+        }
+      }).catch(function (e) { dlg.body.textContent = ''; dlg.body.appendChild(el('div', 'jc-empty', e.message)); });
+    }
+    draw();
+  }
+
+  // Search the messages of one chat; a result opens the chat at that message.
+  function searchInChat(c) {
+    var dlg = modal('🔍 Search in ' + (c.title || 'chat'));
+    var f = field('Words in the message', 'text', '');
+    var list = el('div');
+    dlg.body.appendChild(f.wrap);
+    dlg.body.appendChild(list);
+    var t = null, seq = 0;
+    f.input.addEventListener('input', function () {
+      clearTimeout(t);
+      t = setTimeout(function () {
+        var q = f.input.value.trim();
+        var my = ++seq;
+        list.textContent = '';
+        if (q.length < 2) return;
+        list.appendChild(el('div', 'jc-empty', 'Searching…'));
+        api('GET', API + '/search?q=' + encodeURIComponent(q) + '&conversation=' + encodeURIComponent(c.sync_id)).then(function (d) {
+          if (my !== seq) return;
+          list.textContent = '';
+          var rs = d.results || [];
+          if (!rs.length) list.appendChild(el('div', 'jc-empty', 'No messages found.'));
+          rs.forEach(function (r) {
+            var m = r.message;
+            var it = el('div', 'jc-row2');
+            it.style.display = 'block';
+            var who = same(m.sender, me) ? 'You' : nameOf(m.sender, m.sender_name);
+            it.appendChild(el('small', null, who + ' · ' + fmtListTime(m.server_ts)));
+            it.appendChild(el('div', null, m.body || (m.attachment ? m.attachment.file_name : '')));
+            it.addEventListener('click', function () { dlg.close(); openConv(c, m.sync_id); });
+            list.appendChild(it);
+          });
+        }).catch(function (e) { list.textContent = ''; list.appendChild(el('div', 'jc-empty', e.message)); });
+      }, 250);
+    });
+    setTimeout(function () { f.input.focus(); }, 30);
+  }
+
+  // Full-screen photo viewer (click anywhere or Esc to close).
+  function lightbox(src, caption) {
+    var lb = el('div', 'jc-lb');
+    var x = el('button', null, '✕'); x.title = 'Close';
+    var im = document.createElement('img'); im.src = src; im.alt = caption || '';
+    lb.appendChild(x); lb.appendChild(im);
+    if (caption) lb.appendChild(el('b', null, caption));
+    function close() { lb.remove(); document.removeEventListener('keydown', onKey, true); }
+    function onKey(e) { if (e.key === 'Escape') { e.stopPropagation(); close(); } }
+    lb.addEventListener('click', close);
+    document.addEventListener('keydown', onKey, true);
+    document.body.appendChild(lb);
+  }
+
+  // Contact info (direct chat), like WhatsApp: photo (opens full size), name,
+  // designation | department, About, actions, media, starred, mute, groups in common.
+  function contactInfo(c) {
+    var peer = c.peer || (c.members || []).filter(function (m) { return !same(m, me); })[0];
+    if (!peer) return;
+    var dlg = modal('Contact info');
+    dlg.box.classList.add('jc-prof', 'jc-ci');
+    var p = { username: peer, display_name: c.title, photo_v: c.photo_v, online: c.online, last_seen_at: c.last_seen_at };
+    var shared = null;
+
+    function row(card, icon, label, value, onClick, sub) {
+      var r = el('div', 'jc-crow' + (onClick ? '' : ' jc-static'));
+      r.appendChild(el('div', 'jc-ci-ic', icon));
+      var t = el('span', null, label);
+      if (sub) t.appendChild(el('small', null, sub));
+      r.appendChild(t);
+      if (value != null) r.appendChild(el('em', null, value));
+      if (onClick) r.addEventListener('click', function (e) { onClick(e, r); });
+      card.appendChild(r);
+      return r;
+    }
+
+    function draw() {
+      dlg.body.textContent = '';
+      var shown = p.display_name || p.username;
+      var head = el('div', 'jc-ph');
+      var x = el('button', 'jc-x', '✕'); x.title = 'Close'; x.addEventListener('click', dlg.close);
+      head.appendChild(x);
+      var pav = el('div', 'jc-pav');
+      var av = el('div', 'jc-av');
+      setAvatar(av, p.username, p.photo_v);
+      if (av.firstChild) av.firstChild.nodeValue = initials(shown);
+      av.title = p.photo_v ? 'View photo' : '';
+      av.addEventListener('click', function () {
+        if (p.photo_v) lightbox(API + '/avatars/' + encodeURIComponent(p.username) + '?v=' + encodeURIComponent(p.photo_v), shown);
+      });
+      pav.appendChild(av);
+      head.appendChild(pav);
+      head.appendChild(el('div', 'jc-pn', shown));
+      head.appendChild(el('div', 'jc-pu', '~ @' + p.username));
+      var dd = [p.designation, p.department].filter(Boolean).join('  |  ');
+      if (dd) head.appendChild(el('div', 'jc-dd', dd));
+      var seen = lastSeenText(p.online, p.last_seen_at);
+      if (seen) head.appendChild(el('div', 'jc-ls', seen));
+      dlg.body.appendChild(head);
+
+      var acts = el('div', 'jc-acts');
+      function act(icon, label, fn) {
+        var b = el('button'); b.appendChild(el('i', null, icon)); b.appendChild(document.createTextNode(label));
+        b.addEventListener('click', fn); acts.appendChild(b);
+      }
+      act('💬', 'Message', function () { dlg.close(); if (current !== c) openConv(c); setTimeout(function () { els.ta.focus(); }, 50); });
+      act('📞', 'Voice', function () { dlg.close(); webCall.start(peer); });
+      act('🔍', 'Search', function () { dlg.close(); searchInChat(c); });
+      dlg.body.appendChild(acts);
+
+      var about = el('div', 'jc-card');
+      about.appendChild(el('div', 'jc-ttl', 'About'));
+      about.appendChild(el('div', 'jc-about', p.about || 'Hey there! I am using JMS Chat.'));
+      dlg.body.appendChild(about);
+
+      var m = el('div', 'jc-card');
+      var media = (shared && shared.media) || [];
+      var links = (shared && shared.links) || [];
+      var grid = null;
+      row(m, '🖼', 'Media, links and docs', shared ? ((media.length + links.length) ? String(media.length + links.length) : 'None') : '…', function () {
+        if (!media.length && !links.length) return;
+        if (grid) { grid.remove(); grid = null; return; }
+        grid = el('div', 'jc-grid');
+        media.forEach(function (a) {
+          var url = API + '/files/' + encodeURIComponent(a.sync_id);
+          if (a.kind === 'image') {
+            var d = el('div'); var im = document.createElement('img'); im.loading = 'lazy'; im.src = url; im.alt = a.file_name;
+            d.appendChild(im); d.title = a.file_name;
+            d.addEventListener('click', function () { lightbox(url, a.file_name); });
+            grid.appendChild(d);
+          } else {
+            var ln = el('a'); ln.href = url; ln.target = '_blank'; ln.rel = 'noopener'; ln.title = a.file_name;
+            ln.appendChild(el('b', null, FILE_ICON[a.kind] || '📎'));
+            ln.appendChild(el('span', null, a.file_name.length > 14 ? a.file_name.slice(0, 12) + '…' : a.file_name));
+            grid.appendChild(ln);
+          }
+        });
+        links.forEach(function (l) {
+          var ln = el('a'); ln.href = l.url; ln.target = '_blank'; ln.rel = 'noopener'; ln.title = l.title || 'Shared page';
+          ln.appendChild(el('b', null, '🔗'));
+          var t = l.title || 'Shared page';
+          ln.appendChild(el('span', null, t.length > 14 ? t.slice(0, 12) + '…' : t));
+          grid.appendChild(ln);
+        });
+        m.insertBefore(grid, m.children[1] || null);
+      });
+      row(m, '⭐', 'Starred messages', null, function () { dlg.close(); showStarred = true; showTodos = false; showApprovals = false; renderList(); });
+      dlg.body.appendChild(m);
+
+      var st = el('div', 'jc-card');
+      row(st, '🔔', 'Mute notifications', isMuted(c) ? (muteLabel(c) || 'On') : 'Off', function (e, r) {
+        dlg.close(); if (current !== c) openConv(c); setTimeout(function () { showMuteMenu(els.mMute); }, 60);
+      });
+      row(st, '⏳', 'Disappearing messages', c.disappear_seconds ? 'On' : 'Off', function () { dlg.close(); disappearDialog(c); });
+      row(st, '🔒', 'Encryption', null, null, 'Messages stay on the JMS server and may be reviewed by administrators.');
+      dlg.body.appendChild(st);
+
+      var groups = (shared && shared.groups) || [];
+      if (groups.length) {
+        var g = el('div', 'jc-card');
+        g.appendChild(el('div', 'jc-ttl', groups.length + (groups.length === 1 ? ' group' : ' groups') + ' in common'));
+        groups.forEach(function (x) {
+          row(g, '👥', x.title || 'Group', null, function () {
+            var gc = convById(x.sync_id);
+            dlg.close();
+            if (gc) openConv(gc);
+          }, x.members + ' members');
+        });
+        dlg.body.appendChild(g);
+      }
+
+      var det = el('div', 'jc-card');
+      var any = false;
+      if (p.mobile) { row(det, '📱', p.mobile, null, null, 'Mobile'); any = true; }
+      var roleLine = [p.role && String(p.role).replace(/_/g, ' '), p.line].filter(Boolean).join(' · ');
+      if (roleLine) { row(det, '🏭', roleLine, null, null, 'JMS role'); any = true; }
+      if (p.admin_view) {
+        row(det, '🪪', p.username, null, null, 'Login ID (admin view)');
+        if (p.pending_name) row(det, '⏳', p.pending_name, null, null, 'Requested name — waiting for approval');
+        var old = [];
+        (p.name_history || []).forEach(function (h) { if (h.status === 'approved' && h.old_name && old.indexOf(h.old_name) < 0) old.push(h.old_name); });
+        if (old.length) row(det, '🕘', old.join(', '), null, null, 'Earlier names');
+        any = true;
+      }
+      if (any) dlg.body.appendChild(det);
+    }
+
+    draw();
+    api('GET', API + '/profile/' + encodeURIComponent(peer)).then(function (d) {
+      if (d.profile) { Object.keys(d.profile).forEach(function (k) { p[k] = d.profile[k]; }); draw(); }
+    }).catch(function () { });
+    api('GET', API + '/profile/' + encodeURIComponent(peer) + '/shared').then(function (d) { shared = d; draw(); })
+      .catch(function () { shared = { media: [], groups: [] }; draw(); });
+  }
+
+  function devicesDialog() {
+    var dlg = modal('📱 My devices');
+    function draw() {
+      dlg.body.textContent = '';
+      api('GET', API + '/devices').then(function (d) {
+        var ds = d.devices || [];
+        if (!ds.length) dlg.body.appendChild(el('div', 'jc-empty', 'No chat-app sign-ins yet.'));
+        ds.forEach(function (x) {
+          var r = el('div', 'jc-row2');
+          r.appendChild(el('div', 'jc-name', (x.platform === 'android-app' ? '📱 ' : '💻 ') + (x.name || 'Device') + (x.current ? ' (this one)' : '')));
+          r.appendChild(el('small', null, (x.approved ? (x.signed_in ? 'Signed in' : 'Signed out') : '⏳ Waiting for approval') +
+            (x.last_seen_at ? ' · last used ' + fmtListTime(x.last_seen_at) : '')));
+          if (x.signed_in && !x.current) {
+            var b = el('button', 'jc-plain', 'Sign out');
+            b.addEventListener('click', function () {
+              api('POST', API + '/devices/' + encodeURIComponent(x.id) + '/signout').then(draw).catch(function (e) { showErr(e.message); });
+            });
+            r.appendChild(b);
+          }
+          dlg.body.appendChild(r);
+        });
+        var all = el('button', 'jc-plain', 'Sign out all other devices');
+        all.style.color = '#d33';
+        all.addEventListener('click', function () {
+          api('POST', API + '/devices/signout-others').then(function (r) { toastText('Signed out ' + r.signed_out + ' device(s)'); draw(); })
+            .catch(function (e) { showErr(e.message); });
+        });
+        dlg.body.appendChild(all);
+      }).catch(function (e) { showErr(e.message); });
+    }
+    draw();
+  }
+
+  function renderStarred(list) {
+    var hd = el('div', 'jc-arch', '← Starred messages');
+    hd.addEventListener('click', function () { showStarred = false; renderList(); });
+    list.appendChild(hd);
+    api('GET', API + '/starred').then(function (d) {
+      var rs = d.results || [];
+      if (!rs.length) list.appendChild(el('div', 'jc-empty', 'No starred messages. Use ▾ on a message and choose Star.'));
+      rs.forEach(function (r) {
+        var it = el('div', 'jc-item');
+        var mid = el('div', 'jc-mid');
+        var r1 = el('div', 'jc-row');
+        r1.appendChild(el('div', 'jc-name', (same(r.message.sender, me) ? 'You' : r.message.sender) + ' → ' + r.conversation_title));
+        r1.appendChild(el('div', 'jc-time', fmtListTime(r.message.server_ts)));
+        mid.appendChild(r1);
+        mid.appendChild(el('div', 'jc-prev', '★ ' + (r.message.body || (r.message.attachment ? r.message.attachment.file_name : ''))));
+        it.appendChild(mid);
+        it.addEventListener('click', function () {
+          var c = convById(r.message.conversation_sync_id);
+          showStarred = false;
+          if (c) openConv(c, r.message.sync_id);
+        });
+        list.appendChild(it);
+      });
+    }).catch(function (e) { showErr(e.message); });
   }
 
   function loadUsers() {
@@ -657,10 +1406,12 @@
   function personRow(u, checkbox) {
     var it = el('div', 'jc-item');
     if (checkbox) it.appendChild(checkbox);
-    var av = el('div', 'jc-av' + (u.online ? ' jc-on' : ''), initials(u.username));
-    av.style.background = avatarColor(u.username);
+    var shown = u.display_name || u.username;
+    var av = el('div', 'jc-av' + (u.online ? ' jc-on' : ''));
+    setAvatar(av, u.username, u.photo_v);
+    av.firstChild.nodeValue = initials(shown);
     var mid = el('div', 'jc-mid');
-    mid.appendChild(el('div', 'jc-name', u.username));
+    mid.appendChild(el('div', 'jc-name', shown));
     mid.appendChild(el('div', 'jc-prev', [u.role, u.line].filter(Boolean).join(' · ')));
     it.appendChild(av); it.appendChild(mid);
     if (checkbox) it.addEventListener('click', function (e) { if (e.target !== checkbox) checkbox.click(); });
@@ -676,7 +1427,7 @@
     loadUsers().then(function () {
       els.list.textContent = '';
       var ql = String(q || '').toLowerCase();
-      var ppl = users.filter(function (u) { return !ql || u.username.toLowerCase().indexOf(ql) !== -1; });
+      var ppl = users.filter(function (u) { return !ql || u.username.toLowerCase().indexOf(ql) !== -1 || String(u.display_name || '').toLowerCase().indexOf(ql) !== -1; });
       if (!ppl.length) els.list.appendChild(el('div', 'jc-empty', 'Nobody found.'));
       ppl.forEach(function (u) { els.list.appendChild(personRow(u)); });
     }).catch(function (e) { showErr(e.message); });
@@ -714,6 +1465,7 @@
   }
 
   function showNewGroup() {
+    if (!canApprove) { showErr('Only an admin or superadmin can create groups.'); return; }
     if (adminAll) setAdminAll(false);
     els.groupMode = true;
     els.peopleMode = false;
@@ -780,22 +1532,25 @@
     var c = current;
     var readOnly = c.is_member === false;
     els.mName.textContent = c.title;
-    els.mInfo.style.display = isGroup(c) && !readOnly ? '' : 'none';
-    els.mTitle.classList.toggle('jc-mh-click', isGroup(c) && !readOnly);
+    if (c.system) { var vb = el('span', 'jc-verified', '✓'); vb.title = 'Verified JMS account'; els.mName.appendChild(vb); }
+    els.mInfo.style.display = isGroup(c) && (!readOnly || isAdmin) ? '' : 'none';
+    els.mTitle.classList.toggle('jc-mh-click', isGroup(c) && (!readOnly || isAdmin));
     var typing = typingText(c.sync_id);
     if (typing) { els.mSub.textContent = typing; els.mSub.className = 'jc-prev jc-typing'; return; }
     els.mSub.className = 'jc-prev';
     if (readOnly || isGroup(c)) els.mSub.textContent = (c.members || []).join(', ');
-    else els.mSub.textContent = c.online ? 'online' : '';
+    else els.mSub.textContent = lastSeenText(c.online, c.last_seen_at);
     if (isMuted(c)) els.mSub.textContent = '🔕 ' + muteLabel(c) + (els.mSub.textContent ? ' · ' + els.mSub.textContent : '');
     els.mMute.style.display = readOnly ? 'none' : '';
     els.mMute.textContent = isMuted(c) ? '🔕' : '🔔';
     els.mMute.title = isMuted(c) ? muteLabel(c) + ' (click to change)' : 'Mute notifications';
-    els.mAv.textContent = isGroup(c) ? '👥' : initials(c.title);
-    els.mAv.style.background = avatarColor(c.title);
+    setAvatar(els.mAv, c.title, c.photo_v, isGroup(c));
+    if (els.mCall) els.mCall.style.display = !isGroup(c) && !c.system && !readOnly && serverInfo.server_type !== 'LOCAL' ? '' : 'none';
   }
 
   function openConv(c, focusId) {
+    if (current && current !== c && loaded.length) cacheMessages(current.sync_id, loaded);
+    if (selecting) { selecting = false; selected = {}; if (selBar) selBar.remove(); }
     current = c;
     cancelEdit();
     oldestTs = null; hasMore = false;
@@ -811,8 +1566,11 @@
     convHeader();
     els.msgs.textContent = '';
     loaded = [];
+    var saved = !focusId && cachedMessages(c.sync_id);
+    if (saved) { renderMessages(saved.map(function (m) { return Object.assign({}, m); }), false); els.msgs.scrollTop = els.msgs.scrollHeight; }
     if (!els.sIn.value.trim()) renderList();
     loadMessages(false, focusId);
+    loadPins(c);
     if (!readOnly) { els.ta.focus(); markRead(c.sync_id); }
   }
 
@@ -828,6 +1586,7 @@
       if (d.title && isGroup(c)) c.title = d.title;
       c.members = d.members || c.members;
       c.member_roles = d.member_roles || [];
+      c.member_roles.forEach(function (r) { rememberName(r.username, r.display_name); });
       c.my_role = d.my_role;
       convHeader();
       var ms = d.messages || [];
@@ -840,6 +1599,7 @@
       } else {
         renderMessages(ms, false);
         box.scrollTop = box.scrollHeight;
+        cacheMessages(c.sync_id, ms);
       }
       if (focusId) flash(focusId);
     }).catch(function (e) { showErr(e.message); });
@@ -903,7 +1663,7 @@
         if (box.scrollHeight - box.scrollTop - box.clientHeight < 300) box.scrollTop = box.scrollHeight;
       });
       img.addEventListener('click', function (e) { e.stopPropagation(); openViewerFor(m); });
-      return img;
+      return withDownload(img, a);
     }
     if (a.kind === 'video') {
       var vwrap = el('div');
@@ -914,7 +1674,7 @@
       vid.style.borderRadius = '8px';
       vid.src = fileUrl(a);
       vwrap.appendChild(vid);
-      return vwrap;
+      return withDownload(vwrap, a);
     }
     if (a.kind === 'audio') {
       var wrap = el('div');
@@ -923,7 +1683,7 @@
       au.preload = 'none';
       au.src = fileUrl(a);
       wrap.appendChild(au);
-      return wrap;
+      return withDownload(wrap, a);
     }
     var link = el('a', 'jc-file');
     link.href = fileUrl(a, a.kind === 'xlsx');
@@ -934,7 +1694,21 @@
     t.appendChild(el('b', null, a.file_name));
     t.appendChild(el('small', null, (a.kind === 'xlsx' ? 'Excel' : 'PDF') + ' · ' + fmtSize(a.size)));
     link.appendChild(t);
-    return link;
+    return a.kind === 'pdf' ? withDownload(link, a) : link;
+  }
+
+  // ⬇ Download under a photo / video / voice note (files already download on click).
+  function withDownload(node, a) {
+    if (current && isProtected(current.sync_id)) return node;
+    var box = el('div', 'jc-dlwrap');
+    box.appendChild(node);
+    var dl = el('a', 'jc-dl', '⬇ Download');
+    dl.href = fileUrl(a, true);
+    dl.setAttribute('download', a.file_name || '');
+    dl.title = 'Download ' + (a.file_name || 'file') + ' (' + fmtSize(a.size) + ')';
+    dl.addEventListener('click', function (e) { e.stopPropagation(); });
+    box.appendChild(dl);
+    return box;
   }
 
   var openMenu = null;
@@ -942,35 +1716,273 @@
 
   function messageMenu(m, bub) {
     closeMenu();
+    var mine = same(m.sender, me);
     var menu = el('div', 'jc-menu');
-    var rp = el('button', null, '↩ Reply');
-    rp.addEventListener('click', function (e) { e.stopPropagation(); closeMenu(); startReply(m); });
-    menu.appendChild(rp);
-    var canEdit = (m.kind === 'text' || m.attachment) && Date.now() - new Date(m.server_ts).getTime() < EDIT_MS;
-    if (canEdit) {
-      var eb = el('button', null, m.kind === 'text' ? 'Edit' : 'Edit caption');
-      eb.addEventListener('click', function (e) { e.stopPropagation(); closeMenu(); startEdit(m); });
-      menu.appendChild(eb);
-    }
-    if (m.kind === 'text' && navigator.clipboard) {
-      var cp = el('button', null, 'Copy');
-      cp.addEventListener('click', function (e) { e.stopPropagation(); closeMenu(); navigator.clipboard.writeText(m.body).catch(function () { }); });
-      menu.appendChild(cp);
-    }
-    var db = el('button', null, 'Delete for everyone');
-    db.style.color = '#d93025';
-    db.addEventListener('click', function (e) {
-      e.stopPropagation();
-      closeMenu();
-      if (!window.confirm('Delete this message for everyone?')) return;
-      api('DELETE', API + '/messages/' + encodeURIComponent(m.sync_id)).then(function (d) {
-        applyUpdate(d.message);
-        loadConvs();
-      }).catch(function (e2) { showErr(e2.message); });
+    var emo = el('div', 'jc-emo');
+    var myRx = (m.reactions || []).filter(function (r) { return r.users.some(function (u) { return same(u, me); }); })[0];
+    QUICK_RX.forEach(function (e) {
+      var b = el('button', myRx && myRx.emoji === e ? 'jc-on' : '', e);
+      b.addEventListener('click', function (ev) { ev.stopPropagation(); closeMenu(); react(m, myRx && myRx.emoji === e ? '' : e); });
+      emo.appendChild(b);
     });
-    menu.appendChild(db);
+    menu.appendChild(emo);
+    function item(label, fn, color) {
+      var b = el('button', null, label);
+      if (color) b.style.color = color;
+      b.addEventListener('click', function (e) { e.stopPropagation(); closeMenu(); fn(); });
+      menu.appendChild(b);
+    }
+    var grp = isGroup(current);
+    var canDel = mine || isAdmin || (grp && current.my_role === 'admin');
+    function sep() { menu.appendChild(el('div', 'jc-msep')); }
+    item('Reply', function () { startReply(m); });
+    if (grp && !mine) item('Reply privately', function () { replyPrivately(m); });
+    item(m.starred ? 'Unstar' : 'Star', function () {
+      var on = !m.starred;
+      api('POST', API + '/messages/' + encodeURIComponent(m.sync_id) + '/star', { on: on })
+        .then(function () { m.starred = on; redraw(); }).catch(function (e) { showErr(e.message); });
+    });
+    var pinned = (current && current.pins || []).some(function (p) { return p.sync_id === m.sync_id; });
+    item(pinned ? 'Unpin' : 'Pin', function () {
+      api(pinned ? 'DELETE' : 'POST', API + '/messages/' + encodeURIComponent(m.sync_id) + '/pin', {})
+        .then(function () { loadPins(current); }).catch(function (e) { showErr(e.message); });
+    });
+    if (!isProtected(m.conversation_sync_id)) item('Forward', function () { forwardDialog([m]); });
+    if (m.body && navigator.clipboard) item('Copy', function () { navigator.clipboard.writeText(m.body).catch(function () { }); });
+    if (grp && !mine) item('Message ' + nameOf(m.sender, m.sender_name), function () { startChat(m.sender); });
+    if (mine) {
+      item('Info', function () { infoDialog(m); });
+      var canEdit = (m.kind === 'text' || m.attachment) && Date.now() - new Date(m.server_ts).getTime() < EDIT_MS;
+      if (canEdit) item(m.kind === 'text' ? 'Edit' : 'Edit caption', function () { startEdit(m); });
+    }
+    sep();
+    item('Make task', function () { taskDialog(m); });
+    item('Raise maintenance ticket', function () { ticketDialog(m); });
+    if (m.body && !m.poll) {
+      item('Translate → English', function () { translate(m, 'en'); });
+      item('हिंदी में अनुवाद', function () { translate(m, 'hi'); });
+      item('ગુજરાતીમાં અનુવાદ', function () { translate(m, 'gu'); });
+    }
+    sep();
+    if (canDel) {
+      item('Delete', function () {
+        var who = mine ? '' : (isAdmin ? ' (as superadmin)' : ' (as group admin)');
+        if (!window.confirm('Delete this message for everyone' + who + '?')) return;
+        api('DELETE', API + '/messages/' + encodeURIComponent(m.sync_id)).then(function (d) { applyUpdate(d.message); loadConvs(); })
+          .catch(function (e2) { showErr(e2.message); });
+      }, '#d93025');
+    }
+    item('Select messages', function () { startSelect(m); });
     bub.appendChild(menu);
     openMenu = menu;
+    // Desktop app: a small popover beside the bubble (WhatsApp Desktop), kept on screen.
+    if (appMode && window.matchMedia('(min-width: 900px)').matches) {
+      menu.classList.add('jc-pop');
+      // the emoji row does not fit the narrow popover: a "React" entry opens the reaction bar
+      emo.remove();
+      var rx = el('button', null, 'React');
+      rx.addEventListener('click', function (e) { e.stopPropagation(); closeMenu(); var a = bub.parentNode.querySelector('.jc-rxbtn'); reactBar(m, a || bub); });
+      menu.insertBefore(rx, menu.children[1] || null);
+      var r = bub.getBoundingClientRect(), mw = menu.offsetWidth, mh = menu.offsetHeight;
+      var left = mine ? r.right - mw : r.right + 4;
+      if (left + mw > window.innerWidth - 8) left = r.left - mw - 4;
+      left = Math.max(8, Math.min(left, window.innerWidth - mw - 8));
+      var top = Math.max(8, Math.min(r.top + 24, window.innerHeight - mh - 8));
+      menu.style.setProperty('left', left + 'px', 'important');
+      menu.style.setProperty('top', top + 'px', 'important');
+    }
+  }
+
+  // ---------------- reply privately, select messages ----------------
+  function replyPrivately(m) {
+    var src = m;
+    api('POST', API + '/conversations', { username: m.sender }).then(function (d) {
+      var c = d.conversation;
+      var existing = convs.filter(function (x) { return x.sync_id === c.sync_id; })[0];
+      openConv(existing || { sync_id: c.sync_id, type: 'direct', title: c.title, members: c.members, online: c.online, is_member: true });
+      var quote = '> ' + String(src.body || '📎 ' + ((src.attachment && src.attachment.file_name) || 'attachment')).split('\n').slice(0, 3).join('\n> ');
+      els.ta.value = quote + '\n';
+      els.ta.focus();
+      els.ta.dispatchEvent(new Event('input'));
+    }).catch(function (e) { showErr(e.message); });
+  }
+
+  var selecting = false, selected = {}, selBar = null;
+  function startSelect(m) {
+    selecting = true; selected = {};
+    if (m) selected[m.sync_id] = m;
+    if (!selBar) {
+      selBar = el('div', 'jc-selbar');
+      var x = el('button', 'jc-ibtn', '✕'); x.title = 'Cancel';
+      x.addEventListener('click', endSelect);
+      selBar.appendChild(x);
+      selBar.appendChild(el('span', 'jc-selcount'));
+      [['Copy', 'copy'], ['Star', 'star'], ['Forward', 'fwd'], ['Delete', 'del']].forEach(function (o) {
+        var b = el('button', 'jc-btn jc-sel-' + o[1], o[0]);
+        b.addEventListener('click', function () { selAction(o[1]); });
+        selBar.appendChild(b);
+      });
+    }
+    els.main.insertBefore(selBar, els.msgs);
+    updateSelBar();
+    redraw();
+  }
+  function endSelect() {
+    if (!selecting) return;
+    selecting = false; selected = {};
+    if (selBar) selBar.remove();
+    redraw();
+  }
+  function toggleSel(m) {
+    if (selected[m.sync_id]) delete selected[m.sync_id]; else selected[m.sync_id] = m;
+    updateSelBar();
+    redraw();
+  }
+  function selList() {
+    return loaded.filter(function (m) { return selected[m.sync_id]; });
+  }
+  function updateSelBar() {
+    var ls = selList();
+    selBar.querySelector('.jc-selcount').textContent = ls.length + ' selected';
+    var grpAdmin = isGroup(current) && current.my_role === 'admin';
+    var live = ls.filter(function (m) { return !m.deleted && !m.purged; });
+    selBar.querySelector('.jc-sel-del').style.display = live.length && live.every(function (m) { return same(m.sender, me) || isAdmin || grpAdmin; }) ? '' : 'none';
+    selBar.querySelector('.jc-sel-fwd').style.display = live.length && !isProtected(current.sync_id) ? '' : 'none';
+    selBar.querySelector('.jc-sel-copy').style.display = live.some(function (m) { return m.body; }) ? '' : 'none';
+    selBar.querySelector('.jc-sel-star').style.display = live.length ? '' : 'none';
+  }
+  function selAction(kind) {
+    var ls = selList().filter(function (m) { return !m.deleted && !m.purged; });
+    if (!ls.length) return;
+    if (kind === 'copy') {
+      var txt = ls.filter(function (m) { return m.body; }).map(function (m) {
+        return '[' + fmtTime(m.server_ts) + '] ' + m.sender + ': ' + m.body;
+      }).join('\n');
+      if (navigator.clipboard) navigator.clipboard.writeText(txt).catch(function () { });
+      endSelect();
+    } else if (kind === 'star') {
+      Promise.all(ls.map(function (m) {
+        return api('POST', API + '/messages/' + encodeURIComponent(m.sync_id) + '/star', { on: true }).then(function () { m.starred = true; });
+      })).then(endSelect).catch(function (e) { showErr(e.message); });
+    } else if (kind === 'fwd') {
+      forwardDialog(ls);
+    } else if (kind === 'del') {
+      if (!window.confirm('Delete ' + ls.length + ' message(s) for everyone?')) return;
+      ls.reduce(function (p, m) {
+        return p.then(function () {
+          return api('DELETE', API + '/messages/' + encodeURIComponent(m.sync_id)).then(function (d) { applyUpdate(d.message); });
+        });
+      }, Promise.resolve()).then(function () { endSelect(); loadConvs(); }).catch(function (e) { showErr(e.message); });
+    }
+  }
+
+  var MORE_RX = ['👍', '❤️', '😂', '😮', '😢', '🙏', '👏', '🔥', '🎉', '💯', '✅', '❌', '👀', '🤝', '💪', '😊',
+    '😍', '🤔', '😅', '😡', '🙌', '👌', '⭐', '🚀'];
+  // Quick reactions in a small bar above the message; "+" opens the larger set.
+  function reactBar(m, anchor) {
+    closeMenu();
+    var myRx = (m.reactions || []).filter(function (r) { return r.users.some(function (u) { return same(u, me); }); })[0];
+    var bar = el('div', 'jc-menu jc-rxbar');
+    function add(list) {
+      bar.textContent = '';
+      list.forEach(function (e) {
+        var b = el('button', myRx && myRx.emoji === e ? 'jc-on' : '', e);
+        b.addEventListener('click', function (ev) { ev.stopPropagation(); closeMenu(); react(m, myRx && myRx.emoji === e ? '' : e); });
+        bar.appendChild(b);
+      });
+    }
+    add(QUICK_RX.concat(['👏']));
+    var more = el('button', 'jc-rxmore', '+');
+    more.title = 'More reactions';
+    more.addEventListener('click', function (ev) { ev.stopPropagation(); add(MORE_RX); bar.classList.add('jc-rxgrid'); place(); });
+    bar.appendChild(more);
+    (root || document.body).appendChild(bar); // inside the chat root, so its styles and stacking apply
+    openMenu = bar;
+    function place() {
+      var r = anchor.getBoundingClientRect(), w = bar.offsetWidth, h = bar.offsetHeight;
+      var left = Math.max(8, Math.min(r.left + r.width / 2 - w / 2, window.innerWidth - w - 8));
+      var top = r.top - h - 6 < 8 ? r.bottom + 6 : r.top - h - 6;
+      bar.style.setProperty('left', left + 'px', 'important'); bar.style.setProperty('top', top + 'px', 'important');
+    }
+    place();
+  }
+
+  function rxEl(m) {
+    var box = el('div', 'jc-rx');
+    m.reactions.forEach(function (r) {
+      var sp = el('span', null, r.emoji + (r.users.length > 1 ? ' ' + r.users.length : ''));
+      sp.title = r.users.map(function (u) { return same(u, me) ? 'You' : u; }).join(', ');
+      sp.addEventListener('click', function (e) {
+        e.stopPropagation();
+        var mineHere = r.users.some(function (u) { return same(u, me); });
+        react(m, mineHere ? '' : r.emoji);
+      });
+      box.appendChild(sp);
+    });
+    return box;
+  }
+
+  function react(m, emoji) {
+    api('POST', API + '/messages/' + encodeURIComponent(m.sync_id) + '/react', { emoji: emoji })
+      .then(function (d) { m.reactions = d.reactions; redraw(); })
+      .catch(function (e) { showErr(e.message); });
+  }
+
+  function forwardDialog(list) {
+    list = Array.isArray(list) ? list : [list];
+    var dlg = modal('Forward ' + (list.length > 1 ? list.length + ' messages ' : '') + 'to… (up to 5)');
+    var picked = [];
+    convs.filter(function (c) { return c.is_member !== false; }).forEach(function (c) {
+      var r = el('label', 'jc-row2');
+      var cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.addEventListener('change', function () {
+        if (cb.checked) { if (picked.length >= 5) { cb.checked = false; return; } picked.push(c.sync_id); }
+        else picked = picked.filter(function (x) { return x !== c.sync_id; });
+        send.textContent = 'Send' + (picked.length ? ' (' + picked.length + ')' : '');
+      });
+      var av = el('div', 'jc-av');
+      av.style.width = av.style.height = '32px';
+      setAvatar(av, c.title, c.photo_v, isGroup(c));
+      r.appendChild(cb); r.appendChild(av); r.appendChild(el('span', null, c.title));
+      dlg.body.appendChild(r);
+    });
+    var act = el('div', 'jc-act');
+    var cancel = el('button', 'jc-plain', 'Cancel');
+    var send = el('button', 'jc-primary', 'Send');
+    cancel.addEventListener('click', dlg.close);
+    send.addEventListener('click', function () {
+      if (!picked.length) return;
+      send.disabled = true;
+      list.reduce(function (p, m) {
+        return p.then(function () { return api('POST', API + '/forward', { message_sync_id: m.sync_id, to: picked }); });
+      }, Promise.resolve())
+        .then(function () { dlg.close(); endSelect(); loadConvs(); })
+        .catch(function (e) { send.disabled = false; showErr(e.message); });
+    });
+    act.appendChild(cancel); act.appendChild(send);
+    dlg.box.appendChild(act);
+  }
+
+  function infoDialog(m) {
+    var dlg = modal('Message info');
+    dlg.body.textContent = 'Loading…';
+    api('GET', API + '/messages/' + encodeURIComponent(m.sync_id) + '/info').then(function (d) {
+      dlg.body.textContent = '';
+      function sect(title, rows) {
+        dlg.body.appendChild(el('b', null, title));
+        if (!rows.length) dlg.body.appendChild(el('div', 'jc-row2', '—'));
+        rows.forEach(function (r) {
+          var row = el('div', 'jc-row2');
+          row.appendChild(el('span', null, r.username));
+          if (r.at) row.appendChild(el('small', null, ' · ' + fmtDay(r.at) + ' ' + fmtTime(r.at)));
+          dlg.body.appendChild(row);
+        });
+      }
+      sect('✓✓ Read by', d.read || []);
+      sect('✓✓ Delivered to', d.delivered || []);
+      if ((d.pending || []).length) sect('✓ Not delivered yet', d.pending);
+    }).catch(function (e) { dlg.body.textContent = e.message; });
   }
 
   function redraw() {
@@ -987,6 +1999,7 @@
     var adminView = current && current.is_member === false;
     var showNames = isGroup(current) || adminView;
     loaded.forEach(function (m) {
+      if (m.deleted || m.purged) return; // deleted messages are not shown at all
       var day = new Date(m.server_ts).toDateString();
       if (day !== lastDay) {
         lastDay = day;
@@ -1009,23 +2022,47 @@
       var row = el('div', 'jc-msg' + (mine ? ' jc-out' : '') + (m.pending ? ' jc-pend' : ''));
       row.setAttribute('data-id', m.sync_id);
       var b = el('div', 'jc-bub');
+      if (selecting && !m.pending && !m.failed) {
+        row.classList.add('jc-selrow');
+        if (selected[m.sync_id]) row.classList.add('jc-sel');
+        row.addEventListener('click', function (e) { e.preventDefault(); e.stopPropagation(); toggleSel(m); }, true);
+      } else if (!adminView && !m.deleted && !m.purged && !m.pending && !m.failed && current && current.is_member !== false) {
+        b.addEventListener('contextmenu', function (e) { e.preventDefault(); messageMenu(m, b); });
+      }
       if (!mine && showNames) {
-        var sn = el('div', 'jc-snd', m.sender);
-        sn.style.color = avatarColor(m.sender);
+        var sn = el('div', 'jc-snd', nameOf(m.sender, m.sender_name));
+        sn.style.color = m.verified ? '#008069' : avatarColor(m.sender);
+        if (m.verified) { var vb = el('span', 'jc-verified', '✓'); vb.title = 'Verified JMS account'; sn.appendChild(vb); }
         b.appendChild(sn);
       }
       if (m.purged) {
         b.appendChild(el('span', 'jc-del', '🕓 Removed after the retention period'));
       } else if (m.deleted) {
-        b.appendChild(el('span', 'jc-del', '🚫 This message was deleted'));
+        b.appendChild(el('span', 'jc-del', '🚫 ' + (m.deleted_by && !same(m.deleted_by, m.sender)
+          ? 'This message was deleted by admin ' + (same(m.deleted_by, me) ? 'you' : m.deleted_by) + '.'
+          : (mine ? 'You deleted this message.' : 'This message was deleted.'))));
       } else {
+        if (m.forwarded) b.appendChild(el('div', 'jc-fwd', '↪ Forwarded'));
+        if (m.announcement) { b.classList.add('jc-ann'); b.appendChild(el('div', 'jc-annl', '📢 ANNOUNCEMENT')); }
+        if (m.urgent) { b.classList.add('jc-urg'); b.appendChild(el('div', 'jc-urgl', '⚠ URGENT')); }
+        if (m.bot) { b.classList.add('jc-bot'); b.appendChild(el('div', 'jc-botl', '🤖 JMS BOT')); }
         if (m.reply_to) b.appendChild(quoteEl(m.reply_to));
         if (m.kind === 'link' && m.link) b.appendChild(linkCardEl(m));
         if (m.attachment) b.appendChild(attachmentEl(m));
         else if (m.localFile) b.appendChild(el('div', 'jc-prev', '📎 ' + m.localFile.name + ' · ' + fmtSize(m.localFile.size)));
-        if (m.body) appendBody(b, m.body);
+        if (m.poll) b.appendChild(pollEl(m));
+        else if (m.body) appendBody(b, m.body);
+        if (m.alert) b.appendChild(alertEl(m));
+        if (m.attachment && m.attachment.kind === 'audio' && !m._transcript) {
+          var tb = el('button', 'jc-trbtn', '📝 Show as text');
+          tb.addEventListener('click', function (e) { e.stopPropagation(); transcribe(m, tb); });
+          b.appendChild(tb);
+        }
+        if (m._transcript) { var tt = el('div', 'jc-tr', m._transcript); tt.insertBefore(el('small', null, '📝 Voice message as text'), tt.firstChild); b.appendChild(tt); }
+        if (m._tr) { var tr = el('div', 'jc-tr', m._tr.text); tr.insertBefore(el('small', null, '🌐 ' + m._tr.label), tr.firstChild); b.appendChild(tr); }
       }
-      var meta = el('span', 'jc-meta', (m.edited_at && !m.deleted ? 'edited ' : '') + (m.pending ? '' : fmtTime(m.server_ts)));
+      if (m.reactions && m.reactions.length && !m.deleted) b.appendChild(rxEl(m));
+      var meta = el('span', 'jc-meta', (m.scheduled ? '🕒 ' : '') + (m.starred ? '★ ' : '') + (m.edited_at && !m.deleted ? 'edited ' : '') + (m.pending ? '' : fmtTime(m.server_ts)));
       if (mine && !adminView && !m.deleted && !m.purged) {
         var tk = tickFor(m);
         var tick = el('span', 'jc-tick' + tk.cls, tk.t);
@@ -1033,7 +2070,7 @@
         meta.appendChild(tick);
       }
       b.appendChild(meta);
-      if (mine && !adminView && !m.deleted && !m.purged && !m.pending && !m.failed) {
+      if (!adminView && !m.deleted && !m.purged && !m.pending && !m.failed && current && current.is_member !== false) {
         var opt = el('button', 'jc-opt', '▾');
         opt.title = 'Message options';
         opt.addEventListener('click', function (e) { e.stopPropagation(); messageMenu(m, b); });
@@ -1054,6 +2091,13 @@
         });
       }
       row.appendChild(b);
+      // a visible react button beside the bubble (on hover), like WhatsApp Desktop
+      if (!selecting && !adminView && !m.deleted && !m.purged && !m.pending && !m.failed && current && current.is_member !== false) {
+        var rxb = el('button', 'jc-rxbtn', '☺');
+        rxb.title = 'React';
+        rxb.addEventListener('click', function (e) { e.stopPropagation(); reactBar(m, rxb); });
+        if (mine) row.insertBefore(rxb, b); else row.appendChild(rxb);
+      }
       box.appendChild(row);
     });
     if (atBottom) box.scrollTop = box.scrollHeight;
@@ -1101,6 +2145,13 @@
       return;
     }
     if (!text) return;
+    if (/^\/\w+/.test(text)) {
+      els.ta.value = '';
+      api('POST', API + '/command', { conversation_sync_id: current.sync_id, text: text })
+        .then(function (d) { if (!loaded.some(function (x) { return x.sync_id === d.message.sync_id; })) loaded.push(d.message); redraw(); els.msgs.scrollTop = els.msgs.scrollHeight; loadConvs(); })
+        .catch(function (e) { els.ta.value = text; showErr(e.message); });
+      return;
+    }
     var m = { sync_id: uuid(), conversation_sync_id: current.sync_id, sender: me, body: text, kind: 'text',
       server_ts: new Date().toISOString(), pending: true, reply_to: replyQuote(), reply_to_sync_id: replying && replying.sync_id };
     cancelReply();
@@ -1198,7 +2249,7 @@
     els.main.appendChild(head);
     els.main.appendChild(info);
     bk.addEventListener('click', function () { openConv(c); });
-    var admin = c.my_role === 'admin';
+    var admin = c.my_role === 'admin' || isAdmin; // superadmins manage every group
 
     // name
     var s1 = el('section');
@@ -1234,6 +2285,17 @@
       mid.appendChild(el('div', 'jc-name', same(r.username, me) ? r.username + ' (you)' : r.username));
       row.appendChild(av); row.appendChild(mid);
       if (r.role === 'admin') row.appendChild(el('span', 'jc-role', 'admin'));
+      if (admin && !same(r.username, me)) {
+        var mk = el('button', 'jc-ibtn', r.role === 'admin' ? '☆' : '★');
+        mk.title = r.role === 'admin' ? 'Remove as group admin' : 'Make group admin';
+        mk.addEventListener('click', function () {
+          api('POST', API + '/groups/' + encodeURIComponent(c.sync_id) + '/members/' + encodeURIComponent(r.username) + '/admin',
+            { admin: r.role !== 'admin' })
+            .then(function () { refreshInfo(c); })
+            .catch(function (e) { showErr(e.message); });
+        });
+        row.appendChild(mk);
+      }
       if (admin && !same(r.username, me)) {
         var rm = el('button', 'jc-ibtn', '✕');
         rm.title = 'Remove ' + r.username;
@@ -1286,6 +2348,20 @@
         loadConvs();
       }).catch(function (e) { showErr(e.message); });
     });
+    if (isAdmin) { // superadmin: delete every message in the group for everyone
+      var clr = el('button', 'jc-btn jc-danger', '🗑 Clear all messages');
+      clr.title = 'Delete every message in this group for everyone';
+      clr.addEventListener('click', function () {
+        if (!window.confirm('Delete ALL messages in "' + c.title + '" for everyone? This cannot be undone.')) return;
+        api('POST', API + '/groups/' + encodeURIComponent(c.sync_id) + '/clear').then(function (d) {
+          cacheMessages(c.sync_id, []);
+          showErr((d.cleared || 0) + ' message(s) deleted.');
+          openConv(c);
+          loadConvs();
+        }).catch(function (e) { showErr(e.message); });
+      });
+      s4.appendChild(clr);
+    }
     s4.appendChild(leave);
     info.appendChild(s4);
   }
@@ -1293,6 +2369,7 @@
   function refreshInfo(c) {
     api('GET', API + '/conversations/' + encodeURIComponent(c.sync_id) + '/messages').then(function (d) {
       c.members = d.members; c.member_roles = d.member_roles; c.my_role = d.my_role;
+      (d.member_roles || []).forEach(function (r) { rememberName(r.username, r.display_name); });
       if (d.title) c.title = d.title;
       if (current === c) showGroupInfo();
       loadConvs();
@@ -1307,6 +2384,7 @@
       els.badge.style.display = n ? 'block' : 'none';
       var base = document.title.replace(/^\(\d+\+?\) /, '');
       document.title = n ? '(' + (n > 99 ? '99+' : n) + ') ' + base : base;
+      try { if (navigator.setAppBadge) { if (n) navigator.setAppBadge(n); else navigator.clearAppBadge(); } } catch (_e) { }
     }).catch(function () { });
   }
 
@@ -1323,7 +2401,8 @@
     if (toastEl) toastEl.remove();
     toastEl = el('div', 'jc-toast');
     var c = convs.filter(function (x) { return x.sync_id === m.conversation_sync_id; })[0];
-    toastEl.appendChild(el('b', null, c && isGroup(c) ? m.sender + ' @ ' + c.title : m.sender));
+    var who = nameOf(m.sender, m.sender_name);
+    toastEl.appendChild(el('b', null, c && isGroup(c) ? who + ' @ ' + c.title : who));
     toastEl.appendChild(el('span', null, previewOf(m)));
     toastEl.addEventListener('click', function () {
       toastEl.remove(); toastEl = null;
@@ -1375,13 +2454,19 @@
     var mm = /(^|\s)@([\w.\-]*)$/.exec(upto);
     if (!mm) return hideMention();
     var q = mm[2].toLowerCase();
-    mentionList = (current.members || []).filter(function (n) { return !same(n, me) && n.toLowerCase().indexOf(q) === 0; });
+    // match the login or any word of the approved name; @login is what gets inserted
+    mentionList = (current.members || []).filter(function (n) {
+      if (same(n, me)) return false;
+      if (n.toLowerCase().indexOf(q) === 0) return true;
+      return String(nameOf(n)).toLowerCase().split(/\s+/).some(function (w) { return w.indexOf(q) === 0; });
+    });
     if ('all'.indexOf(q) === 0) mentionList.push('all');
     if (!mentionList.length) return hideMention();
     var box = els.ment;
     box.textContent = '';
     mentionList.slice(0, 8).forEach(function (n, i) {
-      var d = el('div', i === 0 ? 'jc-on' : null, '@' + n + (n === 'all' ? '  (everyone in the group)' : ''));
+      var label = n === 'all' ? '@all  (everyone in the group)' : (nameOf(n) !== n ? nameOf(n) + '  @' + n : '@' + n);
+      var d = el('div', i === 0 ? 'jc-on' : null, label);
       d.addEventListener('mousedown', function (e) { e.preventDefault(); pickMention(i); });
       box.appendChild(d);
     });
@@ -1453,6 +2538,12 @@
     else if (st === 'denied') items.push({ label: 'Desktop notifications are blocked in this browser', run: function () { showErr('Allow notifications for this site in the browser settings (padlock icon), then try again.'); } });
     else if (st === 'unsupported') items.push({ label: 'This browser cannot show notifications', run: function () { } });
     else items.push({ label: 'Turn on desktop notifications', run: enableNotifications });
+    items.push({ sub: 'Profile' });
+    items.push({ label: '👤 My profile (photo, name, about)…', run: profileDialog });
+    items.push({ sub: 'Quiet hours' });
+    items.push({ label: '🌙 Quiet hours (no notifications at night)…', run: quietDialog });
+    items.push({ sub: 'Security' });
+    items.push({ label: '📱 My devices (sign out a phone)…', run: devicesDialog });
     items.push({ sub: 'Sound' });
     items.push({ label: soundOn ? '🔊 Sound on (click to turn off)' : '🔇 Sound off (click to turn on)', on: soundOn, run: function () {
       soundOn = !soundOn;
@@ -1495,7 +2586,7 @@
   function desktopNotify(m) {
     if (notifState() !== 'granted') return;
     var c = convById(m.conversation_sync_id);
-    var title = c && isGroup(c) ? m.sender + ' in ' + c.title : m.sender;
+    var title = c && isGroup(c) ? nameOf(m.sender, m.sender_name) + ' in ' + c.title : nameOf(m.sender, m.sender_name);
     var opts = { body: (mentionsMe(m.body) ? '@ ' : '') + previewOf(m), tag: 'jms-chat-' + m.conversation_sync_id,
       renotify: true, icon: '/assets/icon-192.png', data: { chat: m.conversation_sync_id }, silent: !soundOn };
     if (swReg && swReg.showNotification) { swReg.showNotification(title, opts).catch(function () { }); return; }
@@ -1569,6 +2660,13 @@
       loaded.forEach(function (x) { if (x.sync_id === ev.message_sync_id) x.task = { status: ev.status, by: ev.by }; });
       if (current && current.sync_id === ev.conversation_sync_id) redraw();
       if (targetBanner && targetBanner.msgId === ev.message_sync_id) targetBanner.update(ev.status, ev.by);
+    } else if (ev.type === 'reaction') {
+      loaded.forEach(function (x) { if (x.sync_id === ev.message_sync_id) x.reactions = ev.reactions; });
+      if (current && current.sync_id === ev.conversation_sync_id) redraw();
+    } else if (ev.type === 'call') {
+      webCall.incoming(ev.call_id, ev.caller);
+    } else if (ev.type === 'call_end') {
+      webCall.remoteEnded(ev.call_id, ev.reason);
     } else if (ev.type === 'receipt') {
       if (current && current.sync_id === ev.conversation_sync_id && !same(ev.username, me)) {
         var ids = {};
@@ -1594,6 +2692,19 @@
         if (current) convHeader();
         renderListIfIdle();
       }, 4100);
+    } else if (ev.type === 'notice') {
+      // name request (admins) or the decision on mine
+      toastText(ev.title || 'JMS Chat', ev.body || '');
+      if (document.hidden && notifState() === 'granted') {
+        try { new Notification(ev.title || 'JMS Chat', { body: ev.body || '', icon: '/assets/brand/jms-chat-192.png', tag: 'jms-notice' }); } catch (_e) { }
+      }
+      myProfile = null;
+      refreshMeAvatar();
+    } else if (ev.type === 'signup_request' || ev.type === 'signup_update') {
+      if (canApprove) {
+        loadSignups();
+        if (ev.type === 'signup_request' && ev.request) toastText('🙋 New sign-up request', ev.request.name + ' · ' + ev.request.designation + ', ' + ev.request.department);
+      }
     } else if (ev.type === 'conversation') {
       // Group created, renamed, or people added/removed/left.
       var cid = ev.conversation_sync_id;
@@ -1601,6 +2712,8 @@
       p.then(function () {
         if (!current || current.sync_id !== cid || current.is_member === false) return;
         var still = convs.filter(function (x) { return x.sync_id === cid; })[0];
+        // A new direct chat is not in the list until its first message, so only a group can be "left".
+        if (!still && !isGroup(current)) return;
         if (!still) { current = null; showPlaceholder(); showErr('You are no longer in that group.'); return; }
         if (els.main.contains(els.msgs)) loadMessages(false);
         else refreshInfo(current);
@@ -1638,6 +2751,18 @@
       updateBadge();
       if (open && current && current.is_member !== false) markRead(current.sync_id);
     }
+  });
+
+  // After the app lock opens (chat_app.html): put the panel back if it went missing,
+  // reconnect the live stream and reload the chats and the open conversation.
+  document.addEventListener('jms-chat-unlocked', function () {
+    if (stopped || !root) return;
+    if (!root.isConnected) document.body.appendChild(root);
+    if (appMode && !open) toggle(true);
+    if (!es || es.readyState === EventSource.CLOSED) connect();
+    loadConvs();
+    updateBadge();
+    if (current) redraw();
   });
 
   // ================= Image viewer (WhatsApp-style) =================
@@ -1939,7 +3064,7 @@
       d.appendChild(im);
     }
     var t = el('div');
-    t.appendChild(el('b', null, q.deleted ? '' : (same(q.sender, me) ? 'You' : q.sender)));
+    t.appendChild(el('b', null, q.deleted ? '' : (same(q.sender, me) ? 'You' : nameOf(q.sender, q.sender_name))));
     t.appendChild(el('span', null, q.deleted ? 'Original message deleted' : (q.text || '…')));
     d.appendChild(t);
     d.title = 'Show the original message';
@@ -2264,6 +3389,105 @@
     setTimeout(function () { t.remove(); }, 4000);
   }
 
+  // ---- chat sign-up requests (admins and superadmins) ----
+  var signupState = { list: [], factories: [] };
+
+  function loadSignups() {
+    if (!canApprove || !els.signupBar) return Promise.resolve();
+    return api('GET', API + '/signups').then(function (d) {
+      signupState = { list: d.requests || [], factories: d.factories || [] };
+      renderSignupBar();
+      if (signupState.sheetBody) renderSignupSheet();
+    }).catch(function () { /* older server: no sign-up */ });
+  }
+
+  function renderSignupBar() {
+    var bar = els.signupBar, n = signupState.list.length;
+    bar.innerHTML = '';
+    bar.style.display = n ? '' : 'none';
+    if (!n) return;
+    bar.appendChild(el('span', null, '🙋 ' + n + ' sign-up request' + (n === 1 ? '' : 's') + ' waiting for approval'));
+    var b = el('button', null, 'Review');
+    b.addEventListener('click', showSignups);
+    bar.appendChild(b);
+  }
+
+  function showSignups() {
+    var bg = el('div', 'jc-sheet-bg');
+    var sh = el('div', 'jc-sheet');
+    var h = el('h3', null, '🙋 Sign-up requests');
+    var x = el('button', 'jc-ibtn', '✕');
+    h.appendChild(x);
+    var body = el('div', 'jc-sbody');
+    var foot = el('div', 'jc-sfoot');
+    var all = el('a', null, 'All requests, users and devices ↗');
+    all.href = '/chat_users.html';
+    all.target = '_blank';
+    all.rel = 'noopener';
+    foot.appendChild(all);
+    sh.appendChild(h); sh.appendChild(body); sh.appendChild(foot);
+    bg.appendChild(sh);
+    document.body.appendChild(bg);
+    signupState.sheetBody = body;
+    function close() { bg.remove(); signupState.sheetBody = null; }
+    x.addEventListener('click', close);
+    bg.addEventListener('click', function (e) { if (e.target === bg) close(); });
+    renderSignupSheet();
+    loadSignups();
+  }
+
+  function renderSignupSheet() {
+    var body = signupState.sheetBody;
+    body.innerHTML = '';
+    if (!signupState.list.length) { body.appendChild(el('div', 'jc-empty', 'No requests waiting.')); return; }
+    signupState.list.forEach(function (r) {
+      var card = el('div', 'jc-sucard');
+      card.appendChild(el('b', null, r.name));
+      card.appendChild(el('div', 'jc-sumeta', r.designation + ' · ' + r.department));
+      var tel = el('a', 'jc-sumeta', '📞 ' + r.mobile);
+      tel.href = 'tel:' + r.mobile;
+      card.appendChild(tel);
+      card.appendChild(el('div', 'jc-sumeta', 'HOD: ' + r.hod_name + ' · ' + new Date(r.created_at).toLocaleString([], { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })));
+      card.appendChild(el('div', 'jc-slabel', 'Username they will sign in with'));
+      var un = el('input', 'jc-field');
+      un.value = r.suggested_username || r.name;
+      un.maxLength = 40;
+      card.appendChild(un);
+      var fac = null;
+      if (signupState.factories.length) {
+        card.appendChild(el('div', 'jc-slabel', 'Factory'));
+        fac = el('select', 'jc-field');
+        var none = el('option', null, '— Not set —'); none.value = '';
+        fac.appendChild(none);
+        signupState.factories.forEach(function (f) { var o = el('option', null, f.name); o.value = f.id; fac.appendChild(o); });
+        card.appendChild(fac);
+      }
+      var msg = el('div', 'jc-sumeta');
+      var row = el('div', 'jc-sfoot');
+      var rej = el('button', 'jc-btn jc-danger', 'Reject');
+      var ok = el('button', 'jc-btn', 'Approve');
+      row.appendChild(msg); msg.style.flex = '1';
+      row.appendChild(rej); row.appendChild(ok);
+      card.appendChild(row);
+      function act(kind) {
+        if (kind === 'reject' && !confirm('Reject the request from ' + r.name + '?')) return;
+        ok.disabled = rej.disabled = true;
+        msg.textContent = '';
+        var payload = kind === 'approve' ? { username: un.value.trim(), factory_id: fac && fac.value ? Number(fac.value) : null } : {};
+        api('POST', API + '/signups/' + r.id + '/' + kind, payload).then(function (d) {
+          signupState.list = signupState.list.filter(function (q) { return q.id !== r.id; });
+          renderSignupBar();
+          renderSignupSheet();
+          toastText(kind === 'approve' ? '✅ Approved' : 'Rejected',
+            kind === 'approve' ? r.name + ' can now sign in as "' + d.request.username + '".' : r.name + "'s request was rejected.");
+        }).catch(function (e) { ok.disabled = rej.disabled = false; msg.textContent = e.message; msg.style.color = '#d93025'; });
+      }
+      ok.addEventListener('click', function () { act('approve'); });
+      rej.addEventListener('click', function () { act('reject'); });
+      body.appendChild(card);
+    });
+  }
+
   // ---- link cards ----
   var STATUS = { open: 'Open', in_progress: 'In progress', done: 'Done' };
 
@@ -2389,7 +3613,7 @@
     var L = m.link;
     var bn = el('div', 'jc-tbanner');
     var msg = el('div', 'jc-tmsg');
-    var head = el('b', null, (L.priority === 'urgent' ? '⚠ Urgent · ' : '🔗 ') + 'Shared by ' + m.sender + (m.body ? ': ' + m.body : ''));
+    var head = el('b', null, (L.priority === 'urgent' ? '⚠ Urgent · ' : '🔗 ') + 'Shared by ' + nameOf(m.sender, m.sender_name) + (m.body ? ': ' + m.body : ''));
     var sub = el('small', null, 'Finding the marked item…');
     msg.appendChild(head); msg.appendChild(sub);
     var stEl = el('span', 'jc-badge2');
@@ -2440,14 +3664,662 @@
   }
 
 
+  // ---------------- voice calls in the browser (WebRTC audio, same server set-up as the app) ----------------
+  var webCall = (function () {
+    var st = null; // { id, peer, incoming, pc, stream, audio, seq, timer, poll, ui, answeredAt, muted }
+    var ring = null;
+
+    function ui(peer, status, buttons) {
+      if (!st) return;
+      if (!st.ui) { st.ui = el('div', 'jc-call'); document.body.appendChild(st.ui); }
+      var u = st.ui;
+      u.textContent = '';
+      var av = el('div', 'jc-av');
+      var c = convs.filter(function (x) { return !isGroup(x) && same(x.title, peer); })[0];
+      setAvatar(av, peer, c && c.photo_v, false);
+      u.appendChild(av);
+      u.appendChild(el('h2', null, peer));
+      st.statusEl = el('p', null, status);
+      u.appendChild(st.statusEl);
+      var row = el('div', 'jc-cbtns');
+      buttons.forEach(function (b) {
+        var btn = el('button', b[2] || '', b[0]);
+        btn.title = b[1];
+        btn.addEventListener('click', b[3]);
+        row.appendChild(btn);
+      });
+      u.appendChild(row);
+    }
+
+    function startRing() {
+      try {
+        var AC = window.AudioContext || window.webkitAudioContext;
+        var ctx = new AC();
+        var on = true;
+        ring = { ctx: ctx, timer: setInterval(function () {
+          if (!on) return;
+          var o = ctx.createOscillator(), g = ctx.createGain();
+          o.frequency.value = 440; g.gain.value = 0.15;
+          o.connect(g); g.connect(ctx.destination);
+          o.start(); setTimeout(function () { o.stop(); }, 700);
+        }, 1600) };
+      } catch (_e) { ring = null; }
+    }
+    function stopRing() { if (ring) { clearInterval(ring.timer); try { ring.ctx.close(); } catch (_e) { } ring = null; } }
+
+    function controls() {
+      return [
+        [st && st.muted ? '🔇' : '🎤', st && st.muted ? 'Unmute' : 'Mute', st && st.muted ? 'jc-on' : '', function () {
+          st.muted = !st.muted;
+          st.stream.getAudioTracks().forEach(function (t) { t.enabled = !st.muted; });
+          ui(st.peer, st.statusEl.textContent, controls());
+        }],
+        ['📵', 'Hang up', 'jc-red', function () { hangUp(); }]
+      ];
+    }
+
+    // The microphone first, before any call is placed or accepted, so a device without one
+    // never leaves the other side ringing or stuck on "Connecting…".
+    function getMic() {
+      if (!window.RTCPeerConnection || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        return Promise.reject(new Error('This browser cannot make calls.'));
+      }
+      return navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } }).catch(function (e) {
+        var n = e && e.name;
+        throw new Error(n === 'NotFoundError' || n === 'OverconstrainedError' ? 'No microphone found on this device. Connect one to use voice calls.'
+          : n === 'NotAllowedError' || n === 'SecurityError' ? 'Microphone is blocked. Allow it for this site in the browser settings, then try again.'
+          : n === 'NotReadableError' ? 'The microphone is busy in another app.'
+          : 'Cannot use the microphone.');
+      });
+    }
+    function hasMic() {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return Promise.resolve(false);
+      return navigator.mediaDevices.enumerateDevices().then(function (ds) {
+        return ds.some(function (d) { return d.kind === 'audioinput'; });
+      }).catch(function () { return true; });
+    }
+
+    function connect(ice, stream) {
+      return Promise.resolve(stream).then(function (stream) {
+        st.stream = stream;
+        var pc = new RTCPeerConnection({ iceServers: ice || [] });
+        st.pc = pc;
+        stream.getTracks().forEach(function (t) { pc.addTrack(t, stream); });
+        st.audio = new Audio();
+        st.audio.autoplay = true;
+        pc.ontrack = function (e) { st.audio.srcObject = e.streams[0]; };
+        pc.onicecandidate = function (e) {
+          if (e.candidate) signal('ice', JSON.stringify({ sdpMid: e.candidate.sdpMid, sdpMLineIndex: e.candidate.sdpMLineIndex, candidate: e.candidate.candidate }));
+        };
+        pc.onconnectionstatechange = function () {
+          if (!st) return;
+          if (pc.connectionState === 'connected' && !st.answeredAt) {
+            st.answeredAt = Date.now();
+            st.timer = setInterval(function () {
+              if (!st) return;
+              var s = Math.floor((Date.now() - st.answeredAt) / 1000);
+              st.statusEl.textContent = Math.floor(s / 60) + ':' + ('0' + (s % 60)).slice(-2);
+            }, 1000);
+          } else if (pc.connectionState === 'failed') { hangUp('Connection lost'); }
+        };
+        return pc;
+      });
+    }
+
+    function signal(kind, data) {
+      if (!st) return Promise.resolve();
+      return api('POST', API + '/calls/' + st.id + '/signal', { kind: kind, data: data }).catch(function () { });
+    }
+
+    var pendingIce = [], remoteSet = false;
+    function poll() {
+      if (!st) return;
+      api('GET', API + '/calls/' + st.id + '/signals?after=' + st.seq).then(function (d) {
+        if (!st) return;
+        var chain = Promise.resolve();
+        (d.signals || []).forEach(function (sg) {
+          st.seq = Math.max(st.seq, sg.seq);
+          chain = chain.then(function () { return onSignal(sg.kind, JSON.parse(sg.data)); }).catch(function () { });
+        });
+        if (['ended', 'declined', 'missed', 'cancelled'].indexOf(d.status) !== -1) { finish(d.status === 'declined' ? 'Declined' : d.status === 'missed' ? 'No answer' : 'Call ended'); return; }
+        if (d.status === 'accepted' && !st.incoming && !st.answeredAt) st.statusEl.textContent = 'Connecting…';
+        st.poll = setTimeout(poll, st.answeredAt ? 2000 : 700);
+      }).catch(function () { if (st) st.poll = setTimeout(poll, 1500); });
+    }
+
+    function onSignal(kind, j) {
+      var pc = st && st.pc;
+      if (!pc) return Promise.resolve();
+      if (kind === 'offer') {
+        return pc.setRemoteDescription({ type: 'offer', sdp: j.sdp }).then(function () {
+          remoteSet = true; pendingIce.splice(0).forEach(function (c) { pc.addIceCandidate(c).catch(function () { }); });
+          return pc.createAnswer();
+        }).then(function (a) { return pc.setLocalDescription(a).then(function () { return signal('answer', JSON.stringify({ type: 'answer', sdp: a.sdp })); }); });
+      }
+      if (kind === 'answer') {
+        return pc.setRemoteDescription({ type: 'answer', sdp: j.sdp }).then(function () {
+          remoteSet = true; pendingIce.splice(0).forEach(function (c) { pc.addIceCandidate(c).catch(function () { }); });
+        });
+      }
+      if (kind === 'ice') {
+        var c = { sdpMid: j.sdpMid, sdpMLineIndex: j.sdpMLineIndex, candidate: j.candidate };
+        if (remoteSet) return pc.addIceCandidate(c).catch(function () { });
+        pendingIce.push(c);
+      }
+      return Promise.resolve();
+    }
+
+    function startCall(peer) {
+      if (st) return;
+      st = { peer: peer, incoming: false, seq: 0 };
+      remoteSet = false; pendingIce = [];
+      ui(peer, 'Checking microphone…', [['📵', 'Cancel', 'jc-red', function () { hangUp(); }]]);
+      var mic = null;
+      getMic().then(function (stream) {
+        mic = stream;
+        if (!st) { stream.getTracks().forEach(function (t) { t.stop(); }); return null; }
+        st.stream = stream;
+        ui(peer, 'Calling…', [['📵', 'Cancel', 'jc-red', function () { hangUp(); }]]);
+        return api('POST', API + '/calls', { to: peer });
+      }).then(function (d) {
+        if (!st || !d) return;
+        st.id = d.call.id;
+        return connect(d.ice, mic).then(function (pc) {
+          ui(peer, 'Ringing…', controls());
+          return pc.createOffer({ offerToReceiveAudio: true }).then(function (o) {
+            return pc.setLocalDescription(o).then(function () { return signal('offer', JSON.stringify({ type: 'offer', sdp: o.sdp })); });
+          });
+        }).then(poll);
+      }).catch(function (e) { hangUp(e.message || 'Call failed'); });
+    }
+
+    function incoming(id, caller) {
+      if (st) return; // already on a call; the server marks it missed after the ring time
+      st = { id: id, peer: caller, incoming: true, seq: 0 };
+      remoteSet = false; pendingIce = [];
+      // No microphone here: decline at once instead of ringing a call that cannot work.
+      hasMic().then(function (ok) {
+        if (ok || !st || st.id !== id) return;
+        api('POST', API + '/calls/' + id + '/decline', {}).catch(function () { });
+        finish('Missed call from ' + caller + ': no microphone on this device.');
+      });
+      startRing();
+      if (document.hidden && window.Notification && Notification.permission === 'granted') {
+        try { new Notification(caller, { body: 'Incoming voice call · JMS Chat', tag: 'jms-call' }); } catch (_e) { }
+      }
+      ui(caller, 'Incoming voice call', [
+        ['📵', 'Decline', 'jc-red', function () { api('POST', API + '/calls/' + id + '/decline', {}).catch(function () { }); finish('Declined'); }],
+        ['📞', 'Answer', 'jc-green', function () { answer(); }]
+      ]);
+    }
+
+    function answer() {
+      stopRing();
+      if (!st) return;
+      var id = st.id, mic = null;
+      ui(st.peer, 'Connecting…', [['📵', 'Hang up', 'jc-red', function () { hangUp(); }]]);
+      getMic().then(function (stream) {
+        mic = stream;
+        if (!st || st.id !== id) { stream.getTracks().forEach(function (t) { t.stop(); }); return null; }
+        st.stream = stream;
+        ui(st.peer, 'Connecting…', controls());
+        return api('POST', API + '/calls/' + id + '/accept', {});
+      }, function (e) {
+        // tell the caller instead of leaving them on "Ringing…"
+        api('POST', API + '/calls/' + id + '/decline', {}).catch(function () { });
+        throw e;
+      }).then(function (d) {
+        if (!d || !st) return;
+        return connect(d.ice, mic).then(poll);
+      }).catch(function (e) { hangUp(e.message || 'The call has ended.'); });
+    }
+
+    function hangUp(msg) {
+      if (st && st.id) api('POST', API + '/calls/' + st.id + '/end', {}).catch(function () { });
+      finish(msg || 'Call ended');
+    }
+
+    function remoteEnded(id, reason) {
+      if (!st || st.id !== id) return;
+      finish(reason === 'declined' ? 'Declined' : reason === 'missed' ? 'No answer' : 'Call ended');
+    }
+
+    function finish(msg) {
+      stopRing();
+      if (!st) return;
+      clearTimeout(st.poll); clearInterval(st.timer);
+      try { if (st.pc) st.pc.close(); } catch (_e) { }
+      if (st.stream) st.stream.getTracks().forEach(function (t) { t.stop(); });
+      if (st.audio) st.audio.srcObject = null;
+      var u = st.ui;
+      if (u && st.statusEl) { st.statusEl.textContent = msg; u.querySelector('.jc-cbtns').textContent = ''; }
+      st = null;
+      setTimeout(function () { if (u) u.remove(); }, msg && msg.length > 24 ? 6000 : 1500); // give an explanation time to be read
+      if (current) loadMessages(false);
+    }
+
+    return { start: startCall, incoming: incoming, remoteEnded: remoteEnded };
+  }());
+
+  // ---------------- phase A: polls, announcements, urgent, schedule, tasks, pins, quiet hours ----------------
+  function pollEl(m) {
+    var p = m.poll;
+    var box = el('div', 'jc-poll');
+    box.appendChild(el('b', null, '📊 ' + p.question));
+    var max = Math.max(1, p.total);
+    p.options.forEach(function (o, i) {
+      var mine = (p.mine || []).indexOf(i) !== -1;
+      var row = el('div', 'jc-popt' + (mine ? ' jc-mine' : ''));
+      var bar = el('i');
+      bar.style.width = Math.round(o.votes * 100 / max) + '%';
+      var lab = el('span');
+      lab.appendChild(el('span', null, (mine ? '✓ ' : '') + o.text));
+      lab.appendChild(el('small', null, String(o.votes)));
+      row.title = o.voters.join(', ');
+      row.appendChild(bar); row.appendChild(lab);
+      row.addEventListener('click', function (e) {
+        e.stopPropagation();
+        var picks = p.multi ? (mine ? p.mine.filter(function (x) { return x !== i; }) : (p.mine || []).concat([i])) : (mine ? [] : [i]);
+        api('POST', API + '/messages/' + encodeURIComponent(m.sync_id) + '/vote', { options: picks })
+          .then(function (d) { Object.assign(m, d.message); redraw(); }).catch(function (e2) { showErr(e2.message); });
+      });
+      box.appendChild(row);
+    });
+    box.appendChild(el('small', null, p.total + ' voted' + (p.multi ? ' · more than one answer allowed' : '')));
+    return box;
+  }
+
+  function composeMore(anchor) {
+    if (!current || current.is_member === false) return;
+    var items = [
+      { label: '📊 Poll', run: pollDialog },
+      { label: '⚠ Send as URGENT (rings even if muted)', run: function () { sendSpecial({ urgent: true }); } },
+      { label: '🕒 Schedule message…', run: scheduleDialog },
+      { label: '🔁 Shift handover note…', run: handoverDialog },
+      { label: '📍 Check in (share my location)', run: checkIn }
+    ];
+    if (isGroup(current) && (current.my_role === 'admin' || isAdmin)) items.splice(1, 0, { label: '📢 Send as announcement', run: function () { sendSpecial({ announcement: true }); } });
+    popup(anchor, els.main, items);
+  }
+
+  function sendSpecial(extra) {
+    var text = els.ta.value.trim();
+    if (!text) { showErr('Type the message first, then choose this.'); return; }
+    els.ta.value = '';
+    api('POST', API + '/messages', Object.assign({ sync_id: uuid(), conversation_sync_id: current.sync_id, body: text, client_ts: new Date().toISOString() }, extra))
+      .then(function (d) { if (!loaded.some(function (x) { return x.sync_id === d.message.sync_id; })) loaded.push(d.message); redraw(); loadConvs(); })
+      .catch(function (e) { els.ta.value = text; showErr(e.message); });
+  }
+
+  function field(label, type, value) {
+    var wrap = el('label', 'jc-row2');
+    wrap.style.display = 'block';
+    wrap.appendChild(el('small', null, label));
+    var inp = document.createElement('input');
+    inp.type = type || 'text';
+    inp.className = 'jc-field';
+    inp.style.width = '100%';
+    if (value != null) inp.value = value;
+    wrap.appendChild(inp);
+    return { wrap: wrap, input: inp };
+  }
+
+  function dialogButtons(dlg, okLabel, onOk) {
+    var act = el('div', 'jc-act');
+    var cancel = el('button', 'jc-plain', 'Cancel');
+    var ok = el('button', 'jc-primary', okLabel);
+    cancel.addEventListener('click', dlg.close);
+    ok.addEventListener('click', onOk);
+    act.appendChild(cancel); act.appendChild(ok);
+    dlg.box.appendChild(act);
+  }
+
+  function pollDialog() {
+    var dlg = modal('📊 New poll');
+    var q = field('Question');
+    dlg.body.appendChild(q.wrap);
+    var opts = [];
+    function addOpt() { var f = field('Option ' + (opts.length + 1)); opts.push(f.input); dlg.body.insertBefore(f.wrap, more); }
+    var more = el('button', 'jc-plain', '+ Add option');
+    more.addEventListener('click', function () { if (opts.length < 10) addOpt(); });
+    dlg.body.appendChild(more);
+    addOpt(); addOpt();
+    var multiL = el('label', 'jc-row2');
+    var multi = document.createElement('input'); multi.type = 'checkbox';
+    multiL.appendChild(multi); multiL.appendChild(el('span', null, 'Allow more than one answer'));
+    dlg.body.appendChild(multiL);
+    dialogButtons(dlg, 'Send poll', function () {
+      var options = opts.map(function (i) { return i.value.trim(); }).filter(Boolean);
+      if (!q.input.value.trim() || options.length < 2) { showErr('Write a question and at least 2 options.'); return; }
+      api('POST', API + '/messages', { sync_id: uuid(), conversation_sync_id: current.sync_id, body: q.input.value.trim(),
+        poll: { question: q.input.value.trim(), options: options, multi: multi.checked } })
+        .then(function (d) { dlg.close(); loaded.push(d.message); redraw(); loadConvs(); })
+        .catch(function (e) { showErr(e.message); });
+    });
+    setTimeout(function () { q.input.focus(); }, 50);
+  }
+
+  function localInputValue(d) {
+    var z = new Date(d.getTime() - d.getTimezoneOffset() * 60000);
+    return z.toISOString().slice(0, 16);
+  }
+
+  function scheduleDialog() {
+    var dlg = modal('🕒 Schedule message');
+    var text = field('Message', 'text', els.ta.value.trim());
+    var when = field('Send at', 'datetime-local', localInputValue(new Date(Date.now() + 3600000)));
+    dlg.body.appendChild(text.wrap); dlg.body.appendChild(when.wrap);
+    var list = el('div');
+    dlg.body.appendChild(list);
+    api('GET', API + '/scheduled?conversation=' + encodeURIComponent(current.sync_id)).then(function (d) {
+      if (!(d.scheduled || []).length) return;
+      list.appendChild(el('b', null, 'Already scheduled here'));
+      d.scheduled.forEach(function (s2) {
+        var r = el('div', 'jc-row2');
+        r.appendChild(el('span', null, fmtDay(s2.send_at) + ' ' + fmtTime(s2.send_at) + ' · ' + s2.body.slice(0, 60)));
+        var x = el('button', 'jc-plain', 'Cancel');
+        x.addEventListener('click', function () { api('DELETE', API + '/scheduled/' + s2.id).then(function () { r.remove(); }); });
+        r.appendChild(x);
+        list.appendChild(r);
+      });
+    }).catch(function () { });
+    dialogButtons(dlg, 'Schedule', function () {
+      var at = new Date(when.input.value);
+      if (!text.input.value.trim() || isNaN(at.getTime())) { showErr('Write the message and pick a time.'); return; }
+      api('POST', API + '/scheduled', { conversation_sync_id: current.sync_id, body: text.input.value.trim(), send_at: at.toISOString() })
+        .then(function () { dlg.close(); els.ta.value = ''; toastText('🕒 Scheduled for ' + fmtDay(at.toISOString()) + ' ' + fmtTime(at.toISOString())); })
+        .catch(function (e) { showErr(e.message); });
+    });
+  }
+
+  function taskDialog(m) {
+    var dlg = modal('📋 Make task');
+    var title = field('Task', 'text', (m.body || (m.attachment ? m.attachment.file_name : '')).slice(0, 300));
+    dlg.body.appendChild(title.wrap);
+    var who = el('label', 'jc-row2'); who.style.display = 'block';
+    who.appendChild(el('small', null, 'Assign to'));
+    var sel = document.createElement('select'); sel.className = 'jc-field'; sel.style.width = '100%';
+    (current.members || []).forEach(function (u) { var o = document.createElement('option'); o.value = u; o.textContent = same(u, me) ? u + ' (me)' : u; sel.appendChild(o); });
+    sel.value = same(m.sender, me) ? me : m.sender;
+    who.appendChild(sel);
+    dlg.body.appendChild(who);
+    var due = field('Due (optional)', 'datetime-local', '');
+    dlg.body.appendChild(due.wrap);
+    dialogButtons(dlg, 'Create task', function () {
+      var at = due.input.value ? new Date(due.input.value) : null;
+      api('POST', API + '/todos', { conversation_sync_id: current.sync_id, message_sync_id: m.sync_id, title: title.input.value.trim(),
+        assignee: sel.value, due_at: at ? at.toISOString() : undefined })
+        .then(function () { dlg.close(); loadMessages(false); })
+        .catch(function (e) { showErr(e.message); });
+    });
+  }
+
+  function renderTodos(list) {
+    var hd = el('div', 'jc-arch', '← My tasks');
+    hd.addEventListener('click', function () { showTodos = false; renderList(); });
+    list.appendChild(hd);
+    api('GET', API + '/todos').then(function (d) {
+      var ts = d.todos || [];
+      if (!ts.length) list.appendChild(el('div', 'jc-empty', 'No tasks. Use ▾ on a message → Make task.'));
+      ts.forEach(function (t) {
+        var row = el('div', 'jc-todo' + (t.done_at ? ' jc-done' : ''));
+        var cb = document.createElement('input'); cb.type = 'checkbox'; cb.checked = !!t.done_at;
+        cb.addEventListener('change', function () {
+          api('POST', API + '/todos/' + t.id + '/done', { done: cb.checked }).then(function () { renderList(); }).catch(function (e) { showErr(e.message); });
+        });
+        var mid = el('div');
+        mid.appendChild(el('div', null, t.title));
+        var overdue = !t.done_at && t.due_at && new Date(t.due_at) < new Date();
+        mid.appendChild(el('small', null, (same(t.assignee, me) ? 'For me' : 'For ' + t.assignee) + (t.due_at ? ' · due ' + fmtDay(t.due_at) + ' ' + fmtTime(t.due_at) + (overdue ? ' ⚠ overdue' : '') : '') + ' · ' + (t.conv_title || 'chat')));
+        mid.style.cursor = 'pointer';
+        mid.addEventListener('click', function () { var c = convById(t.conversation_sync_id); showTodos = false; if (c) openConv(c); });
+        row.appendChild(cb); row.appendChild(mid);
+        list.appendChild(row);
+      });
+    }).catch(function (e) { showErr(e.message); });
+  }
+
+  function loadPins(c) {
+    if (!c || c.is_member === false && !isAdmin) return;
+    api('GET', API + '/conversations/' + encodeURIComponent(c.sync_id) + '/pins').then(function (d) {
+      if (current !== c) return;
+      c.pins = d.pins || [];
+      var old = els.main.querySelector('.jc-pinbar');
+      if (old) old.remove();
+      if (!c.pins.length) return;
+      var i = 0;
+      var bar = el('div', 'jc-pinbar');
+      var txt = el('span');
+      function show() { var p = c.pins[i]; txt.textContent = '📌 ' + (c.pins.length > 1 ? (i + 1) + '/' + c.pins.length + ' · ' : '') + (p.body || (p.attachment ? p.attachment.file_name : '')); }
+      show();
+      bar.appendChild(txt);
+      bar.title = 'Pinned message — click to see it';
+      bar.addEventListener('click', function () { flash(c.pins[i].sync_id); i = (i + 1) % c.pins.length; show(); });
+      els.main.insertBefore(bar, els.msgs);
+    }).catch(function () { });
+  }
+
+  function quietDialog() {
+    var dlg = modal('🌙 Quiet hours');
+    dlg.body.appendChild(el('small', null, 'No notifications in this time, except URGENT messages and @mentions. Leave empty to switch off.'));
+    var from = field('From', 'time', ''), to = field('To', 'time', '');
+    dlg.body.appendChild(from.wrap); dlg.body.appendChild(to.wrap);
+    api('GET', API + '/settings').then(function (d) { from.input.value = d.quiet_from || ''; to.input.value = d.quiet_to || ''; }).catch(function () { });
+    dialogButtons(dlg, 'Save', function () {
+      api('PUT', API + '/settings', { quiet_from: from.input.value, quiet_to: to.input.value })
+        .then(function (d) { dlg.close(); toastText(d.quiet_from ? '🌙 Quiet ' + d.quiet_from + '–' + d.quiet_to : 'Quiet hours off'); })
+        .catch(function (e) { showErr(e.message); });
+    });
+  }
+
+  // ---------------- phase B: JMS Bot, alerts, maintenance, approvals ----------------
+  function alertEl(m) {
+    var box = el('div');
+    var a = m.alert || {};
+    if (a.acked_by) box.appendChild(el('span', 'jc-acked', a.kind === 'handover'
+      ? '✓ Read by ' + (same(a.acked_by, me) ? 'you' : a.acked_by)
+      : '✋ ' + (same(a.acked_by, me) ? 'You are' : a.acked_by + ' is') + ' on it'));
+    else {
+      var isHand = a.kind === 'handover';
+      var btn = el('button', 'jc-ack', isHand ? '✓ I read it' : '✋ I\'m on it');
+      if (isHand) btn.style.background = '#00a884';
+      btn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        btn.disabled = true;
+        api('POST', API + '/messages/' + encodeURIComponent(m.sync_id) + '/ack', {})
+          .then(function (d) { m.alert.acked_by = d.acked_by; m.alert.acked_at = d.acked_at; redraw(); })
+          .catch(function (e2) { btn.disabled = false; showErr(e2.message); });
+      });
+      box.appendChild(btn);
+      if (a.escalated) box.appendChild(el('span', 'jc-esc', '⏫ Escalated to ' + (a.escalated > 1 ? 'superadmins' : 'managers')));
+    }
+    return box;
+  }
+
+  function ticketDialog(m) {
+    var dlg = modal('🔧 Raise maintenance ticket');
+    var mach = field('Machine (e.g. M-07)', 'text', ((m.body || '').match(/\bM[- ]?\d+\b/i) || [''])[0]);
+    var prob = field('Problem', 'text', (m.body || '').slice(0, 500));
+    dlg.body.appendChild(mach.wrap); dlg.body.appendChild(prob.wrap);
+    var pr = el('label', 'jc-row2'); pr.style.display = 'block';
+    pr.appendChild(el('small', null, 'Priority'));
+    var sel = document.createElement('select'); sel.className = 'jc-field'; sel.style.width = '100%';
+    [['breakdown', '🛑 Breakdown (machine stopped)'], ['high', 'High'], ['normal', 'Normal'], ['low', 'Low']].forEach(function (o) {
+      var op = document.createElement('option'); op.value = o[0]; op.textContent = o[1]; sel.appendChild(op);
+    });
+    sel.value = 'high';
+    pr.appendChild(sel);
+    dlg.body.appendChild(pr);
+    dialogButtons(dlg, 'Raise ticket', function () {
+      api('POST', API + '/maintenance', { conversation_sync_id: current.sync_id, message_sync_id: m.sync_id,
+        machine: mach.input.value.trim(), problem: prob.input.value.trim(), priority: sel.value })
+        .then(function (d) { dlg.close(); toastText('🔧 Ticket ' + d.ticket.ticket_no + ' raised'); loadMessages(false); })
+        .catch(function (e) { showErr(e.message); });
+    });
+  }
+
+  function renderApprovals(list) {
+    var hd = el('div', 'jc-arch', '← Approvals waiting for me');
+    hd.addEventListener('click', function () { showApprovals = false; renderList(); });
+    list.appendChild(hd);
+    list.appendChild(el('div', 'jc-empty', 'Loading…'));
+    api('GET', API + '/approvals').then(function (d) {
+      list.removeChild(list.lastChild);
+      if (!d.allowed) { list.appendChild(el('div', 'jc-empty', 'Approvals from chat need full JMS access (global login). Use the Planning page.')); return; }
+      var items = (d.items || []).filter(function (x) { return x.can_approve !== false; });
+      if (!items.length) { list.appendChild(el('div', 'jc-empty', 'Nothing waiting for you. ✅')); return; }
+      items.forEach(function (p) {
+        var row = el('div', 'jc-appr');
+        row.appendChild(el('b', null, (p.job_card_no ? 'JC ' + p.job_card_no + ' · ' : '') + (p.plan_id || '')));
+        row.appendChild(el('small', null, [p.item_name || p.product_name, p.machine && 'Machine ' + p.machine, p.order_no && 'Order ' + p.order_no,
+          p.approval_stage_label || p.jc_approval_status].filter(Boolean).join(' · ')));
+        var act = el('div', 'jc-act');
+        var rej = el('button', 'jc-plain', 'Reject');
+        var ok = el('button', 'jc-primary', 'Approve');
+        function doIt(action) {
+          var remarks = '';
+          if (action === 'REJECTED') { remarks = window.prompt('Reason for rejecting (required):') || ''; if (!remarks.trim()) return; }
+          ok.disabled = rej.disabled = true;
+          api('POST', API + '/approvals/' + encodeURIComponent(p.id) + '/action', { action: action, remarks: remarks })
+            .then(function () { row.remove(); toastText(action === 'APPROVED' ? '✅ Approved' : '❌ Rejected'); })
+            .catch(function (e) { ok.disabled = rej.disabled = false; showErr(e.message); });
+        }
+        rej.addEventListener('click', function () { doIt('REJECTED'); });
+        ok.addEventListener('click', function () { doIt('APPROVED'); });
+        act.appendChild(rej); act.appendChild(ok);
+        row.appendChild(act);
+        list.appendChild(row);
+      });
+    }).catch(function (e) { showErr(e.message); });
+  }
+
+  // ---------------- phase C: handover, check-in, translate, voice-to-text ----------------
+  function handoverDialog() {
+    var dlg = modal('🔁 Shift handover note');
+    var f1 = field('▶ Running jobs'), f2 = field('⚠ Problems'), f3 = field('🧪 Pending QC'), f4 = field('📝 Notes');
+    [f1, f2, f3, f4].forEach(function (f) { dlg.body.appendChild(f.wrap); });
+    dlg.body.appendChild(el('small', null, 'The next shift taps "✓ I read it".'));
+    dialogButtons(dlg, 'Post handover', function () {
+      api('POST', API + '/handover', { conversation_sync_id: current.sync_id, running: f1.input.value, problems: f2.input.value,
+        pending_qc: f3.input.value, notes: f4.input.value })
+        .then(function (d) { dlg.close(); loaded.push(d.message); redraw(); loadConvs(); })
+        .catch(function (e) { showErr(e.message); });
+    });
+  }
+
+  function checkIn() {
+    if (!navigator.geolocation) { showErr('This browser cannot share location.'); return; }
+    var conv = current;
+    navigator.geolocation.getCurrentPosition(function (p) {
+      api('POST', API + '/checkin', { conversation_sync_id: conv.sync_id, lat: p.coords.latitude, lng: p.coords.longitude, acc: p.coords.accuracy })
+        .then(function (d) { if (current === conv) { loaded.push(d.message); redraw(); } loadConvs(); })
+        .catch(function (e) { showErr(e.message); });
+    }, function () { showErr('Location was not allowed.'); }, { enableHighAccuracy: true, timeout: 15000 });
+  }
+
+  function translate(m, to) {
+    var label = { en: 'English', hi: 'हिंदी', gu: 'ગુજરાતી' }[to];
+    m._tr = { text: 'Translating…', label: label };
+    redraw();
+    api('POST', API + '/messages/' + encodeURIComponent(m.sync_id) + '/translate', { to: to })
+      .then(function (d) { m._tr = { text: d.text, label: label }; redraw(); })
+      .catch(function (e) { m._tr = null; redraw(); showErr(e.message); });
+  }
+
+  function transcribe(m, btn) {
+    btn.textContent = '📝 Writing it down…';
+    btn.disabled = true;
+    api('POST', API + '/messages/' + encodeURIComponent(m.sync_id) + '/transcribe', {})
+      .then(function (d) { m._transcript = d.text; redraw(); })
+      .catch(function (e) { btn.textContent = '📝 Show as text'; btn.disabled = false; showErr(e.message); });
+  }
+
+  // ---- instant start (chat app) ----
+  // The app draws the last-known chat list and the recent messages of each chat straight
+  // from this device, then refreshes them from the server: no blank "Loading…" on every
+  // open. Kept per user, in localStorage, small (the 300 chats of the list, 40 messages
+  // for the 15 most recent chats).
+  var BOOT_KEY = 'jmsChatBoot', MSG_KEY = 'jmsChatMsgs', bootSaveTimer = null, msgCache = null;
+  function readBoot() {
+    try { var b = JSON.parse(localStorage.getItem(BOOT_KEY) || 'null'); return b && b.me && b.me.username ? b : null; } catch (_e) { return null; }
+  }
+  function saveBootSoon() {
+    if (!appMode || adminAll || !me) return;
+    clearTimeout(bootSaveTimer);
+    bootSaveTimer = setTimeout(function () {
+      try {
+        localStorage.setItem(BOOT_KEY, JSON.stringify({
+          me: { username: me, isSuperadmin: isAdmin, isAdmin: canApprove, server_type: serverInfo.server_type, factory_id: serverInfo.factory_id },
+          convs: convs.slice(0, 300), folders: folders, at: Date.now()
+        }));
+      } catch (_e) { /* storage full or blocked: just no instant start */ }
+    }, 800);
+  }
+  function clearBoot() { try { localStorage.removeItem(BOOT_KEY); localStorage.removeItem(MSG_KEY); } catch (_e) { } msgCache = null; }
+  function msgStore() {
+    if (msgCache) return msgCache;
+    try { msgCache = JSON.parse(localStorage.getItem(MSG_KEY) || '{}'); } catch (_e) { msgCache = {}; }
+    if (!msgCache || typeof msgCache !== 'object' || msgCache.u !== String(me).toLowerCase()) msgCache = { u: String(me).toLowerCase(), c: {} };
+    return msgCache;
+  }
+  function cachedMessages(convId) {
+    if (!appMode) return null;
+    var e = msgStore().c[convId];
+    return e && e.m && e.m.length ? e.m : null;
+  }
+  function cacheMessages(convId, list) {
+    if (!appMode || !convId) return;
+    var st = msgStore();
+    st.c[convId] = { at: Date.now(), m: list.filter(function (m) { return !m.pending && !m.failed; }).slice(-40) };
+    var ids = Object.keys(st.c).sort(function (a, b) { return st.c[b].at - st.c[a].at; });
+    ids.slice(15).forEach(function (id) { delete st.c[id]; });
+    try { localStorage.setItem(MSG_KEY, JSON.stringify(st)); } catch (_e) { st.c = {}; try { localStorage.removeItem(MSG_KEY); } catch (_e2) { } }
+  }
+  function applyMe(d) {
+    me = d.username;
+    isAdmin = !!d.isSuperadmin;
+    canApprove = !!(d.isAdmin || d.isSuperadmin);
+    serverInfo = { server_type: d.server_type || 'MAIN', factory_id: d.factory_id == null ? null : d.factory_id };
+  }
+
+  // for the chat app shell (chat_app.html): its phone "You" page
+  window.JMSChatUI = {
+    me: function () {
+      var p = myProfile || {};
+      return { username: me, name: p.display_name || me, about: p.about || '', photo_v: p.photo_v || null, admin: canApprove,
+        avatar: me && p.photo_v ? API + '/avatars/' + encodeURIComponent(me) + '?v=' + encodeURIComponent(p.photo_v) : null };
+    },
+    profile: function () { profileDialog(); },
+    devices: function () { devicesDialog(); }
+  };
+
   function start() {
-    api('GET', API + '/me').then(function (d) {
-      me = d.username;
-      isAdmin = d.isSuperadmin;
-      serverInfo = { server_type: d.server_type || 'MAIN', factory_id: d.factory_id == null ? null : d.factory_id };
+    var boot = appMode ? readBoot() : null;
+    if (boot) {
+      // Draw the saved chats at once; the server answer below confirms or replaces them.
+      applyMe(boot.me);
       build();
+      convs = boot.convs || [];
+      folders = boot.folders || [];
+      open = true;
+      showNoticeOnce();
+      els.panel.classList.add('jc-open');
+      renderList();
+      if (window.JMSChatApp && window.JMSChatApp.onReady) window.JMSChatApp.onReady(me);
+    }
+    fetch(API + '/me', { credentials: 'same-origin', cache: 'no-store' }).then(function (r) {
+      if (!r.ok) { var e = new Error('HTTP ' + r.status); e.status = r.status; throw e; }
+      return r.json();
+    }).then(function (d) {
+      if (boot && String(boot.me.username).toLowerCase() !== String(d.username).toLowerCase()) {
+        clearBoot(); location.reload(); return; // someone else signed in on this device
+      }
+      applyMe(d);
+      if (!boot) build();
       if (!appMode) setupContextShare();
       if (isAdmin) els.tabs.style.display = 'flex';
+      loadFolders();
+      if (canApprove) loadSignups();
       updateBadge();
       connect();
       setupServiceWorker();
@@ -2461,11 +4333,36 @@
       try { reopen = sessionStorage.getItem('jmsChatReopen'); sessionStorage.removeItem('jmsChatReopen'); } catch (_e) { }
       if (reopen && !want) openChatById(reopen);
       if (appMode) toggle(true);
-      if (window.JMSChatApp && window.JMSChatApp.onReady) window.JMSChatApp.onReady(me);
-    }).catch(function () {
+      if (!boot && window.JMSChatApp && window.JMSChatApp.onReady) window.JMSChatApp.onReady(me);
+    }).catch(function (e) {
+      if (boot && !e.status) {
+        // Offline: keep the saved chats on screen and try again shortly.
+        showErr('No connection — showing saved chats.');
+        setTimeout(retryStart, 5000);
+        return;
+      }
+      if (boot) { clearBoot(); if (root) root.remove(); }
       /* no session: no chat button */
       if (window.JMSChatApp && window.JMSChatApp.onNoSession) window.JMSChatApp.onNoSession();
     });
+  }
+
+  // Offline at start with saved chats: once the server answers, finish starting.
+  function retryStart() {
+    fetch(API + '/me', { credentials: 'same-origin', cache: 'no-store' }).then(function (r) {
+      if (r.status === 401 || r.status === 403) { clearBoot(); location.reload(); return; }
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json().then(function (d) {
+        applyMe(d);
+        showErr('');
+        loadFolders();
+        if (canApprove) loadSignups();
+        updateBadge();
+        connect();
+        setupServiceWorker();
+        loadConvs();
+      });
+    }).catch(function () { setTimeout(retryStart, 8000); });
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start);

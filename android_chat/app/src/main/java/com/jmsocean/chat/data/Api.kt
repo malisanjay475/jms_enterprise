@@ -77,15 +77,63 @@ object Api {
 
     // ---- sign-in ----
     suspend fun login(username: String, password: String): LoginReply {
-        val body = buildJsonObject { put("username", username); put("password", password) }
+        val body = buildJsonObject {
+            put("username", username); put("password", password)
+            put("device_id", Session.deviceId())
+            put("device_name", "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}".trim().take(60))
+        }
         return try {
-            post("/api/chat-app/login", body)
-        } catch (e: ApiError) {
+            // publicCall: a 409 { set_password: true } must reach the screen, not just its message.
+            json.decodeFromString(publicCall("POST", "/api/chat-app/login", body.toString().toRequestBody(JSON)))
+        } catch (e: IOException) {
             LoginReply(ok = false, error = e.message)
         }
     }
 
     suspend fun logout() { runCatching { call("POST", "/api/chat-app/logout", "{}".toRequestBody(JSON)) } }
+
+    // ---- sign-up (no session yet; chatSignup.js) ----
+    /** Like call(), but an error answer is returned too: its JSON says what to do next. */
+    private suspend fun publicCall(method: String, path: String, body: RequestBody? = null): String = withContext(Dispatchers.IO) {
+        val req = Request.Builder().url(base + path).method(method, body).build()
+        client.newCall(req).execute().use { resp ->
+            val text = resp.body?.string().orEmpty()
+            if (!resp.isSuccessful && runCatching { json.parseToJsonElement(text).jsonObject }.isFailure) {
+                throw ApiError("Server error (${resp.code})", resp.code)
+            }
+            text
+        }
+    }
+
+    suspend fun signup(name: String, mobile: String, designation: String, department: String, hod: String): SignupReply = try {
+        val body = buildJsonObject {
+            put("name", name); put("mobile", mobile); put("designation", designation)
+            put("department", department); put("hod_name", hod)
+        }
+        json.decodeFromString(publicCall("POST", "/api/chat-app/signup", body.toString().toRequestBody(JSON)))
+    } catch (e: IOException) {
+        SignupReply(error = "No connection. Check your internet and try again.")
+    }
+
+    suspend fun signupStatus(token: String): SignupStatus? = runCatching {
+        json.decodeFromString<SignupStatus>(
+            publicCall("GET", "/api/chat-app/signup/status?token=" + java.net.URLEncoder.encode(token, "UTF-8"))
+        )
+    }.getOrNull()
+
+    /** First password of an approved account; signs in like login(). Needs the request token or the mobile. */
+    suspend fun setPassword(username: String, password: String, token: String?, mobile: String?): LoginReply = try {
+        val body = buildJsonObject {
+            put("username", username); put("password", password)
+            if (token != null) put("token", token)
+            if (mobile != null) put("mobile", mobile)
+            put("device_id", Session.deviceId())
+            put("device_name", "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}".trim().take(60))
+        }
+        json.decodeFromString(publicCall("POST", "/api/chat-app/set-password", body.toString().toRequestBody(JSON)))
+    } catch (e: IOException) {
+        LoginReply(error = "No connection. Check your internet and try again.")
+    }
 
     // ---- chat ----
     suspend fun me(): Me = get("/api/chat/me")
@@ -149,13 +197,80 @@ object Api {
 
     suspend fun pushStatus(): PushStatus = get("/api/chat/fcm/status")
 
+    // ---- team: handover, check-in, translate, voice-to-text ----
+    suspend fun handover(convId: String, running: String, problems: String, pendingQc: String, notes: String): Message =
+        json.decodeFromString<MessageReply>(call("POST", "/api/chat/handover", jsonBody("conversation_sync_id" to convId,
+            "running" to running, "problems" to problems, "pending_qc" to pendingQc, "notes" to notes))).message ?: throw ApiError("Not posted.")
+    suspend fun checkin(convId: String, lat: Double, lng: Double, acc: Float): Message =
+        json.decodeFromString<MessageReply>(call("POST", "/api/chat/checkin", jsonBody("conversation_sync_id" to convId,
+            "lat" to lat, "lng" to lng, "acc" to acc))).message ?: throw ApiError("Not posted.")
+    suspend fun translate(messageId: String, to: String): String =
+        json.decodeFromString<TextReply>(call("POST", "/api/chat/messages/$messageId/translate", jsonBody("to" to to))).text
+    suspend fun transcribe(messageId: String): String =
+        json.decodeFromString<TextReply>(call("POST", "/api/chat/messages/$messageId/transcribe", "{}".toRequestBody(JSON))).text
+
+    // ---- JMS Bot ----
+    suspend fun command(convId: String, text: String): Message =
+        json.decodeFromString<MessageReply>(call("POST", "/api/chat/command", jsonBody("conversation_sync_id" to convId, "text" to text))).message
+            ?: throw ApiError("No answer.")
+    suspend fun ack(messageId: String): AckReply = json.decodeFromString(call("POST", "/api/chat/messages/$messageId/ack", "{}".toRequestBody(JSON)))
+    suspend fun raiseTicket(convId: String, messageId: String?, machine: String, problem: String, priority: String): TicketRef =
+        json.decodeFromString<TicketReply>(call("POST", "/api/chat/maintenance", jsonBody("conversation_sync_id" to convId,
+            "message_sync_id" to messageId, "machine" to machine, "problem" to problem, "priority" to priority))).ticket ?: TicketRef()
+    suspend fun approvals(): ApprovalsReply = get("/api/chat/approvals")
+    suspend fun approvalAction(id: Int, action: String, remarks: String) {
+        call("POST", "/api/chat/approvals/$id/action", jsonBody("action" to action, "remarks" to remarks))
+    }
+
+    // ---- urgent / announcement / poll ----
+    suspend fun sendSpecial(convId: String, text: String, urgent: Boolean = false, announcement: Boolean = false,
+                            poll: Triple<String, List<String>, Boolean>? = null): Message =
+        post<MessageReply>("/api/chat/messages", buildJsonObject {
+            put("conversation_sync_id", convId)
+            put("body", text)
+            put("sync_id", UUID.randomUUID().toString())
+            put("client_ts", Instant.now().toString())
+            if (urgent) put("urgent", true)
+            if (announcement) put("announcement", true)
+            if (poll != null) put("poll", buildJsonObject {
+                put("question", poll.first)
+                putJsonArray("options") { poll.second.forEach { add(it) } }
+                put("multi", poll.third)
+            })
+        }).message ?: throw ApiError("Message not sent.")
+
+    suspend fun vote(messageId: String, options: List<Int>): Message =
+        json.decodeFromString<MessageReply>(call("POST", "/api/chat/messages/$messageId/vote", jsonBody("options" to options))).message
+            ?: throw ApiError("Vote not saved.")
+
+    suspend fun pins(convId: String): List<Message> = get<PinsReply>("/api/chat/conversations/$convId/pins").pins
+    suspend fun pinMessage(messageId: String, on: Boolean) { call(if (on) "POST" else "DELETE", "/api/chat/messages/$messageId/pin", if (on) "{}".toRequestBody(JSON) else null) }
+
+    // ---- tasks ----
+    suspend fun createTodo(convId: String, messageId: String?, title: String, assignee: String, dueAt: String?) {
+        call("POST", "/api/chat/todos", jsonBody("conversation_sync_id" to convId, "message_sync_id" to messageId,
+            "title" to title, "assignee" to assignee, "due_at" to dueAt))
+    }
+    suspend fun todos(): List<Todo> = get<TodosReply>("/api/chat/todos").todos
+    suspend fun todoDone(id: String, done: Boolean) { call("POST", "/api/chat/todos/$id/done", jsonBody("done" to done)) }
+
+    // ---- scheduled ----
+    suspend fun schedule(convId: String, text: String, sendAt: String) {
+        call("POST", "/api/chat/scheduled", jsonBody("conversation_sync_id" to convId, "body" to text, "send_at" to sendAt))
+    }
+
+    // ---- quiet hours ----
+    suspend fun chatSettings(): ChatSettings = get("/api/chat/settings")
+    suspend fun saveQuiet(from: String, to: String): ChatSettings =
+        json.decodeFromString(call("PUT", "/api/chat/settings", jsonBody("quiet_from" to from, "quiet_to" to to)))
+
     private fun jsonBody(vararg kv: Pair<String, Any?>) = buildJsonObject {
         kv.forEach { (k, v) ->
             when (v) {
                 null -> Unit
                 is Boolean -> put(k, v)
                 is Number -> put(k, v)
-                is List<*> -> putJsonArray(k) { v.forEach { add(it.toString()) } }
+                is List<*> -> putJsonArray(k) { v.forEach { if (it is Number) add(it) else add(it.toString()) } }
                 else -> put(k, v.toString())
             }
         }
@@ -190,15 +305,35 @@ object Api {
 
     suspend fun callSignals(id: String, after: Long): CallSignalsReply = get("/api/chat/calls/$id/signals?after=$after")
 
+    suspend fun callLog(): List<CallInfo> = get<CallLogReply>("/api/chat/calls").calls
+
     // ---- pin / archive ----
     suspend fun pin(convId: String, on: Boolean) { call("POST", "/api/chat/conversations/$convId/pin", jsonBody("on" to on)) }
     suspend fun archive(convId: String, on: Boolean) { call("POST", "/api/chat/conversations/$convId/archive", jsonBody("on" to on)) }
+
+    // ---- security: per-chat settings, devices, folders ----
+    suspend fun setSecurity(convId: String, disappearSeconds: Int, protected: Boolean) {
+        call("PUT", "/api/chat/conversations/$convId/security", jsonBody("disappear_seconds" to disappearSeconds, "protected" to protected))
+    }
+    suspend fun devices(): List<Device> = get<DevicesReply>("/api/chat/devices").devices
+    suspend fun signOutDevice(id: String) { call("POST", "/api/chat/devices/$id/signout", "{}".toRequestBody(JSON)) }
+    suspend fun signOutOthers(): Int =
+        json.decodeFromString<SignOutReply>(call("POST", "/api/chat/devices/signout-others", "{}".toRequestBody(JSON))).signed_out
+    suspend fun folders(): List<ChatFolder> = get<FoldersReply>("/api/chat/folders").folders
+    suspend fun createFolder(name: String) { call("POST", "/api/chat/folders", jsonBody("name" to name)) }
+    suspend fun setFolderChats(id: String, conversations: List<String>) {
+        call("PUT", "/api/chat/folders/$id", jsonBody("conversations" to conversations))
+    }
+    suspend fun deleteFolder(id: String) { call("DELETE", "/api/chat/folders/$id") }
 
     // ---- groups ----
     suspend fun renameGroup(convId: String, title: String) { call("PATCH", "/api/chat/groups/$convId", jsonBody("title" to title)) }
     suspend fun addMembers(convId: String, users: List<String>) { call("POST", "/api/chat/groups/$convId/members", jsonBody("members" to users)) }
     suspend fun removeMember(convId: String, user: String) {
         call("DELETE", "/api/chat/groups/$convId/members/" + java.net.URLEncoder.encode(user, "UTF-8"))
+    }
+    suspend fun setGroupAdmin(convId: String, user: String, admin: Boolean) {
+        call("POST", "/api/chat/groups/$convId/members/" + java.net.URLEncoder.encode(user, "UTF-8") + "/admin", jsonBody("admin" to admin))
     }
     suspend fun leaveGroup(convId: String) { call("POST", "/api/chat/groups/$convId/leave", "{}".toRequestBody(JSON)) }
 
@@ -222,6 +357,25 @@ object Api {
 
     suspend fun saveAbout(about: String): Profile = withContext(Dispatchers.IO) {
         json.decodeFromString<ProfileReply>(call("PUT", "/api/chat/profile", buildJsonObject { put("about", about) }.toString().toRequestBody(JSON))).profile ?: Profile()
+    }
+
+    /** Ask for a new name; returns the profile and the server's note (e.g. "Sent for approval"). */
+    suspend fun saveName(name: String): ProfileReply =
+        json.decodeFromString(call("PUT", "/api/chat/profile", jsonBody("name" to name)))
+
+    suspend fun shared(username: String): SharedReply =
+        get("/api/chat/profile/" + java.net.URLEncoder.encode(username, "UTF-8") + "/shared")
+
+    suspend fun saveWork(designation: String, department: String): Profile =
+        json.decodeFromString<ProfileReply>(call("PUT", "/api/chat/profile", jsonBody("designation" to designation, "department" to department))).profile ?: Profile()
+
+    suspend fun cancelName(): Profile = json.decodeFromString<ProfileReply>(call("DELETE", "/api/chat/profile/name")).profile ?: Profile()
+
+    // ---- name approvals (admin / superadmin) ----
+    suspend fun nameRequests(): NameRequestsReply = get("/api/chat/name-requests")
+    suspend fun decideName(username: String, approve: Boolean, note: String = "") {
+        call("POST", "/api/chat/name-requests/" + java.net.URLEncoder.encode(username, "UTF-8"),
+            jsonBody("action" to (if (approve) "approve" else "reject"), "note" to note))
     }
 
     suspend fun uploadPhoto(file: File, mime: String): Profile {
