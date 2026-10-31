@@ -249,6 +249,11 @@
     '.jc-tick.jc-read{color:#53bdeb}',
     '.jc-pend{opacity:.6}',
     '.jc-del{font-style:italic;color:var(--jc-mu)}',
+    '.jc-msep{height:1px;background:var(--jc-bd);margin:4px 0}',
+    '.jc-selbar{display:flex;align-items:center;gap:8px;padding:8px 12px;background:var(--jc-bg2);border-bottom:1px solid var(--jc-bd)}',
+    '.jc-selbar .jc-selcount{flex:1;font-weight:600}',
+    '.jc-selrow{cursor:pointer;border-radius:6px}.jc-selrow:hover{background:rgba(0,168,132,.06)}',
+    '.jc-sel{background:rgba(0,168,132,.16)!important}',
     '.jc-opt{position:absolute;top:2px;right:2px;display:none;border:0;border-radius:50%;width:22px;height:22px;background:rgba(255,255,255,.9);cursor:pointer;color:var(--jc-mu);font-size:12px;line-height:22px;padding:0}',
     '.jc-bub:hover .jc-opt{display:block}',
     '.jc-menu{position:absolute;z-index:3;top:26px;right:2px;background:#fff;border-radius:6px;box-shadow:0 4px 14px rgba(0,0,0,.2);padding:4px 0;min-width:150px;white-space:nowrap}',
@@ -602,7 +607,10 @@
     document.addEventListener('click', function (e) {
       if (openMenu && !openMenu.contains(e.target)) closeMenu();
     });
-    document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && open) toggle(false); });
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape' && selecting) { e.stopImmediatePropagation(); endSelect(); }
+    }, true);
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && open && !appMode) toggle(false); }); // the app has no panel to close
   }
 
   function showErr(msg) {
@@ -1099,6 +1107,7 @@
 
   function openConv(c, focusId) {
     if (current && current !== c && loaded.length) cacheMessages(current.sync_id, loaded);
+    if (selecting) { selecting = false; selected = {}; if (selBar) selBar.remove(); }
     current = c;
     cancelEdit();
     oldestTs = null; hasMore = false;
@@ -1279,47 +1288,143 @@
       b.addEventListener('click', function (e) { e.stopPropagation(); closeMenu(); fn(); });
       menu.appendChild(b);
     }
-    item('↩ Reply', function () { startReply(m); });
-    if (!isProtected(m.conversation_sync_id)) item('↪ Forward', function () { forwardDialog(m); });
-    item('📋 Make task', function () { taskDialog(m); });
-    item('🔧 Raise maintenance ticket', function () { ticketDialog(m); });
-    if (m.body && !m.poll) {
-      item('🌐 Translate → English', function () { translate(m, 'en'); });
-      item('🌐 हिंदी में', function () { translate(m, 'hi'); });
-      item('🌐 ગુજરાતીમાં', function () { translate(m, 'gu'); });
-    }
-    item('📌 Pin / unpin', function () {
-      var pinned = (current && current.pins || []).some(function (p) { return p.sync_id === m.sync_id; });
-      api(pinned ? 'DELETE' : 'POST', API + '/messages/' + encodeURIComponent(m.sync_id) + '/pin', {})
-        .then(function () { loadPins(current); }).catch(function (e) { showErr(e.message); });
-    });
-    item(m.starred ? '☆ Unstar' : '★ Star', function () {
+    var grp = isGroup(current);
+    var canDel = mine || isAdmin || (grp && current.my_role === 'admin');
+    function sep() { menu.appendChild(el('div', 'jc-msep')); }
+    item('Reply', function () { startReply(m); });
+    if (grp && !mine) item('Reply privately', function () { replyPrivately(m); });
+    item(m.starred ? 'Unstar' : 'Star', function () {
       var on = !m.starred;
       api('POST', API + '/messages/' + encodeURIComponent(m.sync_id) + '/star', { on: on })
         .then(function () { m.starred = on; redraw(); }).catch(function (e) { showErr(e.message); });
     });
-    if (m.kind === 'text' && navigator.clipboard) item('Copy', function () { navigator.clipboard.writeText(m.body).catch(function () { }); });
-    if (!mine && isAdmin) {
-      item('Delete for everyone (superadmin)', function () {
-        if (!window.confirm('Delete this message for everyone?')) return;
+    var pinned = (current && current.pins || []).some(function (p) { return p.sync_id === m.sync_id; });
+    item(pinned ? 'Unpin' : 'Pin', function () {
+      api(pinned ? 'DELETE' : 'POST', API + '/messages/' + encodeURIComponent(m.sync_id) + '/pin', {})
+        .then(function () { loadPins(current); }).catch(function (e) { showErr(e.message); });
+    });
+    if (!isProtected(m.conversation_sync_id)) item('Forward', function () { forwardDialog([m]); });
+    if (m.body && navigator.clipboard) item('Copy', function () { navigator.clipboard.writeText(m.body).catch(function () { }); });
+    if (grp && !mine) item('Message ' + m.sender, function () { startChat(m.sender); });
+    if (mine) {
+      item('Info', function () { infoDialog(m); });
+      var canEdit = (m.kind === 'text' || m.attachment) && Date.now() - new Date(m.server_ts).getTime() < EDIT_MS;
+      if (canEdit) item(m.kind === 'text' ? 'Edit' : 'Edit caption', function () { startEdit(m); });
+    }
+    sep();
+    item('Make task', function () { taskDialog(m); });
+    item('Raise maintenance ticket', function () { ticketDialog(m); });
+    if (m.body && !m.poll) {
+      item('Translate → English', function () { translate(m, 'en'); });
+      item('हिंदी में अनुवाद', function () { translate(m, 'hi'); });
+      item('ગુજરાતીમાં અનુવાદ', function () { translate(m, 'gu'); });
+    }
+    sep();
+    if (canDel) {
+      item('Delete', function () {
+        var who = mine ? '' : (isAdmin ? ' (as superadmin)' : ' (as group admin)');
+        if (!window.confirm('Delete this message for everyone' + who + '?')) return;
         api('DELETE', API + '/messages/' + encodeURIComponent(m.sync_id)).then(function (d) { applyUpdate(d.message); loadConvs(); })
           .catch(function (e2) { showErr(e2.message); });
       }, '#d93025');
     }
-    if (mine) {
-      item('ⓘ Info', function () { infoDialog(m); });
-      var canEdit = (m.kind === 'text' || m.attachment) && Date.now() - new Date(m.server_ts).getTime() < EDIT_MS;
-      if (canEdit) item(m.kind === 'text' ? 'Edit' : 'Edit caption', function () { startEdit(m); });
-      item('Delete for everyone', function () {
-        if (!window.confirm('Delete this message for everyone?')) return;
-        api('DELETE', API + '/messages/' + encodeURIComponent(m.sync_id)).then(function (d) {
-          applyUpdate(d.message);
-          loadConvs();
-        }).catch(function (e2) { showErr(e2.message); });
-      }, '#d93025');
-    }
+    item('Select messages', function () { startSelect(m); });
     bub.appendChild(menu);
     openMenu = menu;
+    // Desktop app: a small popover beside the bubble (WhatsApp Desktop), kept on screen.
+    if (appMode && window.matchMedia('(min-width: 900px)').matches) {
+      menu.classList.add('jc-pop');
+      var r = bub.getBoundingClientRect(), mw = menu.offsetWidth, mh = menu.offsetHeight;
+      var left = mine ? r.right - mw : r.right + 4;
+      if (left + mw > window.innerWidth - 8) left = r.left - mw - 4;
+      left = Math.max(8, Math.min(left, window.innerWidth - mw - 8));
+      var top = Math.max(8, Math.min(r.top + 24, window.innerHeight - mh - 8));
+      menu.style.setProperty('left', left + 'px', 'important');
+      menu.style.setProperty('top', top + 'px', 'important');
+    }
+  }
+
+  // ---------------- reply privately, select messages ----------------
+  function replyPrivately(m) {
+    var src = m;
+    api('POST', API + '/conversations', { username: m.sender }).then(function (d) {
+      var c = d.conversation;
+      var existing = convs.filter(function (x) { return x.sync_id === c.sync_id; })[0];
+      openConv(existing || { sync_id: c.sync_id, type: 'direct', title: c.title, members: c.members, online: c.online, is_member: true });
+      var quote = '> ' + String(src.body || '📎 ' + ((src.attachment && src.attachment.file_name) || 'attachment')).split('\n').slice(0, 3).join('\n> ');
+      els.ta.value = quote + '\n';
+      els.ta.focus();
+      els.ta.dispatchEvent(new Event('input'));
+    }).catch(function (e) { showErr(e.message); });
+  }
+
+  var selecting = false, selected = {}, selBar = null;
+  function startSelect(m) {
+    selecting = true; selected = {};
+    if (m) selected[m.sync_id] = m;
+    if (!selBar) {
+      selBar = el('div', 'jc-selbar');
+      var x = el('button', 'jc-ibtn', '✕'); x.title = 'Cancel';
+      x.addEventListener('click', endSelect);
+      selBar.appendChild(x);
+      selBar.appendChild(el('span', 'jc-selcount'));
+      [['Copy', 'copy'], ['Star', 'star'], ['Forward', 'fwd'], ['Delete', 'del']].forEach(function (o) {
+        var b = el('button', 'jc-btn jc-sel-' + o[1], o[0]);
+        b.addEventListener('click', function () { selAction(o[1]); });
+        selBar.appendChild(b);
+      });
+    }
+    els.main.insertBefore(selBar, els.msgs);
+    updateSelBar();
+    redraw();
+  }
+  function endSelect() {
+    if (!selecting) return;
+    selecting = false; selected = {};
+    if (selBar) selBar.remove();
+    redraw();
+  }
+  function toggleSel(m) {
+    if (selected[m.sync_id]) delete selected[m.sync_id]; else selected[m.sync_id] = m;
+    updateSelBar();
+    redraw();
+  }
+  function selList() {
+    return loaded.filter(function (m) { return selected[m.sync_id]; });
+  }
+  function updateSelBar() {
+    var ls = selList();
+    selBar.querySelector('.jc-selcount').textContent = ls.length + ' selected';
+    var grpAdmin = isGroup(current) && current.my_role === 'admin';
+    var live = ls.filter(function (m) { return !m.deleted && !m.purged; });
+    selBar.querySelector('.jc-sel-del').style.display = live.length && live.every(function (m) { return same(m.sender, me) || isAdmin || grpAdmin; }) ? '' : 'none';
+    selBar.querySelector('.jc-sel-fwd').style.display = live.length && !isProtected(current.sync_id) ? '' : 'none';
+    selBar.querySelector('.jc-sel-copy').style.display = live.some(function (m) { return m.body; }) ? '' : 'none';
+    selBar.querySelector('.jc-sel-star').style.display = live.length ? '' : 'none';
+  }
+  function selAction(kind) {
+    var ls = selList().filter(function (m) { return !m.deleted && !m.purged; });
+    if (!ls.length) return;
+    if (kind === 'copy') {
+      var txt = ls.filter(function (m) { return m.body; }).map(function (m) {
+        return '[' + fmtTime(m.server_ts) + '] ' + m.sender + ': ' + m.body;
+      }).join('\n');
+      if (navigator.clipboard) navigator.clipboard.writeText(txt).catch(function () { });
+      endSelect();
+    } else if (kind === 'star') {
+      Promise.all(ls.map(function (m) {
+        return api('POST', API + '/messages/' + encodeURIComponent(m.sync_id) + '/star', { on: true }).then(function () { m.starred = true; });
+      })).then(endSelect).catch(function (e) { showErr(e.message); });
+    } else if (kind === 'fwd') {
+      forwardDialog(ls);
+    } else if (kind === 'del') {
+      if (!window.confirm('Delete ' + ls.length + ' message(s) for everyone?')) return;
+      ls.reduce(function (p, m) {
+        return p.then(function () {
+          return api('DELETE', API + '/messages/' + encodeURIComponent(m.sync_id)).then(function (d) { applyUpdate(d.message); });
+        });
+      }, Promise.resolve()).then(function () { endSelect(); loadConvs(); }).catch(function (e) { showErr(e.message); });
+    }
   }
 
   function rxEl(m) {
@@ -1343,8 +1448,9 @@
       .catch(function (e) { showErr(e.message); });
   }
 
-  function forwardDialog(m) {
-    var dlg = modal('Forward to… (up to 5)');
+  function forwardDialog(list) {
+    list = Array.isArray(list) ? list : [list];
+    var dlg = modal('Forward ' + (list.length > 1 ? list.length + ' messages ' : '') + 'to… (up to 5)');
     var picked = [];
     convs.filter(function (c) { return c.is_member !== false; }).forEach(function (c) {
       var r = el('label', 'jc-row2');
@@ -1368,8 +1474,10 @@
     send.addEventListener('click', function () {
       if (!picked.length) return;
       send.disabled = true;
-      api('POST', API + '/forward', { message_sync_id: m.sync_id, to: picked })
-        .then(function () { dlg.close(); loadConvs(); })
+      list.reduce(function (p, m) {
+        return p.then(function () { return api('POST', API + '/forward', { message_sync_id: m.sync_id, to: picked }); });
+      }, Promise.resolve())
+        .then(function () { dlg.close(); endSelect(); loadConvs(); })
         .catch(function (e) { send.disabled = false; showErr(e.message); });
     });
     act.appendChild(cancel); act.appendChild(send);
@@ -1433,6 +1541,13 @@
       var row = el('div', 'jc-msg' + (mine ? ' jc-out' : '') + (m.pending ? ' jc-pend' : ''));
       row.setAttribute('data-id', m.sync_id);
       var b = el('div', 'jc-bub');
+      if (selecting && !m.pending && !m.failed) {
+        row.classList.add('jc-selrow');
+        if (selected[m.sync_id]) row.classList.add('jc-sel');
+        row.addEventListener('click', function (e) { e.preventDefault(); e.stopPropagation(); toggleSel(m); }, true);
+      } else if (!adminView && !m.deleted && !m.purged && !m.pending && !m.failed && current && current.is_member !== false) {
+        b.addEventListener('contextmenu', function (e) { e.preventDefault(); messageMenu(m, b); });
+      }
       if (!mine && showNames) {
         var sn = el('div', 'jc-snd', m.sender);
         sn.style.color = avatarColor(m.sender);
@@ -1441,7 +1556,9 @@
       if (m.purged) {
         b.appendChild(el('span', 'jc-del', '🕓 Removed after the retention period'));
       } else if (m.deleted) {
-        b.appendChild(el('span', 'jc-del', '🚫 This message was deleted'));
+        b.appendChild(el('span', 'jc-del', '🚫 ' + (m.deleted_by && !same(m.deleted_by, m.sender)
+          ? 'This message was deleted by admin ' + (same(m.deleted_by, me) ? 'you' : m.deleted_by) + '.'
+          : (mine ? 'You deleted this message.' : 'This message was deleted.'))));
       } else {
         if (m.forwarded) b.appendChild(el('div', 'jc-fwd', '↪ Forwarded'));
         if (m.announcement) { b.classList.add('jc-ann'); b.appendChild(el('div', 'jc-annl', '📢 ANNOUNCEMENT')); }
@@ -2088,6 +2205,8 @@
       p.then(function () {
         if (!current || current.sync_id !== cid || current.is_member === false) return;
         var still = convs.filter(function (x) { return x.sync_id === cid; })[0];
+        // A new direct chat is not in the list until its first message, so only a group can be "left".
+        if (!still && !isGroup(current)) return;
         if (!still) { current = null; showPlaceholder(); showErr('You are no longer in that group.'); return; }
         if (els.main.contains(els.msgs)) loadMessages(false);
         else refreshInfo(current);

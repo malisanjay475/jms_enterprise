@@ -309,6 +309,8 @@ function messageOut(row, att, receipts) {
     server_ts: row.server_ts,
     edited_at: row.edited_at,
     deleted: Boolean(row.deleted_at),
+    // who deleted someone else's message (a group admin or a superadmin)
+    deleted_by: row.deleted_at && row.meta && row.meta.deleted_by ? row.meta.deleted_by : null,
     purged: Boolean(row.purged_at), // emptied by the retention job
     reply_to_sync_id: row.reply_to_sync_id || null,
     forwarded: Boolean(row.meta && row.meta.forwarded),
@@ -1591,7 +1593,15 @@ function registerChatRoutes(app, pool) {
     if (!UUID_RE.test(id)) { res.status(400).json({ ok: false, error: 'Bad message id.' }); return null; }
     const { rows: [m] } = await pool.query('SELECT * FROM chat_messages WHERE sync_id = $1', [id]);
     if (!m || m.kind === 'system') { res.status(404).json({ ok: false, error: 'Message not found.' }); return null; }
-    const moderator = superadminToo && isSuperadmin(req.auth);
+    let moderator = superadminToo && isSuperadmin(req.auth);
+    if (superadminToo && !moderator && m.sender.toLowerCase() !== req.auth.username.toLowerCase()) {
+      // a group admin may delete anyone's message in their group
+      const mem = await membership(pool, m.conversation_sync_id, req.auth.username);
+      if (mem && mem.role === 'admin') {
+        const { rows: [cv] } = await pool.query('SELECT type FROM chat_conversations WHERE sync_id = $1', [m.conversation_sync_id]);
+        moderator = Boolean(cv && cv.type === 'group');
+      }
+    }
     if (m.sender.toLowerCase() !== req.auth.username.toLowerCase() && !moderator) {
       res.status(403).json({ ok: false, error: 'You can only change your own messages.' });
       return null;
@@ -1640,10 +1650,13 @@ function registerChatRoutes(app, pool) {
       if (!(await ready(req, res))) return;
       const m = await ownMessage(req, res, { superadminToo: true });
       if (!m) return;
+      const me = req.auth.username;
       const { rows: [row] } = await pool.query(
-        `UPDATE chat_messages SET deleted_at = NOW(), updated_at = NOW()
+        `UPDATE chat_messages SET deleted_at = NOW(), updated_at = NOW(),
+                meta = CASE WHEN LOWER(sender) = LOWER($2) THEN meta
+                            ELSE COALESCE(meta, '{}'::jsonb) || jsonb_build_object('deleted_by', $2::text) END
           WHERE sync_id = $1 AND deleted_at IS NULL RETURNING *`,
-        [m.sync_id]
+        [m.sync_id, me]
       );
       if (!row) return res.status(410).json({ ok: false, error: 'This message was deleted.' });
       res.json({ ok: true, message: await announceUpdate(row, req.auth.username) });
@@ -1661,9 +1674,10 @@ function registerChatRoutes(app, pool) {
       const me = req.auth.username;
       const cleared = await inTx(async (db) => {
         const { rowCount } = await db.query(
-          `UPDATE chat_messages SET deleted_at = NOW(), updated_at = NOW()
+          `UPDATE chat_messages SET deleted_at = NOW(), updated_at = NOW(),
+                  meta = COALESCE(meta, '{}'::jsonb) || jsonb_build_object('deleted_by', $2::text)
             WHERE conversation_sync_id = $1 AND deleted_at IS NULL AND kind <> 'system'`,
-          [g.conv.sync_id]
+          [g.conv.sync_id, me]
         );
         await systemMessage(db, g.conv.sync_id, me, `${me} cleared all messages in this group`);
         return rowCount;

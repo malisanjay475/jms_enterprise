@@ -98,6 +98,11 @@
       box-shadow: 0 0 0 100vmax rgba(0,0,0,.35), 0 8px 28px rgba(0,0,0,.25); }
     html.jc-appmode .jc-app .jc-menu button { padding: 14px 20px; font-size: 17px; text-align: center; border-bottom: 1px solid #e9edef; }
     html.jc-appmode .jc-app .jc-menu button:last-child { border-bottom: 0; }
+    /* Desktop: a compact popover instead of the phone sheet. */
+    html.jc-appmode .jc-app .jc-menu.jc-pop { right: auto !important; bottom: auto !important; width: 230px; max-height: calc(100vh - 16px);
+      overflow-y: auto; border-radius: 10px; padding: 6px 0; box-shadow: 0 6px 24px rgba(11,20,26,.22); }
+    html.jc-appmode .jc-app .jc-menu.jc-pop button { padding: 8px 18px; font-size: 14.5px; text-align: left; border-bottom: 0; }
+    html.jc-appmode .jc-app .jc-menu.jc-pop .jc-emo { padding: 4px 8px 6px; }
 
     /* Message box */
     html.jc-appmode .jc-app .jc-comp { background: transparent; padding: 6px 8px calc(6px + env(safe-area-inset-bottom)); gap: 6px; align-items: flex-end; }
@@ -448,6 +453,33 @@
           var t = setTimeout(function () { inject(String(Date.now())); }, 4000);
           check.then(function (v) { clearTimeout(t); if (v) remember(v); inject(v || String(Date.now())); });
         }
+        watchUpdates(VKEY, remember);
+      }
+
+      // Auto-update: an app left open for days still picks up a new release. Check every
+      // 10 minutes and when the window comes back; update when nobody is typing.
+      function watchUpdates(VKEY, remember) {
+        var pending = null;
+        function idle() {
+          var ta = document.querySelector('.jc-comp textarea');
+          return !(ta && ta.value.trim()) && !document.querySelector('.jc-dlg-bg, .jc-sheet-bg, .jc-iv, .jc-rec');
+        }
+        function apply() {
+          if (!pending || !idle()) return;
+          remember(pending);
+          try { sessionStorage.setItem('jmsChatReloadedFor', pending); } catch (_e) { }
+          location.reload();
+        }
+        function poll() {
+          fetch('/api/version', { cache: 'no-store' }).then(function (r) { return r.json(); }).then(function (d) {
+            var v = d && d.version, cur = null;
+            try { cur = localStorage.getItem(VKEY); } catch (_e) { }
+            if (v && cur && v !== cur) { pending = v; if (document.hidden) apply(); }
+          }).catch(function () { });
+        }
+        setInterval(poll, 10 * 60 * 1000);
+        setInterval(apply, 30 * 1000);
+        document.addEventListener('visibilitychange', function () { if (document.hidden) apply(); else poll(); });
       }
 
       // iPhone: the keyboard does not shrink the page, it covers it (and pans the view).
@@ -870,6 +902,8 @@
           else if (mod && k === '/') { e.preventDefault(); shortcutsHelp(); }
           else if (e.altKey && !mod && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) { e.preventDefault(); stepChat(e.key === 'ArrowDown' ? 1 : -1); }
           else if (e.key === 'Escape' && !document.querySelector('.jc-dlg-bg, .jc-sheet-bg, .jc-iv, .jc-menu')) {
+            var sIn = document.querySelector('.jc-search input');
+            if (sIn && sIn.value) { sIn.value = ''; sIn.dispatchEvent(new Event('input')); sIn.blur(); return; }
             var back = document.querySelector('.jc-panel.jc-conv .jc-back');
             if (back) back.click();
           }

@@ -14,6 +14,12 @@ part of your PR. On release, the `[Unreleased]` items move under the new version
 ## [Unreleased]
 
 ### Added
+- JMS Chat (v1.158.0): WhatsApp-style message menu - right-click (desktop) or the arrow: Reply, Reply privately and Message <person> (groups), Star, Pin, Forward, Copy, Info / Edit (own), Make task, ticket, translate, Delete, Select messages. On the desktop app it opens as a compact popover beside the message. "Select messages" picks several messages to copy, star, forward or delete together. Group admins can now delete anyone's message in their group; it then reads "This message was deleted by admin <name>". The desktop / home-screen app updates itself to a new release (checked every 10 minutes, applied when nobody is typing). People with no JMS app access (chat sign-ups) land on the chat app instead of the JMS home page.
+
+### Fixed
+- JMS Chat app: Esc no longer leaves a blank screen (it clears the search, closes the open chat or ends message selection). Opening a new chat from a person found in search no longer says "You are no longer in that group".
+
+### Added
 - JMS Chat (v1.157.0): superadmins get "Clear all messages" in Group info - deletes every message in the group for everyone (after a confirm), notes it in the group and records it in the chat audit log. Superadmins could already delete any single message.
 
 ### Changed

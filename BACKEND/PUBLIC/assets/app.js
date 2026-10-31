@@ -287,11 +287,19 @@ function escHtml(value) {
         return appMap[appId] === true;
     }
 
+    function isChatOnlyUser(user = readStoredJson('user', {})) {
+        if (!user || isAdminLikeUser(user)) return false;
+        if (String(user.role_code || '').toLowerCase() === 'chat_user') return true;
+        const appMap = getExplicitAppAccessMap(user);
+        return !!appMap && !Object.keys(appMap).some((k) => appMap[k] === true);
+    }
+
     function getAllowedAppsForUser(user = readStoredJson('user', {})) {
         return APP_ACCESS_CONFIG.filter(app => canAccessAppId(app.id, user));
     }
 
     function getDefaultLandingHref(user = readStoredJson('user', {}), preferredHref = '') {
+        if (isChatOnlyUser(user)) return 'chat_app.html';
         const preferredAppId = preferredHref ? resolveAppIdFromPath(preferredHref) : null;
         if (preferredHref && canAccessAppId(preferredAppId, user)) {
             return preferredHref;
@@ -670,6 +678,12 @@ function escHtml(value) {
             if (u.role_code === 'shifting_supervisor' && !path.includes('shifting_supervisor.html')) {
                 window.location.href = '/shifting_supervisor.html';
                 throw new Error('Redirecting to Shifting Portal');
+            }
+            // Chat-only people (signed up from JMS Chat, or given no app at all) get the chat
+            // app instead of an empty JMS home page.
+            if (isChatOnlyUser(u) && !path.includes('chat_app.html')) {
+                window.location.replace('/chat_app.html');
+                throw new Error('Redirecting to JMS Chat');
             }
             const currentAppId = resolveAppIdFromPath(path);
             if (currentAppId && !canAccessAppId(currentAppId, u)) {
