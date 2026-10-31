@@ -137,6 +137,7 @@ fun ConversationScreen(convId: String, onBack: () -> Unit, onInfo: () -> Unit, v
     val messages by vm.messages.collectAsState()
     val title by vm.title.collectAsState()
     val isGroup by vm.isGroup.collectAsState()
+    val walkie by vm.walkie.collectAsState()
     val members by vm.members.collectAsState()
     val online by vm.online.collectAsState()
     val typing by vm.typing.collectAsState()
@@ -254,12 +255,23 @@ fun ConversationScreen(convId: String, onBack: () -> Unit, onInfo: () -> Unit, v
                         IconButton(onClick = { com.jmsocean.chat.call.CallActivity.call(ctx, p) }) {
                             Icon(Icons.Default.Call, "Voice call")
                         }
+                    } else {
+                        IconButton(onClick = { com.jmsocean.chat.call.GroupCallActivity.join(ctx, convId, title) }) {
+                            Icon(Icons.Default.Call, "Group call")
+                        }
                     }
                     Box {
                         IconButton(onClick = { topMenu = true }) { Icon(Icons.Default.MoreVert, "Menu") }
                         DropdownMenu(expanded = topMenu, onDismissRequest = { topMenu = false }) {
                             DropdownMenuItem(text = { Text(if (isGroup) "Group info" else "Contact info") }, onClick = { topMenu = false; onInfo() })
                             DropdownMenuItem(text = { Text("Search") }, onClick = { topMenu = false; searching = true })
+                            DropdownMenuItem(
+                                text = { Text(if (walkie) "📻 Walkie-talkie: ON (tap to turn off)" else "📻 Walkie-talkie mode") },
+                                onClick = {
+                                    topMenu = false; vm.toggleWalkie()
+                                    Toast.makeText(ctx, if (!walkie) "Walkie-talkie on: hold the mic to talk, clips play out loud"
+                                        else "Walkie-talkie off", Toast.LENGTH_LONG).show()
+                                })
                             if (mutedUntil != null) DropdownMenuItem(text = { Text("Unmute notifications") }, onClick = { topMenu = false; vm.mute("off") })
                             else {
                                 DropdownMenuItem(text = { Text("Mute for 8 hours") }, onClick = { topMenu = false; vm.mute("8h") })
@@ -380,7 +392,7 @@ fun ConversationScreen(convId: String, onBack: () -> Unit, onInfo: () -> Unit, v
                     recording = false
                     if (send) {
                         val f = recorder.stop()
-                        if (f != null) vm.sendVoice(f, recorder.mime)
+                        if (f != null) vm.sendVoice(f, recorder.mime, ptt = walkie)
                         else Toast.makeText(ctx, "Hold the mic to record", Toast.LENGTH_SHORT).show()
                     } else recorder.cancel()
                 },
