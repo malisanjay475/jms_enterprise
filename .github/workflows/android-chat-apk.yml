@@ -48,7 +48,7 @@ jobs:
         uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4
 
       - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6
+        uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6
         with:
           gradle-version: "8.9"
 
@@ -60,7 +60,7 @@ jobs:
         run: gradle assembleDebug --no-daemon --stacktrace
 
       - name: Upload debug APK
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: jms-chat-debug-apk
           path: android_chat/app/build/outputs/apk/debug/app-debug.apk
@@ -87,7 +87,7 @@ jobs:
 
       - name: Upload release APK
         if: env.HAS_KEYSTORE == 'true'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: jms-chat-release-apk
           path: android_chat/app/build/outputs/apk/release/app-release.apk

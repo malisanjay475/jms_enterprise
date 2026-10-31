@@ -1,0 +1,155 @@
+name: JMS Page smoke (advisory)
+
+# Opens PUBLIC/*.html against a booted backend (logged-out). LOGIN is expected;
+# FAIL (JS parse errors, 4xx/5xx same-origin) fails the job but continue-on-error
+# keeps it non-blocking until the suite is trusted. See BACKEND/scripts/smoke-pages.js.
+
+on:
+  pull_request:
+    branches: [develop, main]
+    paths:
+      - 'BACKEND/PUBLIC/**'
+      - 'BACKEND/scripts/smoke-pages.js'
+      - '.github/workflows/page-smoke-advisory.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: page-smoke-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  page_smoke:
+    name: smoke-pages
+    # Pin 24.04: playwright-core 1.55 has no browser builds for ubuntu26.04 runners.
+    runs-on: ubuntu-24.04
+    continue-on-error: true
+    services:
+      postgres:
+        image: postgres:14-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: jpsms
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d jpsms"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: "24"
+          cache: "npm"
+          cache-dependency-path: BACKEND/package-lock.json
+
+      - name: Install backend, Playwright, boot, and smoke pages
+        working-directory: BACKEND
+        env:
+          NODE_ENV: test
+          DB_HOST: 127.0.0.1
+          DB_PORT: 5432
+          DB_USER: postgres
+          DB_PASSWORD: postgres
+          DB_NAME: jpsms
+          SERVER_TYPE: STANDALONE
+          LOCAL_FACTORY_ID: "1"
+          SYNC_API_KEY: pr-ci
+          GEMINI_API_KEY: dummy-key
+          # Keep Playwright OUTSIDE BACKEND/node_modules — server Updater runs
+          # `npm install` after listen and strips --no-save packages.
+          PLAYWRIGHT_CORE_PATH: ${{ github.workspace }}/.smoke-pw/node_modules/playwright-core
+          PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.smoke-pw/browsers
+          NODE_PATH: ${{ github.workspace }}/.smoke-pw/node_modules
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci
+
+          mkdir -p "${GITHUB_WORKSPACE}/.smoke-pw"
+          npm install --prefix "${GITHUB_WORKSPACE}/.smoke-pw" --no-save --no-package-lock playwright-core@1.55.0
+          test -d "${PLAYWRIGHT_CORE_PATH}"
+          npx --prefix "${GITHUB_WORKSPACE}/.smoke-pw" playwright-core install --with-deps chromium
+          node -e "const p=require(process.env.PLAYWRIGHT_CORE_PATH); console.log('playwright-core ok', !!p.chromium);"
+
+          umask 022
+          cat > .env <<'EOF'
+          GEMINI_API_KEY=dummy-key
+          DB_USER=postgres
+          DB_PASSWORD=postgres
+          DB_HOST=127.0.0.1
+          DB_PORT=5432
+          DB_NAME=jpsms
+          SERVER_TYPE=STANDALONE
+          LOCAL_FACTORY_ID=1
+          SYNC_API_KEY=pr-ci
+          EOF
+          sed -i 's/^[[:space:]]\+//' .env
+
+          node scripts/wait-for-postgres.js
+          node scripts/auto-import-db-if-needed.js
+
+          node server.js > server.log 2>&1 &
+          SERVER_PID=$!
+          cleanup() {
+            echo "::group::server.log (tail)"
+            tail -n 120 server.log || true
+            echo "::endgroup::"
+            kill "$SERVER_PID" 2>/dev/null || true
+            wait "$SERVER_PID" 2>/dev/null || true
+          }
+          trap cleanup EXIT
+
+          echo "Waiting for /health…"
+          for i in $(seq 1 90); do
+            if curl -fsS http://127.0.0.1:3000/health >/dev/null; then
+              echo "healthy after ${i} attempt(s)"
+              break
+            fi
+            if ! kill -0 "$SERVER_PID" 2>/dev/null; then
+              echo "server exited early" >&2
+              exit 1
+            fi
+            sleep 2
+          done
+          curl -fsS http://127.0.0.1:3000/health
+          echo
+
+          # Updater may still be rewriting BACKEND/node_modules after listen.
+          echo "Waiting for Updater to finish (or 90s)…"
+          for i in $(seq 1 45); do
+            if grep -q '\[Updater\] Disabled' server.log 2>/dev/null; then
+              echo "Updater settled after ${i} poll(s)"
+              break
+            fi
+            sleep 2
+          done
+
+          echo "Probing chromium.launch via external playwright-core…"
+          node -e "
+            const pw = require(process.env.PLAYWRIGHT_CORE_PATH);
+            pw.chromium.launch({ headless: true }).then(async (b) => {
+              console.log('chromium launch ok');
+              await b.close();
+            }).catch((err) => { console.error(err); process.exit(2); });
+          "
+
+          echo "Running page smoke…"
+          set +e
+          node scripts/smoke-pages.js --base http://127.0.0.1:3000 --only login,dpr,planning,supervisor,masters,npd,purchase_vendors,raw_material_jobwise,barcode_printer,dpr_daily_report,job_summary
+          SMOKE_EC=$?
+          set -e
+          echo "smoke exit code: ${SMOKE_EC}"
+          exit "${SMOKE_EC}"
+
+      - name: Upload backend logs on failure
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: page-smoke-logs
+          path: BACKEND/server.log

@@ -129,6 +129,8 @@ data class Message(
     val scheduled: Boolean = false,
     val poll: Poll? = null,
     val bot: Boolean = false,
+    /** 📻 walkie-talkie clip: plays by itself */
+    val ptt: Boolean = false,
     val alert: AlertInfo? = null,
     val reactions: List<Reaction>? = null,
     val starred: Boolean = false,
@@ -358,6 +360,34 @@ data class CallReply(val call: CallInfo, val ice: List<IceServerConfig> = emptyL
 
 @Serializable
 data class CallSignal(val seq: Long, val kind: String, val data: String)
+
+// ---- phase E: group calls ----
+@Serializable
+data class RoomInfo(val id: String, val conversation_sync_id: String = "", val title: String = "", val started_at: String? = null)
+
+@Serializable
+data class RoomPerson(val username: String, val joined_at: String = "")
+
+@Serializable
+data class GroupCallReply(
+    val started: Boolean = false,
+    val room: RoomInfo,
+    val me: RoomPerson,
+    val participants: List<RoomPerson> = emptyList(),
+    val ice: List<IceServerConfig> = emptyList()
+)
+
+@Serializable
+data class RoomSignal(val seq: Long, val from: String, val kind: String, val data: String)
+
+@Serializable
+data class RoomPoll(val status: String = "", val participants: List<RoomPerson> = emptyList(), val signals: List<RoomSignal> = emptyList())
+
+@Serializable
+data class ActiveRoom(val id: String, val conversation_sync_id: String, val started_by: String = "", val people: Int = 0, val joined: Boolean = false)
+
+@Serializable
+data class ActiveRoomsReply(val rooms: List<ActiveRoom> = emptyList())
 
 @Serializable
 data class CallSignalsReply(val status: String = "", val signals: List<CallSignal> = emptyList())
