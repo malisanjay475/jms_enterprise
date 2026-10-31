@@ -42,12 +42,16 @@ val Teal = Color(0xFF075E54)
 val TealLight = Color(0xFF128C7E)
 val Green = Color(0xFF25D366)
 val Tick = Color(0xFF34B7F1)
-val BubbleOut = Color(0xFFDCF8C6)
+val BubbleOut = Color(0xFFD9FDD3)
 val BubbleIn = Color(0xFFFFFFFF)
 val ChatBg = Color(0xFFECE5DD)
 val BubbleOutDark = Color(0xFF005C4B)
 val BubbleInDark = Color(0xFF1F2C34)
 val ChatBgDark = Color(0xFF0B141A)
+
+/** Top bar colour: JMS green by day, WhatsApp-style dark grey at night. */
+@Composable
+fun headerColor(): Color = if (isSystemInDarkTheme()) Color(0xFF202C33) else Teal
 
 @Composable
 fun JmsChatTheme(content: @Composable () -> Unit) {

@@ -102,7 +102,7 @@ fun NewChatScreen(group: Boolean, onBack: () -> Unit, onNewGroup: () -> Unit, on
                         Text(if (group) "${picked.size} selected" else "${users.size} people", fontSize = 12.sp)
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = Teal, titleContentColor = Color.White, navigationIconContentColor = Color.White)
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = headerColor(), titleContentColor = Color.White, navigationIconContentColor = Color.White)
             )
         },
         floatingActionButton = {

@@ -93,7 +93,7 @@ fun NameRequestsScreen(onBack: () -> Unit) {
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
                 title = { Text("Name requests", fontWeight = FontWeight.SemiBold) },
                 actions = { IconButton(onClick = { reload++ }) { Icon(Icons.Default.Refresh, "Refresh") } },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = Teal, titleContentColor = Color.White,
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = headerColor(), titleContentColor = Color.White,
                     navigationIconContentColor = Color.White, actionIconContentColor = Color.White)
             )
         }
