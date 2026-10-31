@@ -435,6 +435,7 @@
     bellBtn.title = 'Notifications and sound';
     var groupBtn = el('button', 'jc-ibtn', '👥');
     groupBtn.title = 'New group';
+    if (!canApprove) groupBtn.style.display = 'none'; // only admins and superadmins make groups
     var newBtn = el('button', 'jc-ibtn', '✎');
     newBtn.title = 'New chat';
     var closeBtn = el('button', 'jc-ibtn', '✕');
@@ -1026,6 +1027,7 @@
   }
 
   function showNewGroup() {
+    if (!canApprove) { showErr('Only an admin or superadmin can create groups.'); return; }
     if (adminAll) setAdminAll(false);
     els.groupMode = true;
     els.peopleMode = false;

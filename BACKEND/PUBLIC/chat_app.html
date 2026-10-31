@@ -698,7 +698,10 @@
           });
           var sep = document.createElement('div'); sep.className = 'sep'; rail.appendChild(sep);
           rail.appendChild(railButton('bi-pencil-square', 'New chat  (Ctrl+Alt+N)', function () { showView('chats'); var b = btnByTitle('New chat'); if (b) b.click(); }));
-          rail.appendChild(railButton('bi-people', 'New group', function () { showView('chats'); var b = btnByTitle('New group'); if (b) b.click(); }));
+          var gBtn = btnByTitle('New group');
+          if (gBtn && gBtn.style.display !== 'none') { // only admins and superadmins make groups
+            rail.appendChild(railButton('bi-people', 'New group', function () { showView('chats'); var b = btnByTitle('New group'); if (b) b.click(); }));
+          }
           var gap = document.createElement('div'); gap.className = 'gap'; rail.appendChild(gap);
           var inst = railButton('bi-download', 'Install as a desktop app', install, 'railInstall');
           inst.style.display = 'none';
