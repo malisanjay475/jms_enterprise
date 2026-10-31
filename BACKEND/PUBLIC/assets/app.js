@@ -26,12 +26,33 @@ function escHtml(value) {
 })();
 
 /**
- * Mobile App Shell Injection (PWA)
- * Automatically adds bottom navigation on small screens
+ * True when running inside the JMS Ocean Capacitor Android shell (or any Capacitor native host).
+ * Used to force the mobile drawer / bottom-nav experience on tablets and foldables too.
+ */
+function isJmsNativeShell() {
+    try {
+        if (window.Capacitor && typeof window.Capacitor.isNativePlatform === 'function' && window.Capacitor.isNativePlatform()) {
+            return true;
+        }
+    } catch (_err) { /* ignore */ }
+    try {
+        if (typeof window.JmsOceanNative !== 'undefined') return true;
+    } catch (_err) { /* ignore */ }
+    return false;
+}
+
+/**
+ * Mobile App Shell Injection (PWA + Capacitor)
+ * Automatically adds bottom navigation on small screens / native shell
  */
 (function initMobileApp() {
     const path = window.location.pathname.toLowerCase();
-    if (window.innerWidth > 768 || path.endsWith('/login.html') || path.includes('/vendor/login.html')) return;
+    const nativeShell = isJmsNativeShell();
+    if ((!nativeShell && window.innerWidth > 768) || path.endsWith('/login.html') || path.includes('/vendor/login.html')) return;
+    if (nativeShell) {
+        try { document.documentElement.classList.add('jms-native-shell'); } catch (_err) { /* ignore */ }
+        try { document.body && document.body.classList.add('jms-native-shell'); } catch (_err) { /* ignore */ }
+    }
     const mobileUser = (() => {
         try {
             return JSON.parse(localStorage.getItem('user') || '{}');
@@ -402,6 +423,7 @@ function escHtml(value) {
 
         try {
             const res = await fetch(API_BASE + endpoint, {
+                credentials: 'same-origin',
                 ...options,
                 headers,
                 signal: controller.signal
@@ -525,17 +547,53 @@ function escHtml(value) {
             // immediately so LOCAL login keeps its exact prior behaviour with no
             // permission prompt and no delay.
             if (typeof window !== 'undefined' && window.isSecureContext === false) return resolve(null);
-            if (!('geolocation' in navigator)) return resolve(null);
+
             let done = false;
             const finish = (v) => { if (!done) { done = true; resolve(v); } };
-            try {
-                navigator.geolocation.getCurrentPosition(
-                    (p) => finish({ lat: p.coords.latitude, lng: p.coords.longitude, acc: p.coords.accuracy }),
-                    () => finish(null),
-                    { enableHighAccuracy: true, maximumAge: 0, timeout: timeoutMs }
-                );
-            } catch { finish(null); }
-            setTimeout(() => finish(null), timeoutMs + 500);
+            const timer = setTimeout(() => finish(null), timeoutMs + 500);
+
+            // Prefer Capacitor Geolocation inside the JMS Ocean Android shell — WebView
+            // navigator.geolocation is flaky until the Chromium permission prompt completes,
+            // which often races the login submit and blocks MAIN geofenced accounts.
+            (async () => {
+                try {
+                    const Geo = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Geolocation;
+                    if (Geo && typeof Geo.getCurrentPosition === 'function') {
+                        try { if (typeof Geo.requestPermissions === 'function') await Geo.requestPermissions(); } catch (_p) { /* continue */ }
+                        const pos = await Geo.getCurrentPosition({ enableHighAccuracy: true, timeout: Math.max(3000, timeoutMs) });
+                        const native = pos && pos.coords ? {
+                            lat: pos.coords.latitude,
+                            lng: pos.coords.longitude,
+                            acc: pos.coords.accuracy
+                        } : null;
+                        if (native && Number.isFinite(native.lat) && Number.isFinite(native.lng)) {
+                            clearTimeout(timer);
+                            return finish(native);
+                        }
+                    }
+                } catch (_err) { /* fall through to browser geolocation */ }
+
+                if (!('geolocation' in navigator)) {
+                    clearTimeout(timer);
+                    return finish(null);
+                }
+                try {
+                    navigator.geolocation.getCurrentPosition(
+                        (p) => {
+                            clearTimeout(timer);
+                            finish({ lat: p.coords.latitude, lng: p.coords.longitude, acc: p.coords.accuracy });
+                        },
+                        () => {
+                            clearTimeout(timer);
+                            finish(null);
+                        },
+                        { enableHighAccuracy: true, maximumAge: 0, timeout: timeoutMs }
+                    );
+                } catch {
+                    clearTimeout(timer);
+                    finish(null);
+                }
+            })();
         });
     }
 
@@ -856,13 +914,16 @@ function escHtml(value) {
         if (typeof window === 'undefined' || typeof document === 'undefined' || !document.body) return;
         const width = window.innerWidth || document.documentElement.clientWidth || 0;
         const height = window.innerHeight || document.documentElement.clientHeight || 0;
-        const mobile = width <= 768;
+        const nativeShell = typeof isJmsNativeShell === 'function' && isJmsNativeShell();
+        // Native Capacitor shell always behaves as the mobile drawer layout.
+        const mobile = nativeShell || width <= 768;
         const compact = width <= 1440;
         const tight = width <= 1280 || height <= 820;
         const short = height <= 760;
         const autoCollapse = width <= 1366 || height <= 820;
         const body = document.body;
 
+        body.classList.toggle('jms-native-shell', nativeShell);
         body.classList.toggle('viewport-compact', compact);
         body.classList.toggle('viewport-tight', tight);
         body.classList.toggle('viewport-short', short);
@@ -871,7 +932,7 @@ function escHtml(value) {
         const sb = document.querySelector('.sidebar');
         if (sb) {
             if (mobile) {
-                sb.classList.remove('auto-collapsed');
+                sb.classList.remove('auto-collapsed', 'collapsed');
             } else {
                 sb.classList.remove('mobile-open');
                 sb.classList.toggle('auto-collapsed', autoCollapse);
@@ -907,6 +968,8 @@ function escHtml(value) {
 
     function isMobileShellViewport() {
         if (typeof window === 'undefined') return false;
+        // Capacitor / native shell always uses the off-canvas drawer (tablets included).
+        if (typeof isJmsNativeShell === 'function' && isJmsNativeShell()) return true;
         return (window.innerWidth || document.documentElement.clientWidth || 0) <= 1024;
     }
 
@@ -2353,27 +2416,43 @@ function escHtml(value) {
         }, 200);
     };
 
-    // --- Native App JS Bridge ---
+    // --- Native App JS Bridge (JMS Ocean Capacitor shell) ---
     window.JMS_NATIVE = {
         get isNative() {
-            return Boolean(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
+            return Boolean(
+                (window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform())
+                || (typeof window.JmsOceanNative !== 'undefined')
+            );
         },
         async scanBarcode() {
-            if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.BarcodeScanner) {
-                try {
-                    const result = await window.Capacitor.Plugins.BarcodeScanner.scan();
-                    return result.text || null;
-                } catch (err) {
-                    console.warn('[JMS Native] Barcode scan error:', err);
-                    return null;
+            const plugins = window.Capacitor && window.Capacitor.Plugins;
+            const scanner = plugins && (plugins.BarcodeScanner || plugins.BarcodeScanning);
+            if (!scanner || typeof scanner.scan !== 'function') return null;
+            try {
+                if (typeof scanner.requestPermissions === 'function') {
+                    try { await scanner.requestPermissions(); } catch (_permErr) { /* continue; scan may still prompt */ }
                 }
+                const result = await scanner.scan();
+                if (!result) return null;
+                if (result.text) return result.text;
+                // @capacitor-mlkit/barcode-scanning returns { barcodes: [{ rawValue, displayValue, ... }] }
+                const codes = Array.isArray(result.barcodes) ? result.barcodes : [];
+                const first = codes[0];
+                if (first) return first.rawValue || first.displayValue || first.text || null;
+                return null;
+            } catch (err) {
+                console.warn('[JMS Native] Barcode scan error:', err);
+                return null;
             }
-            return null;
         },
         async getGPS() {
             if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Geolocation) {
                 try {
-                    const pos = await window.Capacitor.Plugins.Geolocation.getCurrentPosition({ enableHighAccuracy: true });
+                    const Geo = window.Capacitor.Plugins.Geolocation;
+                    if (typeof Geo.requestPermissions === 'function') {
+                        try { await Geo.requestPermissions(); } catch (_permErr) { /* continue */ }
+                    }
+                    const pos = await Geo.getCurrentPosition({ enableHighAccuracy: true, timeout: 10000 });
                     return {
                         lat: pos.coords.latitude,
                         lng: pos.coords.longitude,
@@ -2385,8 +2464,46 @@ function escHtml(value) {
                 }
             }
             return null;
+        },
+        /** Dual MAIN/LOCAL server switch (Android SharedPreferences → activity recreate). */
+        getServerUrl() {
+            try {
+                if (window.JmsOceanNative && typeof window.JmsOceanNative.getServerUrl === 'function') {
+                    return window.JmsOceanNative.getServerUrl();
+                }
+            } catch (_err) { /* ignore */ }
+            return null;
+        },
+        setServerUrl(url) {
+            try {
+                if (window.JmsOceanNative && typeof window.JmsOceanNative.setServerUrl === 'function') {
+                    window.JmsOceanNative.setServerUrl(String(url || ''));
+                    return true;
+                }
+            } catch (_err) { /* ignore */ }
+            return false;
+        },
+        clearServerOverride() {
+            try {
+                if (window.JmsOceanNative && typeof window.JmsOceanNative.clearServerOverride === 'function') {
+                    window.JmsOceanNative.clearServerOverride();
+                    return true;
+                }
+            } catch (_err) { /* ignore */ }
+            return false;
         }
     };
+
+    // Mark the document early so CSS can prefer native drawer chrome before first paint settles.
+    try {
+        if (window.JMS_NATIVE.isNative) {
+            document.documentElement.classList.add('jms-native-shell');
+            if (document.body) document.body.classList.add('jms-native-shell');
+            else document.addEventListener('DOMContentLoaded', () => {
+                try { document.body.classList.add('jms-native-shell'); } catch (_e) { /* ignore */ }
+            }, { once: true });
+        }
+    } catch (_err) { /* ignore */ }
 
 })(window.JPSMS);
 

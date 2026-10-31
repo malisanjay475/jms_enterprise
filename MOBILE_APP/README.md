@@ -2,6 +2,8 @@
 
 Native Android application for **JMS Ocean Enterprise**, providing 100% feature parity with the web platform (`https://jmsocean.cloud`), an off-canvas drawer sidebar with dynamic role-based access control, camera barcode scanning, and Android 14/15 Google Play Store compliance.
 
+**Current package:** `com.jmsocean.app` · Capacitor **6.2.1** · app version **1.0.1** (`versionCode` **2**)
+
 ---
 
 ## 1. Overview & Key Capabilities
@@ -17,7 +19,7 @@ Native Android application for **JMS Ocean Enterprise**, providing 100% feature 
   - **Camera Barcode & QR Scanner**: Fast native camera barcode scanning for shifting and QC verification.
   - **GPS Geolocation**: High-accuracy `FusedLocationProvider` coordinates for factory geofenced sign-in on MAIN production servers.
   - **Hardware Back Navigation**: Closes open sidebars/modals, navigates browser history, and prompts double-tap to exit on the home dashboard.
-- **Dual Server Support**: Connects to the Cloud VPS (`https://jmsocean.cloud`) or factory LOCAL servers (`http://192.168.1.173:3001`) with cleartext HTTP allowed on local factory subnets.
+- **Dual Server Support**: Defaults to the Cloud VPS (`https://jmsocean.cloud`) via Capacitor `server.url` (so the native bridge injects into the live ERP). Factory LOCAL servers can be selected at runtime with `JMS_NATIVE.setServerUrl('http://192.168.1.173:3001/')` (persisted in Android SharedPreferences and applied on activity recreate). Cleartext HTTP is allowed for LAN hosts.
 
 ---
 
@@ -138,3 +140,7 @@ MOBILE_APP/
     │       └── res/          # Branded icons, colors, splash screen styles
     └── gradlew               # Gradle wrapper executable
 ```
+
+## Debug APK (1.0.1)
+
+Phone install APK: https://github.com/malisanjay475/jms_enterprise/releases/download/jms-ocean-mobile-1.0.1-debug/app-debug.apk
