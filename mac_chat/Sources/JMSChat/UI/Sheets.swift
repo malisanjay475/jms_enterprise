@@ -359,6 +359,9 @@ struct NameRequestsSheet: View {
                                     .lineLimit(1)
                                     Text((["@" + r.username, r.role.replacingOccurrences(of: "_", with: " "), r.line]).filter { !$0.isEmpty }.joined(separator: " · "))
                                         .font(.caption).foregroundStyle(.secondary)
+                                    if !r.sameName.isEmpty {
+                                        Text("⚠ Already used by @" + r.sameName.joined(separator: ", @")).font(.caption.bold()).foregroundStyle(.orange)
+                                    }
                                 }
                                 Spacer()
                                 Button("Reject", role: .destructive) { note = ""; rejecting = r }.disabled(busy != nil)
@@ -647,6 +650,18 @@ struct ChatInfoSheet: View {
                                 }
                             }
                         }
+                    }
+                }
+                if let links = shared?.links, !links.isEmpty {
+                    card("Shared JMS pages") {
+                        VStack(alignment: .leading, spacing: 6) {
+                            ForEach(links.prefix(10)) { l in
+                                if let url = URL(string: Api.base + l.url) {
+                                    Link(destination: url) { Label(l.title ?? "Shared page", systemImage: "link") }
+                                }
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     }
                 }
                 if let groups = shared?.groups, !groups.isEmpty {

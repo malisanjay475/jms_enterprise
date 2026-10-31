@@ -27,6 +27,7 @@ const chatAdmin = require('./chatAdmin');
 const chatGate = require('./chatGate');
 const chatShare = require('./chatShare');
 const chatProfiles = require('./chatProfiles');
+const chatProfileSync = require('./chatProfileSync');
 const chatExtras = require('./chatExtras');
 const chatAuto = require('./chatAuto');
 const chatCalls = require('./chatCalls');
@@ -368,7 +369,30 @@ async function decorate(pool, rows, me) {
   } catch (err) {
     console.warn('[chat] reactions/stars:', err.message);
   }
-  return chatShare.decorateShare(pool, rows, outs); // reply quotes, shared links, work status
+  const done = await chatShare.decorateShare(pool, rows, outs); // reply quotes, shared links, work status
+  await addSenderNames(pool, done);
+  return done;
+}
+
+// Approved display names next to the login names (sender, reply quote), so every app
+// shows the same name as the chat list and contact info.
+async function addSenderNames(pool, outs) {
+  try {
+    const names = new Set();
+    for (const o of outs) {
+      if (o.sender) names.add(o.sender);
+      if (o.reply_to && o.reply_to.sender) names.add(o.reply_to.sender);
+    }
+    if (!names.size) return;
+    const prof = await chatProfiles.lookup(pool, [...names]);
+    const shown = (u) => chatProfiles.shownName(u, (prof.get(String(u).toLowerCase()) || {}).display_name);
+    for (const o of outs) {
+      if (o.sender) o.sender_name = shown(o.sender);
+      if (o.reply_to && o.reply_to.sender) o.reply_to.sender_name = shown(o.reply_to.sender);
+    }
+  } catch (err) {
+    console.warn('[chat] sender names:', err.message);
+  }
 }
 
 // Record "delivered" for every message this user has not acknowledged yet (in one chat,
@@ -767,7 +791,27 @@ function registerChatRoutes(app, pool) {
   });
   chatAdmin.registerAdminRoutes(app, pool, { ready, fail, uploadRoot });
   chatFcm.registerFcmRoutes(app, pool, { ready, fail });
-  chatProfiles.registerProfileRoutes(app, pool, { ready, fail, uploadRoot, isOnline, activeUser });
+  // Profile notices (name request / decision): live event to open chats + phone push.
+  const notice = async (usernames, n) => {
+    const names = (usernames || []).filter(Boolean);
+    if (!names.length) return;
+    pushTo(names, { type: 'notice', ...n });
+    if (chatFcm.enabled()) {
+      await chatFcm.sendToUsers(pool, names, {
+        type: 'notice', kind: String(n.kind || ''), title: String(n.title || 'JMS Chat'), body: String(n.body || '')
+      }).catch(() => {});
+    }
+  };
+  // MAIN owns profiles: a LOCAL pulls them and forwards its users' edits (chatProfileSync.js).
+  let profileForward = null;
+  if (chatSync.isLocal()) {
+    const ps = chatProfileSync.createProfileSync(pool, { uploadRoot });
+    ps.start();
+    profileForward = ps.forward;
+  } else {
+    chatProfileSync.registerProfileSyncRoutes(app, pool, { uploadRoot, notice });
+  }
+  chatProfiles.registerProfileRoutes(app, pool, { ready, fail, uploadRoot, isOnline, activeUser, notice, forward: profileForward });
   chatProfiles.ensureProfileSchema(pool).catch((err) => console.warn('[chat] profile schema:', err.message));
   chatExtras.registerExtrasRoutes(app, pool, { ready, fail, membership, decorate, sendRateOk, localFactoryId, uploadRoot });
   chatExtras.ensureExtrasSchema(pool).catch((err) => console.warn('[chat] extras schema:', err.message));
@@ -862,6 +906,12 @@ function registerChatRoutes(app, pool) {
       const me = req.auth.username;
       const peer = await activeUser(pool, String(req.params.username || ''));
       if (!peer) return res.status(404).json({ ok: false, error: 'User not found.' });
+      const { rows: [dm] } = await pool.query(
+        `SELECT c.sync_id FROM chat_conversations c
+           JOIN chat_members m1 ON m1.conversation_sync_id = c.sync_id AND LOWER(m1.username) = LOWER($1) AND m1.left_at IS NULL
+           JOIN chat_members m2 ON m2.conversation_sync_id = c.sync_id AND LOWER(m2.username) = LOWER($2)
+          WHERE c.type <> 'group' LIMIT 1`, [me, peer]
+      );
       const { rows: media } = await pool.query(
         `SELECT a.sync_id, a.kind, a.mime, a.file_name, a.size_bytes AS size, a.created_at
            FROM chat_conversations c
@@ -881,7 +931,17 @@ function registerChatRoutes(app, pool) {
           WHERE c.type = 'group'
           ORDER BY c.last_message_at DESC NULLS LAST LIMIT 50`, [me, peer]
       );
-      res.json({ ok: true, media, groups });
+      // shared JMS pages (link messages); url is always a same-origin relative path (chatShare.js)
+      const { rows: links } = await pool.query(
+        `SELECT msg.sync_id, msg.meta->>'title' AS title, msg.meta->>'url' AS url, msg.server_ts
+           FROM chat_conversations c
+           JOIN chat_members m1 ON m1.conversation_sync_id = c.sync_id AND LOWER(m1.username) = LOWER($1) AND m1.left_at IS NULL
+           JOIN chat_members m2 ON m2.conversation_sync_id = c.sync_id AND LOWER(m2.username) = LOWER($2)
+           JOIN chat_messages msg ON msg.conversation_sync_id = c.sync_id
+          WHERE c.type <> 'group' AND msg.kind = 'link' AND msg.deleted_at IS NULL AND msg.purged_at IS NULL
+          ORDER BY msg.server_ts DESC LIMIT 30`, [me, peer]
+      );
+      res.json({ ok: true, media, links: links.filter((l) => /^\/(?!\/)/.test(l.url || '')), groups, conversation: dm ? dm.sync_id : null });
     } catch (err) { fail(res, err, 'shared'); }
   });
 
@@ -938,7 +998,7 @@ function registerChatRoutes(app, pool) {
       rows.sort((a, b) => (pinOf(b) - pinOf(a)) || (new Date(b.last_message_at) - new Date(a.last_message_at)));
       const peers = rows.filter((r) => r.type !== 'group')
         .map((r) => (r.members || []).find((m) => m.toLowerCase() !== me.toLowerCase())).filter(Boolean);
-      const prof = await chatProfiles.lookup(pool, peers);
+      const prof = await chatProfiles.lookup(pool, peers.concat(rows.map((r) => r.last_sender).filter(Boolean)));
       const sec = await chatSecure.settingsFor(pool, rows.map((r) => r.sync_id)).catch(() => new Map());
       res.json({
         ok: true,
@@ -971,6 +1031,8 @@ function registerChatRoutes(app, pool) {
             last_message_at: r.last_message_at,
             last_body: r.last_deleted ? 'This message was deleted' : previewText(r.last_kind, r.last_body, r.last_meta),
             last_sender: r.last_kind === 'system' ? '' : (r.last_sender || ''),
+            last_sender_name: r.last_kind === 'system' || !r.last_sender ? ''
+              : chatProfiles.shownName(r.last_sender, (prof.get(r.last_sender.toLowerCase()) || {}).display_name),
             unread: r.unread || 0,
             is_member: members.some((m) => m.toLowerCase() === me.toLowerCase())
           };

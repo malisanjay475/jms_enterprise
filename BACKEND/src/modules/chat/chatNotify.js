@@ -205,7 +205,10 @@ async function sendPushForMessage(pool, messageSyncId) {
     : { image: '📷 Photo', pdf: '📄 PDF', xlsx: '📊 Excel file', audio: '🎤 Audio', video: '🎥 Video' }[m.kind];
   const pre = m.meta && m.meta.poll ? '📊 Poll: ' : m.meta && m.meta.announcement ? '📢 ' : '';
   const body = pre + (label ? (m.body ? `${label}: ${m.body}` : label) : m.body);
-  const title = (urgent ? '⚠ URGENT · ' : '') + (m.conv_type === 'group' ? `${m.sender} in ${m.conv_title || 'Group'}` : m.sender);
+  // the approved display name, like everywhere else in the apps
+  const senderName = await require('./chatProfiles').lookup(pool, [m.sender])
+    .then((mp) => (mp.get(String(m.sender).toLowerCase()) || {}).display_name || m.sender).catch(() => m.sender);
+  const title = (urgent ? '⚠ URGENT · ' : '') + (m.conv_type === 'group' ? `${senderName} in ${m.conv_title || 'Group'}` : senderName);
   let sent = 0;
 
   // Android app: one data message per phone, with that person's total unread for the
@@ -220,6 +223,7 @@ async function sendPushForMessage(pool, messageSyncId) {
         title: String(title || ''),
         body: (mentionedSet.has(key) ? '@ ' : '') + String(body || '').slice(0, 300),
         sender: String(m.sender || ''),
+        sender_name: String(senderName || m.sender || ''),
         conversation_sync_id: String(m.conversation_sync_id),
         message_sync_id: String(m.sync_id),
         is_group: m.conv_type === 'group' ? '1' : '0',

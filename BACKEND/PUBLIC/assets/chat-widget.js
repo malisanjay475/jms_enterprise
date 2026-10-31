@@ -110,6 +110,15 @@
 
   function isGroup(c) { return !!c && c.type === 'group'; }
 
+  // Approved display names by login (from messages, members and the chat list), so every
+  // place shows the same name as the chat list and contact info.
+  var displayNames = {};
+  function rememberName(user, name) { if (user && name) displayNames[String(user).toLowerCase()] = name; }
+  function nameOf(user, given) {
+    if (given) { rememberName(user, given); return given; }
+    return displayNames[String(user || '').toLowerCase()] || user;
+  }
+
   // Avatar: profile photo when the person has one, else coloured initials.
   function setAvatar(av, name, photoV, group) {
     av.textContent = group ? '👥' : initials(name);
@@ -783,7 +792,7 @@
       var prefix = '';
       if (c.last_sender) {
         if (same(c.last_sender, me) && !adminAll) prefix = 'You: ';
-        else if (adminAll || isGroup(c)) prefix = c.last_sender + ': ';
+        else if (adminAll || isGroup(c)) prefix = nameOf(c.last_sender, c.last_sender_name) + ': ';
       }
       r2.appendChild(el('div', 'jc-prev' + (typing ? ' jc-typing' : ''), typing || (prefix + (c.last_body || ''))));
       if (c.unread && c.is_member) { r2.appendChild(el('div', 'jc-unr', String(c.unread))); it.classList.add('jc-hasunr'); }
@@ -914,18 +923,25 @@
     var fileIn = document.createElement('input');
     fileIn.type = 'file'; fileIn.accept = 'image/*'; fileIn.style.display = 'none';
     dlg.box.appendChild(fileIn);
+    // errors show inside the dialog (a toast would sit behind it)
+    var perr = el('div', 'jc-perr');
+    perr.style.cssText = 'display:none;margin:0 16px 14px;padding:9px 12px;border-radius:10px;background:#fde7e9;color:#b3261e;font-size:13px';
+    function showPerr(msg) {
+      perr.textContent = msg; perr.style.display = 'block';
+      clearTimeout(showPerr.t); showPerr.t = setTimeout(function () { perr.style.display = 'none'; }, 6000);
+    }
     function save(promise, okText) {
       return promise.then(function (d) {
         if (d.profile) { myProfile = d.profile; refreshMeAvatar(); draw(); }
         var msg = d.message || okText;
         if (msg) toastText('Profile', msg);
-      }).catch(function (e) { alert(e.message); });
+      }).catch(function (e) { showPerr(e.message); });
     }
     fileIn.addEventListener('change', function () {
       var f = fileIn.files && fileIn.files[0];
       fileIn.value = '';
       if (!f) return;
-      if (f.size > 5 * 1024 * 1024) { alert('Photo is too big (max 5 MB).'); return; }
+      if (f.size > 5 * 1024 * 1024) { showPerr('Photo is too big (max 5 MB).'); return; }
       var fd = new FormData(); fd.append('photo', f);
       save(api('POST', API + '/profile/photo', fd), 'Profile photo updated');
     });
@@ -987,7 +1003,7 @@
       section('Your name', p.pending_name || shown, 'Your name', 40,
         'This is the name your colleagues see. A new name is shown after an admin approves it.',
         function (v) {
-          if (v.length < 2) { alert('Name must be 2 to 40 characters.'); return Promise.resolve(); }
+          if (v.length < 2) { showPerr('Name must be 2 to 40 characters.'); return Promise.resolve(); }
           if (v === (p.pending_name || shown)) return Promise.resolve();
           return save(api('PUT', API + '/profile', { name: v }));
         });
@@ -1010,8 +1026,9 @@
         b.appendChild(nr);
       }
       dlg.body.appendChild(b);
+      dlg.body.appendChild(perr);
     }
-    function reload() { api('GET', API + '/profile').then(function (d) { myProfile = d.profile; refreshMeAvatar(); draw(); }).catch(function (e) { alert(e.message); }); }
+    function reload() { api('GET', API + '/profile').then(function (d) { myProfile = d.profile; refreshMeAvatar(); draw(); }).catch(function (e) { showPerr(e.message); }); }
     draw();
     reload();
   }
@@ -1033,19 +1050,30 @@
           chg.appendChild(el('s', null, r.current_name)); chg.appendChild(document.createTextNode(' → ')); chg.appendChild(el('b', null, r.requested_name));
           mid.appendChild(chg);
           mid.appendChild(el('small', null, ['@' + r.username, String(r.role || '').replace(/_/g, ' '), r.line].filter(Boolean).join(' · ')));
+          if (r.same_name && r.same_name.length) {
+            var warn = el('small', null, '⚠ Already used by @' + r.same_name.join(', @'));
+            warn.style.cssText = 'display:block;color:#b45309;font-weight:600';
+            mid.appendChild(warn);
+          }
           var ok = el('button', 'jc-ok', '✓ Approve');
           var no = el('button', 'jc-rej', '✕');
           no.title = 'Reject';
-          function decide(action) {
-            var note = '';
-            if (action === 'reject') { note = prompt('Reason (shown to ' + r.current_name + '):', ''); if (note === null) return; }
+          function decide(action, note) {
             ok.disabled = no.disabled = true;
-            api('POST', API + '/name-requests/' + encodeURIComponent(r.username), { action: action, note: note })
+            api('POST', API + '/name-requests/' + encodeURIComponent(r.username), { action: action, note: note || '' })
               .then(function () { draw(); if (onChange) onChange(); })
-              .catch(function (e) { ok.disabled = no.disabled = false; alert(e.message); });
+              .catch(function (e) { ok.disabled = no.disabled = false; showErr(e.message); });
           }
           ok.addEventListener('click', function () { decide('approve'); });
-          no.addEventListener('click', function () { decide('reject'); });
+          no.addEventListener('click', function () {
+            var rd = modal('Reject "' + r.requested_name + '"?');
+            var f = field('Reason (shown to ' + r.current_name + ')', 'text', '');
+            f.input.maxLength = 140;
+            f.input.placeholder = 'e.g. Please use your full name';
+            rd.body.appendChild(f.wrap);
+            dialogButtons(rd, 'Reject', function () { rd.close(); decide('reject', f.input.value.trim()); });
+            setTimeout(function () { f.input.focus(); }, 30);
+          });
           row.appendChild(av); row.appendChild(mid); row.appendChild(ok); row.appendChild(no);
           dlg.body.appendChild(row);
         });
@@ -1063,6 +1091,43 @@
       }).catch(function (e) { dlg.body.textContent = ''; dlg.body.appendChild(el('div', 'jc-empty', e.message)); });
     }
     draw();
+  }
+
+  // Search the messages of one chat; a result opens the chat at that message.
+  function searchInChat(c) {
+    var dlg = modal('🔍 Search in ' + (c.title || 'chat'));
+    var f = field('Words in the message', 'text', '');
+    var list = el('div');
+    dlg.body.appendChild(f.wrap);
+    dlg.body.appendChild(list);
+    var t = null, seq = 0;
+    f.input.addEventListener('input', function () {
+      clearTimeout(t);
+      t = setTimeout(function () {
+        var q = f.input.value.trim();
+        var my = ++seq;
+        list.textContent = '';
+        if (q.length < 2) return;
+        list.appendChild(el('div', 'jc-empty', 'Searching…'));
+        api('GET', API + '/search?q=' + encodeURIComponent(q) + '&conversation=' + encodeURIComponent(c.sync_id)).then(function (d) {
+          if (my !== seq) return;
+          list.textContent = '';
+          var rs = d.results || [];
+          if (!rs.length) list.appendChild(el('div', 'jc-empty', 'No messages found.'));
+          rs.forEach(function (r) {
+            var m = r.message;
+            var it = el('div', 'jc-row2');
+            it.style.display = 'block';
+            var who = same(m.sender, me) ? 'You' : nameOf(m.sender, m.sender_name);
+            it.appendChild(el('small', null, who + ' · ' + fmtListTime(m.server_ts)));
+            it.appendChild(el('div', null, m.body || (m.attachment ? m.attachment.file_name : '')));
+            it.addEventListener('click', function () { dlg.close(); openConv(c, m.sync_id); });
+            list.appendChild(it);
+          });
+        }).catch(function (e) { list.textContent = ''; list.appendChild(el('div', 'jc-empty', e.message)); });
+      }, 250);
+    });
+    setTimeout(function () { f.input.focus(); }, 30);
   }
 
   // Full-screen photo viewer (click anywhere or Esc to close).
@@ -1132,7 +1197,7 @@
       }
       act('💬', 'Message', function () { dlg.close(); if (current !== c) openConv(c); setTimeout(function () { els.ta.focus(); }, 50); });
       act('📞', 'Voice', function () { dlg.close(); webCall.start(peer); });
-      act('🔍', 'Search', function () { dlg.close(); els.sIn.value = ''; els.sIn.focus(); els.sIn.placeholder = 'Search messages…'; });
+      act('🔍', 'Search', function () { dlg.close(); searchInChat(c); });
       dlg.body.appendChild(acts);
 
       var about = el('div', 'jc-card');
@@ -1142,9 +1207,10 @@
 
       var m = el('div', 'jc-card');
       var media = (shared && shared.media) || [];
+      var links = (shared && shared.links) || [];
       var grid = null;
-      row(m, '🖼', 'Media, links and docs', shared ? (media.length ? String(media.length) : 'None') : '…', function () {
-        if (!media.length) return;
+      row(m, '🖼', 'Media, links and docs', shared ? ((media.length + links.length) ? String(media.length + links.length) : 'None') : '…', function () {
+        if (!media.length && !links.length) return;
         if (grid) { grid.remove(); grid = null; return; }
         grid = el('div', 'jc-grid');
         media.forEach(function (a) {
@@ -1160,6 +1226,13 @@
             ln.appendChild(el('span', null, a.file_name.length > 14 ? a.file_name.slice(0, 12) + '…' : a.file_name));
             grid.appendChild(ln);
           }
+        });
+        links.forEach(function (l) {
+          var ln = el('a'); ln.href = l.url; ln.target = '_blank'; ln.rel = 'noopener'; ln.title = l.title || 'Shared page';
+          ln.appendChild(el('b', null, '🔗'));
+          var t = l.title || 'Shared page';
+          ln.appendChild(el('span', null, t.length > 14 ? t.slice(0, 12) + '…' : t));
+          grid.appendChild(ln);
         });
         m.insertBefore(grid, m.children[1] || null);
       });
@@ -1513,6 +1586,7 @@
       if (d.title && isGroup(c)) c.title = d.title;
       c.members = d.members || c.members;
       c.member_roles = d.member_roles || [];
+      c.member_roles.forEach(function (r) { rememberName(r.username, r.display_name); });
       c.my_role = d.my_role;
       convHeader();
       var ms = d.messages || [];
@@ -1675,7 +1749,7 @@
     });
     if (!isProtected(m.conversation_sync_id)) item('Forward', function () { forwardDialog([m]); });
     if (m.body && navigator.clipboard) item('Copy', function () { navigator.clipboard.writeText(m.body).catch(function () { }); });
-    if (grp && !mine) item('Message ' + m.sender, function () { startChat(m.sender); });
+    if (grp && !mine) item('Message ' + nameOf(m.sender, m.sender_name), function () { startChat(m.sender); });
     if (mine) {
       item('Info', function () { infoDialog(m); });
       var canEdit = (m.kind === 'text' || m.attachment) && Date.now() - new Date(m.server_ts).getTime() < EDIT_MS;
@@ -1956,7 +2030,7 @@
         b.addEventListener('contextmenu', function (e) { e.preventDefault(); messageMenu(m, b); });
       }
       if (!mine && showNames) {
-        var sn = el('div', 'jc-snd', m.sender);
+        var sn = el('div', 'jc-snd', nameOf(m.sender, m.sender_name));
         sn.style.color = m.verified ? '#008069' : avatarColor(m.sender);
         if (m.verified) { var vb = el('span', 'jc-verified', '✓'); vb.title = 'Verified JMS account'; sn.appendChild(vb); }
         b.appendChild(sn);
@@ -2295,6 +2369,7 @@
   function refreshInfo(c) {
     api('GET', API + '/conversations/' + encodeURIComponent(c.sync_id) + '/messages').then(function (d) {
       c.members = d.members; c.member_roles = d.member_roles; c.my_role = d.my_role;
+      (d.member_roles || []).forEach(function (r) { rememberName(r.username, r.display_name); });
       if (d.title) c.title = d.title;
       if (current === c) showGroupInfo();
       loadConvs();
@@ -2326,7 +2401,8 @@
     if (toastEl) toastEl.remove();
     toastEl = el('div', 'jc-toast');
     var c = convs.filter(function (x) { return x.sync_id === m.conversation_sync_id; })[0];
-    toastEl.appendChild(el('b', null, c && isGroup(c) ? m.sender + ' @ ' + c.title : m.sender));
+    var who = nameOf(m.sender, m.sender_name);
+    toastEl.appendChild(el('b', null, c && isGroup(c) ? who + ' @ ' + c.title : who));
     toastEl.appendChild(el('span', null, previewOf(m)));
     toastEl.addEventListener('click', function () {
       toastEl.remove(); toastEl = null;
@@ -2378,13 +2454,19 @@
     var mm = /(^|\s)@([\w.\-]*)$/.exec(upto);
     if (!mm) return hideMention();
     var q = mm[2].toLowerCase();
-    mentionList = (current.members || []).filter(function (n) { return !same(n, me) && n.toLowerCase().indexOf(q) === 0; });
+    // match the login or any word of the approved name; @login is what gets inserted
+    mentionList = (current.members || []).filter(function (n) {
+      if (same(n, me)) return false;
+      if (n.toLowerCase().indexOf(q) === 0) return true;
+      return String(nameOf(n)).toLowerCase().split(/\s+/).some(function (w) { return w.indexOf(q) === 0; });
+    });
     if ('all'.indexOf(q) === 0) mentionList.push('all');
     if (!mentionList.length) return hideMention();
     var box = els.ment;
     box.textContent = '';
     mentionList.slice(0, 8).forEach(function (n, i) {
-      var d = el('div', i === 0 ? 'jc-on' : null, '@' + n + (n === 'all' ? '  (everyone in the group)' : ''));
+      var label = n === 'all' ? '@all  (everyone in the group)' : (nameOf(n) !== n ? nameOf(n) + '  @' + n : '@' + n);
+      var d = el('div', i === 0 ? 'jc-on' : null, label);
       d.addEventListener('mousedown', function (e) { e.preventDefault(); pickMention(i); });
       box.appendChild(d);
     });
@@ -2504,7 +2586,7 @@
   function desktopNotify(m) {
     if (notifState() !== 'granted') return;
     var c = convById(m.conversation_sync_id);
-    var title = c && isGroup(c) ? m.sender + ' in ' + c.title : m.sender;
+    var title = c && isGroup(c) ? nameOf(m.sender, m.sender_name) + ' in ' + c.title : nameOf(m.sender, m.sender_name);
     var opts = { body: (mentionsMe(m.body) ? '@ ' : '') + previewOf(m), tag: 'jms-chat-' + m.conversation_sync_id,
       renotify: true, icon: '/assets/icon-192.png', data: { chat: m.conversation_sync_id }, silent: !soundOn };
     if (swReg && swReg.showNotification) { swReg.showNotification(title, opts).catch(function () { }); return; }
@@ -2610,6 +2692,14 @@
         if (current) convHeader();
         renderListIfIdle();
       }, 4100);
+    } else if (ev.type === 'notice') {
+      // name request (admins) or the decision on mine
+      toastText(ev.title || 'JMS Chat', ev.body || '');
+      if (document.hidden && notifState() === 'granted') {
+        try { new Notification(ev.title || 'JMS Chat', { body: ev.body || '', icon: '/assets/brand/jms-chat-192.png', tag: 'jms-notice' }); } catch (_e) { }
+      }
+      myProfile = null;
+      refreshMeAvatar();
     } else if (ev.type === 'signup_request' || ev.type === 'signup_update') {
       if (canApprove) {
         loadSignups();
@@ -2974,7 +3064,7 @@
       d.appendChild(im);
     }
     var t = el('div');
-    t.appendChild(el('b', null, q.deleted ? '' : (same(q.sender, me) ? 'You' : q.sender)));
+    t.appendChild(el('b', null, q.deleted ? '' : (same(q.sender, me) ? 'You' : nameOf(q.sender, q.sender_name))));
     t.appendChild(el('span', null, q.deleted ? 'Original message deleted' : (q.text || '…')));
     d.appendChild(t);
     d.title = 'Show the original message';
@@ -3523,7 +3613,7 @@
     var L = m.link;
     var bn = el('div', 'jc-tbanner');
     var msg = el('div', 'jc-tmsg');
-    var head = el('b', null, (L.priority === 'urgent' ? '⚠ Urgent · ' : '🔗 ') + 'Shared by ' + m.sender + (m.body ? ': ' + m.body : ''));
+    var head = el('b', null, (L.priority === 'urgent' ? '⚠ Urgent · ' : '🔗 ') + 'Shared by ' + nameOf(m.sender, m.sender_name) + (m.body ? ': ' + m.body : ''));
     var sub = el('small', null, 'Finding the marked item…');
     msg.appendChild(head); msg.appendChild(sub);
     var stEl = el('span', 'jc-badge2');
