@@ -7,7 +7,7 @@
 
     <!-- Splash while the app starts: JMS logo on JMS Chat green, then the normal theme. -->
     <style name="Theme.JmsChat.Starting" parent="Theme.SplashScreen">
-        <item name="windowSplashScreenBackground">@color/chat_green</item>
+        <item name="windowSplashScreenBackground">@color/brand_green</item>
         <item name="windowSplashScreenAnimatedIcon">@drawable/ic_launcher_foreground</item>
         <item name="postSplashScreenTheme">@style/Theme.JmsChat</item>
     </style>

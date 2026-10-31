@@ -90,11 +90,9 @@ fun LockScreen(mode: String = "unlock", onDone: () -> Unit, onCancel: (() -> Uni
         if (pin.length == PIN_LEN) complete(pin)
     }
 
-    Box(Modifier.fillMaxSize().background(Color(0xFF075E54))) {
+    Box(Modifier.fillMaxSize().background(BrandGradient)) {
         Column(Modifier.fillMaxSize().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-            Box(Modifier.size(72.dp).clip(CircleShape).background(Color.White), contentAlignment = Alignment.Center) {
-                Image(painterResource(R.drawable.jms_logo), null, Modifier.size(48.dp))
-            }
+            BrandLogo(76.dp)
             Spacer(Modifier.height(14.dp))
             Text("JMS Chat is locked".takeIf { mode == "unlock" } ?: "App lock", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(6.dp))

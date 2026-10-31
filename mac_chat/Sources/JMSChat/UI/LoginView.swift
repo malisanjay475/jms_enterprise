@@ -14,8 +14,13 @@ struct LoginView: View {
 
     var body: some View {
         ZStack {
-            LinearGradient(colors: [Color.jmsTeal, Color(hex: 0x128C7E)], startPoint: .topLeading, endPoint: .bottomTrailing)
-                .ignoresSafeArea()
+            Color.brandGradient.ignoresSafeArea()
+            VStack(spacing: 2) {
+                Spacer()
+                Text("from").font(.caption).foregroundStyle(.white.opacity(0.7))
+                Text("Joyo Plastics").font(.headline).tracking(1).foregroundStyle(.white)
+            }
+            .padding(.bottom, 24)
             VStack(spacing: 18) {
                 Image(nsImage: NSApp.applicationIconImage)
                     .resizable()

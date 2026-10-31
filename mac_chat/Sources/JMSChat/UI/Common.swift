@@ -12,6 +12,9 @@ extension Color {
     static let accentGreen = Color(hex: 0x00A884)
     static let onlineGreen = Color(hex: 0x25D366)
     static let tick = Color(hex: 0x34B7F1)
+    /** The JMS Chat logo gradient (BACKEND/PUBLIC/assets/brand/jms-chat-logo.svg). */
+    static let brandGradient = LinearGradient(colors: [Color(hex: 0x00C29A), Color(hex: 0x008069), Color(hex: 0x054D44)],
+                                              startPoint: .topLeading, endPoint: .bottomTrailing)
 
     static func dyn(_ light: UInt32, _ dark: UInt32) -> Color {
         Color(nsColor: NSColor(name: nil) { a in
