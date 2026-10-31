@@ -14,6 +14,9 @@ part of your PR. On release, the `[Unreleased]` items move under the new version
 ## [Unreleased]
 
 ### Added
+- JMS Chat phone app (v1.161.0): a floating bottom bar like WhatsApp on iPhone - Chats (unread count), Starred, Tasks, Approvals (if you have any) and You (your photo). It hides while a chat is open. The new "You" page shows your photo, name and about, with Starred messages, My tasks, Approvals, Linked devices, Profile, Notifications and sound, App lock, Appearance (System / Dark / Light), Install app and Sign out. The header no longer repeats those buttons on phones.
+
+### Added
 - JMS Chat desktop (v1.160.1): hovering a message shows the ▾ options arrow (no need to know right-click) and a ☺ react button beside it, like WhatsApp Desktop. The react button opens a bar of quick reactions with "+" for more; the options menu has a "React" entry too.
 
 ### Changed
