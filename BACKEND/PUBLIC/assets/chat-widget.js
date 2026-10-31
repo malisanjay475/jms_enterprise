@@ -459,6 +459,7 @@
     bellBtn.title = 'Notifications and sound';
     var groupBtn = el('button', 'jc-ibtn', '👥');
     groupBtn.title = 'New group';
+    if (!canApprove) groupBtn.style.display = 'none'; // only admins and superadmins make groups
     var newBtn = el('button', 'jc-ibtn', '✎');
     newBtn.title = 'New chat';
     var closeBtn = el('button', 'jc-ibtn', '✕');
@@ -751,6 +752,7 @@
       var mid = el('div', 'jc-mid');
       var r1 = el('div', 'jc-row');
       var nm = el('div', 'jc-name', c.title);
+      if (c.system) nm.appendChild(el('span', 'jc-verified', '✓'));
       if (isMuted(c)) { var mi = el('span', 'jc-mute', '🔕'); mi.title = muteLabel(c); nm.appendChild(mi); }
       if (c.pinned) nm.appendChild(el('span', 'jc-pin', '📌'));
       r1.appendChild(nm);
@@ -1218,6 +1220,7 @@
   }
 
   function showNewGroup() {
+    if (!canApprove) { showErr('Only an admin or superadmin can create groups.'); return; }
     if (adminAll) setAdminAll(false);
     els.groupMode = true;
     els.peopleMode = false;
@@ -1284,6 +1287,7 @@
     var c = current;
     var readOnly = c.is_member === false;
     els.mName.textContent = c.title;
+    if (c.system) { var vb = el('span', 'jc-verified', '✓'); vb.title = 'Verified JMS account'; els.mName.appendChild(vb); }
     els.mInfo.style.display = isGroup(c) && (!readOnly || isAdmin) ? '' : 'none';
     els.mTitle.classList.toggle('jc-mh-click', isGroup(c) && (!readOnly || isAdmin));
     var typing = typingText(c.sync_id);
@@ -1296,7 +1300,7 @@
     els.mMute.textContent = isMuted(c) ? '🔕' : '🔔';
     els.mMute.title = isMuted(c) ? muteLabel(c) + ' (click to change)' : 'Mute notifications';
     setAvatar(els.mAv, c.title, c.photo_v, isGroup(c));
-    if (els.mCall) els.mCall.style.display = !isGroup(c) && !readOnly && serverInfo.server_type !== 'LOCAL' ? '' : 'none';
+    if (els.mCall) els.mCall.style.display = !isGroup(c) && !c.system && !readOnly && serverInfo.server_type !== 'LOCAL' ? '' : 'none';
   }
 
   function openConv(c, focusId) {

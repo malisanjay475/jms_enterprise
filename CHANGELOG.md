@@ -13,6 +13,12 @@ part of your PR. On release, the `[Unreleased]` items move under the new version
 
 ## [Unreleased]
 
+### Changed
+- JMS Chat (v1.160.0): no more automatic groups - the factory "All staff" and line / department groups are no longer created or kept in sync (CHAT_AUTO_GROUPS=1 turns it back on; existing groups stay as they are). Only admins and superadmins can create groups: the "New group" button is shown only to them and the server refuses others.
+
+### Fixed
+- JMS Chat welcome (v1.159.1): people got the welcome several times, because the factory (LOCAL) servers also ran the welcome job (the server type is known only after start-up). The job now checks the server type on every run. The welcome is now a direct chat from "JMS ✓" (no group). Only the welcome viewers (CHAT_WELCOME_VIEWERS, default "Sanjay,Hitesh Joshi,admin,Earth Patel", exact usernames) are in these chats to read them and answer replies; other superadmins are not. Existing copies are tidied: each person keeps one chat (the oldest, turned into the direct chat) and everyone leaves the extra copies, so they vanish from every chat list.
+
 ### Added
 - JMS Chat welcome (v1.159.0): every active user gets one welcome message from the verified "JMS ✓" sender ("🙏 Namaste <name>! Welcome to JMS Chat ... reply here and the JMS Team will help you"). Existing users are greeted once after this release (25 per minute); new users within a minute of being created / approved. It opens a "JMS Team · <name>" group with the person and the superadmins (archived for the superadmins), so replies reach the JMS Team. chat_welcome remembers who was greeted.
 
