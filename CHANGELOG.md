@@ -13,6 +13,9 @@ part of your PR. On release, the `[Unreleased]` items move under the new version
 
 ## [Unreleased]
 
+### Added
+- JMS Chat (v1.157.0): superadmins get "Clear all messages" in Group info - deletes every message in the group for everyone (after a confirm), notes it in the group and records it in the chat audit log. Superadmins could already delete any single message.
+
 ### Changed
 - JMS Chat "<Factory> – All staff" groups get no automated messages any more (v1.156.1): no QC hold / release or machine stop / restart alerts, no shift summaries and no welcome note. The groups and their members are still kept in sync.
 
