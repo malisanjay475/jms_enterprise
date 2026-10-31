@@ -68,7 +68,7 @@ part of your PR. On release, the `[Unreleased]` items move under the new version
 - NPD Tracker (v1.154.3): Purchase users can now edit the Purchase column ("Packing material follow up & receiving"). Any role whose code or name contains "purchase" gets it.
 
 ### Added
-- JMS Chat phase E (v1.161.0): group voice calls (up to 8, WebRTC mesh, Join notification, call line in the group) and push-to-talk walkie-talkie clips that play by themselves; Android app 3.4.0. Needs TURN for mobile↔mobile on cellular.
+- JMS Chat phase E (v1.162.0): group voice calls (up to 8, WebRTC mesh, Join notification, call line in the group) and push-to-talk walkie-talkie clips that play by themselves; Android app 3.4.0. Needs TURN for mobile↔mobile on cellular.
 - Compliance job flow (v1.154.2): GET /api/shifting/job-flow plus flow strips on every Compliance Summary machine cell and DPR job popup. Existing qc_verifications sync_id replication on MAIN is preserved.
 - NPD Tracker (npd.html, v1.154.0): stage editing by role (Admin / Superadmin all columns; Tool Room, Moulding, Planning, QC and Packing roles only their own columns), only Superadmin deletes, child moulds under each product with the same columns, completion date shown on Complete stages, and a mandatory remark on every stage change.
 - Page smoke test (v1.153.4): new BACKEND/scripts/smoke-pages.js opens every PUBLIC/*.html page in a real browser (playwright-core, or the copy bundled with the global @playwright/cli) and reports JS errors, console errors, failed / 4xx-5xx same-origin requests and login redirects; read-only, exit code 1 on any FAIL. Options --base, --state (logged-in storage state), --only, --shots.

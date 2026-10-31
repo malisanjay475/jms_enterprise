@@ -11,9 +11,9 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.161.0",
+  "latest": "1.162.0",
   "versions": [
-    {"version": "1.161.0", "date": "2026-10-31", "title": "JMS Chat: group calls and walkie-talkie", "modules": [{"app": "all", "changes": [{"type": "feature", "text": "Group voice calls (up to 8 people) from the website and Android chat app, and walkie-talkie / push-to-talk clips that play by themselves in an open chat."}]}]},
+    {"version": "1.162.0", "date": "2026-10-31", "title": "JMS Chat: group calls and walkie-talkie", "modules": [{"app": "all", "changes": [{"type": "feature", "text": "Group voice calls (up to 8 people) from the website and Android chat app, and walkie-talkie / push-to-talk clips that play by themselves in an open chat."}]}]},
     {"version": "1.154.2", "date": "2026-10-30", "title": "Compliance Summary shows full job flow", "modules": [{"app": "dpr", "changes": [{"type": "feature", "text": "Moulding, QC and Shifting Compliance Summary machine cells, and the DPR job popup, now show Produced, Balance, QC verified, QC hold, QC balance, Shifted, Shifting balance and Shop floor for the running job."}]}]},
     {"version": "1.153.3", "date": "2026-10-27", "title": "Sidebar fits phones and tablets", "modules": [{"app": "all", "changes": [{"type": "fix", "text": "On phones and tablets the side menu now opens as a clean full list: an open group's pages show under it instead of squeezed beside it, the module search box is readable, and the menu button no longer covers the JMS OCEAN logo while the menu is open."}]}]},
     {
