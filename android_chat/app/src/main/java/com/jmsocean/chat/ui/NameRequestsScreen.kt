@@ -126,6 +126,8 @@ fun NameRequestsScreen(onBack: () -> Unit) {
                                 }
                                 val sub = listOf("@" + r.username, r.role.replace('_', ' '), r.line).filter { it.isNotBlank() }.joinToString(" · ")
                                 Text(sub, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                if (r.same_name.isNotEmpty()) Text("⚠ Already used by @" + r.same_name.joinToString(", @"),
+                                    fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFFB45309))
                             }
                         }
                         Spacer(Modifier.height(12.dp))

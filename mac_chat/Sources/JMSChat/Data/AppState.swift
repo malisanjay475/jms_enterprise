@@ -144,6 +144,8 @@ final class AppState: ObservableObject {
                 if !looking && !(conv?.isMuted ?? false) { Notifier.shared.notify(m, conv: conv) }
             }
             reloadSoon()
+        case "notice":
+            Notifier.shared.notice(title: ev.title ?? "JMS Chat", body: ev.body ?? "")
         case "message_update", "conversation", "reconnect":
             reloadSoon()
         case "receipt":
