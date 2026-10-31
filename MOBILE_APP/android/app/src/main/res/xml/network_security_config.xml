@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Factory LOCAL servers use plain HTTP on the LAN. MAIN cloud stays HTTPS.
+     Matches android:usesCleartextTraffic on the application tag. -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>
