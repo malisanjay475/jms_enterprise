@@ -1315,6 +1315,22 @@ tbody tr:hover {
   .sidebar .sub-toggle-btn {
     flex: 0 0 auto !important;
   }
+  /* Each group stacks its row above its submenu (a row layout pushed the open
+     submenu beside the group, squeezed into a narrow column). */
+  .sidebar .nav-item {
+    flex-direction: column !important;
+  }
+  .sidebar .nav-item .nav-sub {
+    width: 100% !important;
+  }
+  /* The phone form styling (white 45px inputs) must not hit the drawer search. */
+  .sidebar .sidebar-search-box input {
+    background: rgba(255, 255, 255, 0.08) !important;
+    border: 1px solid rgba(255, 255, 255, 0.15) !important;
+    color: #ffffff !important;
+    height: 42px !important;
+    border-radius: 10px !important;
+  }
 
   /* 4. CARDS & VISUALS */
   .card,
@@ -1480,6 +1496,17 @@ tbody tr:hover {
 
   .mobile-sidebar-fab i {
     font-size: 1.35rem;
+  }
+
+  /* Drawer open: the FAB would sit on top of the logo, and the drawer already has
+     its own close (x) button, so hide the FAB and the desktop collapse toggle. */
+  body.mobile-sidebar-open .mobile-sidebar-fab {
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .sidebar #sidebar-toggle {
+    display: none !important;
   }
 }
 

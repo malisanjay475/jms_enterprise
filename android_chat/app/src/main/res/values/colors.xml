@@ -2,4 +2,5 @@
 <resources>
     <color name="chat_green">#075E54</color>
     <color name="chat_bg">#F0F2F5</color>
+    <color name="brand_green">#008069</color>
 </resources>

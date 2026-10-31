@@ -50,7 +50,7 @@ import kotlinx.coroutines.launch
 /** Contact info (a direct chat) or group info (members with photos and last seen). */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun InfoScreen(convId: String, onBack: () -> Unit, onMessage: (String) -> Unit, onLeft: () -> Unit = onBack) {
+fun InfoScreen(convId: String, onBack: () -> Unit, onMessage: (String) -> Unit, onLeft: () -> Unit = onBack, onOpenChat: (String) -> Unit = {}) {
     val ctx = androidx.compose.ui.platform.LocalContext.current
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     var reload by remember { mutableStateOf(0) }
@@ -69,13 +69,17 @@ fun InfoScreen(convId: String, onBack: () -> Unit, onMessage: (String) -> Unit, 
     var group by remember { mutableStateOf(false) }
     var members by remember { mutableStateOf<List<Member>>(emptyList()) }
     var peer by remember { mutableStateOf<Profile?>(null) }
+    var shared by remember { mutableStateOf<com.jmsocean.chat.data.SharedReply?>(null) }
 
     LaunchedEffect(convId, reload) {
         runCatching { Api.messages(convId) }.onSuccess { r ->
             group = r.type == "group"
             members = r.member_roles
             title = r.title ?: r.members.firstOrNull { !Session.isMe(it) } ?: ""
-            if (!group) r.members.firstOrNull { !Session.isMe(it) }?.let { p -> runCatching { Api.profileOf(p) }.onSuccess { peer = it } }
+            if (!group) r.members.firstOrNull { !Session.isMe(it) }?.let { p ->
+                runCatching { Api.profileOf(p) }.onSuccess { peer = it; title = it.shownName }
+                runCatching { Api.shared(p) }.onSuccess { shared = it }
+            }
         }
     }
 
@@ -84,12 +88,24 @@ fun InfoScreen(convId: String, onBack: () -> Unit, onMessage: (String) -> Unit, 
             TopAppBar(
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
                 title = { Text(if (group) "Group info" else "Contact info", fontWeight = FontWeight.SemiBold) },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = Teal, titleContentColor = Color.White, navigationIconContentColor = Color.White)
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = headerColor(), titleContentColor = Color.White, navigationIconContentColor = Color.White)
             )
         }
     ) { pad ->
         LazyColumn(Modifier.padding(pad).fillMaxSize()) {
-            item {
+            if (!group) {
+                val p = peer
+                if (p != null) item {
+                    ContactDetails(p, shared, convId, onBack = onBack, onOpenChat = onOpenChat)
+                } else item {
+                    Column(Modifier.fillMaxWidth().padding(vertical = 24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                        Avatar(title, 140.dp)
+                        Spacer(Modifier.height(12.dp))
+                        Text(title, fontSize = 24.sp, fontWeight = FontWeight.SemiBold)
+                    }
+                }
+            }
+            if (group) item {
                 Column(Modifier.fillMaxWidth().padding(vertical = 24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                     val p = peer
                     Avatar(title, 140.dp, group = group, photoUrl = if (group || p == null) null else Api.avatarUrl(p.username, p.photo_v))
@@ -101,14 +117,9 @@ fun InfoScreen(convId: String, onBack: () -> Unit, onMessage: (String) -> Unit, 
                 }
                 HorizontalDivider()
             }
-            val p = peer
-            if (!group && p != null) item {
-                InfoRow(Icons.Default.Info, "About", p.about.ifBlank { "Hey there! I am using JMS Chat." }, null)
-                val sub = listOf(p.role.replace('_', ' '), p.line).filter { it.isNotBlank() }.joinToString(" · ")
-                if (sub.isNotEmpty()) InfoRow(Icons.Default.Info, "Role", sub, null)
-            }
             if (group) {
-                val iAmAdmin = members.any { Session.isMe(it.username) && it.role == "admin" }
+                // group admins, and superadmins in every group
+                val iAmAdmin = Session.isSuperadmin || members.any { Session.isMe(it.username) && it.role == "admin" }
                 if (iAmAdmin) item {
                     InfoRow(androidx.compose.material.icons.Icons.Default.Edit, "Group name", title) { renaming = true }
                     Row(
@@ -134,7 +145,7 @@ fun InfoScreen(convId: String, onBack: () -> Unit, onMessage: (String) -> Unit, 
                         Avatar(m.username, 44.dp, online = m.online, photoUrl = Api.avatarUrl(m.username, m.photo_v))
                         Spacer(Modifier.width(14.dp))
                         Column(Modifier.weight(1f)) {
-                            Text(if (Session.isMe(m.username)) "You" else m.username, fontWeight = FontWeight.SemiBold)
+                            Text(if (Session.isMe(m.username)) "You" else m.display_name.ifBlank { m.username }, fontWeight = FontWeight.SemiBold)
                             val seen = lastSeenText(m.online, m.last_seen_at)
                             if (seen.isNotEmpty()) Text(seen, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
@@ -144,6 +155,15 @@ fun InfoScreen(convId: String, onBack: () -> Unit, onMessage: (String) -> Unit, 
                         androidx.compose.material3.DropdownMenu(expanded = memberMenu == m.username, onDismissRequest = { memberMenu = null }) {
                             androidx.compose.material3.DropdownMenuItem(text = { Text("Message ${m.username}") },
                                 onClick = { memberMenu = null; onMessage(m.username) })
+                            if (iAmAdmin) androidx.compose.material3.DropdownMenuItem(
+                                text = { Text(if (m.role == "admin") "Remove as group admin" else "Make group admin") },
+                                onClick = {
+                                    memberMenu = null
+                                    val makeAdmin = m.role != "admin"
+                                    act(if (makeAdmin) "${m.username} is now a group admin" else "${m.username} is no longer admin") {
+                                        Api.setGroupAdmin(convId, m.username, makeAdmin)
+                                    }
+                                })
                             if (iAmAdmin) androidx.compose.material3.DropdownMenuItem(
                                 text = { Text("Remove ${m.username}", color = MaterialTheme.colorScheme.error) },
                                 onClick = { memberMenu = null; act("Removed ${m.username}") { Api.removeMember(convId, m.username) } })

@@ -6,7 +6,30 @@ import kotlinx.serialization.Serializable
 // fields are ignored, missing ones fall back to the defaults.
 
 @Serializable
-data class LoginReply(val ok: Boolean = false, val error: String? = null, val username: String? = null, val token: String? = null)
+data class LoginReply(
+    val ok: Boolean = false,
+    val error: String? = null,
+    val username: String? = null,
+    val token: String? = null,
+    /** Approved through sign-up and no password yet: ask for one (chatSignup.js). */
+    val set_password: Boolean = false,
+    /** set-password: this phone has no request token, ask for the request's mobile number. */
+    val need_mobile: Boolean = false
+)
+
+/** POST /api/chat-app/signup: the token stays on this phone to follow the request. */
+@Serializable
+data class SignupReply(val ok: Boolean = false, val error: String? = null, val token: String? = null)
+
+/** GET /api/chat-app/signup/status: pending / approved / rejected / unknown. */
+@Serializable
+data class SignupStatus(
+    val ok: Boolean = false,
+    val status: String = "unknown",
+    val name: String? = null,
+    val username: String? = null,
+    val password_set: Boolean = false
+)
 
 @Serializable
 data class Me(val ok: Boolean = false, val username: String = "", val isSuperadmin: Boolean = false)
@@ -14,6 +37,7 @@ data class Me(val ok: Boolean = false, val username: String = "", val isSuperadm
 @Serializable
 data class ChatUser(
     val username: String,
+    val display_name: String = "",
     val role: String = "",
     val line: String = "",
     val online: Boolean = false,
@@ -37,16 +61,37 @@ data class Conversation(
     val last_message_at: String? = null,
     val last_body: String? = null,
     val last_sender: String? = null,
+    val last_sender_name: String? = null,
     val unread: Int = 0,
     val pinned: Boolean = false,
     val archived: Boolean = false,
     val peer: String? = null,
     val photo_v: String? = null,
-    val last_seen_at: String? = null
+    val last_seen_at: String? = null,
+    val disappear_seconds: Int = 0,
+    val protected: Boolean = false
 ) {
     val isGroup get() = type == "group"
     val name get() = title ?: "Chat"
 }
+
+@Serializable
+data class Device(
+    val id: String, val name: String? = null, val platform: String? = null, val approved: Boolean = true,
+    val signed_in: Boolean = false, val last_seen_at: String? = null, val current: Boolean = false
+)
+
+@Serializable
+data class DevicesReply(val devices: List<Device> = emptyList())
+
+@Serializable
+data class SignOutReply(val signed_out: Int = 0)
+
+@Serializable
+data class ChatFolder(val id: String, val name: String = "", val conversations: List<String> = emptyList())
+
+@Serializable
+data class FoldersReply(val folders: List<ChatFolder> = emptyList())
 
 @Serializable
 data class ConversationsReply(val conversations: List<Conversation> = emptyList())
@@ -58,13 +103,15 @@ data class ConversationReply(val conversation: Conversation? = null)
 data class Attachment(val sync_id: String, val kind: String = "", val mime: String = "", val file_name: String = "", val size: Long = 0)
 
 @Serializable
-data class ReplyQuote(val sync_id: String = "", val sender: String = "", val kind: String = "text", val text: String = "", val deleted: Boolean = false, val image: String? = null)
+data class ReplyQuote(val sync_id: String = "", val sender: String = "", val kind: String = "text", val text: String = "", val deleted: Boolean = false, val image: String? = null, val sender_name: String = "")
 
 @Serializable
 data class Message(
     val sync_id: String,
     val conversation_sync_id: String,
     val sender: String = "",
+    /** Approved display name of the sender (login name until one is approved). */
+    val sender_name: String = "",
     val body: String = "",
     val kind: String = "text",
     val server_ts: String? = null,
@@ -77,6 +124,12 @@ data class Message(
     val delivered_to: List<String>? = null,
     val read_by: List<String>? = null,
     val forwarded: Boolean = false,
+    val urgent: Boolean = false,
+    val announcement: Boolean = false,
+    val scheduled: Boolean = false,
+    val poll: Poll? = null,
+    val bot: Boolean = false,
+    val alert: AlertInfo? = null,
     val reactions: List<Reaction>? = null,
     val starred: Boolean = false,
     /** Shared JMS page (kind = link): title, url, excerpt, factory_name, priority. */
@@ -87,6 +140,64 @@ data class Message(
     val pending: Boolean = false,
     val failed: Boolean = false
 )
+
+@Serializable
+data class TextReply(val text: String = "")
+
+@Serializable
+data class AlertInfo(val kind: String = "", val acked_by: String? = null, val acked_at: String? = null, val escalated: Int = 0)
+
+@Serializable
+data class AckReply(val acked_by: String? = null, val acked_at: String? = null)
+
+@Serializable
+data class ApprovalItem(
+    val id: Int,
+    val plan_id: String? = null,
+    val job_card_no: String? = null,
+    val machine: String? = null,
+    val order_no: String? = null,
+    val item_name: String? = null,
+    val product_name: String? = null,
+    val approval_stage_label: String? = null,
+    val can_approve: Boolean? = null
+)
+
+@Serializable
+data class ApprovalsReply(val allowed: Boolean = false, val items: List<ApprovalItem> = emptyList())
+
+@Serializable
+data class TicketRef(val sync_id: String = "", val ticket_no: String = "")
+
+@Serializable
+data class TicketReply(val ticket: TicketRef? = null)
+
+@Serializable
+data class PollOption(val text: String, val votes: Int = 0, val voters: List<String> = emptyList())
+
+@Serializable
+data class Poll(val question: String = "", val multi: Boolean = false, val total: Int = 0, val mine: List<Int> = emptyList(), val options: List<PollOption> = emptyList())
+
+@Serializable
+data class Todo(
+    val id: String,
+    val conversation_sync_id: String,
+    val title: String = "",
+    val assignee: String = "",
+    val created_by: String = "",
+    val due_at: String? = null,
+    val done_at: String? = null,
+    val conv_title: String? = null
+)
+
+@Serializable
+data class TodosReply(val todos: List<Todo> = emptyList())
+
+@Serializable
+data class PinsReply(val pins: List<Message> = emptyList())
+
+@Serializable
+data class ChatSettings(val quiet_from: String = "", val quiet_to: String = "")
 
 @Serializable
 data class Reaction(val emoji: String, val users: List<String> = emptyList())
@@ -127,11 +238,12 @@ data class MessagesReply(
     val type: String = "direct",
     val title: String? = null,
     val members: List<String> = emptyList(),
+    val my_role: String? = null,
     val member_roles: List<Member> = emptyList()
 )
 
 @Serializable
-data class Member(val username: String, val role: String? = null, val online: Boolean = false, val last_seen_at: String? = null, val photo_v: String? = null)
+data class Member(val username: String, val display_name: String = "", val role: String? = null, val online: Boolean = false, val last_seen_at: String? = null, val photo_v: String? = null)
 
 @Serializable
 data class Profile(
@@ -141,11 +253,74 @@ data class Profile(
     val about: String = "",
     val photo_v: String? = null,
     val last_seen_at: String? = null,
-    val online: Boolean = false
+    val online: Boolean = false,
+    val designation: String = "",
+    val department: String = "",
+    /** From the chat sign-up form (only for me and admins). */
+    val mobile: String? = null,
+    /** Name others see (approved); the login name until one is approved. */
+    val display_name: String = "",
+    /** Waiting for an admin (only for me and admins). */
+    val pending_name: String? = null,
+    val pending_at: String? = null,
+    /** Why my last request was rejected. */
+    val name_note: String? = null,
+    /** Earlier names (admins only). */
+    val name_history: List<NameChange> = emptyList(),
+    /** The viewer is an admin / superadmin (sees login and earlier names). */
+    val admin_view: Boolean = false,
+    val can_approve_names: Boolean = false,
+    val name_requests: Int = 0
+) {
+    val shownName: String get() = display_name.ifBlank { username }
+}
+
+@Serializable
+data class SharedFile(val sync_id: String, val kind: String = "", val mime: String = "", val file_name: String = "", val size: Long = 0)
+
+@Serializable
+data class CommonGroup(val sync_id: String, val title: String? = null, val members: Int = 0)
+
+@Serializable
+data class SharedLink(val sync_id: String, val title: String? = null, val url: String = "")
+
+/** Contact info extras: media and shared JMS pages in our direct chat, groups in common. */
+@Serializable
+data class SharedReply(
+    val media: List<SharedFile> = emptyList(),
+    val links: List<SharedLink> = emptyList(),
+    val groups: List<CommonGroup> = emptyList()
 )
 
 @Serializable
-data class ProfileReply(val profile: Profile? = null)
+data class NameChange(
+    val username: String = "",
+    val old_name: String? = null,
+    val new_name: String = "",
+    val status: String = "",
+    val reviewed_by: String? = null,
+    val note: String? = null,
+    val at: String? = null
+)
+
+@Serializable
+data class NameRequest(
+    val username: String,
+    val role: String = "",
+    val line: String = "",
+    val current_name: String = "",
+    val requested_name: String = "",
+    val requested_at: String? = null,
+    val photo_v: String? = null,
+    /** Other people already shown with this name (warn before approving a look-alike). */
+    val same_name: List<String> = emptyList()
+)
+
+@Serializable
+data class NameRequestsReply(val requests: List<NameRequest> = emptyList(), val recent: List<NameChange> = emptyList())
+
+@Serializable
+data class ProfileReply(val profile: Profile? = null, val message: String = "")
 
 @Serializable
 data class MessageReply(val message: Message? = null)
@@ -169,8 +344,14 @@ data class CallInfo(
     val callee: String = "",
     val status: String = "",
     val peer: String = "",
-    val incoming: Boolean = false
+    val incoming: Boolean = false,
+    val created_at: String? = null,
+    val answered_at: String? = null,
+    val ended_at: String? = null
 )
+
+@Serializable
+data class CallLogReply(val calls: List<CallInfo> = emptyList())
 
 @Serializable
 data class CallReply(val call: CallInfo, val ice: List<IceServerConfig> = emptyList(), val ring_seconds: Int = 45)

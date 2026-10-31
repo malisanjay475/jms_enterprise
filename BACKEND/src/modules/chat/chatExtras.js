@@ -243,6 +243,9 @@ function registerExtrasRoutes(app, pool, h) {
       const src = await messageInMyChat(req, res);
       if (!src) return;
       if (src.deleted_at || src.purged_at) return res.status(410).json({ ok: false, error: 'This message was deleted.' });
+      if (await require('./chatSecure').isProtected(pool, src.conversation_sync_id)) {
+        return res.status(403).json({ ok: false, error: 'This is a protected chat: messages cannot be forwarded.' });
+      }
       const targets = [...new Set((Array.isArray(b.to) ? b.to : []).map(String))].filter((t) => UUID_RE.test(t));
       if (!targets.length) return res.status(400).json({ ok: false, error: 'Pick a chat to forward to.' });
       if (targets.length > MAX_FORWARD) return res.status(400).json({ ok: false, error: `Forward to at most ${MAX_FORWARD} chats at a time.` });

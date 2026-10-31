@@ -72,8 +72,12 @@ import com.jmsocean.shifting.data.ScanFeedback
 import com.jmsocean.shifting.data.remote.AvailColour
 import com.jmsocean.shifting.data.remote.Availability
 import com.jmsocean.shifting.data.remote.BoardJob
+import com.jmsocean.shifting.data.remote.ShiftState
 import com.jmsocean.shifting.data.remote.Job
 import com.jmsocean.shifting.data.remote.MachineApproved
+import com.jmsocean.shifting.ui.common.PpcCompletedTag
+import com.jmsocean.shifting.ui.common.ShiftStateBadge
+import com.jmsocean.shifting.ui.common.tint
 import com.jmsocean.shifting.ui.common.AppTopBar
 import com.jmsocean.shifting.ui.common.EmptyNote
 import com.jmsocean.shifting.ui.common.ErrorCard
@@ -504,7 +508,7 @@ fun ManualScreen(onMenu: () -> Unit, vm: ManualViewModel = viewModel()) {
 
                 if (s.machine.isNotBlank()) {
                     if (s.machineJobs.isEmpty() && !s.loading) {
-                        Text("No job on this machine in the last 3 days.", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("No job on this machine in the last 3 days, and nothing left to shift.", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     } else if (s.machineJobs.size > 1 || job == null) {
                         SectionLabel("Jobs on ${s.machine}")
                         s.machineJobs.forEach { j -> JobChoice(j, selected = j.planId == s.planId, onClick = { vm.selectJob(j.planId) }) }
@@ -818,8 +822,9 @@ private fun BoardJobBlock(j: BoardJob, onShift: () -> Unit) {
         Row(verticalAlignment = Alignment.Top) {
             Text(j.title, Modifier.weight(1f), fontWeight = FontWeight.Bold, fontSize = 14.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
             Spacer(Modifier.width(6.dp))
-            StatusPill(j.onHold, j.isRunning, j.status)
+            StatusPill(j.onHold, j.isRunning, j.status, j.ppcCompleted)
         }
+        ShiftStateBadge(j.shiftState, j.approved)
         Text(
             listOf(
                 j.orderNo.takeIf { it.isNotBlank() }?.let { "OR $it" },
@@ -845,7 +850,9 @@ private fun BoardJobBlock(j: BoardJob, onShift: () -> Unit) {
             } else {
                 InfoChip("", "SFG STD NOT SET", background = Crit.copy(alpha = 0.14f), content = Crit)
             }
-            j.colours.filter { it.colour.isNotBlank() && it.produced > 0 }.forEach { c -> ColourChip(c.colour, c.ready.coerceAtLeast(0.0), Good) }
+            j.colours.filter { it.colour.isNotBlank() && it.produced > 0 }.forEach { c ->
+                ColourChip(c.colour, c.ready.coerceAtLeast(0.0), if (c.state == ShiftState.UNKNOWN) Good else c.state.tint(), c.state)
+            }
             if (j.unassignedShifted > 0) ColourChip("No colour shifted", j.unassignedShifted, Warn)
         }
         Row(Modifier.padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -875,7 +882,7 @@ private fun BoardJobBlock(j: BoardJob, onShift: () -> Unit) {
 
 /** "● BLACK 1,178" — colour and its ready qty (grey when nothing is ready). */
 @Composable
-private fun ColourChip(name: String, value: Double, dot: Color) {
+private fun ColourChip(name: String, value: Double, dot: Color, state: ShiftState = ShiftState.UNKNOWN) {
     val zero = value <= 0
     Row(
         Modifier
@@ -888,14 +895,24 @@ private fun ColourChip(name: String, value: Double, dot: Color) {
         Text(name, fontSize = 12.sp, color = if (zero) Steel else MaterialTheme.colorScheme.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis)
         Spacer(Modifier.width(4.dp))
         Text(qty(value), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = if (zero) Steel else MaterialTheme.colorScheme.onSurface)
+        // Colour status: all QC'd and ready / partly / waiting for QC / all shifted.
+        val tag = when (state) {
+            ShiftState.READY -> " ✅"
+            ShiftState.PARTLY -> " 🟡"
+            ShiftState.WAITING_QC -> " ⏳ QC"
+            ShiftState.SHIFTED -> " ✔"
+            else -> ""
+        }
+        if (tag.isNotEmpty()) Text(tag, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = if (state == ShiftState.PARTLY) Warn else Steel)
     }
 }
 
 @Composable
-private fun StatusPill(onHold: Boolean, running: Boolean, status: String) {
+private fun StatusPill(onHold: Boolean, running: Boolean, status: String, ppcCompleted: Boolean = false) {
     when {
         onHold -> Pill("QC HOLD", Crit.copy(alpha = 0.15f), Crit)
         running -> Pill("Running", Good.copy(alpha = 0.15f), Good)
+        ppcCompleted -> PpcCompletedTag()
         else -> Pill(status.ifBlank { "Closed" }, Steel.copy(alpha = 0.15f), Steel)
     }
 }
@@ -935,8 +952,9 @@ private fun JobChoice(j: Job, selected: Boolean, onClick: () -> Unit) {
                     fontWeight = FontWeight.Bold, fontSize = 14.sp, maxLines = 2, overflow = TextOverflow.Ellipsis
                 )
                 Spacer(Modifier.width(6.dp))
-                StatusPill(j.onHold, j.isRunning, j.status)
+                StatusPill(j.onHold, j.isRunning, j.status, j.ppcCompleted)
             }
+            ShiftStateBadge(j.shiftState, j.maxShiftQty)
             Text(
                 listOf(j.orderNo, j.jcNo, j.clientName).filter { it.isNotBlank() }.joinToString(" · "),
                 fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant

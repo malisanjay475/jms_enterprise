@@ -42,6 +42,9 @@ import com.jmsocean.shifting.ui.common.EmptyNote
 import com.jmsocean.shifting.ui.common.ErrorCard
 import com.jmsocean.shifting.ui.common.MetricRow
 import com.jmsocean.shifting.ui.common.Pill
+import com.jmsocean.shifting.ui.common.PpcCompletedTag
+import com.jmsocean.shifting.ui.common.ShiftStateBadge
+import com.jmsocean.shifting.ui.common.ColourStateChips
 import com.jmsocean.shifting.ui.common.qty
 import com.jmsocean.shifting.ui.theme.Good
 import com.jmsocean.shifting.ui.theme.Steel
@@ -56,7 +59,7 @@ fun JobsScreen(onMenu: () -> Unit, onOpenJob: (String) -> Unit, vm: JobsViewMode
         topBar = {
             AppTopBar(
                 title = "Jobs",
-                subtitle = "${s.visible.size} jobs · last ${s.days} days",
+                subtitle = "${s.visible.size} jobs · last ${s.days} days + all not yet shifted",
                 onMenu = onMenu,
                 actions = { IconButton(onClick = { vm.load() }) { Icon(Icons.Default.Refresh, contentDescription = "Reload") } }
             )
@@ -118,9 +121,14 @@ private fun JobCard(job: Job, onClick: () -> Unit) {
                     )
                 }
                 Spacer(Modifier.width(8.dp))
-                if (job.isRunning) Pill("Running", Good.copy(alpha = 0.15f), Good)
-                else Pill(job.status.ifBlank { "Closed" }, Steel.copy(alpha = 0.15f), Steel)
+                when {
+                    job.isRunning -> Pill("Running", Good.copy(alpha = 0.15f), Good)
+                    job.ppcCompleted -> PpcCompletedTag()
+                    else -> Pill(job.status.ifBlank { "Closed" }, Steel.copy(alpha = 0.15f), Steel)
+                }
             }
+            ShiftStateBadge(job.shiftState, job.maxShiftQty)
+            ColourStateChips(job.colours)
             MetricRow(
                 Triple("Produced", qty(job.produced), Color.Unspecified),
                 Triple("Shifted", qty(job.shifted), MaterialTheme.colorScheme.primary),

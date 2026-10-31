@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="JMS Chat">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#00C29A"/>
+      <stop offset=".55" stop-color="#008069"/>
+      <stop offset="1" stop-color="#054D44"/>
+    </linearGradient>
+    <linearGradient id="wave" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#38BDF8"/>
+      <stop offset=".5" stop-color="#0EA5E9"/>
+      <stop offset="1" stop-color="#1E3A8A"/>
+    </linearGradient>
+    <linearGradient id="wave2" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#1D4ED8"/>
+      <stop offset="1" stop-color="#22D3EE"/>
+    </linearGradient>
+    <radialGradient id="sun" cx=".4" cy=".35" r=".7">
+      <stop offset="0" stop-color="#FFD166"/>
+      <stop offset="1" stop-color="#F59E0B"/>
+    </radialGradient>
+    <filter id="sh" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="18" stdDeviation="22" flood-color="#00241f" flood-opacity=".35"/>
+    </filter>
+  </defs>
+  <rect width="1024" height="1024" rx="230" fill="url(#bg)"/>
+  <!-- chat bubble -->
+  <path filter="url(#sh)" fill="#fff" d="M512 196c-182 0-330 130-330 292 0 74 31 142 83 193l-33 131c-4 15 12 27 26 20l132-67c38 12 79 18 122 18 182 0 330-130 330-295S694 196 512 196z"/>
+  <!-- sun -->
+  <circle cx="626" cy="380" r="74" fill="url(#sun)"/>
+  <!-- wave curl -->
+  <path fill="url(#wave)" d="M300 590c40-130 150-220 270-214 70 4 118 46 118 98 0 40-30 70-70 70-34 0-58-22-58-50 0-18 10-32 26-38-62-10-130 40-150 120-6 24 2 40 22 46-62 6-120-6-158-32z"/>
+  <path fill="url(#wave2)" d="M268 610c80 50 220 64 340 30 70-20 116-50 140-80-6 70-80 140-200 160-120 20-230-20-280-110z"/>
+  <!-- spray pixels -->
+  <g fill="#38BDF8">
+    <rect x="318" y="430" width="26" height="26" rx="5"/>
+    <rect x="356" y="396" width="20" height="20" rx="4"/>
+    <rect x="300" y="476" width="18" height="18" rx="4"/>
+    <rect x="392" y="372" width="16" height="16" rx="3"/>
+  </g>
+</svg>

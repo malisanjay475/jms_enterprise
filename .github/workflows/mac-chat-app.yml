@@ -1,0 +1,54 @@
+name: Build JMS Chat macOS app
+
+# Builds the native JMS Chat app for Mac (mac_chat/, SwiftUI). Every push/dispatch
+# produces a downloadable .dmg (universal: Apple silicon + Intel), ad-hoc signed.
+# Install: open the .dmg, drag "JMS Chat" to Applications, then the first time
+# right-click the app -> Open (see mac_chat/README.md).
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "mac_chat/**"
+      - ".github/workflows/mac-chat-app.yml"
+  pull_request:
+    paths:
+      - "mac_chat/**"
+      - ".github/workflows/mac-chat-app.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mac-chat-app-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-mac:
+    runs-on: macos-15
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: mac_chat
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Toolchain
+        run: |
+          sw_vers
+          xcodebuild -version
+          swift --version
+
+      - name: Build app and dmg
+        run: ./scripts/build-app.sh
+        env:
+          APP_BUILD: ${{ github.run_number }}
+
+      - name: Upload dmg
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: jms-chat-mac
+          path: mac_chat/dist/*.dmg
+          if-no-files-found: error
+          retention-days: 30
