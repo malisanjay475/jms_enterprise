@@ -104,6 +104,16 @@ const STAGE_TYPE = new Map(STAGES.map(s => [s.key, s.type]));
 const STAGE_STATES = new Set(['pending', 'in_progress', 'complete', 'na']);
 const PRODUCT_STATUSES = new Set(['', 'Hold', 'Launched', 'Delayed', 'On Schedule', 'Cancelled']);
 
+const isNpdAdmin = u => !!u && ADMIN_ROLES.has(norm(u.role_code));
+const isNpdSuperadmin = u => !!u && norm(u.role_code) === 'superadmin';
+const canEditSheet = u => isNpdAdmin(u) || (!!u && userKeys(u).some(k => SHEET_ROLES.has(k)));
+const editableStageKeys = u => {
+  if (!u) return [];
+  if (isNpdAdmin(u)) return STAGES.map(s => s.key);
+  const d = roleDepts(u);
+  return STAGES.filter(s => s.depts.some(x => d.includes(x))).map(s => s.key);
+};
+
 const uploadRoot = path.join(__dirname, '../../../PUBLIC/uploads/npd');
 fs.mkdirSync(uploadRoot, { recursive: true });
 
@@ -256,16 +266,11 @@ function registerNpdRoutes(app, pool) {
         WHERE u.username = $1 LIMIT 1`, [username]);
     return r.rows[0] || null;
   }
-  const isAdmin = u => !!u && ADMIN_ROLES.has(norm(u.role_code));
-  const isSuperadmin = u => !!u && norm(u.role_code) === 'superadmin';
-  const canEdit = u => isAdmin(u) || (!!u && userKeys(u).some(k => SHEET_ROLES.has(k)));
+  const isAdmin = isNpdAdmin;
+  const isSuperadmin = isNpdSuperadmin;
+  const canEdit = canEditSheet;
   /* stage keys this user may change */
-  const editableStages = u => {
-    if (!u) return [];
-    if (isAdmin(u)) return STAGES.map(s => s.key);
-    const d = roleDepts(u);
-    return STAGES.filter(s => s.depts.some(x => d.includes(x))).map(s => s.key);
-  };
+  const editableStages = editableStageKeys;
 
   async function requireEditor(req, res) {
     const u = await sessionUser(req);
@@ -611,4 +616,20 @@ function registerNpdRoutes(app, pool) {
   });
 }
 
-module.exports = { registerNpdRoutes, ensureNpdSchema, STAGES };
+module.exports = {
+  registerNpdRoutes,
+  ensureNpdSchema,
+  STAGES,
+  DEPT_ROLES,
+  ADMIN_ROLES,
+  SHEET_ROLES,
+  STAGE_STATES,
+  PRODUCT_STATUSES,
+  cleanStages,
+  roleDepts,
+  norm,
+  editableStageKeys,
+  canEditSheet,
+  isNpdAdmin,
+  isNpdSuperadmin
+};

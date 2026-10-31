@@ -15,13 +15,14 @@ describe('chat call ICE servers', () => {
     expect(ice[0].urls[0]).toMatch(/^stun:/);
   });
 
-  test('TURN gets coturn REST credentials: user "<expiry>:<name>", HMAC-SHA1 of it', () => {
+  test('TURN gets coturn REST credentials: user "<expiry>:<opaque>", HMAC-SHA1 of it', () => {
     process.env.TURN_URLS = 'turn:jmsocean.cloud:3478, turn:jmsocean.cloud:3478?transport=tcp';
     process.env.TURN_SECRET = 's3cret';
     const ice = chatCalls.iceServers('ravi kumar');
     const turn = ice[1];
+    const label = crypto.createHash('sha256').update('ravi kumar').digest('hex').slice(0, 16);
     expect(turn.urls).toEqual(['turn:jmsocean.cloud:3478', 'turn:jmsocean.cloud:3478?transport=tcp']);
-    expect(turn.username).toMatch(/^\d+:ravikumar$/);
+    expect(turn.username).toMatch(new RegExp(`^\\d+:${label}$`));
     expect(Number(turn.username.split(':')[0])).toBeGreaterThan(Date.now() / 1000);
     expect(turn.credential).toBe(crypto.createHmac('sha1', 's3cret').update(turn.username).digest('base64'));
   });
