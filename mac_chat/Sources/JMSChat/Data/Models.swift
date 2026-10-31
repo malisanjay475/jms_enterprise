@@ -47,6 +47,7 @@ extension LoginReply {
 
 struct ChatUser: Decodable, Identifiable, Hashable {
     var username: String
+    var displayName = ""
     var role = ""
     var line = ""
     var online = false
@@ -59,7 +60,7 @@ struct ChatUser: Decodable, Identifiable, Hashable {
 extension ChatUser {
     init(from d: Decoder) throws {
         let c = try d.container(keyedBy: JK.self)
-        username = c.v("username", "")
+        username = c.v("username", ""); displayName = c.v("display_name", "")
         role = c.v("role", ""); line = c.v("line", ""); online = c.v("online", false)
         about = c.v("about", ""); photoV = c.s("photo_v"); lastSeenAt = c.o("last_seen_at")
     }
@@ -265,6 +266,7 @@ extension FoundMessage {
 
 struct Member: Decodable, Identifiable {
     var username: String
+    var displayName = ""
     var role: String?
     var online = false
     var lastSeenAt: String?
@@ -275,7 +277,7 @@ struct Member: Decodable, Identifiable {
 extension Member {
     init(from d: Decoder) throws {
         let c = try d.container(keyedBy: JK.self)
-        username = c.v("username", ""); role = c.o("role"); online = c.v("online", false)
+        username = c.v("username", ""); displayName = c.v("display_name", ""); role = c.o("role"); online = c.v("online", false)
         lastSeenAt = c.o("last_seen_at"); photoV = c.s("photo_v")
     }
 }
@@ -305,6 +307,18 @@ struct Profile: Decodable {
     var photoV: String?
     var lastSeenAt: String?
     var online = false
+    /** Name others see (approved); the login name until one is approved. */
+    var displayName = ""
+    /** Waiting for an admin (only for me and admins). */
+    var pendingName: String?
+    /** Why my last request was rejected. */
+    var nameNote: String?
+    /** Earlier names (admins only). */
+    var nameHistory: [NameChange] = []
+    var adminView = false
+    var canApproveNames = false
+    var nameRequests = 0
+    var shownName: String { displayName.isEmpty ? username : displayName }
 }
 
 extension Profile {
@@ -312,6 +326,57 @@ extension Profile {
         let c = try d.container(keyedBy: JK.self)
         username = c.v("username", ""); role = c.v("role", ""); line = c.v("line", ""); about = c.v("about", "")
         photoV = c.s("photo_v"); lastSeenAt = c.o("last_seen_at"); online = c.v("online", false)
+        displayName = c.v("display_name", ""); pendingName = c.o("pending_name"); nameNote = c.o("name_note")
+        nameHistory = c.v("name_history", []); adminView = c.v("admin_view", false)
+        canApproveNames = c.v("can_approve_names", false); nameRequests = c.v("name_requests", 0)
+    }
+}
+
+struct NameChange: Decodable, Hashable {
+    var username = ""
+    var oldName: String?
+    var newName = ""
+    var status = ""
+    var reviewedBy: String?
+    var note: String?
+    var at: String?
+}
+
+extension NameChange {
+    init(from d: Decoder) throws {
+        let c = try d.container(keyedBy: JK.self)
+        username = c.v("username", ""); oldName = c.o("old_name"); newName = c.v("new_name", ""); status = c.v("status", "")
+        reviewedBy = c.o("reviewed_by"); note = c.o("note"); at = c.o("at")
+    }
+}
+
+struct NameRequest: Decodable, Identifiable {
+    var username = ""
+    var role = ""
+    var line = ""
+    var currentName = ""
+    var requestedName = ""
+    var photoV: String?
+    var id: String { username }
+}
+
+extension NameRequest {
+    init(from d: Decoder) throws {
+        let c = try d.container(keyedBy: JK.self)
+        username = c.v("username", ""); role = c.v("role", ""); line = c.v("line", "")
+        currentName = c.v("current_name", ""); requestedName = c.v("requested_name", ""); photoV = c.s("photo_v")
+    }
+}
+
+struct NameRequestsReply: Decodable {
+    var requests: [NameRequest] = []
+    var recent: [NameChange] = []
+}
+
+extension NameRequestsReply {
+    init(from d: Decoder) throws {
+        let c = try d.container(keyedBy: JK.self)
+        requests = c.v("requests", []); recent = c.v("recent", [])
     }
 }
 
@@ -362,8 +427,13 @@ extension ReactReply { init(from d: Decoder) throws { reactions = try d.containe
 struct ForwardReply: Decodable { var messages: [Message] }
 extension ForwardReply { init(from d: Decoder) throws { messages = try d.container(keyedBy: JK.self).v("messages", []) } }
 
-struct ProfileReply: Decodable { var profile: Profile? }
-extension ProfileReply { init(from d: Decoder) throws { profile = try d.container(keyedBy: JK.self).o("profile") } }
+struct ProfileReply: Decodable { var profile: Profile?; var message = "" }
+extension ProfileReply {
+    init(from d: Decoder) throws {
+        let c = try d.container(keyedBy: JK.self)
+        profile = c.o("profile"); message = c.v("message", "")
+    }
+}
 
 struct TaskReply: Decodable { var task: TaskStatus? }
 extension TaskReply { init(from d: Decoder) throws { task = try d.container(keyedBy: JK.self).o("task") } }

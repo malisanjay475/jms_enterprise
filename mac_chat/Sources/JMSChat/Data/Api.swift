@@ -190,6 +190,20 @@ enum Api {
     static func saveAbout(_ about: String) async throws -> Profile {
         (try await send("PUT", "/api/chat/profile", ["about": about]) as ProfileReply).profile ?? Profile()
     }
+    /** Ask for a new name; the reply carries the server's note (e.g. "Sent for approval"). */
+    static func saveName(_ name: String) async throws -> ProfileReply {
+        try await send("PUT", "/api/chat/profile", ["name": name])
+    }
+    static func cancelName() async throws -> Profile {
+        try JSONDecoder().decode(ProfileReply.self, from: try await call("DELETE", "/api/chat/profile/name")).profile ?? Profile()
+    }
+
+    // ---- name approvals (admin / superadmin) ----
+    static func nameRequests() async throws -> NameRequestsReply { try await get("/api/chat/name-requests") }
+    static func decideName(_ username: String, approve: Bool, note: String = "") async throws {
+        try await call("POST", "/api/chat/name-requests/" + enc(username), json: ["action": approve ? "approve" : "reject", "note": note])
+    }
+
     static func uploadPhoto(_ data: Data, fileName: String, mime: String) async throws -> Profile {
         var form = Multipart()
         form.file("photo", fileName, mime, data)

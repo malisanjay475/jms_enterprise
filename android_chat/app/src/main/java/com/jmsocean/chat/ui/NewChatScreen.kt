@@ -65,8 +65,8 @@ fun NewChatScreen(group: Boolean, onBack: () -> Unit, onNewGroup: () -> Unit, on
         loading = false
     }
 
-    val shown = users.filter { query.isBlank() || it.username.contains(query, true) || it.role.contains(query, true) || it.line.contains(query, true) }
-        .sortedWith(compareByDescending<ChatUser> { it.online }.thenBy { it.username.lowercase() })
+    val shown = users.filter { query.isBlank() || it.username.contains(query, true) || it.display_name.contains(query, true) || it.role.contains(query, true) || it.line.contains(query, true) }
+        .sortedWith(compareByDescending<ChatUser> { it.online }.thenBy { it.display_name.ifBlank { it.username }.lowercase() })
 
     fun open(u: ChatUser) {
         if (busy) return
@@ -141,10 +141,10 @@ fun NewChatScreen(group: Boolean, onBack: () -> Unit, onNewGroup: () -> Unit, on
                         }.padding(horizontal = 16.dp, vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Avatar(u.username, 46.dp, online = u.online, photoUrl = Api.avatarUrl(u.username, u.photo_v))
+                        Avatar(u.display_name.ifBlank { u.username }, 46.dp, online = u.online, photoUrl = Api.avatarUrl(u.username, u.photo_v))
                         Spacer(Modifier.width(14.dp))
                         Column(Modifier.weight(1f)) {
-                            Text(u.username, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
+                            Text(u.display_name.ifBlank { u.username }, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
                             val sub = listOf(u.role.replace('_', ' '), u.line).filter { it.isNotBlank() }.joinToString(" · ")
                             Text(if (u.online) "online${if (sub.isNotEmpty()) " · $sub" else ""}" else sub, fontSize = 13.sp,
                                 color = if (u.online) Color(0xFF00A884) else MaterialTheme.colorScheme.onSurfaceVariant)
