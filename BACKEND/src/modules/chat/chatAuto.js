@@ -5,7 +5,7 @@
 //  * Auto groups: one "<Factory> – All staff" group per active factory. Members are kept
 //    equal to the active users of that factory (users.factory_id or user_factories) every
 //    10 minutes; superadmins are in every group as admins. Recorded in chat_auto_groups.
-//  * Alerts: every minute, new QC holds / releases and machine stops / restarts are
+//  * Alerts (switched off: the All staff groups get no automated messages): every minute, new QC holds / releases and machine stops / restarts are
 //    posted into that factory's group by "JMS Alerts" (normal messages, so they ring like
 //    any other; people can mute the group). Rows synced in from the factory servers are
 //    seen too, since this reads MAIN's tables. The first run only remembers where it is,
@@ -100,10 +100,6 @@ async function syncGroups(db) {
       await db.query(
         `INSERT INTO chat_auto_groups (key, conversation_sync_id) VALUES ($1, $2)
          ON CONFLICT (key) DO UPDATE SET conversation_sync_id = EXCLUDED.conversation_sync_id`, [key, convId]
-      );
-      await db.query(
-        `INSERT INTO chat_messages (conversation_sync_id, sender, body, kind) VALUES ($1, $2, $3, 'system')`,
-        [convId, BOT, `Group for everyone at ${f.name}. Members are kept up to date from JMS Users; QC holds and machine stops are posted here.`]
       );
     }
     const people = await factoryUsers(db, f.id);
@@ -267,8 +263,7 @@ function start(pool) {
         lastGroups = Date.now();
         if (groups.size) console.log(`[chat-auto] factory groups in sync (${groups.size})`);
       }
-      const s = await alerts(client);
-      if (s.holds + s.releases + s.stops + s.restarts) console.log('[chat-auto] alerts posted', s);
+      // No automated messages in the "All staff" groups: alerts() is no longer run.
     } catch (err) {
       console.warn('[chat-auto]', err.message);
     } finally {
