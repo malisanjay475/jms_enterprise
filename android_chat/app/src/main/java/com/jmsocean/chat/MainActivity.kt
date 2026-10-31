@@ -151,8 +151,9 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
                         StarredScreen(onBack = { nav.popBackStack() }, onOpen = { id -> nav.navigate("chat/$id") })
                     }
                     composable("profile") {
-                        ProfileScreen(onBack = { nav.popBackStack() }, onSignOut = { signOut(nav) })
+                        ProfileScreen(onBack = { nav.popBackStack() }, onSignOut = { signOut(nav) }, onNameRequests = { nav.navigate("names") })
                     }
+                    composable("names") { com.jmsocean.chat.ui.NameRequestsScreen(onBack = { nav.popBackStack() }) }
                 }
 
                 val locked by com.jmsocean.chat.data.AppLock.locked.collectAsState()

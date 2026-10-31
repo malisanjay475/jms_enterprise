@@ -200,7 +200,7 @@
     '.jc-call{position:fixed;inset:0;z-index:100020;background:#0b141a;color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px}.jc-call .jc-av{width:110px;height:110px;font-size:40px}.jc-call h2{margin:0;font-weight:600}.jc-call p{margin:0;opacity:.8}.jc-cbtns{display:flex;gap:28px;margin-top:30px}.jc-cbtns button{width:64px;height:64px;border-radius:50%;border:0;font-size:24px;cursor:pointer;color:#fff;background:rgba(255,255,255,.15)}.jc-cbtns .jc-red{background:#e53935}.jc-cbtns .jc-green{background:#00a884}.jc-cbtns .jc-on{background:rgba(255,255,255,.4)}',
     '.jc-app .jc-panel{position:fixed;inset:0;right:0;bottom:0;width:100vw;max-width:100vw;height:100%;max-height:100%;border-radius:0;z-index:100001}.jc-app .jc-fab,.jc-app .jc-sharefab{display:none !important}',
     // the share sheet, mark bar and target banner live outside .jc-root: same colours
-    '.jc-root,.jc-sheet-bg,.jc-tbanner,.jc-markbar{--jc-g:#00a884;--jc-gd:#008069;--jc-bg:#fff;--jc-bg2:#f0f2f5;--jc-chat:#efeae2;--jc-out:#d9fdd3;--jc-in:#fff;--jc-tx:#111b21;--jc-mu:#667781;--jc-bd:#e9edef;font-family:inherit;font-size:14px;color:var(--jc-tx)}',
+    '.jc-root,.jc-sheet-bg,.jc-tbanner,.jc-markbar,.jc-modal{--jc-g:#00a884;--jc-gd:#008069;--jc-bg:#fff;--jc-bg2:#f0f2f5;--jc-chat:#efeae2;--jc-out:#d9fdd3;--jc-in:#fff;--jc-tx:#111b21;--jc-mu:#667781;--jc-bd:#e9edef;font-family:inherit;font-size:14px;color:var(--jc-tx)}',
     '.jc-fab{position:fixed;right:20px;bottom:20px;z-index:9990;width:56px;height:56px;border-radius:50%;border:0;background:var(--jc-g);color:#fff;box-shadow:0 4px 14px rgba(0,0,0,.25);cursor:pointer;display:flex;align-items:center;justify-content:center}',
     '.jc-fab:hover{background:var(--jc-gd)}',
     '.jc-fab svg{width:28px;height:28px;fill:#fff}',
@@ -409,6 +409,26 @@
     '.jc-app .jc-comp{background:#f0f2f5;padding:10px 16px;gap:10px}.jc-app .jc-comp textarea{border-radius:22px;padding:11px 16px;box-shadow:0 1px 2px rgba(0,0,0,.06)}',
     '.jc-app .jc-send{border-radius:50%;box-shadow:0 2px 6px rgba(0,168,132,.35);transition:transform .1s}.jc-app .jc-send:active{transform:scale(.94)}',
     '.jc-app .jc-chip{transition:all .12s}.jc-app .jc-chip:hover{border-color:#00a884}',
+    '.jc-modal{font-family:\'Segoe UI\',system-ui,-apple-system,Roboto,Helvetica,Arial,sans-serif}',
+    '.jc-srow{display:flex;align-items:center;gap:10px}.jc-srow input{flex:1;min-width:0}',
+    '.jc-meav{width:36px;height:36px;font-size:13px;cursor:pointer;border:2px solid #fff;box-shadow:0 0 0 1.5px #00a884;box-sizing:border-box;transition:transform .12s}.jc-meav:hover{transform:scale(1.06)}',
+    '.jc-prof{width:min(440px,94vw) !important;padding:0 !important}.jc-prof h4{display:none}',
+    '.jc-prof .jc-ph{background:linear-gradient(135deg,#075e54,#0b7c6e);color:#fff;padding:26px 16px 18px;text-align:center;border-radius:12px 12px 0 0;position:relative}',
+    '.jc-prof .jc-ph .jc-x{position:absolute;top:8px;right:10px;border:0;background:rgba(255,255,255,.15);color:#fff;width:32px;height:32px;border-radius:50%;cursor:pointer;font-size:16px}',
+    '.jc-prof .jc-pav{position:relative;width:132px;height:132px;margin:0 auto}.jc-prof .jc-pav .jc-av{width:132px;height:132px;font-size:46px;box-shadow:0 4px 18px rgba(0,0,0,.25)}',
+    '.jc-prof .jc-cam{position:absolute;right:2px;bottom:2px;width:42px;height:42px;border-radius:50%;border:3px solid #fff;background:#00a884;color:#fff;font-size:18px;cursor:pointer}',
+    '.jc-prof .jc-pn{font-size:22px;font-weight:700;margin-top:12px}.jc-prof .jc-pu{opacity:.8;font-size:13px}',
+    '.jc-prof .jc-pb{padding:8px 16px 16px}',
+    '.jc-prof .jc-sec{padding:12px 4px;border-bottom:1px solid var(--jc-bd)}.jc-prof .jc-sec small{display:block;color:#00a884;font-weight:600;margin-bottom:6px;opacity:1}',
+    '.jc-prof .jc-line{display:flex;gap:8px;align-items:center}.jc-prof .jc-line .jc-field{flex:1;border:1px solid var(--jc-bd)}',
+    '.jc-prof .jc-hint{font-size:12px;opacity:.65;margin-top:4px}',
+    '.jc-prof .jc-ban{display:flex;gap:10px;align-items:center;border-radius:10px;padding:10px 12px;margin:10px 0 2px;font-size:13px}.jc-prof .jc-ban span{flex:1}',
+    '.jc-prof .jc-ban.jc-wait{background:#fff4ce;color:#7a5b00}.jc-prof .jc-ban.jc-no{background:#fde7e9;color:#b3261e}',
+    '.jc-prof .jc-ban button{border:0;background:rgba(0,0,0,.08);color:inherit;border-radius:14px;padding:4px 10px;cursor:pointer;font-weight:600}',
+    '.jc-prof .jc-nreq{display:flex;align-items:center;gap:10px;width:100%;margin-top:12px;border:1px solid var(--jc-bd);background:transparent;color:inherit;border-radius:10px;padding:10px 12px;cursor:pointer;font:inherit;text-align:left}.jc-prof .jc-nreq span{flex:1}',
+    '.jc-cnt{background:#25d366;color:#fff;border-radius:10px;padding:0 7px;font-size:12px;font-weight:700}',
+    '.jc-nr{display:flex;gap:10px;align-items:center;padding:10px 4px;border-bottom:1px solid var(--jc-bd)}.jc-nr .jc-mid{flex:1;min-width:0}.jc-nr s{opacity:.55}.jc-nr b{color:#00a884}',
+    '.jc-nr .jc-ok{background:#00a884;color:#fff;border:0;border-radius:16px;padding:5px 12px;cursor:pointer}.jc-nr .jc-rej{background:#fde7e9;color:#b3261e;border:0;border-radius:16px;padding:5px 12px;cursor:pointer}',
     '.jc-app ::-webkit-scrollbar{width:7px;height:7px}.jc-app ::-webkit-scrollbar-thumb{background:rgba(0,0,0,.18);border-radius:4px}.jc-app ::-webkit-scrollbar-track{background:transparent}'
   ].join('\n');
 
@@ -430,6 +450,10 @@
     // side
     var side = el('div', 'jc-side');
     var sh = el('div', 'jc-head');
+    var meAv = el('div', 'jc-av jc-meav');
+    meAv.title = 'My profile';
+    meAv.setAttribute('role', 'button');
+    meAv.addEventListener('click', function () { profileDialog(); });
     sh.appendChild(el('h3', null, 'Chats'));
     var bellBtn = el('button', 'jc-ibtn', '🔔');
     bellBtn.title = 'Notifications and sound';
@@ -452,6 +476,8 @@
     var search = el('div', 'jc-search');
     var sIn = el('input');
     sIn.placeholder = 'Search chats, people and messages';
+    search.classList.add('jc-srow');
+    search.appendChild(meAv);
     search.appendChild(sIn);
     var tabs = el('div', 'jc-tabs');
     var tMine = el('button', 'jc-tab jc-on', 'My chats');
@@ -542,7 +568,8 @@
     els = { signupBar: signupBar, panel: panel, list: list, sIn: sIn, tabs: tabs, tMine: tMine, tAll: tAll, err: err,
       main: main, mh: mh, mAv: mAv, mName: mName, mSub: mSub, mTitle: mTitle, mInfo: mInfo, msgs: msgs, ro: ro,
       comp: comp, ta: ta, send: send, ph: ph, badge: badge, newBtn: newBtn, fileIn: fileIn,
-      editBar: editBar, editTxt: editTxt, replyBar: replyBar, ment: ment, mMute: mMute, side: side, mCall: mCall };
+      editBar: editBar, editTxt: editTxt, replyBar: replyBar, ment: ment, mMute: mMute, side: side, mCall: mCall, meAv: meAv };
+    refreshMeAvatar();
     starBtn.addEventListener('click', function () { showStarred = !showStarred; showTodos = false; sIn.value = ''; renderList(); });
     todoBtn.addEventListener('click', function () { showTodos = !showTodos; showStarred = false; showApprovals = false; sIn.value = ''; renderList(); });
     apprBtn.addEventListener('click', function () { showApprovals = !showApprovals; showTodos = false; showStarred = false; sIn.value = ''; renderList(); });
@@ -849,6 +876,170 @@
     });
   }
 
+  // ---- my profile (like WhatsApp): photo, name (needs admin approval), About ----
+  var myProfile = null;
+  function refreshMeAvatar() {
+    if (!els.meAv || !me) return;
+    var p = myProfile || {};
+    els.meAv.textContent = '';
+    setAvatar(els.meAv, me, p.photo_v);
+    if (els.meAv.firstChild) els.meAv.firstChild.nodeValue = initials(p.display_name || me);
+    if (!myProfile) api('GET', API + '/profile').then(function (d) { myProfile = d.profile; refreshMeAvatar(); }).catch(function () { });
+  }
+
+  function profileDialog() {
+    var dlg = modal('My profile');
+    dlg.box.classList.add('jc-prof');
+    var fileIn = document.createElement('input');
+    fileIn.type = 'file'; fileIn.accept = 'image/*'; fileIn.style.display = 'none';
+    dlg.box.appendChild(fileIn);
+    function save(promise, okText) {
+      return promise.then(function (d) {
+        if (d.profile) { myProfile = d.profile; refreshMeAvatar(); draw(); }
+        var msg = d.message || okText;
+        if (msg) toastText('Profile', msg);
+      }).catch(function (e) { alert(e.message); });
+    }
+    fileIn.addEventListener('change', function () {
+      var f = fileIn.files && fileIn.files[0];
+      fileIn.value = '';
+      if (!f) return;
+      if (f.size > 5 * 1024 * 1024) { alert('Photo is too big (max 5 MB).'); return; }
+      var fd = new FormData(); fd.append('photo', f);
+      save(api('POST', API + '/profile/photo', fd), 'Profile photo updated');
+    });
+    function draw() {
+      var p = myProfile;
+      dlg.body.textContent = '';
+      if (!p) { dlg.body.appendChild(el('div', 'jc-empty', 'Loading…')); return; }
+      var shown = p.display_name || p.username;
+      var head = el('div', 'jc-ph');
+      var x = el('button', 'jc-x', '✕'); x.title = 'Close'; x.addEventListener('click', dlg.close);
+      var pav = el('div', 'jc-pav');
+      var av = el('div', 'jc-av');
+      setAvatar(av, p.username, p.photo_v);
+      if (av.firstChild) av.firstChild.nodeValue = initials(shown);
+      var cam = el('button', 'jc-cam', '📷'); cam.title = 'Change photo';
+      cam.addEventListener('click', function () {
+        if (!p.photo_v) { fileIn.click(); return; }
+        var m = modal('Profile photo');
+        var r1 = el('div', 'jc-row2', '🖼 Upload new photo'); r1.addEventListener('click', function () { m.close(); fileIn.click(); });
+        var r2 = el('div', 'jc-row2', '🗑 Remove photo'); r2.style.color = '#d33';
+        r2.addEventListener('click', function () { m.close(); save(api('DELETE', API + '/profile/photo'), 'Photo removed'); });
+        m.body.appendChild(r1); m.body.appendChild(r2);
+      });
+      pav.appendChild(av); pav.appendChild(cam);
+      head.appendChild(x); head.appendChild(pav);
+      head.appendChild(el('div', 'jc-pn', shown));
+      head.appendChild(el('div', 'jc-pu', '@' + p.username));
+      dlg.body.appendChild(head);
+
+      var b = el('div', 'jc-pb');
+      if (p.pending_name) {
+        var w = el('div', 'jc-ban jc-wait');
+        w.appendChild(el('span', null, '⏳ "' + p.pending_name + '" is waiting for admin approval. Others still see "' + shown + '".'));
+        var wd = el('button', null, 'Withdraw');
+        wd.addEventListener('click', function () { save(api('DELETE', API + '/profile/name'), 'Request withdrawn'); });
+        w.appendChild(wd);
+        b.appendChild(w);
+      } else if (p.name_note) {
+        var n = el('div', 'jc-ban jc-no');
+        n.appendChild(el('span', null, '✕ Name change not approved: ' + p.name_note));
+        b.appendChild(n);
+      }
+
+      function section(label, value, placeholder, max, hint, onSave) {
+        var sec = el('div', 'jc-sec');
+        sec.appendChild(el('small', null, label));
+        var line = el('div', 'jc-line');
+        var inp = el('input', 'jc-field'); inp.value = value; inp.maxLength = max; inp.placeholder = placeholder;
+        var ok = el('button', 'jc-primary', 'Save');
+        ok.style.cssText = 'background:#00a884;color:#fff;border:0;border-radius:18px;padding:7px 16px;cursor:pointer';
+        function go() { ok.disabled = true; onSave(inp.value.trim()).then(function () { ok.disabled = false; }); }
+        ok.addEventListener('click', go);
+        inp.addEventListener('keydown', function (e) { if (e.key === 'Enter') go(); });
+        line.appendChild(inp); line.appendChild(ok);
+        sec.appendChild(line);
+        if (hint) sec.appendChild(el('div', 'jc-hint', hint));
+        b.appendChild(sec);
+      }
+      section('Your name', p.pending_name || shown, 'Your name', 40,
+        'This is the name your colleagues see. A new name is shown after an admin approves it.',
+        function (v) {
+          if (v.length < 2) { alert('Name must be 2 to 40 characters.'); return Promise.resolve(); }
+          if (v === (p.pending_name || shown)) return Promise.resolve();
+          return save(api('PUT', API + '/profile', { name: v }));
+        });
+      section('About', p.about || '', 'Hey there! I am using JMS Chat.', 140, null,
+        function (v) { return save(api('PUT', API + '/profile', { about: v }), 'About saved'); });
+      var info = el('div', 'jc-sec');
+      info.appendChild(el('small', null, 'Login ID'));
+      info.appendChild(el('div', null, p.username + ([p.role && String(p.role).replace(/_/g, ' '), p.line].filter(Boolean).length ? ' · ' + [p.role && String(p.role).replace(/_/g, ' '), p.line].filter(Boolean).join(' · ') : '')));
+      b.appendChild(info);
+      if (p.can_approve_names) {
+        var nr = el('button', 'jc-nreq');
+        nr.appendChild(el('b', null, '🪪'));
+        nr.appendChild(el('span', null, 'Name requests — approve or reject new names'));
+        if (p.name_requests) nr.appendChild(el('i', 'jc-cnt', String(p.name_requests)));
+        nr.addEventListener('click', function () { nameRequestsDialog(function () { myProfile = null; reload(); }); });
+        b.appendChild(nr);
+      }
+      dlg.body.appendChild(b);
+    }
+    function reload() { api('GET', API + '/profile').then(function (d) { myProfile = d.profile; refreshMeAvatar(); draw(); }).catch(function (e) { alert(e.message); }); }
+    draw();
+    reload();
+  }
+
+  function nameRequestsDialog(onChange) {
+    var dlg = modal('🪪 Name requests');
+    function draw() {
+      dlg.body.textContent = '';
+      dlg.body.appendChild(el('div', 'jc-empty', 'Loading…'));
+      api('GET', API + '/name-requests').then(function (d) {
+        dlg.body.textContent = '';
+        if (!d.requests.length) dlg.body.appendChild(el('div', 'jc-empty', '🎉 No name changes waiting.'));
+        d.requests.forEach(function (r) {
+          var row = el('div', 'jc-nr');
+          var av = el('div', 'jc-av'); setAvatar(av, r.username, r.photo_v);
+          if (av.firstChild) av.firstChild.nodeValue = initials(r.current_name);
+          var mid = el('div', 'jc-mid');
+          var chg = el('div');
+          chg.appendChild(el('s', null, r.current_name)); chg.appendChild(document.createTextNode(' → ')); chg.appendChild(el('b', null, r.requested_name));
+          mid.appendChild(chg);
+          mid.appendChild(el('small', null, ['@' + r.username, String(r.role || '').replace(/_/g, ' '), r.line].filter(Boolean).join(' · ')));
+          var ok = el('button', 'jc-ok', '✓ Approve');
+          var no = el('button', 'jc-rej', '✕');
+          no.title = 'Reject';
+          function decide(action) {
+            var note = '';
+            if (action === 'reject') { note = prompt('Reason (shown to ' + r.current_name + '):', ''); if (note === null) return; }
+            ok.disabled = no.disabled = true;
+            api('POST', API + '/name-requests/' + encodeURIComponent(r.username), { action: action, note: note })
+              .then(function () { draw(); if (onChange) onChange(); })
+              .catch(function (e) { ok.disabled = no.disabled = false; alert(e.message); });
+          }
+          ok.addEventListener('click', function () { decide('approve'); });
+          no.addEventListener('click', function () { decide('reject'); });
+          row.appendChild(av); row.appendChild(mid); row.appendChild(ok); row.appendChild(no);
+          dlg.body.appendChild(row);
+        });
+        if (d.recent.length) {
+          var h = el('div', null, 'Recent decisions'); h.style.cssText = 'margin:14px 0 4px;font-weight:700;color:#00a884';
+          dlg.body.appendChild(h);
+          d.recent.slice(0, 15).forEach(function (x) {
+            var r2 = el('div', 'jc-row2');
+            r2.style.cursor = 'default';
+            r2.appendChild(el('span', null, (x.status === 'approved' ? '✅ ' : '❌ ') + (x.old_name || x.username) + ' → ' + x.new_name));
+            r2.appendChild(el('small', null, (x.reviewed_by ? 'by ' + x.reviewed_by : '') + (x.note ? ' · ' + x.note : '')));
+            dlg.body.appendChild(r2);
+          });
+        }
+      }).catch(function (e) { dlg.body.textContent = ''; dlg.body.appendChild(el('div', 'jc-empty', e.message)); });
+    }
+    draw();
+  }
+
   function devicesDialog() {
     var dlg = modal('📱 My devices');
     function draw() {
@@ -970,10 +1161,12 @@
   function personRow(u, checkbox) {
     var it = el('div', 'jc-item');
     if (checkbox) it.appendChild(checkbox);
-    var av = el('div', 'jc-av' + (u.online ? ' jc-on' : ''), initials(u.username));
-    av.style.background = avatarColor(u.username);
+    var shown = u.display_name || u.username;
+    var av = el('div', 'jc-av' + (u.online ? ' jc-on' : ''));
+    setAvatar(av, u.username, u.photo_v);
+    av.firstChild.nodeValue = initials(shown);
     var mid = el('div', 'jc-mid');
-    mid.appendChild(el('div', 'jc-name', u.username));
+    mid.appendChild(el('div', 'jc-name', shown));
     mid.appendChild(el('div', 'jc-prev', [u.role, u.line].filter(Boolean).join(' · ')));
     it.appendChild(av); it.appendChild(mid);
     if (checkbox) it.addEventListener('click', function (e) { if (e.target !== checkbox) checkbox.click(); });
@@ -989,7 +1182,7 @@
     loadUsers().then(function () {
       els.list.textContent = '';
       var ql = String(q || '').toLowerCase();
-      var ppl = users.filter(function (u) { return !ql || u.username.toLowerCase().indexOf(ql) !== -1; });
+      var ppl = users.filter(function (u) { return !ql || u.username.toLowerCase().indexOf(ql) !== -1 || String(u.display_name || '').toLowerCase().indexOf(ql) !== -1; });
       if (!ppl.length) els.list.appendChild(el('div', 'jc-empty', 'Nobody found.'));
       ppl.forEach(function (u) { els.list.appendChild(personRow(u)); });
     }).catch(function (e) { showErr(e.message); });
@@ -2048,6 +2241,8 @@
     else if (st === 'denied') items.push({ label: 'Desktop notifications are blocked in this browser', run: function () { showErr('Allow notifications for this site in the browser settings (padlock icon), then try again.'); } });
     else if (st === 'unsupported') items.push({ label: 'This browser cannot show notifications', run: function () { } });
     else items.push({ label: 'Turn on desktop notifications', run: enableNotifications });
+    items.push({ sub: 'Profile' });
+    items.push({ label: '👤 My profile (photo, name, about)…', run: profileDialog });
     items.push({ sub: 'Quiet hours' });
     items.push({ label: '🌙 Quiet hours (no notifications at night)…', run: quietDialog });
     items.push({ sub: 'Security' });

@@ -844,7 +844,8 @@ function registerChatRoutes(app, pool) {
         users: rows.map((u) => {
           const p = prof.get(u.username.toLowerCase()) || {};
           return {
-            username: u.username, role: u.role_code || '', line: u.line || '',
+            username: u.username, display_name: chatProfiles.shownName(u.username, p.display_name),
+            role: u.role_code || '', line: u.line || '',
             online: isOnline(u.username) || chatProfiles.isRecent(p.last_seen_at),
             about: p.about || '', photo_v: p.photo_v || null, last_seen_at: p.last_seen_at || null
           };
@@ -931,7 +932,7 @@ function registerChatRoutes(app, pool) {
             system,
             title: system && r.my_role !== 'admin' ? 'JMS' : r.type === 'group'
               ? (r.title || 'Group')
-              : (r.title || (all && others.length > 1 ? members.join(' ↔ ') : (others[0] || me))),
+              : (r.title || (all && others.length > 1 ? members.join(' ↔ ') : (peer ? chatProfiles.shownName(peer, pp.display_name) : me))),
             members,
             my_role: r.my_role || null,
             muted_until: chatNotify.muteOut(r.muted_until),
@@ -1067,7 +1068,7 @@ function registerChatRoutes(app, pool) {
           return mem.map((m) => {
             const p = prof.get(m.username.toLowerCase()) || {};
             return {
-              username: m.username, role: m.role,
+              username: m.username, display_name: chatProfiles.shownName(m.username, p.display_name), role: m.role,
               online: isOnline(m.username) || chatProfiles.isRecent(p.last_seen_at),
               last_seen_at: p.last_seen_at || null, photo_v: p.photo_v || null
             };

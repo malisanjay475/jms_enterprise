@@ -75,7 +75,9 @@ fun InfoScreen(convId: String, onBack: () -> Unit, onMessage: (String) -> Unit, 
             group = r.type == "group"
             members = r.member_roles
             title = r.title ?: r.members.firstOrNull { !Session.isMe(it) } ?: ""
-            if (!group) r.members.firstOrNull { !Session.isMe(it) }?.let { p -> runCatching { Api.profileOf(p) }.onSuccess { peer = it } }
+            if (!group) r.members.firstOrNull { !Session.isMe(it) }?.let { p ->
+                runCatching { Api.profileOf(p) }.onSuccess { peer = it; title = it.shownName }
+            }
         }
     }
 
@@ -106,6 +108,13 @@ fun InfoScreen(convId: String, onBack: () -> Unit, onMessage: (String) -> Unit, 
                 InfoRow(Icons.Default.Info, "About", p.about.ifBlank { "Hey there! I am using JMS Chat." }, null)
                 val sub = listOf(p.role.replace('_', ' '), p.line).filter { it.isNotBlank() }.joinToString(" · ")
                 if (sub.isNotEmpty()) InfoRow(Icons.Default.Info, "Role", sub, null)
+                // Admins / superadmins see who this really is and every earlier name.
+                if (p.admin_view) {
+                    InfoRow(Icons.Default.Info, "Login ID", p.username, null)
+                    p.pending_name?.let { InfoRow(Icons.Default.Info, "Requested name (waiting)", it, null) }
+                    val old = p.name_history.filter { it.status == "approved" }.mapNotNull { it.old_name }.distinct()
+                    if (old.isNotEmpty()) InfoRow(Icons.Default.Info, "Earlier names", old.joinToString(", "), null)
+                }
             }
             if (group) {
                 // group admins, and superadmins in every group
@@ -135,7 +144,7 @@ fun InfoScreen(convId: String, onBack: () -> Unit, onMessage: (String) -> Unit, 
                         Avatar(m.username, 44.dp, online = m.online, photoUrl = Api.avatarUrl(m.username, m.photo_v))
                         Spacer(Modifier.width(14.dp))
                         Column(Modifier.weight(1f)) {
-                            Text(if (Session.isMe(m.username)) "You" else m.username, fontWeight = FontWeight.SemiBold)
+                            Text(if (Session.isMe(m.username)) "You" else m.display_name.ifBlank { m.username }, fontWeight = FontWeight.SemiBold)
                             val seen = lastSeenText(m.online, m.last_seen_at)
                             if (seen.isNotEmpty()) Text(seen, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }

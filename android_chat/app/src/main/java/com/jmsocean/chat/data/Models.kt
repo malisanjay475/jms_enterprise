@@ -37,6 +37,7 @@ data class Me(val ok: Boolean = false, val username: String = "", val isSuperadm
 @Serializable
 data class ChatUser(
     val username: String,
+    val display_name: String = "",
     val role: String = "",
     val line: String = "",
     val online: Boolean = false,
@@ -239,7 +240,7 @@ data class MessagesReply(
 )
 
 @Serializable
-data class Member(val username: String, val role: String? = null, val online: Boolean = false, val last_seen_at: String? = null, val photo_v: String? = null)
+data class Member(val username: String, val display_name: String = "", val role: String? = null, val online: Boolean = false, val last_seen_at: String? = null, val photo_v: String? = null)
 
 @Serializable
 data class Profile(
@@ -249,11 +250,51 @@ data class Profile(
     val about: String = "",
     val photo_v: String? = null,
     val last_seen_at: String? = null,
-    val online: Boolean = false
+    val online: Boolean = false,
+    /** Name others see (approved); the login name until one is approved. */
+    val display_name: String = "",
+    /** Waiting for an admin (only for me and admins). */
+    val pending_name: String? = null,
+    val pending_at: String? = null,
+    /** Why my last request was rejected. */
+    val name_note: String? = null,
+    /** Earlier names (admins only). */
+    val name_history: List<NameChange> = emptyList(),
+    /** The viewer is an admin / superadmin (sees login and earlier names). */
+    val admin_view: Boolean = false,
+    val can_approve_names: Boolean = false,
+    val name_requests: Int = 0
+) {
+    val shownName: String get() = display_name.ifBlank { username }
+}
+
+@Serializable
+data class NameChange(
+    val username: String = "",
+    val old_name: String? = null,
+    val new_name: String = "",
+    val status: String = "",
+    val reviewed_by: String? = null,
+    val note: String? = null,
+    val at: String? = null
 )
 
 @Serializable
-data class ProfileReply(val profile: Profile? = null)
+data class NameRequest(
+    val username: String,
+    val role: String = "",
+    val line: String = "",
+    val current_name: String = "",
+    val requested_name: String = "",
+    val requested_at: String? = null,
+    val photo_v: String? = null
+)
+
+@Serializable
+data class NameRequestsReply(val requests: List<NameRequest> = emptyList(), val recent: List<NameChange> = emptyList())
+
+@Serializable
+data class ProfileReply(val profile: Profile? = null, val message: String = "")
 
 @Serializable
 data class MessageReply(val message: Message? = null)

@@ -40,7 +40,7 @@ private final class UsersModel: ObservableObject {
     func filtered(_ q: String) -> [ChatUser] {
         let q = q.trimmingCharacters(in: .whitespaces).lowercased()
         guard !q.isEmpty else { return users }
-        return users.filter { $0.username.lowercased().contains(q) || $0.role.lowercased().contains(q) || $0.line.lowercased().contains(q) }
+        return users.filter { $0.username.lowercased().contains(q) || $0.displayName.lowercased().contains(q) || $0.role.lowercased().contains(q) || $0.line.lowercased().contains(q) }
     }
 }
 
@@ -50,9 +50,9 @@ private struct UserRow: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            Avatar(name: u.username, photoV: u.photoV, size: 34, online: u.online)
+            Avatar(name: u.displayName.isEmpty ? u.username : u.displayName, photoV: u.photoV, size: 34, online: u.online)
             VStack(alignment: .leading, spacing: 1) {
-                Text(u.username).font(.body.weight(.medium))
+                Text(u.displayName.isEmpty ? u.username : u.displayName).font(.body.weight(.medium))
                 let sub = [u.about, u.role, u.line].filter { !$0.isEmpty }.prefix(2).joined(separator: " · ")
                 if !sub.isEmpty { Text(sub).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
             }
@@ -149,42 +149,73 @@ struct NewGroupSheet: View {
     }
 }
 
+/** My profile, like WhatsApp: photo, name (a new one waits for admin approval), About. */
 struct ProfileSheet: View {
     @EnvironmentObject private var app: AppState
     @State private var profile = Profile()
     @State private var about = ""
+    @State private var name = ""
     @State private var loading = true
     @State private var busy = false
     @State private var info: String?
     @State private var error: String?
     @State private var picking = false
+    @State private var reviewing = false
+
+    private var cleanName: String { name.trimmingCharacters(in: .whitespacesAndNewlines) }
 
     var body: some View {
-        VStack(spacing: 14) {
+        VStack(spacing: 12) {
             SheetHeader(title: "My profile")
             if loading {
                 ProgressView().frame(maxHeight: .infinity)
             } else {
-                Avatar(name: app.username ?? "", photoV: profile.photoV, size: 110)
-                HStack {
-                    Button("Change photo…") { picking = true }
-                    if profile.photoV != nil { Button("Remove photo", role: .destructive, action: removePhoto) }
-                }
-                .disabled(busy)
-                Text(app.username ?? "").font(.title2.bold())
-                let sub = [profile.role, profile.line].filter { !$0.isEmpty }.joined(separator: " · ")
-                if !sub.isEmpty { Text(sub).foregroundStyle(.secondary) }
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("About").font(.caption).foregroundStyle(.secondary)
-                    HStack {
-                        TextField("Available", text: $about).textFieldStyle(.roundedBorder).onSubmit(saveAbout)
-                        Button("Save", action: saveAbout).disabled(busy || about == profile.about)
+                ScrollView {
+                    VStack(spacing: 12) {
+                        Avatar(name: profile.shownName, photoV: profile.photoV, size: 110)
+                        HStack {
+                            Button("Change photo…") { picking = true }
+                            if profile.photoV != nil { Button("Remove photo", role: .destructive, action: removePhoto) }
+                        }
+                        .disabled(busy)
+                        VStack(spacing: 2) {
+                            Text(profile.shownName).font(.title2.bold())
+                            Text("@\(profile.username)").font(.callout).foregroundStyle(.secondary)
+                        }
+                        if let pending = profile.pendingName {
+                            banner("hourglass", "\"\(pending)\" is waiting for admin approval. Others still see \"\(profile.shownName)\".",
+                                   .orange, action: "Withdraw") { run("Request withdrawn") { try await Api.cancelName() } }
+                        } else if let note = profile.nameNote {
+                            banner("xmark.octagon", "Name change not approved: \(note)", .red, action: nil) {}
+                        }
+                        field("Name", hint: "A new name is shown after an admin approves it.") {
+                            TextField("Your name", text: $name).textFieldStyle(.roundedBorder).onSubmit(saveName)
+                            Button("Save", action: saveName)
+                                .disabled(busy || cleanName.count < 2 || cleanName.count > 40 || cleanName == (profile.pendingName ?? profile.shownName))
+                        }
+                        field("About", hint: nil) {
+                            TextField("Available", text: $about).textFieldStyle(.roundedBorder).onSubmit(saveAbout)
+                            Button("Save", action: saveAbout).disabled(busy || about == profile.about)
+                        }
+                        let sub = [profile.role.replacingOccurrences(of: "_", with: " "), profile.line].filter { !$0.isEmpty }.joined(separator: " · ")
+                        if !sub.isEmpty { Text(sub).foregroundStyle(.secondary) }
+                        if profile.canApproveNames {
+                            Button { reviewing = true } label: {
+                                HStack {
+                                    Image(systemName: "person.badge.shield.checkmark")
+                                    Text("Name requests")
+                                    if profile.nameRequests > 0 {
+                                        Text("\(profile.nameRequests)").font(.caption.bold()).foregroundStyle(.white)
+                                            .padding(.horizontal, 7).padding(.vertical, 1).background(Capsule().fill(Color.accentGreen))
+                                    }
+                                }
+                            }
+                        }
+                        if let info { Text(info).foregroundStyle(Color.accentGreen).font(.callout).multilineTextAlignment(.center) }
+                        if let error { Text(error).foregroundStyle(.red).font(.callout) }
                     }
+                    .padding(.horizontal, 30)
                 }
-                .padding(.horizontal, 30)
-                if let info { Text(info).foregroundStyle(Color.accentGreen).font(.callout) }
-                if let error { Text(error).foregroundStyle(.red).font(.callout) }
-                Spacer()
                 HStack {
                     Text("JMS Chat for Mac \(AppConfig.version)").font(.caption).foregroundStyle(.secondary)
                     Spacer()
@@ -193,13 +224,59 @@ struct ProfileSheet: View {
                 .padding()
             }
         }
-        .frame(width: 420, height: 540)
+        .frame(width: 440, height: 640)
         .fileImporter(isPresented: $picking, allowedContentTypes: [.image]) { result in
             if case .success(let url) = result { uploadPhoto(url) }
         }
-        .task {
-            if let p = try? await Api.myProfile() { profile = p; about = p.about }
-            loading = false
+        .sheet(isPresented: $reviewing, onDismiss: reload) { NameRequestsSheet() }
+        .task { await load() }
+    }
+
+    private func load() async {
+        if let p = try? await Api.myProfile() { apply(p) }
+        loading = false
+    }
+
+    private func reload() { Task { await load() } }
+
+    private func apply(_ p: Profile) {
+        profile = p
+        about = p.about
+        name = p.pendingName ?? p.shownName
+    }
+
+    @ViewBuilder
+    private func field<C: View>(_ label: String, hint: String?, @ViewBuilder _ content: () -> C) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(label).font(.caption).foregroundStyle(.secondary)
+            HStack { content() }
+            if let hint { Text(hint).font(.caption2).foregroundStyle(.secondary) }
+        }
+    }
+
+    private func banner(_ icon: String, _ text: String, _ color: Color, action: String?, _ onAction: @escaping () -> Void) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: icon).foregroundStyle(color)
+            Text(text).font(.callout).frame(maxWidth: .infinity, alignment: .leading)
+            if let action { Button(action, action: onAction).disabled(busy) }
+        }
+        .padding(10)
+        .background(RoundedRectangle(cornerRadius: 10).fill(color.opacity(0.12)))
+    }
+
+    private func saveName() {
+        let text = cleanName
+        guard text.count >= 2 else { return }
+        busy = true
+        info = nil
+        error = nil
+        Task {
+            do {
+                let r = try await Api.saveName(text)
+                if let p = r.profile { apply(p) }
+                info = r.message.isEmpty ? "Saved" : r.message
+            } catch { self.error = error.localizedDescription }
+            busy = false
         }
     }
 
@@ -208,7 +285,7 @@ struct ProfileSheet: View {
         info = nil
         error = nil
         Task {
-            do { profile = try await work(); about = profile.about; info = ok } catch { self.error = error.localizedDescription }
+            do { apply(try await work()); info = ok } catch { self.error = error.localizedDescription }
             busy = false
         }
     }
@@ -230,6 +307,92 @@ struct ProfileSheet: View {
                 throw ApiError(message: "Could not read that picture.")
             }
             return try await Api.uploadPhoto(jpeg, fileName: "photo.jpg", mime: "image/jpeg")
+        }
+    }
+}
+
+/** Admins / superadmins: approve or reject the names people asked for. */
+struct NameRequestsSheet: View {
+    @State private var data = NameRequestsReply()
+    @State private var loading = true
+    @State private var busy: String?
+    @State private var error: String?
+    @State private var rejecting: NameRequest?
+    @State private var note = ""
+
+    var body: some View {
+        VStack(spacing: 8) {
+            SheetHeader(title: "Name requests")
+            if let error { Text(error).foregroundStyle(.red) }
+            if loading {
+                ProgressView().frame(maxHeight: .infinity)
+            } else {
+                List {
+                    Section("Waiting (\(data.requests.count))") {
+                        if data.requests.isEmpty {
+                            Text("🎉 No name changes waiting").foregroundStyle(.secondary)
+                        }
+                        ForEach(data.requests) { r in
+                            HStack(spacing: 10) {
+                                Avatar(name: r.currentName, photoV: r.photoV, size: 38)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    HStack(spacing: 6) {
+                                        Text(r.currentName).strikethrough().foregroundStyle(.secondary)
+                                        Image(systemName: "arrow.right").font(.caption).foregroundStyle(Color.accentGreen)
+                                        Text(r.requestedName).bold().foregroundStyle(Color.accentGreen)
+                                    }
+                                    .lineLimit(1)
+                                    Text((["@" + r.username, r.role.replacingOccurrences(of: "_", with: " "), r.line]).filter { !$0.isEmpty }.joined(separator: " · "))
+                                        .font(.caption).foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                Button("Reject", role: .destructive) { note = ""; rejecting = r }.disabled(busy != nil)
+                                Button("Approve") { decide(r, approve: true) }
+                                    .buttonStyle(.borderedProminent).tint(Color.accentGreen).disabled(busy != nil)
+                            }
+                            .padding(.vertical, 3)
+                        }
+                    }
+                    if !data.recent.isEmpty {
+                        Section("Recent decisions") {
+                            ForEach(Array(data.recent.enumerated()), id: \.offset) { _, h in
+                                HStack {
+                                    VStack(alignment: .leading, spacing: 1) {
+                                        Text("\(h.oldName ?? h.username) → \(h.newName)").lineLimit(1)
+                                        Text("@\(h.username)" + (h.reviewedBy.map { " · by \($0)" } ?? "") + (h.note.map { " · \($0)" } ?? ""))
+                                            .font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                                    }
+                                    Spacer()
+                                    Text(h.status == "approved" ? "Approved" : "Rejected").font(.caption.bold())
+                                        .foregroundStyle(h.status == "approved" ? Color.green : Color.red)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        .frame(width: 560, height: 560)
+        .task { await load() }
+        .alert("Reject \"\(rejecting?.requestedName ?? "")\"?", isPresented: Binding(get: { rejecting != nil }, set: { if !$0 { rejecting = nil } })) {
+            TextField("Reason (optional)", text: $note)
+            Button("Reject", role: .destructive) { if let r = rejecting { decide(r, approve: false) }; rejecting = nil }
+            Button("Cancel", role: .cancel) { rejecting = nil }
+        }
+    }
+
+    private func load() async {
+        do { data = try await Api.nameRequests(); error = nil } catch { self.error = error.localizedDescription }
+        loading = false
+    }
+
+    private func decide(_ r: NameRequest, approve: Bool) {
+        busy = r.username
+        let reason = note.trimmingCharacters(in: .whitespacesAndNewlines)
+        Task {
+            do { try await Api.decideName(r.username, approve: approve, note: approve ? "" : reason) } catch { self.error = error.localizedDescription }
+            await load()
+            busy = nil
         }
     }
 }
@@ -405,13 +568,27 @@ struct ChatInfoSheet: View {
     private var contact: some View {
         VStack(spacing: 10) {
             Avatar(name: model.peer ?? model.title, photoV: profile?.photoV ?? model.peerPhoto, size: 120)
-            Text(model.peer ?? model.title).font(.title2.bold())
+            Text(profile?.shownName ?? model.title).font(.title2.bold())
             Text(model.online ? "online" : lastSeenText(model.lastSeen)).foregroundStyle(.secondary)
             if let p = profile {
                 let sub = [p.role, p.line].filter { !$0.isEmpty }.joined(separator: " · ")
                 if !sub.isEmpty { Text(sub).foregroundStyle(.secondary) }
                 if !p.about.isEmpty {
                     GroupBox("About") { Text(p.about).frame(maxWidth: .infinity, alignment: .leading) }.padding(.horizontal)
+                }
+                // Admins / superadmins see who this really is and every earlier name.
+                if p.adminView {
+                    GroupBox("Admin view") {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Login ID: \(p.username)")
+                            if let pending = p.pendingName { Text("Requested name (waiting): \(pending)").foregroundStyle(.orange) }
+                            let old = p.nameHistory.filter { $0.status == "approved" }.compactMap { $0.oldName }
+                                .reduce(into: [String]()) { if !$0.contains($1) { $0.append($1) } }
+                            if !old.isEmpty { Text("Earlier names: \(old.joined(separator: ", "))").foregroundStyle(.secondary) }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .padding(.horizontal)
                 }
             }
             Spacer()
@@ -440,7 +617,7 @@ struct ChatInfoSheet: View {
             List(memberList, id: \.username) { mem in
                 HStack(spacing: 10) {
                     Avatar(name: mem.username, photoV: mem.photoV, size: 30, online: mem.online)
-                    Text(Session.isMe(mem.username) ? "You" : mem.username)
+                    Text(Session.isMe(mem.username) ? "You" : (mem.displayName.isEmpty ? mem.username : mem.displayName))
                     if mem.role == "admin" {
                         Text("admin").font(.caption).padding(.horizontal, 6).padding(.vertical, 1)
                             .background(Capsule().stroke(Color.accentGreen)).foregroundStyle(Color.accentGreen)

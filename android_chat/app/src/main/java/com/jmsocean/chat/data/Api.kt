@@ -359,6 +359,19 @@ object Api {
         json.decodeFromString<ProfileReply>(call("PUT", "/api/chat/profile", buildJsonObject { put("about", about) }.toString().toRequestBody(JSON))).profile ?: Profile()
     }
 
+    /** Ask for a new name; returns the profile and the server's note (e.g. "Sent for approval"). */
+    suspend fun saveName(name: String): ProfileReply =
+        json.decodeFromString(call("PUT", "/api/chat/profile", jsonBody("name" to name)))
+
+    suspend fun cancelName(): Profile = json.decodeFromString<ProfileReply>(call("DELETE", "/api/chat/profile/name")).profile ?: Profile()
+
+    // ---- name approvals (admin / superadmin) ----
+    suspend fun nameRequests(): NameRequestsReply = get("/api/chat/name-requests")
+    suspend fun decideName(username: String, approve: Boolean, note: String = "") {
+        call("POST", "/api/chat/name-requests/" + java.net.URLEncoder.encode(username, "UTF-8"),
+            jsonBody("action" to (if (approve) "approve" else "reject"), "note" to note))
+    }
+
     suspend fun uploadPhoto(file: File, mime: String): Profile {
         val form = MultipartBody.Builder().setType(MultipartBody.FORM)
             .addFormDataPart("photo", file.name, file.asRequestBodyCompat(mime)).build()
