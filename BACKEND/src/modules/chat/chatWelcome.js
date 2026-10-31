@@ -4,8 +4,8 @@
 //
 // Every active user gets one welcome from the verified "JMS" sender: existing users once,
 // after this ships, and new users within a minute of being created / approved. It opens a
-// small group "JMS Team · <name>" with the person and every superadmin, so a reply reaches
-// the JMS Team. The group is archived for the superadmins so their chat list stays clean.
+// small group "JMS Team · <name>" with just the person. The superadmins join it only when
+// the person replies (addTeamOnReply, called on send), so they are not sent every welcome.
 // chat_welcome remembers who was greeted, so nobody gets it twice.
 
 const chatSync = require('./chatSync');
@@ -47,7 +47,7 @@ async function addMember(db, convId, username, role) {
   );
 }
 
-async function welcomeOne(db, user, superadmins) {
+async function welcomeOne(db, user) {
   const name = user.display_name || user.username;
   const { rows: [c] } = await db.query(
     `INSERT INTO chat_conversations (type, title, created_by, last_message_at)
@@ -55,16 +55,6 @@ async function welcomeOne(db, user, superadmins) {
     [`JMS Team · ${String(name).slice(0, 60)}`, SENDER]
   );
   await addMember(db, c.sync_id, user.username, 'member');
-  for (const s of superadmins) {
-    await addMember(db, c.sync_id, s, 'admin');
-    // chat_user_prefs comes from chatExtras; a savepoint keeps the welcome if it is missing
-    await db.query('SAVEPOINT pref');
-    await db.query(
-      `INSERT INTO chat_user_prefs (username_lower, conversation_sync_id, archived_at) VALUES (LOWER($1), $2, NOW())
-       ON CONFLICT (username_lower, conversation_sync_id) DO UPDATE SET archived_at = NOW()`,
-      [s, c.sync_id]
-    ).then(() => db.query('RELEASE SAVEPOINT pref'), () => db.query('ROLLBACK TO SAVEPOINT pref'));
-  }
   const { rows: [m] } = await db.query(
     `INSERT INTO chat_messages (conversation_sync_id, sender, body, kind, meta)
      VALUES ($1, $2, $3, 'text', $4) RETURNING server_ts`,
@@ -77,12 +67,46 @@ async function welcomeOne(db, user, superadmins) {
   );
 }
 
+// the person already has a welcome group (made here, or synced in from a factory server)
+const HAS_GROUP = `SELECT 1 FROM chat_conversations c JOIN chat_members m ON m.conversation_sync_id = c.sync_id
+                    WHERE c.type = 'group' AND c.created_by = 'JMS' AND LOWER(m.username) = LOWER(u.username)`;
+
+// v1.159.0 also ran on the factory (LOCAL) servers, which greeted everyone again. Keep each
+// person's oldest welcome group and take everyone out of the others (unless the person has
+// written in one), so the copies leave every chat list.
+async function removeDuplicates(db) {
+  const { rowCount } = await db.query(
+    `WITH g AS (
+       SELECT c.sync_id, ROW_NUMBER() OVER (PARTITION BY LOWER(m.username) ORDER BY c.created_at, c.sync_id) AS rn
+         FROM chat_conversations c JOIN chat_members m ON m.conversation_sync_id = c.sync_id
+        WHERE c.type = 'group' AND c.created_by = $1 AND m.role = 'member'
+     )
+     UPDATE chat_members cm SET left_at = NOW(), updated_at = NOW()
+       FROM g
+      WHERE cm.conversation_sync_id = g.sync_id AND g.rn > 1 AND cm.left_at IS NULL
+        AND NOT EXISTS (SELECT 1 FROM chat_messages x WHERE x.conversation_sync_id = g.sync_id
+                         AND x.sender <> $1 AND x.kind <> 'system')`, [SENDER]
+  );
+  return rowCount;
+}
+
 async function run(db) {
   await ensureWelcomeSchema(db);
-  const { rows: admins } = await db.query(
-    `SELECT username FROM users WHERE LOWER(role_code) = 'superadmin' AND COALESCE(is_active, TRUE) = TRUE`
-  );
-  const superadmins = admins.map((a) => a.username);
+  const dups = await removeDuplicates(db);
+  if (dups) console.log(`[chat-welcome] removed ${dups} member(s) from duplicate welcome groups`);
+  if (!cleaned) {
+    // v1.159.0 put every superadmin in every welcome group, so each welcome reached them
+    // too. Take them out again wherever the person has not replied yet.
+    await db.query(
+      `UPDATE chat_members m SET left_at = NOW(), updated_at = NOW()
+         FROM chat_welcome w
+        WHERE m.conversation_sync_id = w.conversation_sync_id AND m.left_at IS NULL
+          AND LOWER(m.username) <> w.username_lower
+          AND NOT EXISTS (SELECT 1 FROM chat_messages x WHERE x.conversation_sync_id = w.conversation_sync_id
+                           AND x.sender <> $1 AND x.kind <> 'system')`, [SENDER]
+    );
+    cleaned = true;
+  }
   // a chat sign-up's real name, when there is one
   const { rows: todo } = await db.query(
     `SELECT u.username,
@@ -90,18 +114,20 @@ async function run(db) {
        FROM users u
       WHERE COALESCE(u.is_active, TRUE) = TRUE AND LOWER(COALESCE(u.role_code, '')) <> 'superadmin'
         AND NOT EXISTS (SELECT 1 FROM chat_welcome w WHERE w.username_lower = LOWER(u.username))
+        AND NOT EXISTS (${HAS_GROUP})
       ORDER BY u.id LIMIT $1`, [BATCH]
   ).catch(() => db.query(
     `SELECT u.username, NULL AS display_name FROM users u
       WHERE COALESCE(u.is_active, TRUE) = TRUE AND LOWER(COALESCE(u.role_code, '')) <> 'superadmin'
         AND NOT EXISTS (SELECT 1 FROM chat_welcome w WHERE w.username_lower = LOWER(u.username))
+        AND NOT EXISTS (${HAS_GROUP})
       ORDER BY u.id LIMIT $1`, [BATCH]
   )); // no chat_signups table yet
   let sent = 0;
   for (const u of todo) {
     await db.query('BEGIN');
     try {
-      await welcomeOne(db, u, superadmins);
+      await welcomeOne(db, u);
       await db.query('COMMIT');
       sent++;
     } catch (err) {
@@ -112,11 +138,36 @@ async function run(db) {
   return sent;
 }
 
+let cleaned = false;
+
+// A reply in a welcome group brings in the JMS Team (the active superadmins), before the
+// message is stored so they are notified of it.
+async function addTeamOnReply(pool, convId, sender) {
+  if (String(sender).toLowerCase() === SENDER.toLowerCase()) return;
+  const { rows: [c] } = await pool.query(
+    `SELECT 1 FROM chat_conversations WHERE sync_id = $1 AND type = 'group' AND created_by = $2`, [convId, SENDER]
+  );
+  if (!c) return;
+  const { rows: admins } = await pool.query(
+    `SELECT username FROM users WHERE LOWER(role_code) = 'superadmin' AND COALESCE(is_active, TRUE) = TRUE`
+  );
+  for (const a of admins) {
+    await pool.query(
+      `INSERT INTO chat_members (sync_id, conversation_sync_id, username, role)
+       VALUES (${MEMBER_ID}, $1, $2, 'admin')
+       ON CONFLICT (conversation_sync_id, (LOWER(username)))
+       DO UPDATE SET left_at = NULL, updated_at = NOW() WHERE chat_members.left_at IS NOT NULL`,
+      [convId, a.username]
+    );
+  }
+}
+
 function start(pool) {
   if (chatSync.isLocal()) return;
   let running = false;
   async function tick() {
-    if (running) return;
+    // the server type can be known only after start-up (sync settings), so check every time
+    if (running || chatSync.isLocal()) return;
     running = true;
     const client = await pool.connect().catch(() => null);
     if (!client) { running = false; return; }
@@ -141,4 +192,4 @@ function start(pool) {
   if (every.unref) every.unref();
 }
 
-module.exports = { start, welcomeText, SENDER, __test: { run, ensureWelcomeSchema } };
+module.exports = { start, welcomeText, addTeamOnReply, SENDER, __test: { run, ensureWelcomeSchema, removeDuplicates } };

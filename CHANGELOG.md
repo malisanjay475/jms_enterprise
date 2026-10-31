@@ -13,6 +13,9 @@ part of your PR. On release, the `[Unreleased]` items move under the new version
 
 ## [Unreleased]
 
+### Fixed
+- JMS Chat welcome (v1.159.1): people got the welcome several times, because the factory (LOCAL) servers also ran the welcome job (the server type is known only after start-up) and their copies synced to MAIN. The job now checks the server type on every run, skips anyone who already has a welcome group (wherever it was made), and removes the extra copies from every chat list (the oldest stays; a copy the person replied in is kept). Superadmins are no longer put in every welcome group: they join a person's group only when that person replies, and are taken out of the groups nobody replied in.
+
 ### Added
 - JMS Chat welcome (v1.159.0): every active user gets one welcome message from the verified "JMS ✓" sender ("🙏 Namaste <name>! Welcome to JMS Chat ... reply here and the JMS Team will help you"). Existing users are greeted once after this release (25 per minute); new users within a minute of being created / approved. It opens a "JMS Team · <name>" group with the person and the superadmins (archived for the superadmins), so replies reach the JMS Team. chat_welcome remembers who was greeted.
 

@@ -1111,6 +1111,8 @@ function registerChatRoutes(app, pool) {
         }
         meta.announcement = true;
       }
+      // a reply to the JMS welcome reaches the JMS Team
+      await require('./chatWelcome').addTeamOnReply(pool, convId, me).catch((err) => console.warn('[chat-welcome] reply:', err.message));
       const ins = await pool.query(
         `INSERT INTO chat_messages (sync_id, conversation_sync_id, sender, body, client_ts, factory_id, reply_to_sync_id, meta)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
