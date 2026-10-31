@@ -309,6 +309,10 @@ struct Profile: Decodable {
     var online = false
     /** Name others see (approved); the login name until one is approved. */
     var displayName = ""
+    var designation = ""
+    var department = ""
+    /** From the chat sign-up form (only for me and admins). */
+    var mobile: String?
     /** Waiting for an admin (only for me and admins). */
     var pendingName: String?
     /** Why my last request was rejected. */
@@ -327,8 +331,36 @@ extension Profile {
         username = c.v("username", ""); role = c.v("role", ""); line = c.v("line", ""); about = c.v("about", "")
         photoV = c.s("photo_v"); lastSeenAt = c.o("last_seen_at"); online = c.v("online", false)
         displayName = c.v("display_name", ""); pendingName = c.o("pending_name"); nameNote = c.o("name_note")
+        designation = c.v("designation", ""); department = c.v("department", ""); mobile = c.o("mobile")
         nameHistory = c.v("name_history", []); adminView = c.v("admin_view", false)
         canApproveNames = c.v("can_approve_names", false); nameRequests = c.v("name_requests", 0)
+    }
+}
+
+/** Contact info extras: media in our direct chat and groups in common. */
+struct CommonGroup: Decodable, Identifiable {
+    var syncId = ""
+    var title: String?
+    var members = 0
+    var id: String { syncId }
+}
+
+extension CommonGroup {
+    init(from d: Decoder) throws {
+        let c = try d.container(keyedBy: JK.self)
+        syncId = c.v("sync_id", ""); title = c.o("title"); members = c.v("members", 0)
+    }
+}
+
+struct SharedReply: Decodable {
+    var media: [Attachment] = []
+    var groups: [CommonGroup] = []
+}
+
+extension SharedReply {
+    init(from d: Decoder) throws {
+        let c = try d.container(keyedBy: JK.self)
+        media = c.v("media", []); groups = c.v("groups", [])
     }
 }
 

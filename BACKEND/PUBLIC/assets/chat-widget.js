@@ -412,6 +412,16 @@
     '.jc-modal{font-family:\'Segoe UI\',system-ui,-apple-system,Roboto,Helvetica,Arial,sans-serif}',
     '.jc-srow{display:flex;align-items:center;gap:10px}.jc-srow input{flex:1;min-width:0}',
     '.jc-hasunr .jc-name{font-weight:700}.jc-hasunr .jc-prev{color:var(--jc-tx);font-weight:500}.jc-hasunr .jc-time{color:#00a884;font-weight:600}',
+    '.jc-prof.jc-ci .jc-ph{background:var(--jc-bg);color:var(--jc-tx);padding:28px 16px 14px}.jc-prof.jc-ci .jc-ph .jc-x{background:var(--jc-bg2);color:var(--jc-tx);left:10px;right:auto}',
+    '.jc-ci .jc-pav .jc-av{cursor:zoom-in;transition:transform .15s}.jc-ci .jc-pav .jc-av:hover{transform:scale(1.03)}',
+    '.jc-prof.jc-ci .jc-pn{color:var(--jc-tx)}.jc-prof.jc-ci .jc-pu{color:var(--jc-mu);opacity:1}.jc-ci .jc-dd{margin-top:6px;font-size:14px;font-weight:600;color:#00a884}.jc-ci .jc-ls{font-size:12px;color:var(--jc-mu);margin-top:3px}',
+    '.jc-acts{display:flex;gap:10px;padding:4px 16px 14px;background:var(--jc-bg)}.jc-acts button{flex:1;border:0;border-radius:12px;background:var(--jc-bg2);color:var(--jc-tx);padding:12px 4px 10px;cursor:pointer;font:inherit;font-size:13px;display:flex;flex-direction:column;align-items:center;gap:4px}.jc-acts button i{font-style:normal;font-size:20px;color:#00a884}.jc-acts button:hover{filter:brightness(.96)}',
+    '.jc-card{margin:0 12px 12px;border-radius:12px;background:var(--jc-bg2);overflow:hidden}.jc-card .jc-ttl{font-size:12px;color:var(--jc-mu);padding:10px 14px 0}',
+    '.jc-crow{display:flex;align-items:center;gap:14px;padding:12px 14px;cursor:pointer;border-top:1px solid var(--jc-bd)}.jc-crow:first-child{border-top:0}.jc-crow:hover{filter:brightness(.97)}.jc-crow .jc-ci-ic{width:22px;text-align:center;font-size:17px;opacity:.85}.jc-crow span{flex:1;min-width:0}.jc-crow em{font-style:normal;color:var(--jc-mu);font-size:13px}.jc-crow em::after{content:" \\203A";font-size:16px}.jc-crow.jc-static{cursor:default}.jc-crow.jc-static em::after{content:""}',
+    '.jc-crow small{display:block;color:var(--jc-mu);font-size:12px;margin-top:1px}',
+    '.jc-about{padding:10px 14px 12px;white-space:pre-wrap;overflow-wrap:anywhere}',
+    '.jc-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;padding:4px 10px 12px}.jc-grid a,.jc-grid div{aspect-ratio:1;border-radius:6px;overflow:hidden;background:var(--jc-bg);display:flex;align-items:center;justify-content:center;flex-direction:column;font-size:11px;color:var(--jc-tx);text-decoration:none;text-align:center;padding:2px;cursor:pointer}.jc-grid img{width:100%;height:100%;object-fit:cover}.jc-grid b{font-size:22px}',
+    '.jc-lb{position:fixed;inset:0;z-index:100030;background:rgba(0,0,0,.92);display:flex;align-items:center;justify-content:center;flex-direction:column;gap:12px;cursor:zoom-out}.jc-lb img{max-width:92vw;max-height:84vh;border-radius:6px;box-shadow:0 10px 50px rgba(0,0,0,.6)}.jc-lb b{color:#fff;font-size:16px}.jc-lb button{position:absolute;top:14px;right:16px;border:0;background:rgba(255,255,255,.15);color:#fff;width:40px;height:40px;border-radius:50%;font-size:20px;cursor:pointer}',
     '.jc-meav{width:36px;height:36px;font-size:13px;cursor:pointer;border:2px solid #fff;box-shadow:0 0 0 1.5px #00a884;box-sizing:border-box;transition:transform .12s}.jc-meav:hover{transform:scale(1.06)}',
     '.jc-prof{width:min(440px,94vw) !important;padding:0 !important}.jc-prof h4{display:none}',
     '.jc-prof .jc-ph{background:linear-gradient(135deg,#075e54,#0b7c6e);color:#fff;padding:26px 16px 18px;text-align:center;border-radius:12px 12px 0 0;position:relative}',
@@ -607,10 +617,12 @@
       fileIn.value = '';
       if (f) sendFile(f);
     });
-    mTitle.addEventListener('click', function () { if (isGroup(current)) showGroupInfo(); });
+    mTitle.addEventListener('click', function () { if (isGroup(current)) showGroupInfo(); else if (current) contactInfo(current); });
+    mAv.style.cursor = 'pointer';
+    mAv.addEventListener('click', function () { if (isGroup(current)) showGroupInfo(); else if (current) contactInfo(current); });
     bellBtn.addEventListener('click', function (e) { e.stopPropagation(); showSettings(bellBtn); });
     mMute.addEventListener('click', function (e) { e.stopPropagation(); showMuteMenu(mMute); });
-    mInfo.addEventListener('click', function () { if (isGroup(current)) showGroupInfo(); });
+    mInfo.addEventListener('click', function () { if (isGroup(current)) showGroupInfo(); else if (current) contactInfo(current); });
     editX.addEventListener('click', cancelEdit);
     ta.addEventListener('keydown', function (e) {
       if (mentionOpen() && (e.key === 'Enter' || e.key === 'Tab')) { e.preventDefault(); pickMention(0); return; }
@@ -973,6 +985,10 @@
         });
       section('About', p.about || '', 'Hey there! I am using JMS Chat.', 140, null,
         function (v) { return save(api('PUT', API + '/profile', { about: v }), 'About saved'); });
+      section('Designation', p.designation || '', 'e.g. Supervisor, Operator', 60, null,
+        function (v) { return save(api('PUT', API + '/profile', { designation: v }), 'Designation saved'); });
+      section('Department', p.department || '', 'e.g. Moulding, QC, Store', 60, 'Shown as Designation | Department on your contact info.',
+        function (v) { return save(api('PUT', API + '/profile', { department: v }), 'Department saved'); });
       var info = el('div', 'jc-sec');
       info.appendChild(el('small', null, 'Login ID'));
       info.appendChild(el('div', null, p.username + ([p.role && String(p.role).replace(/_/g, ' '), p.line].filter(Boolean).length ? ' · ' + [p.role && String(p.role).replace(/_/g, ' '), p.line].filter(Boolean).join(' · ') : '')));
@@ -1039,6 +1055,153 @@
       }).catch(function (e) { dlg.body.textContent = ''; dlg.body.appendChild(el('div', 'jc-empty', e.message)); });
     }
     draw();
+  }
+
+  // Full-screen photo viewer (click anywhere or Esc to close).
+  function lightbox(src, caption) {
+    var lb = el('div', 'jc-lb');
+    var x = el('button', null, '✕'); x.title = 'Close';
+    var im = document.createElement('img'); im.src = src; im.alt = caption || '';
+    lb.appendChild(x); lb.appendChild(im);
+    if (caption) lb.appendChild(el('b', null, caption));
+    function close() { lb.remove(); document.removeEventListener('keydown', onKey, true); }
+    function onKey(e) { if (e.key === 'Escape') { e.stopPropagation(); close(); } }
+    lb.addEventListener('click', close);
+    document.addEventListener('keydown', onKey, true);
+    document.body.appendChild(lb);
+  }
+
+  // Contact info (direct chat), like WhatsApp: photo (opens full size), name,
+  // designation | department, About, actions, media, starred, mute, groups in common.
+  function contactInfo(c) {
+    var peer = c.peer || (c.members || []).filter(function (m) { return !same(m, me); })[0];
+    if (!peer) return;
+    var dlg = modal('Contact info');
+    dlg.box.classList.add('jc-prof', 'jc-ci');
+    var p = { username: peer, display_name: c.title, photo_v: c.photo_v, online: c.online, last_seen_at: c.last_seen_at };
+    var shared = null;
+
+    function row(card, icon, label, value, onClick, sub) {
+      var r = el('div', 'jc-crow' + (onClick ? '' : ' jc-static'));
+      r.appendChild(el('div', 'jc-ci-ic', icon));
+      var t = el('span', null, label);
+      if (sub) t.appendChild(el('small', null, sub));
+      r.appendChild(t);
+      if (value != null) r.appendChild(el('em', null, value));
+      if (onClick) r.addEventListener('click', function (e) { onClick(e, r); });
+      card.appendChild(r);
+      return r;
+    }
+
+    function draw() {
+      dlg.body.textContent = '';
+      var shown = p.display_name || p.username;
+      var head = el('div', 'jc-ph');
+      var x = el('button', 'jc-x', '✕'); x.title = 'Close'; x.addEventListener('click', dlg.close);
+      head.appendChild(x);
+      var pav = el('div', 'jc-pav');
+      var av = el('div', 'jc-av');
+      setAvatar(av, p.username, p.photo_v);
+      if (av.firstChild) av.firstChild.nodeValue = initials(shown);
+      av.title = p.photo_v ? 'View photo' : '';
+      av.addEventListener('click', function () {
+        if (p.photo_v) lightbox(API + '/avatars/' + encodeURIComponent(p.username) + '?v=' + encodeURIComponent(p.photo_v), shown);
+      });
+      pav.appendChild(av);
+      head.appendChild(pav);
+      head.appendChild(el('div', 'jc-pn', shown));
+      head.appendChild(el('div', 'jc-pu', '~ @' + p.username));
+      var dd = [p.designation, p.department].filter(Boolean).join('  |  ');
+      if (dd) head.appendChild(el('div', 'jc-dd', dd));
+      var seen = lastSeenText(p.online, p.last_seen_at);
+      if (seen) head.appendChild(el('div', 'jc-ls', seen));
+      dlg.body.appendChild(head);
+
+      var acts = el('div', 'jc-acts');
+      function act(icon, label, fn) {
+        var b = el('button'); b.appendChild(el('i', null, icon)); b.appendChild(document.createTextNode(label));
+        b.addEventListener('click', fn); acts.appendChild(b);
+      }
+      act('💬', 'Message', function () { dlg.close(); if (current !== c) openConv(c); setTimeout(function () { els.ta.focus(); }, 50); });
+      act('📞', 'Voice', function () { dlg.close(); webCall.start(peer); });
+      act('🔍', 'Search', function () { dlg.close(); els.sIn.value = ''; els.sIn.focus(); els.sIn.placeholder = 'Search messages…'; });
+      dlg.body.appendChild(acts);
+
+      var about = el('div', 'jc-card');
+      about.appendChild(el('div', 'jc-ttl', 'About'));
+      about.appendChild(el('div', 'jc-about', p.about || 'Hey there! I am using JMS Chat.'));
+      dlg.body.appendChild(about);
+
+      var m = el('div', 'jc-card');
+      var media = (shared && shared.media) || [];
+      var grid = null;
+      row(m, '🖼', 'Media, links and docs', shared ? (media.length ? String(media.length) : 'None') : '…', function () {
+        if (!media.length) return;
+        if (grid) { grid.remove(); grid = null; return; }
+        grid = el('div', 'jc-grid');
+        media.forEach(function (a) {
+          var url = API + '/files/' + encodeURIComponent(a.sync_id);
+          if (a.kind === 'image') {
+            var d = el('div'); var im = document.createElement('img'); im.loading = 'lazy'; im.src = url; im.alt = a.file_name;
+            d.appendChild(im); d.title = a.file_name;
+            d.addEventListener('click', function () { lightbox(url, a.file_name); });
+            grid.appendChild(d);
+          } else {
+            var ln = el('a'); ln.href = url; ln.target = '_blank'; ln.rel = 'noopener'; ln.title = a.file_name;
+            ln.appendChild(el('b', null, FILE_ICON[a.kind] || '📎'));
+            ln.appendChild(el('span', null, a.file_name.length > 14 ? a.file_name.slice(0, 12) + '…' : a.file_name));
+            grid.appendChild(ln);
+          }
+        });
+        m.insertBefore(grid, m.children[1] || null);
+      });
+      row(m, '⭐', 'Starred messages', null, function () { dlg.close(); showStarred = true; showTodos = false; showApprovals = false; renderList(); });
+      dlg.body.appendChild(m);
+
+      var st = el('div', 'jc-card');
+      row(st, '🔔', 'Mute notifications', isMuted(c) ? (muteLabel(c) || 'On') : 'Off', function (e, r) {
+        dlg.close(); if (current !== c) openConv(c); setTimeout(function () { showMuteMenu(els.mMute); }, 60);
+      });
+      row(st, '⏳', 'Disappearing messages', c.disappear_seconds ? 'On' : 'Off', function () { dlg.close(); disappearDialog(c); });
+      row(st, '🔒', 'Encryption', null, null, 'Messages stay on the JMS server and may be reviewed by administrators.');
+      dlg.body.appendChild(st);
+
+      var groups = (shared && shared.groups) || [];
+      if (groups.length) {
+        var g = el('div', 'jc-card');
+        g.appendChild(el('div', 'jc-ttl', groups.length + (groups.length === 1 ? ' group' : ' groups') + ' in common'));
+        groups.forEach(function (x) {
+          row(g, '👥', x.title || 'Group', null, function () {
+            var gc = convById(x.sync_id);
+            dlg.close();
+            if (gc) openConv(gc);
+          }, x.members + ' members');
+        });
+        dlg.body.appendChild(g);
+      }
+
+      var det = el('div', 'jc-card');
+      var any = false;
+      if (p.mobile) { row(det, '📱', p.mobile, null, null, 'Mobile'); any = true; }
+      var roleLine = [p.role && String(p.role).replace(/_/g, ' '), p.line].filter(Boolean).join(' · ');
+      if (roleLine) { row(det, '🏭', roleLine, null, null, 'JMS role'); any = true; }
+      if (p.admin_view) {
+        row(det, '🪪', p.username, null, null, 'Login ID (admin view)');
+        if (p.pending_name) row(det, '⏳', p.pending_name, null, null, 'Requested name — waiting for approval');
+        var old = [];
+        (p.name_history || []).forEach(function (h) { if (h.status === 'approved' && h.old_name && old.indexOf(h.old_name) < 0) old.push(h.old_name); });
+        if (old.length) row(det, '🕘', old.join(', '), null, null, 'Earlier names');
+        any = true;
+      }
+      if (any) dlg.body.appendChild(det);
+    }
+
+    draw();
+    api('GET', API + '/profile/' + encodeURIComponent(peer)).then(function (d) {
+      if (d.profile) { Object.keys(d.profile).forEach(function (k) { p[k] = d.profile[k]; }); draw(); }
+    }).catch(function () { });
+    api('GET', API + '/profile/' + encodeURIComponent(peer) + '/shared').then(function (d) { shared = d; draw(); })
+      .catch(function () { shared = { media: [], groups: [] }; draw(); });
   }
 
   function devicesDialog() {

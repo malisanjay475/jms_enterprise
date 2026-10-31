@@ -155,6 +155,8 @@ struct ProfileSheet: View {
     @State private var profile = Profile()
     @State private var about = ""
     @State private var name = ""
+    @State private var designation = ""
+    @State private var department = ""
     @State private var loading = true
     @State private var busy = false
     @State private var info: String?
@@ -196,6 +198,12 @@ struct ProfileSheet: View {
                         field("About", hint: nil) {
                             TextField("Available", text: $about).textFieldStyle(.roundedBorder).onSubmit(saveAbout)
                             Button("Save", action: saveAbout).disabled(busy || about == profile.about)
+                        }
+                        field("Designation | Department", hint: "Shown on your contact info.") {
+                            TextField("Designation", text: $designation).textFieldStyle(.roundedBorder)
+                            TextField("Department", text: $department).textFieldStyle(.roundedBorder)
+                            Button("Save", action: saveWork)
+                                .disabled(busy || (designation == profile.designation && department == profile.department))
                         }
                         let sub = [profile.role.replacingOccurrences(of: "_", with: " "), profile.line].filter { !$0.isEmpty }.joined(separator: " · ")
                         if !sub.isEmpty { Text(sub).foregroundStyle(.secondary) }
@@ -243,6 +251,13 @@ struct ProfileSheet: View {
         profile = p
         about = p.about
         name = p.pendingName ?? p.shownName
+        designation = p.designation
+        department = p.department
+    }
+
+    private func saveWork() {
+        let des = designation.trimmingCharacters(in: .whitespaces), dep = department.trimmingCharacters(in: .whitespaces)
+        run("Saved") { try await Api.saveWork(designation: des, department: dep) }
     }
 
     @ViewBuilder
@@ -534,12 +549,19 @@ struct MessageInfoSheet: View {
     }
 }
 
+private struct ViewedImage: Identifiable {
+    let path: String
+    var id: String { path }
+}
+
 /** Contact info (direct chat) or group info with members and admin actions. */
 struct ChatInfoSheet: View {
     @ObservedObject var model: ConversationModel
     @EnvironmentObject private var app: AppState
     @Environment(\.dismiss) private var dismiss
     @State private var profile: Profile?
+    @State private var shared: SharedReply?
+    @State private var viewing: String?   // avatar or image path in the full-size viewer
     @State private var newTitle = ""
     @State private var adding = false
     @State private var busy = false
@@ -556,43 +578,160 @@ struct ChatInfoSheet: View {
             if let error { Text(error).foregroundStyle(.red) }
             if model.isGroup { group } else { contact }
         }
-        .frame(width: 440, height: 580)
+        .frame(width: 460, height: 680)
         .disabled(busy)
         .sheet(isPresented: $adding) { AddMembersSheet(model: model) }
         .task {
             newTitle = model.title
-            if !model.isGroup, let p = model.peer { profile = try? await Api.profileOf(p) }
+            if !model.isGroup, let p = model.peer {
+                profile = try? await Api.profileOf(p)
+                shared = (try? await Api.shared(p)) ?? SharedReply()
+            }
         }
     }
 
+    /** Contact info like WhatsApp: photo (click = full size), name, designation | department, About, media, groups. */
     private var contact: some View {
-        VStack(spacing: 10) {
-            Avatar(name: model.peer ?? model.title, photoV: profile?.photoV ?? model.peerPhoto, size: 120)
-            Text(profile?.shownName ?? model.title).font(.title2.bold())
-            Text(model.online ? "online" : lastSeenText(model.lastSeen)).foregroundStyle(.secondary)
-            if let p = profile {
-                let sub = [p.role, p.line].filter { !$0.isEmpty }.joined(separator: " · ")
-                if !sub.isEmpty { Text(sub).foregroundStyle(.secondary) }
-                if !p.about.isEmpty {
-                    GroupBox("About") { Text(p.about).frame(maxWidth: .infinity, alignment: .leading) }.padding(.horizontal)
-                }
-                // Admins / superadmins see who this really is and every earlier name.
-                if p.adminView {
-                    GroupBox("Admin view") {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("Login ID: \(p.username)")
-                            if let pending = p.pendingName { Text("Requested name (waiting): \(pending)").foregroundStyle(.orange) }
-                            let old = p.nameHistory.filter { $0.status == "approved" }.compactMap { $0.oldName }
-                                .reduce(into: [String]()) { if !$0.contains($1) { $0.append($1) } }
-                            if !old.isEmpty { Text("Earlier names: \(old.joined(separator: ", "))").foregroundStyle(.secondary) }
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
+        ScrollView {
+            VStack(spacing: 12) {
+                let photoV = profile?.photoV ?? model.peerPhoto
+                Avatar(name: model.peer ?? model.title, photoV: photoV, size: 130)
+                    .onTapGesture { if let peer = model.peer, let path = Api.avatarPath(peer, photoV) { viewing = path } }
+                    .help(photoV == nil ? "" : "View photo")
+                VStack(spacing: 3) {
+                    Text(profile?.shownName ?? model.title).font(.title2.bold())
+                    if let p = profile { Text("~ @\(p.username)").foregroundStyle(.secondary) }
+                    if let p = profile {
+                        let dd = [p.designation, p.department].filter { !$0.isEmpty }.joined(separator: "  |  ")
+                        if !dd.isEmpty { Text(dd).font(.headline).foregroundStyle(Color.accentGreen) }
                     }
-                    .padding(.horizontal)
+                    Text(model.online ? "online" : lastSeenText(model.lastSeen)).font(.caption).foregroundStyle(.secondary)
+                }
+                HStack(spacing: 10) {
+                    tile("message.fill", "Message") { dismiss() }
+                    tile("bell.slash.fill", "Mute 8 h") { act { try await Api.mute(model.convId, "8h") } }
+                    tile("bell.fill", "Unmute") { act { try await Api.mute(model.convId, "off") } }
+                }
+                .padding(.horizontal)
+                if let p = profile {
+                    card("About") { Text(p.about.isEmpty ? "Hey there! I am using JMS Chat." : p.about).frame(maxWidth: .infinity, alignment: .leading) }
+                }
+                card("Media, links and docs") {
+                    let media = shared?.media ?? []
+                    if shared == nil {
+                        ProgressView().controlSize(.small)
+                    } else if media.isEmpty {
+                        Text("None").foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
+                    } else {
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 6) {
+                                ForEach(media.prefix(30), id: \.syncId) { a in
+                                    Group {
+                                        if a.kind == "image" {
+                                            AuthImage(path: Api.filePath(a.syncId))
+                                        } else {
+                                            VStack(spacing: 2) {
+                                                Image(systemName: a.kind == "pdf" ? "doc.richtext" : a.kind == "xlsx" ? "tablecells" : "doc").font(.title2)
+                                                Text(a.fileName).font(.caption2).lineLimit(2).multilineTextAlignment(.center)
+                                            }
+                                            .padding(4)
+                                        }
+                                    }
+                                    .frame(width: 76, height: 76)
+                                    .background(Color(nsColor: .windowBackgroundColor))
+                                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                                    .onTapGesture {
+                                        if a.kind == "image" { viewing = Api.filePath(a.syncId) } else { Task { try? await Media.open(a) } }
+                                    }
+                                    .help(a.fileName)
+                                }
+                            }
+                        }
+                    }
+                }
+                if let groups = shared?.groups, !groups.isEmpty {
+                    card("\(groups.count) \(groups.count == 1 ? "group" : "groups") in common") {
+                        VStack(alignment: .leading, spacing: 8) {
+                            ForEach(groups) { g in
+                                HStack {
+                                    Avatar(name: g.title ?? "Group", group: true, size: 32)
+                                    VStack(alignment: .leading) {
+                                        Text(g.title ?? "Group")
+                                        Text("\(g.members) members").font(.caption).foregroundStyle(.secondary)
+                                    }
+                                    Spacer()
+                                }
+                                .contentShape(Rectangle())
+                                .onTapGesture { app.selection = g.syncId; dismiss() }
+                            }
+                        }
+                    }
+                }
+                if let p = profile {
+                    let roleLine = [p.role.replacingOccurrences(of: "_", with: " "), p.line].filter { !$0.isEmpty }.joined(separator: " · ")
+                    if p.mobile != nil || !roleLine.isEmpty || p.adminView {
+                        card("Details") {
+                            VStack(alignment: .leading, spacing: 6) {
+                                if let m = p.mobile { Label(m, systemImage: "iphone") }
+                                if !roleLine.isEmpty { Label(roleLine, systemImage: "building.2") }
+                                // Admins / superadmins see who this really is and every earlier name.
+                                if p.adminView {
+                                    Label("Login ID: \(p.username)", systemImage: "person.text.rectangle")
+                                    if let pending = p.pendingName { Label("Requested name (waiting): \(pending)", systemImage: "hourglass").foregroundStyle(.orange) }
+                                    let old = p.nameHistory.filter { $0.status == "approved" }.compactMap { $0.oldName }
+                                        .reduce(into: [String]()) { if !$0.contains($1) { $0.append($1) } }
+                                    if !old.isEmpty { Label("Earlier names: \(old.joined(separator: ", "))", systemImage: "clock.arrow.circlepath").foregroundStyle(.secondary) }
+                                }
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
+                }
+                card("Privacy") {
+                    Text("Messages stay on the JMS server and may be reviewed by administrators.")
+                        .font(.callout).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
-            Spacer()
+            .padding(.bottom, 16)
         }
+        .sheet(item: Binding(get: { viewing.map { ViewedImage(path: $0) } }, set: { viewing = $0?.path })) { v in
+            VStack(spacing: 0) {
+                HStack {
+                    Text(profile?.shownName ?? model.title).font(.headline)
+                    Spacer()
+                    Button("Close") { viewing = nil }.keyboardShortcut(.cancelAction)
+                }
+                .padding(12)
+                AuthImage(path: v.path, contentMode: .fit)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(Color.black)
+            }
+            .frame(width: 640, height: 640)
+        }
+    }
+
+    private func tile(_ icon: String, _ label: String, _ action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            VStack(spacing: 4) {
+                Image(systemName: icon).font(.title3).foregroundStyle(Color.accentGreen)
+                Text(label).font(.caption)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 10)
+            .background(RoundedRectangle(cornerRadius: 12).fill(Color.secondary.opacity(0.12)))
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func card<C: View>(_ title: String, @ViewBuilder _ content: () -> C) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title).font(.caption).foregroundStyle(.secondary)
+            content()
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 12).fill(Color.secondary.opacity(0.1)))
+        .padding(.horizontal)
     }
 
     private var group: some View {

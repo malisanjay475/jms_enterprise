@@ -48,6 +48,8 @@ function ensureProfileSchema(pool) {
       ALTER TABLE chat_profiles ADD COLUMN IF NOT EXISTS pending_name TEXT;
       ALTER TABLE chat_profiles ADD COLUMN IF NOT EXISTS pending_at TIMESTAMPTZ;
       ALTER TABLE chat_profiles ADD COLUMN IF NOT EXISTS name_note TEXT;
+      ALTER TABLE chat_profiles ADD COLUMN IF NOT EXISTS designation TEXT;
+      ALTER TABLE chat_profiles ADD COLUMN IF NOT EXISTS department TEXT;
       CREATE TABLE IF NOT EXISTS chat_name_history (
         id BIGSERIAL PRIMARY KEY,
         username_lower TEXT NOT NULL,
@@ -148,8 +150,13 @@ function registerProfileRoutes(app, pool, { ready, fail, uploadRoot, isOnline, a
       'SELECT username, role_code, line FROM users WHERE LOWER(username) = LOWER($1) LIMIT 1', [username]
     );
     const { rows: [n] } = await pool.query(
-      'SELECT pending_name, pending_at, name_note FROM chat_profiles WHERE username_lower = $1', [key]
+      'SELECT pending_name, pending_at, name_note, designation, department FROM chat_profiles WHERE username_lower = $1', [key]
     );
+    // Designation / department: what the user set, else their chat sign-up form, else role / line.
+    const su = await pool.query(
+      `SELECT designation, department, mobile FROM chat_signups
+        WHERE LOWER(username) = $1 ORDER BY created_at DESC LIMIT 1`, [key]
+    ).then((r) => r.rows[0] || null).catch(() => null); // table exists only once sign-ups were used
     const login = u ? u.username : username;
     const self = Boolean(viewer) && viewer.username.toLowerCase() === key;
     const admin = isAdminLike(viewer);
@@ -158,6 +165,8 @@ function registerProfileRoutes(app, pool, { ready, fail, uploadRoot, isOnline, a
       display_name: shownName(login, p.display_name),
       role: (u && u.role_code) || '',
       line: (u && u.line) || '',
+      designation: (n && n.designation) || (su && su.designation) || String((u && u.role_code) || '').replace(/_/g, ' '),
+      department: (n && n.department) || (su && su.department) || (u && u.line) || '',
       about: p.about || '',
       photo_v: p.photo_v || null,
       last_seen_at: p.last_seen_at || null,
@@ -168,6 +177,7 @@ function registerProfileRoutes(app, pool, { ready, fail, uploadRoot, isOnline, a
       out.pending_at = (n && n.pending_at) || null;
       out.name_note = (n && n.name_note) || null;
     }
+    if ((self || admin) && su && su.mobile) out.mobile = su.mobile;
     if (admin) { out.admin_view = true; out.name_history = await history(key); }
     if (self) {
       out.can_approve_names = admin;
@@ -192,7 +202,7 @@ function registerProfileRoutes(app, pool, { ready, fail, uploadRoot, isOnline, a
     } catch (err) { fail(res, err, 'profile'); }
   });
 
-  // Body: { about } and / or { name }. A new name waits for an admin's approval
+  // Body: { about, designation, department } and / or { name }. A new name waits for an admin's approval
   // (a superadmin's own applies at once); sending the shown name again drops the request.
   app.put('/api/chat/profile', async (req, res) => {
     try {
@@ -207,6 +217,14 @@ function registerProfileRoutes(app, pool, { ready, fail, uploadRoot, isOnline, a
           `INSERT INTO chat_profiles (username_lower, about) VALUES ($1, $2)
            ON CONFLICT (username_lower) DO UPDATE SET about = EXCLUDED.about, updated_at = NOW()`,
           [key, about]
+        );
+      }
+      for (const field of ['designation', 'department']) {
+        if (body[field] === undefined) continue;
+        const v = String(body[field] || '').replace(/[\u0000-\u001f\u007f<>]/g, '').replace(/\s+/g, ' ').trim().slice(0, 60) || null;
+        await pool.query(
+          `INSERT INTO chat_profiles (username_lower, ${field}) VALUES ($1, $2)
+           ON CONFLICT (username_lower) DO UPDATE SET ${field} = EXCLUDED.${field}, updated_at = NOW()`, [key, v]
         );
       }
       if (body.name !== undefined) {

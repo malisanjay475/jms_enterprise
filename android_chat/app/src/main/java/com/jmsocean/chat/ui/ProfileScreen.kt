@@ -86,6 +86,7 @@ fun ProfileScreen(onBack: () -> Unit, onSignOut: () -> Unit, onNameRequests: () 
     var sheet by remember { mutableStateOf(false) }
     var editAbout by remember { mutableStateOf<String?>(null) }
     var editName by remember { mutableStateOf<String?>(null) }
+    var editWork by remember { mutableStateOf(false) }
     var cameraFile by remember { mutableStateOf<File?>(null) }
 
     val lifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current
@@ -168,11 +169,14 @@ fun ProfileScreen(onBack: () -> Unit, onSignOut: () -> Unit, onNameRequests: () 
             HorizontalDivider(Modifier.padding(start = 72.dp))
             InfoRow(Icons.Default.Info, "About", profile.about.ifBlank { "Hey there! I am using JMS Chat." }) { editAbout = profile.about }
             HorizontalDivider(Modifier.padding(start = 72.dp))
+            val work = listOf(profile.designation, profile.department).filter { it.isNotBlank() }.joinToString("  |  ")
+            InfoRow(Icons.Default.Work, "Designation | Department", work.ifBlank { "Add your designation and department" }) { editWork = true }
+            HorizontalDivider(Modifier.padding(start = 72.dp))
             InfoRow(Icons.Default.Badge, "Login ID", profile.username, null)
             val sub = listOf(profile.role.replace('_', ' '), profile.line).filter { it.isNotBlank() }.joinToString(" · ")
             if (sub.isNotEmpty()) {
                 HorizontalDivider(Modifier.padding(start = 72.dp))
-                InfoRow(Icons.Default.Work, "Role", sub, null)
+                InfoRow(Icons.Default.Info, "JMS role", sub, null)
             }
             if (profile.can_approve_names) {
                 Spacer(Modifier.height(8.dp))
@@ -228,6 +232,34 @@ fun ProfileScreen(onBack: () -> Unit, onSignOut: () -> Unit, onNameRequests: () 
             scope.launch { runCatching { Api.removePhoto() }.onSuccess { profile = it } }
         }
         Spacer(Modifier.height(24.dp))
+    }
+
+    if (editWork) {
+        var des by remember { mutableStateOf(profile.designation) }
+        var dep by remember { mutableStateOf(profile.department) }
+        AlertDialog(
+            onDismissRequest = { editWork = false },
+            title = { Text("Designation | Department") },
+            text = {
+                Column {
+                    OutlinedTextField(value = des, onValueChange = { des = it.take(60) }, singleLine = true, label = { Text("Designation") },
+                        placeholder = { Text("e.g. Supervisor, Operator") })
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedTextField(value = dep, onValueChange = { dep = it.take(60) }, singleLine = true, label = { Text("Department") },
+                        placeholder = { Text("e.g. Moulding, QC, Store") })
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    editWork = false
+                    scope.launch {
+                        runCatching { Api.saveWork(des.trim(), dep.trim()) }.onSuccess { profile = it }
+                            .onFailure { Toast.makeText(ctx, it.message, Toast.LENGTH_LONG).show() }
+                    }
+                }) { Text("Save") }
+            },
+            dismissButton = { TextButton(onClick = { editWork = false }) { Text("Cancel") } }
+        )
     }
 
     editName?.let { current ->
