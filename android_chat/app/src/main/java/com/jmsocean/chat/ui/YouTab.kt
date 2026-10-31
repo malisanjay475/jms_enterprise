@@ -46,9 +46,25 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.jmsocean.chat.data.Api
 import com.jmsocean.chat.data.Session
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 
 private val Accent = Color(0xFF00A884)
+
+/** My profile photo URL (null = none), loaded once. */
+@Composable
+private fun myPhoto(): String? {
+    var url by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(Unit) {
+        runCatching { Api.myProfile() }.onSuccess { p -> url = Api.avatarUrl(p.username.ifBlank { Session.username ?: "" }, p.photo_v) }
+    }
+    return url
+}
 
 /** WhatsApp-style floating bottom bar: Chats, Calls, Starred, You. */
 @Composable
@@ -98,17 +114,11 @@ private fun androidx.compose.foundation.layout.RowScope.YouItem(on: Boolean, onC
         contentAlignment = Alignment.Center
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Box(
-                Modifier.size(26.dp).clip(CircleShape).background(Accent),
-                contentAlignment = Alignment.Center
-            ) { Text(initials(Session.username), color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold) }
+            Avatar(Session.username ?: "?", 26.dp, photoUrl = myPhoto())
             Text("You", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
         }
     }
 }
-
-private fun initials(name: String?): String =
-    (name ?: "?").trim().split(Regex("\\s+")).take(2).mapNotNull { it.firstOrNull()?.uppercaseChar() }.joinToString("").ifEmpty { "?" }
 
 /** The "You" tab: profile at the top, then grouped settings rows (like WhatsApp on iPhone). */
 @Composable
@@ -127,9 +137,7 @@ fun YouTab(
     Column(modifier.background(page).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
         Spacer(Modifier.height(24.dp))
         Column(Modifier.fillMaxWidth().clickable(onClick = onProfile), horizontalAlignment = Alignment.CenterHorizontally) {
-            Box(Modifier.size(120.dp).clip(CircleShape).background(Accent), contentAlignment = Alignment.Center) {
-                Text(initials(Session.username), color = Color.White, fontSize = 42.sp, fontWeight = FontWeight.SemiBold)
-            }
+            Avatar(Session.username ?: "?", 120.dp, photoUrl = myPhoto())
             Spacer(Modifier.height(12.dp))
             Text(Session.username ?: "", fontSize = 26.sp, fontWeight = FontWeight.Bold)
             Text("Tap to edit your profile", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 14.sp)

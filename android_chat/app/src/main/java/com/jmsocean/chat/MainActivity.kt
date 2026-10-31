@@ -114,7 +114,8 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
                             onProfile = { nav.navigate("profile") },
                             onStarred = { nav.navigate("starred") },
                             onTasks = { nav.navigate("tasks") },
-                            onApprovals = { nav.navigate("approvals") }
+                            onApprovals = { nav.navigate("approvals") },
+                            onInfo = { nav.navigate("info/$it") }
                         )
                     }
                     composable("new") {
