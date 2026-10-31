@@ -268,7 +268,9 @@
     #lock .pad button.ghost { background: transparent; font-size: 22px; }
     #lock .err { color: #ffd6d6; min-height: 20px; font-size: 13.5px; margin-top: 14px; }
     #lock .forgot { all: unset; margin-top: 10px; font-size: 13px; opacity: .8; cursor: pointer; text-decoration: underline; }
-    html.jc-locked .jc-root, html.jc-locked #rail { filter: blur(18px); pointer-events: none; }
+    /* Hidden (not blurred) under the opaque lock screen: a big blur layer could come back
+       blank on macOS after the window sat in the background. */
+    html.jc-locked .jc-root, html.jc-locked #rail { visibility: hidden; pointer-events: none; }
 
     /* small popover / dialog used for lock settings and shortcuts */
     .jc-dlg-bg { position: fixed; inset: 0; z-index: 2147482000; background: rgba(11,20,26,.45); display: flex; align-items: center; justify-content: center; padding: 16px; }
@@ -810,6 +812,10 @@
           $('lock').classList.remove('show');
           doc.classList.remove('jc-locked');
           lastActive = Date.now();
+          // Repaint and refresh what may have gone stale while locked / in the background.
+          void document.body.offsetHeight;
+          window.dispatchEvent(new Event('resize'));
+          document.dispatchEvent(new CustomEvent('jms-chat-unlocked'));
         }
         function isLocked() { return $('lock').classList.contains('show'); }
         function press(k) {

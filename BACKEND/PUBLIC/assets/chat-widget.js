@@ -2612,6 +2612,18 @@
     }
   });
 
+  // After the app lock opens (chat_app.html): put the panel back if it went missing,
+  // reconnect the live stream and reload the chats and the open conversation.
+  document.addEventListener('jms-chat-unlocked', function () {
+    if (stopped || !root) return;
+    if (!root.isConnected) document.body.appendChild(root);
+    if (appMode && !open) toggle(true);
+    if (!es || es.readyState === EventSource.CLOSED) connect();
+    loadConvs();
+    updateBadge();
+    if (current) redraw();
+  });
+
   // ================= Image viewer (WhatsApp-style) =================
   // Full screen over a dark backdrop. Close: backdrop click/tap, Esc, ✕, or the phone's
   // Back button (a history entry is pushed while open). Zoom 1x-5x: wheel, pinch, + / -,
