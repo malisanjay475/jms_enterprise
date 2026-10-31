@@ -14,6 +14,7 @@ part of your PR. On release, the `[Unreleased]` items move under the new version
 ## [Unreleased]
 
 ### Added
+- JMS Chat Android app 3.5.0: the WhatsApp-style floating bottom bar (Chats with unread count, Calls, Starred, You) and a "You" tab with profile, Starred messages, My tasks, Approvals, Chat folders, My devices and Sign out - like the web / iPhone app.
 - JMS Chat phone app (v1.161.0): a floating bottom bar like WhatsApp on iPhone - Chats (unread count), Starred, Tasks, Approvals (if you have any) and You (your photo). It hides while a chat is open. The new "You" page shows your photo, name and about, with Starred messages, My tasks, Approvals, Linked devices, Profile, Notifications and sound, App lock, Appearance (System / Dark / Light), Install app and Sign out. The header no longer repeats those buttons on phones.
 
 ### Added
