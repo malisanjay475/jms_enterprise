@@ -94,7 +94,8 @@ describe('NPD role access', () => {
 
   test('department roles only get their own stages', () => {
     expect(roleDepts(user('toolroommanager'))).toEqual(['Tool Room']);
-    expect(roleDepts(user('mouldingmanager'))).toEqual(['Moulding']);
+    // Moulding managers also cover Production (printing / tufting) stages.
+    expect(roleDepts(user('mouldingmanager'))).toEqual(['Moulding', 'Production']);
     expect(roleDepts(user('quality'))).toEqual(['QC']);
     expect(roleDepts(user('packingmanager'))).toEqual(['Packing']);
 
