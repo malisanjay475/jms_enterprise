@@ -249,6 +249,7 @@
     '.jc-tick.jc-read{color:#53bdeb}',
     '.jc-pend{opacity:.6}',
     '.jc-del{font-style:italic;color:var(--jc-mu)}',
+    '.jc-verified{display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;margin-left:4px;border-radius:50%;background:#1d9bf0;color:#fff;font-size:9px;font-weight:700;vertical-align:1px}',
     '.jc-msep{height:1px;background:var(--jc-bd);margin:4px 0}',
     '.jc-selbar{display:flex;align-items:center;gap:8px;padding:8px 12px;background:var(--jc-bg2);border-bottom:1px solid var(--jc-bd)}',
     '.jc-selbar .jc-selcount{flex:1;font-weight:600}',
@@ -1551,7 +1552,8 @@
       }
       if (!mine && showNames) {
         var sn = el('div', 'jc-snd', m.sender);
-        sn.style.color = avatarColor(m.sender);
+        sn.style.color = m.verified ? '#008069' : avatarColor(m.sender);
+        if (m.verified) { var vb = el('span', 'jc-verified', '✓'); vb.title = 'Verified JMS account'; sn.appendChild(vb); }
         b.appendChild(sn);
       }
       if (m.purged) {

@@ -13,6 +13,9 @@ part of your PR. On release, the `[Unreleased]` items move under the new version
 
 ## [Unreleased]
 
+### Added
+- JMS Chat welcome (v1.159.0): every active user gets one welcome message from the verified "JMS ✓" sender ("🙏 Namaste <name>! Welcome to JMS Chat ... reply here and the JMS Team will help you"). Existing users are greeted once after this release (25 per minute); new users within a minute of being created / approved. It opens a "JMS Team · <name>" group with the person and the superadmins (archived for the superadmins), so replies reach the JMS Team. chat_welcome remembers who was greeted.
+
 ### Changed
 - JMS Chat (v1.158.1): JMS Bot no longer posts "Escalated" reminders (or pushes) into groups; new team groups get no automated note. Deleted messages are no longer shown in chats.
 

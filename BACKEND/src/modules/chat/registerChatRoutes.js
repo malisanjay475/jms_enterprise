@@ -318,6 +318,7 @@ function messageOut(row, att, receipts) {
     announcement: Boolean(row.meta && row.meta.announcement),
     scheduled: Boolean(row.meta && row.meta.scheduled),
     bot: Boolean(row.meta && row.meta.bot),
+    verified: Boolean(row.meta && row.meta.verified),
     alert: row.meta && row.meta.alert ? { kind: row.meta.alert.kind } : null,
     attachment: att && !row.deleted_at && !row.purged_at ? attachmentOut(att) : null
   };
@@ -772,6 +773,8 @@ function registerChatRoutes(app, pool) {
   chatExtras.ensureExtrasSchema(pool).catch((err) => console.warn('[chat] extras schema:', err.message));
   // factory groups + QC / machine alerts (MAIN only, one worker)
   if (!chatSync.isLocal()) chatAuto.start(pool);
+  // one welcome message per user from the verified JMS sender (MAIN only)
+  if (!chatSync.isLocal()) require('./chatWelcome').start(pool);
   chatCalls.registerCallRoutes(app, pool, { ready, fail, activeUser });
   chatWork.registerWorkRoutes(app, pool, { ready, fail, membership, decorate, localFactoryId });
   chatWork.ensureWorkSchema(pool).catch((err) => console.warn('[chat] work schema:', err.message));
