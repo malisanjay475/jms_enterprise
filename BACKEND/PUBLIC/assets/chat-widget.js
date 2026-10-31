@@ -1742,6 +1742,20 @@
         loadConvs();
       }).catch(function (e) { showErr(e.message); });
     });
+    if (isAdmin) { // superadmin: delete every message in the group for everyone
+      var clr = el('button', 'jc-btn jc-danger', '🗑 Clear all messages');
+      clr.title = 'Delete every message in this group for everyone';
+      clr.addEventListener('click', function () {
+        if (!window.confirm('Delete ALL messages in "' + c.title + '" for everyone? This cannot be undone.')) return;
+        api('POST', API + '/groups/' + encodeURIComponent(c.sync_id) + '/clear').then(function (d) {
+          cacheMessages(c.sync_id, []);
+          showErr((d.cleared || 0) + ' message(s) deleted.');
+          openConv(c);
+          loadConvs();
+        }).catch(function (e) { showErr(e.message); });
+      });
+      s4.appendChild(clr);
+    }
     s4.appendChild(leave);
     info.appendChild(s4);
   }

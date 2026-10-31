@@ -1649,6 +1649,29 @@ function registerChatRoutes(app, pool) {
       res.json({ ok: true, message: await announceUpdate(row, req.auth.username) });
     } catch (err) { fail(res, err, 'delete'); }
   });
+
+  // Clear a group: a superadmin deletes every message in it for everyone (soft, like the
+  // single delete above). Logged in the audit log and noted in the group.
+  app.post('/api/chat/groups/:id/clear', async (req, res) => {
+    try {
+      if (!(await ready(req, res))) return;
+      if (!isSuperadmin(req.auth)) return res.status(403).json({ ok: false, error: 'Only a superadmin can clear a group.' });
+      const g = await groupFor(req, res, String(req.params.id || ''));
+      if (!g) return;
+      const me = req.auth.username;
+      const cleared = await inTx(async (db) => {
+        const { rowCount } = await db.query(
+          `UPDATE chat_messages SET deleted_at = NOW(), updated_at = NOW()
+            WHERE conversation_sync_id = $1 AND deleted_at IS NULL AND kind <> 'system'`,
+          [g.conv.sync_id]
+        );
+        await systemMessage(db, g.conv.sync_id, me, `${me} cleared all messages in this group`);
+        return rowCount;
+      });
+      await logAudit(pool, me, g.conv.sync_id, 'clear_group');
+      res.json({ ok: true, cleared });
+    } catch (err) { fail(res, err, 'clear group'); }
+  });
 }
 
 module.exports = { registerChatRoutes, ensureChatSchema, dmKey, __test: { messageOut, previewText } };
