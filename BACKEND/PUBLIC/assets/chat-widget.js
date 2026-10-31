@@ -249,6 +249,7 @@
     '.jc-tick.jc-read{color:#53bdeb}',
     '.jc-pend{opacity:.6}',
     '.jc-del{font-style:italic;color:var(--jc-mu)}',
+    '.jc-verified{display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;margin-left:4px;border-radius:50%;background:#1d9bf0;color:#fff;font-size:9px;font-weight:700;vertical-align:1px}',
     '.jc-msep{height:1px;background:var(--jc-bd);margin:4px 0}',
     '.jc-selbar{display:flex;align-items:center;gap:8px;padding:8px 12px;background:var(--jc-bg2);border-bottom:1px solid var(--jc-bd)}',
     '.jc-selbar .jc-selcount{flex:1;font-weight:600}',
@@ -1519,6 +1520,7 @@
     var adminView = current && current.is_member === false;
     var showNames = isGroup(current) || adminView;
     loaded.forEach(function (m) {
+      if (m.deleted || m.purged) return; // deleted messages are not shown at all
       var day = new Date(m.server_ts).toDateString();
       if (day !== lastDay) {
         lastDay = day;
@@ -1550,7 +1552,8 @@
       }
       if (!mine && showNames) {
         var sn = el('div', 'jc-snd', m.sender);
-        sn.style.color = avatarColor(m.sender);
+        sn.style.color = m.verified ? '#008069' : avatarColor(m.sender);
+        if (m.verified) { var vb = el('span', 'jc-verified', '✓'); vb.title = 'Verified JMS account'; sn.appendChild(vb); }
         b.appendChild(sn);
       }
       if (m.purged) {
@@ -3199,8 +3202,29 @@
       ];
     }
 
-    function connect(ice) {
-      return navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } }).then(function (stream) {
+    // The microphone first, before any call is placed or accepted, so a device without one
+    // never leaves the other side ringing or stuck on "Connecting…".
+    function getMic() {
+      if (!window.RTCPeerConnection || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        return Promise.reject(new Error('This browser cannot make calls.'));
+      }
+      return navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } }).catch(function (e) {
+        var n = e && e.name;
+        throw new Error(n === 'NotFoundError' || n === 'OverconstrainedError' ? 'No microphone found on this device. Connect one to use voice calls.'
+          : n === 'NotAllowedError' || n === 'SecurityError' ? 'Microphone is blocked. Allow it for this site in the browser settings, then try again.'
+          : n === 'NotReadableError' ? 'The microphone is busy in another app.'
+          : 'Cannot use the microphone.');
+      });
+    }
+    function hasMic() {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return Promise.resolve(false);
+      return navigator.mediaDevices.enumerateDevices().then(function (ds) {
+        return ds.some(function (d) { return d.kind === 'audioinput'; });
+      }).catch(function () { return true; });
+    }
+
+    function connect(ice, stream) {
+      return Promise.resolve(stream).then(function (stream) {
         st.stream = stream;
         var pc = new RTCPeerConnection({ iceServers: ice || [] });
         st.pc = pc;
@@ -3271,26 +3295,38 @@
 
     function startCall(peer) {
       if (st) return;
-      if (!window.RTCPeerConnection || !navigator.mediaDevices) { showErr('This browser cannot make calls.'); return; }
       st = { peer: peer, incoming: false, seq: 0 };
       remoteSet = false; pendingIce = [];
-      ui(peer, 'Calling…', [['📵', 'Cancel', 'jc-red', function () { hangUp(); }]]);
-      api('POST', API + '/calls', { to: peer }).then(function (d) {
-        if (!st) return;
+      ui(peer, 'Checking microphone…', [['📵', 'Cancel', 'jc-red', function () { hangUp(); }]]);
+      var mic = null;
+      getMic().then(function (stream) {
+        mic = stream;
+        if (!st) { stream.getTracks().forEach(function (t) { t.stop(); }); return null; }
+        st.stream = stream;
+        ui(peer, 'Calling…', [['📵', 'Cancel', 'jc-red', function () { hangUp(); }]]);
+        return api('POST', API + '/calls', { to: peer });
+      }).then(function (d) {
+        if (!st || !d) return;
         st.id = d.call.id;
-        return connect(d.ice).then(function (pc) {
+        return connect(d.ice, mic).then(function (pc) {
           ui(peer, 'Ringing…', controls());
           return pc.createOffer({ offerToReceiveAudio: true }).then(function (o) {
             return pc.setLocalDescription(o).then(function () { return signal('offer', JSON.stringify({ type: 'offer', sdp: o.sdp })); });
           });
         }).then(poll);
-      }).catch(function (e) { finish(e.message || 'Call failed'); });
+      }).catch(function (e) { hangUp(e.message || 'Call failed'); });
     }
 
     function incoming(id, caller) {
       if (st) return; // already on a call; the server marks it missed after the ring time
       st = { id: id, peer: caller, incoming: true, seq: 0 };
       remoteSet = false; pendingIce = [];
+      // No microphone here: decline at once instead of ringing a call that cannot work.
+      hasMic().then(function (ok) {
+        if (ok || !st || st.id !== id) return;
+        api('POST', API + '/calls/' + id + '/decline', {}).catch(function () { });
+        finish('Missed call from ' + caller + ': no microphone on this device.');
+      });
       startRing();
       if (document.hidden && window.Notification && Notification.permission === 'granted') {
         try { new Notification(caller, { body: 'Incoming voice call · JMS Chat', tag: 'jms-call' }); } catch (_e) { }
@@ -3304,10 +3340,22 @@
     function answer() {
       stopRing();
       if (!st) return;
-      ui(st.peer, 'Connecting…', controls());
-      api('POST', API + '/calls/' + st.id + '/accept', {}).then(function (d) {
-        return connect(d.ice).then(poll);
-      }).catch(function (e) { finish(e.message || 'The call has ended.'); });
+      var id = st.id, mic = null;
+      ui(st.peer, 'Connecting…', [['📵', 'Hang up', 'jc-red', function () { hangUp(); }]]);
+      getMic().then(function (stream) {
+        mic = stream;
+        if (!st || st.id !== id) { stream.getTracks().forEach(function (t) { t.stop(); }); return null; }
+        st.stream = stream;
+        ui(st.peer, 'Connecting…', controls());
+        return api('POST', API + '/calls/' + id + '/accept', {});
+      }, function (e) {
+        // tell the caller instead of leaving them on "Ringing…"
+        api('POST', API + '/calls/' + id + '/decline', {}).catch(function () { });
+        throw e;
+      }).then(function (d) {
+        if (!d || !st) return;
+        return connect(d.ice, mic).then(poll);
+      }).catch(function (e) { hangUp(e.message || 'The call has ended.'); });
     }
 
     function hangUp(msg) {
@@ -3330,7 +3378,7 @@
       var u = st.ui;
       if (u && st.statusEl) { st.statusEl.textContent = msg; u.querySelector('.jc-cbtns').textContent = ''; }
       st = null;
-      setTimeout(function () { if (u) u.remove(); }, 1500);
+      setTimeout(function () { if (u) u.remove(); }, msg && msg.length > 24 ? 6000 : 1500); // give an explanation time to be read
       if (current) loadMessages(false);
     }
 

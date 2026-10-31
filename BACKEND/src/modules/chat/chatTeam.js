@@ -69,8 +69,6 @@ async function ensureGroup(db, key, title) {
       `INSERT INTO chat_auto_groups (key, conversation_sync_id) VALUES ($1, $2)
        ON CONFLICT (key) DO UPDATE SET conversation_sync_id = EXCLUDED.conversation_sync_id`, [key, convId]
     );
-    await db.query(`INSERT INTO chat_messages (conversation_sync_id, sender, body, kind) VALUES ($1, $2, $3, 'system')`,
-      [convId, BOT, `${title}: members are kept up to date from JMS Users.`]);
   }
   await db.query('UPDATE chat_conversations SET title = $2, updated_at = NOW() WHERE sync_id = $1 AND title IS DISTINCT FROM $2', [convId, title]);
   return convId;
