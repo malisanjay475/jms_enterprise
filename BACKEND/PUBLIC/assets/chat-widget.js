@@ -442,6 +442,7 @@
     '.jc-about{padding:10px 14px 12px;white-space:pre-wrap;overflow-wrap:anywhere}',
     '.jc-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;padding:4px 10px 12px}.jc-grid a,.jc-grid div{aspect-ratio:1;border-radius:6px;overflow:hidden;background:var(--jc-bg);display:flex;align-items:center;justify-content:center;flex-direction:column;font-size:11px;color:var(--jc-tx);text-decoration:none;text-align:center;padding:2px;cursor:pointer}.jc-grid img{width:100%;height:100%;object-fit:cover}.jc-grid b{font-size:22px}',
     '.jc-lb{position:fixed;inset:0;z-index:100030;background:rgba(0,0,0,.92);display:flex;align-items:center;justify-content:center;flex-direction:column;gap:12px;cursor:zoom-out}.jc-lb img{max-width:92vw;max-height:84vh;border-radius:6px;box-shadow:0 10px 50px rgba(0,0,0,.6)}.jc-lb b{color:#fff;font-size:16px}.jc-lb button{position:absolute;top:14px;right:16px;border:0;background:rgba(255,255,255,.15);color:#fff;width:40px;height:40px;border-radius:50%;font-size:20px;cursor:pointer}',
+    '.jc-app .jc-closechat{display:none}@media (min-width:900px){.jc-app .jc-closechat{display:inline-flex}}',
     '.jc-meav{width:36px;height:36px;font-size:13px;cursor:pointer;border:2px solid #fff;box-shadow:0 0 0 1.5px #00a884;box-sizing:border-box;transition:transform .12s}.jc-meav:hover{transform:scale(1.06)}',
     '.jc-prof{width:min(440px,94vw) !important;padding:0 !important}.jc-prof h4{display:none}',
     '.jc-prof .jc-ph{background:linear-gradient(135deg,#075e54,#0b7c6e);color:#fff;padding:26px 16px 18px;text-align:center;border-radius:12px 12px 0 0;position:relative}',
@@ -625,7 +626,10 @@
       var inJms = !!(window.JMSChatApp && window.JMSChatApp.backToJms);
       closeBtn.textContent = inJms ? '⌂' : '⎋';
       closeBtn.title = inJms ? 'Back to JMS' : 'Sign out';
-      mClose.style.display = 'none';
+      // ✕ in the chat header closes the chat (back to the empty pane), like WhatsApp Desktop
+      mClose.title = 'Close chat (Esc)';
+      mClose.classList.add('jc-closechat');
+      mClose.addEventListener('click', closeChat);
       closeBtn.addEventListener('click', function () {
         if (inJms) { window.JMSChatApp.backToJms(); return; }
         if (!confirm('Sign out of JMS Chat?')) return;
@@ -685,7 +689,14 @@
     document.addEventListener('keydown', function (e) {
       if (e.key === 'Escape' && selecting) { e.stopImmediatePropagation(); endSelect(); }
     }, true);
-    document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && open && !appMode) toggle(false); }); // the app has no panel to close
+    document.addEventListener('keydown', function (e) {
+      if (e.key !== 'Escape' || e.defaultPrevented) return;
+      if (!appMode) { if (open) toggle(false); return; }
+      // the app: Esc closes the open chat, unless a menu, dialog, viewer or the editor wants it
+      if (openMenu || editing || mentionOpen() || selecting) return;
+      if (document.querySelector('.jc-modal, .jc-lb, .jc-iv, .jc-sheet-bg, .jc-dlg-bg, #lock.show')) return;
+      if (current) closeChat();
+    });
   }
 
   function showErr(msg) {
@@ -1539,6 +1550,16 @@
   }
 
   // ---------------- conversation ----------------
+  function closeChat() {
+    if (!current) return;
+    if (loaded.length) cacheMessages(current.sync_id, loaded);
+    if (selecting) { selecting = false; selected = {}; if (selBar) selBar.remove(); }
+    cancelEdit();
+    current = null;
+    showPlaceholder();
+    renderList();
+  }
+
   function showPlaceholder() {
     els.main.textContent = '';
     els.main.appendChild(els.ph);
@@ -2767,7 +2788,14 @@
         // Chat switched off (or not on for this factory yet): remove the widget
         // instead of retrying for ever.
         fetch(API + '/me', { credentials: 'same-origin', cache: 'no-store' }).then(function (r) {
-          if (r.status === 404) { stopped = true; if (root) root.remove(); return; }
+          // Only the server's own "chat is off" answer removes the chat. Any other 404 (a
+          // proxy page while the app restarts during a deploy) is temporary: keep retrying.
+          if (r.status === 404) {
+            return r.json().catch(function () { return {}; }).then(function (d) {
+              if (d && d.code === 'CHAT_DISABLED') { stopped = true; if (root) root.remove(); return; }
+              setTimeout(connect, 2000 * retry);
+            });
+          }
           setTimeout(connect, 2000 * retry);
         }).catch(function () { setTimeout(connect, 2000 * retry); });
       }
