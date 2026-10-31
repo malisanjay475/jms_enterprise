@@ -13,6 +13,9 @@ part of your PR. On release, the `[Unreleased]` items move under the new version
 
 ## [Unreleased]
 
+### Changed
+- JMS Chat "<Factory> – All staff" groups get no automated messages any more (v1.156.1): no QC hold / release or machine stop / restart alerts, no shift summaries and no welcome note. The groups and their members are still kept in sync.
+
 ### Added
 - JMS Chat desktop app (chat_app.html, v1.156.0): on wide windows a WhatsApp-Desktop-style layout - left icon rail (Chats, Starred, My tasks, Approvals, New chat, New group, Install app, Dark theme, App lock, Shortcuts, Sign out), a roomier chat list with search icon and selected / hover states, light chat headers, a patterned chat background, wider bubbles and a welcome pane with shortcuts. Every chat button uses Bootstrap line icons instead of emoji (phone too). Dark theme (Ctrl+Shift+D, remembered). App lock: a 4-6 digit PIN kept on this device (salted SHA-256), asked when the app opens and after 1 / 5 / 15 / 30 / 60 minutes idle or hidden; Ctrl+L locks; "Forgot PIN" signs out. Shortcuts: Ctrl+K search, Ctrl+Alt+N new chat, Ctrl+Shift+N new group, Alt+Up/Down previous / next chat, Esc closes the chat, Ctrl+/ list. "Install as a desktop app" in Chrome / Edge; unread count on the taskbar / dock badge.
 

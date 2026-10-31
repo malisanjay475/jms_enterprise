@@ -366,45 +366,6 @@ async function escalate(db) {
   }
 }
 
-async function shiftSummary(db) {
-  const now = istNow();
-  const h = now.getUTCHours(), mi = now.getUTCMinutes();
-  if (!((h === 8 || h === 20) && mi >= 5 && mi < 15)) return;
-  // the shift that just ended
-  const ended = new Date(now.getTime() - 30 * 60000);
-  const { date, shift } = currentShift(ended);
-  const key = `summary:${date}:${shift}`;
-  const { rows: [done] } = await db.query('SELECT 1 FROM chat_bot_state WHERE name = $1', [key]);
-  if (done) return;
-  await db.query('INSERT INTO chat_bot_state (name, value) VALUES ($1, $2) ON CONFLICT DO NOTHING', [key, new Date().toISOString()]);
-  const { rows: groups } = await db.query(`SELECT key, conversation_sync_id FROM chat_auto_groups WHERE key LIKE 'factory:%'`).catch(() => ({ rows: [] }));
-  for (const g of groups) {
-    const fid = Number(g.key.split(':')[1]);
-    const { rows: [t] } = await db.query(
-      `SELECT COALESCE(SUM(good_qty),0) AS good, COALESCE(SUM(reject_qty),0) AS rej, COALESCE(SUM(downtime_min),0) AS dt,
-              COUNT(DISTINCT machine)::int AS machines
-         FROM dpr_hourly WHERE dpr_date = $1 AND shift ILIKE $2 AND COALESCE(is_deleted,false) = false AND factory_id = $3`,
-      [date, shift, fid]
-    ).catch(() => ({ rows: [{}] }));
-    const { rows: top } = await db.query(
-      `SELECT machine, SUM(downtime_min) AS dt FROM dpr_hourly
-        WHERE dpr_date = $1 AND shift ILIKE $2 AND COALESCE(is_deleted,false) = false AND factory_id = $3
-        GROUP BY machine HAVING SUM(downtime_min) > 0 ORDER BY SUM(downtime_min) DESC LIMIT 3`, [date, shift, fid]
-    ).catch(() => ({ rows: [] }));
-    const { rows: [holds] } = await db.query(`SELECT COUNT(*)::int AS n FROM qc_holds WHERE status = 'ACTIVE' AND factory_id = $1`, [fid]).catch(() => ({ rows: [{ n: 0 }] }));
-    if (!t || !Number(t.machines)) continue;
-    const rejPct = Number(t.good) + Number(t.rej) > 0 ? (Number(t.rej) * 100 / (Number(t.good) + Number(t.rej))).toFixed(1) : '0.0';
-    const lines = [
-      `📊 Shift summary · ${date} ${shift}`,
-      `Machines reporting: ${t.machines}`,
-      `Good: ${n(t.good)} · Rejects: ${n(t.rej)} (${rejPct}%)`,
-      `Downtime: ${n(t.dt)} min${top.length ? ' · most: ' + top.map((x) => `${x.machine} ${n(x.dt)}m`).join(', ') : ''}`,
-      `Open QC holds: ${holds.n}`
-    ];
-    await post(db, g.conversation_sync_id, ALERTS, lines.join('\n'), { summary: true });
-  }
-}
-
 function start(pool) {
   if (chatSync.isLocal()) return;
   let running = false;
@@ -421,7 +382,7 @@ function start(pool) {
       await ensureBotSchema(client);
       await ticketUpdates(client);
       await escalate(client);
-      await shiftSummary(client);
+      // No shift summary: the All staff groups get no automated messages.
     } catch (err) {
       console.warn('[chat-bot]', err.message);
     } finally {
