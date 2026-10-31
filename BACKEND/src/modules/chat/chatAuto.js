@@ -11,7 +11,8 @@
 //    seen too, since this reads MAIN's tables. The first run only remembers where it is,
 //    so turning this on never floods old events.
 //
-// CHAT_AUTO_GROUPS=0 (env or server_config) switches both off.
+// Off by default (groups are made by admins / superadmins): CHAT_AUTO_GROUPS=1 (env or
+// server_config) switches it back on. While off, existing auto groups are left as they are.
 
 const chatSync = require('./chatSync');
 
@@ -30,7 +31,7 @@ async function enabled(pool) {
     const { rows: [r] } = await pool.query("SELECT value FROM server_config WHERE key = 'CHAT_AUTO_GROUPS'");
     if (r && r.value != null && String(r.value).trim() !== '') return !/^(0|false|off|no)$/i.test(String(r.value));
   } catch (_e) { /* no server_config */ }
-  return true;
+  return false;
 }
 
 async function ensureAutoSchema(pool) {

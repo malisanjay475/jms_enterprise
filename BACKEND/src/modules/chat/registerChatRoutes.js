@@ -1242,6 +1242,7 @@ function registerChatRoutes(app, pool) {
   app.post('/api/chat/groups', async (req, res) => {
     try {
       if (!(await ready(req, res))) return;
+      if (!isAdminLike(req.auth)) return res.status(403).json({ ok: false, error: 'Only an admin or superadmin can create groups.' });
       const me = req.auth.username;
       const title = cleanTitle(req.body && req.body.title);
       if (!title) return res.status(400).json({ ok: false, error: 'Give the group a name.' });
