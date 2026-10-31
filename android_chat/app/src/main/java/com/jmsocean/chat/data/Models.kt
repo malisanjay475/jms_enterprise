@@ -251,6 +251,10 @@ data class Profile(
     val photo_v: String? = null,
     val last_seen_at: String? = null,
     val online: Boolean = false,
+    val designation: String = "",
+    val department: String = "",
+    /** From the chat sign-up form (only for me and admins). */
+    val mobile: String? = null,
     /** Name others see (approved); the login name until one is approved. */
     val display_name: String = "",
     /** Waiting for an admin (only for me and admins). */
@@ -267,6 +271,16 @@ data class Profile(
 ) {
     val shownName: String get() = display_name.ifBlank { username }
 }
+
+@Serializable
+data class SharedFile(val sync_id: String, val kind: String = "", val mime: String = "", val file_name: String = "", val size: Long = 0)
+
+@Serializable
+data class CommonGroup(val sync_id: String, val title: String? = null, val members: Int = 0)
+
+/** Contact info extras: media in our direct chat and groups in common. */
+@Serializable
+data class SharedReply(val media: List<SharedFile> = emptyList(), val groups: List<CommonGroup> = emptyList())
 
 @Serializable
 data class NameChange(

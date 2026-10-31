@@ -50,7 +50,7 @@ import kotlinx.coroutines.launch
 /** Contact info (a direct chat) or group info (members with photos and last seen). */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun InfoScreen(convId: String, onBack: () -> Unit, onMessage: (String) -> Unit, onLeft: () -> Unit = onBack) {
+fun InfoScreen(convId: String, onBack: () -> Unit, onMessage: (String) -> Unit, onLeft: () -> Unit = onBack, onOpenChat: (String) -> Unit = {}) {
     val ctx = androidx.compose.ui.platform.LocalContext.current
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     var reload by remember { mutableStateOf(0) }
@@ -69,6 +69,7 @@ fun InfoScreen(convId: String, onBack: () -> Unit, onMessage: (String) -> Unit, 
     var group by remember { mutableStateOf(false) }
     var members by remember { mutableStateOf<List<Member>>(emptyList()) }
     var peer by remember { mutableStateOf<Profile?>(null) }
+    var shared by remember { mutableStateOf<com.jmsocean.chat.data.SharedReply?>(null) }
 
     LaunchedEffect(convId, reload) {
         runCatching { Api.messages(convId) }.onSuccess { r ->
@@ -77,6 +78,7 @@ fun InfoScreen(convId: String, onBack: () -> Unit, onMessage: (String) -> Unit, 
             title = r.title ?: r.members.firstOrNull { !Session.isMe(it) } ?: ""
             if (!group) r.members.firstOrNull { !Session.isMe(it) }?.let { p ->
                 runCatching { Api.profileOf(p) }.onSuccess { peer = it; title = it.shownName }
+                runCatching { Api.shared(p) }.onSuccess { shared = it }
             }
         }
     }
@@ -91,7 +93,19 @@ fun InfoScreen(convId: String, onBack: () -> Unit, onMessage: (String) -> Unit, 
         }
     ) { pad ->
         LazyColumn(Modifier.padding(pad).fillMaxSize()) {
-            item {
+            if (!group) {
+                val p = peer
+                if (p != null) item {
+                    ContactDetails(p, shared, convId, onBack = onBack, onOpenChat = onOpenChat)
+                } else item {
+                    Column(Modifier.fillMaxWidth().padding(vertical = 24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                        Avatar(title, 140.dp)
+                        Spacer(Modifier.height(12.dp))
+                        Text(title, fontSize = 24.sp, fontWeight = FontWeight.SemiBold)
+                    }
+                }
+            }
+            if (group) item {
                 Column(Modifier.fillMaxWidth().padding(vertical = 24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                     val p = peer
                     Avatar(title, 140.dp, group = group, photoUrl = if (group || p == null) null else Api.avatarUrl(p.username, p.photo_v))
@@ -102,19 +116,6 @@ fun InfoScreen(convId: String, onBack: () -> Unit, onMessage: (String) -> Unit, 
                     if (sub.isNotEmpty()) Text(sub, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 HorizontalDivider()
-            }
-            val p = peer
-            if (!group && p != null) item {
-                InfoRow(Icons.Default.Info, "About", p.about.ifBlank { "Hey there! I am using JMS Chat." }, null)
-                val sub = listOf(p.role.replace('_', ' '), p.line).filter { it.isNotBlank() }.joinToString(" · ")
-                if (sub.isNotEmpty()) InfoRow(Icons.Default.Info, "Role", sub, null)
-                // Admins / superadmins see who this really is and every earlier name.
-                if (p.admin_view) {
-                    InfoRow(Icons.Default.Info, "Login ID", p.username, null)
-                    p.pending_name?.let { InfoRow(Icons.Default.Info, "Requested name (waiting)", it, null) }
-                    val old = p.name_history.filter { it.status == "approved" }.mapNotNull { it.old_name }.distinct()
-                    if (old.isNotEmpty()) InfoRow(Icons.Default.Info, "Earlier names", old.joinToString(", "), null)
-                }
             }
             if (group) {
                 // group admins, and superadmins in every group

@@ -194,6 +194,11 @@ enum Api {
     static func saveName(_ name: String) async throws -> ProfileReply {
         try await send("PUT", "/api/chat/profile", ["name": name])
     }
+    static func shared(_ username: String) async throws -> SharedReply { try await get("/api/chat/profile/" + enc(username) + "/shared") }
+    static func saveWork(designation: String, department: String) async throws -> Profile {
+        (try await send("PUT", "/api/chat/profile", ["designation": designation, "department": department]) as ProfileReply).profile ?? Profile()
+    }
+
     static func cancelName() async throws -> Profile {
         try JSONDecoder().decode(ProfileReply.self, from: try await call("DELETE", "/api/chat/profile/name")).profile ?? Profile()
     }
