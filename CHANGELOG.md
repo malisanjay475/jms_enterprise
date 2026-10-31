@@ -65,6 +65,7 @@ part of your PR. On release, the `[Unreleased]` items move under the new version
 - JMS Chat on phones: the chat list only filled about 80% of the screen width (a desktop rule .jc-app .jc-side{min-width:320px} beat the phone rule); it fills the screen again.
 
 ### Fixed
+- Planning Board machine cards (v1.161.1): flipped Machines-view cards now compute Balance and Done % as plan qty − DPR produced (same as Master Plan / View full details), instead of the stored plan_board.bal_qty that only updates on plan edit.
 - NPD Tracker (v1.154.3): Purchase users can now edit the Purchase column ("Packing material follow up & receiving"). Any role whose code or name contains "purchase" gets it.
 
 ### Added
