@@ -141,7 +141,7 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
                                     .onSuccess { c -> nav.navigate("chat/${c.sync_id}") { popUpTo("list") } }
                                     .onFailure { Toast.makeText(this@MainActivity, it.message, Toast.LENGTH_LONG).show() }
                             }
-                        })
+                        }, onOpenChat = { cid -> nav.navigate("chat/$cid") { popUpTo("list") } })
                     }
                     composable("approvals") { com.jmsocean.chat.ui.ApprovalsScreen(onBack = { nav.popBackStack() }) }
                     composable("tasks") {

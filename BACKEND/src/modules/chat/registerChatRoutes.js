@@ -854,6 +854,37 @@ function registerChatRoutes(app, pool) {
     } catch (err) { fail(res, err, 'users'); }
   });
 
+  // Contact info extras (like WhatsApp): recent media / docs in my direct chat with this
+  // person, and the groups we are both in.
+  app.get('/api/chat/profile/:username/shared', async (req, res) => {
+    try {
+      if (!(await ready(req, res))) return;
+      const me = req.auth.username;
+      const peer = await activeUser(pool, String(req.params.username || ''));
+      if (!peer) return res.status(404).json({ ok: false, error: 'User not found.' });
+      const { rows: media } = await pool.query(
+        `SELECT a.sync_id, a.kind, a.mime, a.file_name, a.size_bytes AS size, a.created_at
+           FROM chat_conversations c
+           JOIN chat_members m1 ON m1.conversation_sync_id = c.sync_id AND LOWER(m1.username) = LOWER($1) AND m1.left_at IS NULL
+           JOIN chat_members m2 ON m2.conversation_sync_id = c.sync_id AND LOWER(m2.username) = LOWER($2)
+           JOIN chat_attachments a ON a.conversation_sync_id = c.sync_id
+           JOIN chat_messages msg ON msg.sync_id = a.message_sync_id AND msg.deleted_at IS NULL AND msg.purged_at IS NULL
+          WHERE c.type <> 'group' AND a.file_removed_at IS NULL
+          ORDER BY a.created_at DESC LIMIT 60`, [me, peer]
+      );
+      const { rows: groups } = await pool.query(
+        `SELECT c.sync_id, c.title,
+                (SELECT COUNT(*)::int FROM chat_members x WHERE x.conversation_sync_id = c.sync_id AND x.left_at IS NULL) AS members
+           FROM chat_conversations c
+           JOIN chat_members m1 ON m1.conversation_sync_id = c.sync_id AND LOWER(m1.username) = LOWER($1) AND m1.left_at IS NULL
+           JOIN chat_members m2 ON m2.conversation_sync_id = c.sync_id AND LOWER(m2.username) = LOWER($2) AND m2.left_at IS NULL
+          WHERE c.type = 'group'
+          ORDER BY c.last_message_at DESC NULLS LAST LIMIT 50`, [me, peer]
+      );
+      res.json({ ok: true, media, groups });
+    } catch (err) { fail(res, err, 'shared'); }
+  });
+
   // My chats (or, for a superadmin with ?all=1, every chat).
   app.get('/api/chat/conversations', async (req, res) => {
     try {

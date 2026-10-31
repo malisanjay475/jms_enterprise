@@ -363,6 +363,12 @@ object Api {
     suspend fun saveName(name: String): ProfileReply =
         json.decodeFromString(call("PUT", "/api/chat/profile", jsonBody("name" to name)))
 
+    suspend fun shared(username: String): SharedReply =
+        get("/api/chat/profile/" + java.net.URLEncoder.encode(username, "UTF-8") + "/shared")
+
+    suspend fun saveWork(designation: String, department: String): Profile =
+        json.decodeFromString<ProfileReply>(call("PUT", "/api/chat/profile", jsonBody("designation" to designation, "department" to department))).profile ?: Profile()
+
     suspend fun cancelName(): Profile = json.decodeFromString<ProfileReply>(call("DELETE", "/api/chat/profile/name")).profile ?: Profile()
 
     // ---- name approvals (admin / superadmin) ----
