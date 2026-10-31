@@ -22,9 +22,16 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.filled.Archive
+import androidx.compose.material.icons.filled.Call
+import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.runtime.rememberCoroutineScope
+import com.jmsocean.chat.data.ChatFolder
+import kotlinx.coroutines.launch
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.NotificationsOff
 import androidx.compose.material.icons.filled.Search
@@ -126,6 +133,8 @@ fun ChatListScreen(
     onSignOut: () -> Unit,
     onProfile: () -> Unit,
     onStarred: () -> Unit,
+    onTasks: () -> Unit,
+    onApprovals: () -> Unit,
     vm: ChatListViewModel = viewModel()
 ) {
     val chats by vm.chats.collectAsState()
@@ -142,7 +151,25 @@ fun ChatListScreen(
 
     var showArchived by remember { mutableStateOf(false) }
     val archivedCount = chats.count { it.archived }
-    val base = if (query.isNotBlank()) chats else chats.filter { it.archived == showArchived }
+    var tab by remember { mutableStateOf(0) }          // 0 = Chats, 1 = Calls
+    var filter by remember { mutableStateOf("all") }   // all / unread / groups / f:<folder id>
+    var folders by remember { mutableStateOf<List<ChatFolder>>(emptyList()) }
+    var folderTick by remember { mutableStateOf(0) }
+    LaunchedEffect(folderTick) { runCatching { Api.folders() }.onSuccess { folders = it } }
+    var showFolders by remember { mutableStateOf(false) }
+    var showDevices by remember { mutableStateOf(false) }
+    var securityFor by remember { mutableStateOf<Conversation?>(null) }
+    val listScope = rememberCoroutineScope()
+    val base = (if (query.isNotBlank()) chats else chats.filter { it.archived == showArchived })
+        .filter { c ->
+            when {
+                filter == "unread" -> c.unread > 0
+                filter == "groups" -> c.isGroup
+                filter.startsWith("f:") -> folders.firstOrNull { "f:" + it.id == filter }?.conversations?.contains(c.sync_id) ?: true
+                else -> true
+            }
+        }
+    val unreadChats = chats.count { it.unread > 0 && !it.archived }
     val shown = if (query.isBlank()) base else base.filter {
         it.name.contains(query, true) || (it.last_body ?: "").contains(query, true) ||
             it.members.any { m -> m.contains(query, true) }
@@ -170,7 +197,7 @@ fun ChatListScreen(
                             if (!connected) Text("Connecting…", fontSize = 12.sp, color = Color.White.copy(alpha = 0.8f))
                         }
                     },
-                    colors = TopAppBarDefaults.topAppBarColors(containerColor = Teal, titleContentColor = Color.White, actionIconContentColor = Color.White),
+                    colors = TopAppBarDefaults.topAppBarColors(containerColor = headerColor(), titleContentColor = Color.White, actionIconContentColor = Color.White),
                     actions = {
                         IconButton(onClick = { searching = true }) { Icon(Icons.Default.Search, "Search") }
                         Box {
@@ -179,6 +206,10 @@ fun ChatListScreen(
                                 DropdownMenuItem(text = { Text("Profile") }, onClick = { menu = false; onProfile() })
                                 DropdownMenuItem(text = { Text("New group") }, onClick = { menu = false; onNewGroup() })
                                 DropdownMenuItem(text = { Text("Starred messages") }, onClick = { menu = false; onStarred() })
+                                DropdownMenuItem(text = { Text("📋 My tasks") }, onClick = { menu = false; onTasks() })
+                                DropdownMenuItem(text = { Text("✅ Approvals") }, onClick = { menu = false; onApprovals() })
+                                DropdownMenuItem(text = { Text("📁 Chat folders") }, onClick = { menu = false; showFolders = true })
+                                DropdownMenuItem(text = { Text("📱 My devices") }, onClick = { menu = false; showDevices = true })
                                 DropdownMenuItem(text = { Text("Signed in as ${Session.username}") }, onClick = { menu = false }, enabled = false)
                                 DropdownMenuItem(text = { Text("Sign out") }, onClick = { menu = false; onSignOut() })
                             }
@@ -188,19 +219,37 @@ fun ChatListScreen(
             }
         },
         floatingActionButton = {
-            FloatingActionButton(onClick = onNewChat, containerColor = Color(0xFF00A884), contentColor = Color.White) {
+            if (tab == 0) FloatingActionButton(onClick = onNewChat, containerColor = Color(0xFF00A884), contentColor = Color.White) {
                 Icon(Icons.AutoMirrored.Filled.Chat, "New chat")
+            }
+        },
+        bottomBar = {
+            androidx.compose.material3.NavigationBar(containerColor = MaterialTheme.colorScheme.surface, tonalElevation = 2.dp) {
+                NavigationBarItem(
+                    selected = tab == 0, onClick = { tab = 0 }, label = { Text("Chats") },
+                    icon = {
+                        androidx.compose.material3.BadgedBox(badge = {
+                            if (unreadChats > 0) androidx.compose.material3.Badge(containerColor = Color(0xFF25D366)) { Text("$unreadChats") }
+                        }) { Icon(Icons.AutoMirrored.Filled.Chat, null) }
+                    },
+                    colors = androidx.compose.material3.NavigationBarItemDefaults.colors(indicatorColor = Color(0x3300A884))
+                )
+                NavigationBarItem(
+                    selected = tab == 1, onClick = { tab = 1 }, label = { Text("Calls") },
+                    icon = { Icon(Icons.Default.Call, null) },
+                    colors = androidx.compose.material3.NavigationBarItemDefaults.colors(indicatorColor = Color(0x3300A884))
+                )
             }
         }
     ) { pad ->
-        PullToRefreshBox(
+        if (tab == 1) CallsTab(Modifier.padding(pad).fillMaxSize()) else PullToRefreshBox(
             isRefreshing = refreshing,
             onRefresh = { refreshing = true; vm.load() },
             modifier = Modifier.padding(pad).fillMaxSize()
         ) {
             when {
                 loading -> LinearProgressIndicator(Modifier.fillMaxWidth(), color = Green)
-                shown.isEmpty() -> Column(
+                shown.isEmpty() && filter == "all" -> Column(
                     Modifier.fillMaxSize().padding(32.dp),
                     horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center
                 ) {
@@ -212,6 +261,20 @@ fun ChatListScreen(
                     )
                 }
                 else -> LazyColumn(Modifier.fillMaxSize()) {
+                    if (query.isBlank() && !showArchived) item {
+                        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 6.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            (listOf("all" to "All", "unread" to "Unread", "groups" to "Groups") + folders.map { "f:" + it.id to "📁 " + it.name }).forEach { (k, label) ->
+                                androidx.compose.material3.FilterChip(
+                                    selected = filter == k, onClick = { filter = k }, label = { Text(label) },
+                                    shape = RoundedCornerShape(20.dp),
+                                    colors = androidx.compose.material3.FilterChipDefaults.filterChipColors(
+                                        selectedContainerColor = Color(0x3300A884), selectedLabelColor = Color(0xFF00785F)
+                                    )
+                                )
+                            }
+                        }
+                    }
                     if (query.isBlank() && (archivedCount > 0 || showArchived)) item {
                         Row(
                             Modifier.fillMaxWidth().clickable { showArchived = !showArchived }.padding(horizontal = 28.dp, vertical = 14.dp),
@@ -224,23 +287,41 @@ fun ChatListScreen(
                         }
                     }
                     items(shown, key = { it.sync_id }) { c ->
-                        ChatRow(c, onPin = { vm.pin(c) }, onArchive = { vm.archive(c) }) { onOpen(c.sync_id) }
+                        ChatRow(
+                            c, onPin = { vm.pin(c) }, onArchive = { vm.archive(c) }, folders = folders,
+                            onToggleFolder = { f ->
+                                val now = if (f.conversations.contains(c.sync_id)) f.conversations - c.sync_id else f.conversations + c.sync_id
+                                listScope.launch { runCatching { Api.setFolderChats(f.id, now) }.onSuccess { folderTick++ } }
+                            },
+                            onSecurity = if (!c.isGroup || c.my_role == "admin" || Session.isSuperadmin) ({ securityFor = c }) else null
+                        ) { onOpen(c.sync_id) }
                         HorizontalDivider(Modifier.padding(start = 80.dp), thickness = 0.5.dp)
                     }
                 }
             }
         }
     }
+    if (showFolders) FoldersDialog(folders, onChanged = { folderTick++ }, onClose = { showFolders = false })
+    if (showDevices) DevicesDialog { showDevices = false }
+    securityFor?.let { c -> SecurityDialog(c) { securityFor = null; vm.load() } }
 }
 
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
-private fun ChatRow(c: Conversation, onPin: () -> Unit, onArchive: () -> Unit, onClick: () -> Unit) {
+private fun ChatRow(
+    c: Conversation, onPin: () -> Unit, onArchive: () -> Unit,
+    folders: List<ChatFolder>, onToggleFolder: (ChatFolder) -> Unit, onSecurity: (() -> Unit)?, onClick: () -> Unit
+) {
     var menu by remember { mutableStateOf(false) }
     Box {
     DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
         DropdownMenuItem(text = { Text(if (c.pinned) "Unpin chat" else "Pin chat") }, onClick = { menu = false; onPin() })
         DropdownMenuItem(text = { Text(if (c.archived) "Unarchive chat" else "Archive chat") }, onClick = { menu = false; onArchive() })
+        folders.forEach { f ->
+            DropdownMenuItem(text = { Text(if (f.conversations.contains(c.sync_id)) "✓ In folder ${f.name}" else "📁 Add to ${f.name}") },
+                onClick = { menu = false; onToggleFolder(f) })
+        }
+        if (onSecurity != null) DropdownMenuItem(text = { Text("🔒 Security (disappearing, protected)") }, onClick = { menu = false; onSecurity() })
     }
     Row(
         Modifier.fillMaxWidth().combinedClickable(onClick = onClick, onLongClick = { menu = true })
@@ -251,7 +332,7 @@ private fun ChatRow(c: Conversation, onPin: () -> Unit, onArchive: () -> Unit, o
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(c.name, fontWeight = FontWeight.SemiBold, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                Text(c.name, fontWeight = if (c.unread > 0) FontWeight.Bold else FontWeight.SemiBold, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
                 Text(
                     listTime(c.last_message_at), fontSize = 12.sp,
                     color = if (c.unread > 0) Color(0xFF00A884) else MaterialTheme.colorScheme.onSurfaceVariant
@@ -262,12 +343,14 @@ private fun ChatRow(c: Conversation, onPin: () -> Unit, onArchive: () -> Unit, o
                 val who = when {
                     c.last_sender.isNullOrBlank() -> ""
                     Session.isMe(c.last_sender) -> "You: "
-                    c.isGroup -> "${c.last_sender}: "
+                    c.isGroup -> "${c.last_sender_name?.ifBlank { null } ?: c.last_sender}: "
                     else -> ""
                 }
                 Text(
                     who + (c.last_body ?: ""), fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f)
+                    fontWeight = if (c.unread > 0) FontWeight.Medium else FontWeight.Normal,
+                    color = if (c.unread > 0) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.weight(1f)
                 )
                 if (c.muted_until != null) Icon(Icons.Default.NotificationsOff, "Muted", Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 if (c.pinned) Icon(Icons.Default.PushPin, "Pinned", Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)

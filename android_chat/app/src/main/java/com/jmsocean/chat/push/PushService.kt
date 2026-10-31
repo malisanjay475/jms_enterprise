@@ -49,6 +49,11 @@ class PushService : FirebaseMessagingService() {
             Notifier.show(this, "test", "JMS Chat", "JMS Chat", d["body"] ?: "Notifications are working", false)
             return
         }
+        // Name request (to admins) or the decision (to the person).
+        if (d["type"] == "notice") {
+            Notifier.show(this, "notice", d["title"] ?: "JMS Chat", "JMS Chat", d["body"] ?: "", false)
+            return
+        }
         if (d["type"] == "call") {
             val id = d["call_id"] ?: return
             val caller = d["caller"] ?: "Someone"
@@ -69,10 +74,11 @@ class PushService : FirebaseMessagingService() {
         Notifier.show(
             this, conv,
             title = d["title"] ?: "JMS Chat",
-            sender = sender,
+            sender = d["sender_name"]?.ifBlank { null } ?: sender,
             text = d["body"] ?: "",
             isGroup = d["is_group"] == "1",
-            senderPhoto = senderPhoto(sender)
+            senderPhoto = senderPhoto(sender),
+            urgent = d["urgent"] == "1"
         )
     }
 }

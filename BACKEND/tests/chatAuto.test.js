@@ -25,11 +25,13 @@ describe('chat auto groups switch', () => {
   const saved = process.env.CHAT_AUTO_GROUPS;
   afterEach(() => { if (saved === undefined) delete process.env.CHAT_AUTO_GROUPS; else process.env.CHAT_AUTO_GROUPS = saved; });
 
-  test('CHAT_AUTO_GROUPS=0 turns it off; default on', async () => {
+  test('off by default; CHAT_AUTO_GROUPS=1 turns it on, =0 off', async () => {
     const pool = { query: jest.fn(async () => ({ rows: [] })) };
+    delete process.env.CHAT_AUTO_GROUPS;
+    expect(await chatAuto.enabled(pool)).toBe(false);
+    process.env.CHAT_AUTO_GROUPS = '1';
+    expect(await chatAuto.enabled(pool)).toBe(true);
     process.env.CHAT_AUTO_GROUPS = '0';
     expect(await chatAuto.enabled(pool)).toBe(false);
-    delete process.env.CHAT_AUTO_GROUPS;
-    expect(await chatAuto.enabled(pool)).toBe(true);
   });
 });

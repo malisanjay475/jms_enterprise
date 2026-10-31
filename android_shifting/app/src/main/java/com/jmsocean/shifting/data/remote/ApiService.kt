@@ -42,6 +42,9 @@ interface ApiService {
     @POST("api/shifting/entry")
     suspend fun manualEntry(@Body body: ManualEntryRequest): Response<ApiEnvelope>
 
+    @POST("api/shifting/close")
+    suspend fun closeShifting(@Body body: CloseShiftingRequest): Response<ApiEnvelope>
+
     @GET("api/shifting/availability")
     suspend fun availability(@Query("plan_id") planId: String): Response<ApiEnvelope>
 

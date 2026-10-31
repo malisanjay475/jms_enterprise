@@ -276,7 +276,7 @@
     }
 
     async function loadPlans() {
-        const res = await api.request('/api/rm/plans', { method: 'GET' });
+        const res = await api.request('/rm/plans', { method: 'GET' });
         if (res.ok) {
             activePlans = res.data;
             const body = document.getElementById('plans-body');
@@ -308,7 +308,7 @@
 
     async function loadPending() {
         const user = JPSMS.auth.getUser();
-        const res = await api.request('/api/rm/pending?line=' + (user.line || ''), { method: 'GET' });
+        const res = await api.request('/rm/pending?line=' + (user.line || ''), { method: 'GET' });
         if (res.ok) {
             const body = document.getElementById('pending-body');
             document.getElementById('pending-count-badge').innerText = res.data.length;
@@ -342,7 +342,7 @@
     }
 
     async function loadHistory() {
-         const res = await api.request('/api/rm/pending', { method: 'GET' });
+         const res = await api.request('/rm/pending', { method: 'GET' });
          if (res.ok) {
              const body = document.getElementById('history-body');
              body.innerHTML = res.data.map(r => `
@@ -397,7 +397,7 @@
             bag_qty: document.getElementById('issue-bag-qty').value,
             weight_per_bag: document.getElementById('issue-weight-per-bag').value
         };
-        const res = await api.request('/api/rm/issue', { method: 'POST', body: JSON.stringify(data) });
+        const res = await api.request('/rm/issue', { method: 'POST', body: JSON.stringify(data) });
         if (res.ok) {
             closeModal('modal-issue');
             loadPlans();
@@ -416,7 +416,7 @@
             accepted_weight: document.getElementById('accept-weight').value,
             accepted_by: user.username
         };
-        const res = await api.request('/api/rm/accept', { method: 'POST', body: JSON.stringify(data) });
+        const res = await api.request('/rm/accept', { method: 'POST', body: JSON.stringify(data) });
         if (res.ok) {
             closeModal('modal-accept');
             loadPlans();

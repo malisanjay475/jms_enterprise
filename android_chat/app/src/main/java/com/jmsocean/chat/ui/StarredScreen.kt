@@ -46,7 +46,7 @@ fun StarredScreen(onBack: () -> Unit, onOpen: (String) -> Unit) {
             TopAppBar(
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
                 title = { Text("Starred messages", fontWeight = FontWeight.SemiBold) },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = Teal, titleContentColor = Color.White, navigationIconContentColor = Color.White)
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = headerColor(), titleContentColor = Color.White, navigationIconContentColor = Color.White)
             )
         }
     ) { pad ->

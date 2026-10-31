@@ -1721,7 +1721,7 @@
                                         <div style="font-size:0.7rem; color:#64748b">Made ${fmt(m.produced_qty)} this shift</div>
                                         ${m.on_floor ? `<div style="font-size:0.72rem; font-weight:700; color:#b45309">On floor ${fmt(m.on_floor)}</div>` : ''}`;
                                     mHtml += `<tr style="${sIdx === 0 ? 'border-top:2px solid #cbd5e1' : ''}">
-                                        <td style="padding:6px 8px; text-align:left; border-right:1px solid #f1f5f9; border-bottom:1px solid #e2e8f0; background:#fff; vertical-align:middle">
+                                        <td data-dpr-machine="${esc(machine)}" data-dpr-shift="${esc(sh)}" data-dpr-date="${esc(date)}" style="padding:6px 8px; text-align:left; border-right:1px solid #f1f5f9; border-bottom:1px solid #e2e8f0; background:#fff; vertical-align:middle">
                                             <div style="font-size:0.75rem; text-transform:uppercase; letter-spacing:0.5px; font-weight:700; margin-bottom:4px; color:#64748b">${label}</div>
                                             ${m.job ? `<div style="font-size:0.85rem; font-weight:700; color:#1e293b; line-height:1.3">${esc(m.job)}</div>` : '<div style="font-size:0.8rem; color:#94a3b8; font-style:italic">No running plan</div>'}
                                         </td>
@@ -1893,7 +1893,10 @@
 
                     // Prepare Requests based on Shift Mode
                     const promises = [];
-                    const scopedMachinesPromise = J.api.get(`/masters/machines?process=${encodeURIComponent(dprProcess)}`);
+                    // Machine list follows the Factory dropdown, not the login unit — otherwise
+                    // picking another factory filtered its machines out and showed 0 machines.
+                    const scopedMachinesPromise = J.api.request(`/masters/machines?process=${encodeURIComponent(dprProcess)}`,
+                        { headers: { 'X-Factory-ID': selectedFactory || 'all' } });
                     // Open machine maintenance tickets → chip on the machine's summary cell
                     // (remarks + "Available by" ETA) so everyone sees it's down & when it returns.
                     const maintPromise = J.api.get('/maintenance/tickets?open=1&type=machine').catch(() => ({ ok: false, data: [] }));
@@ -4185,6 +4188,16 @@
                         opt.textContent = label;
                         sel.appendChild(opt);
                     });
+                    // /factories returns only the units this login may see. "All" is kept
+                    // only for users with all-factory rights (the server would collapse it to
+                    // the home unit otherwise); everyone else picks one of their own units.
+                    const canAll = r.can_select_all_factories === true || (J.auth.isAdminLike && J.auth.isAdminLike());
+                    const allOpt = Array.from(sel.options).find(o => o.value === '');
+                    if (!canAll && allOpt && (r.data || []).length) {
+                        const wasAll = sel.value === '';
+                        allOpt.remove();
+                        if (wasAll) { sel.value = sel.options[0].value; loadSummary(); }
+                    }
                 }).catch(() => {});
 
                 loadSummary();

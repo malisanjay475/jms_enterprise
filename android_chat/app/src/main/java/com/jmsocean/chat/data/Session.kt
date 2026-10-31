@@ -22,11 +22,14 @@ object Session {
 
     @Volatile var token: String? = null
         private set
+    /** From /api/chat/me: superadmins manage every group and can delete any message. */
+    @Volatile var isSuperadmin: Boolean = false
     @Volatile var username: String? = null
         private set
 
     fun init(ctx: Context) {
         prefs = ctx.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        devicePrefs = ctx.applicationContext.getSharedPreferences("chat_device", Context.MODE_PRIVATE)
         username = prefs.getString("username", null)
         token = prefs.getString("token", null)?.let { Crypto.decrypt(it) }
         if (token == null) username = null
@@ -46,6 +49,15 @@ object Session {
         username = null
         token = null
     }
+
+    /** A stable id for this install (kept across sign-outs), for "My devices". */
+    fun deviceId(): String {
+        devicePrefs.getString("device_id", null)?.let { return it }
+        val id = java.util.UUID.randomUUID().toString().replace("-", "")
+        devicePrefs.edit().putString("device_id", id).apply()
+        return id
+    }
+    private lateinit var devicePrefs: SharedPreferences
 
     fun isMe(name: String?) = name != null && name.equals(username, ignoreCase = true)
 
