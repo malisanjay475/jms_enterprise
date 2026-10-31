@@ -191,7 +191,7 @@ struct ChatRow: View {
         guard let body = c.lastBody, !body.isEmpty else { return c.isGroup ? "\(c.members.count) members" : "" }
         if let s = c.lastSender, !s.isEmpty {
             if Session.isMe(s) { return "You: " + body }
-            if c.isGroup { return s + ": " + body }
+            if c.isGroup { return (c.lastSenderName.flatMap { $0.isEmpty ? nil : $0 } ?? s) + ": " + body }
         }
         return body
     }
