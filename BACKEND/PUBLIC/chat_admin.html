@@ -50,6 +50,17 @@
     .ca-pill { display: inline-block; border-radius: 10px; padding: 1px 8px; font-size: .72rem; font-weight: 700; background: #e0f2fe; color: #0369a1; }
     .ca-pill.export { background: #fee2e2; color: #b91c1c; }
     .ca-pill.view { background: #dcfce7; color: #15803d; }
+    .ca-nr { display: flex; gap: 14px; align-items: center; padding: 14px 16px; border-bottom: 1px solid #f1f5f9; flex-wrap: wrap; }
+    .ca-nr img, .ca-nr .ini { width: 48px; height: 48px; border-radius: 50%; object-fit: cover; flex: none; background: #cbd5e1; color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 1.1rem; }
+    .ca-nr .who { flex: 1; min-width: 200px; }
+    .ca-nr .who small { color: #64748b; display: block; font-size: .76rem; }
+    .ca-nr .chg { font-size: .95rem; margin-top: 3px; }
+    .ca-nr .chg s { color: #94a3b8; }
+    .ca-nr .chg b { color: #0f766e; }
+    .ca-btn.no { background: #fee2e2; color: #b91c1c; }
+    .ca-count { display: inline-block; min-width: 18px; border-radius: 9px; background: #dc2626; color: #fff; font-size: .7rem; padding: 0 5px; margin-left: 4px; }
+    .ca-pill.approved { background: #dcfce7; color: #15803d; }
+    .ca-pill.rejected { background: #fee2e2; color: #b91c1c; }
     .ca-err { color: #b91c1c; padding: 8px 16px; display: none; }
     @media (max-width: 760px) { .ca-split { grid-template-columns: 1fr; } .ca-list { max-height: 40vh; border-right: 0; border-bottom: 1px solid #e2e8f0; } .ca-pane { margin: 0 8px 12px; } .ca-tabs { padding: 10px 8px 0; } }
   </style>
@@ -71,6 +82,7 @@
     <div class="ca-tabs">
       <button class="ca-tab on" data-tab="chats" type="button"><i class="bi bi-chat-dots"></i> Chats</button>
       <button class="ca-tab" data-tab="audit" type="button"><i class="bi bi-journal-text"></i> Audit log</button>
+      <button class="ca-tab" data-tab="names" type="button"><i class="bi bi-person-badge"></i> Name requests<span class="ca-count" id="nrCount" style="display:none"></span></button>
     </div>
 
     <!-- Chats -->
@@ -130,6 +142,19 @@
         </table>
       </div>
     </div>
+
+    <!-- Name requests: a new chat name shows to others only after approval -->
+    <div class="ca-pane" id="pane-names" style="display:none">
+      <div class="ca-err" id="namesErr"></div>
+      <div id="nrList"><div class="ca-empty">Loading…</div></div>
+      <div style="padding:12px 16px 4px; font-weight:800; color:#334155">Recent decisions</div>
+      <div style="max-height:40vh; overflow:auto">
+        <table class="ca-table">
+          <thead><tr><th>When (IST)</th><th>Login</th><th>Old name</th><th>New name</th><th>Result</th><th>By</th></tr></thead>
+          <tbody id="nrRecent"></tbody>
+        </table>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -148,8 +173,8 @@
     return e;
   }
 
-  function api(url) {
-    return fetch(url, { credentials: 'same-origin', cache: 'no-store' }).then(function (r) {
+  function api(url, opts) {
+    return fetch(url, Object.assign({ credentials: 'same-origin', cache: 'no-store' }, opts || {})).then(function (r) {
       return r.json().catch(function () { return { ok: false }; }).then(function (d) {
         if (!r.ok || d.ok === false) { var e = new Error(d.error || ('HTTP ' + r.status)); e.status = r.status; throw e; }
         return d;
@@ -341,6 +366,7 @@
       var iso = function (x) { return x.toISOString().slice(0, 10); };
       $('fFrom').value = iso(from); $('fTo').value = iso(to);
       search();
+      loadNames();
     }).catch(function (e) {
       if (e.status === 401) { location.replace('/login.html'); return; }
       $('denied').style.display = '';
@@ -356,9 +382,60 @@
         var tab = t.getAttribute('data-tab');
         $('pane-chats').style.display = tab === 'chats' ? '' : 'none';
         $('pane-audit').style.display = tab === 'audit' ? '' : 'none';
+        $('pane-names').style.display = tab === 'names' ? '' : 'none';
         if (tab === 'audit') loadAudit();
+        if (tab === 'names') loadNames();
       });
     });
+  }
+
+  // ---- name requests ----
+  function loadNames() {
+    showErr('namesErr', '');
+    api('/api/chat/name-requests').then(function (d) {
+      var c = $('nrCount');
+      c.textContent = String(d.requests.length);
+      c.style.display = d.requests.length ? '' : 'none';
+      var list = $('nrList');
+      list.textContent = '';
+      if (!d.requests.length) list.appendChild(el('div', 'ca-empty', 'No name changes waiting. 🎉'));
+      d.requests.forEach(function (r) {
+        var row = el('div', 'ca-nr');
+        if (r.photo_v) {
+          var img = el('img'); img.alt = ''; img.src = '/api/chat/avatars/' + encodeURIComponent(r.username) + '?v=' + r.photo_v; row.appendChild(img);
+        } else row.appendChild(el('div', 'ini', (r.current_name || '?').charAt(0).toUpperCase()));
+        var who = el('div', 'who');
+        var chg = el('div', 'chg');
+        chg.appendChild(el('s', null, r.current_name)); chg.appendChild(document.createTextNode('  →  ')); chg.appendChild(el('b', null, r.requested_name));
+        who.appendChild(chg);
+        who.appendChild(el('small', null, 'Login: ' + r.username + (r.role ? ' · ' + r.role.replace(/_/g, ' ') : '') + (r.line ? ' · ' + r.line : '') + ' · asked ' + ist(r.requested_at)));
+        row.appendChild(who);
+        var ok = el('button', 'ca-btn'); ok.type = 'button'; ok.innerHTML = '<i class="bi bi-check-lg"></i> Approve';
+        var no = el('button', 'ca-btn no'); no.type = 'button'; no.innerHTML = '<i class="bi bi-x-lg"></i> Reject';
+        function decide(action) {
+          var note = '';
+          if (action === 'reject') { note = prompt('Reason (shown to ' + r.current_name + '):', ''); if (note === null) return; }
+          ok.disabled = no.disabled = true;
+          api('/api/chat/name-requests/' + encodeURIComponent(r.username), {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: action, note: note })
+          }).then(loadNames).catch(function (e) { ok.disabled = no.disabled = false; showErr('namesErr', e.message); });
+        }
+        ok.addEventListener('click', function () { decide('approve'); });
+        no.addEventListener('click', function () { decide('reject'); });
+        row.appendChild(ok); row.appendChild(no);
+        list.appendChild(row);
+      });
+      var tb = $('nrRecent');
+      tb.textContent = '';
+      if (!d.recent.length) { var tr0 = el('tr'); var td0 = el('td', 'ca-empty', 'Nothing yet.'); td0.colSpan = 6; tr0.appendChild(td0); tb.appendChild(tr0); }
+      d.recent.forEach(function (h) {
+        var tr = el('tr');
+        [ist(h.at), h.username, h.old_name || '', h.new_name].forEach(function (v) { tr.appendChild(el('td', null, v)); });
+        var td = el('td'); td.appendChild(el('span', 'ca-pill ' + h.status, h.status)); if (h.note) td.appendChild(el('div', null, h.note)); tr.appendChild(td);
+        tr.appendChild(el('td', null, h.reviewed_by || ''));
+        tb.appendChild(tr);
+      });
+    }).catch(function (e) { showErr('namesErr', e.message); });
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start);
