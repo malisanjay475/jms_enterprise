@@ -625,7 +625,7 @@
       var inJms = !!(window.JMSChatApp && window.JMSChatApp.backToJms);
       closeBtn.textContent = inJms ? '⌂' : '⎋';
       closeBtn.title = inJms ? 'Back to JMS' : 'Sign out';
-      mClose.style.display = 'none';
+      mClose.style.display = 'none'; // Esc closes the open chat (see keydown below)
       closeBtn.addEventListener('click', function () {
         if (inJms) { window.JMSChatApp.backToJms(); return; }
         if (!confirm('Sign out of JMS Chat?')) return;
@@ -685,7 +685,14 @@
     document.addEventListener('keydown', function (e) {
       if (e.key === 'Escape' && selecting) { e.stopImmediatePropagation(); endSelect(); }
     }, true);
-    document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && open && !appMode) toggle(false); }); // the app has no panel to close
+    document.addEventListener('keydown', function (e) {
+      if (e.key !== 'Escape' || e.defaultPrevented) return;
+      if (!appMode) { if (open) toggle(false); return; }
+      // the app: Esc closes the open chat, unless a menu, dialog, viewer or the editor wants it
+      if (openMenu || editing || mentionOpen() || selecting) return;
+      if (document.querySelector('.jc-modal, .jc-lb, .jc-iv, .jc-sheet-bg, .jc-dlg-bg, #lock.show')) return;
+      if (current) closeChat();
+    });
   }
 
   function showErr(msg) {
@@ -1539,6 +1546,16 @@
   }
 
   // ---------------- conversation ----------------
+  function closeChat() {
+    if (!current) return;
+    if (loaded.length) cacheMessages(current.sync_id, loaded);
+    if (selecting) { selecting = false; selected = {}; if (selBar) selBar.remove(); }
+    cancelEdit();
+    current = null;
+    showPlaceholder();
+    renderList();
+  }
+
   function showPlaceholder() {
     els.main.textContent = '';
     els.main.appendChild(els.ph);
@@ -2767,7 +2784,14 @@
         // Chat switched off (or not on for this factory yet): remove the widget
         // instead of retrying for ever.
         fetch(API + '/me', { credentials: 'same-origin', cache: 'no-store' }).then(function (r) {
-          if (r.status === 404) { stopped = true; if (root) root.remove(); return; }
+          // Only the server's own "chat is off" answer removes the chat. Any other 404 (a
+          // proxy page while the app restarts during a deploy) is temporary: keep retrying.
+          if (r.status === 404) {
+            return r.json().catch(function () { return {}; }).then(function (d) {
+              if (d && d.code === 'CHAT_DISABLED') { stopped = true; if (root) root.remove(); return; }
+              setTimeout(connect, 2000 * retry);
+            });
+          }
           setTimeout(connect, 2000 * retry);
         }).catch(function () { setTimeout(connect, 2000 * retry); });
       }
