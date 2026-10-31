@@ -44,6 +44,10 @@ import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
 import androidx.compose.material.icons.automirrored.filled.Reply
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.AttachFile
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.ui.text.withLink
+import androidx.compose.foundation.layout.offset
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Check
@@ -151,6 +155,21 @@ fun ConversationScreen(convId: String, onBack: () -> Unit, onInfo: () -> Unit, v
     var forwarding by remember { mutableStateOf<Message?>(null) }
     var attachSheet by remember { mutableStateOf(false) }
     var playing by remember { mutableStateOf<String?>(null) }
+    var showPoll by remember { mutableStateOf(false) }
+    var taskFor by remember { mutableStateOf<Message?>(null) }
+    var ticketFor by remember { mutableStateOf<Message?>(null) }
+    var showHandover by remember { mutableStateOf(false) }
+    val extras by vm.extras.collectAsState()
+    val askLocation = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { r ->
+        if (r.values.any { it }) currentLocation(ctx) { loc ->
+            if (loc != null) vm.checkIn(loc.latitude, loc.longitude, loc.accuracy)
+            else Toast.makeText(ctx, "Turn on location and try again.", Toast.LENGTH_LONG).show()
+        } else Toast.makeText(ctx, "Location was not allowed.", Toast.LENGTH_SHORT).show()
+    }
+    val myRole by vm.myRole.collectAsState()
+    val isProtected by vm.isProtected.collectAsState()
+    SecureWindow(isProtected)
+    val pins by vm.pins.collectAsState()
     val pickMedia = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(10)) { uris ->
         if (uris.isNotEmpty()) vm.sendMany(uris)
     }
@@ -191,10 +210,16 @@ fun ConversationScreen(convId: String, onBack: () -> Unit, onInfo: () -> Unit, v
     val listState = rememberLazyListState()
     val atTop by remember { derivedStateOf { listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index?.let { it >= reversed.size - 3 } ?: false } }
     LaunchedEffect(atTop, reversed.size) { if (atTop && reversed.isNotEmpty()) vm.loadOlder() }
+    var unseen by remember { mutableStateOf(0) }
+    val scrolledUp by remember { derivedStateOf { listState.firstVisibleItemIndex > 2 } }
     LaunchedEffect(messages.lastOrNull()?.sync_id) {
-        if (listState.firstVisibleItemIndex <= 2) listState.animateScrollToItem(0)
+        val last = messages.lastOrNull()
+        if (!scrolledUp || (last != null && Session.isMe(last.sender))) { listState.animateScrollToItem(0); unseen = 0 }
+        else if (last != null) unseen++
     }
+    LaunchedEffect(scrolledUp) { if (!scrolledUp) unseen = 0 }
 
+    androidx.compose.runtime.CompositionLocalProvider(LocalProtected provides isProtected) {
     Scaffold(
         topBar = {
             if (searching) TopAppBar(
@@ -216,8 +241,11 @@ fun ConversationScreen(convId: String, onBack: () -> Unit, onInfo: () -> Unit, v
                         Spacer(Modifier.width(10.dp))
                         Column {
                             Text(title, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            if (subtitle.isNotEmpty()) Text(subtitle, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                                color = Color.White.copy(alpha = 0.85f))
+                            if (subtitle.isNotEmpty()) Row(verticalAlignment = Alignment.CenterVertically) {
+                                if (typing != null) { TypingDots(Color.White); Spacer(Modifier.width(4.dp)) }
+                                Text(subtitle, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                    color = Color.White.copy(alpha = 0.85f))
+                            }
                         }
                     }
                 },
@@ -242,14 +270,19 @@ fun ConversationScreen(convId: String, onBack: () -> Unit, onInfo: () -> Unit, v
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = Teal, titleContentColor = Color.White,
+                    containerColor = headerColor(), titleContentColor = Color.White,
                     navigationIconContentColor = Color.White, actionIconContentColor = Color.White
                 )
             )
         },
-        containerColor = if (dark()) ChatBgDark else ChatBg
+        containerColor = Color.Transparent,
+        modifier = Modifier.chatWallpaper(dark())
     ) { pad ->
         Column(Modifier.padding(pad).fillMaxSize().imePadding()) {
+            PinnedBar(pins) { p ->
+                val idx = reversed.indexOfFirst { it.sync_id == p.sync_id }
+                if (idx >= 0) uiScope.launch { listState.animateScrollToItem(idx) }
+            }
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 if (loading) CircularProgressIndicator(Modifier.align(Alignment.Center), color = Green)
                 found?.let { results ->
@@ -262,7 +295,7 @@ fun ConversationScreen(convId: String, onBack: () -> Unit, onInfo: () -> Unit, v
                                     searching = false; query = ""; vm.search("")
                                     if (idx >= 0) uiScope.launch { listState.scrollToItem(idx) }
                                 }.padding(horizontal = 16.dp, vertical = 10.dp)) {
-                                    Text("${if (Session.isMe(m.sender)) "You" else m.sender} · ${dayLabel(m.server_ts)} ${timeOf(m.server_ts)}",
+                                    Text("${if (Session.isMe(m.sender)) "You" else m.sender_name.ifBlank { m.sender }} · ${dayLabel(m.server_ts)} ${timeOf(m.server_ts)}",
                                         fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     Text(m.body, maxLines = 3, overflow = TextOverflow.Ellipsis)
                                 }
@@ -289,6 +322,15 @@ fun ConversationScreen(convId: String, onBack: () -> Unit, onInfo: () -> Unit, v
                                 onStar = { vm.star(m) },
                                 onInfo = { infoFor = m.sync_id },
                                 onTask = { st -> vm.setTask(m, st) },
+                                onVote = { picks -> vm.vote(m, picks) },
+                                onMakeTask = { taskFor = m },
+                                onTicket = { ticketFor = m },
+                                extra = extras[m.sync_id],
+                                onTranslate = { to, label -> vm.translate(m, to, label) },
+                                onTranscribe = { vm.transcribe(m) },
+                                onAck = { vm.ack(m) },
+                                pinned = pins.any { it.sync_id == m.sync_id },
+                                onPin = { vm.togglePin(m) },
                                 onEdit = { vm.startEdit(m) },
                                 onDelete = { vm.delete(m) },
                                 onReply = { vm.setReply(m) },
@@ -298,6 +340,20 @@ fun ConversationScreen(convId: String, onBack: () -> Unit, onInfo: () -> Unit, v
                         }
                     }
                     if (older) item { Box(Modifier.fillMaxWidth().padding(8.dp), Alignment.Center) { CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp) } }
+                }
+                if (scrolledUp) Box(Modifier.align(Alignment.BottomEnd).padding(12.dp)) {
+                    Surface(
+                        shape = CircleShape, color = MaterialTheme.colorScheme.surface, shadowElevation = 4.dp,
+                        modifier = Modifier.size(44.dp).clickable { uiScope.launch { listState.animateScrollToItem(0) } }
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(Icons.Default.KeyboardArrowDown, "Latest messages", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                    if (unseen > 0) Box(
+                        Modifier.align(Alignment.TopStart).size(20.dp).clip(CircleShape).background(Color(0xFF25D366)),
+                        contentAlignment = Alignment.Center
+                    ) { Text(if (unseen > 9) "9+" else "$unseen", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold) }
                 }
             }
             Composer(
@@ -332,12 +388,27 @@ fun ConversationScreen(convId: String, onBack: () -> Unit, onInfo: () -> Unit, v
             )
         }
     }
+    }
 
     viewing?.let { id ->
         if (id.startsWith("video:")) { playing = id.removePrefix("video:"); viewing = null }
         else ImageViewer(id) { viewing = null }
     }
     forwarding?.let { m -> ForwardSheet(m) { forwarding = null } }
+    if (showPoll) PollDialog(onSend = { q, o, multi -> showPoll = false; vm.sendSpecial(q, poll = Triple(q, o, multi)) }, onClose = { showPoll = false })
+    if (showHandover) HandoverDialog(onPost = { r, p, q, n -> showHandover = false; vm.postHandover(r, p, q, n) }, onClose = { showHandover = false })
+    ticketFor?.let { m ->
+        TicketDialog(m, onRaise = { mach, prob, pr ->
+            vm.raiseTicket(m, mach, prob, pr) { no -> Toast.makeText(ctx, "🔧 Ticket $no raised", Toast.LENGTH_LONG).show() }
+            ticketFor = null
+        }, onClose = { ticketFor = null })
+    }
+    taskFor?.let { m ->
+        TaskDialog(m, members, onCreate = { t, who, due ->
+            vm.makeTask(m, t, who, due) { Toast.makeText(ctx, "📋 Task created", Toast.LENGTH_SHORT).show() }
+            taskFor = null
+        }, onClose = { taskFor = null })
+    }
     playing?.let { id -> VideoPlayerDialog(id) { playing = null } }
     if (attachSheet) AttachSheet(
         onDismiss = { attachSheet = false },
@@ -351,7 +422,37 @@ fun ConversationScreen(convId: String, onBack: () -> Unit, onInfo: () -> Unit, v
             cameraFile = f
             camera.launch(uri)
         },
-        onDocument = { attachSheet = false; pick.launch("*/*") }
+        onDocument = { attachSheet = false; pick.launch("*/*") },
+        onPoll = { attachSheet = false; showPoll = true },
+        onUrgent = {
+            attachSheet = false
+            if (text.isBlank()) Toast.makeText(ctx, "Type the message first, then choose Urgent.", Toast.LENGTH_SHORT).show()
+            else { vm.sendSpecial(text.trim(), urgent = true); text = "" }
+        },
+        onAnnounce = if (isGroup && (myRole == "admin" || Session.isSuperadmin)) ({
+            attachSheet = false
+            if (text.isBlank()) Toast.makeText(ctx, "Type the announcement first.", Toast.LENGTH_SHORT).show()
+            else { vm.sendSpecial(text.trim(), announcement = true); text = "" }
+        }) else null,
+        onHandover = { attachSheet = false; showHandover = true },
+        onCheckIn = {
+            attachSheet = false
+            if (hasLocation(ctx)) currentLocation(ctx) { loc ->
+                if (loc != null) vm.checkIn(loc.latitude, loc.longitude, loc.accuracy)
+                else Toast.makeText(ctx, "Turn on location and try again.", Toast.LENGTH_LONG).show()
+            } else askLocation.launch(arrayOf(android.Manifest.permission.ACCESS_FINE_LOCATION, android.Manifest.permission.ACCESS_COARSE_LOCATION))
+        },
+        onSchedule = {
+            attachSheet = false
+            if (text.isBlank()) Toast.makeText(ctx, "Type the message first, then pick a time.", Toast.LENGTH_SHORT).show()
+            else pickDateTime(ctx) { at ->
+                val body = text.trim()
+                vm.schedule(body, at) {
+                    text = ""
+                    Toast.makeText(ctx, "🕒 Scheduled for ${dayLabel(at)} ${timeOf(at)}", Toast.LENGTH_LONG).show()
+                }
+            }
+        }
     )
     infoFor?.let { id -> MessageInfoDialog(id) { infoFor = null } }
 }
@@ -381,6 +482,9 @@ private fun Bubble(
     canEdit: Boolean, onEdit: () -> Unit, onDelete: () -> Unit,
     myReaction: String?, onReact: (String) -> Unit, onForward: () -> Unit, onStar: () -> Unit,
     onInfo: () -> Unit, onTask: (String) -> Unit,
+    onVote: (List<Int>) -> Unit, onMakeTask: () -> Unit, pinned: Boolean, onPin: () -> Unit,
+    onTicket: () -> Unit, onAck: () -> Unit,
+    extra: Pair<String, String>?, onTranslate: (String, String) -> Unit, onTranscribe: () -> Unit,
     onReply: () -> Unit, onRetry: () -> Unit, onImage: (String) -> Unit
 ) {
     val ctx = LocalContext.current
@@ -397,14 +501,36 @@ private fun Bubble(
         topStart = if (!mine && firstOfRun) 2.dp else 10.dp, topEnd = if (mine && firstOfRun) 2.dp else 10.dp,
         bottomStart = 10.dp, bottomEnd = 10.dp
     )
-    Column(Modifier.fillMaxWidth()) {
+    var dragX by remember { mutableStateOf(0f) }
+    val swipe = Modifier.pointerInput(m.sync_id) {
+        if (m.deleted || m.pending || m.failed || m.kind == "system") return@pointerInput
+        detectHorizontalDragGestures(
+            onDragEnd = { if (dragX > 140f) onReply(); dragX = 0f },
+            onDragCancel = { dragX = 0f }
+        ) { change, amount ->
+            val next = (dragX + amount).coerceIn(0f, 220f)
+            if (next != dragX) change.consume()
+            dragX = next
+        }
+    }
+    Column(Modifier.fillMaxWidth().then(swipe)) {
     Row(
-        Modifier.fillMaxWidth().padding(top = if (firstOfRun) 6.dp else 2.dp),
+        Modifier.fillMaxWidth().padding(top = if (firstOfRun) 6.dp else 2.dp)
+            .offset { androidx.compose.ui.unit.IntOffset(dragX.toInt() / 2, 0) },
         horizontalArrangement = if (mine) Arrangement.End else Arrangement.Start
     ) {
+        if (dragX > 40f) Icon(Icons.AutoMirrored.Filled.Reply, "Reply",
+            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = (dragX / 140f).coerceAtMost(1f)),
+            modifier = Modifier.align(Alignment.CenterVertically).padding(end = 6.dp))
         Box {
             Surface(
-                shape = shape, color = bg, shadowElevation = 1.dp,
+                shape = shape, color = bg, shadowElevation = 1.5.dp, tonalElevation = 0.dp,
+                border = when {
+                    m.urgent && !m.deleted -> androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFFE53935))
+                    m.announcement && !m.deleted -> androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFFF59E0B))
+                    dark() -> null
+                    else -> androidx.compose.foundation.BorderStroke(0.5.dp, Color.Black.copy(alpha = 0.04f))
+                },
                 modifier = Modifier.widthIn(max = 300.dp).clip(shape).combinedClickable(
                     onClick = { if (m.failed) onRetry() },
                     onLongClick = { menu = true },
@@ -412,10 +538,14 @@ private fun Bubble(
                 )
             ) {
                 Column(Modifier.padding(horizontal = 8.dp, vertical = 5.dp)) {
-                    if (isGroup && !mine && firstOfRun) Text(m.sender, color = nameColor(m.sender), fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                    if (isGroup && !mine && firstOfRun) Text(m.sender_name.ifBlank { m.sender }, color = nameColor(m.sender), fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
                     if (m.forwarded && !m.deleted) Text("↪ Forwarded", fontSize = 12.sp, fontStyle = FontStyle.Italic,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (m.announcement && !m.deleted) Text("📢 ANNOUNCEMENT", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFFB45309))
+                    if (m.urgent && !m.deleted) Text("⚠ URGENT", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFFE53935))
+                    if (m.bot && !m.deleted) Text("🤖 JMS BOT", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF2563EB))
                     if (m.kind == "link" && !m.deleted && !m.purged) LinkCard(m, onTask)
+                    m.poll?.let { p -> if (!m.deleted) PollCard(p, onVote) }
                     m.reply_to?.let { q ->
                         Row(
                             Modifier.fillMaxWidth().padding(vertical = 3.dp).clip(RoundedCornerShape(6.dp))
@@ -423,7 +553,7 @@ private fun Bubble(
                         ) {
                             Box(Modifier.width(4.dp).heightIn(min = 36.dp).background(nameColor(q.sender)))
                             Column(Modifier.padding(6.dp)) {
-                                Text(if (Session.isMe(q.sender)) "You" else q.sender, color = nameColor(q.sender), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                                Text(if (Session.isMe(q.sender)) "You" else q.sender_name.ifBlank { q.sender }, color = nameColor(q.sender), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                                 Text(if (q.deleted) "Original message deleted" else q.text, fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
@@ -433,11 +563,14 @@ private fun Bubble(
                     when {
                         m.deleted || m.purged -> Text(if (m.purged) "This message was removed" else "🚫 This message was deleted",
                             fontStyle = FontStyle.Italic, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        att != null && att.kind == "image" -> AsyncImage(
-                            model = authImage(ctx, att.sync_id), contentDescription = att.file_name, contentScale = ContentScale.Crop,
-                            modifier = Modifier.padding(vertical = 2.dp).size(240.dp).clip(RoundedCornerShape(8.dp)).clickable { onImage(att.sync_id) }
-                        )
-                        att != null && att.kind == "audio" -> VoiceNote(att.sync_id)
+                        att != null && att.kind == "image" -> Column {
+                            AsyncImage(
+                                model = authImage(ctx, att.sync_id), contentDescription = att.file_name, contentScale = ContentScale.Crop,
+                                modifier = Modifier.padding(vertical = 2.dp).size(240.dp).clip(RoundedCornerShape(8.dp)).clickable { onImage(att.sync_id) }
+                            )
+                            DownloadLink(att)
+                        }
+                        att != null && att.kind == "audio" -> Column { VoiceNote(att.sync_id); DownloadLink(att) }
                         att != null && att.kind == "video" -> VideoTile(att) { onImage("video:" + att.sync_id) }
                         att != null -> Row(
                             Modifier.padding(vertical = 2.dp).clip(RoundedCornerShape(8.dp)).background(Color.Black.copy(alpha = 0.05f))
@@ -455,9 +588,14 @@ private fun Bubble(
                     }
                     val hideBody = (att?.kind == "audio" && m.body.startsWith("🎤")) || (att?.kind == "video" && m.body.startsWith("🎥"))
                     if (!(m.deleted || m.purged) && m.body.isNotBlank() && !hideBody) {
-                        Text(m.body, fontSize = 15.sp)
+                        Text(linkify(m.body), fontSize = 15.sp)
                     }
+                    m.alert?.let { al -> if (!m.deleted) AlertAck(al, onAck) }
+                    if (att?.kind == "audio" && extra == null && !m.deleted) Text("📝 Show as text", fontSize = 12.sp,
+                        color = Color(0xFF027EB5), modifier = Modifier.clickable(onClick = onTranscribe).padding(top = 4.dp))
+                    extra?.let { (label, t) -> ExtraText(label, t) }
                     Row(Modifier.align(Alignment.End), verticalAlignment = Alignment.CenterVertically) {
+                        if (m.scheduled) Text("🕒 ", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         if (m.starred) Text("★ ", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         if (m.edited_at != null && !m.deleted) Text("edited ", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Text(timeOf(m.server_ts), fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -471,7 +609,15 @@ private fun Bubble(
             DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                 if (!m.deleted && !m.pending && !m.failed) ReactionBar(myReaction) { e -> menu = false; onReact(e) }
                 if (!m.deleted && !m.pending && !m.failed) {
-                    DropdownMenuItem(text = { Text("Forward") }, onClick = { menu = false; onForward() })
+                    if (!LocalProtected.current) DropdownMenuItem(text = { Text("Forward") }, onClick = { menu = false; onForward() })
+                    DropdownMenuItem(text = { Text("📋 Make task") }, onClick = { menu = false; onMakeTask() })
+                    DropdownMenuItem(text = { Text("🔧 Raise maintenance ticket") }, onClick = { menu = false; onTicket() })
+                    if (m.body.isNotBlank() && m.poll == null) {
+                        DropdownMenuItem(text = { Text("🌐 Translate → English") }, onClick = { menu = false; onTranslate("en", "English") })
+                        DropdownMenuItem(text = { Text("🌐 हिंदी में") }, onClick = { menu = false; onTranslate("hi", "हिंदी") })
+                        DropdownMenuItem(text = { Text("🌐 ગુજરાતીમાં") }, onClick = { menu = false; onTranslate("gu", "ગુજરાતી") })
+                    }
+                    DropdownMenuItem(text = { Text(if (pinned) "📌 Unpin" else "📌 Pin") }, onClick = { menu = false; onPin() })
                     DropdownMenuItem(text = { Text(if (m.starred) "Unstar" else "Star") }, onClick = { menu = false; onStar() })
                     if (mine) DropdownMenuItem(text = { Text("Info") }, onClick = { menu = false; onInfo() })
                 }
@@ -482,7 +628,7 @@ private fun Bubble(
                     Toast.makeText(ctx, "Copied", Toast.LENGTH_SHORT).show()
                 })
                 if (canEdit) DropdownMenuItem(text = { Text("Edit") }, onClick = { menu = false; onEdit() })
-                if (mine && !m.deleted && !m.pending && !m.failed) DropdownMenuItem(
+                if ((mine || Session.isSuperadmin) && !m.deleted && !m.pending && !m.failed) DropdownMenuItem(
                     text = { Text("Delete for everyone", color = MaterialTheme.colorScheme.error) },
                     onClick = { menu = false; confirmDelete = true }
                 )
@@ -617,12 +763,26 @@ private fun Composer(
 /** 📎: photos & videos (up to 10 at once), camera, or a document. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun AttachSheet(onDismiss: () -> Unit, onMedia: () -> Unit, onCamera: () -> Unit, onDocument: () -> Unit) {
+private fun AttachSheet(
+    onDismiss: () -> Unit, onMedia: () -> Unit, onCamera: () -> Unit, onDocument: () -> Unit,
+    onPoll: () -> Unit, onUrgent: () -> Unit, onAnnounce: (() -> Unit)?, onSchedule: () -> Unit,
+    onHandover: () -> Unit, onCheckIn: () -> Unit
+) {
     androidx.compose.material3.ModalBottomSheet(onDismissRequest = onDismiss) {
         Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
             AttachOption("🖼️", "Gallery", Color(0xFFBF59CF), onMedia)
             AttachOption("📷", "Camera", Color(0xFFE5486B), onCamera)
             AttachOption("📄", "Document", Color(0xFF5157AE), onDocument)
+        }
+        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
+            AttachOption("📊", "Poll", Color(0xFF02A6C6), onPoll)
+            AttachOption("⚠️", "Urgent", Color(0xFFE53935), onUrgent)
+            if (onAnnounce != null) AttachOption("📢", "Announce", Color(0xFFF59E0B), onAnnounce)
+            AttachOption("🕒", "Schedule", Color(0xFF6B5BD2), onSchedule)
+        }
+        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
+            AttachOption("🔁", "Handover", Color(0xFF0F766E), onHandover)
+            AttachOption("📍", "Check in", Color(0xFF2563EB), onCheckIn)
         }
         Text("Gallery: up to 10 photos and videos at once. Videos are made smaller (about 1 minute max).",
             fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 24.dp))
@@ -705,7 +865,18 @@ private fun authImage(ctx: Context, attachmentId: String) =
         .crossfade(true)
         .build()
 
-private fun download(ctx: Context, attachmentId: String, name: String, mime: String) {
+/** "⬇ Download (1.2 MB)" under a photo / video / voice note: saves it to Downloads. */
+@Composable
+fun DownloadLink(att: com.jmsocean.chat.data.Attachment) {
+    if (LocalProtected.current) return
+    val ctx = LocalContext.current
+    Text(
+        "⬇ Download · ${fileSize(att.size)}", fontSize = 12.sp, color = Color(0xFF027EB5),
+        modifier = Modifier.clickable { download(ctx, att.sync_id, att.file_name, att.mime) }.padding(vertical = 4.dp)
+    )
+}
+
+fun download(ctx: Context, attachmentId: String, name: String, mime: String) {
     runCatching {
         val req = DownloadManager.Request(Uri.parse(Api.fileUrl(attachmentId)))
             .addRequestHeader("Authorization", "Bearer ${Session.token}")
@@ -717,3 +888,27 @@ private fun download(ctx: Context, attachmentId: String, name: String, mime: Str
         Toast.makeText(ctx, "Downloading $name", Toast.LENGTH_SHORT).show()
     }.onFailure { Toast.makeText(ctx, "Download failed: ${it.message}", Toast.LENGTH_LONG).show() }
 }
+
+private val LINK_RE = Regex("""(https?://[^\s]+)|(www\.[^\s]+)|(\+?\d[\d -]{8,}\d)""")
+
+/** Web links open in the browser, phone numbers open the dialler (like WhatsApp). */
+private fun linkify(text: String): androidx.compose.ui.text.AnnotatedString =
+    androidx.compose.ui.text.buildAnnotatedString {
+        var at = 0
+        val style = androidx.compose.ui.text.TextLinkStyles(
+            androidx.compose.ui.text.SpanStyle(color = Color(0xFF027EB5), textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline)
+        )
+        for (m in LINK_RE.findAll(text)) {
+            append(text.substring(at, m.range.first))
+            val raw = m.value.trimEnd('.', ',', ')', ';', ':')
+            val url = when {
+                m.groups[3] != null -> "tel:" + raw.filter { it.isDigit() || it == '+' }
+                raw.startsWith("www.") -> "https://$raw"
+                else -> raw
+            }
+            withLink(androidx.compose.ui.text.LinkAnnotation.Url(url, style)) { append(raw) }
+            append(m.value.substring(raw.length))
+            at = m.range.last + 1
+        }
+        append(text.substring(at))
+    }

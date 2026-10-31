@@ -7,6 +7,7 @@ import com.jmsocean.shifting.data.remote.LocQty
 import com.jmsocean.shifting.data.remote.Availability
 import com.jmsocean.shifting.data.remote.BoardColour
 import com.jmsocean.shifting.data.remote.BoardJob
+import com.jmsocean.shifting.data.remote.CloseShiftingRequest
 import com.jmsocean.shifting.data.remote.ColourRow
 import com.jmsocean.shifting.data.remote.Job
 import com.jmsocean.shifting.data.remote.JobDetail
@@ -14,6 +15,8 @@ import com.jmsocean.shifting.data.remote.LabelInfo
 import com.jmsocean.shifting.data.remote.LineTeam
 import com.jmsocean.shifting.data.remote.LineTeamRequest
 import com.jmsocean.shifting.data.remote.LineTeamStatus
+import com.jmsocean.shifting.data.remote.ShiftClosure
+import com.jmsocean.shifting.data.remote.ShiftState
 import com.jmsocean.shifting.data.remote.LoginRequest
 import com.jmsocean.shifting.data.remote.MachineApproved
 import com.jmsocean.shifting.data.remote.ManualEntryRequest
@@ -186,7 +189,11 @@ class ShiftingRepository(private val session: SessionStore) {
                     holdQty = o.num("hold_qty"),
                     onHold = o.bool("on_hold"),
                     clientName = o.str("client_name"),
-                    verificationEnforced = o.bool("verification_enforced")
+                    verificationEnforced = o.bool("verification_enforced"),
+                    shiftState = ShiftState.from(o.str("shift_state")),
+                    ppcCompleted = o.bool("ppc_completed"),
+                    colours = o.arr("colours").map { it.toBoardColour() },
+                    lastDprDate = o.str("last_dpr_date")
                 )
             }
     }
@@ -225,8 +232,10 @@ class ShiftingRepository(private val session: SessionStore) {
                             sfgStd = j.num("sfg_std"),
                             sfgPackType = j.str("sfg_pack_type"),
                             sfgBagSize = j.str("sfg_bag_size"),
-                            colours = j.arr("colours").map { c -> BoardColour(c.str("colour"), c.num("produced"), c.num("ready")) },
-                            unassignedShifted = j.num("unassigned_shifted")
+                            colours = j.arr("colours").map { it.toBoardColour() },
+                            unassignedShifted = j.num("unassigned_shifted"),
+                            shiftState = ShiftState.from(j.str("shift_state")),
+                            ppcCompleted = j.bool("ppc_completed")
                         )
                     }
                 )
@@ -282,8 +291,14 @@ class ShiftingRepository(private val session: SessionStore) {
                     colour = c.str("colour"), planQty = c.num("plan_qty"), produced = c.num("produced"),
                     verified = c.num("verified"), notVerified = c.num("not_verified"),
                     shifted = c.num("shifted"), ready = c.num("ready"),
-                    byLocation = c.arr("by_location").map { LocQty(it.str("location"), it.num("qty")) }
+                    byLocation = c.arr("by_location").map { LocQty(it.str("location"), it.num("qty")) },
+                    state = ShiftState.from(c.str("shift_state"))
                 )
+            },
+            shiftState = ShiftState.from(o.str("shift_state")),
+            ppcCompleted = o.bool("ppc_completed"),
+            closure = (o["shifting_closure"] as? JsonObject)?.let {
+                ShiftClosure(it.num("leftover_qty"), it.str("reason"), it.str("closed_by"), it.str("closed_at"))
             },
             byLocation = t.arr("by_location").map { LocQty(it.str("location"), it.num("qty")) },
             unassignedShifted = (o["unassigned"] as? JsonObject)?.num("shifted") ?: 0.0,
@@ -313,6 +328,17 @@ class ShiftingRepository(private val session: SessionStore) {
         }
         Unit
     }
+
+    /** Close (or with [reopen], re-open) shifting of a PPC-completed job. */
+    suspend fun closeShifting(planId: String, reason: String?, reopen: Boolean = false): Result<Unit> = runCatching {
+        call { api.closeShifting(CloseShiftingRequest(planId = planId, reason = reason?.takeIf { it.isNotBlank() }, reopen = reopen)) }
+        Unit
+    }
+
+    private fun JsonObject.toBoardColour() = BoardColour(
+        colour = str("colour"), produced = num("produced"), ready = num("ready"),
+        state = ShiftState.from(str("shift_state")), shifted = num("shifted")
+    )
 
     // ── Shift team (Shifting Supervisor + Incharge per line) ────────────────
 

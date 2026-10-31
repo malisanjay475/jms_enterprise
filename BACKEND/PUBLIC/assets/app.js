@@ -146,7 +146,7 @@ function escHtml(value) {
         'shifting.html': 'shifting_module',
         'wip.html': 'wip_internal',
         'reports.html': 'reports',
-        'users.html': 'users',
+        'users.html': 'users', 'chat_users.html': 'users',
         'notifications.html': 'notifications',
         'settings.html': 'settings',
         'packing_settings.html': 'settings',
@@ -287,11 +287,19 @@ function escHtml(value) {
         return appMap[appId] === true;
     }
 
+    function isChatOnlyUser(user = readStoredJson('user', {})) {
+        if (!user || isAdminLikeUser(user)) return false;
+        if (String(user.role_code || '').toLowerCase() === 'chat_user') return true;
+        const appMap = getExplicitAppAccessMap(user);
+        return !!appMap && !Object.keys(appMap).some((k) => appMap[k] === true);
+    }
+
     function getAllowedAppsForUser(user = readStoredJson('user', {})) {
         return APP_ACCESS_CONFIG.filter(app => canAccessAppId(app.id, user));
     }
 
     function getDefaultLandingHref(user = readStoredJson('user', {}), preferredHref = '') {
+        if (isChatOnlyUser(user)) return 'chat_app.html';
         const preferredAppId = preferredHref ? resolveAppIdFromPath(preferredHref) : null;
         if (preferredHref && canAccessAppId(preferredAppId, user)) {
             return preferredHref;
@@ -378,7 +386,9 @@ function escHtml(value) {
 
         // Inject Factory Context
         const factoryId = localStorage.getItem('jpsms_factory_id');
-        if (factoryId) headers['X-Factory-ID'] = factoryId;
+        // A caller may scope one request to another unit (e.g. the DPR Compliance Factory
+        // dropdown); the server still checks it against the user's factory access.
+        if (factoryId && !headers['X-Factory-ID']) headers['X-Factory-ID'] = factoryId;
         const writeFactoryId = localStorage.getItem('jpsms_write_factory_id');
         if (writeFactoryId) headers['X-Write-Factory-ID'] = writeFactoryId;
 
@@ -437,8 +447,72 @@ function escHtml(value) {
         getCurrentScope: () => getCurrentFactoryScope(),
         setCurrentScope: (factoryId, factoryName) => setCurrentFactoryScope(factoryId, factoryName),
         getWriteScope: () => getWriteFactoryScope(),
-        setWriteScope: (factoryId, factoryName) => setWriteFactoryScope(factoryId, factoryName)
+        setWriteScope: (factoryId, factoryName) => setWriteFactoryScope(factoryId, factoryName),
+        // More than one unit to choose from (several allowed factories, or "All" rights).
+        canSwitch: (user = readStoredJson('user', {})) => userCanSwitchFactory(user),
+        // Switch the working unit in place (read + write scope) and reload the page.
+        // The server re-checks every X-Factory-ID against the user's factory access.
+        switchTo: (factoryId, factoryName) => {
+            setCurrentFactoryScope(factoryId, factoryName);
+            setWriteFactoryScope(factoryId, factoryName);
+            window.location.reload();
+        },
+        openSwitcher: () => openFactorySwitcher()
     };
+
+    function userCanSwitchFactory(user) {
+        return isAdminLikeUser(user) || userCanSelectAllFactories(user) || getStoredFactories().length > 1;
+    }
+
+    async function openFactorySwitcher() {
+        const user = readStoredJson('user', {});
+        let factories = getStoredFactories();
+        let canAll = userCanSelectAllFactories(user) || isAdminLikeUser(user);
+        try {
+            const res = await request('/factories', { skipLoader: true });
+            if (res && res.ok && Array.isArray(res.data)) {
+                factories = res.data;
+                localStorage.setItem('jpsms_allowed_factories', JSON.stringify(factories));
+                if (res.can_select_all_factories === true) {
+                    canAll = true;
+                    localStorage.setItem('jpsms_can_all_factories', 'true');
+                }
+            }
+        } catch (_e) { /* fall back to the list stored at login */ }
+
+        const current = String(getCurrentFactoryScope().id || '');
+        const options = [];
+        if (canAll && factories.length > 1) options.push({ id: 'all', name: 'All Factories', sub: 'Combined view across every allowed factory' });
+        factories.forEach(fc => options.push({ id: String(fc.id), name: fc.name, sub: [fc.code, fc.location].filter(Boolean).join(' - ') }));
+        if (!options.length) { toast('No factory access assigned to this login.', 'error'); return; }
+
+        document.getElementById('jms-factory-switcher')?.remove();
+        const overlay = document.createElement('div');
+        overlay.id = 'jms-factory-switcher';
+        overlay.style.cssText = 'position:fixed;inset:0;background:rgba(15,23,42,0.45);z-index:10050;display:flex;align-items:center;justify-content:center;padding:16px';
+        overlay.innerHTML = `
+            <div style="background:#fff;border-radius:10px;width:100%;max-width:420px;max-height:80vh;overflow:auto;box-shadow:0 20px 50px rgba(0,0,0,0.25)">
+              <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 16px;border-bottom:1px solid #e2e8f0">
+                <strong style="font-size:1rem;color:#0f172a">Switch Factory</strong>
+                <button type="button" data-close style="border:none;background:transparent;font-size:1.3rem;cursor:pointer;color:#64748b">&times;</button>
+              </div>
+              <div style="padding:8px">
+                ${options.map(o => `
+                  <button type="button" data-fid="${escHtml(o.id)}" data-fname="${escHtml(o.name)}" style="display:block;width:100%;text-align:left;padding:10px 12px;margin:4px 0;border:1px solid ${o.id === current ? '#2563eb' : '#e2e8f0'};background:${o.id === current ? '#eff6ff' : '#fff'};border-radius:8px;cursor:pointer">
+                    <div style="font-weight:600;color:#0f172a">${escHtml(o.name)}${o.id === current ? ' <span style="color:#2563eb;font-size:0.75rem">(current)</span>' : ''}</div>
+                    ${o.sub ? `<div style="font-size:0.78rem;color:#64748b">${escHtml(o.sub)}</div>` : ''}
+                  </button>`).join('')}
+              </div>
+            </div>`;
+        overlay.addEventListener('click', (e) => {
+            if (e.target === overlay || e.target.closest('[data-close]')) { overlay.remove(); return; }
+            const btn = e.target.closest('[data-fid]');
+            if (!btn) return;
+            if (btn.dataset.fid === current) { overlay.remove(); return; }
+            exports.factories.switchTo(btn.dataset.fid, btn.dataset.fname);
+        });
+        document.body.appendChild(overlay);
+    }
 
     // Best-effort GPS fix for MAIN-server geofenced login. Resolves { lat, lng, acc }
     // or null (denied / unsupported / timeout). The server decides whether it's required —
@@ -604,6 +678,12 @@ function escHtml(value) {
             if (u.role_code === 'shifting_supervisor' && !path.includes('shifting_supervisor.html')) {
                 window.location.href = '/shifting_supervisor.html';
                 throw new Error('Redirecting to Shifting Portal');
+            }
+            // Chat-only people (signed up from JMS Chat, or given no app at all) get the chat
+            // app instead of an empty JMS home page.
+            if (isChatOnlyUser(u) && !path.includes('chat_app.html')) {
+                window.location.replace('/chat_app.html');
+                throw new Error('Redirecting to JMS Chat');
             }
             const currentAppId = resolveAppIdFromPath(path);
             if (currentAppId && !canAccessAppId(currentAppId, u)) {
@@ -1485,7 +1565,11 @@ function escHtml(value) {
             label: 'User Management',
             icon: 'bi-person-gear',
             href: 'users.html',
-            items: []
+            items: [
+                { id: 'users_list', label: 'Users', icon: 'bi-people', href: 'users.html' },
+                // Sign-up requests, who uses chat, last seen, devices and IP (chatSignup.js)
+                { id: 'users_chat', label: 'JMS Chat · Users', icon: 'bi-chat-dots', href: 'chat_users.html', visibleIf: (user) => isAdminLikeUser(user) }
+            ]
         },
         {
             id: 'activity_monitor',
@@ -1501,6 +1585,14 @@ function escHtml(value) {
             icon: 'bi-chat-square-text',
             href: 'chat_admin.html',
             visibleIf: (user) => isSuperadminUser(user),
+            items: []
+        },
+        {
+            // Full-window chat (like WhatsApp Web): chats, groups, calls, photos, video.
+            id: 'jms_chat',
+            label: 'JMS Chat',
+            icon: 'bi-chat-dots',
+            href: 'chat_app.html',
             items: []
         },
         {
@@ -1621,7 +1713,7 @@ function escHtml(value) {
             || (userCanSelectAllFactories(user) ? 'All Factories' : 'No Unit Selected');
         const factoryLabel = String(inferredFactoryName || 'No Unit Selected').toUpperCase();
         const roleLabel = formatSidebarLabel(user.role || user.role_code || 'operator');
-        const canSwitchFactory = isAdminLikeUser(user);
+        const canSwitchFactory = userCanSwitchFactory(user);
         const canShowEntry = (entry) => {
             try {
                 return typeof entry?.visibleIf === 'function' ? entry.visibleIf(user) !== false : true;
@@ -1772,10 +1864,10 @@ function escHtml(value) {
         </div>
         
         <div class="sidebar-user-actions">
-             ${canSwitchFactory ? `
-            <button onclick="localStorage.removeItem('jpsms_factory_id'); localStorage.removeItem('jpsms_factory_name'); localStorage.removeItem('jpsms_write_factory_id'); localStorage.removeItem('jpsms_write_factory_name'); window.location.href='/login.html'" class="btn btn-outline" style="padding:2px 4px;font-size:0.9rem;border:none;background:transparent;color:var(--sidebar-text);" title="Switch Unit">
+             ${`
+            <button id="jms-factory-switch-btn" onclick="JPSMS.factories.openSwitcher()" class="btn btn-outline" style="display:${canSwitchFactory ? 'inline-block' : 'none'};padding:2px 4px;font-size:0.9rem;border:none;background:transparent;color:var(--sidebar-text);" title="Switch Factory">
                 <i class="bi bi-arrow-repeat"></i>
-            </button>` : ''}
+            </button>`}
 
             <button onclick="JPSMS.auth.showMyDevices()" class="btn btn-outline" style="padding:2px 4px;font-size:1rem;border:none;background:transparent;color:var(--sidebar-text);" title="My Logged-in Devices">
                 <i class="bi bi-laptop"></i>
@@ -1801,6 +1893,18 @@ function escHtml(value) {
 
         // Live "pending FPA approvals" badge + sound for approver roles.
         try { startFpaPendingWatch(user); } catch (_) {}
+
+        // The factory list stored at login can be stale (access added later, or the login
+        // picked one unit). Refresh it so anyone with more than one factory gets the switch.
+        if (user && user.username) {
+            request('/factories', { skipLoader: true }).then(res => {
+                if (!res || !res.ok || !Array.isArray(res.data)) return;
+                localStorage.setItem('jpsms_allowed_factories', JSON.stringify(res.data));
+                if (res.can_select_all_factories === true) localStorage.setItem('jpsms_can_all_factories', 'true');
+                const btn = document.getElementById('jms-factory-switch-btn');
+                if (btn && userCanSwitchFactory(user)) btn.style.display = 'inline-block';
+            }).catch(() => {});
+        }
 
         // Restore Collapsed State
         const isCollapsed = localStorage.getItem('sidebar_collapsed') === 'true';
@@ -2412,7 +2516,7 @@ function escHtml(value) {
     'shifting_shift_report.html': 'shifting_module',
     'shifting_manual_entry.html': 'shifting_module',
     'shifting.html': 'shifting_module', 'wip.html': 'wip_internal',
-    'reports.html': 'reports', 'users.html': 'users',
+    'reports.html': 'reports', 'users.html': 'users', 'chat_users.html': 'users',
     'notifications.html': 'notifications', 'settings.html': 'settings',
     'packing_settings.html': 'settings', 'joy.html': 'joy_learning',
     'grinding.html': 'grinding', 'assembly.html': 'packing',
@@ -2572,7 +2676,7 @@ function escHtml(value) {
   if (typeof document === 'undefined' || !document.querySelector) return;
   if (window.__jmsChatLoaded || document.querySelector('script[data-jms-chat]')) return;
   var s = document.createElement('script');
-  s.src = '/assets/chat-widget.js?v=9';
+  s.src = '/assets/chat-widget.js?v=12';
   s.defer = true;
   s.setAttribute('data-jms-chat', '1');
   (document.head || document.documentElement).appendChild(s);

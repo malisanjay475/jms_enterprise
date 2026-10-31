@@ -6334,6 +6334,25 @@ async function initializeLegacyRuntime() {
     `);
     await qIdx(`CREATE UNIQUE INDEX IF NOT EXISTS uq_shifting_line_teams ON shifting_line_teams ((COALESCE(factory_id, 0)), line, dpr_date, shift)`);
 
+    // SHIFTING CLOSURES — a PPC-completed job stays on the Shifting app until all its
+    // production is shifted; a leftover that will never be shifted (scrap, count mismatch)
+    // is closed here by hand with a reason. Keyed by plan code (stable across servers).
+    // active = FALSE re-opens it.
+    await q(`
+      CREATE TABLE IF NOT EXISTS shifting_closures (
+        id            SERIAL PRIMARY KEY,
+        factory_id    INTEGER,
+        plan_code     TEXT NOT NULL,
+        leftover_qty  NUMERIC DEFAULT 0,
+        reason        TEXT,
+        closed_by     TEXT,
+        closed_at     TIMESTAMPTZ DEFAULT NOW(),
+        active        BOOLEAN DEFAULT TRUE,
+        updated_at    TIMESTAMPTZ DEFAULT NOW()
+      );
+    `);
+    await qIdx(`CREATE UNIQUE INDEX IF NOT EXISTS uq_shifting_closures ON shifting_closures ((COALESCE(factory_id, 0)), plan_code)`);
+
     // QC MATERIAL ISSUES — internal issue reporting with media, assignments, audit trail
     await q(`
       CREATE TABLE IF NOT EXISTS qc_material_issues (
@@ -7923,10 +7942,8 @@ app.post('/api/dpr/submit', async (req, res) => {
     //     it should still inherit the colour that was running so it never lands in "Default".
     if (PlanID && !String(Colour || '').trim()) {
       try {
-        const pcRows = await q(
-          'SELECT colour_details FROM plan_board WHERE CAST(id AS TEXT)=$1 OR CAST(plan_id AS TEXT)=$1 LIMIT 1',
-          [String(PlanID)]
-        );
+        const pcRow = await findDprPlanRow(PlanID, factoryId);
+        const pcRows = pcRow ? [pcRow] : [];
         let configuredColours = 0;
         if (pcRows.length && pcRows[0].colour_details) {
           let cd = pcRows[0].colour_details;
@@ -7978,11 +7995,8 @@ app.post('/api/dpr/submit', async (req, res) => {
     // no colour qty configured.
     if (PlanID && String(Colour || '').trim() && toNum(GoodQty) > 0) {
       try {
-        const capRows = await q(
-          'SELECT colour_details FROM plan_board WHERE CAST(id AS TEXT)=$1 OR CAST(plan_id AS TEXT)=$1 LIMIT 1',
-          [String(PlanID)]
-        );
-        let cd = capRows.length ? capRows[0].colour_details : null;
+        const capRow = await findDprPlanRow(PlanID, factoryId);
+        let cd = capRow ? capRow.colour_details : null;
         if (typeof cd === 'string') { try { cd = JSON.parse(cd); } catch (_) { cd = null; } }
 
         if (Array.isArray(cd) && cd.length) {
@@ -7996,9 +8010,9 @@ app.post('/api/dpr/submit', async (req, res) => {
 
           let planQty = 0;
           cd.forEach(c => {
-            const nm = c.colourName || c.itemColour || c.colour || c.color || c.name || '';
-            if (lastSeg(nm) === wanted) {
-              planQty += Number(c.planQty ?? c.useQty ?? c.batchQty ?? c.qty ?? 0) || 0;
+            const nm = getDprColourName(c);
+            if (String(nm).trim().toUpperCase() === wanted || lastSeg(nm) === wanted) {
+              planQty += colourRowPlanQty(c);
             }
           });
 
@@ -8378,16 +8392,14 @@ app.post('/api/dpr/superadmin-set-qty', async (req, res) => {
     const newProduced = Math.round(Number(newTotRows[0]?.total || 0));
 
     // Also fetch planQty for this colour from colour_details
-    const pbRows = await q(`SELECT colour_details FROM plan_board WHERE plan_id=$1 LIMIT 1`, [String(planId)]);
+    const pbRow = await findDprPlanRow(planId, factoryId);
     let planQtyForColour = 0;
-    if (pbRows.length) {
-      let cd = pbRows[0].colour_details || [];
+    if (pbRow) {
+      let cd = pbRow.colour_details || [];
       if (typeof cd === 'string') { try { cd = JSON.parse(cd); } catch(_) { cd = []; } }
-      const match = (Array.isArray(cd) ? cd : []).find(r => {
-        const n = String(r.colourName||r.itemColour||r.colour||r.color||r.name||'').trim().toUpperCase();
-        return n === upperColour;
+      (Array.isArray(cd) ? cd : []).forEach(r => {
+        if (getDprColourName(r).toUpperCase() === upperColour) planQtyForColour += colourRowPlanQty(r);
       });
-      if (match) planQtyForColour = Number(match.planQty??match.batchQty??match.qty??0)||0;
     }
 
     console.log(`[SUPERADMIN-DPR] planId=${planId} colour=${colour} ${current}→${newProduced} (target=${target}) by ${callerName}`);
@@ -8536,19 +8548,28 @@ app.get('/api/dpr/plan-drilldown', async (req, res) => {
     if (!planId && !orderNo) return res.status(400).json({ ok: false, error: 'planId or orderNo required' });
     const factoryId = getFactoryId(req);
 
-    // 1. Fetch plan_board for colour plan quantities
+    // 1. Fetch plan_board for colour plan quantities.
+    // Plan IDs (PLN-2627-xxxx) are numbered per factory, so the same plan_id can
+    // exist in two factories — scope to this factory, else the popup shows another
+    // plant's colours/qty against this plant's DPR production.
     let planRow = null;
     if (planId) {
       const rows = await q(
         `SELECT id, plan_id, order_no, plan_qty, bal_qty, colour_details, mould_name, factory_id
-         FROM plan_board WHERE plan_id = $1 LIMIT 1`, [planId]
+         FROM plan_board
+         WHERE plan_id = $1 AND ($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL)
+         ORDER BY (factory_id IS NOT DISTINCT FROM $2::int) DESC, id DESC
+         LIMIT 1`, [planId, factoryId || null]
       );
       planRow = rows[0] || null;
     }
     if (!planRow && orderNo) {
       const rows = await q(
         `SELECT id, plan_id, order_no, plan_qty, bal_qty, colour_details, mould_name, factory_id
-         FROM plan_board WHERE order_no = $1 LIMIT 1`, [orderNo]
+         FROM plan_board
+         WHERE order_no = $1 AND ($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL)
+         ORDER BY (factory_id IS NOT DISTINCT FROM $2::int) DESC, id DESC
+         LIMIT 1`, [orderNo, factoryId || null]
       );
       planRow = rows[0] || null;
     }
@@ -8565,8 +8586,9 @@ app.get('/api/dpr/plan-drilldown', async (req, res) => {
           : planRow.colour_details;
         if (Array.isArray(cd)) {
           cd.forEach(c => {
-            const name = (c.colourName || c.itemColour || c.colour || c.color || c.name || '').trim() || 'Default';
-            const qty  = Number(c.planQty ?? c.useQty ?? c.batchQty ?? c.qty ?? 0) || 0;
+            const rawName = getDprColourName(c);
+            const name = rawName === 'Unknown' ? 'Default' : rawName;
+            const qty  = colourRowPlanQty(c);
             colourPlanMap[name] = (colourPlanMap[name] || 0) + qty;
           });
         }
@@ -8579,7 +8601,13 @@ app.get('/api/dpr/plan-drilldown', async (req, res) => {
 
     if (effectivePlanId) {
       params.push(effectivePlanId);
-      whereClauses.push(`(h.plan_id = $${params.length} OR h.plan_id = (SELECT id::text FROM plan_board WHERE plan_id = $${params.length} LIMIT 1))`);
+      if (planRow?.id) {
+        // Use this factory's plan row PK, not whichever row a bare plan_id lookup finds
+        params.push(String(planRow.id));
+        whereClauses.push(`(h.plan_id = $${params.length - 1} OR h.plan_id = $${params.length})`);
+      } else {
+        whereClauses.push(`h.plan_id = $${params.length}`);
+      }
     } else if (effectiveOrderNo) {
       params.push(effectiveOrderNo);
       whereClauses.push(`h.order_no = $${params.length}`);
@@ -8824,6 +8852,55 @@ app.get('/api/planning/machine-jobs', async (req, res) => {
 /* ============================================================
    JOB SUMMARY (Admin Visualization)
 ============================================================ */
+// Job Summary page: order numbers for the search box, and the moulds of one order.
+app.get('/api/planning/element-view', async (req, res) => {
+  try {
+    const factoryId = getFactoryId(req);
+    const rows = await q(`
+      SELECT or_jr_no FROM (
+        SELECT TRIM(or_jr_no) AS or_jr_no FROM mould_planning_summary
+         WHERE or_jr_no IS NOT NULL AND ($1::int IS NULL OR factory_id = $1 OR factory_id IS NULL)
+        UNION
+        SELECT TRIM(order_no) FROM plan_board
+         WHERE order_no IS NOT NULL AND ($1::int IS NULL OR factory_id = $1 OR factory_id IS NULL)
+      ) x
+      WHERE or_jr_no <> ''
+      ORDER BY or_jr_no DESC
+      LIMIT 5000
+    `, [factoryId]);
+    res.json({ ok: true, data: rows });
+  } catch (e) {
+    console.error('element-view API error:', e);
+    res.status(500).json({ ok: false, error: 'Failed to load orders' });
+  }
+});
+
+app.get('/api/planning/element-view/details', async (req, res) => {
+  try {
+    const orderNo = String(req.query.or_jr_no || '').trim();
+    if (!orderNo) return res.status(400).json({ ok: false, error: 'or_jr_no required' });
+    const factoryId = getFactoryId(req);
+    const moulds = await q(`
+      SELECT mould_no, mould_name FROM (
+        SELECT NULLIF(TRIM(mould_no), '') AS mould_no, NULLIF(TRIM(mould_name), '') AS mould_name
+          FROM mould_planning_summary
+         WHERE TRIM(or_jr_no) = $1 AND ($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL)
+        UNION
+        SELECT NULL, NULLIF(TRIM(mould_name), '') FROM plan_board
+         WHERE TRIM(order_no) = $1 AND ($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL)
+      ) x
+      WHERE mould_name IS NOT NULL OR mould_no IS NOT NULL
+      ORDER BY mould_name, mould_no
+    `, [orderNo, factoryId]);
+    // A plan_board row repeats a summary mould without its number: keep the numbered one.
+    const numbered = new Set(moulds.filter(m => m.mould_no).map(m => m.mould_name));
+    res.json({ ok: true, moulds: moulds.filter(m => m.mould_no || !numbered.has(m.mould_name)) });
+  } catch (e) {
+    console.error('element-view details API error:', e);
+    res.status(500).json({ ok: false, error: 'Failed to load moulds' });
+  }
+});
+
 app.get('/api/dpr/job-summary', async (req, res) => {
   try {
     const { orderNo, mouldNo, date } = req.query;
@@ -10001,16 +10078,44 @@ app.get('/api/shifting/dashboard', async (req, res) => {
   }
 });
 
+// A PPC-completed job is listed only while it had production or labels in the last 3 days
+// (owner's call, 26-Oct-2026: "only last 3 days completed jobs, not all"), and not after
+// its shifting was closed by hand.
+const SHIFTING_COMPLETED_DAYS = 3;
+const SHIFTING_STATE_RANK = { READY: 0, PARTLY: 1, WAITING_QC: 2, SHIFTED: 3 };
+
+// READY = everything still on the floor is QC verified; PARTLY = some verified, some not;
+// WAITING_QC = nothing verified yet; SHIFTED = nothing left on the floor. A server without
+// QC verification data treats the whole floor balance as ready.
+function shiftingState({ floor, ready, notVerified, enforced }) {
+  if (!(floor > 0)) return 'SHIFTED';
+  if (!enforced) return 'READY';
+  if (!(ready > 0)) return 'WAITING_QC';
+  return notVerified > 0 ? 'PARTLY' : 'READY';
+}
+
+// Ready first, then partly ready, then waiting for QC; oldest production first in each
+// group so delayed stock is not forgotten.
+function compareShiftingJobs(a, b, machineOrder) {
+  const ra = SHIFTING_STATE_RANK[a.shift_state] ?? 9;
+  const rb = SHIFTING_STATE_RANK[b.shift_state] ?? 9;
+  if (ra !== rb) return ra - rb;
+  const ta = a.last_dpr_date ? new Date(a.last_dpr_date).getTime() : Infinity;
+  const tb = b.last_dpr_date ? new Date(b.last_dpr_date).getTime() : Infinity;
+  if (ta !== tb) return ta - tb;
+  return machineOrder ? machineOrder(a.machine, b.machine) : 0;
+}
+
 // GET /api/shifting/jobs — Shifting Supervisor job list.
-// Running plans, plus completed/closed plans that had DPR production or labels printed
-// in the last ?days= days (default 7). end_date is not filled on completed plans and
+// Running plans, and completed/closed plans that had DPR production or labels printed in
+// the last ?days= days, at most SHIFTING_COMPLETED_DAYS. end_date is not filled on completed plans and
 // updated_at is bumped by sync, so recent DPR / label activity is the reliable signal.
 // Totals are aggregated in one query per source table for all listed plans (the old
 // per-row subqueries scanned the label log with TRIM(), ~20 s for 6000+ plans).
 async function shiftingJobRows(req, { days, line }) {
   await ensureJobCardLabelLogTable();
   const factoryId = getFactoryId(req);
-  const params = [days];
+  const params = [Math.min(days, SHIFTING_COMPLETED_DAYS)];
   let filters = '';
 
   if (line) {
@@ -10031,6 +10136,9 @@ async function shiftingJobRows(req, { days, line }) {
               UPPER(COALESCE(pb.status, '')) = 'RUNNING'
            OR (UPPER(COALESCE(pb.status, '')) IN ('COMPLETED', 'CLOSED')
                AND COALESCE(pb.plan_id, '') <> ''
+               AND NOT EXISTS (SELECT 1 FROM shifting_closures sc
+                                WHERE sc.plan_code = pb.plan_id AND sc.active IS TRUE
+                                  AND (sc.factory_id IS NULL OR pb.factory_id IS NULL OR sc.factory_id = pb.factory_id))
                AND (EXISTS (SELECT 1 FROM dpr_hourly dh
                              WHERE dh.plan_id = pb.plan_id
                                AND dh.dpr_date >= CURRENT_DATE - $1::int
@@ -10144,9 +10252,14 @@ async function shiftingJobRows(req, { days, line }) {
     r.ready_qty = av ? av.ready : 0;
     // Colour-wise produced / verified / shifted / ready, and shifts saved without a colour.
     r.colours = av ? [...av.colours.values()].filter(c => c.colour).map(c => ({
-      colour: c.colour, produced: c.produced, verified: c.verified, not_verified: c.not_verified, shifted: c.shifted, ready: c.ready
-    })) : [];
+      colour: c.colour, produced: c.produced, verified: c.verified, not_verified: c.not_verified, shifted: c.shifted, ready: c.ready,
+      shift_state: shiftingState({ floor: c.produced - c.shifted, ready: c.ready, notVerified: c.not_verified, enforced: verifyEnforced })
+    })).sort((a, b) => (SHIFTING_STATE_RANK[a.shift_state] - SHIFTING_STATE_RANK[b.shift_state])) : [];
     r.unassigned_shifted = av && av.unassigned ? av.unassigned.shifted : 0;
+    const floor = Math.max((Number(r.total_produced) || 0) - (Number(r.total_shifted) || 0), 0);
+    r.on_floor_qty = floor;
+    r.shift_state = shiftingState({ floor, ready: Math.min(r.ready_qty, floor), notVerified: r.total_not_verified, enforced: verifyEnforced });
+    r.ppc_completed = ['COMPLETED', 'CLOSED'].includes(String(r.status || '').toUpperCase());
     const pack = shiftingJobPacking(jobPacking, r.mould_name, r.mould_code);
     r.sfg_std = pack.std;
     r.sfg_pack_type = pack.pack_type;
@@ -10159,18 +10272,9 @@ async function shiftingJobRows(req, { days, line }) {
   });
 
   const machineOrder = makeMachineOrder(machineRows);
-  const isRunning = r => String(r.status || '').toUpperCase() === 'RUNNING';
-  rows.sort((a, b) => {
-    if (isRunning(a) !== isRunning(b)) return isRunning(a) ? -1 : 1;
-    if (!isRunning(a)) {
-      const ta = a.last_dpr_date ? new Date(a.last_dpr_date).getTime() : 0;
-      const tb = b.last_dpr_date ? new Date(b.last_dpr_date).getTime() : 0;
-      if (ta !== tb) return tb - ta;
-    }
-    return machineOrder(a.machine, b.machine);
-  });
+  rows.sort((a, b) => compareShiftingJobs(a, b, machineOrder));
 
-  return { rows, machineRows, verifyEnforced };
+  return { rows, machineRows, verifyEnforced, machineOrder };
 }
 
 app.get('/api/shifting/jobs', async (req, res) => {
@@ -10237,7 +10341,8 @@ app.get('/api/shifting/machine-board', async (req, res) => {
         pending: floor > 0,
         sfg_std: r.sfg_std || 0, sfg_pack_type: r.sfg_pack_type || '', sfg_bag_size: r.sfg_bag_size || '',
         unit_weight_kg: r.unit_weight_kg || 0,
-        colours: r.colours || [], unassigned_shifted: r.unassigned_shifted || 0
+        colours: r.colours || [], unassigned_shifted: r.unassigned_shifted || 0,
+        shift_state: r.shift_state, ppc_completed: !!r.ppc_completed, last_dpr_date: r.last_dpr_date || null
       });
       b.on_hold = b.on_hold || !!r.on_hold;
       if (running && !b.running_item) b.running_item = String(r.item_name || r.mould_name || '').trim();
@@ -10248,7 +10353,7 @@ app.get('/api/shifting/machine-board', async (req, res) => {
 
     const order = makeMachineOrder(machineRows.length ? machineRows : master);
     const data = [...board.values()]
-      .map(({ _best, ...b }) => b)
+      .map(({ _best, ...b }) => ({ ...b, job_list: b.job_list.sort((x, y) => compareShiftingJobs(x, y)) }))
       .sort((a, b) => order(a.machine, b.machine));
     res.json({ ok: true, data, days, verification_enforced: verifyEnforced });
   } catch (e) {
@@ -10971,7 +11076,7 @@ app.get('/api/shifting/availability', async (req, res) => {
     const plan = planRows[0];
     if (!plan) return res.status(404).json({ ok: false, error: 'Job not found.' });
     const fid = normalizeFactoryId(plan.factory_id) ?? factoryId;
-    const [avail, holds, orderRows, enforced, recentRows] = await Promise.all([
+    const [avail, holds, orderRows, enforced, recentRows, closureRows] = await Promise.all([
       shiftingAvailabilityMap([{ pk: plan.id, code: plan.plan_id, order_no: plan.order_no }], fid),
       shiftingHoldsByMachine([plan.machine], fid),
       q(`SELECT ojr.job_card_no, COALESCE(ojr.client_name, o.client_name) AS client_name
@@ -10986,7 +11091,10 @@ app.get('/api/shifting/availability', async (req, res) => {
                 shifted_by, scan_mode, label_no, total_labels, created_at
            FROM shifting_records
           WHERE plan_id = $1 AND ($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL)
-          ORDER BY created_at DESC LIMIT 15`, [plan.id, fid])
+          ORDER BY created_at DESC LIMIT 15`, [plan.id, fid]),
+      q(`SELECT leftover_qty, reason, closed_by, closed_at FROM shifting_closures
+          WHERE plan_code = $1 AND active IS TRUE AND ($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL)
+          ORDER BY closed_at DESC LIMIT 1`, [String(plan.plan_id || '').trim(), fid])
     ]);
     const agg = avail.get(String(plan.id)) || { produced: 0, verified: 0, not_verified: 0, shifted: 0, ready: 0, colours: new Map(), by_location: new Map(), unassigned: { shifted: 0, by_location: new Map() } };
     const locList = (m) => [...(m || new Map()).entries()].map(([location, qty]) => ({ location, qty })).sort((a, b) => b.qty - a.qty);
@@ -11031,6 +11139,11 @@ app.get('/api/shifting/availability', async (req, res) => {
           produced: agg.produced, verified: agg.verified, not_verified: agg.not_verified, shifted: agg.shifted, ready: agg.ready,
           by_location: locList(agg.by_location)
         },
+        shift_state: agg.produced > 0
+          ? shiftingState({ floor: agg.produced - agg.shifted, ready: agg.ready, notVerified: agg.not_verified, enforced })
+          : 'NOT_PRODUCED',
+        ppc_completed: ['COMPLETED', 'CLOSED'].includes(String(plan.status || '').toUpperCase()),
+        shifting_closure: closureRows[0] || null,
         recent: recentRows.map(r => ({
           id: r.id, qty: Number(r.quantity || 0), kg: Number(r.weight_kg || 0), location: r.location, colour: r.colour || '',
           by: r.shifted_by || '', mode: r.scan_mode || '', label: r.total_labels ? `${r.label_no}/${r.total_labels}` : '',
@@ -11040,10 +11153,123 @@ app.get('/api/shifting/availability', async (req, res) => {
         unassigned: { shifted: agg.unassigned.shifted, by_location: locList(agg.unassigned.by_location) },
         colours: colourKeys.map(k => {
           const c = agg.colours.get(k) || { colour: '', produced: 0, verified: 0, not_verified: 0, shifted: 0, ready: 0, by_location: new Map() };
-          return { ...c, colour: c.colour || k, plan_qty: planByColour.get(k) || 0, by_location: locList(c.by_location) };
+          const shift_state = c.produced > 0
+            ? shiftingState({ floor: c.produced - c.shifted, ready: c.ready, notVerified: c.not_verified, enforced })
+            : 'NOT_PRODUCED';
+          return { ...c, colour: c.colour || k, plan_qty: planByColour.get(k) || 0, by_location: locList(c.by_location), shift_state };
         })
       }
     });
+  } catch (e) {
+    sendServerError(res, e);
+  }
+});
+
+// POST /api/shifting/close { planId, reason, reopen? } — clears a PPC-completed job off
+// the Shifting app when its leftover will never be shifted (scrap, count mismatch).
+// Shifting Supervisor, PPC and admins; a reason is required. reopen: true puts it back.
+const SHIFTING_CLOSE_ROLES = new Set(['shifting_supervisor', 'planner', 'ppc_ass_manager', 'ppc_assistant_manager', 'ppc_manager', 'sr_ppc_manager', 'sr__ppc_manager']);
+app.post('/api/shifting/close', async (req, res) => {
+  try {
+    const auth = req.auth;
+    if (!auth) return res.status(401).json({ ok: false, error: 'Please log in again.' });
+    const role = String(auth.role || '').toLowerCase();
+    if (!isAdminLikeRole({ role_code: auth.role }) && !SHIFTING_CLOSE_ROLES.has(role)) {
+      return res.status(403).json({ ok: false, error: 'Only the Shifting Supervisor or PPC can close shifting of a job.' });
+    }
+    const factoryId = getFactoryId(req);
+    const planRef = String(req.body?.planId || '').trim();
+    const reopen = req.body?.reopen === true;
+    const reason = normalizeOptionalText(req.body?.reason);
+    if (!planRef) return res.status(400).json({ ok: false, error: 'Select the job.' });
+    if (!reopen && !reason) return res.status(400).json({ ok: false, error: 'Enter the reason for closing (e.g. scrap, count mismatch).' });
+
+    const planRows = await q(
+      `SELECT id, plan_id, status, factory_id FROM plan_board
+        WHERE (CAST(id AS TEXT) = $1 OR TRIM(COALESCE(plan_id, '')) = $1)
+          AND ($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL)
+        ORDER BY id DESC LIMIT 1`,
+      [planRef, factoryId || null]
+    );
+    const plan = planRows[0];
+    if (!plan) return res.status(404).json({ ok: false, error: 'Job not found.' });
+    const planCode = String(plan.plan_id || '').trim();
+    if (!planCode) return res.status(400).json({ ok: false, error: 'This job has no plan code.' });
+    if (!reopen && !['COMPLETED', 'CLOSED'].includes(String(plan.status || '').toUpperCase())) {
+      return res.status(400).json({ ok: false, error: 'Only a job completed by PPC can be closed for shifting.' });
+    }
+    const planFactoryId = normalizeFactoryId(plan.factory_id) ?? factoryId ?? null;
+
+    if (reopen) {
+      await q(`UPDATE shifting_closures SET active = FALSE, updated_at = NOW()
+                WHERE plan_code = $1 AND COALESCE(factory_id, 0) = COALESCE($2::int, 0)`, [planCode, planFactoryId]);
+    } else {
+      const agg = (await shiftingAvailabilityMap([{ pk: plan.id, code: planCode }], planFactoryId)).get(String(plan.id));
+      const leftover = agg ? Math.max(agg.produced - agg.shifted, 0) : 0;
+      await q(
+        `INSERT INTO shifting_closures (factory_id, plan_code, leftover_qty, reason, closed_by, closed_at, active, updated_at)
+         VALUES ($1, $2, $3, $4, $5, NOW(), TRUE, NOW())
+         ON CONFLICT ((COALESCE(factory_id, 0)), plan_code)
+         DO UPDATE SET leftover_qty = EXCLUDED.leftover_qty, reason = EXCLUDED.reason, closed_by = EXCLUDED.closed_by,
+                       closed_at = NOW(), active = TRUE, updated_at = NOW()`,
+        [planFactoryId, planCode, leftover, reason, auth.username || getRequestUsername(req) || 'unknown']
+      );
+    }
+    console.log(`[AUDIT] Shifting ${reopen ? 're-opened' : 'closed'} for plan ${planCode} by ${auth.username}${reason ? ` (${reason})` : ''}`);
+    syncService.triggerSync();
+    res.json({ ok: true, closed: !reopen });
+  } catch (e) {
+    sendServerError(res, e);
+  }
+});
+
+// GET /api/shifting/job-flow?machines=M1,M2,… — for each machine's running job (latest
+// when several): plan, produced, balance, QC verified, QC hold, QC balance (not verified),
+// shifted, shifting balance (verified − shifted) and shop floor (produced − shifted).
+// Used by every DPR Compliance Summary (Moulding / QC / Shifting) machine cell.
+app.get('/api/shifting/job-flow', async (req, res) => {
+  try {
+    const factoryId = getFactoryId(req);
+    const machines = [...new Set(String(req.query.machines || '').split(',').map(s => s.trim()).filter(Boolean))].slice(0, 400);
+    if (!machines.length) return res.json({ ok: true, data: {} });
+    const plans = await q(
+      `SELECT DISTINCT ON (TRIM(pb.machine)) pb.id, pb.plan_id, TRIM(pb.machine) AS machine, pb.item_name,
+              pb.mould_name, pb.order_no, pb.plan_qty, pb.factory_id
+         FROM plan_board pb
+        WHERE TRIM(pb.machine) = ANY($1::text[])
+          AND UPPER(COALESCE(pb.status, '')) = 'RUNNING'
+          AND ($2::int IS NULL OR pb.factory_id = $2 OR pb.factory_id IS NULL)
+        ORDER BY TRIM(pb.machine), pb.id DESC`,
+      [machines, factoryId]
+    );
+    const [avail, holds, enforced] = await Promise.all([
+      shiftingAvailabilityMap(plans.map(p => ({ pk: p.id, code: p.plan_id })), factoryId),
+      shiftingHoldsByMachine(machines, factoryId),
+      shiftingVerificationEnforced(factoryId)
+    ]);
+    const data = {};
+    plans.forEach(p => {
+      const a = avail.get(String(p.id)) || { produced: 0, verified: 0, not_verified: 0, shifted: 0, ready: 0 };
+      const h = holds.get(p.machine);
+      const planQty = Number(p.plan_qty || 0);
+      data[p.machine] = {
+        plan_id: String(p.id),
+        plan_code: p.plan_id || '',
+        item_name: p.item_name || p.mould_name || '',
+        order_no: p.order_no || '',
+        plan_qty: planQty,
+        produced: a.produced,
+        balance: planQty - a.produced,
+        qc_verified: a.verified,
+        qc_hold: h ? h.qty : 0,
+        on_hold: !!h,
+        qc_balance: a.not_verified,
+        shifted: a.shifted,
+        shift_balance: a.ready,
+        shop_floor: Math.max(a.produced - a.shifted, 0)
+      };
+    });
+    res.json({ ok: true, verification_enforced: enforced, data });
   } catch (e) {
     sendServerError(res, e);
   }
@@ -11991,6 +12217,27 @@ app.delete('/api/planning/priority/:id', async (req, res) => {
 ============================================================ */
 
 // GET /api/planning/board?plant=DUNGRA&date=2025-12-12
+// Plan -> job card when the plan has none saved and no OR-JR remark names it.
+// Used inside the ORDER BY of an or_jr_report lateral aliased rpt, plan aliased pb.
+//   1 = rpt is the Nth job card of the OR by job card date, N = our_code batch
+//       number (JMSP-UI26272587-002 -> 2nd job card)
+//   2 = rpt is the job card the DPR booked the most good pieces on for this plan
+// Rollback: tag backup/before-v1.144.2.
+const JC_BY_BATCH_OR_DPR_SQL = `
+             WHEN substring(TRIM(COALESCE(pb.our_code, '')) from '-(\\d+)$') IS NOT NULL
+                  AND substring(TRIM(pb.our_code) from '-(\\d+)$')::int = 1 + (
+                    SELECT COUNT(DISTINCT TRIM(r2.job_card_no)) FROM or_jr_report r2
+                     WHERE TRIM(r2.or_jr_no) = TRIM(pb.order_no)
+                       AND NULLIF(TRIM(r2.job_card_no), '') IS NOT NULL
+                       AND (COALESCE(r2.job_card_date, DATE '9999-12-31'), TRIM(r2.job_card_no))
+                         < (COALESCE(rpt.job_card_date, DATE '9999-12-31'), TRIM(rpt.job_card_no))) THEN 1
+             WHEN NULLIF(TRIM(pb.plan_id), '') IS NOT NULL
+                  AND TRIM(rpt.job_card_no) = (
+                    SELECT TRIM(d.jobcard_no) FROM dpr_hourly d
+                     WHERE d.plan_id = TRIM(pb.plan_id) AND d.is_deleted IS NOT TRUE
+                       AND NULLIF(TRIM(d.jobcard_no), '') IS NOT NULL
+                     GROUP BY TRIM(d.jobcard_no) ORDER BY SUM(COALESCE(d.good_qty, 0)) DESC LIMIT 1) THEN 2`;
+
 app.get('/api/planning/board', async (req, res) => {
   try {
     // The self-heal block below is a set of idempotent data-normalisation UPDATEs.
@@ -12328,6 +12575,8 @@ app.get('/api/planning/board', async (req, res) => {
       -- only fall back to an arbitrary (but deterministic, lowest-id) job card for
       -- the OR when no row references this plan. Note: pb.job_card_no (persisted at
       -- link time) still wins over this via the COALESCE on the jcNo column above.
+      -- Between the two: the plan's batch number (our_code ...-002 = the OR's 2nd job
+      -- card by date), then the job card the DPR booked most pieces on for the plan.
       LEFT JOIN LATERAL (
          SELECT rpt.job_card_no, rpt.or_jr_date, rpt.job_card_date
          FROM or_jr_report rpt
@@ -12339,7 +12588,8 @@ app.get('/api/planning/board', async (req, res) => {
                   AND LOWER(COALESCE(rpt.remarks_all, '')) LIKE '%' || LOWER(TRIM(pb.plan_id)) || '%' THEN 0
              WHEN NULLIF(TRIM(pb.our_code), '') IS NOT NULL
                   AND LOWER(COALESCE(rpt.remarks_all, '')) LIKE '%' || LOWER(TRIM(pb.our_code)) || '%' THEN 0
-             ELSE 1
+             ${JC_BY_BATCH_OR_DPR_SQL}
+             ELSE 3
            END,
            rpt.id
          LIMIT 1
@@ -12484,7 +12734,8 @@ async function fetchMachineWisePlans({ factoryId, machine, orNos }) {
                  AND LOWER(COALESCE(rpt.remarks_all, '')) LIKE '%' || LOWER(TRIM(pb.plan_id)) || '%' THEN 0
             WHEN NULLIF(TRIM(pb.our_code), '') IS NOT NULL
                  AND LOWER(COALESCE(rpt.remarks_all, '')) LIKE '%' || LOWER(TRIM(pb.our_code)) || '%' THEN 0
-            ELSE 1
+            ${JC_BY_BATCH_OR_DPR_SQL}
+            ELSE 3
           END,
           (NULLIF(TRIM(rpt.job_card_no), '') IS NULL)::int,
           rpt.id
@@ -13355,6 +13606,32 @@ function getDprColourName(row) {
     row?.item_name ||
     'Unknown'
   ).trim() || 'Unknown';
+}
+
+// Plan qty for one colour_details row. Same field order the Job Detail
+// colour breakdown uses (getDprColourPlanQty), so the DPR cap and the
+// breakdown can never disagree on a colour's plan.
+function colourRowPlanQty(row) {
+  return getDprColourPlanQty(row);
+}
+
+// The plan_board row a DPR entry belongs to. Plan IDs are numbered per factory,
+// so a bare `plan_id = $1 LIMIT 1` can return another plant's (or an older) row
+// with different colour qtys. Prefer the exact PK, then this factory's row,
+// then the newest.
+async function findDprPlanRow(planId, factoryId, columns = 'id, plan_id, colour_details') {
+  const rows = await q(
+    `SELECT ${columns}
+       FROM plan_board
+      WHERE (CAST(id AS TEXT) = $1 OR CAST(plan_id AS TEXT) = $1)
+        AND ($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL)
+      ORDER BY (CAST(id AS TEXT) = $1) DESC,
+               (factory_id IS NOT DISTINCT FROM $2::int) DESC,
+               id DESC
+      LIMIT 1`,
+    [String(planId), factoryId || null]
+  );
+  return rows[0] || null;
 }
 
 function getDprColourPlanQty(row) {
@@ -20536,6 +20813,9 @@ async function buildMouldWiseReport({ requestFactoryId, from, to, search, reques
     "MAX(COALESCE(m.pcs_per_hour, 0)) AS pcs_per_hour",
     "MAX(COALESCE(m.cycle_time, 0)) AS std_cycle",
     "MAX(COALESCE(m.std_wt_kg, 0)) AS std_weight",
+    // Average actual article weight from the DPR setup entries (std_actual)
+    // recorded for the same date + machine + order.
+    "AVG(sa.avg_weight) AS avg_weight",
     // Actual cycle time = productive run seconds / shots, aggregated over the
     // hourly slots in this group. Each dpr_hourly row is a 60-min slot; run
     // seconds = (60 - downtime_min) minutes * 60. Matches the act_cycle formula
@@ -20563,6 +20843,20 @@ async function buildMouldWiseReport({ requestFactoryId, from, to, search, reques
     LEFT JOIN moulds m
       ON TRIM(COALESCE(m.mould_number, '')) = TRIM(COALESCE(d.mould_no, ''))
      AND ($4::int IS NULL OR m.factory_id = $4 OR m.factory_id IS NULL)
+    LEFT JOIN (
+      -- Pre-aggregated to one row per key so the join can't fan out quantities.
+      SELECT dpr_date, TRIM(LOWER(machine)) AS machine_k, TRIM(COALESCE(order_no, '')) AS order_k,
+             AVG(NULLIF(article_act, 0)) AS avg_weight
+        FROM std_actual
+       WHERE COALESCE(is_deleted, false) = false
+         AND ($1::date IS NULL OR dpr_date >= $1::date)
+         AND ($2::date IS NULL OR dpr_date <= $2::date)
+         AND ($4::int IS NULL OR factory_id = $4 OR factory_id IS NULL)
+       GROUP BY 1, 2, 3
+    ) sa
+      ON sa.dpr_date = d.dpr_date
+     AND sa.machine_k = TRIM(LOWER(d.machine))
+     AND sa.order_k = TRIM(COALESCE(d.order_no, ''))
     WHERE COALESCE(d.is_deleted, false) = false
       AND TRIM(COALESCE(d.mould_no, '')) <> ''
       AND ($1::date IS NULL OR d.dpr_date >= $1::date)
@@ -20617,6 +20911,7 @@ async function buildMouldWiseReport({ requestFactoryId, from, to, search, reques
     // cycle time = total productive run seconds / total shots for this group.
     const stdCycle = Number(r.std_cycle) || 0;
     const stdWeight = Number(r.std_weight) || 0;
+    const avgWeight = Number(r.avg_weight) || 0;
     const shots = Number(r.shots) || 0;
     const runSeconds = Number(r.run_seconds) || 0;
     const avgCycle = shots > 0 ? runSeconds / shots : 0;
@@ -20651,6 +20946,7 @@ async function buildMouldWiseReport({ requestFactoryId, from, to, search, reques
       stdCycle: Math.round(stdCycle * 100) / 100,
       avgCycle: Math.round(avgCycle * 100) / 100,
       stdWeight: Math.round(stdWeight * 1000) / 1000,
+      avgWeight: Math.round(avgWeight * 1000) / 1000,
       // Raw pcs/hour so the Detail (pivot) view can show Prod (STD)/day = pcs/hr x 24.
       pcsPerHour,
       shots, runSeconds
@@ -20705,7 +21001,7 @@ function buildMouldWiseDetailPivot(data, { from, to }) {
       let rec = byRow.get(key);
       if (!rec) {
         rec = { machine, mouldNo: g.mouldNo, mouldName: g.mouldName || g.mouldNo, cells: {},
-          _pcs: 0, _stdCycle: 0, _stdWt: 0, _shots: 0, _run: 0, _total: 0, _std: 0, _rej: 0 };
+          _pcs: 0, _stdCycle: 0, _stdWt: 0, _wtSum: 0, _wtN: 0, _shots: 0, _run: 0, _total: 0, _std: 0, _rej: 0 };
         byRow.set(key, rec);
       }
       const date = String(row.date).slice(0, 10);
@@ -20715,6 +21011,7 @@ function buildMouldWiseDetailPivot(data, { from, to }) {
       rec._pcs = Math.max(rec._pcs, Number(row.pcsPerHour) || 0);
       rec._stdCycle = Math.max(rec._stdCycle, Number(row.stdCycle) || 0);
       rec._stdWt = Math.max(rec._stdWt, Number(row.stdWeight) || 0);
+      if (Number(row.avgWeight) > 0) { rec._wtSum += Number(row.avgWeight); rec._wtN++; }
       rec._shots += Number(row.shots) || 0;
       rec._run += Number(row.runSeconds) || 0;
       rec._total += Number(row.total) || 0;
@@ -20732,6 +21029,7 @@ function buildMouldWiseDetailPivot(data, { from, to }) {
     stdCycle: r2(rec._stdCycle),
     avgCycle: rec._shots > 0 ? r2(rec._run / rec._shots) : 0,
     stdWeight: r3(rec._stdWt),
+    avgWeight: rec._wtN > 0 ? r3(rec._wtSum / rec._wtN) : 0,
     efficiency: rec._std > 0 ? r1((rec._total / rec._std) * 100) : 0,
     rejectQty: rec._rej,
     rejectPct: (rec._total + rec._rej) > 0 ? r1((rec._rej / (rec._total + rec._rej)) * 100) : 0,
@@ -20845,6 +21143,7 @@ app.get('/api/reports/mould-wise-qty.xlsx', async (req, res) => {
         ['std_cycle', { key: 'stdCycle', label: 'STD Cycle (s)', w: 12 }],
         ['avg_cycle', { key: 'avgCycle', label: 'Avg Cycle (s)', w: 12 }],
         ['std_weight', { key: 'stdWeight', label: 'STD Wt (kg)', w: 12 }],
+        ['avg_weight', { key: 'avgWeight', label: 'Avg Wt', w: 12 }],
         ['efficiency', { key: 'efficiency', label: 'Eff %', w: 10, pct: true }],
         ['reject_qty', { key: 'rejectQty', label: 'Reject Qty', w: 12 }],
         ['reject_pct', { key: 'rejectPct', label: 'Reject %', w: 10, pct: true }]
@@ -20912,7 +21211,7 @@ app.get('/api/reports/mould-wise-qty.xlsx', async (req, res) => {
 
       const numFmtD = key => key === 'efficiency' || key === 'rejectPct' ? '0.0"%"'
         : key === 'avgCycle' || key === 'stdCycle' ? '#,##0.00'
-          : key === 'stdWeight' ? '#,##0.000' : '#,##0';
+          : key === 'stdWeight' || key === 'avgWeight' ? '#,##0.000' : '#,##0';
 
       let rr = HR3 + 1;
       let band = 0;
@@ -21007,6 +21306,7 @@ app.get('/api/reports/mould-wise-qty.xlsx', async (req, res) => {
     if (on.has('std_cycle'))  cols.push({ key: 'stdCycle', label: 'STD Cycle (s)', w: 12, num: true });
     if (on.has('avg_cycle'))  cols.push({ key: 'avgCycle', label: 'Avg Cycle (s)', w: 12, num: true });
     if (on.has('std_weight')) cols.push({ key: 'stdWeight', label: 'STD Wt (kg)', w: 12, num: true });
+    if (on.has('avg_weight')) cols.push({ key: 'avgWeight', label: 'Avg Wt', w: 12, num: true });
     if (on.has('efficiency')) cols.push({ key: 'efficiency', label: 'Eff %', w: 10, num: true });
     if (on.has('downtime'))   cols.push({ key: 'downtimeReason', label: 'Downtime', w: 30 });
     if (on.has('reject_qty')) cols.push({ key: 'rejectQty', label: 'Reject Qty', w: 12, num: true });
@@ -21061,7 +21361,7 @@ app.get('/api/reports/mould-wise-qty.xlsx', async (req, res) => {
     const numFmtFor = (key) => {
       if (key === 'efficiency' || key === 'rejectPct') return '0.0"%"';
       if (key === 'avgCycle' || key === 'stdCycle') return '#,##0.00';
-      if (key === 'stdWeight') return '#,##0.000';
+      if (key === 'stdWeight' || key === 'avgWeight') return '#,##0.000';
       return '#,##0';
     };
     const idxOf = key => cols.findIndex(c => c.key === key) + 1;   // 0 = not present
@@ -21092,7 +21392,7 @@ app.get('/api/reports/mould-wise-qty.xlsx', async (req, res) => {
       //   avg   -> Avg Cycle Time (over rows that ran), Reject % (over produced days)
       const totalColIdx = idxOf('total'), dayColIdx = idxOf('day'), nightColIdx = idxOf('night');
       const stdProdIdx = idxOf('stdProd'), rejectQtyIdx = idxOf('rejectQty');
-      const avgCycleIdx = idxOf('avgCycle'), rejectPctIdx = idxOf('rejectPct');
+      const avgCycleIdx = idxOf('avgCycle'), avgWeightIdx = idxOf('avgWeight'), rejectPctIdx = idxOf('rejectPct');
       for (let ci = 1; ci <= NCOL; ci++) {
         const cell = ws.getCell(r, ci);
         cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: SUBFILL } };
@@ -21114,10 +21414,11 @@ app.get('/api/reports/mould-wise-qty.xlsx', async (req, res) => {
         if (!idx) return;
         const rows = g.rows.filter(filter);
         const avg = rows.length ? rows.reduce((a, x) => a + (Number(x[key]) || 0), 0) / rows.length : 0;
-        ws.getCell(r, idx).value = rows.length ? Math.round(avg * 100) / 100 : '';
+        ws.getCell(r, idx).value = rows.length ? Math.round(avg * 1000) / 1000 : '';
         ws.getCell(r, idx).numFmt = numFmtFor(key); ws.getCell(r, idx).alignment = { horizontal: 'right' };
       };
       avgCol(avgCycleIdx, 'avgCycle', x => Number(x.avgCycle) > 0);
+      avgCol(avgWeightIdx, 'avgWeight', x => Number(x.avgWeight) > 0);
       avgCol(rejectPctIdx, 'rejectPct', x => Number(x.total) > 0);
 
       r++; bandToggle = 0;
@@ -29815,8 +30116,11 @@ app.post('/api/extra-qty/allow', async (req, res) => {
     // Resolve job context from plan_board (denormalized for the report)
     const pRows = await q(
       `SELECT order_no, machine, mould_name, factory_id
-         FROM plan_board WHERE plan_id = $1 LIMIT 1`,
-      [String(plan_id)]
+         FROM plan_board
+        WHERE plan_id = $1 AND ($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL)
+        ORDER BY (factory_id IS NOT DISTINCT FROM $2::int) DESC, id DESC
+        LIMIT 1`,
+      [String(plan_id), getFactoryId(req) || null]
     );
     if (!pRows.length) return res.json({ ok: false, error: 'Plan not found: ' + plan_id });
     const p = pRows[0];
@@ -30012,6 +30316,9 @@ async function nextMaintenanceTicketNo(factoryId) {
   const seq = (rows[0]?.n || 0) + 1;
   return `MNT-${yy}-${String(seq).padStart(4, '0')}`;
 }
+
+// JMS Chat raises the same tickets from a chat (src/modules/chat/chatBot.js).
+app.locals.jmsMaintenance = { nextMaintenanceTicketNo, notifyMaintenance };
 
 // POST /api/maintenance/tickets — open a ticket (any authenticated user; supervisors raise).
 app.post('/api/maintenance/tickets', async (req, res) => {

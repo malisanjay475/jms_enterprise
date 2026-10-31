@@ -104,13 +104,14 @@ describe('GET /api/shifting/machine-board', () => {
     const bkt = byMachine['B-L1-M-2'].job_list[0];
     expect(bkt).toMatchObject({
       plan_id: 11, plan_code: 'P11', mould_name: 'BKT', order_no: 'OR-1',
-      sfg_std: 40, sfg_pack_type: 'LD bag', sfg_bag_size: '27 X 48', pending: true, unassigned_shifted: 100
+      sfg_std: 40, sfg_pack_type: 'LD bag', sfg_bag_size: '27 X 48', pending: true, unassigned_shifted: 100,
+      shift_state: 'PARTLY'
     });
     // The 100 shifted pcs carry no colour, so each colour's Ready stays its verified qty
     // (capped at the job's Ready of 200).
     expect(bkt.colours).toEqual([
-      { colour: 'Red', produced: 300, verified: 200, not_verified: 100, shifted: 0, ready: 200 },
-      { colour: 'Blue', produced: 200, verified: 100, not_verified: 100, shifted: 0, ready: 100 }
+      { colour: 'Red', produced: 300, verified: 200, not_verified: 100, shifted: 0, ready: 200, shift_state: 'PARTLY' },
+      { colour: 'Blue', produced: 200, verified: 100, not_verified: 100, shifted: 0, ready: 100, shift_state: 'PARTLY' }
     ]);
     const lid = byMachine['B-L1-M-10'].job_list[0];
     expect(lid).toMatchObject({ sfg_std: 0, sfg_pack_type: '', pending: true });

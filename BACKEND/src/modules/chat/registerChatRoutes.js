@@ -19,7 +19,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const multer = require('multer');
-const { isSuperadmin } = require('../../app/auth');
+const { isSuperadmin, isAdminLike } = require('../../app/auth');
 const { sniffAttachment } = require('./attachmentType');
 const chatSync = require('./chatSync');
 const chatNotify = require('./chatNotify');
@@ -27,11 +27,17 @@ const chatAdmin = require('./chatAdmin');
 const chatGate = require('./chatGate');
 const chatShare = require('./chatShare');
 const chatProfiles = require('./chatProfiles');
+const chatProfileSync = require('./chatProfileSync');
 const chatExtras = require('./chatExtras');
 const chatAuto = require('./chatAuto');
 const chatCalls = require('./chatCalls');
+const chatWork = require('./chatWork');
+const chatBot = require('./chatBot');
+const chatTeam = require('./chatTeam');
+const chatSecure = require('./chatSecure');
 const chatFcm = require('./chatFcm');
 const { registerChatAppAuthRoutes } = require('./chatAppAuth');
+const chatSignup = require('./chatSignup');
 
 const DM_ID = chatSync.deterministicIdSql('chat-dm', '$1::text');
 const MEMBER_ID = (conv, user) => chatSync.deterministicIdSql('chat-member', conv, `LOWER(${user})`);
@@ -304,9 +310,17 @@ function messageOut(row, att, receipts) {
     server_ts: row.server_ts,
     edited_at: row.edited_at,
     deleted: Boolean(row.deleted_at),
+    // who deleted someone else's message (a group admin or a superadmin)
+    deleted_by: row.deleted_at && row.meta && row.meta.deleted_by ? row.meta.deleted_by : null,
     purged: Boolean(row.purged_at), // emptied by the retention job
     reply_to_sync_id: row.reply_to_sync_id || null,
     forwarded: Boolean(row.meta && row.meta.forwarded),
+    urgent: Boolean(row.meta && row.meta.urgent),
+    announcement: Boolean(row.meta && row.meta.announcement),
+    scheduled: Boolean(row.meta && row.meta.scheduled),
+    bot: Boolean(row.meta && row.meta.bot),
+    verified: Boolean(row.meta && row.meta.verified),
+    alert: row.meta && row.meta.alert ? { kind: row.meta.alert.kind } : null,
     attachment: att && !row.deleted_at && !row.purged_at ? attachmentOut(att) : null
   };
   if (receipts) {
@@ -338,9 +352,15 @@ async function decorate(pool, rows, me) {
   // reactions and (for me) stars; extras tables live on each server only
   try {
     const ids = rows.map((r) => r.sync_id);
-    const [reactions, stars] = await Promise.all([
-      chatExtras.reactionsFor(pool, ids), chatExtras.starredAmong(pool, me, ids)
+    const [reactions, stars, polls, acks] = await Promise.all([
+      chatExtras.reactionsFor(pool, ids), chatExtras.starredAmong(pool, me, ids), chatWork.pollsFor(pool, rows, me),
+      chatBot.acksFor(pool, rows)
     ]);
+    outs.forEach((o) => {
+      const a = acks.get(o.sync_id);
+      if (o.alert) o.alert = Object.assign(o.alert, a && a.acked_at ? { acked_by: a.acked_by, acked_at: a.acked_at } : {}, a ? { escalated: a.escalated_level } : {});
+    });
+    outs.forEach((o) => { const p = polls.get(o.sync_id); if (p && !o.deleted) o.poll = p; });
     outs.forEach((o) => {
       const rx = reactions.get(o.sync_id);
       if (rx && rx.length) o.reactions = rx;
@@ -349,7 +369,30 @@ async function decorate(pool, rows, me) {
   } catch (err) {
     console.warn('[chat] reactions/stars:', err.message);
   }
-  return chatShare.decorateShare(pool, rows, outs); // reply quotes, shared links, work status
+  const done = await chatShare.decorateShare(pool, rows, outs); // reply quotes, shared links, work status
+  await addSenderNames(pool, done);
+  return done;
+}
+
+// Approved display names next to the login names (sender, reply quote), so every app
+// shows the same name as the chat list and contact info.
+async function addSenderNames(pool, outs) {
+  try {
+    const names = new Set();
+    for (const o of outs) {
+      if (o.sender) names.add(o.sender);
+      if (o.reply_to && o.reply_to.sender) names.add(o.reply_to.sender);
+    }
+    if (!names.size) return;
+    const prof = await chatProfiles.lookup(pool, [...names]);
+    const shown = (u) => chatProfiles.shownName(u, (prof.get(String(u).toLowerCase()) || {}).display_name);
+    for (const o of outs) {
+      if (o.sender) o.sender_name = shown(o.sender);
+      if (o.reply_to && o.reply_to.sender) o.reply_to.sender_name = shown(o.reply_to.sender);
+    }
+  } catch (err) {
+    console.warn('[chat] sender names:', err.message);
+  }
 }
 
 // Record "delivered" for every message this user has not acknowledged yet (in one chat,
@@ -403,6 +446,9 @@ async function notify(pool, convId, event, extraNames = []) {
 }
 
 function previewText(kind, body, meta) {
+  if (meta && meta.poll) return `📊 ${body || 'Poll'}`;
+  if (meta && meta.announcement) return `📢 ${body || ''}`;
+  if (meta && meta.urgent) return `⚠ ${body || ''}`;
   if (kind === 'link') {
     const urgent = meta && meta.priority === 'urgent' ? '⚠ Urgent: ' : '';
     return `${urgent}🔗 ${(meta && meta.title) || 'Shared page'}${body ? ': ' + body : ''}`;
@@ -538,6 +584,8 @@ function startLiveEvents(pool) {
       if (!convs.has(n.c)) convs.set(n.c, new Set());
       if (n.u) convs.get(n.c).add(n.u); // a removed member still hears about it
       if (!convTimer) convTimer = setTimeout(flushConvs, 200);
+    } else if (n.t === 'call') {
+      if (n.u && n.ev) pushTo([n.u], n.ev); // incoming call / call ended, for an open web page
     } else if (n.t === 'reaction') {
       const rx = (await chatExtras.reactionsFor(pool, [n.m])).get(n.m) || [];
       pushTo(await memberNames(pool, n.c), {
@@ -724,7 +772,7 @@ function registerChatRoutes(app, pool) {
     uploadRoot, ensureSchema: () => ensureChatSchema(pool), getSettings: () => chatGate.ownSettings(pool)
   });
   registerChatSettingsRoutes(app, pool);
-  registerChatAppAuthRoutes(app, pool);
+  registerChatAppAuthRoutes(app, pool, { pushTo });
   // Kill switch / staged rollout: every /api/chat/* route answers 404 while chat is off
   // for this user (the sync routes under /api/sync/chat keep running).
   app.use('/api/chat', chatGate.middleware(pool));
@@ -743,13 +791,48 @@ function registerChatRoutes(app, pool) {
   });
   chatAdmin.registerAdminRoutes(app, pool, { ready, fail, uploadRoot });
   chatFcm.registerFcmRoutes(app, pool, { ready, fail });
-  chatProfiles.registerProfileRoutes(app, pool, { ready, fail, uploadRoot, isOnline, activeUser });
+  // Profile notices (name request / decision): live event to open chats + phone push.
+  const notice = async (usernames, n) => {
+    const names = (usernames || []).filter(Boolean);
+    if (!names.length) return;
+    pushTo(names, { type: 'notice', ...n });
+    if (chatFcm.enabled()) {
+      await chatFcm.sendToUsers(pool, names, {
+        type: 'notice', kind: String(n.kind || ''), title: String(n.title || 'JMS Chat'), body: String(n.body || '')
+      }).catch(() => {});
+    }
+  };
+  // MAIN owns profiles: a LOCAL pulls them and forwards its users' edits (chatProfileSync.js).
+  let profileForward = null;
+  if (chatSync.isLocal()) {
+    const ps = chatProfileSync.createProfileSync(pool, { uploadRoot });
+    ps.start();
+    profileForward = ps.forward;
+  } else {
+    chatProfileSync.registerProfileSyncRoutes(app, pool, { uploadRoot, notice });
+  }
+  chatProfiles.registerProfileRoutes(app, pool, { ready, fail, uploadRoot, isOnline, activeUser, notice, forward: profileForward });
   chatProfiles.ensureProfileSchema(pool).catch((err) => console.warn('[chat] profile schema:', err.message));
   chatExtras.registerExtrasRoutes(app, pool, { ready, fail, membership, decorate, sendRateOk, localFactoryId, uploadRoot });
   chatExtras.ensureExtrasSchema(pool).catch((err) => console.warn('[chat] extras schema:', err.message));
   // factory groups + QC / machine alerts (MAIN only, one worker)
   if (!chatSync.isLocal()) chatAuto.start(pool);
+  // one welcome message per user from the verified JMS sender (MAIN only)
+  if (!chatSync.isLocal()) require('./chatWelcome').start(pool);
   chatCalls.registerCallRoutes(app, pool, { ready, fail, activeUser });
+  chatWork.registerWorkRoutes(app, pool, { ready, fail, membership, decorate, localFactoryId });
+  chatWork.ensureWorkSchema(pool).catch((err) => console.warn('[chat] work schema:', err.message));
+  chatWork.start(pool, { localFactoryId });
+  chatBot.registerBotRoutes(app, pool, { ready, fail, membership, decorate });
+  chatBot.ensureBotSchema(pool).catch((err) => console.warn('[chat] bot schema:', err.message));
+  chatBot.start(pool);
+  chatTeam.registerTeamRoutes(app, pool, { ready, fail, membership, decorate, localFactoryId, uploadRoot });
+  chatTeam.ensureTeamSchema(pool).catch((err) => console.warn('[chat] team schema:', err.message));
+  chatSecure.registerSecureRoutes(app, pool, { ready, fail, membership, localFactoryId });
+  chatSignup.registerSignupAdminRoutes(app, pool, { ready, fail, pushTo, isOnline });
+  chatSecure.ensureSecureSchema(pool).catch((err) => console.warn('[chat] secure schema:', err.message));
+  require('../../app/auth').setChatTokenCheck(chatSecure.tokenStillValid);
+  if (!chatSync.isLocal()) chatSecure.start(pool);
   if (chatFcm.enabled()) chatFcm.ensureFcmSchema(pool).catch((err) => console.warn('[chat-fcm] schema:', err.message));
   chatAdmin.startRetentionJob(pool, { uploadRoot });
 
@@ -758,7 +841,7 @@ function registerChatRoutes(app, pool) {
       if (!(await ready(req, res))) return;
       const rt = chatSync.runtime();
       res.json({
-        ok: true, username: req.auth.username, isSuperadmin: isSuperadmin(req.auth),
+        ok: true, username: req.auth.username, isSuperadmin: isSuperadmin(req.auth), isAdmin: isAdminLike(req.auth),
         server_type: rt.serverType, factory_id: rt.serverType === 'LOCAL' ? localFactoryId() : null
       });
     } catch (err) { fail(res, err, 'me'); }
@@ -805,13 +888,61 @@ function registerChatRoutes(app, pool) {
         users: rows.map((u) => {
           const p = prof.get(u.username.toLowerCase()) || {};
           return {
-            username: u.username, role: u.role_code || '', line: u.line || '',
+            username: u.username, display_name: chatProfiles.shownName(u.username, p.display_name),
+            role: u.role_code || '', line: u.line || '',
             online: isOnline(u.username) || chatProfiles.isRecent(p.last_seen_at),
             about: p.about || '', photo_v: p.photo_v || null, last_seen_at: p.last_seen_at || null
           };
         })
       });
     } catch (err) { fail(res, err, 'users'); }
+  });
+
+  // Contact info extras (like WhatsApp): recent media / docs in my direct chat with this
+  // person, and the groups we are both in.
+  app.get('/api/chat/profile/:username/shared', async (req, res) => {
+    try {
+      if (!(await ready(req, res))) return;
+      const me = req.auth.username;
+      const peer = await activeUser(pool, String(req.params.username || ''));
+      if (!peer) return res.status(404).json({ ok: false, error: 'User not found.' });
+      const { rows: [dm] } = await pool.query(
+        `SELECT c.sync_id FROM chat_conversations c
+           JOIN chat_members m1 ON m1.conversation_sync_id = c.sync_id AND LOWER(m1.username) = LOWER($1) AND m1.left_at IS NULL
+           JOIN chat_members m2 ON m2.conversation_sync_id = c.sync_id AND LOWER(m2.username) = LOWER($2)
+          WHERE c.type <> 'group' LIMIT 1`, [me, peer]
+      );
+      const { rows: media } = await pool.query(
+        `SELECT a.sync_id, a.kind, a.mime, a.file_name, a.size_bytes AS size, a.created_at
+           FROM chat_conversations c
+           JOIN chat_members m1 ON m1.conversation_sync_id = c.sync_id AND LOWER(m1.username) = LOWER($1) AND m1.left_at IS NULL
+           JOIN chat_members m2 ON m2.conversation_sync_id = c.sync_id AND LOWER(m2.username) = LOWER($2)
+           JOIN chat_attachments a ON a.conversation_sync_id = c.sync_id
+           JOIN chat_messages msg ON msg.sync_id = a.message_sync_id AND msg.deleted_at IS NULL AND msg.purged_at IS NULL
+          WHERE c.type <> 'group' AND a.file_removed_at IS NULL
+          ORDER BY a.created_at DESC LIMIT 60`, [me, peer]
+      );
+      const { rows: groups } = await pool.query(
+        `SELECT c.sync_id, c.title,
+                (SELECT COUNT(*)::int FROM chat_members x WHERE x.conversation_sync_id = c.sync_id AND x.left_at IS NULL) AS members
+           FROM chat_conversations c
+           JOIN chat_members m1 ON m1.conversation_sync_id = c.sync_id AND LOWER(m1.username) = LOWER($1) AND m1.left_at IS NULL
+           JOIN chat_members m2 ON m2.conversation_sync_id = c.sync_id AND LOWER(m2.username) = LOWER($2) AND m2.left_at IS NULL
+          WHERE c.type = 'group'
+          ORDER BY c.last_message_at DESC NULLS LAST LIMIT 50`, [me, peer]
+      );
+      // shared JMS pages (link messages); url is always a same-origin relative path (chatShare.js)
+      const { rows: links } = await pool.query(
+        `SELECT msg.sync_id, msg.meta->>'title' AS title, msg.meta->>'url' AS url, msg.server_ts
+           FROM chat_conversations c
+           JOIN chat_members m1 ON m1.conversation_sync_id = c.sync_id AND LOWER(m1.username) = LOWER($1) AND m1.left_at IS NULL
+           JOIN chat_members m2 ON m2.conversation_sync_id = c.sync_id AND LOWER(m2.username) = LOWER($2)
+           JOIN chat_messages msg ON msg.conversation_sync_id = c.sync_id
+          WHERE c.type <> 'group' AND msg.kind = 'link' AND msg.deleted_at IS NULL AND msg.purged_at IS NULL
+          ORDER BY msg.server_ts DESC LIMIT 30`, [me, peer]
+      );
+      res.json({ ok: true, media, links: links.filter((l) => /^\/(?!\/)/.test(l.url || '')), groups, conversation: dm ? dm.sync_id : null });
+    } catch (err) { fail(res, err, 'shared'); }
   });
 
   // My chats (or, for a superadmin with ?all=1, every chat).
@@ -829,7 +960,7 @@ function registerChatRoutes(app, pool) {
         : `AND EXISTS (SELECT 1 FROM chat_members mm WHERE mm.conversation_sync_id = c.sync_id
                          AND LOWER(mm.username) = LOWER($1) AND mm.left_at IS NULL)`;
       const { rows } = await pool.query(
-        `SELECT c.sync_id, c.type, c.title, c.last_message_at,
+        `SELECT c.sync_id, c.type, c.title, c.created_by, c.last_message_at,
                 (SELECT m.role FROM chat_members m WHERE m.conversation_sync_id = c.sync_id
                     AND LOWER(m.username) = LOWER($1) AND m.left_at IS NULL) AS my_role,
                 (SELECT m.muted_until FROM chat_members m WHERE m.conversation_sync_id = c.sync_id
@@ -867,33 +998,41 @@ function registerChatRoutes(app, pool) {
       rows.sort((a, b) => (pinOf(b) - pinOf(a)) || (new Date(b.last_message_at) - new Date(a.last_message_at)));
       const peers = rows.filter((r) => r.type !== 'group')
         .map((r) => (r.members || []).find((m) => m.toLowerCase() !== me.toLowerCase())).filter(Boolean);
-      const prof = await chatProfiles.lookup(pool, peers);
+      const prof = await chatProfiles.lookup(pool, peers.concat(rows.map((r) => r.last_sender).filter(Boolean)));
+      const sec = await chatSecure.settingsFor(pool, rows.map((r) => r.sync_id)).catch(() => new Map());
       res.json({
         ok: true,
         conversations: rows.map((r) => {
           const members = r.members || [];
           const others = members.filter((m) => m.toLowerCase() !== me.toLowerCase());
-          const peer = r.type === 'group' ? null : (others[0] || null);
+          // the JMS welcome chat: "JMS" for the person, "JMS · <name>" for the viewers (admins)
+          const system = r.type === 'direct' && r.created_by === 'JMS';
+          const peer = r.type === 'group' || system ? null : (others[0] || null);
           const pp = peer ? (prof.get(peer.toLowerCase()) || {}) : {};
           const pref = prefs.get(r.sync_id) || {};
           return {
             pinned: Boolean(pref.pinned_at),
+            disappear_seconds: (sec.get(r.sync_id) || {}).disappear_seconds || 0,
+            protected: Boolean((sec.get(r.sync_id) || {}).protected),
             archived: Boolean(pref.archived_at),
             peer,
             photo_v: pp.photo_v || null,
             last_seen_at: pp.last_seen_at || null,
             sync_id: r.sync_id,
             type: r.type,
-            title: r.type === 'group'
+            system,
+            title: system && r.my_role !== 'admin' ? 'JMS' : r.type === 'group'
               ? (r.title || 'Group')
-              : (r.title || (all && others.length > 1 ? members.join(' ↔ ') : (others[0] || me))),
+              : (r.title || (all && others.length > 1 ? members.join(' ↔ ') : (peer ? chatProfiles.shownName(peer, pp.display_name) : me))),
             members,
             my_role: r.my_role || null,
             muted_until: chatNotify.muteOut(r.muted_until),
-            online: r.type === 'group' ? false : (others.some(isOnline) || chatProfiles.isRecent(pp.last_seen_at)),
+            online: r.type === 'group' || system ? false : (others.some(isOnline) || chatProfiles.isRecent(pp.last_seen_at)),
             last_message_at: r.last_message_at,
             last_body: r.last_deleted ? 'This message was deleted' : previewText(r.last_kind, r.last_body, r.last_meta),
             last_sender: r.last_kind === 'system' ? '' : (r.last_sender || ''),
+            last_sender_name: r.last_kind === 'system' || !r.last_sender ? ''
+              : chatProfiles.shownName(r.last_sender, (prof.get(r.last_sender.toLowerCase()) || {}).display_name),
             unread: r.unread || 0,
             is_member: members.some((m) => m.toLowerCase() === me.toLowerCase())
           };
@@ -1022,7 +1161,7 @@ function registerChatRoutes(app, pool) {
           return mem.map((m) => {
             const p = prof.get(m.username.toLowerCase()) || {};
             return {
-              username: m.username, role: m.role,
+              username: m.username, display_name: chatProfiles.shownName(m.username, p.display_name), role: m.role,
               online: isOnline(m.username) || chatProfiles.isRecent(p.last_seen_at),
               last_seen_at: p.last_seen_at || null, photo_v: p.photo_v || null
             };
@@ -1055,13 +1194,28 @@ function registerChatRoutes(app, pool) {
       const replyTo = await chatShare.validReplyTarget(pool, convId, b.reply_to_sync_id);
       if (replyTo === undefined) return res.status(400).json({ ok: false, error: 'The message you replied to is not in this chat.' });
       const clientTs = b.client_ts ? new Date(String(b.client_ts)) : null;
+      // ⚠ urgent (rings through mute and quiet hours), 📢 announcement (group admins), 📊 poll
+      const meta = {};
+      if (b.urgent) meta.urgent = true;
+      const poll = chatWork.cleanPoll(b.poll);
+      if (b.poll && !poll) return res.status(400).json({ ok: false, error: 'A poll needs a question and at least 2 options.' });
+      if (poll) meta.poll = poll;
+      if (b.announcement) {
+        const { rows: [cv] } = await pool.query('SELECT type FROM chat_conversations WHERE sync_id = $1', [convId]);
+        const mem = await membership(pool, convId, me);
+        if (cv && cv.type === 'group' && !(mem && mem.role === 'admin') && !isSuperadmin(req.auth)) {
+          return res.status(403).json({ ok: false, error: 'Only a group admin can post announcements.' });
+        }
+        meta.announcement = true;
+      }
       const ins = await pool.query(
-        `INSERT INTO chat_messages (sync_id, conversation_sync_id, sender, body, client_ts, factory_id, reply_to_sync_id)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)
+        `INSERT INTO chat_messages (sync_id, conversation_sync_id, sender, body, client_ts, factory_id, reply_to_sync_id, meta)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
          ON CONFLICT (sync_id) DO NOTHING
          RETURNING *`,
         [syncId, convId, me, body,
-          clientTs && !Number.isNaN(clientTs.getTime()) ? clientTs.toISOString() : null, localFactoryId(), replyTo]
+          clientTs && !Number.isNaN(clientTs.getTime()) ? clientTs.toISOString() : null, localFactoryId(), replyTo,
+          Object.keys(meta).length ? JSON.stringify(meta) : null]
       );
       let row = ins.rows[0];
       const duplicate = !row;
@@ -1126,7 +1280,9 @@ function registerChatRoutes(app, pool) {
     if (!UUID_RE.test(convId)) { res.status(400).json({ ok: false, error: 'Bad chat id.' }); return null; }
     const { rows: [conv] } = await pool.query('SELECT * FROM chat_conversations WHERE sync_id = $1', [convId]);
     if (!conv || conv.type !== 'group') { res.status(404).json({ ok: false, error: 'Group not found.' }); return null; }
-    const member = await membership(pool, convId, req.auth.username);
+    let member = await membership(pool, convId, req.auth.username);
+    // A superadmin manages every group, whoever made it and whether or not they are in it.
+    if (isSuperadmin(req.auth)) member = Object.assign({}, member || {}, { role: 'admin' });
     if (!member) { res.status(403).json({ ok: false, error: 'You are not in this group.' }); return null; }
     return { conv, member };
   }
@@ -1180,6 +1336,7 @@ function registerChatRoutes(app, pool) {
   app.post('/api/chat/groups', async (req, res) => {
     try {
       if (!(await ready(req, res))) return;
+      if (!isAdminLike(req.auth)) return res.status(403).json({ ok: false, error: 'Only an admin or superadmin can create groups.' });
       const me = req.auth.username;
       const title = cleanTitle(req.body && req.body.title);
       if (!title) return res.status(400).json({ ok: false, error: 'Give the group a name.' });
@@ -1280,6 +1437,31 @@ function registerChatRoutes(app, pool) {
   });
 
   // Leave a group. If the last admin leaves, the longest-standing member becomes admin.
+  // Make someone a group admin, or take it away: { admin: true | false }. Group admins
+  // and superadmins.
+  app.post('/api/chat/groups/:id/members/:username/admin', async (req, res) => {
+    try {
+      if (!(await ready(req, res))) return;
+      const g = await groupFor(req, res, String(req.params.id || ''));
+      if (!g) return;
+      if (g.member.role !== 'admin') return res.status(403).json({ ok: false, error: 'Only a group admin can change admins.' });
+      const on = !(req.body && req.body.admin === false);
+      const me = req.auth.username;
+      const target = String(req.params.username || '');
+      const changed = await inTx(async (db) => {
+        const { rows } = await db.query(
+          `UPDATE chat_members SET role = $3, updated_at = NOW()
+            WHERE conversation_sync_id = $1 AND LOWER(username) = LOWER($2) AND left_at IS NULL AND role IS DISTINCT FROM $3
+            RETURNING username`,
+          [g.conv.sync_id, target, on ? 'admin' : 'member']
+        );
+        if (rows[0]) await systemMessage(db, g.conv.sync_id, me, on ? `${me} made ${rows[0].username} a group admin` : `${me} removed ${rows[0].username} as group admin`);
+        return rows[0] ? rows[0].username : null;
+      });
+      res.json({ ok: true, changed: Boolean(changed) });
+    } catch (err) { fail(res, err, 'group admin'); }
+  });
+
   app.post('/api/chat/groups/:id/leave', async (req, res) => {
     try {
       if (!(await ready(req, res))) return;
@@ -1428,6 +1610,9 @@ function registerChatRoutes(app, pool) {
           return res.status(503).json({ ok: false, error: 'This file is still on its way from the other server. Try again in a minute.' });
         }
       }
+      const prot = await chatSecure.isProtected(pool, a.conversation_sync_id).catch(() => false);
+      if (prot && req.query.download === '1') return res.status(403).json({ ok: false, error: 'This is a protected chat: files cannot be downloaded.' });
+      if (prot && a.kind === 'xlsx') return res.status(403).json({ ok: false, error: 'This is a protected chat: files cannot be downloaded.' });
       const inline = a.kind !== 'xlsx' && req.query.download !== '1';
       res.setHeader('Content-Type', a.mime);
       res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -1504,17 +1689,26 @@ function registerChatRoutes(app, pool) {
   });
 
   // ---------------- edit / delete ----------------
-  async function ownMessage(req, res) {
+  async function ownMessage(req, res, { superadminToo = false } = {}) {
     const id = String(req.params.id || '');
     if (!UUID_RE.test(id)) { res.status(400).json({ ok: false, error: 'Bad message id.' }); return null; }
     const { rows: [m] } = await pool.query('SELECT * FROM chat_messages WHERE sync_id = $1', [id]);
     if (!m || m.kind === 'system') { res.status(404).json({ ok: false, error: 'Message not found.' }); return null; }
-    if (m.sender.toLowerCase() !== req.auth.username.toLowerCase()) {
+    let moderator = superadminToo && isSuperadmin(req.auth);
+    if (superadminToo && !moderator && m.sender.toLowerCase() !== req.auth.username.toLowerCase()) {
+      // a group admin may delete anyone's message in their group
+      const mem = await membership(pool, m.conversation_sync_id, req.auth.username);
+      if (mem && mem.role === 'admin') {
+        const { rows: [cv] } = await pool.query('SELECT type FROM chat_conversations WHERE sync_id = $1', [m.conversation_sync_id]);
+        moderator = Boolean(cv && cv.type === 'group');
+      }
+    }
+    if (m.sender.toLowerCase() !== req.auth.username.toLowerCase() && !moderator) {
       res.status(403).json({ ok: false, error: 'You can only change your own messages.' });
       return null;
     }
     if (m.deleted_at || m.purged_at) { res.status(410).json({ ok: false, error: 'This message was deleted.' }); return null; }
-    if (!(await membership(pool, m.conversation_sync_id, req.auth.username))) {
+    if (!moderator && !(await membership(pool, m.conversation_sync_id, req.auth.username))) {
       res.status(403).json({ ok: false, error: 'You are not in this chat.' });
       return null;
     }
@@ -1555,16 +1749,43 @@ function registerChatRoutes(app, pool) {
   app.delete('/api/chat/messages/:id', async (req, res) => {
     try {
       if (!(await ready(req, res))) return;
-      const m = await ownMessage(req, res);
+      const m = await ownMessage(req, res, { superadminToo: true });
       if (!m) return;
+      const me = req.auth.username;
       const { rows: [row] } = await pool.query(
-        `UPDATE chat_messages SET deleted_at = NOW(), updated_at = NOW()
+        `UPDATE chat_messages SET deleted_at = NOW(), updated_at = NOW(),
+                meta = CASE WHEN LOWER(sender) = LOWER($2) THEN meta
+                            ELSE COALESCE(meta, '{}'::jsonb) || jsonb_build_object('deleted_by', $2::text) END
           WHERE sync_id = $1 AND deleted_at IS NULL RETURNING *`,
-        [m.sync_id]
+        [m.sync_id, me]
       );
       if (!row) return res.status(410).json({ ok: false, error: 'This message was deleted.' });
       res.json({ ok: true, message: await announceUpdate(row, req.auth.username) });
     } catch (err) { fail(res, err, 'delete'); }
+  });
+
+  // Clear a group: a superadmin deletes every message in it for everyone (soft, like the
+  // single delete above). Logged in the audit log and noted in the group.
+  app.post('/api/chat/groups/:id/clear', async (req, res) => {
+    try {
+      if (!(await ready(req, res))) return;
+      if (!isSuperadmin(req.auth)) return res.status(403).json({ ok: false, error: 'Only a superadmin can clear a group.' });
+      const g = await groupFor(req, res, String(req.params.id || ''));
+      if (!g) return;
+      const me = req.auth.username;
+      const cleared = await inTx(async (db) => {
+        const { rowCount } = await db.query(
+          `UPDATE chat_messages SET deleted_at = NOW(), updated_at = NOW(),
+                  meta = COALESCE(meta, '{}'::jsonb) || jsonb_build_object('deleted_by', $2::text)
+            WHERE conversation_sync_id = $1 AND deleted_at IS NULL AND kind <> 'system'`,
+          [g.conv.sync_id, me]
+        );
+        await systemMessage(db, g.conv.sync_id, me, `${me} cleared all messages in this group`);
+        return rowCount;
+      });
+      await logAudit(pool, me, g.conv.sync_id, 'clear_group');
+      res.json({ ok: true, cleared });
+    } catch (err) { fail(res, err, 'clear group'); }
   });
 }
 

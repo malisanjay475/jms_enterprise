@@ -1,6 +1,7 @@
 package com.jmsocean.chat
 
 import android.Manifest
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
@@ -13,6 +14,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -42,13 +44,14 @@ import com.jmsocean.chat.ui.NewChatScreen
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 
-class MainActivity : ComponentActivity() {
+class MainActivity : androidx.fragment.app.FragmentActivity() {
     /** Chat to open from a tapped notification. */
     private val openFromIntent = MutableStateFlow<String?>(null)
 
     private val askNotify = registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        installSplashScreen()
         super.onCreate(savedInstanceState)
         openFromIntent.value = intent?.getStringExtra(Notifier.EXTRA_CONV)
 
@@ -56,7 +59,10 @@ class MainActivity : ComponentActivity() {
             ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
         ) askNotify.launch(Manifest.permission.POST_NOTIFICATIONS)
 
-        if (Session.signedIn) lifecycleScope.launch { Push.register() }
+        if (Session.signedIn) lifecycleScope.launch {
+            Push.register()
+            runCatching { Api.me() }.onSuccess { Session.isSuperadmin = it.isSuperadmin }
+        }
 
         setContent {
             JmsChatTheme {
@@ -82,11 +88,20 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                NavHost(nav, startDestination = if (Session.signedIn) "list" else "login") {
+                NavHost(
+                    nav, startDestination = if (Session.signedIn) "list" else "login",
+                    enterTransition = { androidx.compose.animation.slideInHorizontally(androidx.compose.animation.core.tween(260)) { it / 3 } + androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(260)) },
+                    exitTransition = { androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(180)) },
+                    popEnterTransition = { androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(220)) },
+                    popExitTransition = { androidx.compose.animation.slideOutHorizontally(androidx.compose.animation.core.tween(240)) { it / 3 } + androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(240)) }
+                ) {
                     composable("login") {
                         LoginScreen(onSignedIn = {
                             Live.start()
-                            scope.launch { Push.register() }
+                            scope.launch {
+                                Push.register()
+                                runCatching { Api.me() }.onSuccess { Session.isSuperadmin = it.isSuperadmin }
+                            }
                             nav.navigate("list") { popUpTo(0) }
                         })
                     }
@@ -97,7 +112,9 @@ class MainActivity : ComponentActivity() {
                             onNewGroup = { nav.navigate("group") },
                             onSignOut = { signOut(nav) },
                             onProfile = { nav.navigate("profile") },
-                            onStarred = { nav.navigate("starred") }
+                            onStarred = { nav.navigate("starred") },
+                            onTasks = { nav.navigate("tasks") },
+                            onApprovals = { nav.navigate("approvals") }
                         )
                     }
                     composable("new") {
@@ -124,15 +141,32 @@ class MainActivity : ComponentActivity() {
                                     .onSuccess { c -> nav.navigate("chat/${c.sync_id}") { popUpTo("list") } }
                                     .onFailure { Toast.makeText(this@MainActivity, it.message, Toast.LENGTH_LONG).show() }
                             }
-                        })
+                        }, onOpenChat = { cid -> nav.navigate("chat/$cid") { popUpTo("list") } })
+                    }
+                    composable("approvals") { com.jmsocean.chat.ui.ApprovalsScreen(onBack = { nav.popBackStack() }) }
+                    composable("tasks") {
+                        com.jmsocean.chat.ui.TasksScreen(onBack = { nav.popBackStack() }, onOpen = { id -> nav.navigate("chat/$id") })
                     }
                     composable("starred") {
                         StarredScreen(onBack = { nav.popBackStack() }, onOpen = { id -> nav.navigate("chat/$id") })
                     }
                     composable("profile") {
-                        ProfileScreen(onBack = { nav.popBackStack() }, onSignOut = { signOut(nav) })
+                        ProfileScreen(onBack = { nav.popBackStack() }, onSignOut = { signOut(nav) }, onNameRequests = { nav.navigate("names") })
                     }
+                    composable("names") { com.jmsocean.chat.ui.NameRequestsScreen(onBack = { nav.popBackStack() }) }
                 }
+
+                val locked by com.jmsocean.chat.data.AppLock.locked.collectAsState()
+                if (locked && Session.signedIn) {
+                    androidx.activity.compose.BackHandler { moveTaskToBack(true) }
+                    com.jmsocean.chat.ui.LockScreen(
+                        mode = "unlock",
+                        onDone = {},
+                        onSignOut = { com.jmsocean.chat.data.AppLock.disable(); signOut(nav) }
+                    )
+                }
+
+                com.jmsocean.chat.ui.BrandSplash()
 
                 update?.let { v ->
                     AlertDialog(
@@ -170,6 +204,7 @@ class MainActivity : ComponentActivity() {
             Api.logout()
             Live.stop()
             Session.clear()
+            com.jmsocean.chat.data.AppLock.disable()
             Notifier.clearAll(this@MainActivity)
             nav.navigate("login") { popUpTo(0) }
         }

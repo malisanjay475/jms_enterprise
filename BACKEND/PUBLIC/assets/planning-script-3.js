@@ -5230,16 +5230,28 @@
         function openCpMouldChooser(group) {
           closeCpMouldChooser();
           const queuedKeys = new Set(getCpMergedQueueAndExtraPayloads().map((item) => normalizeCpMouldKey(item.mouldCode || item.itemCode || item.mouldName)).filter(Boolean));
-          const remainingQty = Math.max(0, parseCpNumber(group.adjustedRemainingQty) ?? 0);
-          const unusedRows = (group.rows || []).filter((row) => {
-            if (row.isDropped || row.isFullyPlanned || row.isAlreadyPlanned) return false;
+          // Show every variant; used ones get a status badge so the user knows it is already planned / running.
+          const chooserRows = (group.rows || []).slice();
+          const orderKey = String(window.cpSelectedOrder?.orderNo || '').trim().toUpperCase();
+          const getRowPlanState = (row) => {
             const key = normalizeCpMouldKey(getCpMouldDisplayCode(row));
-            return key && !queuedKeys.has(key) && !row.hasAnyPlan;
-          });
-          const chooserRows = (group.rows || []).length > 1 && remainingQty > 0 && unusedRows.length
-            ? unusedRows
-            : (group.rows || []);
-          const hiddenUsedCount = Math.max(0, (group.rows || []).length - chooserRows.length);
+            const plans = key ? (window.allMasterPlans || []).filter((plan) => {
+              const status = String(plan.status || '').trim().toUpperCase();
+              if (['COMPLETED', 'CANCELLED', 'ARCHIVED'].includes(status)) return false;
+              if (orderKey && String(plan.orderNo || plan.order_no || '').trim().toUpperCase() !== orderKey) return false;
+              return [plan.mouldNo, plan.mould_code, plan.itemCode, plan.item_code, plan.mouldName, plan.mould_name]
+                .some((code) => code && normalizeCpMouldKey(code) === key);
+            }) : [];
+            const running = plans.filter((plan) => String(plan.status || '').trim().toUpperCase() === 'RUNNING');
+            const machines = [...new Set((running.length ? running : plans).map((plan) => String(plan.machine || '').trim()).filter(Boolean))];
+            if (running.length) return { label: 'Running', machines, bg: '#dcfce7', fg: '#166534', border: '#86efac' };
+            if (plans.length || row.hasAnyPlan || row.isAlreadyPlanned) return { label: 'Already Planned', machines, bg: '#fef3c7', fg: '#92400e', border: '#fde68a' };
+            if (key && queuedKeys.has(key)) return { label: 'In Queue', machines: [], bg: '#e0e7ff', fg: '#3730a3', border: '#c7d2fe' };
+            if (row.isDropped) return { label: 'Dropped', machines: [], bg: '#fee2e2', fg: '#991b1b', border: '#fecaca' };
+            return null;
+          };
+          const rowStates = chooserRows.map(getRowPlanState);
+          const usedCount = rowStates.filter(Boolean).length;
           const modal = document.createElement('div');
           modal.id = 'cpMouldChooserModal';
           modal.className = 'modal show';
@@ -5261,14 +5273,17 @@
                 <div><div class="mini muted">Required Sqn.</div><strong>${esc(window.cpOrderSequenceMeta?.nextRequiredSqn ?? '-')}</strong></div>
               </div>
               <div style="padding:10px 18px; border-bottom:1px solid var(--border); background:#eff6ff; color:#1d4ed8; font-weight:800; font-size:.84rem">
-                Shared Family Balance Applied: planning one variant updates balance for all variants in this family.${hiddenUsedCount ? ` Showing only unused variant(s) while balance remains.` : ''}
+                Shared Family Balance Applied: planning one variant updates balance for all variants in this family.${usedCount ? ` ${usedCount} of ${chooserRows.length} mould(s) already planned/running — marked below.` : ''}
               </div>
               <div style="padding:18px; overflow:auto; display:flex; flex-direction:column; gap:12px">
-                ${chooserRows.map((row, index) => `
-                  <div style="border:1px solid rgba(203,213,225,.95); border-radius:18px; padding:16px; background:linear-gradient(180deg, #ffffff, #f8fbff); box-shadow:0 14px 30px rgba(15,23,42,.06)">
+                ${chooserRows.map((row, index) => { const state = rowStates[index]; return `
+                  <div style="border:1px solid ${state ? state.border : 'rgba(203,213,225,.95)'}; border-radius:18px; padding:16px; background:linear-gradient(180deg, #ffffff, ${state ? state.bg : '#f8fbff'}); box-shadow:0 14px 30px rgba(15,23,42,.06)">
                     <div style="display:grid; grid-template-columns:minmax(0, 1.4fr) repeat(4, minmax(110px, .7fr)) auto; gap:12px; align-items:center">
                       <div>
                         <div style="font-size:.78rem; font-weight:800; color:#64748b; letter-spacing:.06em; text-transform:uppercase">Mould Option ${index + 1}</div>
+                        <div>
+                          ${state ? `<span class="tag" style="margin-top:4px; max-width:100%; white-space:normal; background:${state.bg}; color:${state.fg}; border-color:${state.border}">${state.label === 'Running' ? '<i class="bi bi-play-circle-fill"></i> ' : ''}${esc(state.label)}${state.machines.length ? ` on ${esc(state.machines.join(', '))}` : ''}</span>` : ''}
+                        </div>
                         <div style="font-weight:800; font-size:1rem; color:#0f172a; margin-top:4px">${esc(row.mould_name || row.product_name || row.mould_no)}</div>
                         <div style="margin-top:6px; color:#475569; font-size:.85rem">Mould No: <strong>${esc(row.mould_no || '-')}</strong></div>
                       </div>
@@ -5289,7 +5304,7 @@
                       <span class="tag">Balance ${esc(formatCpBalanceOrPlanned(group.adjustedRemainingQty || 0))}</span>
                     </div>
                   </div>
-                `).join('')}
+                `; }).join('')}
               </div>
             </div>
           `;
