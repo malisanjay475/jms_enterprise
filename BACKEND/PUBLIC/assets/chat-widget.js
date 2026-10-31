@@ -206,6 +206,9 @@
     '.jc-emo{display:flex;gap:2px;padding:4px 6px;border-bottom:1px solid var(--jc-bd)}.jc-emo button{font-size:18px;padding:2px 4px;border:0;background:transparent;cursor:pointer;border-radius:50%}.jc-emo button.jc-on{background:rgba(0,168,132,.2)}',
     '.jc-fwd{font-size:11px;font-style:italic;opacity:.7;margin-bottom:2px}',
     '.jc-modal{position:fixed;inset:0;z-index:100010;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center}.jc-modal>div{background:var(--jc-bg);color:inherit;border-radius:12px;width:min(420px,92vw);max-height:80vh;overflow:auto;padding:14px;box-shadow:0 10px 40px rgba(0,0,0,.4)}.jc-modal h4{margin:0 0 10px}.jc-modal .jc-row2{display:flex;align-items:center;gap:10px;padding:6px 4px;cursor:pointer}.jc-modal .jc-act{display:flex;justify-content:flex-end;gap:8px;margin-top:12px}.jc-modal .jc-primary{background:#00a884;color:#fff;border:0;border-radius:18px;padding:6px 16px;cursor:pointer}.jc-modal .jc-plain{background:transparent;border:1px solid var(--jc-bd);border-radius:18px;padding:6px 14px;cursor:pointer;color:inherit}.jc-modal small{opacity:.7}',
+    '.jc-gcall{overflow:auto;padding:20px}.jc-ggrid{display:flex;flex-wrap:wrap;gap:18px;justify-content:center;max-width:640px}.jc-gcell{display:flex;flex-direction:column;align-items:center;gap:4px;width:110px}.jc-gcall .jc-gcell .jc-av{width:72px;height:72px;font-size:28px}.jc-gcell small{opacity:.75}' +
+    '.jc-call.jc-gmin{inset:auto 16px 16px auto;flex-direction:row;padding:8px 10px;border-radius:28px;gap:10px;box-shadow:0 4px 16px rgba(0,0,0,.35)}.jc-gbar{cursor:pointer;font-weight:600;padding:0 6px}.jc-gmin button{width:40px;height:40px;border-radius:50%;border:0;color:#fff;cursor:pointer}.jc-gmin .jc-red{background:#e53935}' +
+    '.jc-ibtn.jc-live{background:#00a884;color:#fff;border-radius:16px;padding:0 8px}.jc-ptt.jc-on{background:#e53935;color:#fff;border-radius:50%}' +
     '.jc-call{position:fixed;inset:0;z-index:100020;background:#0b141a;color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px}.jc-call .jc-av{width:110px;height:110px;font-size:40px}.jc-call h2{margin:0;font-weight:600}.jc-call p{margin:0;opacity:.8}.jc-cbtns{display:flex;gap:28px;margin-top:30px}.jc-cbtns button{width:64px;height:64px;border-radius:50%;border:0;font-size:24px;cursor:pointer;color:#fff;background:rgba(255,255,255,.15)}.jc-cbtns .jc-red{background:#e53935}.jc-cbtns .jc-green{background:#00a884}.jc-cbtns .jc-on{background:rgba(255,255,255,.4)}',
     '.jc-app .jc-panel{position:fixed;inset:0;right:0;bottom:0;width:100vw;max-width:100vw;height:100%;max-height:100%;border-radius:0;z-index:100001}.jc-app .jc-fab,.jc-app .jc-sharefab{display:none !important}',
     // the share sheet, mark bar and target banner live outside .jc-root: same colours
@@ -561,7 +564,15 @@
     var moreBtn = el('button', 'jc-ibtn jc-attach', '➕');
     moreBtn.title = 'Poll, announcement, urgent, schedule';
     moreBtn.addEventListener('click', function (e) { e.stopPropagation(); composeMore(moreBtn); });
-    comp.appendChild(moreBtn); comp.appendChild(attach); comp.appendChild(fileIn); comp.appendChild(ta); comp.appendChild(send);
+    var pttBtn = el('button', 'jc-ibtn jc-attach jc-ptt', '📻');
+    pttBtn.title = 'Walkie-talkie: hold while you talk, let go to send';
+    var pttDown = function (e) { e.preventDefault(); ptt.start(pttBtn); };
+    var pttUp = function (e) { e.preventDefault(); ptt.stop(); };
+    pttBtn.addEventListener('mousedown', pttDown);
+    pttBtn.addEventListener('touchstart', pttDown);
+    ['mouseup', 'mouseleave', 'touchend', 'touchcancel'].forEach(function (n) { pttBtn.addEventListener(n, pttUp); });
+    if (!ptt.supported()) pttBtn.style.display = 'none';
+    comp.appendChild(moreBtn); comp.appendChild(attach); comp.appendChild(fileIn); comp.appendChild(pttBtn); comp.appendChild(ta); comp.appendChild(send);
     var ment = el('div', 'jc-ment');
     var ph = el('div', 'jc-ph');
     ph.appendChild(el('div', null, '💬'));
@@ -601,7 +612,12 @@
     starBtn.addEventListener('click', function () { showStarred = !showStarred; showTodos = false; sIn.value = ''; renderList(); });
     todoBtn.addEventListener('click', function () { showTodos = !showTodos; showStarred = false; showApprovals = false; sIn.value = ''; renderList(); });
     apprBtn.addEventListener('click', function () { showApprovals = !showApprovals; showTodos = false; showStarred = false; sIn.value = ''; renderList(); });
-    mCall.addEventListener('click', function () { if (current && !isGroup(current)) webCall.start(current.title); });
+    mCall.addEventListener('click', function () {
+      if (!current) return;
+      if (isGroup(current)) { groupCall.join(current.sync_id, current.title); return; }
+      if (groupCall.active()) { showErr('Leave the group call first.'); return; }
+      webCall.start(current.title);
+    });
 
     fab.addEventListener('click', function () { toggle(!open); });
     if (appMode) {
@@ -716,6 +732,7 @@
     return api('GET', API + '/conversations' + (adminAll ? '?all=1' : '')).then(function (d) {
       convs = d.conversations || [];
       showErr('');
+      loadRooms();
       if (!els.groupMode) renderList();
       updateBadge();
       saveBootSoon();
@@ -1545,7 +1562,14 @@
     els.mMute.textContent = isMuted(c) ? '🔕' : '🔔';
     els.mMute.title = isMuted(c) ? muteLabel(c) + ' (click to change)' : 'Mute notifications';
     setAvatar(els.mAv, c.title, c.photo_v, isGroup(c));
-    if (els.mCall) els.mCall.style.display = !isGroup(c) && !c.system && !readOnly && serverInfo.server_type !== 'LOCAL' ? '' : 'none';
+    if (els.mCall) {
+      els.mCall.style.display = !c.system && !readOnly && serverInfo.server_type !== 'LOCAL' ? '' : 'none';
+      var room = isGroup(c) && activeRooms[c.sync_id];
+      els.mCall.textContent = room ? '📞 ' + room.people : '📞';
+      els.mCall.classList.toggle('jc-live', !!room);
+      els.mCall.title = room ? (room.joined ? 'Open the group call' : 'Join the group call (' + room.people + ' in it)')
+        : isGroup(c) ? 'Start a group call' : 'Voice call';
+    }
   }
 
   function openConv(c, focusId) {
@@ -2647,6 +2671,7 @@
         var exists = loaded.some(function (x) { return x.sync_id === m.sync_id; });
         if (!exists) { loaded.push(m); redraw(); }
         if (open && !document.hidden && !ev.adminCopy) markRead(m.conversation_sync_id);
+        if (m.ptt && !mine && !exists && open) ptt.play(m);
       } else if (alert) {
         toast(m);
       }
@@ -2667,6 +2692,10 @@
       webCall.incoming(ev.call_id, ev.caller);
     } else if (ev.type === 'call_end') {
       webCall.remoteEnded(ev.call_id, ev.reason);
+    } else if (ev.type === 'group_call') {
+      groupCall.invited(ev);
+    } else if (ev.type === 'group_call_end') {
+      loadRooms();
     } else if (ev.type === 'receipt') {
       if (current && current.sync_id === ev.conversation_sync_id && !same(ev.username, me)) {
         var ids = {};
@@ -3899,6 +3928,281 @@
     }
 
     return { start: startCall, incoming: incoming, remoteEnded: remoteEnded };
+  }());
+
+  // ---------------- phase E: group voice calls (WebRTC mesh) + 📻 push-to-talk ----------------
+  var activeRooms = {}; // conversation sync_id -> { id, people, joined }
+  function loadRooms() {
+    if (serverInfo.server_type === 'LOCAL') return;
+    api('GET', API + '/rooms/active').then(function (d) {
+      activeRooms = {};
+      (d.rooms || []).forEach(function (r) { activeRooms[r.conversation_sync_id] = r; });
+      if (current) convHeader();
+    }).catch(function () { });
+  }
+
+  var groupCall = (function () {
+    var st = null; // { room, me, peers, seq, stream, ui, muted, poll, minimized, list }
+    var t = function (x) { return new Date(x).getTime(); };
+    var lc = function (s) { return String(s || '').toLowerCase(); };
+
+    // In each pair the one who joined later offers (same moment: the larger name).
+    function iOffer(p) {
+      var a = t(st.me.joined_at), b = t(p.joined_at);
+      return a > b || (a === b && lc(st.me.username) > lc(p.username));
+    }
+
+    function signal(to, kind, data) {
+      if (!st) return Promise.resolve();
+      return api('POST', API + '/rooms/' + st.room.id + '/signal', { to: to, kind: kind, data: data }).catch(function () { });
+    }
+
+    function makePeer(name, joinedAt) {
+      var pc = new RTCPeerConnection({ iceServers: st.ice || [] });
+      var peer = { name: name, joined_at: joinedAt, pc: pc, remoteSet: false, pending: [], audio: new Audio(), state: 'connecting' };
+      peer.audio.autoplay = true;
+      st.stream.getTracks().forEach(function (tr) { pc.addTrack(tr, st.stream); });
+      pc.ontrack = function (e) { peer.audio.srcObject = e.streams[0]; };
+      pc.onicecandidate = function (e) {
+        if (e.candidate) signal(name, 'ice', JSON.stringify({ sdpMid: e.candidate.sdpMid, sdpMLineIndex: e.candidate.sdpMLineIndex, candidate: e.candidate.candidate }));
+      };
+      pc.onconnectionstatechange = function () {
+        peer.state = pc.connectionState;
+        if (pc.connectionState === 'failed' && st && st.peers[lc(name)] === peer) closePeer(lc(name)); // the offerer retries on the next poll
+        draw();
+      };
+      st.peers[lc(name)] = peer;
+      return peer;
+    }
+
+    function closePeer(key) {
+      var p = st && st.peers[key];
+      if (!p) return;
+      try { p.pc.close(); } catch (_e) { }
+      p.audio.srcObject = null;
+      delete st.peers[key];
+    }
+
+    function sync(list) {
+      st.list = list;
+      var here = {};
+      list.forEach(function (p) {
+        var key = lc(p.username);
+        if (key === lc(st.me.username)) { st.me.joined_at = p.joined_at; return; }
+        here[key] = true;
+        var have = st.peers[key];
+        if (have && t(have.joined_at) !== t(p.joined_at)) { closePeer(key); have = null; } // they rejoined
+        if (!have && iOffer(p)) {
+          var peer = makePeer(p.username, p.joined_at);
+          peer.pc.createOffer({ offerToReceiveAudio: true }).then(function (o) {
+            return peer.pc.setLocalDescription(o).then(function () { return signal(p.username, 'offer', JSON.stringify({ type: 'offer', sdp: o.sdp })); });
+          }).catch(function () { });
+        }
+      });
+      Object.keys(st.peers).forEach(function (k) { if (!here[k]) closePeer(k); });
+      draw();
+    }
+
+    function onSignal(s) {
+      var key = lc(s.from), j = JSON.parse(s.data), peer = st.peers[key];
+      var drain = function (p) { p.remoteSet = true; p.pending.splice(0).forEach(function (c) { p.pc.addIceCandidate(c).catch(function () { }); }); };
+      if (s.kind === 'offer') {
+        if (peer) closePeer(key);
+        var info = (st.list || []).filter(function (p) { return lc(p.username) === key; })[0];
+        peer = makePeer(s.from, info ? info.joined_at : new Date().toISOString());
+        return peer.pc.setRemoteDescription({ type: 'offer', sdp: j.sdp }).then(function () {
+          drain(peer);
+          return peer.pc.createAnswer();
+        }).then(function (a) {
+          return peer.pc.setLocalDescription(a).then(function () { return signal(s.from, 'answer', JSON.stringify({ type: 'answer', sdp: a.sdp })); });
+        });
+      }
+      if (!peer) return Promise.resolve();
+      if (s.kind === 'answer') return peer.pc.setRemoteDescription({ type: 'answer', sdp: j.sdp }).then(function () { drain(peer); });
+      if (s.kind === 'ice') {
+        var c = { sdpMid: j.sdpMid, sdpMLineIndex: j.sdpMLineIndex, candidate: j.candidate };
+        if (peer.remoteSet) return peer.pc.addIceCandidate(c).catch(function () { });
+        peer.pending.push(c);
+      }
+      return Promise.resolve();
+    }
+
+    function poll() {
+      if (!st) return;
+      api('GET', API + '/rooms/' + st.room.id + '/poll?after=' + st.seq).then(function (d) {
+        if (!st) return;
+        if (d.status === 'ended') { finish('Call ended'); return; }
+        var chain = Promise.resolve();
+        // signals first (an offer from someone who just joined), then the people list
+        (d.signals || []).forEach(function (sg) {
+          st.seq = Math.max(st.seq, sg.seq);
+          chain = chain.then(function () { return onSignal(sg); }).catch(function () { });
+        });
+        chain.then(function () { if (st) sync(d.participants || []); });
+        var connected = Object.keys(st.peers).some(function (k) { return st.peers[k].state === 'connected'; });
+        st.poll = setTimeout(poll, connected ? 2000 : 900);
+      }).catch(function (e) {
+        if (!st) return;
+        if (e && /not in this call/i.test(e.message || '')) { finish('You left the call'); return; }
+        st.poll = setTimeout(poll, 2000);
+      });
+    }
+
+    function draw() {
+      if (!st) return;
+      if (!st.ui) { st.ui = el('div', 'jc-call jc-gcall'); document.body.appendChild(st.ui); }
+      var u = st.ui;
+      u.classList.toggle('jc-gmin', !!st.minimized);
+      u.textContent = '';
+      var others = (st.list || []).filter(function (p) { return lc(p.username) !== lc(st.me.username); });
+      if (st.minimized) {
+        var bar = el('div', 'jc-gbar', '📞 ' + st.room.title + ' · ' + (others.length + 1));
+        bar.title = 'Open the call';
+        bar.addEventListener('click', function () { st.minimized = false; draw(); });
+        u.appendChild(bar);
+        var x = el('button', 'jc-red', '📵');
+        x.title = 'Leave';
+        x.addEventListener('click', function (e) { e.stopPropagation(); leave(); });
+        u.appendChild(x);
+        return;
+      }
+      u.appendChild(el('small', null, '🔒 JMS Chat group call'));
+      u.appendChild(el('h2', null, st.room.title));
+      u.appendChild(el('p', null, others.length ? (others.length + 1) + ' in the call' : 'Waiting for others to join…'));
+      var grid = el('div', 'jc-ggrid');
+      [{ username: st.me.username, me: true }].concat(others).forEach(function (p) {
+        var cell = el('div', 'jc-gcell');
+        var av = el('div', 'jc-av');
+        setAvatar(av, p.username, null, false);
+        cell.appendChild(av);
+        var peer = st.peers[lc(p.username)];
+        var state = p.me ? (st.muted ? '🔇 muted' : 'You') : peer && peer.state === 'connected' ? '🔊' : '… connecting';
+        cell.appendChild(el('b', null, p.me ? 'You' : p.username));
+        cell.appendChild(el('small', null, state));
+        grid.appendChild(cell);
+      });
+      u.appendChild(grid);
+      var row = el('div', 'jc-cbtns');
+      [[st.muted ? '🔇' : '🎤', st.muted ? 'Unmute' : 'Mute', st.muted ? 'jc-on' : '', function () {
+        st.muted = !st.muted;
+        st.stream.getAudioTracks().forEach(function (tr) { tr.enabled = !st.muted; });
+        draw();
+      }], ['🗕', 'Minimise (keep talking)', '', function () { st.minimized = true; draw(); }],
+      ['📵', 'Leave', 'jc-red', function () { leave(); }]].forEach(function (b) {
+        var btn = el('button', b[2], b[0]);
+        btn.title = b[1];
+        btn.addEventListener('click', b[3]);
+        row.appendChild(btn);
+      });
+      u.appendChild(row);
+    }
+
+    function join(convId, title) {
+      if (st) { st.minimized = false; draw(); return; }
+      if (!window.RTCPeerConnection || !navigator.mediaDevices) { showErr('This browser cannot make calls.'); return; }
+      navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } }).then(function (stream) {
+        return api('POST', API + '/groups/' + encodeURIComponent(convId) + '/call', {}).then(function (d) {
+          st = { room: d.room, me: d.me, ice: d.ice, peers: {}, seq: 0, stream: stream, list: d.participants };
+          st.room.title = d.room.title || title;
+          draw();
+          sync(d.participants || []);
+          poll();
+          loadRooms();
+        }).catch(function (e) { stream.getTracks().forEach(function (tr) { tr.stop(); }); throw e; });
+      }).catch(function (e) { showErr(e.name === 'NotAllowedError' ? 'Allow the microphone to join the call.' : (e.message || 'Could not join the call.')); });
+    }
+
+    function leave() {
+      if (st) api('POST', API + '/rooms/' + st.room.id + '/leave', {}).catch(function () { });
+      finish('You left the call');
+    }
+
+    function finish(msg) {
+      if (!st) return;
+      clearTimeout(st.poll);
+      Object.keys(st.peers).forEach(closePeer);
+      st.stream.getTracks().forEach(function (tr) { tr.stop(); });
+      var u = st.ui;
+      st = null;
+      if (u) { u.classList.remove('jc-gmin'); u.textContent = ''; u.appendChild(el('p', null, msg)); setTimeout(function () { u.remove(); }, 1500); }
+      loadRooms();
+      if (current) loadMessages(false);
+    }
+
+    // someone started a call in one of my groups
+    function invited(ev) {
+      loadRooms();
+      if (st) return;
+      if (document.hidden && window.Notification && Notification.permission === 'granted') {
+        try { new Notification(ev.title || 'Group call', { body: '📞 ' + ev.caller + ' started a group call', tag: 'jms-gcall' }); } catch (_e) { }
+      }
+      var m = modal('📞 Group call');
+      m.body.appendChild(el('div', null, ev.caller + ' started a call in ' + (ev.title || 'a group') + '.'));
+      dialogButtons(m, 'Join', function () { m.close(); join(ev.conversation_sync_id, ev.title); });
+    }
+
+    return { join: join, invited: invited, active: function () { return !!st; } };
+  }());
+
+  // 📻 push-to-talk: hold the button, let go to send; the others hear it straight away.
+  var ptt = (function () {
+    var rec = null, chunks = [], startedAt = 0, btnRef = null;
+    function supported() { return !!(window.MediaRecorder && navigator.mediaDevices); }
+    function start(btn) {
+      if (rec || !current) return;
+      btnRef = btn;
+      navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } }).then(function (stream) {
+        var type = MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : '';
+        rec = new MediaRecorder(stream, type ? { mimeType: type } : undefined);
+        chunks = [];
+        rec.ondataavailable = function (e) { if (e.data && e.data.size) chunks.push(e.data); };
+        rec.onstop = function () {
+          stream.getTracks().forEach(function (tr) { tr.stop(); });
+          var long = Date.now() - startedAt >= 700;
+          var conv = rec.convId;
+          rec = null;
+          if (btnRef) btnRef.classList.remove('jc-on');
+          if (!long || !chunks.length) { showErr('Hold 📻 while you talk.'); return; }
+          var f = new File(chunks, 'walkie-' + Date.now() + '.webm', { type: 'audio/webm' });
+          sendPtt(conv, f);
+        };
+        rec.convId = current.sync_id;
+        startedAt = Date.now();
+        rec.start();
+        btn.classList.add('jc-on');
+        // a walkie-talkie message is short
+        setTimeout(function () { if (rec && rec.state === 'recording' && Date.now() - startedAt >= 59000) stop(); }, 60000);
+      }).catch(function () { showErr('Allow the microphone to use walkie-talkie.'); });
+    }
+    function stop() { if (rec && rec.state === 'recording') rec.stop(); }
+    function sendPtt(convId, file) {
+      var fd = new FormData();
+      fd.append('conversation_sync_id', convId);
+      fd.append('sync_id', uuid());
+      fd.append('body', '');
+      fd.append('ptt', '1');
+      fd.append('file', file, file.name);
+      api('POST', API + '/attachments', fd).then(function (d) {
+        if (current && current.sync_id === convId && !loaded.some(function (x) { return x.sync_id === d.message.sync_id; })) { loaded.push(d.message); redraw(); }
+        loadConvs();
+      }).catch(function (e) { showErr(e.message); });
+    }
+    // incoming clips play one after another
+    var queue = [], playing = false;
+    function play(m) {
+      if (!m.attachment) return;
+      queue.push(m);
+      if (!playing) next();
+    }
+    function next() {
+      var m = queue.shift();
+      if (!m) { playing = false; return; }
+      playing = true;
+      var a = new Audio(fileUrl(m.attachment));
+      a.onended = a.onerror = function () { next(); };
+      a.play().catch(function () { next(); });
+    }
+    return { supported: supported, start: start, stop: stop, play: play };
   }());
 
   // ---------------- phase A: polls, announcements, urgent, schedule, tasks, pins, quiet hours ----------------

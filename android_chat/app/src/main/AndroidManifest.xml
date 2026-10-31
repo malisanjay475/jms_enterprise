@@ -51,6 +51,13 @@
             android:turnScreenOn="true"
             android:excludeFromRecents="true"
             android:taskAffinity="com.jmsocean.chat.call" />
+        <activity
+            android:name=".call.GroupCallActivity"
+            android:exported="false"
+            android:launchMode="singleTask"
+            android:showWhenLocked="true"
+            android:excludeFromRecents="true"
+            android:taskAffinity="com.jmsocean.chat.call" />
         <service
             android:name=".call.CallService"
             android:exported="false"
