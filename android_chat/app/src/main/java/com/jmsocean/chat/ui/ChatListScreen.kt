@@ -134,6 +134,7 @@ fun ChatListScreen(
     onStarred: () -> Unit,
     onTasks: () -> Unit,
     onApprovals: () -> Unit,
+    onInfo: (String) -> Unit = {},
     vm: ChatListViewModel = viewModel()
 ) {
     val chats by vm.chats.collectAsState()
@@ -281,7 +282,8 @@ fun ChatListScreen(
                                 val now = if (f.conversations.contains(c.sync_id)) f.conversations - c.sync_id else f.conversations + c.sync_id
                                 listScope.launch { runCatching { Api.setFolderChats(f.id, now) }.onSuccess { folderTick++ } }
                             },
-                            onSecurity = if (!c.isGroup || c.my_role == "admin" || Session.isSuperadmin) ({ securityFor = c }) else null
+                            onSecurity = if (!c.isGroup || c.my_role == "admin" || Session.isSuperadmin) ({ securityFor = c }) else null,
+                            onAvatar = { onInfo(c.sync_id) }
                         ) { onOpen(c.sync_id) }
                         HorizontalDivider(Modifier.padding(start = 80.dp), thickness = 0.5.dp)
                     }
@@ -298,7 +300,8 @@ fun ChatListScreen(
 @Composable
 private fun ChatRow(
     c: Conversation, onPin: () -> Unit, onArchive: () -> Unit,
-    folders: List<ChatFolder>, onToggleFolder: (ChatFolder) -> Unit, onSecurity: (() -> Unit)?, onClick: () -> Unit
+    folders: List<ChatFolder>, onToggleFolder: (ChatFolder) -> Unit, onSecurity: (() -> Unit)?,
+    onAvatar: () -> Unit = {}, onClick: () -> Unit
 ) {
     var menu by remember { mutableStateOf(false) }
     Box {
@@ -316,7 +319,10 @@ private fun ChatRow(
             .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Avatar(c.name, 52.dp, group = c.isGroup, online = c.online, photoUrl = c.peer?.let { Api.avatarUrl(it, c.photo_v) })
+        // tapping the photo opens contact / group info, like WhatsApp
+        Box(Modifier.clip(CircleShape).clickable(onClick = onAvatar)) {
+            Avatar(c.name, 52.dp, group = c.isGroup, online = c.online, photoUrl = c.peer?.let { Api.avatarUrl(it, c.photo_v) })
+        }
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {

@@ -769,6 +769,11 @@ function fail(res, err, where) {
 // ---- routes ----
 function registerChatRoutes(app, pool) {
   sharedPool = pool;
+  // Older Android builds sent "First+Last" for a name in the URL path ("+" is a space only in
+  // query strings). Usernames never contain "+", so read it as a space.
+  for (const name of ['username', 'user']) {
+    app.param(name, (req, _res, next, v) => { req.params[name] = String(v).replace(/\+/g, ' '); next(); });
+  }
   ensureChatSchema(pool).catch((err) => console.warn('[chat] schema init failed:', err.message));
   chatSync.registerSyncRoutes(app, pool, {
     uploadRoot, ensureSchema: () => ensureChatSchema(pool), getSettings: () => chatGate.ownSettings(pool)
