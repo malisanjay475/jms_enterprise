@@ -35,9 +35,9 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
         let content = UNMutableNotificationContent()
         if let conv, conv.isGroup {
             content.title = conv.name
-            content.subtitle = m.sender
+            content.subtitle = m.shownSender
         } else {
-            content.title = m.sender
+            content.title = m.shownSender
         }
         content.body = previewText(m)
         content.sound = .default
@@ -45,6 +45,16 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
         content.threadIdentifier = m.conversationSyncId
         content.userInfo = ["conv": m.conversationSyncId]
         c.add(UNNotificationRequest(identifier: m.syncId, content: content, trigger: nil))
+    }
+
+    /** A note that is not a message (name request for admins, name decision). */
+    func notice(title: String, body: String) {
+        guard let c = center else { return }
+        let content = UNMutableNotificationContent()
+        content.title = title
+        content.body = body
+        content.sound = .default
+        c.add(UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil))
     }
 
     /** The chat was read (here or elsewhere): drop its banners. */

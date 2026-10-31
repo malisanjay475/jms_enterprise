@@ -1,6 +1,6 @@
 'use strict';
 
-// JMS Chat profiles and presence (MAIN and LOCAL each keep their own; not synced).
+// JMS Chat profiles and presence.
 //
 //  * Profile photo + "About" line per user (chat_profiles). Photos are sniffed like
 //    attachments (images only, max 5 MB), stored under the private chat upload folder
@@ -12,7 +12,11 @@
 //  * Display name: a user may ask for a new name (chat_profiles.pending_name); it is
 //    shown to others only after an admin / superadmin approves it. Admins always see
 //    the login name and the earlier names (chat_name_history). A superadmin's own
-//    change applies at once.
+//    change applies at once. Admins hear about new requests, and the user about the
+//    decision (live event + phone push, through `notice`).
+//  * MAIN owns profiles. A factory LOCAL pulls them from MAIN and forwards its users'
+//    edits, requests and decisions to MAIN (chatProfileSync.js), so names, photos and
+//    About read the same everywhere. Presence stays per server.
 
 const crypto = require('crypto');
 const fs = require('fs');
@@ -124,12 +128,219 @@ function shownName(username, displayName) {
   return displayName || username;
 }
 
-function registerProfileRoutes(app, pool, { ready, fail, uploadRoot, isOnline, activeUser }) {
+class HttpError extends Error {
+  constructor(status, message) { super(message); this.status = status; }
+}
+
+/**
+ * Profile writes, shared by the routes (MAIN) and by MAIN's handler for edits a LOCAL
+ * forwards (chatProfileSync.js). `user` is { username, role }.
+ * `notice(usernames, { kind, title, body, ... })` tells people (live + push).
+ */
+function createProfileOps(pool, { uploadRoot, notice = async () => {} }) {
   const avatarDir = path.join(uploadRoot, 'avatars');
 
+  async function adminNames() {
+    const { rows } = await pool.query(
+      `SELECT username FROM users WHERE COALESCE(is_active, TRUE) = TRUE AND LOWER(role_code) IN ('admin', 'superadmin')`
+    );
+    return rows.map((r) => r.username);
+  }
+
+  async function saveFields(user, body) {
+    await ensureProfileSchema(pool);
+    body = body || {};
+    const key = user.username.toLowerCase();
+    let message = '';
+    if (body.about !== undefined) {
+      const about = String(body.about || '').replace(/\s+/g, ' ').trim().slice(0, MAX_ABOUT);
+      await pool.query(
+        `INSERT INTO chat_profiles (username_lower, about) VALUES ($1, $2)
+         ON CONFLICT (username_lower) DO UPDATE SET about = EXCLUDED.about, updated_at = NOW()`,
+        [key, about]
+      );
+    }
+    for (const field of ['designation', 'department']) { // fixed list: safe to interpolate
+      if (body[field] === undefined) continue;
+      const v = String(body[field] || '').replace(/[\u0000-\u001f\u007f<>]/g, '').replace(/\s+/g, ' ').trim().slice(0, 60) || null;
+      await pool.query(
+        `INSERT INTO chat_profiles (username_lower, ${field}) VALUES ($1, $2)
+         ON CONFLICT (username_lower) DO UPDATE SET ${field} = EXCLUDED.${field}, updated_at = NOW()`, [key, v]
+      );
+    }
+    if (body.name !== undefined) {
+      const name = cleanName(body.name);
+      if (!name) throw new HttpError(400, `Name must be ${MIN_NAME} to ${MAX_NAME} characters.`);
+      const { rows: [cur] } = await pool.query('SELECT display_name FROM chat_profiles WHERE username_lower = $1', [key]);
+      const shown = shownName(user.username, cur && cur.display_name);
+      if (name === shown) {
+        await pool.query('UPDATE chat_profiles SET pending_name = NULL, pending_at = NULL, updated_at = NOW() WHERE username_lower = $1', [key]);
+      } else if (isSuperadmin(user)) {
+        await pool.query(
+          `INSERT INTO chat_profiles (username_lower, display_name) VALUES ($1, $2)
+           ON CONFLICT (username_lower) DO UPDATE SET display_name = EXCLUDED.display_name,
+             pending_name = NULL, pending_at = NULL, name_note = NULL, updated_at = NOW()`, [key, name]
+        );
+        await pool.query(
+          `INSERT INTO chat_name_history (username_lower, old_name, new_name, status, reviewed_by)
+           VALUES ($1, $2, $3, 'approved', $4)`, [key, shown, name, user.username]
+        );
+        message = 'Name updated.';
+      } else {
+        await pool.query(
+          `INSERT INTO chat_profiles (username_lower, pending_name, pending_at) VALUES ($1, $2, NOW())
+           ON CONFLICT (username_lower) DO UPDATE SET pending_name = EXCLUDED.pending_name,
+             pending_at = NOW(), name_note = NULL, updated_at = NOW()`, [key, name]
+        );
+        message = 'Sent for approval. Others keep seeing your current name until an admin approves it.';
+        const admins = (await adminNames()).filter((a) => a.toLowerCase() !== key);
+        notice(admins, {
+          kind: 'name_request', username: user.username,
+          title: 'New name request', body: `${shown} wants to be called "${name}". Tap to review.`
+        }).catch(() => {});
+      }
+    }
+    return { message };
+  }
+
+  async function cancelName(user) {
+    await ensureProfileSchema(pool);
+    await pool.query(
+      'UPDATE chat_profiles SET pending_name = NULL, pending_at = NULL, updated_at = NOW() WHERE username_lower = $1',
+      [user.username.toLowerCase()]
+    );
+    return {};
+  }
+
+  async function setPhoto(user, buffer) {
+    const type = sniffAttachment(buffer);
+    if (!type || type.kind !== 'image') throw new HttpError(415, 'Only JPG, PNG, GIF or WebP photos.');
+    if (buffer.length > MAX_PHOTO) throw new HttpError(413, 'Photo is too big (max 5 MB).');
+    await ensureProfileSchema(pool);
+    await fs.promises.mkdir(avatarDir, { recursive: true });
+    const name = `${crypto.randomUUID()}${type.ext}`;
+    await fs.promises.writeFile(path.join(avatarDir, name), buffer, { flag: 'wx' });
+    const key = user.username.toLowerCase();
+    const { rows: [old] } = await pool.query('SELECT photo_storage FROM chat_profiles WHERE username_lower = $1', [key]);
+    await pool.query(
+      `INSERT INTO chat_profiles (username_lower, photo_storage, photo_mime, photo_updated_at) VALUES ($1, $2, $3, NOW())
+       ON CONFLICT (username_lower) DO UPDATE SET photo_storage = EXCLUDED.photo_storage,
+         photo_mime = EXCLUDED.photo_mime, photo_updated_at = NOW(), updated_at = NOW()`,
+      [key, name, type.mime]
+    );
+    if (old && old.photo_storage) fs.promises.unlink(path.join(avatarDir, path.basename(old.photo_storage))).catch(() => {});
+    return {};
+  }
+
+  async function removePhoto(user) {
+    await ensureProfileSchema(pool);
+    const key = user.username.toLowerCase();
+    const { rows: [old] } = await pool.query(
+      `UPDATE chat_profiles p SET photo_storage = NULL, photo_mime = NULL, photo_updated_at = NULL, updated_at = NOW()
+         FROM (SELECT photo_storage FROM chat_profiles WHERE username_lower = $1) o
+        WHERE p.username_lower = $1 RETURNING o.photo_storage`, [key]
+    );
+    if (old && old.photo_storage) fs.promises.unlink(path.join(avatarDir, path.basename(old.photo_storage))).catch(() => {});
+    return {};
+  }
+
   async function pendingCount() {
+    await ensureProfileSchema(pool);
     const { rows: [r] } = await pool.query('SELECT COUNT(*)::int AS n FROM chat_profiles WHERE pending_name IS NOT NULL');
     return r.n;
+  }
+
+  // action 'approve' | 'reject'
+  async function decide(reviewer, username, action, note) {
+    if (!isAdminLike(reviewer)) throw new HttpError(403, 'Only an admin or superadmin can review names.');
+    if (action !== 'approve' && action !== 'reject') throw new HttpError(400, 'Choose approve or reject.');
+    await ensureProfileSchema(pool);
+    note = String(note || '').replace(/\s+/g, ' ').trim().slice(0, 140) || null;
+    const key = String(username || '').toLowerCase();
+    let target = key;
+    let old = null;
+    let wanted = null;
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const { rows: [p] } = await client.query(
+        'SELECT display_name, pending_name FROM chat_profiles WHERE username_lower = $1 FOR UPDATE', [key]
+      );
+      if (!p || !p.pending_name) {
+        await client.query('ROLLBACK');
+        throw new HttpError(404, 'No pending name for this user (already reviewed?).');
+      }
+      const { rows: [u] } = await client.query('SELECT username FROM users WHERE LOWER(username) = $1 LIMIT 1', [key]);
+      target = u ? u.username : key;
+      old = shownName(target, p.display_name);
+      wanted = p.pending_name;
+      if (action === 'approve') {
+        await client.query(
+          `UPDATE chat_profiles SET display_name = pending_name, pending_name = NULL, pending_at = NULL,
+             name_note = NULL, updated_at = NOW() WHERE username_lower = $1`, [key]
+        );
+      } else {
+        await client.query(
+          `UPDATE chat_profiles SET pending_name = NULL, pending_at = NULL, name_note = $2, updated_at = NOW()
+            WHERE username_lower = $1`, [key, note || 'Name change was not approved.']
+        );
+      }
+      await client.query(
+        `INSERT INTO chat_name_history (username_lower, old_name, new_name, status, reviewed_by, note)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [key, old, wanted, action === 'approve' ? 'approved' : 'rejected', reviewer.username, note]
+      );
+      await client.query('COMMIT');
+    } catch (err) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw err;
+    } finally {
+      client.release();
+    }
+    notice([target], action === 'approve'
+      ? { kind: 'name_decision', status: 'approved', title: 'Name approved ✅', body: `Everyone now sees you as "${wanted}".` }
+      : { kind: 'name_decision', status: 'rejected', title: 'Name not approved', body: `"${wanted}" was not approved${note ? `: ${note}` : '.'}` }
+    ).catch(() => {});
+    return { remaining: await pendingCount() };
+  }
+
+  return { saveFields, cancelName, setPhoto, removePhoto, decide, pendingCount, avatarDir };
+}
+
+/**
+ * Other users already shown with this name (case-insensitive): login names, or
+ * approved display names. A hint for admins against look-alike names.
+ */
+async function sameNameUsers(pool, name, exceptKey) {
+  const n = String(name || '').trim().toLowerCase();
+  if (!n) return [];
+  const { rows } = await pool.query(
+    `SELECT u.username, p.display_name FROM users u
+       LEFT JOIN chat_profiles p ON p.username_lower = LOWER(u.username)
+      WHERE COALESCE(u.is_active, TRUE) = TRUE AND LOWER(u.username) <> $2
+        AND LOWER(COALESCE(p.display_name, u.username)) = $1
+      LIMIT 5`, [n, exceptKey]
+  );
+  return rows.map((r) => r.username);
+}
+
+/**
+ * `forward(op, username, args)` is set on a LOCAL: writes then go to MAIN (which owns
+ * profiles) and come back through the profile pull; null on MAIN.
+ */
+function registerProfileRoutes(app, pool, { ready, fail, uploadRoot, isOnline, activeUser, notice, forward = null }) {
+  const ops = createProfileOps(pool, { uploadRoot, notice });
+  const avatarDir = ops.avatarDir;
+
+  async function run(op, auth, ...args) {
+    if (forward) return forward(op, auth.username, args);
+    if (op === 'decide') return ops.decide(auth, ...args);
+    return ops[op]({ username: auth.username, role: auth.role }, ...args);
+  }
+
+  function sendError(res, err, what) {
+    if (err && err.status && err.status < 500) return res.status(err.status).json({ ok: false, error: err.message });
+    return fail(res, err, what);
   }
 
   async function history(key, limit = 10) {
@@ -181,7 +392,7 @@ function registerProfileRoutes(app, pool, { ready, fail, uploadRoot, isOnline, a
     if (admin) { out.admin_view = true; out.name_history = await history(key); }
     if (self) {
       out.can_approve_names = admin;
-      if (admin) out.name_requests = await pendingCount();
+      if (admin) out.name_requests = await ops.pendingCount();
     }
     return out;
   }
@@ -202,73 +413,66 @@ function registerProfileRoutes(app, pool, { ready, fail, uploadRoot, isOnline, a
     } catch (err) { fail(res, err, 'profile'); }
   });
 
-  // Body: { about, designation, department } and / or { name }. A new name waits for an admin's approval
-  // (a superadmin's own applies at once); sending the shown name again drops the request.
+  // Body: { about, designation, department } and / or { name }. A new name waits for an
+  // admin's approval (a superadmin's own applies at once); sending the shown name again
+  // drops the request.
   app.put('/api/chat/profile', async (req, res) => {
     try {
       if (!(await ready(req, res))) return;
-      await ensureProfileSchema(pool);
-      const body = req.body || {};
-      const key = req.auth.username.toLowerCase();
-      let message = '';
-      if (body.about !== undefined) {
-        const about = String(body.about || '').replace(/\s+/g, ' ').trim().slice(0, MAX_ABOUT);
-        await pool.query(
-          `INSERT INTO chat_profiles (username_lower, about) VALUES ($1, $2)
-           ON CONFLICT (username_lower) DO UPDATE SET about = EXCLUDED.about, updated_at = NOW()`,
-          [key, about]
-        );
-      }
-      for (const field of ['designation', 'department']) {
-        if (body[field] === undefined) continue;
-        const v = String(body[field] || '').replace(/[\u0000-\u001f\u007f<>]/g, '').replace(/\s+/g, ' ').trim().slice(0, 60) || null;
-        await pool.query(
-          `INSERT INTO chat_profiles (username_lower, ${field}) VALUES ($1, $2)
-           ON CONFLICT (username_lower) DO UPDATE SET ${field} = EXCLUDED.${field}, updated_at = NOW()`, [key, v]
-        );
-      }
-      if (body.name !== undefined) {
-        const name = cleanName(body.name);
-        if (!name) return res.status(400).json({ ok: false, error: `Name must be ${MIN_NAME} to ${MAX_NAME} characters.` });
-        const { rows: [cur] } = await pool.query('SELECT display_name FROM chat_profiles WHERE username_lower = $1', [key]);
-        const shown = shownName(req.auth.username, cur && cur.display_name);
-        if (name === shown) {
-          await pool.query('UPDATE chat_profiles SET pending_name = NULL, pending_at = NULL, updated_at = NOW() WHERE username_lower = $1', [key]);
-        } else if (isSuperadmin(req.auth)) {
-          await pool.query(
-            `INSERT INTO chat_profiles (username_lower, display_name) VALUES ($1, $2)
-             ON CONFLICT (username_lower) DO UPDATE SET display_name = EXCLUDED.display_name,
-               pending_name = NULL, pending_at = NULL, name_note = NULL, updated_at = NOW()`, [key, name]
-          );
-          await pool.query(
-            `INSERT INTO chat_name_history (username_lower, old_name, new_name, status, reviewed_by)
-             VALUES ($1, $2, $3, 'approved', $4)`, [key, shown, name, req.auth.username]
-          );
-          message = 'Name updated.';
-        } else {
-          await pool.query(
-            `INSERT INTO chat_profiles (username_lower, pending_name, pending_at) VALUES ($1, $2, NOW())
-             ON CONFLICT (username_lower) DO UPDATE SET pending_name = EXCLUDED.pending_name,
-               pending_at = NOW(), name_note = NULL, updated_at = NOW()`, [key, name]
-          );
-          message = 'Sent for approval. Others keep seeing your current name until an admin approves it.';
-        }
-      }
-      res.json({ ok: true, message, profile: await profileOut(req.auth.username, req.auth) });
-    } catch (err) { fail(res, err, 'profile save'); }
+      const r = await run('saveFields', req.auth, req.body || {});
+      res.json({ ok: true, message: (r && r.message) || '', profile: await profileOut(req.auth.username, req.auth) });
+    } catch (err) { sendError(res, err, 'profile save'); }
   });
 
   // Withdraw my pending name request.
   app.delete('/api/chat/profile/name', async (req, res) => {
     try {
       if (!(await ready(req, res))) return;
-      await ensureProfileSchema(pool);
-      await pool.query(
-        'UPDATE chat_profiles SET pending_name = NULL, pending_at = NULL, updated_at = NOW() WHERE username_lower = $1',
-        [req.auth.username.toLowerCase()]
-      );
+      await run('cancelName', req.auth);
       res.json({ ok: true, profile: await profileOut(req.auth.username, req.auth) });
-    } catch (err) { fail(res, err, 'name request'); }
+    } catch (err) { sendError(res, err, 'name request'); }
+  });
+
+  app.post('/api/chat/profile/photo', async (req, res) => {
+    try {
+      if (!(await ready(req, res))) return;
+    } catch (err) { return fail(res, err, 'photo'); }
+    photoUpload.single('photo')(req, res, async (upErr) => {
+      try {
+        if (upErr) {
+          const big = upErr.code === 'LIMIT_FILE_SIZE';
+          return res.status(big ? 413 : 400).json({ ok: false, error: big ? 'Photo is too big (max 5 MB).' : 'Could not read the photo.' });
+        }
+        if (!req.file) return res.status(400).json({ ok: false, error: 'No photo attached.' });
+        await run('setPhoto', req.auth, req.file.buffer);
+        res.json({ ok: true, profile: await profileOut(req.auth.username, req.auth) });
+      } catch (err) { sendError(res, err, 'photo'); }
+    });
+  });
+
+  app.delete('/api/chat/profile/photo', async (req, res) => {
+    try {
+      if (!(await ready(req, res))) return;
+      await run('removePhoto', req.auth);
+      res.json({ ok: true, profile: await profileOut(req.auth.username, req.auth) });
+    } catch (err) { sendError(res, err, 'photo remove'); }
+  });
+
+  // Any signed-in chat user may see anyone's profile photo (like WhatsApp contacts).
+  app.get('/api/chat/avatars/:username', async (req, res) => {
+    try {
+      if (!(await ready(req, res))) return;
+      await ensureProfileSchema(pool);
+      const { rows: [p] } = await pool.query(
+        'SELECT photo_storage, photo_mime FROM chat_profiles WHERE username_lower = LOWER($1)', [String(req.params.username || '')]
+      );
+      if (!p || !p.photo_storage) return res.status(404).json({ ok: false, error: 'No photo.' });
+      const file = path.join(avatarDir, path.basename(p.photo_storage));
+      res.setHeader('Content-Type', p.photo_mime || 'image/jpeg');
+      res.setHeader('Cache-Control', 'private, max-age=604800'); // the URL carries ?v=<photo time>
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+      fs.createReadStream(file).on('error', () => { if (!res.headersSent) res.status(404).end(); else res.end(); }).pipe(res);
+    } catch (err) { fail(res, err, 'avatar'); }
   });
 
   // ---- name approvals (admin / superadmin) ----
@@ -296,19 +500,21 @@ function registerProfileRoutes(app, pool, { ready, fail, uploadRoot, isOnline, a
            LEFT JOIN users u ON LOWER(u.username) = h.username_lower
           ORDER BY h.at DESC LIMIT 30`
       );
-      res.json({
-        ok: true,
-        requests: rows.map((r) => ({
+      const requests = [];
+      for (const r of rows) {
+        requests.push({
           username: r.username,
           role: r.role_code || '',
           line: r.line || '',
           current_name: shownName(r.username, r.display_name),
           requested_name: r.pending_name,
           requested_at: r.pending_at,
-          photo_v: r.photo_updated_at ? String(new Date(r.photo_updated_at).getTime()) : null
-        })),
-        recent
-      });
+          photo_v: r.photo_updated_at ? String(new Date(r.photo_updated_at).getTime()) : null,
+          // other people already called this (warn before approving a look-alike)
+          same_name: await sameNameUsers(pool, r.pending_name, String(r.username).toLowerCase())
+        });
+      }
+      res.json({ ok: true, requests, recent });
     } catch (err) { fail(res, err, 'name requests'); }
   });
 
@@ -316,112 +522,14 @@ function registerProfileRoutes(app, pool, { ready, fail, uploadRoot, isOnline, a
   app.post('/api/chat/name-requests/:username', async (req, res) => {
     try {
       if (!(await ready(req, res)) || !adminOnly(req, res)) return;
-      await ensureProfileSchema(pool);
-      const action = String((req.body && req.body.action) || '');
-      if (action !== 'approve' && action !== 'reject') return res.status(400).json({ ok: false, error: 'Choose approve or reject.' });
-      const note = String((req.body && req.body.note) || '').replace(/\s+/g, ' ').trim().slice(0, 140) || null;
-      const key = String(req.params.username || '').toLowerCase();
-      const client = await pool.connect();
-      try {
-        await client.query('BEGIN');
-        const { rows: [p] } = await client.query(
-          'SELECT display_name, pending_name FROM chat_profiles WHERE username_lower = $1 FOR UPDATE', [key]
-        );
-        if (!p || !p.pending_name) {
-          await client.query('ROLLBACK');
-          return res.status(404).json({ ok: false, error: 'No pending name for this user (already reviewed?).' });
-        }
-        const { rows: [u] } = await client.query('SELECT username FROM users WHERE LOWER(username) = $1 LIMIT 1', [key]);
-        const old = shownName(u ? u.username : key, p.display_name);
-        if (action === 'approve') {
-          await client.query(
-            `UPDATE chat_profiles SET display_name = pending_name, pending_name = NULL, pending_at = NULL,
-               name_note = NULL, updated_at = NOW() WHERE username_lower = $1`, [key]
-          );
-        } else {
-          await client.query(
-            `UPDATE chat_profiles SET pending_name = NULL, pending_at = NULL, name_note = $2, updated_at = NOW()
-              WHERE username_lower = $1`, [key, note || 'Name change was not approved.']
-          );
-        }
-        await client.query(
-          `INSERT INTO chat_name_history (username_lower, old_name, new_name, status, reviewed_by, note)
-           VALUES ($1, $2, $3, $4, $5, $6)`,
-          [key, old, p.pending_name, action === 'approve' ? 'approved' : 'rejected', req.auth.username, note]
-        );
-        await client.query('COMMIT');
-      } catch (err) {
-        await client.query('ROLLBACK').catch(() => {});
-        throw err;
-      } finally {
-        client.release();
-      }
-      res.json({ ok: true, remaining: await pendingCount() });
-    } catch (err) { fail(res, err, 'name review'); }
-  });
-
-  app.post('/api/chat/profile/photo', async (req, res) => {
-    try {
-      if (!(await ready(req, res))) return;
-    } catch (err) { return fail(res, err, 'photo'); }
-    photoUpload.single('photo')(req, res, async (upErr) => {
-      try {
-        if (upErr) {
-          const big = upErr.code === 'LIMIT_FILE_SIZE';
-          return res.status(big ? 413 : 400).json({ ok: false, error: big ? 'Photo is too big (max 5 MB).' : 'Could not read the photo.' });
-        }
-        if (!req.file) return res.status(400).json({ ok: false, error: 'No photo attached.' });
-        const type = sniffAttachment(req.file.buffer);
-        if (!type || type.kind !== 'image') return res.status(415).json({ ok: false, error: 'Only JPG, PNG, GIF or WebP photos.' });
-        await ensureProfileSchema(pool);
-        await fs.promises.mkdir(avatarDir, { recursive: true });
-        const name = `${crypto.randomUUID()}${type.ext}`;
-        await fs.promises.writeFile(path.join(avatarDir, name), req.file.buffer, { flag: 'wx' });
-        const key = req.auth.username.toLowerCase();
-        const { rows: [old] } = await pool.query('SELECT photo_storage FROM chat_profiles WHERE username_lower = $1', [key]);
-        await pool.query(
-          `INSERT INTO chat_profiles (username_lower, photo_storage, photo_mime, photo_updated_at) VALUES ($1, $2, $3, NOW())
-           ON CONFLICT (username_lower) DO UPDATE SET photo_storage = EXCLUDED.photo_storage,
-             photo_mime = EXCLUDED.photo_mime, photo_updated_at = NOW(), updated_at = NOW()`,
-          [key, name, type.mime]
-        );
-        if (old && old.photo_storage) fs.promises.unlink(path.join(avatarDir, path.basename(old.photo_storage))).catch(() => {});
-        res.json({ ok: true, profile: await profileOut(req.auth.username, req.auth) });
-      } catch (err) { fail(res, err, 'photo'); }
-    });
-  });
-
-  app.delete('/api/chat/profile/photo', async (req, res) => {
-    try {
-      if (!(await ready(req, res))) return;
-      await ensureProfileSchema(pool);
-      const key = req.auth.username.toLowerCase();
-      const { rows: [old] } = await pool.query(
-        `UPDATE chat_profiles p SET photo_storage = NULL, photo_mime = NULL, photo_updated_at = NULL, updated_at = NOW()
-           FROM (SELECT photo_storage FROM chat_profiles WHERE username_lower = $1) o
-          WHERE p.username_lower = $1 RETURNING o.photo_storage`, [key]
-      );
-      if (old && old.photo_storage) fs.promises.unlink(path.join(avatarDir, path.basename(old.photo_storage))).catch(() => {});
-      res.json({ ok: true, profile: await profileOut(req.auth.username, req.auth) });
-    } catch (err) { fail(res, err, 'photo remove'); }
-  });
-
-  // Any signed-in chat user may see anyone's profile photo (like WhatsApp contacts).
-  app.get('/api/chat/avatars/:username', async (req, res) => {
-    try {
-      if (!(await ready(req, res))) return;
-      await ensureProfileSchema(pool);
-      const { rows: [p] } = await pool.query(
-        'SELECT photo_storage, photo_mime FROM chat_profiles WHERE username_lower = LOWER($1)', [String(req.params.username || '')]
-      );
-      if (!p || !p.photo_storage) return res.status(404).json({ ok: false, error: 'No photo.' });
-      const file = path.join(avatarDir, path.basename(p.photo_storage));
-      res.setHeader('Content-Type', p.photo_mime || 'image/jpeg');
-      res.setHeader('Cache-Control', 'private, max-age=604800'); // the URL carries ?v=<photo time>
-      res.setHeader('X-Content-Type-Options', 'nosniff');
-      fs.createReadStream(file).on('error', () => { if (!res.headersSent) res.status(404).end(); else res.end(); }).pipe(res);
-    } catch (err) { fail(res, err, 'avatar'); }
+      const b = req.body || {};
+      const r = await run('decide', req.auth, String(req.params.username || ''), String(b.action || ''), b.note);
+      res.json({ ok: true, remaining: r && r.remaining != null ? r.remaining : undefined });
+    } catch (err) { sendError(res, err, 'name review'); }
   });
 }
 
-module.exports = { ensureProfileSchema, touch, lookup, isRecent, shownName, registerProfileRoutes };
+module.exports = {
+  ensureProfileSchema, touch, lookup, isRecent, shownName, cleanName, sameNameUsers,
+  createProfileOps, registerProfileRoutes, HttpError, MAX_PHOTO
+};
