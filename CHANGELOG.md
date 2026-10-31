@@ -14,6 +14,15 @@ part of your PR. On release, the `[Unreleased]` items move under the new version
 ## [Unreleased]
 
 ### Added
+- JMS Chat welcome (v1.159.0): every active user gets one welcome message from the verified "JMS ✓" sender ("🙏 Namaste <name>! Welcome to JMS Chat ... reply here and the JMS Team will help you"). Existing users are greeted once after this release (25 per minute); new users within a minute of being created / approved. It opens a "JMS Team · <name>" group with the person and the superadmins (archived for the superadmins), so replies reach the JMS Team. chat_welcome remembers who was greeted.
+
+### Changed
+- JMS Chat (v1.158.1): JMS Bot no longer posts "Escalated" reminders (or pushes) into groups; new team groups get no automated note. Deleted messages are no longer shown in chats.
+
+### Fixed
+- JMS Chat voice calls need a microphone: the caller's microphone is checked before a call is placed (clear message if none / blocked); a device without one declines an incoming call at once instead of ringing; if the microphone fails on answer the caller is told (declined) instead of waiting on "Connecting...".
+
+### Added
 - JMS Chat (v1.158.0): WhatsApp-style message menu - right-click (desktop) or the arrow: Reply, Reply privately and Message <person> (groups), Star, Pin, Forward, Copy, Info / Edit (own), Make task, ticket, translate, Delete, Select messages. On the desktop app it opens as a compact popover beside the message. "Select messages" picks several messages to copy, star, forward or delete together. Group admins can now delete anyone's message in their group; it then reads "This message was deleted by admin <name>". The desktop / home-screen app updates itself to a new release (checked every 10 minutes, applied when nobody is typing). People with no JMS app access (chat sign-ups) land on the chat app instead of the JMS home page.
 
 ### Fixed

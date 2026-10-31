@@ -16,14 +16,11 @@
 
 const http = require('http');
 const chatSync = require('./chatSync');
-const chatFcm = require('./chatFcm');
 const { signSession } = require('../../app/auth');
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const BOT = 'JMS Bot';
-const ALERTS = 'JMS Alerts';
 const LOCK = 'jms_chat_bot';
-const MANAGER_ROLES = ['admin', 'superadmin', 'moulding_manager', 'moulding_ass_manager', 'production_manager', 'plant_head', 'qc_manager', 'quality_manager'];
 
 let schemaReady = null;
 function ensureBotSchema(pool) {
@@ -330,42 +327,6 @@ async function ticketUpdates(db) {
   }
 }
 
-async function escalate(db) {
-  const { rows } = await db.query(
-    `SELECT m.sync_id, m.body, m.server_ts, m.conversation_sync_id, COALESCE(a.escalated_level, 0) AS level,
-            (SELECT g.key FROM chat_auto_groups g WHERE g.conversation_sync_id = m.conversation_sync_id LIMIT 1) AS gkey
-       FROM chat_messages m LEFT JOIN chat_alert_acks a ON a.message_sync_id = m.sync_id
-      WHERE m.meta ? 'alert' AND COALESCE(m.meta->'alert'->>'kind', '') <> 'handover'
-        AND m.server_ts > NOW() - INTERVAL '6 hours' AND a.acked_at IS NULL
-        AND ((COALESCE(a.escalated_level, 0) = 0 AND m.server_ts < NOW() - INTERVAL '30 minutes')
-          OR (COALESCE(a.escalated_level, 0) = 1 AND m.server_ts < NOW() - INTERVAL '60 minutes'))
-      LIMIT 30`
-  ).catch(() => ({ rows: [] }));
-  for (const r of rows) {
-    const level = Number(r.level) + 1;
-    const factoryId = r.gkey && /^factory:(\d+)$/.test(r.gkey) ? Number(r.gkey.split(':')[1]) : null;
-    const roles = level === 1 ? MANAGER_ROLES : ['superadmin'];
-    const { rows: people } = await db.query(
-      `SELECT DISTINCT u.username FROM users u LEFT JOIN user_factories uf ON uf.user_id = u.id
-        WHERE COALESCE(u.is_active, TRUE) AND LOWER(COALESCE(u.role_code,'')) = ANY($1::text[])
-          AND ($2::int IS NULL OR LOWER(COALESCE(u.role_code,'')) = 'superadmin' OR uf.factory_id = $2)`, [roles, factoryId]
-    ).catch(() => ({ rows: [] }));
-    const first = String(r.body).split('\n')[0];
-    if (people.length) {
-      chatFcm.sendToUsers(db, people.map((p) => p.username), {
-        type: 'chat', title: `⚠ Not handled for ${level === 1 ? 30 : 60} min`, body: first, sender: ALERTS,
-        conversation_sync_id: String(r.conversation_sync_id), message_sync_id: String(r.sync_id), is_group: '1', unread: '1', urgent: '1'
-      }).catch(() => {});
-    }
-    await post(db, r.conversation_sync_id, BOT,
-      `⏫ Escalated to ${level === 1 ? 'managers' : 'superadmins'} — nobody acknowledged in ${level === 1 ? 30 : 60} min: ${first}`, { bot: true });
-    await db.query(
-      `INSERT INTO chat_alert_acks (message_sync_id, escalated_level) VALUES ($1, $2)
-       ON CONFLICT (message_sync_id) DO UPDATE SET escalated_level = EXCLUDED.escalated_level`, [r.sync_id, level]
-    );
-  }
-}
-
 function start(pool) {
   if (chatSync.isLocal()) return;
   let running = false;
@@ -381,7 +342,7 @@ function start(pool) {
       if (!locked) return;
       await ensureBotSchema(client);
       await ticketUpdates(client);
-      await escalate(client);
+      // No escalation posts / pushes: groups get no automated reminders.
       // No shift summary: the All staff groups get no automated messages.
     } catch (err) {
       console.warn('[chat-bot]', err.message);
