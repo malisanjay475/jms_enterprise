@@ -197,7 +197,7 @@ fun ChatListScreen(
                             if (!connected) Text("Connecting…", fontSize = 12.sp, color = Color.White.copy(alpha = 0.8f))
                         }
                     },
-                    colors = TopAppBarDefaults.topAppBarColors(containerColor = Teal, titleContentColor = Color.White, actionIconContentColor = Color.White),
+                    colors = TopAppBarDefaults.topAppBarColors(containerColor = headerColor(), titleContentColor = Color.White, actionIconContentColor = Color.White),
                     actions = {
                         IconButton(onClick = { searching = true }) { Icon(Icons.Default.Search, "Search") }
                         Box {
@@ -332,7 +332,7 @@ private fun ChatRow(
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(c.name, fontWeight = FontWeight.SemiBold, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                Text(c.name, fontWeight = if (c.unread > 0) FontWeight.Bold else FontWeight.SemiBold, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
                 Text(
                     listTime(c.last_message_at), fontSize = 12.sp,
                     color = if (c.unread > 0) Color(0xFF00A884) else MaterialTheme.colorScheme.onSurfaceVariant
@@ -348,7 +348,9 @@ private fun ChatRow(
                 }
                 Text(
                     who + (c.last_body ?: ""), fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f)
+                    fontWeight = if (c.unread > 0) FontWeight.Medium else FontWeight.Normal,
+                    color = if (c.unread > 0) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.weight(1f)
                 )
                 if (c.muted_until != null) Icon(Icons.Default.NotificationsOff, "Muted", Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 if (c.pinned) Icon(Icons.Default.PushPin, "Pinned", Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)

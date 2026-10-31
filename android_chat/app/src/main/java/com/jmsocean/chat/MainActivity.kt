@@ -166,6 +166,8 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
                     )
                 }
 
+                com.jmsocean.chat.ui.BrandSplash()
+
                 update?.let { v ->
                     AlertDialog(
                         onDismissRequest = { if (!updating) update = null },

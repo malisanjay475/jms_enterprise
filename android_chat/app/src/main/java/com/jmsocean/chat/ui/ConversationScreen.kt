@@ -270,7 +270,7 @@ fun ConversationScreen(convId: String, onBack: () -> Unit, onInfo: () -> Unit, v
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = Teal, titleContentColor = Color.White,
+                    containerColor = headerColor(), titleContentColor = Color.White,
                     navigationIconContentColor = Color.White, actionIconContentColor = Color.White
                 )
             )

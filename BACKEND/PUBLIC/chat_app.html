@@ -9,9 +9,10 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black">
   <meta name="apple-mobile-web-app-title" content="JMS Chat">
   <link rel="manifest" href="/chat-app.webmanifest">
-  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
-  <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
-  <link rel="icon" href="/favicon.png">
+  <link rel="apple-touch-icon" href="/assets/brand/jms-chat-180.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="/assets/brand/jms-chat-180.png">
+  <link rel="icon" type="image/svg+xml" href="/assets/brand/jms-chat-logo.svg">
+  <link rel="icon" type="image/png" href="/assets/brand/jms-chat-64.png">
   <link rel="stylesheet" href="/assets/bootstrap-icons.min.css">
   <title>JMS Chat</title>
   <!-- JMS Chat app: the chat alone, full screen, on the MAIN server. Sign-in is the
@@ -19,7 +20,7 @@
        the Android app (android_chat/) and as an iPhone home-screen app. -->
   <style>
     html, body { margin: 0; height: 100%; overscroll-behavior: none; -webkit-text-size-adjust: 100%; background: #f0f2f5; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
-    #login { display: none; min-height: 100%; box-sizing: border-box; flex-direction: column; align-items: center; justify-content: center; padding: calc(24px + env(safe-area-inset-top)) calc(16px + env(safe-area-inset-right)) calc(24px + env(safe-area-inset-bottom)) calc(16px + env(safe-area-inset-left)); background: linear-gradient(#075e54 0 220px, #f0f2f5 220px); }
+    #login { display: none; min-height: 100%; box-sizing: border-box; flex-direction: column; align-items: center; justify-content: center; padding: calc(24px + env(safe-area-inset-top)) calc(16px + env(safe-area-inset-right)) calc(24px + env(safe-area-inset-bottom)) calc(16px + env(safe-area-inset-left)); background: linear-gradient(135deg, #00c29a 0%, #008069 45%, #054d44 100%); }
     #login.show { display: flex; position: fixed; inset: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; justify-content: flex-start; }
     #login.show > .card { margin: auto 0; flex: none; }
     #login .card { width: 100%; max-width: 380px; background: #fff; border-radius: 14px; box-shadow: 0 6px 24px rgba(0,0,0,.12); padding: 28px 22px; box-sizing: border-box; }
@@ -124,6 +125,22 @@
     html.jc-appmode .jc-ibtn[data-ic] { filter: none !important; display: inline-flex; align-items: center; justify-content: center; }
     html.jc-appmode .jc-ibtn[data-ic] .bi { font-size: 20px; line-height: 1; }
     html.jc-appmode .jc-app .jc-head .jc-ibtn[data-ic] { color: #fff; }
+
+    /* ===== Brand splash when the app opens: logo, JMS Chat, from Joyo Plastics ===== */
+    #brand { position: fixed; inset: 0; z-index: 2147483000; display: flex; flex-direction: column; align-items: center; justify-content: center; background: linear-gradient(135deg, #00c29a 0%, #008069 45%, #054d44 100%); color: #fff; transition: opacity .35s ease; font-family: 'Segoe UI', system-ui, -apple-system, Roboto, sans-serif; }
+    #brand.out { opacity: 0; pointer-events: none; }
+    #brand img { width: 128px; height: 128px; border-radius: 30px; box-shadow: 0 14px 40px rgba(0,0,0,.28); animation: jcpop .6s cubic-bezier(.2,1.4,.4,1) both; }
+    #brand h1 { margin: 22px 0 4px; font-size: 32px; font-weight: 700; letter-spacing: .2px; animation: jcrise .6s .1s ease both; }
+    #brand p { margin: 0; opacity: .82; font-size: 15px; animation: jcrise .6s .18s ease both; }
+    #brand .by { position: absolute; left: 0; right: 0; bottom: calc(34px + env(safe-area-inset-bottom)); text-align: center; animation: jcrise .6s .26s ease both; }
+    #brand .by small { display: block; opacity: .7; font-size: 13px; }
+    #brand .by b { font-size: 18px; letter-spacing: 1px; font-weight: 600; }
+    @keyframes jcpop { from { transform: scale(.8); opacity: 0; } to { transform: none; opacity: 1; } }
+    @keyframes jcrise { from { transform: translateY(10px); opacity: 0; } to { transform: none; opacity: 1; } }
+    #login .brandfoot { text-align: center; color: #fff; margin: 18px 0 6px; flex: none; }
+    #login .brandfoot small { display: block; opacity: .7; font-size: 12px; }
+    #login .brandfoot b { font-size: 16px; letter-spacing: 1px; font-weight: 600; }
+    #login.show > .brandfoot { margin-top: 0; }
 
     /* ===== Splash while the chat code starts (only the very first open) ===== */
     #loading .spl { display: flex; flex-direction: column; align-items: center; gap: 18px; }
@@ -282,10 +299,26 @@
   </style>
 </head>
 <body>
-  <div id="loading"><div class="spl"><img src="/apple-touch-icon.png" alt=""><b>JMS Chat</b><div class="bar"></div><small>Loading your chats…</small></div></div>
+  <div id="brand" aria-hidden="true">
+    <img src="/assets/brand/jms-chat-logo.svg" alt="">
+    <h1>JMS Chat</h1>
+    <p>Work chat for the shop floor</p>
+    <div class="by"><small>from</small><b>Joyo Plastics</b></div>
+  </div>
+  <script>
+    // Brand splash: once per app session, then fades into the chat.
+    (function () {
+      var b = document.getElementById('brand');
+      var seen = false;
+      try { seen = sessionStorage.getItem('jmsChatBrand') === '1'; sessionStorage.setItem('jmsChatBrand', '1'); } catch (_e) { }
+      if (seen) { b.remove(); return; }
+      setTimeout(function () { b.classList.add('out'); setTimeout(function () { b.remove(); }, 400); }, 1300);
+    })();
+  </script>
+  <div id="loading"><div class="spl"><img src="/assets/brand/jms-chat-192.png" alt=""><b>JMS Chat</b><div class="bar"></div><small>Loading your chats…</small></div></div>
   <div id="lock" role="dialog" aria-modal="true" aria-label="JMS Chat is locked">
     <div class="box">
-      <img src="/apple-touch-icon.png" alt="">
+      <img src="/assets/brand/jms-chat-192.png" alt="">
       <h2>JMS Chat is locked</h2>
       <p>Enter your PIN to open</p>
       <div class="dots" id="lockDots"></div>
@@ -296,7 +329,7 @@
   </div>
   <div id="login">
     <form class="card" id="form" autocomplete="on">
-      <img class="logo" src="/apple-touch-icon.png" alt="">
+      <img class="logo" src="/assets/brand/jms-chat-192.png" alt="">
       <h1>JMS Chat</h1>
       <p class="sub">Sign in with your JMS username and password</p>
       <label for="u">Username</label>
@@ -311,7 +344,7 @@
 
     <!-- Sign-up request (chatSignup.js): an admin approves it -->
     <form class="card" id="suForm" autocomplete="on" style="display:none">
-      <img class="logo" src="/apple-touch-icon.png" alt="">
+      <img class="logo" src="/assets/brand/jms-chat-192.png" alt="">
       <h1>Join JMS Chat</h1>
       <p class="sub">Send your details. An admin will approve your account.</p>
       <label for="suName">Full name</label>
@@ -355,6 +388,7 @@
       <button id="pwGo" type="submit">Set password and sign in</button>
       <div class="msg" id="pwErr"></div>
     </form>
+    <div class="brandfoot"><small>from</small><b>Joyo Plastics</b></div>
   </div>
   <div id="tip" role="status"><button type="button" aria-label="Close">×</button><div id="tipText"></div></div>
   <script>
@@ -652,7 +686,7 @@
 
         // ---- theme ----
         function applyTheme() {
-          var t = pref('jmsChatTheme', 'light');
+          var t = pref('jmsChatTheme', 'system'); // follows the device until the user picks one
           var dark = t === 'dark' || (t === 'system' && window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches);
           doc.classList.toggle('jc-dark', dark);
           var mt = document.querySelector('meta[name=theme-color]');
@@ -687,7 +721,7 @@
           rail.id = 'rail';
           rail.setAttribute('aria-label', 'JMS Chat');
           var logo = document.createElement('img');
-          logo.className = 'logo'; logo.src = '/apple-touch-icon.png'; logo.alt = 'JMS';
+          logo.className = 'logo'; logo.src = '/assets/brand/jms-chat-192.png'; logo.alt = 'JMS';
           rail.appendChild(logo);
           [['chats', 'bi-chat-text-fill', 'Chats'], ['starred', 'bi-star', 'Starred messages'],
             ['tasks', 'bi-clipboard-check', 'My tasks'], ['approvals', 'bi-check2-square', 'Approvals']].forEach(function (v) {
@@ -734,7 +768,7 @@
           var d = document.createElement('div');
           d.className = 'jc-desk-ph';
           var mod = /Mac/.test(navigator.platform) ? '⌘' : 'Ctrl';
-          d.innerHTML = '<img src="/apple-touch-icon.png" alt=""><h2>JMS Chat for desktop</h2>' +
+          d.innerHTML = '<img src="/assets/brand/jms-chat-192.png" alt=""><h2>JMS Chat for desktop</h2>' +
             '<p>Message your team, share JMS pages and files, and follow up on work — all inside JMS. Pick a chat on the left to start.</p>' +
             '<div class="keys"><span><kbd>' + mod + '</kbd> <kbd>K</kbd></span><span>Search chats</span>' +
             '<span><kbd>' + mod + '</kbd> <kbd>Alt</kbd> <kbd>N</kbd></span><span>New chat</span>' +
@@ -999,7 +1033,7 @@
             try { if (navigator.vibrate) navigator.vibrate([120, 60, 120]); } catch (_e) { }
             try {
               if (document.hidden && 'Notification' in window && Notification.permission === 'granted') {
-                new Notification('JMS Chat', { body: 'You are approved! Your username is ' + username + '.', icon: '/apple-touch-icon.png' });
+                new Notification('JMS Chat', { body: 'You are approved! Your username is ' + username + '.', icon: '/assets/brand/jms-chat-192.png' });
               }
             } catch (_e) { }
           }

@@ -205,7 +205,7 @@ fun LoginScreen(onSignedIn: () -> Unit) {
 
     Box(
         Modifier.fillMaxSize()
-            .background(Brush.verticalGradient(listOf(Color(0xFF075E54), Color(0xFF0B7C6E), Color(0xFF128C7E))))
+            .background(BrandGradient)
     ) {
         Column(
             Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().imePadding()
@@ -213,9 +213,7 @@ fun LoginScreen(onSignedIn: () -> Unit) {
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Spacer(Modifier.height(56.dp))
-            Box(Modifier.size(96.dp).clip(CircleShape).background(Color.White), contentAlignment = Alignment.Center) {
-                Image(painterResource(R.drawable.jms_logo), contentDescription = "JMS", modifier = Modifier.size(64.dp))
-            }
+            BrandLogo(104.dp)
             Spacer(Modifier.height(16.dp))
             Text("JMS Chat", color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.Bold)
             Text("Talk to your team, anywhere", color = Color.White.copy(alpha = 0.8f), fontSize = 15.sp)
@@ -314,7 +312,10 @@ fun LoginScreen(onSignedIn: () -> Unit) {
                 color = Color.White.copy(alpha = 0.75f), fontSize = 12.sp, textAlign = TextAlign.Center
             )
             Spacer(Modifier.height(6.dp))
-            Text("JMS Ocean · v${BuildConfig.VERSION_NAME}", color = Color.White.copy(alpha = 0.55f), fontSize = 12.sp)
+            Spacer(Modifier.height(10.dp))
+            Text("from", color = Color.White.copy(alpha = 0.65f), fontSize = 12.sp)
+            Text("Joyo Plastics", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.sp)
+            Text("JMS Chat · v${BuildConfig.VERSION_NAME}", color = Color.White.copy(alpha = 0.55f), fontSize = 12.sp)
             Spacer(Modifier.height(24.dp))
         }
     }

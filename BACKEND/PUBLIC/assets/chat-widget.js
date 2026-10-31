@@ -411,6 +411,7 @@
     '.jc-app .jc-chip{transition:all .12s}.jc-app .jc-chip:hover{border-color:#00a884}',
     '.jc-modal{font-family:\'Segoe UI\',system-ui,-apple-system,Roboto,Helvetica,Arial,sans-serif}',
     '.jc-srow{display:flex;align-items:center;gap:10px}.jc-srow input{flex:1;min-width:0}',
+    '.jc-hasunr .jc-name{font-weight:700}.jc-hasunr .jc-prev{color:var(--jc-tx);font-weight:500}.jc-hasunr .jc-time{color:#00a884;font-weight:600}',
     '.jc-meav{width:36px;height:36px;font-size:13px;cursor:pointer;border:2px solid #fff;box-shadow:0 0 0 1.5px #00a884;box-sizing:border-box;transition:transform .12s}.jc-meav:hover{transform:scale(1.06)}',
     '.jc-prof{width:min(440px,94vw) !important;padding:0 !important}.jc-prof h4{display:none}',
     '.jc-prof .jc-ph{background:linear-gradient(135deg,#075e54,#0b7c6e);color:#fff;padding:26px 16px 18px;text-align:center;border-radius:12px 12px 0 0;position:relative}',
@@ -765,7 +766,7 @@
         else if (adminAll || isGroup(c)) prefix = c.last_sender + ': ';
       }
       r2.appendChild(el('div', 'jc-prev' + (typing ? ' jc-typing' : ''), typing || (prefix + (c.last_body || ''))));
-      if (c.unread && c.is_member) r2.appendChild(el('div', 'jc-unr', String(c.unread)));
+      if (c.unread && c.is_member) { r2.appendChild(el('div', 'jc-unr', String(c.unread))); it.classList.add('jc-hasunr'); }
       mid.appendChild(r1); mid.appendChild(r2);
       it.appendChild(av); it.appendChild(mid);
       it.addEventListener('click', function () { openConv(c); });
