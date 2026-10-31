@@ -36,6 +36,13 @@ class ConversationViewModel(app: Application) : AndroidViewModel(app) {
     val peerPhoto = MutableStateFlow<String?>(null)
     val lastSeen = MutableStateFlow<String?>(null)
     val mutedUntil = MutableStateFlow<String?>(null)
+    val myRole = MutableStateFlow<String?>(null)
+    /** protected chat: no screenshots, download or forward */
+    val isProtected = MutableStateFlow(false)
+    val disappearSeconds = MutableStateFlow(0)
+    val pins = MutableStateFlow<List<Message>>(emptyList())
+    /** message id -> (label, text) for translations and voice-note text shown under bubbles */
+    val extras = MutableStateFlow<Map<String, Pair<String, String>>>(emptyMap())
     private var hasMore = false
     private var typingClear: Job? = null
     private var lastTypingSent = 0L
@@ -87,7 +94,12 @@ class ConversationViewModel(app: Application) : AndroidViewModel(app) {
             }
         }
         viewModelScope.launch {
-            runCatching { Api.conversations() }.onSuccess { list -> mutedUntil.value = list.firstOrNull { it.sync_id == convId }?.muted_until }
+            runCatching { Api.conversations() }.onSuccess { list ->
+                val c = list.firstOrNull { it.sync_id == convId }
+                mutedUntil.value = c?.muted_until
+                isProtected.value = c?.protected == true
+                disappearSeconds.value = c?.disappear_seconds ?: 0
+            }
         }
     }
 
@@ -98,6 +110,8 @@ class ConversationViewModel(app: Application) : AndroidViewModel(app) {
                     messages.value = r.messages
                     hasMore = r.has_more
                     isGroup.value = r.type == "group"
+                    myRole.value = r.my_role
+                    loadPins()
                     members.value = r.members
                     title.value = r.title ?: r.members.firstOrNull { !Session.isMe(it) } ?: "Chat"
                     if (r.type != "group") r.members.firstOrNull { !Session.isMe(it) }?.let { p ->
@@ -259,6 +273,11 @@ class ConversationViewModel(app: Application) : AndroidViewModel(app) {
     fun sendText(text: String) {
         val body = text.trim()
         if (body.isEmpty()) return
+        // "/" = JMS Bot command (/dpr, /job, /order, /help)
+        if (body.startsWith("/") && editing.value == null) {
+            viewModelScope.launch { runCatching { Api.command(convId, body) }.onSuccess { upsert(it) }.onFailure { error.value = it.message } }
+            return
+        }
         editing.value?.let { m ->
             editing.value = null
             if (body == m.body) return
@@ -340,6 +359,74 @@ class ConversationViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun clearError() { error.value = null }
+
+    fun ack(m: Message) {
+        viewModelScope.launch {
+            runCatching { Api.ack(m.sync_id) }
+                .onSuccess { r -> replace(m.sync_id) { it.copy(alert = it.alert?.copy(acked_by = r.acked_by, acked_at = r.acked_at)) } }
+                .onFailure { error.value = it.message }
+        }
+    }
+
+    fun raiseTicket(m: Message, machine: String, problem: String, priority: String, done: (String) -> Unit) {
+        viewModelScope.launch {
+            runCatching { Api.raiseTicket(convId, m.sync_id, machine, problem, priority) }
+                .onSuccess { done(it.ticket_no); refresh() }.onFailure { error.value = it.message }
+        }
+    }
+
+    fun postHandover(running: String, problems: String, qc: String, notes: String) {
+        viewModelScope.launch { runCatching { Api.handover(convId, running, problems, qc, notes) }.onSuccess { upsert(it) }.onFailure { error.value = it.message } }
+    }
+
+    fun checkIn(lat: Double, lng: Double, acc: Float) {
+        viewModelScope.launch { runCatching { Api.checkin(convId, lat, lng, acc) }.onSuccess { upsert(it) }.onFailure { error.value = it.message } }
+    }
+
+    fun translate(m: Message, to: String, label: String) {
+        extras.value = extras.value + (m.sync_id to ("🌐 $label" to "Translating…"))
+        viewModelScope.launch {
+            runCatching { Api.translate(m.sync_id, to) }
+                .onSuccess { t -> extras.value = extras.value + (m.sync_id to ("🌐 $label" to t)) }
+                .onFailure { e -> extras.value = extras.value - m.sync_id; error.value = e.message }
+        }
+    }
+
+    fun transcribe(m: Message) {
+        extras.value = extras.value + (m.sync_id to ("📝 Voice message as text" to "Writing it down…"))
+        viewModelScope.launch {
+            runCatching { Api.transcribe(m.sync_id) }
+                .onSuccess { t -> extras.value = extras.value + (m.sync_id to ("📝 Voice message as text" to t)) }
+                .onFailure { e -> extras.value = extras.value - m.sync_id; error.value = e.message }
+        }
+    }
+
+    fun loadPins() { viewModelScope.launch { runCatching { Api.pins(convId) }.onSuccess { pins.value = it } } }
+
+    fun togglePin(m: Message) {
+        val on = pins.value.none { it.sync_id == m.sync_id }
+        viewModelScope.launch { runCatching { Api.pinMessage(m.sync_id, on) }.onSuccess { loadPins() }.onFailure { error.value = it.message } }
+    }
+
+    fun vote(m: Message, picks: List<Int>) {
+        viewModelScope.launch { runCatching { Api.vote(m.sync_id, picks) }.onSuccess { upsert(it) }.onFailure { error.value = it.message } }
+    }
+
+    fun sendSpecial(text: String, urgent: Boolean = false, announcement: Boolean = false, poll: Triple<String, List<String>, Boolean>? = null) {
+        viewModelScope.launch {
+            runCatching { Api.sendSpecial(convId, text, urgent, announcement, poll) }.onSuccess { upsert(it) }.onFailure { error.value = it.message }
+        }
+    }
+
+    fun makeTask(m: Message, title: String, assignee: String, due: String?, done: () -> Unit) {
+        viewModelScope.launch {
+            runCatching { Api.createTodo(convId, m.sync_id, title, assignee, due) }.onSuccess { done(); refresh() }.onFailure { error.value = it.message }
+        }
+    }
+
+    fun schedule(text: String, at: String, done: () -> Unit) {
+        viewModelScope.launch { runCatching { Api.schedule(convId, text, at) }.onSuccess { done() }.onFailure { error.value = it.message } }
+    }
 
     /** My reaction (or "" to remove). Shown at once, then the server's list wins. */
     fun react(m: Message, emoji: String) {

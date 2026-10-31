@@ -28,7 +28,10 @@ data class JobDetailUiState(
     val packs: String = "",
     val saving: Boolean = false,
     val message: String? = null,
-    val messageOk: Boolean = true
+    val messageOk: Boolean = true,
+    /** Close-shifting box open (PPC-completed job with a leftover that will never be shifted). */
+    val closing: Boolean = false,
+    val closeReason: String = ""
 )
 
 class JobDetailViewModel(savedState: SavedStateHandle) : ViewModel() {
@@ -103,6 +106,24 @@ class JobDetailViewModel(savedState: SavedStateHandle) : ViewModel() {
                     load()
                 }
                 .onFailure { e -> _state.update { it.copy(saving = false, message = e.message ?: "Shift failed.", messageOk = false) } }
+        }
+    }
+
+    fun openClose(open: Boolean) = _state.update { it.copy(closing = open, closeReason = "", message = null) }
+    fun setCloseReason(v: String) = _state.update { it.copy(closeReason = v.take(200)) }
+
+    /** Close shifting of this PPC-completed job (or with [reopen], put it back on the list). */
+    fun closeShifting(reopen: Boolean = false) {
+        val s = _state.value
+        if (!reopen && s.closeReason.isBlank()) return fail("Enter why the rest will not be shifted (scrap, count mismatch …).")
+        _state.update { it.copy(saving = true, message = null) }
+        viewModelScope.launch {
+            repo.closeShifting(s.job?.planId?.ifBlank { null } ?: planId, s.closeReason, reopen)
+                .onSuccess {
+                    _state.update { it.copy(saving = false, closing = false, closeReason = "", message = if (reopen) "Shifting re-opened." else "Shifting closed for this job.", messageOk = true) }
+                    load()
+                }
+                .onFailure { e -> _state.update { it.copy(saving = false, message = e.message ?: "Could not save.", messageOk = false) } }
         }
     }
 

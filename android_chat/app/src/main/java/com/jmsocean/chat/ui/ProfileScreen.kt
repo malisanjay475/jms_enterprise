@@ -26,7 +26,10 @@ import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Badge
+import androidx.compose.material.icons.filled.HourglassTop
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Work
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material3.AlertDialog
@@ -69,19 +72,31 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 
-/** My profile: photo (camera or gallery), About line, sign out. */
+/**
+ * My profile, like WhatsApp: photo (camera or gallery), name, About line, sign out.
+ * A new name waits for an admin's approval; until then others see the current one.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ProfileScreen(onBack: () -> Unit, onSignOut: () -> Unit) {
+fun ProfileScreen(onBack: () -> Unit, onSignOut: () -> Unit, onNameRequests: () -> Unit = {}) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     var profile by remember { mutableStateOf(Profile(username = Session.username ?: "")) }
     var busy by remember { mutableStateOf(false) }
     var sheet by remember { mutableStateOf(false) }
     var editAbout by remember { mutableStateOf<String?>(null) }
+    var editName by remember { mutableStateOf<String?>(null) }
+    var editWork by remember { mutableStateOf(false) }
     var cameraFile by remember { mutableStateOf<File?>(null) }
 
-    LaunchedEffect(Unit) { runCatching { Api.myProfile() }.onSuccess { profile = it } }
+    val lifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    var resumed by remember { mutableStateOf(0) }
+    androidx.compose.runtime.DisposableEffect(lifecycle) {
+        val obs = androidx.lifecycle.LifecycleEventObserver { _, e -> if (e == androidx.lifecycle.Lifecycle.Event.ON_RESUME) resumed++ }
+        lifecycle.lifecycle.addObserver(obs)
+        onDispose { lifecycle.lifecycle.removeObserver(obs) }
+    }
+    LaunchedEffect(resumed) { runCatching { Api.myProfile() }.onSuccess { profile = it } }
 
     fun upload(read: suspend () -> File?) {
         busy = true
@@ -118,12 +133,12 @@ fun ProfileScreen(onBack: () -> Unit, onSignOut: () -> Unit) {
             TopAppBar(
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
                 title = { Text("Profile", fontWeight = FontWeight.SemiBold) },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = Teal, titleContentColor = Color.White, navigationIconContentColor = Color.White)
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = headerColor(), titleContentColor = Color.White, navigationIconContentColor = Color.White)
             )
         }
     ) { pad ->
         Column(Modifier.padding(pad).fillMaxSize().verticalScroll(rememberScrollState())) {
-            Box(Modifier.fillMaxWidth().padding(vertical = 24.dp), contentAlignment = Alignment.Center) {
+            Column(Modifier.fillMaxWidth().padding(top = 24.dp, bottom = 16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                 Box {
                     Avatar(profile.username, 150.dp, photoUrl = Api.avatarUrl(profile.username, profile.photo_v))
                     Box(
@@ -135,15 +150,57 @@ fun ProfileScreen(onBack: () -> Unit, onSignOut: () -> Unit) {
                         else Icon(Icons.Default.CameraAlt, "Change photo", tint = Color.White)
                     }
                 }
+                Spacer(Modifier.height(14.dp))
+                Text(profile.shownName, fontSize = 24.sp, fontWeight = FontWeight.SemiBold)
+                Text("@${profile.username}", fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            InfoRow(Icons.Default.Person, "Name", profile.username, null)
+            profile.pending_name?.let { pending ->
+                Banner(Color(0xFFFFF4CE), Color(0xFF7A5B00), Icons.Default.HourglassTop,
+                    "\"$pending\" is waiting for admin approval. Others still see \"${profile.shownName}\".", "Withdraw") {
+                    scope.launch { runCatching { Api.cancelName() }.onSuccess { profile = it } }
+                }
+            }
+            if (profile.pending_name == null) profile.name_note?.let { note ->
+                Banner(Color(0xFFFDE7E9), Color(0xFFB3261E), Icons.Default.Info, "Name change not approved: $note", null) {}
+            }
+            InfoRow(Icons.Default.Person, "Name", profile.shownName) { editName = profile.pending_name ?: profile.shownName }
+            Text("This is the name your colleagues see. A new name is shown after an admin approves it.",
+                fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(start = 72.dp, end = 24.dp, bottom = 8.dp))
             HorizontalDivider(Modifier.padding(start = 72.dp))
             InfoRow(Icons.Default.Info, "About", profile.about.ifBlank { "Hey there! I am using JMS Chat." }) { editAbout = profile.about }
             HorizontalDivider(Modifier.padding(start = 72.dp))
+            val work = listOf(profile.designation, profile.department).filter { it.isNotBlank() }.joinToString("  |  ")
+            InfoRow(Icons.Default.Work, "Designation | Department", work.ifBlank { "Add your designation and department" }) { editWork = true }
+            HorizontalDivider(Modifier.padding(start = 72.dp))
+            InfoRow(Icons.Default.Badge, "Login ID", profile.username, null)
             val sub = listOf(profile.role.replace('_', ' '), profile.line).filter { it.isNotBlank() }.joinToString(" · ")
-            if (sub.isNotEmpty()) InfoRow(Icons.Default.Info, "Role", sub, null)
+            if (sub.isNotEmpty()) {
+                HorizontalDivider(Modifier.padding(start = 72.dp))
+                InfoRow(Icons.Default.Info, "JMS role", sub, null)
+            }
+            if (profile.can_approve_names) {
+                Spacer(Modifier.height(8.dp))
+                Row(
+                    Modifier.fillMaxWidth().clickable(onClick = onNameRequests).padding(horizontal = 24.dp, vertical = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(Icons.Default.Badge, null, tint = Color(0xFF00A884))
+                    Spacer(Modifier.width(24.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text("Name requests", fontSize = 16.sp)
+                        Text("Approve or reject new names", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    if (profile.name_requests > 0) Box(
+                        Modifier.clip(CircleShape).background(Color(0xFF25D366)).padding(horizontal = 8.dp, vertical = 2.dp)
+                    ) { Text("${profile.name_requests}", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold) }
+                }
+            }
             Spacer(Modifier.height(8.dp))
             NotificationsSection()
+            Spacer(Modifier.height(8.dp))
+            QuietHoursSection()
+            Spacer(Modifier.height(8.dp))
+            AppLockSection()
             Spacer(Modifier.height(16.dp))
             Row(
                 Modifier.fillMaxWidth().clickable(onClick = onSignOut).padding(horizontal = 24.dp, vertical = 16.dp),
@@ -175,6 +232,65 @@ fun ProfileScreen(onBack: () -> Unit, onSignOut: () -> Unit) {
             scope.launch { runCatching { Api.removePhoto() }.onSuccess { profile = it } }
         }
         Spacer(Modifier.height(24.dp))
+    }
+
+    if (editWork) {
+        var des by remember { mutableStateOf(profile.designation) }
+        var dep by remember { mutableStateOf(profile.department) }
+        AlertDialog(
+            onDismissRequest = { editWork = false },
+            title = { Text("Designation | Department") },
+            text = {
+                Column {
+                    OutlinedTextField(value = des, onValueChange = { des = it.take(60) }, singleLine = true, label = { Text("Designation") },
+                        placeholder = { Text("e.g. Supervisor, Operator") })
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedTextField(value = dep, onValueChange = { dep = it.take(60) }, singleLine = true, label = { Text("Department") },
+                        placeholder = { Text("e.g. Moulding, QC, Store") })
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    editWork = false
+                    scope.launch {
+                        runCatching { Api.saveWork(des.trim(), dep.trim()) }.onSuccess { profile = it }
+                            .onFailure { Toast.makeText(ctx, it.message, Toast.LENGTH_LONG).show() }
+                    }
+                }) { Text("Save") }
+            },
+            dismissButton = { TextButton(onClick = { editWork = false }) { Text("Cancel") } }
+        )
+    }
+
+    editName?.let { current ->
+        var text by remember { mutableStateOf(current) }
+        val len = text.trim().length
+        AlertDialog(
+            onDismissRequest = { editName = null },
+            title = { Text("Enter your name") },
+            text = {
+                Column {
+                    OutlinedTextField(value = text, onValueChange = { text = it.take(40) }, singleLine = true,
+                        supportingText = { Text("${text.length}/40") }, isError = len in 1..1)
+                    Text("Your current name stays until an admin approves the new one.", fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            },
+            confirmButton = {
+                TextButton(enabled = len >= 2, onClick = {
+                    editName = null
+                    scope.launch {
+                        runCatching { Api.saveName(text.trim()) }
+                            .onSuccess { r ->
+                                r.profile?.let { profile = it }
+                                if (r.message.isNotBlank()) Toast.makeText(ctx, r.message, Toast.LENGTH_LONG).show()
+                            }
+                            .onFailure { Toast.makeText(ctx, it.message, Toast.LENGTH_LONG).show() }
+                    }
+                }) { Text("Save") }
+            },
+            dismissButton = { TextButton(onClick = { editName = null }) { Text("Cancel") } }
+        )
     }
 
     editAbout?.let { current ->
@@ -294,6 +410,20 @@ fun InfoRow(icon: ImageVector, label: String, value: String, onEdit: (() -> Unit
             Text(value, fontSize = 16.sp)
         }
         if (onEdit != null) Icon(Icons.Default.Edit, "Edit", tint = Color(0xFF00A884))
+    }
+}
+
+@Composable
+private fun Banner(bg: Color, fg: Color, icon: ImageVector, text: String, action: String?, onAction: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp).clip(androidx.compose.foundation.shape.RoundedCornerShape(12.dp))
+            .background(bg).padding(horizontal = 14.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(icon, null, tint = fg, modifier = Modifier.size(20.dp))
+        Spacer(Modifier.width(12.dp))
+        Text(text, color = fg, fontSize = 14.sp, modifier = Modifier.weight(1f))
+        if (action != null) TextButton(onClick = onAction) { Text(action, color = fg, fontWeight = FontWeight.SemiBold) }
     }
 }
 

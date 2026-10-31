@@ -5,13 +5,14 @@
 //  * Auto groups: one "<Factory> – All staff" group per active factory. Members are kept
 //    equal to the active users of that factory (users.factory_id or user_factories) every
 //    10 minutes; superadmins are in every group as admins. Recorded in chat_auto_groups.
-//  * Alerts: every minute, new QC holds / releases and machine stops / restarts are
+//  * Alerts (switched off: the All staff groups get no automated messages): every minute, new QC holds / releases and machine stops / restarts are
 //    posted into that factory's group by "JMS Alerts" (normal messages, so they ring like
 //    any other; people can mute the group). Rows synced in from the factory servers are
 //    seen too, since this reads MAIN's tables. The first run only remembers where it is,
 //    so turning this on never floods old events.
 //
-// CHAT_AUTO_GROUPS=0 (env or server_config) switches both off.
+// Off by default (groups are made by admins / superadmins): CHAT_AUTO_GROUPS=1 (env or
+// server_config) switches it back on. While off, existing auto groups are left as they are.
 
 const chatSync = require('./chatSync');
 
@@ -30,7 +31,7 @@ async function enabled(pool) {
     const { rows: [r] } = await pool.query("SELECT value FROM server_config WHERE key = 'CHAT_AUTO_GROUPS'");
     if (r && r.value != null && String(r.value).trim() !== '') return !/^(0|false|off|no)$/i.test(String(r.value));
   } catch (_e) { /* no server_config */ }
-  return true;
+  return false;
 }
 
 async function ensureAutoSchema(pool) {
@@ -101,10 +102,6 @@ async function syncGroups(db) {
         `INSERT INTO chat_auto_groups (key, conversation_sync_id) VALUES ($1, $2)
          ON CONFLICT (key) DO UPDATE SET conversation_sync_id = EXCLUDED.conversation_sync_id`, [key, convId]
       );
-      await db.query(
-        `INSERT INTO chat_messages (conversation_sync_id, sender, body, kind) VALUES ($1, $2, $3, 'system')`,
-        [convId, BOT, `Group for everyone at ${f.name}. Members are kept up to date from JMS Users; QC holds and machine stops are posted here.`]
-      );
     }
     const people = await factoryUsers(db, f.id);
     const want = new Map(people.map((p) => [p.username.toLowerCase(), p]));
@@ -145,10 +142,10 @@ async function groupFor(db, factoryId) {
   return g ? g.conversation_sync_id : null;
 }
 
-async function post(db, convId, text) {
+async function post(db, convId, text, meta) {
   const { rows: [m] } = await db.query(
-    `INSERT INTO chat_messages (conversation_sync_id, sender, body, kind) VALUES ($1, $2, $3, 'text') RETURNING server_ts`,
-    [convId, BOT, text.slice(0, 4000)]
+    `INSERT INTO chat_messages (conversation_sync_id, sender, body, kind, meta) VALUES ($1, $2, $3, 'text', $4) RETURNING server_ts`,
+    [convId, BOT, text.slice(0, 4000), meta ? JSON.stringify(meta) : null]
   );
   await db.query('UPDATE chat_conversations SET last_message_at = $2, updated_at = NOW() WHERE sync_id = $1', [convId, m.server_ts]);
 }
@@ -188,7 +185,7 @@ async function alerts(db) {
     const { rows } = await db.query('SELECT * FROM qc_holds WHERE id > $1 ORDER BY id LIMIT 50', [Number(lastHold)]).catch(() => ({ rows: [] }));
     for (const h of rows) {
       const g = await groupFor(db, h.factory_id);
-      if (g) { await post(db, g, holdText(h)); sent.holds++; }
+      if (g) { await post(db, g, holdText(h), { alert: { kind: 'qc_hold', ref: h.id } }); sent.holds++; }
       await setState(db, 'qc_hold_id', h.id);
     }
   }
@@ -217,7 +214,8 @@ async function alerts(db) {
     for (const s of rows) {
       const g = await groupFor(db, s.factory_id);
       if (g) {
-        await post(db, g, `🔧 Machine ${s.machine} stopped · ${String(s.status || 'MAINTENANCE').replace(/_/g, ' ')}\nFrom ${fmtDate(s.start_date)} ${s.start_slot || ''}`.trim());
+        await post(db, g, `🔧 Machine ${s.machine} stopped · ${String(s.status || 'MAINTENANCE').replace(/_/g, ' ')}\nFrom ${fmtDate(s.start_date)} ${s.start_slot || ''}`.trim(),
+          { alert: { kind: 'machine_stop', ref: s.id } });
         sent.stops++;
       }
       await setState(db, 'machine_log_id', s.id);
@@ -261,11 +259,12 @@ function start(pool) {
       await ensureAutoSchema(client);
       if (Date.now() - lastGroups > GROUP_EVERY_MS) {
         const groups = await syncGroups(client);
+        // line and department groups (chatTeam.js)
+        await require('./chatTeam').syncTeamGroups(client).catch((err) => console.warn('[chat-auto] team groups:', err.message));
         lastGroups = Date.now();
         if (groups.size) console.log(`[chat-auto] factory groups in sync (${groups.size})`);
       }
-      const s = await alerts(client);
-      if (s.holds + s.releases + s.stops + s.restarts) console.log('[chat-auto] alerts posted', s);
+      // No automated messages in the "All staff" groups: alerts() is no longer run.
     } catch (err) {
       console.warn('[chat-auto]', err.message);
     } finally {

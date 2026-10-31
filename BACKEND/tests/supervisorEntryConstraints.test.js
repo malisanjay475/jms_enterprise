@@ -166,7 +166,7 @@ describe('Supervisor colour over-production cap', () => {
       if (s.includes('FROM users WHERE username')) {
         return Promise.resolve({ rows: [{ line: 'Line 1', global_access: false }], rowCount: 1 });
       }
-      if (s.includes('colour_details FROM plan_board')) {
+      if (s.includes('colour_details') && s.includes('FROM plan_board')) {
         return Promise.resolve({ rows: [{ colour_details: colourDetails }], rowCount: 1 });
       }
       if (s.includes('SUM(good_qty)') && s.includes('AS produced')) {
@@ -289,6 +289,28 @@ describe('Supervisor colour over-production cap', () => {
     expect(res.body.ok).toBe(false);
     expect(res.body.error).toMatch(/reached its limit/);
     expect(inserted(pool)).toBe(false);
+  });
+
+  it('reads plan_qty first, not the batch qty (same as the Job Detail breakdown)', async () => {
+    // A colour row carrying plan_qty 8100 and useQty 2400 must cap at 8262, not 2448.
+    const { app, pool } = createApp();
+    mockPlan(pool, {
+      produced: 2448,
+      colourDetails: JSON.stringify([{ colourName: 'Colour A', plan_qty: 8100, useQty: 2400, batchQty: 2400 }])
+    });
+    const res = await submit(app, { goodQty: 100 });
+    expect(res.body.ok).toBe(true);
+    expect(inserted(pool)).toBe(true);
+  });
+
+  it('looks up the plan row scoped to this factory', async () => {
+    const { app, pool } = createApp();
+    mockPlan(pool, { produced: 0 });
+    await submit(app, { goodQty: 10 });
+    const call = pool.query.mock.calls.find(([sql]) =>
+      String(sql).includes('colour_details') && String(sql).includes('FROM plan_board'));
+    expect(String(call[0])).toMatch(/factory_id/);
+    expect(call[1]).toEqual(['PLAN-1', 2]);
   });
 
   it('leaves zero-qty downtime entries alone', async () => {

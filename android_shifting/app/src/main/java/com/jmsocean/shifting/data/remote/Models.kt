@@ -49,6 +49,14 @@ data class ManualEntryRequest(
 )
 
 @Serializable
+data class CloseShiftingRequest(
+    val planId: String,
+    val reason: String? = null,
+    /** true puts a closed job back on the list. */
+    val reopen: Boolean = false
+)
+
+@Serializable
 data class LineTeamRequest(
     val line: String,
     val dpr_date: String,
@@ -66,6 +74,26 @@ data class AppVersion(
 )
 
 // ── UI models (mapped by ShiftingRepository) ─────────────────────────────────
+
+/**
+ * Where a job / colour stands for shifting (server `shift_state`). Ready first: the list
+ * is sorted by [rank]. UNKNOWN = an older server that does not send it (no badge).
+ */
+enum class ShiftState(val label: String, val rank: Int) {
+    READY("QC complete · ready", 0),
+    PARTLY("Partly ready", 1),
+    WAITING_QC("Waiting for QC", 2),
+    SHIFTED("Fully shifted", 3),
+    NOT_PRODUCED("Not produced", 4),
+    UNKNOWN("", 5);
+
+    companion object {
+        fun from(v: String): ShiftState = entries.firstOrNull { it.name.equals(v.trim(), ignoreCase = true) } ?: UNKNOWN
+    }
+}
+
+/** Shifting of a PPC-completed job closed by hand (leftover that will never be shifted). */
+data class ShiftClosure(val leftoverQty: Double, val reason: String, val closedBy: String, val closedAt: String)
 
 data class QcHold(
     val machine: String,
@@ -157,7 +185,12 @@ data class Job(
     val holdQty: Double = 0.0,
     val onHold: Boolean = false,
     val clientName: String = "",
-    val verificationEnforced: Boolean = false
+    val verificationEnforced: Boolean = false,
+    val shiftState: ShiftState = ShiftState.UNKNOWN,
+    /** PPC marked the job completed: moulding is over, only QC / shifting is left. */
+    val ppcCompleted: Boolean = false,
+    val colours: List<BoardColour> = emptyList(),
+    val lastDprDate: String = ""
 ) {
     /** Most that may be shifted now: QC-verified ready where enforced, else shop-floor balance. */
     val maxShiftQty: Double get() = if (verificationEnforced) minOf(readyQty, floorBalance) else floorBalance
@@ -181,10 +214,10 @@ data class MachineApproved(
     /** The machine's jobs of the last days (board `job_list`). */
     val jobList: List<BoardJob> = emptyList()
 ) {
-    /** Jobs with material still on the shop floor: running first, then the most approved. */
+    /** Jobs with material still on the shop floor: QC-ready first, then partly ready, then waiting for QC. */
     val pendingJobs: List<BoardJob>
         get() = jobList.filter { it.pending || it.onFloor > 0 }
-            .sortedWith(compareBy({ !it.isRunning }, { -it.approved }))
+            .sortedWith(compareBy({ it.shiftState.rank }, { -it.approved }))
 }
 
 /** One job on the Manual Entry board, with its SFG std and colour-wise ready qty. */
@@ -209,7 +242,9 @@ data class BoardJob(
     val sfgPackType: String,
     val sfgBagSize: String,
     val colours: List<BoardColour>,
-    val unassignedShifted: Double
+    val unassignedShifted: Double,
+    val shiftState: ShiftState = ShiftState.UNKNOWN,
+    val ppcCompleted: Boolean = false
 ) {
     val isRunning: Boolean get() = status.equals("running", ignoreCase = true)
     val hasSfgStd: Boolean get() = sfgStd > 0
@@ -220,7 +255,13 @@ data class BoardJob(
         listOf(itemName, mouldName, orderNo, jcNo, clientName, planCode).any { it.contains(q, ignoreCase = true) }
 }
 
-data class BoardColour(val colour: String, val produced: Double, val ready: Double)
+data class BoardColour(
+    val colour: String,
+    val produced: Double,
+    val ready: Double,
+    val state: ShiftState = ShiftState.UNKNOWN,
+    val shifted: Double = 0.0
+)
 
 data class JobDetail(
     val planId: String,
@@ -274,7 +315,11 @@ data class Availability(
     val sfgStd: Double = 0.0,
     /** Pack name as written in Mould Master's SFG Bag Type (LD bag / Crate / Woven bag …). */
     val sfgPackType: String = "",
-    val sfgBagSize: String = ""
+    val sfgBagSize: String = "",
+    val shiftState: ShiftState = ShiftState.UNKNOWN,
+    val ppcCompleted: Boolean = false,
+    /** Set when its shifting was closed by hand; null = open. */
+    val closure: ShiftClosure? = null
 ) {
     val hasSfgStd: Boolean get() = sfgStd > 0
     val packName: String get() = sfgPackType.ifBlank { "pack" }
@@ -306,7 +351,8 @@ data class AvailColour(
     val notVerified: Double,
     val shifted: Double,
     val ready: Double,
-    val byLocation: List<LocQty> = emptyList()
+    val byLocation: List<LocQty> = emptyList(),
+    val state: ShiftState = ShiftState.UNKNOWN
 )
 
 data class LocQty(val location: String, val qty: Double)
