@@ -344,10 +344,10 @@ object Api {
     suspend fun renameGroup(convId: String, title: String) { call("PATCH", "/api/chat/groups/$convId", jsonBody("title" to title)) }
     suspend fun addMembers(convId: String, users: List<String>) { call("POST", "/api/chat/groups/$convId/members", jsonBody("members" to users)) }
     suspend fun removeMember(convId: String, user: String) {
-        call("DELETE", "/api/chat/groups/$convId/members/" + java.net.URLEncoder.encode(user, "UTF-8"))
+        call("DELETE", "/api/chat/groups/$convId/members/" + pathSeg(user))
     }
     suspend fun setGroupAdmin(convId: String, user: String, admin: Boolean) {
-        call("POST", "/api/chat/groups/$convId/members/" + java.net.URLEncoder.encode(user, "UTF-8") + "/admin", jsonBody("admin" to admin))
+        call("POST", "/api/chat/groups/$convId/members/" + pathSeg(user) + "/admin", jsonBody("admin" to admin))
     }
     suspend fun leaveGroup(convId: String) { call("POST", "/api/chat/groups/$convId/leave", "{}".toRequestBody(JSON)) }
 
@@ -358,16 +358,19 @@ object Api {
     /** Ask the server to push a test notification to my phones. Throws with the reason. */
     suspend fun pushTest() { call("POST", "/api/chat/fcm/test", "{}".toRequestBody(JSON)) }
 
+    /** A name in a URL path: URLEncoder writes a space as "+", which means a space only in query strings. */
+    fun pathSeg(s: String): String = java.net.URLEncoder.encode(s, "UTF-8").replace("+", "%20")
+
     fun fileUrl(attachmentId: String) = "$base/api/chat/files/$attachmentId"
 
     /** Profile photo URL; null when the user has none. `v` changes with each new photo. */
     fun avatarUrl(username: String, v: String?) =
-        v?.let { "$base/api/chat/avatars/${java.net.URLEncoder.encode(username, "UTF-8")}?v=$it" }
+        v?.let { "$base/api/chat/avatars/${pathSeg(username)}?v=$it" }
 
     // ---- profiles ----
     suspend fun myProfile(): Profile = get<ProfileReply>("/api/chat/profile").profile ?: Profile()
     suspend fun profileOf(username: String): Profile =
-        get<ProfileReply>("/api/chat/profile/" + java.net.URLEncoder.encode(username, "UTF-8")).profile ?: Profile(username = username)
+        get<ProfileReply>("/api/chat/profile/" + pathSeg(username)).profile ?: Profile(username = username)
 
     suspend fun saveAbout(about: String): Profile = withContext(Dispatchers.IO) {
         json.decodeFromString<ProfileReply>(call("PUT", "/api/chat/profile", buildJsonObject { put("about", about) }.toString().toRequestBody(JSON))).profile ?: Profile()
@@ -378,7 +381,7 @@ object Api {
         json.decodeFromString(call("PUT", "/api/chat/profile", jsonBody("name" to name)))
 
     suspend fun shared(username: String): SharedReply =
-        get("/api/chat/profile/" + java.net.URLEncoder.encode(username, "UTF-8") + "/shared")
+        get("/api/chat/profile/" + pathSeg(username) + "/shared")
 
     suspend fun saveWork(designation: String, department: String): Profile =
         json.decodeFromString<ProfileReply>(call("PUT", "/api/chat/profile", jsonBody("designation" to designation, "department" to department))).profile ?: Profile()
@@ -388,7 +391,7 @@ object Api {
     // ---- name approvals (admin / superadmin) ----
     suspend fun nameRequests(): NameRequestsReply = get("/api/chat/name-requests")
     suspend fun decideName(username: String, approve: Boolean, note: String = "") {
-        call("POST", "/api/chat/name-requests/" + java.net.URLEncoder.encode(username, "UTF-8"),
+        call("POST", "/api/chat/name-requests/" + pathSeg(username),
             jsonBody("action" to (if (approve) "approve" else "reject"), "note" to note))
     }
 

@@ -19,7 +19,7 @@ class PushService : FirebaseMessagingService() {
         if (sender.isBlank()) return null
         return runCatching {
             val req = okhttp3.Request.Builder()
-                .url("${Api.base}/api/chat/avatars/${java.net.URLEncoder.encode(sender, "UTF-8")}").build()
+                .url("${Api.base}/api/chat/avatars/${Api.pathSeg(sender)}").build()
             Api.client.newBuilder().callTimeout(3, java.util.concurrent.TimeUnit.SECONDS).build()
                 .newCall(req).execute().use { r ->
                     if (!r.isSuccessful) return null
