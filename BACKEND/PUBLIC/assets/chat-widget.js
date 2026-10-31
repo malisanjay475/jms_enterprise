@@ -259,6 +259,14 @@
     '.jc-pend{opacity:.6}',
     '.jc-del{font-style:italic;color:var(--jc-mu)}',
     '.jc-verified{display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;margin-left:4px;border-radius:50%;background:#1d9bf0;color:#fff;font-size:9px;font-weight:700;vertical-align:1px}',
+    '.jc-rxbtn{flex:none;align-self:center;width:28px;height:28px;margin:0 6px;border:0;border-radius:50%;background:rgba(0,0,0,.06);color:var(--jc-mu);font-size:17px;line-height:28px;padding:0;cursor:pointer;opacity:0;transition:opacity .12s}',
+    '.jc-msg:hover .jc-rxbtn,.jc-rxbtn:focus{opacity:1}.jc-rxbtn:hover{background:rgba(0,0,0,.12)}',
+    '@media (hover:none){.jc-rxbtn{display:none}}',
+    '.jc-rxbar{position:fixed!important;z-index:2147483000;display:flex;align-items:center;gap:2px;padding:6px 8px!important;border-radius:28px!important;min-width:0!important;width:auto!important;box-shadow:0 6px 24px rgba(11,20,26,.25)}',
+    '.jc-rxbar button{width:38px!important;height:38px;padding:0!important;border:0!important;border-radius:50%;font-size:24px!important;text-align:center!important;background:none;cursor:pointer;transition:transform .1s}',
+    '.jc-rxbar button:hover{transform:scale(1.2);background:var(--jc-bg2)}.jc-rxbar button.jc-on{background:var(--jc-bg2)}',
+    '.jc-rxbar .jc-rxmore{font-size:22px!important;color:var(--jc-mu);background:var(--jc-bg2)}',
+    '.jc-rxbar.jc-rxgrid{flex-wrap:wrap;width:290px!important;border-radius:16px!important}',
     '.jc-msep{height:1px;background:var(--jc-bd);margin:4px 0}',
     '.jc-selbar{display:flex;align-items:center;gap:8px;padding:8px 12px;background:var(--jc-bg2);border-bottom:1px solid var(--jc-bd)}',
     '.jc-selbar .jc-selcount{flex:1;font-weight:600}',
@@ -1770,6 +1778,11 @@
     // Desktop app: a small popover beside the bubble (WhatsApp Desktop), kept on screen.
     if (appMode && window.matchMedia('(min-width: 900px)').matches) {
       menu.classList.add('jc-pop');
+      // the emoji row does not fit the narrow popover: a "React" entry opens the reaction bar
+      emo.remove();
+      var rx = el('button', null, 'React');
+      rx.addEventListener('click', function (e) { e.stopPropagation(); closeMenu(); var a = bub.parentNode.querySelector('.jc-rxbtn'); reactBar(m, a || bub); });
+      menu.insertBefore(rx, menu.children[1] || null);
       var r = bub.getBoundingClientRect(), mw = menu.offsetWidth, mh = menu.offsetHeight;
       var left = mine ? r.right - mw : r.right + 4;
       if (left + mw > window.innerWidth - 8) left = r.left - mw - 4;
@@ -1861,6 +1874,37 @@
         });
       }, Promise.resolve()).then(function () { endSelect(); loadConvs(); }).catch(function (e) { showErr(e.message); });
     }
+  }
+
+  var MORE_RX = ['👍', '❤️', '😂', '😮', '😢', '🙏', '👏', '🔥', '🎉', '💯', '✅', '❌', '👀', '🤝', '💪', '😊',
+    '😍', '🤔', '😅', '😡', '🙌', '👌', '⭐', '🚀'];
+  // Quick reactions in a small bar above the message; "+" opens the larger set.
+  function reactBar(m, anchor) {
+    closeMenu();
+    var myRx = (m.reactions || []).filter(function (r) { return r.users.some(function (u) { return same(u, me); }); })[0];
+    var bar = el('div', 'jc-menu jc-rxbar');
+    function add(list) {
+      bar.textContent = '';
+      list.forEach(function (e) {
+        var b = el('button', myRx && myRx.emoji === e ? 'jc-on' : '', e);
+        b.addEventListener('click', function (ev) { ev.stopPropagation(); closeMenu(); react(m, myRx && myRx.emoji === e ? '' : e); });
+        bar.appendChild(b);
+      });
+    }
+    add(QUICK_RX.concat(['👏']));
+    var more = el('button', 'jc-rxmore', '+');
+    more.title = 'More reactions';
+    more.addEventListener('click', function (ev) { ev.stopPropagation(); add(MORE_RX); bar.classList.add('jc-rxgrid'); place(); });
+    bar.appendChild(more);
+    (root || document.body).appendChild(bar); // inside the chat root, so its styles and stacking apply
+    openMenu = bar;
+    function place() {
+      var r = anchor.getBoundingClientRect(), w = bar.offsetWidth, h = bar.offsetHeight;
+      var left = Math.max(8, Math.min(r.left + r.width / 2 - w / 2, window.innerWidth - w - 8));
+      var top = r.top - h - 6 < 8 ? r.bottom + 6 : r.top - h - 6;
+      bar.style.setProperty('left', left + 'px', 'important'); bar.style.setProperty('top', top + 'px', 'important');
+    }
+    place();
   }
 
   function rxEl(m) {
@@ -2047,6 +2091,13 @@
         });
       }
       row.appendChild(b);
+      // a visible react button beside the bubble (on hover), like WhatsApp Desktop
+      if (!selecting && !adminView && !m.deleted && !m.purged && !m.pending && !m.failed && current && current.is_member !== false) {
+        var rxb = el('button', 'jc-rxbtn', '☺');
+        rxb.title = 'React';
+        rxb.addEventListener('click', function (e) { e.stopPropagation(); reactBar(m, rxb); });
+        if (mine) row.insertBefore(rxb, b); else row.appendChild(rxb);
+      }
       box.appendChild(row);
     });
     if (atBottom) box.scrollTop = box.scrollHeight;
