@@ -295,7 +295,7 @@ fun ConversationScreen(convId: String, onBack: () -> Unit, onInfo: () -> Unit, v
                                     searching = false; query = ""; vm.search("")
                                     if (idx >= 0) uiScope.launch { listState.scrollToItem(idx) }
                                 }.padding(horizontal = 16.dp, vertical = 10.dp)) {
-                                    Text("${if (Session.isMe(m.sender)) "You" else m.sender} · ${dayLabel(m.server_ts)} ${timeOf(m.server_ts)}",
+                                    Text("${if (Session.isMe(m.sender)) "You" else m.sender_name.ifBlank { m.sender }} · ${dayLabel(m.server_ts)} ${timeOf(m.server_ts)}",
                                         fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     Text(m.body, maxLines = 3, overflow = TextOverflow.Ellipsis)
                                 }
@@ -538,7 +538,7 @@ private fun Bubble(
                 )
             ) {
                 Column(Modifier.padding(horizontal = 8.dp, vertical = 5.dp)) {
-                    if (isGroup && !mine && firstOfRun) Text(m.sender, color = nameColor(m.sender), fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                    if (isGroup && !mine && firstOfRun) Text(m.sender_name.ifBlank { m.sender }, color = nameColor(m.sender), fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
                     if (m.forwarded && !m.deleted) Text("↪ Forwarded", fontSize = 12.sp, fontStyle = FontStyle.Italic,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                     if (m.announcement && !m.deleted) Text("📢 ANNOUNCEMENT", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFFB45309))
@@ -553,7 +553,7 @@ private fun Bubble(
                         ) {
                             Box(Modifier.width(4.dp).heightIn(min = 36.dp).background(nameColor(q.sender)))
                             Column(Modifier.padding(6.dp)) {
-                                Text(if (Session.isMe(q.sender)) "You" else q.sender, color = nameColor(q.sender), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                                Text(if (Session.isMe(q.sender)) "You" else q.sender_name.ifBlank { q.sender }, color = nameColor(q.sender), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                                 Text(if (q.deleted) "Original message deleted" else q.text, fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }

@@ -343,7 +343,7 @@ private fun ChatRow(
                 val who = when {
                     c.last_sender.isNullOrBlank() -> ""
                     Session.isMe(c.last_sender) -> "You: "
-                    c.isGroup -> "${c.last_sender}: "
+                    c.isGroup -> "${c.last_sender_name?.ifBlank { null } ?: c.last_sender}: "
                     else -> ""
                 }
                 Text(

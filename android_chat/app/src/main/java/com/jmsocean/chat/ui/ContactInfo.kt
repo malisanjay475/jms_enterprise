@@ -78,6 +78,12 @@ fun ContactDetails(p: Profile, shared: SharedReply?, convId: String, onBack: () 
     val scope = rememberCoroutineScope()
     var viewing by remember { mutableStateOf<String?>(null) }   // image URL in the full-screen viewer
     var muteMenu by remember { mutableStateOf(false) }
+    // current mute state of our chat (from the chat list)
+    var mutedUntil by remember { mutableStateOf<String?>(null) }
+    androidx.compose.runtime.LaunchedEffect(convId) {
+        runCatching { Api.conversations() }.onSuccess { list -> mutedUntil = list.firstOrNull { it.sync_id == convId }?.muted_until }
+    }
+    val muted = mutedUntil?.let { runCatching { java.time.Instant.parse(it).isAfter(java.time.Instant.now()) }.getOrDefault(true) } ?: false
     val photo = Api.avatarUrl(p.username, p.photo_v)
 
     Column(Modifier.fillMaxWidth().padding(bottom = 16.dp)) {
@@ -98,14 +104,17 @@ fun ContactDetails(p: Profile, shared: SharedReply?, convId: String, onBack: () 
             ActionTile(Icons.AutoMirrored.Filled.Chat, "Message", Modifier.weight(1f), onBack)
             ActionTile(Icons.Default.Call, "Voice", Modifier.weight(1f)) { CallActivity.call(ctx, p.username) }
             Box(Modifier.weight(1f)) {
-                ActionTile(Icons.Default.NotificationsOff, "Mute", Modifier.fillMaxWidth()) { muteMenu = true }
+                ActionTile(Icons.Default.NotificationsOff, if (muted) "Muted" else "Mute", Modifier.fillMaxWidth()) { muteMenu = true }
                 DropdownMenu(expanded = muteMenu, onDismissRequest = { muteMenu = false }) {
-                    listOf("8h" to "8 hours", "1w" to "1 week", "always" to "Always", "off" to "Unmute").forEach { (k, label) ->
+                    (if (muted) listOf("off" to "Unmute") else listOf("8h" to "8 hours", "1w" to "1 week", "always" to "Always")).forEach { (k, label) ->
                         DropdownMenuItem(text = { Text(label) }, onClick = {
                             muteMenu = false
                             scope.launch {
                                 runCatching { Api.mute(convId, k) }
-                                    .onSuccess { Toast.makeText(ctx, if (k == "off") "Unmuted" else "Muted", Toast.LENGTH_SHORT).show() }
+                                    .onSuccess {
+                                        mutedUntil = if (k == "off") null else "9999-12-31T00:00:00Z"
+                                        Toast.makeText(ctx, if (k == "off") "Unmuted" else "Muted", Toast.LENGTH_SHORT).show()
+                                    }
                                     .onFailure { Toast.makeText(ctx, it.message, Toast.LENGTH_LONG).show() }
                             }
                         })
@@ -120,8 +129,10 @@ fun ContactDetails(p: Profile, shared: SharedReply?, convId: String, onBack: () 
         }
 
         val media = shared?.media ?: emptyList()
+        val links = shared?.links ?: emptyList()
         Card(null) {
-            CardRow(Icons.Default.PhotoLibrary, "Media, links and docs", if (shared == null) "…" else if (media.isEmpty()) "None" else "${media.size}")
+            val count = media.size + links.size
+            CardRow(Icons.Default.PhotoLibrary, "Media, links and docs", if (shared == null) "…" else if (count == 0) "None" else "$count")
             if (media.isNotEmpty()) Row(
                 Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(start = 12.dp, end = 12.dp, bottom = 12.dp),
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -144,6 +155,24 @@ fun ContactDetails(p: Profile, shared: SharedReply?, convId: String, onBack: () 
                             Text(a.file_name, fontSize = 10.sp, maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
                         }
                     }
+                }
+            }
+        }
+
+        if (links.isNotEmpty()) Card("Shared JMS pages") {
+            links.take(10).forEach { l ->
+                Row(
+                    Modifier.fillMaxWidth().clickable {
+                        runCatching {
+                            ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW,
+                                android.net.Uri.parse(Api.base + l.url)))
+                        }
+                    }.padding(horizontal = 16.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("🔗", fontSize = 18.sp)
+                    Spacer(Modifier.width(14.dp))
+                    Text(l.title ?: "Shared page", fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
                 }
             }
         }

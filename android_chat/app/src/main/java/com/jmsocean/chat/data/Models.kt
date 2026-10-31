@@ -61,6 +61,7 @@ data class Conversation(
     val last_message_at: String? = null,
     val last_body: String? = null,
     val last_sender: String? = null,
+    val last_sender_name: String? = null,
     val unread: Int = 0,
     val pinned: Boolean = false,
     val archived: Boolean = false,
@@ -102,13 +103,15 @@ data class ConversationReply(val conversation: Conversation? = null)
 data class Attachment(val sync_id: String, val kind: String = "", val mime: String = "", val file_name: String = "", val size: Long = 0)
 
 @Serializable
-data class ReplyQuote(val sync_id: String = "", val sender: String = "", val kind: String = "text", val text: String = "", val deleted: Boolean = false, val image: String? = null)
+data class ReplyQuote(val sync_id: String = "", val sender: String = "", val kind: String = "text", val text: String = "", val deleted: Boolean = false, val image: String? = null, val sender_name: String = "")
 
 @Serializable
 data class Message(
     val sync_id: String,
     val conversation_sync_id: String,
     val sender: String = "",
+    /** Approved display name of the sender (login name until one is approved). */
+    val sender_name: String = "",
     val body: String = "",
     val kind: String = "text",
     val server_ts: String? = null,
@@ -278,9 +281,16 @@ data class SharedFile(val sync_id: String, val kind: String = "", val mime: Stri
 @Serializable
 data class CommonGroup(val sync_id: String, val title: String? = null, val members: Int = 0)
 
-/** Contact info extras: media in our direct chat and groups in common. */
 @Serializable
-data class SharedReply(val media: List<SharedFile> = emptyList(), val groups: List<CommonGroup> = emptyList())
+data class SharedLink(val sync_id: String, val title: String? = null, val url: String = "")
+
+/** Contact info extras: media and shared JMS pages in our direct chat, groups in common. */
+@Serializable
+data class SharedReply(
+    val media: List<SharedFile> = emptyList(),
+    val links: List<SharedLink> = emptyList(),
+    val groups: List<CommonGroup> = emptyList()
+)
 
 @Serializable
 data class NameChange(
@@ -301,7 +311,9 @@ data class NameRequest(
     val current_name: String = "",
     val requested_name: String = "",
     val requested_at: String? = null,
-    val photo_v: String? = null
+    val photo_v: String? = null,
+    /** Other people already shown with this name (warn before approving a look-alike). */
+    val same_name: List<String> = emptyList()
 )
 
 @Serializable

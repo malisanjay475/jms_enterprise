@@ -40,7 +40,7 @@ struct MessageRow: View {
                     .foregroundStyle(.secondary)
             }
             if showSender && !mine {
-                Text(m.sender).font(.caption.bold()).foregroundStyle(colorFor(m.sender))
+                Text(m.shownSender).font(.caption.bold()).foregroundStyle(colorFor(m.sender))
             }
             if let q = m.replyTo, !m.deleted {
                 QuoteView(q: q).onTapGesture { onQuoteTap(q.syncId) }
@@ -134,7 +134,7 @@ struct QuoteView: View {
         HStack(spacing: 6) {
             Rectangle().fill(colorFor(q.sender)).frame(width: 3)
             VStack(alignment: .leading, spacing: 1) {
-                Text(Session.isMe(q.sender) ? "You" : q.sender).font(.caption.bold()).foregroundStyle(colorFor(q.sender))
+                Text(Session.isMe(q.sender) ? "You" : q.shownSender).font(.caption.bold()).foregroundStyle(colorFor(q.sender))
                 Text(q.deleted ? "This message was deleted" : quoteText)
                     .font(.caption)
                     .foregroundStyle(.secondary)
