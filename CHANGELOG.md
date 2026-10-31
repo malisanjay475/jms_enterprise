@@ -13,6 +13,9 @@ part of your PR. On release, the `[Unreleased]` items move under the new version
 
 ## [Unreleased]
 
+### Changed
+- NPD Tracker (v1.162.2): Sales Co-ordinator can add NPD products and child moulds (Add Product, + Mould) but cannot change stages, status, remarks or files, or delete.
+
 ### Fixed
 - JMS Chat profile photos missing in the Android app for anyone whose name has a space: the app put "First+Last" in the photo address, and "+" is a space only in query strings. The server (v1.162.1) now reads "+" in a name as a space, so photos show in today's app too; the Android app 3.5.1 encodes names correctly and shows your own photo in the bottom bar and the You tab.
 - JMS Chat Android app 3.5.1: "Contact info" showed only a bare name for people with a space in their name (the same "+" problem made the profile request fail); it now shows the full WhatsApp-style info like the desktop app. Tapping a chat's photo in the list opens its contact / group info.

@@ -13,6 +13,7 @@
  * Everyone who can open the page can view. Admin / superadmin edit every
  * stage; only superadmin deletes products and child moulds. PPC managers add
  * products and child moulds, set name / status / remarks and upload files.
+ * Sales Co-ordinator only adds products and child moulds.
  * Department roles (DEPT_ROLES) edit only their department's stages
  * (STAGES[].depts), on products and child moulds alike.
  *
@@ -34,6 +35,10 @@ const { sendServerError } = require('../../app/httpErrors');
    status, remarks, files). */
 const ADMIN_ROLES = new Set(['admin', 'superadmin']);
 const SHEET_ROLES = new Set(['ppcassmanager', 'ppcmanager', 'srppcmanager']);
+/* Sales Co-ordinator only adds new products and child moulds (no stage, status,
+   remarks, file or delete rights). Matched loosely: 'sales_coordinator',
+   'Sales Co-ordinator', 'Sales Coord.' all normalise to contain 'salescoord'. */
+const ADD_ONLY_ROLE = /salescoord/;
 
 /* Department roles, matched on the role code or its label with everything but
    letters / digits removed (so 'sr__ppc_manager' and 'Sr. PPC Manager' are the
@@ -107,6 +112,7 @@ const PRODUCT_STATUSES = new Set(['', 'Hold', 'Launched', 'Delayed', 'On Schedul
 const isNpdAdmin = u => !!u && ADMIN_ROLES.has(norm(u.role_code));
 const isNpdSuperadmin = u => !!u && norm(u.role_code) === 'superadmin';
 const canEditSheet = u => isNpdAdmin(u) || (!!u && userKeys(u).some(k => SHEET_ROLES.has(k)));
+const canAddItems = u => canEditSheet(u) || (!!u && userKeys(u).some(k => ADD_ONLY_ROLE.test(k)));
 const editableStageKeys = u => {
   if (!u) return [];
   if (isNpdAdmin(u)) return STAGES.map(s => s.key);
@@ -278,6 +284,12 @@ function registerNpdRoutes(app, pool) {
     if (!canEdit(u)) { res.status(403).json({ ok: false, error: 'Only admin and PPC managers can do this in NPD' }); return null; }
     return u;
   }
+  async function requireAdder(req, res) {
+    const u = await sessionUser(req);
+    if (!u) { res.status(401).json({ ok: false, error: 'Unauthorized' }); return null; }
+    if (!canAddItems(u)) { res.status(403).json({ ok: false, error: 'Only admin, PPC managers and Sales Co-ordinator can add NPD products' }); return null; }
+    return u;
+  }
 
   app.get('/api/npd/products', async (req, res) => {
     try {
@@ -296,6 +308,7 @@ function registerNpdRoutes(app, pool) {
       res.json({
         ok: true,
         can_edit: canEdit(u),
+        can_add: canAddItems(u),
         can_delete: isSuperadmin(u),
         editable_stages: editableStages(u),
         departments: u ? (isAdmin(u) ? ['All'] : roleDepts(u)) : [],
@@ -426,7 +439,7 @@ function registerNpdRoutes(app, pool) {
   app.post('/api/npd/products', async (req, res) => {
     try {
       await ensureTables();
-      const u = await requireEditor(req, res);
+      const u = await requireAdder(req, res);
       if (!u) return;
       const name = clean(req.body?.product_name, 300);
       if (!name) return res.status(400).json({ ok: false, error: 'Product name is required' });
@@ -630,6 +643,7 @@ module.exports = {
   norm,
   editableStageKeys,
   canEditSheet,
+  canAddItems,
   isNpdAdmin,
   isNpdSuperadmin
 };

@@ -278,11 +278,13 @@
                     const res = await api('/npd/products');
                     S.rows = res.data || [];
                     S.canEdit = !!res.can_edit;
+                    S.canAdd = !!res.can_add;
                     S.canDelete = !!res.can_delete;
                     S.editable = new Set(res.editable_stages || []);
                     S.depts = res.departments || [];
-                    $('addBtn').style.display = S.canEdit ? '' : 'none';
+                    $('addBtn').style.display = S.canAdd ? '' : 'none';
                     $('roNote').textContent = S.canEdit ? ''
+                        : S.canAdd && !S.editable.size ? 'You can add products and child moulds only'
                         : S.editable.size ? `You can edit ${S.depts.join(' / ')} stages only`
                         : 'View only - editing is for admin and the stage departments';
                     render();
@@ -334,7 +336,7 @@
                     const name = S.canEdit
                         ? `<input class="inp" style="width:100%;padding:4px 6px;font-weight:700" data-id="${p.id}" data-f="product_name" value="${esc(p.product_name)}">`
                         : `<div class="nm">${esc(p.product_name)}</div>`;
-                    const addMould = S.canEdit && !child ? `<a class="addm" data-addm="${p.id}" title="Add a child mould under this product"><i class="bi bi-plus-circle"></i> Mould</a>` : '';
+                    const addMould = S.canAdd && !child ? `<a class="addm" data-addm="${p.id}" title="Add a child mould under this product"><i class="bi bi-plus-circle"></i> Mould</a>` : '';
                     h += `<tr${child ? ' class="child"' : ''}><td class="fix c0">${child ? '<span class="none">↳</span>' : `<b>${esc(p.sr_no || '')}</b>`}</td>
                         <td class="fix c1"><div class="pc">${thumb}<div>${child ? '<span class="mtag">CHILD MOULD</span>' : ''}${name}<div class="meta"><a data-files="${p.id}"><i class="bi bi-file-earmark-text"></i> Trial report (${reps})</a><a data-files="${p.id}"><i class="bi bi-images"></i> Images (${imgs})</a>${addMould}</div></div></div></td>`;
                     COLS.forEach(c => { h += stageCell(p, c); });
@@ -347,7 +349,7 @@
                 });
                 $('grid').innerHTML = h + '</tbody>';
                 $('empty').style.display = rows.length ? 'none' : '';
-                $('empty').textContent = parents.length ? 'No product matches the filter.' : (S.canEdit ? 'No NPD products yet. Click "Add Product" to start.' : 'No NPD products yet.');
+                $('empty').textContent = parents.length ? 'No product matches the filter.' : (S.canAdd ? 'No NPD products yet. Click "Add Product" to start.' : 'No NPD products yet.');
             }
 
             async function save(id, body) {
