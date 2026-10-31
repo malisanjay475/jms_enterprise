@@ -31,6 +31,7 @@ const chatProfileSync = require('./chatProfileSync');
 const chatExtras = require('./chatExtras');
 const chatAuto = require('./chatAuto');
 const chatCalls = require('./chatCalls');
+const chatGroupCalls = require('./chatGroupCalls');
 const chatWork = require('./chatWork');
 const chatBot = require('./chatBot');
 const chatTeam = require('./chatTeam');
@@ -320,6 +321,7 @@ function messageOut(row, att, receipts) {
     scheduled: Boolean(row.meta && row.meta.scheduled),
     bot: Boolean(row.meta && row.meta.bot),
     verified: Boolean(row.meta && row.meta.verified),
+    ptt: Boolean(row.meta && row.meta.ptt), // 📻 walkie-talkie clip: plays by itself
     alert: row.meta && row.meta.alert ? { kind: row.meta.alert.kind } : null,
     attachment: att && !row.deleted_at && !row.purged_at ? attachmentOut(att) : null
   };
@@ -820,6 +822,7 @@ function registerChatRoutes(app, pool) {
   // one welcome message per user from the verified JMS sender (MAIN only)
   if (!chatSync.isLocal()) require('./chatWelcome').start(pool);
   chatCalls.registerCallRoutes(app, pool, { ready, fail, activeUser });
+  chatGroupCalls.registerGroupCallRoutes(app, pool, { ready, fail, membership });
   chatWork.registerWorkRoutes(app, pool, { ready, fail, membership, decorate, localFactoryId });
   chatWork.ensureWorkSchema(pool).catch((err) => console.warn('[chat] work schema:', err.message));
   chatWork.start(pool, { localFactoryId });
@@ -1550,9 +1553,11 @@ function registerChatRoutes(app, pool) {
         try {
           row = await inTx(async (db) => {
             const { rows: [m] } = await db.query(
-              `INSERT INTO chat_messages (sync_id, conversation_sync_id, sender, body, kind, factory_id, reply_to_sync_id)
-               VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
-              [syncId, convId, me, caption, type.kind, localFactoryId(), replyTo]
+              `INSERT INTO chat_messages (sync_id, conversation_sync_id, sender, body, kind, factory_id, reply_to_sync_id, meta)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
+              [syncId, convId, me, caption, type.kind, localFactoryId(), replyTo,
+                // 📻 push-to-talk: an audio clip the others' phones play out loud by themselves
+                String(b.ptt || '') === '1' && type.kind === 'audio' ? JSON.stringify({ ptt: true }) : null]
             );
             await db.query(
               `INSERT INTO chat_attachments (message_sync_id, conversation_sync_id, kind, mime, file_name,

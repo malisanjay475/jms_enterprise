@@ -83,6 +83,35 @@ object CallNotifications {
     fun cancelIncoming(ctx: Context, callId: String) {
         NotificationManagerCompat.from(ctx).cancel(id(callId))
     }
+
+    /** Someone started a group call: a normal (not ringing) notification with Join. */
+    fun showGroupInvite(ctx: Context, roomId: String, convId: String, title: String, caller: String) {
+        if (Build.VERSION.SDK_INT >= 33 &&
+            ContextCompat.checkSelfPermission(ctx, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) return
+        ensureChannels(ctx)
+        val join = PendingIntent.getActivity(
+            ctx, id(roomId) + 5,
+            GroupCallActivity.intent(ctx, convId, title),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+        val n = NotificationCompat.Builder(ctx, CHANNEL_RING)
+            .setSmallIcon(R.drawable.ic_stat_chat)
+            .setContentTitle(title)
+            .setContentText("📞 $caller started a group call")
+            .setCategory(NotificationCompat.CATEGORY_CALL)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setAutoCancel(true)
+            .setTimeoutAfter(60_000)
+            .setContentIntent(join)
+            .addAction(android.R.drawable.ic_menu_call, "Join", join)
+            .build()
+        NotificationManagerCompat.from(ctx).notify(id(roomId), n)
+    }
+
+    fun cancelGroupInvite(ctx: Context, roomId: String) {
+        NotificationManagerCompat.from(ctx).cancel(id(roomId))
+    }
 }
 
 /** Decline / Hang up buttons on call notifications. */
@@ -100,7 +129,7 @@ class CallActionReceiver : BroadcastReceiver() {
                     }
                 }
             }
-            ACTION_END -> CallEngine.hangUp()
+            ACTION_END -> if (GroupCallEngine.active) GroupCallEngine.leave() else CallEngine.hangUp()
         }
     }
 
