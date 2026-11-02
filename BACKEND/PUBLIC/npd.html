@@ -78,6 +78,14 @@
         .sdone { display: block; font-size: 10px; color: var(--c-ink); font-weight: 700; text-align: center; margin-top: 2px; }
         .srm { display: block; font-size: 10px; color: var(--mute); text-align: center; margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 120px; cursor: help; }
         .lock { opacity: .85; }
+        .srb { display: block; font-size: 10px; color: #0f766e; font-weight: 700; text-align: center; margin-top: 1px; }
+        input.code { width: 110px; border: 1px solid var(--line); border-radius: 7px; padding: 5px 6px; font-size: 12px; }
+        .cols { display: flex; flex-wrap: wrap; gap: 4px; min-width: 170px; align-items: center; }
+        .ctag { display: inline-flex; align-items: center; gap: 3px; background: #ede9fe; color: #6d28d9; border-radius: 6px; padding: 2px 6px; font-size: 11px; font-weight: 700; }
+        .ctag button { border: 0; background: none; color: inherit; cursor: pointer; padding: 0; font-size: 12px; line-height: 1; }
+        select.cadd { border: 1px dashed var(--line); border-radius: 6px; font-size: 11px; padding: 2px 4px; background: #fff; }
+        .mrow { display: flex; gap: 6px; margin-bottom: 6px; }
+        .mrow .inp { padding: 6px 8px; }
         .empty { padding: 60px 20px; text-align: center; color: var(--mute); }
         .ro-note { color: var(--mute); font-size: 12px; }
         /* modal */
@@ -155,8 +163,11 @@
     <div class="mb" id="addModal">
         <div class="md" style="max-width:460px">
             <h3>Add NPD Product</h3>
-            <div class="row2"><label>Product *</label><input class="inp" id="aName" maxlength="300"></div>
-            <div class="row2"><label>Child moulds</label><textarea class="inp" id="aMoulds" rows="4" placeholder="One mould per line (optional)&#10;e.g. Body mould&#10;Lid mould" style="font-family:inherit;resize:vertical"></textarea></div>
+            <div class="row2"><label>Main product *</label><input class="inp" id="aName" maxlength="300"></div>
+            <div class="row2"><label>Product code</label><input class="inp" id="aCode" maxlength="60"></div>
+            <div style="margin-top:12px;font-weight:600">Child moulds * <span class="none">(at least 1 - no product without a mould)</span></div>
+            <div id="aMoulds" style="margin-top:6px"></div>
+            <button class="btn sm" id="aAddM" type="button"><i class="bi bi-plus-lg"></i> Add mould</button>
             <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
                 <button class="btn" data-close="addModal">Cancel</button>
                 <button class="btn pri" id="aSave">Add</button>
@@ -170,6 +181,7 @@
             <h3>Add Child Mould</h3>
             <div class="none" id="mParent"></div>
             <div class="row2"><label>Mould name *</label><input class="inp" id="mName" maxlength="300"></div>
+            <div class="row2"><label>Product code</label><input class="inp" id="mCode" maxlength="60"></div>
             <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
                 <button class="btn" data-close="mouldModal">Cancel</button>
                 <button class="btn pri" id="mSave">Add Mould</button>
@@ -182,6 +194,7 @@
         <div class="md" style="max-width:460px">
             <h3>Stage Remark</h3>
             <div class="none" id="rmWhat"></div>
+            <div class="row2" id="rbRow" style="display:none"><label>Received by *</label><input class="inp" id="rbName" maxlength="100" placeholder="Name of who received the mould"></div>
             <div class="row2"><label>Remarks *</label><textarea class="inp" id="rmText" rows="3" maxlength="1000" style="font-family:inherit;resize:vertical"></textarea></div>
             <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
                 <button class="btn" id="rmCancel">Cancel</button>
@@ -240,17 +253,20 @@
                     ['mould_trials', 'Product mould final trials @ factory', 'Moulding'],
                     ['rm_colour', 'RM & colour finalization', 'Planning / Moulding'],
                     ['samples_ho', 'Final samples sent to HO for approval & photo shoot', 'QC'],
+                    ['sample_approval_ho', 'Final sample approval from HO', 'H.O'],
                     ['pilot_drop_test', 'Pilot run & drop test @ factory', 'Moulding / QC'],
-                    ['qc_approval_ho', 'Final QC testing & approval from HO', 'QC']] },
+                    ['qc_approval_ho', 'Final QC approved after testing', 'QC']] },
                 { label: 'Packing, BOM & ERP', cols: [
                     ['packing_material', 'Packing material finalization', 'Packing'],
                     ['bom_approval', 'Product BOM finalization / approval', 'Planning'],
                     ['packing_receiving', 'Packing material follow up & receiving @ factory', 'Purchase'],
-                    ['or_jr_erp', 'OR-JR making in ERP', 'HO'],
+                    ['or_jr_erp', 'OR making in ERP by H.O', 'H.O'],
+                    ['or_jr_erp_wh', 'OR - JR making in ERP by Warehouse', 'W/H'],
                     ['production_planning', 'Production planning as per OR-JR ERP', 'Planning'],
                     ['jc_start_date', 'Planned job card start date', 'Planning', 'date'],
                     ['jc_end_date', 'Planned job card completion date', 'Planning', 'date'],
-                    ['launch_date', 'Launch date finalization', 'Planning', 'date']] },
+                    ['launch_date', 'Launch date finalization by Planning', 'Planning', 'date'],
+                    ['launch_date_ho', 'Launch date by H.O', 'H.O', 'date']] },
                 { label: 'Mass Production', cols: [
                     ['mass_moulding', 'Mass production - moulding', 'Moulding'],
                     ['mass_printing', 'Mass production - printing / tufting', 'Production'],
@@ -258,14 +274,18 @@
                     ['fg_receiving', 'Finish goods receiving', 'W/H']] },
                 { label: 'Costing & Launch', cols: [
                     ['ex_factory_cost', 'Ex factory cost finalization', 'Planning'],
-                    ['price_final', 'Price finalization', 'HO'],
-                    ['post_card_receiving', 'Final post card follow up & receiving', 'Planning'],
+                    ['price_final', 'Price finalization', 'H.O'],
+                    ['post_card_receiving', 'Final post card follow up & receiving by Planning', 'Planning'],
+                    ['post_card_making_ho', 'Post card making by H.O', 'H.O'],
                     ['post_card_posting', 'Posting post card in new product launch group', 'Planning'],
                     ['dispatch_date', 'Actual dispatch date', '', 'date']] }
             ];
             const COLS = GROUPS.flatMap(g => g.cols);
             const STATE = [['pending', 'Pending'], ['in_progress', 'In Progress'], ['complete', 'Complete'], ['na', 'N/A']];
             const PSTAT = ['Hold', 'Launched', 'Delayed', 'On Schedule', 'Cancelled'];
+            /* colours for trials (picked by H.O): this list plus any colour already used */
+            const COLOURS = ['White', 'Black', 'Red', 'Blue', 'Navy Blue', 'Sky Blue', 'Green', 'Parrot Green', 'Yellow', 'Orange', 'Pink', 'Purple', 'Grey', 'Brown', 'Beige', 'Ivory', 'Maroon', 'Transparent', 'Natural'];
+            const colourList = v => String(v || '').split(',').map(c => c.trim()).filter(Boolean);
             const S = { rows: [], canEdit: false, canDelete: false, editable: new Set(), depts: [], q: '', fstat: '', open: null, pending: null };
             const $ = id => document.getElementById(id);
             const esc = v => String(v == null ? '' : v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -280,6 +300,7 @@
                     S.canEdit = !!res.can_edit;
                     S.canAdd = !!res.can_add;
                     S.canDelete = !!res.can_delete;
+                    S.canColours = !!res.can_colours;
                     S.editable = new Set(res.editable_stages || []);
                     S.depts = res.departments || [];
                     $('addBtn').style.display = S.canAdd ? '' : 'none';
@@ -304,9 +325,21 @@
                     return `<td><input type="date" class="dt" data-id="${p.id}" data-stage="${key}" value="${esc(v || '')}">${rm}</td>`;
                 }
                 const st = v || 'pending';
-                const done = st === 'complete' && info.completed_on ? `<span class="sdone"><i class="bi bi-check2-circle"></i> ${esc(fmtDate(info.completed_on))}</span>` : '';
+                const done = (st === 'complete' && info.completed_on ? `<span class="sdone"><i class="bi bi-check2-circle"></i> ${esc(fmtDate(info.completed_on))}</span>` : '')
+                    + (st === 'complete' && info.received_by ? `<span class="srb"><i class="bi bi-person-check"></i> by ${esc(info.received_by)}</span>` : '');
                 if (!ed) return `<td class="lock"><span class="cell st-${st}">${(STATE.find(s => s[0] === st) || STATE[0])[1]}</span>${done}${rm}</td>`;
                 return `<td><select class="cell st-${st}" data-id="${p.id}" data-stage="${key}">${STATE.map(([k, l]) => `<option value="${k}"${k === st ? ' selected' : ''}>${l}</option>`).join('')}</select>${done}${rm}</td>`;
+            }
+            function colourCell(p) {
+                const cur = colourList(p.trial_colours);
+                const tags = cur.map(c => `<span class="ctag">${esc(c)}${S.canColours ? `<button data-cdel="${p.id}" data-c="${esc(c)}" title="Remove">×</button>` : ''}</span>`).join('');
+                if (!S.canColours) return `<div class="cols">${tags || '<span class="none">—</span>'}</div>`;
+                const used = S.rows.flatMap(r => colourList(r.trial_colours));
+                const opts = [...new Set([...COLOURS, ...used])].filter(c => !cur.includes(c));
+                return `<div class="cols">${tags}<select class="cadd" data-cadd="${p.id}"><option value="">+ Colour</option>${opts.map(c => `<option>${esc(c)}</option>`).join('')}<option value="__other">Other…</option></select></div>`;
+            }
+            function setColours(id, list) {
+                save(id, { trial_colours: list.join(', ') }).then(ok => ok && render());
             }
             function fmtDate(v) { const d = new Date(v + 'T00:00:00'); return isNaN(d) ? v : d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: '2-digit' }); }
 
@@ -322,7 +355,7 @@
                 $('tiles').innerHTML = [['', 'All', parents.length], ...PSTAT.map(s => [s, s, counts[s] || 0])]
                     .map(([k, l, n]) => `<span class="tile${S.fstat === k ? ' on' : ''}" data-f="${esc(k)}">${esc(l)}<b>${n}</b></span>`).join('');
 
-                let h = `<thead><tr class="grp"><th class="fix c0" rowspan="2" style="top:0">Sr</th><th class="fix c1" rowspan="2" style="top:0;text-align:left">Product / Child Mould</th>`;
+                let h = `<thead><tr class="grp"><th class="fix c0" rowspan="2" style="top:0">Sr</th><th class="fix c1" rowspan="2" style="top:0;text-align:left">Product / Child Mould</th><th rowspan="2" style="top:0;min-width:125px">Product code</th><th rowspan="2" style="top:0;min-width:180px">Colour details for trials<small style="display:block;color:var(--mute)">H.O</small></th>`;
                 GROUPS.forEach(g => { h += `<th colspan="${g.cols.length}">${esc(g.label)}</th>`; });
                 h += `<th rowspan="2" style="top:0;min-width:140px">Status</th><th rowspan="2" style="top:0;min-width:230px">Remarks</th>${S.canDelete ? '<th rowspan="2" style="top:0"></th>' : ''}</tr><tr class="col">`;
                 COLS.forEach(c => { h += `<th>${esc(c[1])}${c[2] ? `<small>${esc(c[2])}</small>` : ''}</th>`; });
@@ -339,6 +372,8 @@
                     const addMould = S.canAdd && !child ? `<a class="addm" data-addm="${p.id}" title="Add a child mould under this product"><i class="bi bi-plus-circle"></i> Mould</a>` : '';
                     h += `<tr${child ? ' class="child"' : ''}><td class="fix c0">${child ? '<span class="none">↳</span>' : `<b>${esc(p.sr_no || '')}</b>`}</td>
                         <td class="fix c1"><div class="pc">${thumb}<div>${child ? '<span class="mtag">CHILD MOULD</span>' : ''}${name}<div class="meta"><a data-files="${p.id}"><i class="bi bi-file-earmark-text"></i> Trial report (${reps})</a><a data-files="${p.id}"><i class="bi bi-images"></i> Images (${imgs})</a>${addMould}</div></div></div></td>`;
+                    h += `<td>${S.canEdit ? `<input class="code" data-id="${p.id}" data-f="product_code" value="${esc(p.product_code || '')}" maxlength="60" placeholder="Code">` : esc(p.product_code || '') || '<span class="none">—</span>'}</td>`;
+                    h += `<td>${colourCell(p)}</td>`;
                     COLS.forEach(c => { h += stageCell(p, c); });
                     h += S.canEdit
                         ? `<td><select class="ps ${psClass(p.status)}" data-id="${p.id}" data-f="status"><option value="">— Select —</option>${PSTAT.map(s => `<option${s === p.status ? ' selected' : ''}>${s}</option>`).join('')}</select></td>
@@ -362,7 +397,16 @@
             }
 
             $('grid').addEventListener('change', e => {
-                const t = e.target, id = Number(t.dataset.id);
+                const t = e.target;
+                if (t.dataset.cadd) {
+                    const pid = Number(t.dataset.cadd), p = S.rows.find(r => r.id === pid);
+                    let c = t.value;
+                    if (c === '__other') c = (prompt('Colour name') || '').trim();
+                    if (!c || !p) { render(); return; }
+                    setColours(pid, [...colourList(p.trial_colours), c]);
+                    return;
+                }
+                const id = Number(t.dataset.id);
                 if (!id) return;
                 if (t.dataset.stage) {
                     if (t.tagName === 'SELECT') t.className = 'cell st-' + t.value;
@@ -380,7 +424,11 @@
                 S.pending = { id, key, value };
                 $('rmWhat').textContent = `${p ? p.product_name : ''} · ${c[1]} → ${label}`;
                 $('rmText').value = '';
+                const needRb = key === 'mould_received' && value === 'complete';
+                $('rbRow').style.display = needRb ? '' : 'none';
+                $('rbName').value = '';
                 $('rmModal').classList.add('on');
+                if (needRb) return $('rbName').focus();
                 $('rmText').focus();
             }
             $('rmCancel').onclick = () => { S.pending = null; $('rmModal').classList.remove('on'); render(); };
@@ -389,8 +437,13 @@
                 if (!txt) return toast('Remarks are mandatory', 'error');
                 const pd = S.pending;
                 if (!pd) return;
+                const body = { stages: { [pd.key]: pd.value }, stage_remarks: { [pd.key]: txt } };
+                if (pd.key === 'mould_received' && pd.value === 'complete') {
+                    body.received_by = $('rbName').value.trim();
+                    if (!body.received_by) return toast('Enter the name of who received the mould', 'error');
+                }
                 $('rmSave').disabled = true;
-                const ok = await save(pd.id, { stages: { [pd.key]: pd.value }, stage_remarks: { [pd.key]: txt } });
+                const ok = await save(pd.id, body);
                 $('rmSave').disabled = false;
                 if (!ok) return;
                 S.pending = null;
@@ -398,12 +451,19 @@
                 render();
             };
             $('grid').addEventListener('click', async e => {
+                const cd = e.target.closest('[data-cdel]');
+                if (cd) {
+                    const p = S.rows.find(r => r.id === Number(cd.dataset.cdel));
+                    if (p) setColours(p.id, colourList(p.trial_colours).filter(c => c !== cd.dataset.c));
+                    return;
+                }
                 const am = e.target.closest('[data-addm]');
                 if (am) {
                     const p = S.rows.find(r => r.id === Number(am.dataset.addm));
                     S.mouldParent = p.id;
                     $('mParent').textContent = `Under product: ${p.product_name}`;
                     $('mName').value = '';
+                    $('mCode').value = '';
                     $('mouldModal').classList.add('on');
                     $('mName').focus();
                     return;
@@ -455,13 +515,19 @@
             };
 
             document.querySelectorAll('[data-close]').forEach(b => b.onclick = () => $(b.dataset.close).classList.remove('on'));
-            $('addBtn').onclick = () => { $('aName').value = ''; $('aMoulds').value = ''; $('addModal').classList.add('on'); $('aName').focus(); };
+            const mouldRow = () => `<div class="mrow"><input class="inp" data-m="name" placeholder="Mould name" maxlength="300" style="flex:1"><input class="inp" data-m="code" placeholder="Product code" maxlength="60" style="width:130px"><button class="btn sm danger" type="button" data-mdel title="Remove"><i class="bi bi-x-lg"></i></button></div>`;
+            $('aAddM').onclick = () => { $('aMoulds').insertAdjacentHTML('beforeend', mouldRow()); $('aMoulds').lastElementChild.querySelector('input').focus(); };
+            $('aMoulds').addEventListener('click', e => { const b = e.target.closest('[data-mdel]'); if (b) b.closest('.mrow').remove(); });
+            $('addBtn').onclick = () => { $('aName').value = ''; $('aCode').value = ''; $('aMoulds').innerHTML = mouldRow(); $('addModal').classList.add('on'); $('aName').focus(); };
             $('aSave').onclick = async () => {
                 const name = $('aName').value.trim();
                 if (!name) return toast('Product name is required', 'error');
+                const moulds = [...$('aMoulds').querySelectorAll('.mrow')]
+                    .map(r => ({ name: r.querySelector('[data-m="name"]').value.trim(), code: r.querySelector('[data-m="code"]').value.trim() }))
+                    .filter(m => m.name);
+                if (!moulds.length) return toast('Add at least one child mould - a product cannot be created without a mould', 'error');
                 try {
-                    const moulds = $('aMoulds').value.split('\n').map(m => m.trim()).filter(Boolean);
-                    const res = await api('/npd/products', { method: 'POST', body: JSON.stringify({ product_name: name, moulds }) });
+                    const res = await api('/npd/products', { method: 'POST', body: JSON.stringify({ product_name: name, product_code: $('aCode').value.trim(), moulds }) });
                     S.rows.push(res.data, ...(res.children || [])); $('addModal').classList.remove('on'); render();
                 } catch (e) { }
             };
@@ -469,7 +535,7 @@
                 const name = $('mName').value.trim();
                 if (!name) return toast('Mould name is required', 'error');
                 try {
-                    const res = await api('/npd/products', { method: 'POST', body: JSON.stringify({ product_name: name, parent_id: S.mouldParent }) });
+                    const res = await api('/npd/products', { method: 'POST', body: JSON.stringify({ product_name: name, product_code: $('mCode').value.trim(), parent_id: S.mouldParent }) });
                     S.rows.push(res.data); $('mouldModal').classList.remove('on'); render();
                 } catch (e) { }
             };
