@@ -14,6 +14,22 @@
   "latest": "1.162.0",
   "versions": [
     {
+      "version": "1.164.0",
+      "date": "2026-11-02",
+      "title": "ERP Item, Variant, Party and Rate masters",
+      "modules": [
+        {
+          "app": "masters",
+          "changes": [
+            {
+              "type": "feature",
+              "text": "New Masters > ERP Item / Variant / Party / Rate Master: read-only copies of the ERP masters, refreshed every 5 minutes, with search, sort, last-synced time and status, and Excel export of all rows."
+            }
+          ]
+        }
+      ]
+    },
+    {
       "version": "1.163.0",
       "date": "2026-11-02",
       "title": "QC setup STD vs Actual report, accurate DPR change counts, QC app updates",
