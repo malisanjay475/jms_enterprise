@@ -37,6 +37,7 @@ data class FpaUiState(
     val rejected: Boolean = false,        // rejected — user must correct & re-upload
     val rejectReason: String? = null,
     val reviewedBy: String? = null,
+    val approveRemark: String? = null,    // QC HOD remark on approval
     // saved (view mode)
     val savedFormUrl: String? = null,
     val savedProductUrls: List<String> = emptyList(),
@@ -117,7 +118,9 @@ class FpaViewModel : ViewModel() {
                 savedFormUrl = absUrl(st.form_url),
                 savedProductUrls = parseUrls(st.product_images).map { u -> absUrl(u) ?: u },
                 doneBy = st.done_by,
-                doneAt = st.done_at
+                doneAt = st.done_at,
+                reviewedBy = st.reviewed_by,
+                approveRemark = st.approve_remark
             )
         }
     }

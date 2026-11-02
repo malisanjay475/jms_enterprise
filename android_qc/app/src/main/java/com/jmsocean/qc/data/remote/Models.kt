@@ -296,6 +296,8 @@ data class FpaStatus(
     val approval_status: String? = null, // "Pending" | "Approved" | "Rejected"
     val reject_reason: String? = null,
     val reviewed_by: String? = null,
+    /** Remark the QC HOD left when approving the FPA. */
+    val approve_remark: String? = null,
     /** Machine the job (and this FPA) was moved from; it needs approval again here. */
     val transferred_from: String? = null,
     /** No FPA on this machine, but the job has one from another machine (moved before FPAs were copied). */
