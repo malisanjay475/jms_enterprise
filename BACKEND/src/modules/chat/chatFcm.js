@@ -80,7 +80,7 @@ async function ensureFcmSchema(pool) {
 
 // Send one data message to every device of these users. `data` values must be strings;
 // it may be a function (username) -> data, for per-person fields such as the unread badge.
-async function sendToUsers(pool, usernames, data) {
+async function sendToUsers(pool, usernames, data, opts = {}) {
   if (!enabled() || !usernames.length) return { sent: 0 };
   const { rows: devices } = await pool.query(
     'SELECT id, token, username FROM chat_fcm_devices WHERE LOWER(username) = ANY($1::text[])',
@@ -99,7 +99,7 @@ async function sendToUsers(pool, usernames, data) {
           message: {
             token: dev.token,
             data: typeof data === 'function' ? data(dev.username) : data,
-            android: { priority: 'HIGH', ttl: '3600s' }
+            android: { priority: opts.priority || 'HIGH', ttl: opts.ttl || '3600s' }
           }
         })
       });

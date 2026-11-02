@@ -1263,7 +1263,7 @@ function registerChatRoutes(app, pool) {
         [convId, me]
       );
       if (!rows[0]) return res.json({ ok: true, member: false });
-      await pool.query(
+      const marked = await pool.query(
         `INSERT INTO chat_receipts (sync_id, message_sync_id, conversation_sync_id, username, delivered_at, read_at, factory_id)
          SELECT ${RECEIPT_ID('x.sync_id', '$2::text')}, x.sync_id, x.conversation_sync_id, $2, NOW(), NOW(), $3
            FROM chat_messages x
@@ -1279,6 +1279,11 @@ function registerChatRoutes(app, pool) {
         [convId, me, localFactoryId()]
       );
       await chatNotify.markChatNotificationRead(pool, me, convId);
+      // Read here (desktop, web, another phone): clear that chat's notification on my phones,
+      // like WhatsApp. Only when something was newly read; low priority, nothing to show.
+      if (marked.rowCount && chatFcm.enabled()) {
+        chatFcm.sendToUsers(pool, [me], { type: 'read', conversation_sync_id: convId }, { priority: 'NORMAL', ttl: '600s' }).catch(() => {});
+      }
       res.json({ ok: true, last_read_at: rows[0].last_read_at });
     } catch (err) { fail(res, err, 'read'); }
   });

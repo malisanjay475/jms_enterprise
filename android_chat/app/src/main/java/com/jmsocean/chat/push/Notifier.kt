@@ -50,6 +50,53 @@ object Notifier {
     }
 
     private fun notifId(conv: String) = conv.hashCode()
+    private const val GROUP = "jms_chat_messages"
+    private const val SUMMARY_ID = 0x4A4D53 // "JMS"
+
+    /**
+     * The lines already shown for this chat, read back from its notification on screen. The
+     * app may have been closed by Android since the last message, which empties [lines]; this
+     * keeps the stack ("3 new messages") instead of showing only the newest one.
+     */
+    private fun restore(ctx: Context, conv: String): ArrayDeque<Pair<String, String>> {
+        val out = ArrayDeque<Pair<String, String>>()
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return out
+        runCatching {
+            val nm = ctx.getSystemService(NotificationManager::class.java)
+            val n = nm.activeNotifications.firstOrNull { it.id == notifId(conv) }?.notification ?: return out
+            NotificationCompat.MessagingStyle.extractMessagingStyleFromNotification(n)?.messages?.forEach { m ->
+                out.addLast((m.person?.name?.toString() ?: "") to (m.text?.toString() ?: ""))
+            }
+        }
+        return out
+    }
+
+    /** One "JMS Chat" summary that bundles the chats (Android shows it when 2+ chats have messages). */
+    private fun updateSummary(ctx: Context) {
+        val chats = synchronized(lines) { lines.size }
+        val nmc = NotificationManagerCompat.from(ctx)
+        if (chats < 2) { nmc.cancel(SUMMARY_ID); return }
+        if (Build.VERSION.SDK_INT >= 33 &&
+            ContextCompat.checkSelfPermission(ctx, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) return
+        val total = synchronized(lines) { lines.values.sumOf { it.size } }
+        val open = PendingIntent.getActivity(
+            ctx, SUMMARY_ID, Intent(ctx, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+        val summary = NotificationCompat.Builder(ctx, CHANNEL)
+            .setSmallIcon(R.drawable.ic_stat_chat)
+            .setColor(0xFF075E54.toInt())
+            .setContentTitle("JMS Chat")
+            .setContentText("$total new messages from $chats chats")
+            .setStyle(NotificationCompat.InboxStyle().setSummaryText("$total messages from $chats chats"))
+            .setGroup(GROUP).setGroupSummary(true)
+            .setGroupAlertBehavior(NotificationCompat.GROUP_ALERT_CHILDREN) // only the chat itself rings
+            .setAutoCancel(true)
+            .setContentIntent(open)
+            .build()
+        nmc.notify(SUMMARY_ID, summary)
+    }
 
     fun show(ctx: Context, conv: String, title: String, sender: String, text: String, isGroup: Boolean, senderPhoto: android.graphics.Bitmap? = null, urgent: Boolean = false) {
         if (appInFront && openChat == conv) return
@@ -59,7 +106,7 @@ object Notifier {
         ensureChannel(ctx)
 
         val history = synchronized(lines) {
-            lines.getOrPut(conv) { ArrayDeque() }.apply {
+            lines.getOrPut(conv) { restore(ctx, conv) }.apply {
                 addLast(sender to text)
                 while (size > 6) removeFirst()
             }.toList()
@@ -116,8 +163,12 @@ object Notifier {
             .addAction(readAction)
             .setNumber(history.size)
             .setBadgeIconType(NotificationCompat.BADGE_ICON_SMALL)
+            .setGroup(GROUP)
+            .setShortcutId(conv)
+            .setWhen(now).setShowWhen(true)
             .build()
         NotificationManagerCompat.from(ctx).notify(notifId(conv), n)
+        updateSummary(ctx)
     }
 
     /** After a reply from the notification: show it in the stack, without the spinner. */
@@ -129,6 +180,7 @@ object Notifier {
     fun clear(ctx: Context, conv: String) {
         synchronized(lines) { lines.remove(conv) }
         NotificationManagerCompat.from(ctx).cancel(notifId(conv))
+        updateSummary(ctx)
     }
 
     fun clearAll(ctx: Context) {
