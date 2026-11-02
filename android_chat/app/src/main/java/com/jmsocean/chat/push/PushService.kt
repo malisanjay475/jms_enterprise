@@ -75,6 +75,11 @@ class PushService : FirebaseMessagingService() {
             com.jmsocean.chat.call.CallNotifications.showGroupInvite(this, room, conv, d["title"] ?: "Group", d["caller"] ?: "Someone")
             return
         }
+        // Read on another device (desktop, web, another phone): clear it here too, like WhatsApp.
+        if (d["type"] == "read") {
+            d["conversation_sync_id"]?.let { Notifier.clear(this, it) }
+            return
+        }
         if (d["type"] != "chat") return
         val conv = d["conversation_sync_id"] ?: return
         val sender = d["sender"] ?: ""
