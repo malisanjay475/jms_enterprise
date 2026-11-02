@@ -157,7 +157,7 @@ function render() {
 
     if (!rows.length) { $('out').innerHTML = '<div class="empty">No rows for the selected filters.</div>'; return; }
 
-    const head = `<tr><th>Machine</th><th>Period</th><th>Job Card</th><th>Product</th>
+    const head = `<tr><th>Machine</th><th>Period</th><th>Job Card</th><th>Mould No</th><th>Mould Name</th><th>Product</th>
         <th>STD CT</th><th>Act CT</th><th>CT Var %</th>
         <th>STD Wt (g)</th><th>Act Wt (g)</th><th>Wt Var %</th>
         <th>STD Cav</th><th>Act Cav</th><th>Runner STD / Act (g)</th><th>QC By</th><th>Time</th></tr>`;
@@ -165,7 +165,7 @@ function render() {
     let grpKey = null, sub = null;
     const flushSub = () => {
         if (!sub || !sub.n) return;
-        html += `<tr class="sub"><td class="l" colspan="6">Sub-total · ${sub.n} setup(s), ${sub.out} out of tolerance, ${sub.miss} not filled</td>
+        html += `<tr class="sub"><td class="l" colspan="8">Sub-total · ${sub.n} setup(s), ${sub.out} out of tolerance, ${sub.miss} not filled</td>
             <td>${sub.ctN ? fmt(sub.ct / sub.ctN, 1) + '%' : '—'}</td><td colspan="2"></td>
             <td>${sub.wtN ? fmt(sub.wt / sub.wtN, 1) + '%' : '—'}</td><td colspan="5"></td></tr>`;
     };
@@ -174,13 +174,13 @@ function render() {
         if (g !== grpKey) {
             flushSub(); grpKey = g; sub = { n: 0, out: 0, miss: 0, ct: 0, ctN: 0, wt: 0, wtN: 0 };
             const d = new Date(r.date + 'T00:00:00').toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', weekday: 'short' });
-            html += `<tr class="grp"><td colspan="15"><i class="bi bi-calendar3"></i> ${esc(d)} · ${esc(r.shift)} shift</td></tr>`;
+            html += `<tr class="grp"><td colspan="17"><i class="bi bi-calendar3"></i> ${esc(d)} · ${esc(r.shift)} shift</td></tr>`;
         }
         sub.n++;
         if (r.status === 'NOT_FILLED') {
             sub.miss++;
             html += `<tr class="miss"><td class="l"><b>${esc(r.machine)}</b></td><td>P${r.period}</td>
-                <td colspan="13" class="l"><span class="tag bad">Not filled</span> Machine produced this shift but QC setup period ${r.period} was not entered.</td></tr>`;
+                <td colspan="15" class="l"><span class="tag bad">Not filled</span> Machine produced this shift but QC setup period ${r.period} was not entered.${r.qc_name ? ` QC on shift: <b>${esc(r.qc_name)}</b>` : ''}</td></tr>`;
             return;
         }
         if (isOut(r)) sub.out++;
@@ -191,12 +191,14 @@ function render() {
         html += `<tr>
             <td class="l"><b>${esc(r.machine)}</b><div style="font-size:.68rem;color:var(--muted)">${esc(r.line)}</div></td>
             <td>P${r.period}</td><td>${esc(r.job_card_no || '—')}</td>
+            <td>${esc(r.mould_no || '—')}</td>
+            <td class="l" style="max-width:200px;overflow:hidden;text-overflow:ellipsis" title="${esc(r.mould_name || '')}">${esc(r.mould_name || '—')}</td>
             <td class="l" style="max-width:220px;overflow:hidden;text-overflow:ellipsis" title="${esc(r.product_name || '')}">${esc(r.product_name || '—')}</td>
             <td>${fmt(r.std_ct)}</td><td>${fmt(r.act_ct)}</td><td class="${band(r.ct_var_pct)}">${pct(r.ct_var_pct)}</td>
             <td>${fmt(r.std_wt_g)}</td><td>${fmt(r.act_wt_g)}</td><td class="${band(r.wt_var_pct)}">${pct(r.wt_var_pct)}</td>
             <td>${fmt(r.std_cavity, 0)}</td><td class="${cavBad(r) ? 'bad' : ''}">${fmt(r.act_cavity, 0)}</td>
             <td>${fmt(r.std_runner_g)} / ${fmt(r.act_runner_g)}</td>
-            <td>${esc(r.setup_by || '—')}</td><td>${t}</td></tr>`;
+            <td class="l"><b>${esc(r.qc_name || r.setup_by || '—')}</b>${r.qc_name && r.setup_by ? `<div style="font-size:.68rem;color:var(--muted)">${esc(r.setup_by)}</div>` : ''}</td><td>${t}</td></tr>`;
     });
     flushSub();
     $('out').innerHTML = html + '</tbody></table>';
@@ -207,12 +209,12 @@ function exportXls() {
     const data = lastRows.map(r => ({
         Date: r.date, Shift: r.shift, Line: r.line, Machine: r.machine, Period: r.period,
         Status: r.status === 'FILLED' ? 'Filled' : 'Not filled',
-        'Job Card': r.job_card_no || '', Product: r.product_name || '',
+        'Job Card': r.job_card_no || '', 'Mould No': r.mould_no || '', 'Mould Name': r.mould_name || '', Product: r.product_name || '',
         'STD CT (s)': r.std_ct, 'Act CT (s)': r.act_ct, 'CT Var %': r.ct_var_pct,
         'STD Wt (g)': r.std_wt_g, 'Act Wt (g)': r.act_wt_g, 'Wt Var %': r.wt_var_pct,
         'STD Cavity': r.std_cavity, 'Act Cavity': r.act_cavity,
         'STD Runner (g)': r.std_runner_g, 'Act Runner (g)': r.act_runner_g,
-        'QC By': r.setup_by || '', 'Setup At': r.setup_at ? new Date(r.setup_at).toLocaleString('en-IN') : ''
+        'QC Name (Shift Team)': r.qc_name || '', 'Saved By (login)': r.setup_by || '', 'Setup At': r.setup_at ? new Date(r.setup_at).toLocaleString('en-IN') : ''
     }));
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data), 'STD vs Actual');
