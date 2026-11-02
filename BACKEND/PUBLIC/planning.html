@@ -3232,7 +3232,7 @@
 
     /* Live animation layered on the real machine photo */
     #machineGrid .machine .mc-fx-sweep, #machineGrid .machine .mc-fx-gear, #machineGrid .machine .mc-fx-belt { display: none; }
-    #machineGrid .machine.s-running .mc-hero .thumb { animation: mcHum .22s linear infinite; }
+    /* mcHum vibration removed — photo stays still while running */
     #machineGrid .machine.s-running .mc-fx-sweep {
       display: block; position: absolute; inset: 0; pointer-events: none;
       background: linear-gradient(100deg, transparent 30%, rgba(255,255,255,.55) 50%, transparent 70%);
