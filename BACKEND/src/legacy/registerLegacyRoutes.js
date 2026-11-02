@@ -31751,7 +31751,8 @@ app.get('/api/qc/fpa/status', async (req, res) => {
     const rows = await q(
       `SELECT id, date, shift, fpa_done_at, fpa_done_by, fpa_form_url, product_images,
               COALESCE(fpa_approval_status,'Approved') AS fpa_approval_status,
-              fpa_reject_reason, fpa_reviewed_by, fpa_reviewed_at, fpa_transferred_from
+              fpa_reject_reason, fpa_reviewed_by, fpa_reviewed_at, fpa_transferred_from,
+              fpa_approve_remark
        FROM qc_job_checks
        WHERE TRIM(COALESCE(job_card_no,'')) = TRIM($1)
          AND fpa_status = 'Done'
@@ -31779,6 +31780,7 @@ app.get('/api/qc/fpa/status', async (req, res) => {
         approval_status: approval,
         reject_reason: r.fpa_reject_reason || null,
         reviewed_by: r.fpa_reviewed_by || null,
+        approve_remark: r.fpa_approve_remark || null,
         transferred_from: r.fpa_transferred_from || null,
         date: fpaDate,
         shift: r.shift || null,

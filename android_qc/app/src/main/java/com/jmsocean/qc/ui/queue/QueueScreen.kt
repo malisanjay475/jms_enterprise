@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -304,6 +305,12 @@ private fun JobCard(job: QueueJob, fpaDone: Boolean, onFpa: () -> Unit, onQc: ()
                 },
                 fontSize = 12.5.sp, color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+            // Mould Master standards
+            Spacer(Modifier.height(6.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                StdChip("⏱ STD CT ${job.stdCycleTimeText ?: "—"}")
+                StdChip("⚖ STD Wt ${job.stdWeightText ?: "—"}")
+            }
 
             Spacer(Modifier.height(12.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -348,4 +355,17 @@ private fun PriorityBadge(p: String) {
     ) {
         Text(p.uppercase(), color = fg, fontWeight = FontWeight.Bold, fontSize = 11.sp)
     }
+}
+
+@Composable
+private fun StdChip(text: String) {
+    Text(
+        text,
+        fontSize = 12.sp,
+        fontWeight = FontWeight.SemiBold,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(8.dp))
+            .padding(horizontal = 8.dp, vertical = 3.dp)
+    )
 }

@@ -186,7 +186,8 @@ fun FpaScreen(
                 }
 
                 s.alreadyDone -> Column {
-                    DoneBanner(submittedNow = s.submitted, by = s.doneBy, at = s.doneAt)
+                    DoneBanner(submittedNow = s.submitted, by = s.doneBy, at = s.doneAt,
+                        approvedBy = s.reviewedBy, approveRemark = s.approveRemark)
                     Spacer(Modifier.height(14.dp))
                     if (s.savedFormUrl != null) {
                         SectionLabel("📋 Saved FPA form")
@@ -429,7 +430,10 @@ private fun androidx.compose.foundation.layout.RowScope.BalCell(
     color = color ?: MaterialTheme.colorScheme.onSurface)
 
 @Composable
-private fun DoneBanner(submittedNow: Boolean, by: String?, at: String?) {
+private fun DoneBanner(
+    submittedNow: Boolean, by: String?, at: String?,
+    approvedBy: String? = null, approveRemark: String? = null
+) {
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         shape = RoundedCornerShape(12.dp),
@@ -451,6 +455,15 @@ private fun DoneBanner(submittedNow: Boolean, by: String?, at: String?) {
                     meta.ifBlank { "This job's first piece approval is on record." },
                     fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+                if (!approvedBy.isNullOrBlank()) {
+                    Spacer(Modifier.height(4.dp))
+                    Text("Approved by: $approvedBy", fontSize = 12.sp, color = Good)
+                }
+                if (!approveRemark.isNullOrBlank()) {
+                    Spacer(Modifier.height(4.dp))
+                    Text("HOD remark: $approveRemark", fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface)
+                }
             }
         }
     }
