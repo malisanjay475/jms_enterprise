@@ -63,7 +63,7 @@ function registerErpMastersRoutes(app, pool) {
       const cols = def.cols.map(c => c[0]);
       const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 25, 1), MAX_LIMIT);
       const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
-      const sortCol = cols.includes(String(req.query.sort)) ? String(req.query.sort) : 'smartops_id';
+      const sortCol = cols.find(c => c === String(req.query.sort)) || 'smartops_id';
       const dir = String(req.query.dir).toLowerCase() === 'desc' ? 'DESC' : 'ASC';
       const search = String(req.query.search || '').trim().slice(0, 200);
 
@@ -74,10 +74,11 @@ function registerErpMastersRoutes(app, pool) {
         where = `WHERE concat_ws(' ', ${cols.map(c => `${c}::text`).join(', ')}) ILIKE $1`;
       }
       const total = await pool.query(`SELECT count(*)::int AS n FROM ${def.table} ${where}`, params);
+      const n = params.length;
       const rows = await pool.query(
         `SELECT ${cols.join(', ')} FROM ${def.table} ${where}
           ORDER BY ${sortCol} ${dir} NULLS LAST, smartops_id
-          LIMIT ${limit} OFFSET ${(page - 1) * limit}`, params);
+          LIMIT $${n + 1} OFFSET $${n + 2}`, [...params, limit, (page - 1) * limit]);
       res.json({ ok: true, total: total.rows[0].n, page, limit, data: rows.rows });
     } catch (err) { sendServerError(res, err); }
   });
