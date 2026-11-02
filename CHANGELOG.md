@@ -14,6 +14,13 @@ part of your PR. On release, the `[Unreleased]` items move under the new version
 ## [Unreleased]
 
 ### Added
+- Quality > Setup STD vs Actual report (v1.163.0): STD vs actual cycle time, weight, cavity and runner weight from the QC app one-time setup, machine-wise in Compliance Summary order, with mould no./name, QC person from the Shift Team, "Not filled" rows, Excel export.
+- QC Android app: STD cycle time and STD weight chips on Job Queue cards (v1.163.0).
+
+### Fixed
+- DPR Daily Report: Mould / Colour / Job change counts use one shared server rule (A>B>A counts 2, colour change inside an hour, Day/Night boundary) (v1.163.0).
+- QC Android app: QC HOD approval remark shown on approved FPA (v1.163.0).
+
 - JMS Chat Android app 3.5.2: a WhatsApp-style card on top of the chat list appears only while something stops messages from arriving with the app closed - notifications turned off, or the phone may stop the app in the background (battery optimisation, common on Xiaomi / Oppo / Vivo / Realme). One tap opens the right setting; "Check all" opens the full notification check in Profile; "Later" hides it for 3 days.
 
 - JMS Chat notifications work more like WhatsApp (server v1.162.3, Android 3.5.2): reading a chat on another device (desktop or web) clears its notification on the phone; stacked messages in a notification are kept even after the app was closed or swiped away; when several chats have new messages they are bundled under one "JMS Chat" summary.
