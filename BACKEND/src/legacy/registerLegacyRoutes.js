@@ -33178,9 +33178,13 @@ app.get('/api/reports/qc-setup-std-vs-actual', async (req, res) => {
       });
     });
 
+    // Machine-wise, in the same machine order as the Compliance Summary (line, then
+    // machine number): date → machine → Day before Night → setup period → setup time.
     const shiftRank = s => (s === 'Day' ? 0 : s === 'Night' ? 1 : 2);
-    rows.sort((a, b) => a.date.localeCompare(b.date) || shiftRank(a.shift) - shiftRank(b.shift)
-      || a.machine.localeCompare(b.machine, undefined, { numeric: true }) || a.period - b.period);
+    const machineOrder = makeMachineOrder(machineRows);
+    rows.sort((a, b) => a.date.localeCompare(b.date) || machineOrder(a.machine, b.machine)
+      || shiftRank(a.shift) - shiftRank(b.shift) || a.period - b.period
+      || String(a.setup_at || '').localeCompare(String(b.setup_at || '')));
     res.json({ ok: true, fromDate, toDate, shift: shift || 'All', rows });
   } catch (e) {
     sendServerError(res, e);
