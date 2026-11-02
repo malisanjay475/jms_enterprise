@@ -13,6 +13,9 @@ part of your PR. On release, the `[Unreleased]` items move under the new version
 
 ## [Unreleased]
 
+### Added
+- NPD Tracker (v1.165.0): a new product needs at least one child mould (add form has mould rows); Product code column for products and moulds; Colour details for trials (H.O, admin only) picked from a list; "Final mould received" Complete asks for and shows who received it; new stages Final sample approval from HO, OR - JR making in ERP by Warehouse (W/H), Launch date by H.O (date) and Post card making by H.O. Renamed: Final QC approved after testing, OR making in ERP by H.O. Excel export carries the new columns.
+
 ### Changed
 - ERP Item / Variant / Party / Rate Master (v1.164.1) open inside masters.html in the same table format as the other ERP masters (pager, search, Cols); the separate erp_masters.html page is removed. Copy / Excel / Print / Export all show only with the Masters Print right (admins always), and the API refuses more than one screen page (500 rows) without it.
 
