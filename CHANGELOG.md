@@ -13,6 +13,9 @@ part of your PR. On release, the `[Unreleased]` items move under the new version
 
 ## [Unreleased]
 
+### Added
+- JMS Chat Android app 3.5.2: a WhatsApp-style card on top of the chat list appears only while something stops messages from arriving with the app closed - notifications turned off, or the phone may stop the app in the background (battery optimisation, common on Xiaomi / Oppo / Vivo / Realme). One tap opens the right setting; "Check all" opens the full notification check in Profile; "Later" hides it for 3 days.
+
 ### Changed
 - NPD Tracker (v1.162.2): Sales Co-ordinator can add NPD products and child moulds (Add Product, + Mould) but cannot change stages, status, remarks or files, or delete.
 

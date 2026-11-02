@@ -250,6 +250,7 @@ fun ChatListScreen(
                     )
                 }
                 else -> LazyColumn(Modifier.fillMaxSize()) {
+                    if (query.isBlank() && !showArchived) item { NotifyBanner(onDetails = onProfile) }
                     if (query.isBlank() && !showArchived) item {
                         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 6.dp),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -358,5 +359,71 @@ private fun ChatRow(
             }
         }
     }
+    }
+}
+
+
+/**
+ * Shown on top of the chat list only while something stops messages from arriving with the
+ * app closed (like WhatsApp's "Turn on notifications" card): notifications off, or the phone
+ * may stop the app in the background. One tap fixes it; "Later" hides it for 3 days.
+ */
+@Composable
+private fun NotifyBanner(onDetails: () -> Unit) {
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    val prefs = remember { ctx.getSharedPreferences("jms_chat_ui", android.content.Context.MODE_PRIVATE) }
+    var tick by remember { mutableStateOf(0) }
+    val lifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    androidx.compose.runtime.DisposableEffect(lifecycle) {
+        val obs = androidx.lifecycle.LifecycleEventObserver { _, e -> if (e == androidx.lifecycle.Lifecycle.Event.ON_RESUME) tick++ }
+        lifecycle.lifecycle.addObserver(obs)
+        onDispose { lifecycle.lifecycle.removeObserver(obs) }
+    }
+    // re-read the settings each time the app comes back from the phone's settings
+    val notifyOk = remember(tick) { androidx.core.app.NotificationManagerCompat.from(ctx).areNotificationsEnabled() }
+    val batteryOk = remember(tick) {
+        (ctx.getSystemService(android.content.Context.POWER_SERVICE) as android.os.PowerManager).isIgnoringBatteryOptimizations(ctx.packageName)
+    }
+    var hiddenUntil by remember { mutableStateOf(prefs.getLong("notify_banner_until", 0L)) }
+    if ((notifyOk && batteryOk) || System.currentTimeMillis() < hiddenUntil) return
+    androidx.compose.material3.Surface(
+        color = Color(0xFFFFF4D6), shape = RoundedCornerShape(14.dp),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp)
+    ) {
+        Column(Modifier.padding(14.dp)) {
+            Text(
+                if (!notifyOk) "Turn on notifications" else "Get messages when JMS Chat is closed",
+                fontWeight = FontWeight.SemiBold, color = Color(0xFF3B2F00)
+            )
+            Text(
+                if (!notifyOk) "Notifications are off, so you won't know when a message arrives."
+                else "Your phone may stop JMS Chat in the background. Allow it to run so messages and calls ring like WhatsApp.",
+                fontSize = 13.sp, color = Color(0xFF5C4A00), modifier = Modifier.padding(top = 2.dp)
+            )
+            Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                androidx.compose.material3.Button(
+                    onClick = {
+                        runCatching {
+                            if (!notifyOk) ctx.startActivity(
+                                android.content.Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                                    .putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, ctx.packageName)
+                            ) else ctx.startActivity(
+                                android.content.Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                                    android.net.Uri.parse("package:${ctx.packageName}"))
+                            )
+                        }.onFailure {
+                            ctx.startActivity(android.content.Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                android.net.Uri.parse("package:${ctx.packageName}")))
+                        }
+                    },
+                    colors = androidx.compose.material3.ButtonDefaults.buttonColors(containerColor = Color(0xFF00A884))
+                ) { Text(if (!notifyOk) "Turn on" else "Allow") }
+                androidx.compose.material3.TextButton(onClick = onDetails) { Text("Check all", color = Color(0xFF00785F)) }
+                androidx.compose.material3.TextButton(onClick = {
+                    hiddenUntil = System.currentTimeMillis() + 3 * 24 * 3600_000L
+                    prefs.edit().putLong("notify_banner_until", hiddenUntil).apply()
+                }) { Text("Later", color = Color(0xFF5C4A00)) }
+            }
+        }
     }
 }
