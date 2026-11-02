@@ -25,7 +25,7 @@
         // on MAIN" banner painted while the type was still null stays stuck on MAIN and
         // the Superadmin/Admin manual upload never appears.
         if (typeof currentType !== 'undefined'
-            && ['erpjrstatus', 'erpjrsummary', 'erpjrdetails', 'erpbom', 'erpmoulditem', 'moulds',
+            && ['erpjrstatus', 'erpjrsummary', 'erpjrdetails', 'erpbom', 'erpmoulditem', 'erpitem', 'erpvariant', 'erpparty', 'erprate', 'moulds',
                 'orjr', 'orjrwise', 'orjrwisedetail'].includes(currentType)
             && typeof setupUI === 'function') {
           try { setupUI(currentType, typeof currentView !== 'undefined' ? currentView : undefined); } catch (_) { /* non-fatal */ }
@@ -130,7 +130,47 @@
     let currentWriteScope = { id: null, name: '', isAll: false };
     let currentMachineIconBase64 = null;
     const templateSupportedTypes = ['orders', 'moulds', 'machines', 'orjr', 'orjrwise', 'orjrwisedetail', 'jcdetails', 'boplanningdetail', 'wipstock'];
-    const reportOnlyTypes = ['labour-parties', 'shifting-locations', 'erpjrstatus', 'erpjrsummary', 'erpjrdetails', 'erpbom', 'erpmoulditem'];
+    const reportOnlyTypes = ['labour-parties', 'shifting-locations', 'erpjrstatus', 'erpjrsummary', 'erpjrdetails', 'erpbom', 'erpmoulditem', 'erpitem', 'erpvariant', 'erpparty', 'erprate'];
+    // ERP Item / Variant / Party / Rate masters: read-only copies of the ERP masters that
+    // MAIN pulls from Smart Ops (src/modules/erpMasters). [column, title] in display order;
+    // keep the columns in sync with MASTERS in smartopsSync.js. Copy / Excel / Print and
+    // Export all need the Masters "Print" right (erpMasterCanDownload).
+    const ERP_MASTER_DEFS = {
+      erpitem: { key: 'item', label: 'ERP Item Master', cols: [
+        ['item_id', 'Item ID'], ['item_code', 'Item Code'], ['item_name', 'Item Name'], ['uom', 'UOM'], ['tax_rate', 'Tax %'],
+        ['category', 'Category'], ['project_id', 'Project ID'], ['project_name', 'Project'], ['hsn_code', 'HSN'], ['is_active', 'Active']] },
+      erpvariant: { key: 'variant', label: 'ERP Variant Master', cols: [
+        ['item_id', 'Item ID'], ['our_code', 'Our Code'], ['our_name', 'Our Name'], ['party_code', 'Party Code'], ['party', 'Party'],
+        ['party_item_name', 'Party Item Name'], ['party_item_code', 'Party Item Code'], ['po_item_name', 'PO Item Name'],
+        ['party_item_barcode', 'Barcode'], ['party_group', 'Party Group'], ['party_packing_size', 'Pack Size'],
+        ['our_party_item_code', 'Our Party Code'], ['content', 'Content'], ['capacity', 'Capacity'],
+        ['barcode_item_name', 'Barcode Item Name'], ['barcode_outer_label_item_code', 'Outer Label Code'], ['remarks', 'Remarks'],
+        ['gross_weight', 'Gross Weight'], ['inner_carton_qty', 'Inner Carton Qty'], ['vendor_code', 'Vendor Code'],
+        ['number_of_design', 'No. of Design'], ['number_of_color', 'No. of Color'], ['outer_label_category', 'Outer Label Category'],
+        ['outer_l', 'Outer L'], ['outer_w', 'Outer W'], ['outer_h', 'Outer H'], ['per_pkg_cbm', 'CBM'], ['action', 'Action']] },
+      erpparty: { key: 'party', label: 'ERP Party Master', cols: [
+        ['party_id', 'Party ID'], ['party_code', 'Party Code'], ['party_group', 'Party Group'], ['price_group', 'Price Group'],
+        ['party_name', 'Party Name'], ['party_type', 'Party Type'], ['gstin', 'GSTIN'], ['pan', 'PAN'],
+        ['is_unregistered_for_gst', 'Unreg. GST'], ['payment_term', 'Payment Term'], ['credit_days', 'Credit Days'],
+        ['sales_person', 'Sales Person'], ['address', 'Address'], ['city', 'City'], ['state', 'State'], ['pincode', 'Pincode'],
+        ['contact_number', 'Contact'], ['email', 'Email'], ['is_active', 'Active'], ['action', 'Action']] },
+      erprate: { key: 'rate', label: 'ERP Rate Master', cols: [
+        ['our_code', 'Our Code'], ['our_name', 'Our Name'], ['party_group', 'Party Group'], ['price_group', 'Price Group'],
+        ['party_item_code', 'Party Item Code'], ['factory', 'Factory'], ['uom', 'UOM'], ['mrp_price', 'MRP'],
+        ['offer_price', 'Offer'], ['rate', 'Rate'], ['effective_date', 'Effective']] }
+    };
+    // Download rights for the ERP masters: admin, or the Masters "Print" box ticked in
+    // User Management. Unlike JPSMS.auth.can(), a user with no Masters rights saved
+    // gets no download (downloads only with Print rights). Same rule on the server.
+    function erpMasterCanDownload() {
+      const u = (JPSMS.auth && JPSMS.auth.getUser && JPSMS.auth.getUser()) || {};
+      const role = String(u.role_code || u.role || '').toLowerCase();
+      if (role === 'admin' || role === 'superadmin') return true;
+      const p = u.permissions || {};
+      if (p.masters_print !== undefined) return p.masters_print === true;
+      return !!(p.masters && typeof p.masters === 'object' && p.masters.print === true);
+    }
+
     const clientPreviewSchemas = {
       boplanningdetail: {
         label: 'BO Planning Detail',
@@ -347,7 +387,11 @@
         erpjrsummary: 'JR Summary ERP',
         erpjrdetails: 'OR JR Details ERP',
         erpbom: 'BOM ERP',
-        erpmoulditem: 'Mould Item Master ERP'
+        erpmoulditem: 'Mould Item Master ERP',
+        erpitem: 'ERP Item Master',
+        erpvariant: 'ERP Variant Master',
+        erpparty: 'ERP Party Master',
+        erprate: 'ERP Rate Master'
       };
       return labels[currentType] || 'Master Data';
     }
@@ -656,7 +700,7 @@
       if (uploadSection && reportOnlyTypes.includes(currentType)) {
         // ERP reports keep the upload bar for superadmins so the
         // "Fetch Latest Data" button stays visible (setReportUI shows it).
-        const erpTypes = ['erpjrstatus', 'erpjrsummary', 'erpjrdetails', 'erpbom', 'erpmoulditem'];
+        const erpTypes = ['erpjrstatus', 'erpjrsummary', 'erpjrdetails', 'erpbom', 'erpmoulditem', 'erpitem', 'erpvariant', 'erpparty', 'erprate'];
         if (erpTypes.includes(currentType) && JPSMS.auth.isSuperadmin()) {
           uploadSection.style.display = 'flex';
           if (allFactoryUploadLock) allFactoryUploadLock.style.display = 'none';
@@ -760,7 +804,7 @@
       JPSMS.auth.requireAuth();
 
       const params = new URLSearchParams(window.location.search);
-      const allowedTypes = ['orders', 'moulds', 'machines', 'orjr', 'orjrwise', 'orjrwisedetail', 'jcdetails', 'boplanningdetail', 'wipstock', 'users', 'labour-parties', 'shifting-locations', 'erpjrstatus', 'erpjrsummary', 'erpjrdetails', 'erpbom', 'erpmoulditem'];
+      const allowedTypes = ['orders', 'moulds', 'machines', 'orjr', 'orjrwise', 'orjrwisedetail', 'jcdetails', 'boplanningdetail', 'wipstock', 'users', 'labour-parties', 'shifting-locations', 'erpjrstatus', 'erpjrsummary', 'erpjrdetails', 'erpbom', 'erpmoulditem', 'erpitem', 'erpvariant', 'erpparty', 'erprate'];
       const requestedType = params.get('type') || 'orders';
         const optionalDateTypes = ['orjrwise', 'orjrwisedetail', 'jcdetails', 'boplanningdetail', 'wipstock'];
       const manualDateTypes = ['orjr'];
@@ -850,7 +894,11 @@
         'erpjrsummary': { title: 'JR Summary ERP', hint: 'Saved in database', hasDates: false, icon: 'bi-cloud-arrow-down' },
         'erpjrdetails': { title: 'OR JR Details ERP', hint: 'Saved in database', hasDates: false, icon: 'bi-cloud-arrow-down' },
         'erpbom': { title: 'BOM ERP', hint: 'Saved in database', hasDates: false, icon: 'bi-cloud-arrow-down' },
-        'erpmoulditem': { title: 'Mould Item Master ERP', hint: 'Saved in database', hasDates: false, icon: 'bi-cloud-arrow-down' }
+        'erpmoulditem': { title: 'Mould Item Master ERP', hint: 'Saved in database', hasDates: false, icon: 'bi-cloud-arrow-down' },
+        'erpitem': { title: 'ERP Item Master', hint: 'Copied from Smart Ops every 5 minutes', hasDates: false, icon: 'bi-cloud-arrow-down' },
+        'erpvariant': { title: 'ERP Variant Master', hint: 'Copied from Smart Ops every 5 minutes', hasDates: false, icon: 'bi-cloud-arrow-down' },
+        'erpparty': { title: 'ERP Party Master', hint: 'Copied from Smart Ops every 5 minutes', hasDates: false, icon: 'bi-cloud-arrow-down' },
+        'erprate': { title: 'ERP Rate Master', hint: 'Copied from Smart Ops every 5 minutes', hasDates: false, icon: 'bi-cloud-arrow-down' }
       };
 
       const cfg = configs[type] || { title: 'Master Data', hint: 'Upload file', hasDates: false };
@@ -944,7 +992,7 @@
       }
 
       // ERP reports: show a slim bar with a superadmin-only "Fetch Latest Data" button.
-      const erpTypes = ['erpjrstatus', 'erpjrsummary', 'erpjrdetails', 'erpbom', 'erpmoulditem'];
+      const erpTypes = ['erpjrstatus', 'erpjrsummary', 'erpjrdetails', 'erpbom', 'erpmoulditem', 'erpitem', 'erpvariant', 'erpparty', 'erprate'];
       const erpFetchBtn = document.getElementById('erpFetchBtn');
       const erpLastSync = document.getElementById('erpLastSync');
       if (erpTypes.includes(type) && JPSMS.auth.isSuperadmin()) {
@@ -1167,7 +1215,11 @@
         erpjrsummary: '/reports/erp-jr-summary/sync',
         erpjrdetails: '/reports/erp-jr-details/sync',
         erpbom: '/reports/erp-bom/sync',
-        erpmoulditem: '/reports/erp-mould-item/sync'
+        erpmoulditem: '/reports/erp-mould-item/sync',
+        erpitem: '/erp-masters/sync-now',
+        erpvariant: '/erp-masters/sync-now',
+        erpparty: '/erp-masters/sync-now',
+        erprate: '/erp-masters/sync-now'
       };
       const endpoint = syncMap[currentType];
       if (!endpoint) return;
@@ -1198,7 +1250,11 @@
       erpjrsummary: '/reports/erp-jr-summary',
       erpjrdetails: '/reports/erp-jr-details',
       erpbom: '/reports/erp-bom',
-      erpmoulditem: '/reports/erp-mould-item'
+      erpmoulditem: '/reports/erp-mould-item',
+      erpitem: '/erp-masters/item/data',
+      erpvariant: '/erp-masters/variant/data',
+      erpparty: '/erp-masters/party/data',
+      erprate: '/erp-masters/rate/data'
     };
     const ERP_PAGE_SIZE = 500;
     const erpPage = { type: null, search: '', offset: 0, total: 0 };
@@ -1221,7 +1277,10 @@
       document.getElementById('erpPageInfo').textContent =
         `Rows ${from.toLocaleString()}–${to.toLocaleString()} of ${erpPage.total.toLocaleString()}`
         + (erpPage.search ? ` matching "${erpPage.search}"` : '')
-        + ' (Copy/Excel/Print export this page; Export all exports every row)';
+        + (ERP_MASTER_DEFS[currentType] && !erpMasterCanDownload() ? ''
+          : ' (Copy/Excel/Print export this page; Export all exports every row)');
+      const exportAllBtn = document.getElementById('erpExportAllBtn');
+      if (exportAllBtn) exportAllBtn.style.display = ERP_MASTER_DEFS[currentType] && !erpMasterCanDownload() ? 'none' : '';
       document.getElementById('erpPagePrev').disabled = erpPage.offset <= 0;
       document.getElementById('erpPageNext').disabled = !res.has_more;
       pager.style.display = 'flex';
@@ -1235,6 +1294,7 @@
     async function erpExportAll() {
       const endpoint = ERP_REPORT_ENDPOINTS[currentType];
       if (!endpoint) return;
+      if (ERP_MASTER_DEFS[currentType] && !erpMasterCanDownload()) return;
       const btn = document.getElementById('erpExportAllBtn');
       const original = btn ? btn.innerHTML : '';
       const setBtn = (html) => { if (btn) btn.innerHTML = html; };
@@ -1379,7 +1439,11 @@
         // ERP reports: reflect when the store was last refreshed.
         if (ERP_REPORT_ENDPOINTS[currentType]) {
           const el = document.getElementById('erpLastSync');
-          if (el) el.textContent = res.synced_at ? `Last fetched: ${res.synced_at}` : 'Not fetched yet';
+          if (el && ERP_MASTER_DEFS[currentType]) {
+            const st = res.sync || {};
+            el.textContent = (st.last_success_at ? `Last synced: ${new Date(st.last_success_at).toLocaleString('en-IN')}` : 'Not synced yet')
+              + (st.status === 'error' ? ` · Sync error: ${st.last_error || 'unknown'}` : st.status === 'ok' ? ' · Status: OK' : '');
+          } else if (el) el.textContent = res.synced_at ? `Last fetched: ${res.synced_at}` : 'Not fetched yet';
           updateErpPager(res, rows.length);
         }
 
@@ -1552,6 +1616,8 @@
             "has_bom", "grinding_item_code", "grinding_item_name", "grinding_percentage",
             "alt_items", "bom_status", "erp_action"
           ];
+        } else if (ERP_MASTER_DEFS[currentType]) {
+          cols = ERP_MASTER_DEFS[currentType].cols.map(c => c[0]);
         } else if (currentType === 'erpmoulditem') {
           // Read-only live ERP feed — every column GetMouldItemMaster returns.
           cols = [
@@ -1648,6 +1714,10 @@
             base.title = orjrWiseDetailTitles[c];
           } else if (currentType === 'wipstock' && wipStockTitles[c]) {
             base.title = wipStockTitles[c];
+          } else if (ERP_MASTER_DEFS[currentType]) {
+            const def = ERP_MASTER_DEFS[currentType].cols.find(x => x[0] === c);
+            if (def) base.title = def[1];
+            if (c === 'is_active') base.render = (v, t) => (t === 'display' || t === 'export') ? (v === true ? 'Yes' : v === false ? 'No' : '') : v;
           }
 
           if (isFactoryExportOnlyColumn) {
@@ -2151,7 +2221,8 @@
                 columns: shouldExportColumn
               }
             }
-          ],
+          // ERP masters: Copy / Excel / Print only with the Masters Print right.
+          ].filter(b => b.extend === 'colvis' || !ERP_MASTER_DEFS[currentType] || erpMasterCanDownload()),
           scrollX: true,
           paging: true, // Scroller needs paging enabled theoretically, but it overrides it visually
           pageLength: 50, // Ignored by Scroller usually

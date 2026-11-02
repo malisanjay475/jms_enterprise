@@ -313,7 +313,7 @@ function registerRoutes(app, deps) {
   const { registerNpdRoutes } = require('../modules/npd/registerNpdRoutes');
   registerNpdRoutes(app, pool);
 
-  // ERP Masters copied from Smart Ops (PUBLIC/erp_masters.html; sync runs on MAIN)
+  // ERP Masters copied from Smart Ops (Masters page ERP types; sync runs on MAIN)
   const { registerErpMastersRoutes } = require('../modules/erpMasters/registerErpMastersRoutes');
   registerErpMastersRoutes(app, pool);
 
