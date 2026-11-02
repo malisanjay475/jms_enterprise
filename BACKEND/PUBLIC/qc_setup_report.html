@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QC Setup STD vs Actual · JMS OCEAN</title>
+    <link href="/assets/vendor/fonts/g-5710dd5f5b.css" rel="stylesheet">
+    <link rel="stylesheet" href="/assets/bootstrap-icons.min.css">
+    <link rel="stylesheet" href="/assets/app.css?v=12">
+    <style>
+        :root { --ink:#0f172a; --muted:#64748b; --line:#e2e8f0; --bg:#f1f5f9;
+                --ok:#16a34a; --okbg:#dcfce7; --warn:#b45309; --warnbg:#fef3c7; --bad:#b91c1c; --badbg:#fee2e2;
+                --card-shadow:0 1px 2px rgba(15,23,42,.06), 0 8px 24px -12px rgba(15,23,42,.18); }
+        body { background: var(--bg); }
+        .qsr { padding: 4px 2px 40px; }
+        .hero { background: linear-gradient(135deg,#0f8ea8,#024c81); color:#fff; border-radius:16px; padding:16px 18px; box-shadow:var(--card-shadow); }
+        .hero h1 { font-size:1.15rem; font-weight:800; margin:0 0 4px; }
+        .hero p { margin:0; font-size:.8rem; opacity:.85; }
+        .controls { display:flex; flex-wrap:wrap; gap:10px; align-items:flex-end; margin-top:12px; }
+        .controls label { display:flex; flex-direction:column; font-size:.7rem; font-weight:700; text-transform:uppercase; letter-spacing:.03em; gap:4px; }
+        .controls input, .controls select { border:0; border-radius:8px; padding:7px 9px; font-size:.85rem; color:var(--ink); min-width:120px; }
+        .btn-q { border:0; border-radius:8px; padding:8px 14px; font-weight:700; font-size:.85rem; cursor:pointer; display:inline-flex; gap:6px; align-items:center; }
+        .btn-gen { background:#fff; color:#024c81; }
+        .btn-ghost { background:rgba(255,255,255,.15); color:#fff; }
+        .kpis { display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:10px; margin:14px 0; }
+        .kpi { background:#fff; border-radius:12px; padding:12px 14px; box-shadow:var(--card-shadow); }
+        .kpi .l { font-size:.7rem; font-weight:700; color:var(--muted); text-transform:uppercase; }
+        .kpi .v { font-size:1.4rem; font-weight:800; color:var(--ink); margin-top:2px; }
+        .kpi .s { font-size:.72rem; color:var(--muted); }
+        .panel { background:#fff; border-radius:12px; box-shadow:var(--card-shadow); overflow:hidden; }
+        .panel-head { display:flex; flex-wrap:wrap; gap:8px; align-items:center; padding:10px 12px; border-bottom:1px solid var(--line); font-size:.8rem; color:var(--muted); }
+        .legend span { display:inline-flex; align-items:center; gap:4px; margin-right:10px; }
+        .dot { width:10px; height:10px; border-radius:3px; display:inline-block; }
+        .tbl-wrap { overflow-x:auto; }
+        table.qt { width:100%; border-collapse:collapse; font-size:.8rem; }
+        table.qt th { background:#f8fafc; color:#334155; font-weight:700; text-align:center; padding:7px 8px; border-bottom:1px solid var(--line); white-space:nowrap; position:sticky; top:0; }
+        table.qt td { padding:6px 8px; border-bottom:1px solid #f1f5f9; text-align:center; white-space:nowrap; color:var(--ink); }
+        table.qt td.l { text-align:left; }
+        table.qt tr.grp td { background:#eef2ff; font-weight:800; text-align:left; color:#3730a3; }
+        table.qt tr.sub td { background:#f8fafc; font-weight:700; font-size:.75rem; color:#475569; }
+        table.qt tr.miss td { color:#94a3b8; font-style:italic; }
+        .ok { background:var(--okbg); color:var(--ok); font-weight:700; }
+        .warn { background:var(--warnbg); color:var(--warn); font-weight:700; }
+        .bad { background:var(--badbg); color:var(--bad); font-weight:700; }
+        .tag { display:inline-block; padding:1px 7px; border-radius:999px; font-size:.7rem; font-weight:700; }
+        .empty { padding:40px; text-align:center; color:var(--muted); font-weight:600; }
+        @media print { .no-print { display:none !important; } .hero { background:#fff; color:#000; box-shadow:none; } table.qt th { position:static; } }
+    </style>
+</head>
+<body>
+<div class="main-content">
+    <div class="qsr">
+        <div class="hero">
+            <h1><i class="bi bi-rulers"></i> QC Setup — STD vs Actual (Cycle Time &amp; Weight)</h1>
+            <p>From the QC app One-time Setup: Standard from the Mould Master vs Actual measured by QC, per machine, date, shift and setup period.</p>
+            <div class="controls no-print">
+                <label>From<input type="date" id="f-from"></label>
+                <label>To<input type="date" id="f-to"></label>
+                <label>Shift<select id="f-shift"><option value="">All</option><option>Day</option><option>Night</option></select></label>
+                <label>Line<select id="f-line"><option value="">All lines</option></select></label>
+                <label>Machine<select id="f-machine"><option value="">All machines</option></select></label>
+                <label>Show<select id="f-show"><option value="all">All rows</option><option value="out">Out of tolerance only</option><option value="miss">Not filled only</option></select></label>
+                <button class="btn-q btn-gen" id="btn-gen"><i class="bi bi-play-fill"></i> Generate</button>
+                <button class="btn-q btn-ghost" id="btn-xls"><i class="bi bi-file-earmark-excel"></i> Excel</button>
+                <button class="btn-q btn-ghost" onclick="window.print()"><i class="bi bi-printer"></i> Print</button>
+            </div>
+        </div>
+
+        <div class="kpis" id="kpis" style="display:none"></div>
+
+        <div class="panel">
+            <div class="panel-head">
+                <div class="legend">
+                    <span><i class="dot" style="background:var(--okbg);border:1px solid var(--ok)"></i>Within ±<b class="t-ok"></b>%</span>
+                    <span><i class="dot" style="background:var(--warnbg);border:1px solid var(--warn)"></i>±<b class="t-ok"></b>–<b class="t-bad"></b>%</span>
+                    <span><i class="dot" style="background:var(--badbg);border:1px solid var(--bad)"></i>Over ±<b class="t-bad"></b>% / cavity mismatch</span>
+                </div>
+                <div style="flex:1"></div>
+                <span>Weights in grams · CT in seconds · Var % = (Act − STD) ÷ STD</span>
+            </div>
+            <div class="tbl-wrap" id="out"><div class="empty">Select dates and click <b>Generate</b>.</div></div>
+        </div>
+    </div>
+</div>
+
+<script src="/assets/app.min.js?v=1583"></script>
+<script src="/assets/vendor/jsdelivr/xlsx@0.18.5/xlsx.full.min.js"></script>
+<script>
+// Tolerance bands (percent). Change here if QC uses different limits.
+const TOL_OK = 5, TOL_BAD = 10;
+document.querySelectorAll('.t-ok').forEach(e => e.textContent = TOL_OK);
+document.querySelectorAll('.t-bad').forEach(e => e.textContent = TOL_BAD);
+
+const $ = id => document.getElementById(id);
+const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+const fmt = (v, d = 2) => (v === null || v === undefined) ? '—' : (Math.round(v * 10 ** d) / 10 ** d).toString();
+const band = p => (p === null || p === undefined) ? '' : (Math.abs(p) <= TOL_OK ? 'ok' : Math.abs(p) <= TOL_BAD ? 'warn' : 'bad');
+const cavBad = r => r.std_cavity != null && r.act_cavity != null && Number(r.std_cavity) !== Number(r.act_cavity);
+const isOut = r => r.status === 'FILLED' && (band(r.ct_var_pct) === 'bad' || band(r.wt_var_pct) === 'bad'
+    || band(r.ct_var_pct) === 'warn' || band(r.wt_var_pct) === 'warn' || cavBad(r));
+let lastRows = [];
+
+const today = new Date(); const iso = d => new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+$('f-from').value = iso(today); $('f-to').value = iso(today);
+
+async function loadMachines() {
+    try {
+        const r = await JPSMS.api.get('/masters/machines?process=Moulding');
+        const list = (r.data || []).map(m => ({ machine: m.machine, line: m.line || m.building || '' }));
+        const lines = [...new Set(list.map(m => m.line).filter(Boolean))].sort();
+        $('f-line').innerHTML = '<option value="">All lines</option>' + lines.map(l => `<option>${esc(l)}</option>`).join('');
+        const fill = () => {
+            const ln = $('f-line').value;
+            $('f-machine').innerHTML = '<option value="">All machines</option>' + list.filter(m => !ln || m.line === ln)
+                .sort((a, b) => a.machine.localeCompare(b.machine, undefined, { numeric: true }))
+                .map(m => `<option>${esc(m.machine)}</option>`).join('');
+        };
+        $('f-line').onchange = fill; fill();
+    } catch (e) { console.warn('machines load failed', e); }
+}
+
+async function generate() {
+    const qs = new URLSearchParams({ fromDate: $('f-from').value, toDate: $('f-to').value || $('f-from').value });
+    if ($('f-shift').value) qs.set('shift', $('f-shift').value);
+    if ($('f-machine').value) qs.set('machine', $('f-machine').value);
+    $('out').innerHTML = '<div class="empty">Loading…</div>';
+    try {
+        const r = await JPSMS.api.get('/reports/qc-setup-std-vs-actual?' + qs.toString());
+        if (!r || !r.ok) throw new Error((r && r.error) || 'Failed to load');
+        const ln = $('f-line').value;
+        lastRows = (r.rows || []).filter(x => !ln || x.line === ln);
+        render();
+    } catch (e) {
+        $('out').innerHTML = `<div class="empty" style="color:var(--bad)">${esc(e.message || e)}</div>`;
+        $('kpis').style.display = 'none';
+    }
+}
+
+function render() {
+    const show = $('f-show').value;
+    const rows = lastRows.filter(r => show === 'all' || (show === 'out' ? isOut(r) : r.status === 'NOT_FILLED'));
+    const filled = lastRows.filter(r => r.status === 'FILLED');
+    const avg = k => { const v = filled.map(r => r[k]).filter(x => x !== null && x !== undefined); return v.length ? v.reduce((a, b) => a + Math.abs(b), 0) / v.length : null; };
+    const expected = lastRows.length;
+    $('kpis').style.display = '';
+    $('kpis').innerHTML = [
+        ['Setups filled', `${filled.length} / ${expected}`, expected ? `${Math.round(filled.length / expected * 100)}% compliance` : ''],
+        ['Not filled', lastRows.length - filled.length, 'machine-shift periods with production but no QC setup'],
+        ['Avg |CT Var|', avg('ct_var_pct') === null ? '—' : fmt(avg('ct_var_pct'), 1) + '%', 'absolute, filled setups'],
+        ['Avg |Wt Var|', avg('wt_var_pct') === null ? '—' : fmt(avg('wt_var_pct'), 1) + '%', 'absolute, filled setups'],
+        ['Out of tolerance', filled.filter(isOut).length, `> ±${TOL_OK}% or cavity mismatch`]
+    ].map(([l, v, s]) => `<div class="kpi"><div class="l">${l}</div><div class="v">${v}</div><div class="s">${s}</div></div>`).join('');
+
+    if (!rows.length) { $('out').innerHTML = '<div class="empty">No rows for the selected filters.</div>'; return; }
+
+    const head = `<tr><th>Machine</th><th>Period</th><th>Job Card</th><th>Product</th>
+        <th>STD CT</th><th>Act CT</th><th>CT Var %</th>
+        <th>STD Wt (g)</th><th>Act Wt (g)</th><th>Wt Var %</th>
+        <th>STD Cav</th><th>Act Cav</th><th>Runner STD / Act (g)</th><th>QC By</th><th>Time</th></tr>`;
+    let html = `<table class="qt"><thead>${head}</thead><tbody>`;
+    let grpKey = null, sub = null;
+    const flushSub = () => {
+        if (!sub || !sub.n) return;
+        html += `<tr class="sub"><td class="l" colspan="6">Sub-total · ${sub.n} setup(s), ${sub.out} out of tolerance, ${sub.miss} not filled</td>
+            <td>${sub.ctN ? fmt(sub.ct / sub.ctN, 1) + '%' : '—'}</td><td colspan="2"></td>
+            <td>${sub.wtN ? fmt(sub.wt / sub.wtN, 1) + '%' : '—'}</td><td colspan="5"></td></tr>`;
+    };
+    rows.forEach(r => {
+        const g = `${r.date}|${r.shift}`;
+        if (g !== grpKey) {
+            flushSub(); grpKey = g; sub = { n: 0, out: 0, miss: 0, ct: 0, ctN: 0, wt: 0, wtN: 0 };
+            const d = new Date(r.date + 'T00:00:00').toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', weekday: 'short' });
+            html += `<tr class="grp"><td colspan="15"><i class="bi bi-calendar3"></i> ${esc(d)} · ${esc(r.shift)} shift</td></tr>`;
+        }
+        sub.n++;
+        if (r.status === 'NOT_FILLED') {
+            sub.miss++;
+            html += `<tr class="miss"><td class="l"><b>${esc(r.machine)}</b></td><td>P${r.period}</td>
+                <td colspan="13" class="l"><span class="tag bad">Not filled</span> Machine produced this shift but QC setup period ${r.period} was not entered.</td></tr>`;
+            return;
+        }
+        if (isOut(r)) sub.out++;
+        if (r.ct_var_pct != null) { sub.ct += Math.abs(r.ct_var_pct); sub.ctN++; }
+        if (r.wt_var_pct != null) { sub.wt += Math.abs(r.wt_var_pct); sub.wtN++; }
+        const t = r.setup_at ? new Date(r.setup_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : '—';
+        const pct = p => p === null || p === undefined ? '—' : (p > 0 ? '+' : '') + fmt(p, 1) + '%';
+        html += `<tr>
+            <td class="l"><b>${esc(r.machine)}</b><div style="font-size:.68rem;color:var(--muted)">${esc(r.line)}</div></td>
+            <td>P${r.period}</td><td>${esc(r.job_card_no || '—')}</td>
+            <td class="l" style="max-width:220px;overflow:hidden;text-overflow:ellipsis" title="${esc(r.product_name || '')}">${esc(r.product_name || '—')}</td>
+            <td>${fmt(r.std_ct)}</td><td>${fmt(r.act_ct)}</td><td class="${band(r.ct_var_pct)}">${pct(r.ct_var_pct)}</td>
+            <td>${fmt(r.std_wt_g)}</td><td>${fmt(r.act_wt_g)}</td><td class="${band(r.wt_var_pct)}">${pct(r.wt_var_pct)}</td>
+            <td>${fmt(r.std_cavity, 0)}</td><td class="${cavBad(r) ? 'bad' : ''}">${fmt(r.act_cavity, 0)}</td>
+            <td>${fmt(r.std_runner_g)} / ${fmt(r.act_runner_g)}</td>
+            <td>${esc(r.setup_by || '—')}</td><td>${t}</td></tr>`;
+    });
+    flushSub();
+    $('out').innerHTML = html + '</tbody></table>';
+}
+
+function exportXls() {
+    if (!lastRows.length) { alert('Generate the report first.'); return; }
+    const data = lastRows.map(r => ({
+        Date: r.date, Shift: r.shift, Line: r.line, Machine: r.machine, Period: r.period,
+        Status: r.status === 'FILLED' ? 'Filled' : 'Not filled',
+        'Job Card': r.job_card_no || '', Product: r.product_name || '',
+        'STD CT (s)': r.std_ct, 'Act CT (s)': r.act_ct, 'CT Var %': r.ct_var_pct,
+        'STD Wt (g)': r.std_wt_g, 'Act Wt (g)': r.act_wt_g, 'Wt Var %': r.wt_var_pct,
+        'STD Cavity': r.std_cavity, 'Act Cavity': r.act_cavity,
+        'STD Runner (g)': r.std_runner_g, 'Act Runner (g)': r.act_runner_g,
+        'QC By': r.setup_by || '', 'Setup At': r.setup_at ? new Date(r.setup_at).toLocaleString('en-IN') : ''
+    }));
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data), 'STD vs Actual');
+    XLSX.writeFile(wb, `QC_Setup_STD_vs_Actual_${$('f-from').value}_to_${$('f-to').value}.xlsx`);
+}
+
+$('btn-gen').onclick = generate;
+$('btn-xls').onclick = exportXls;
+$('f-show').onchange = () => lastRows.length && render();
+loadMachines();
+</script>
+</body>
+</html>

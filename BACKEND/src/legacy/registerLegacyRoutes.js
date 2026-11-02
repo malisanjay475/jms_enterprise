@@ -3,6 +3,7 @@ const path = require('path');
 const os = require('os');
 const express = require('express');
 const { stripMachinePrefix, dedupePlansById } = require('../utils/machineName');
+const { countChanges } = require('../modules/dpr/changeCounts');
 const multer = require('multer');
 const upload = multer({
   dest: 'uploads/',
@@ -25906,6 +25907,57 @@ app.post('/api/dpr/auto-fill-ongoing', async (req, res) => {
 });
 
 // GET /api/dpr/summary-matrix
+// GET /api/dpr/change-counts?date=YYYY-MM-DD
+// Mould / Colour / Job change counts per machine for the Day and Night shift of one
+// date, using the shared rule in src/modules/dpr/changeCounts.js. The previous
+// date's Night shift seeds the walk so a change right at the start of Day counts,
+// and Day + Night are walked as one sequence so a change at the boundary counts.
+app.get('/api/dpr/change-counts', async (req, res) => {
+  try {
+    const date = String(req.query.date || '').trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ ok: false, error: 'date (YYYY-MM-DD) required' });
+    const factoryId = getFactoryId(req);
+    const DPR_HOURLY_KEY = `machine, hour_slot, plan_id, dpr_date, shift, COALESCE(colour, '')`;
+    const rows = await q(`
+      SELECT d.id, d.machine, d.dpr_date::text AS dpr_date, d.shift, d.hour_slot, d.entry_type,
+             d.downtime_breakup, d.good_qty, d.reject_qty, d.colour, d.created_at,
+             COALESCE(NULLIF(TRIM(pb.mould_code), ''), NULLIF(TRIM(d.mould_no), ''), NULLIF(TRIM(pb.mould_name), '')) AS mould_key,
+             COALESCE(NULLIF(TRIM(d.plan_id::text), ''), NULLIF(TRIM(d.order_no), '')) AS job_key
+        FROM (
+          SELECT DISTINCT ON (${DPR_HOURLY_KEY}) *
+            FROM dpr_hourly
+           WHERE ((dpr_date = $1::date) OR (dpr_date = $1::date - 1 AND shift = 'Night'))
+             AND is_deleted IS NOT TRUE
+             AND ($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL)
+           ORDER BY ${DPR_HOURLY_KEY}, id DESC
+        ) d
+        LEFT JOIN LATERAL (
+          SELECT pb2.mould_code, pb2.mould_name FROM plan_board pb2
+           WHERE (pb2.plan_id = d.plan_id OR CAST(pb2.id AS TEXT) = CAST(d.plan_id AS TEXT))
+             AND (pb2.factory_id = d.factory_id OR pb2.factory_id IS NULL OR d.factory_id IS NULL)
+           ORDER BY (pb2.plan_id = d.plan_id) DESC, pb2.id DESC
+           LIMIT 1
+        ) pb ON true`, [date, factoryId || null]);
+
+    const byMachine = new Map();
+    for (const r of rows) {
+      if (!byMachine.has(r.machine)) byMachine.set(r.machine, { prev: [], cur: [] });
+      byMachine.get(r.machine)[r.dpr_date === date ? 'cur' : 'prev'].push(r);
+    }
+    const machines = {};
+    for (const [machine, g] of byMachine) {
+      if (!g.cur.length) continue;
+      const seed = countChanges(g.prev).last;
+      const { byShift } = countChanges(g.cur, seed);
+      const z = { mc: 0, cc: 0, jc: 0 };
+      machines[machine] = { Day: { ...z, ...(byShift.Day || {}) }, Night: { ...z, ...(byShift.Night || {}) } };
+    }
+    res.json({ ok: true, date, machines });
+  } catch (e) {
+    sendServerError(res, e);
+  }
+});
+
 app.get('/api/dpr/summary-matrix', async (req, res) => {
   try {
     const { date, shift, fromDate, toDate } = req.query;
@@ -33011,6 +33063,95 @@ app.post('/api/qc/online-report/slot', (req, res, next) => {
     ]);
     syncService.triggerSync();
     res.json({ ok: true });
+  } catch (e) {
+    sendServerError(res, e);
+  }
+});
+
+// GET /api/reports/qc-setup-std-vs-actual?fromDate&toDate&shift&machine
+// QC One-time Setup report: STD (mould master) vs Actual (entered by QC in the app)
+// cycle time, part weight, cavity and runner weight — per machine / date / shift /
+// setup period. Machines that ran (any DPR production) but have no QC setup for a
+// period come back as status 'NOT_FILLED' so missing entries are visible.
+// Weights are returned in grams (stored values < 10 are kg, >= 10 already grams).
+app.get('/api/reports/qc-setup-std-vs-actual', async (req, res) => {
+  try {
+    const isDate = v => /^\d{4}-\d{2}-\d{2}$/.test(String(v || ''));
+    const fromDate = String(req.query.fromDate || '');
+    const toDate = String(req.query.toDate || fromDate);
+    if (!isDate(fromDate) || !isDate(toDate)) return res.status(400).json({ ok: false, error: 'fromDate and toDate (YYYY-MM-DD) required' });
+    if (toDate < fromDate) return res.status(400).json({ ok: false, error: 'toDate must be on or after fromDate' });
+    const daySpan = (new Date(toDate) - new Date(fromDate)) / 86400000;
+    if (daySpan > 62) return res.status(400).json({ ok: false, error: 'Maximum range is 62 days' });
+    const shift = ['Day', 'Night'].includes(req.query.shift) ? req.query.shift : '';
+    const machine = String(req.query.machine || '').trim();
+    const factoryId = getFactoryId(req) || null;
+
+    const [setups, ran] = await Promise.all([
+      q(`SELECT s.id, s.dpr_date::text AS date, s.shift, s.machine, COALESCE(s.setup_period, 1) AS period,
+                s.job_card_no, s.std_cycle_time, s.act_cycle_time, s.std_weight, s.act_weight,
+                s.std_cavity, s.act_cavity, s.std_runner_weight, s.act_runner_weight,
+                s.setup_by, s.setup_at, rpt.product_name
+           FROM qc_job_setup s
+           LEFT JOIN LATERAL (
+             SELECT r.product_name FROM or_jr_report r
+              WHERE TRIM(r.job_card_no) = TRIM(s.job_card_no)
+              ORDER BY r.job_card_date DESC NULLS LAST LIMIT 1
+           ) rpt ON true
+          WHERE s.dpr_date BETWEEN $1::date AND $2::date
+            AND ($3 = '' OR s.shift = $3)
+            AND ($4 = '' OR s.machine = $4)
+            AND ($5::int IS NULL OR s.factory_id = $5 OR s.factory_id IS NULL)`,
+        [fromDate, toDate, shift, machine, factoryId]),
+      q(`SELECT DISTINCT machine, dpr_date::text AS date, shift
+           FROM dpr_hourly
+          WHERE dpr_date BETWEEN $1::date AND $2::date
+            AND ($3 = '' OR shift = $3)
+            AND ($4 = '' OR machine = $4)
+            AND is_deleted IS NOT TRUE
+            AND (COALESCE(good_qty, 0) > 0 OR COALESCE(reject_qty, 0) > 0)
+            AND ($5::int IS NULL OR factory_id = $5 OR factory_id IS NULL)`,
+        [fromDate, toDate, shift, machine, factoryId])
+    ]);
+
+    const machineRows = await q(`SELECT machine, line, building FROM machines`);
+    const lineOf = {};
+    machineRows.forEach(m => { lineOf[m.machine] = m.line || m.building || ''; });
+
+    const n = v => (v === null || v === undefined || v === '' || isNaN(Number(v))) ? null : Number(v);
+    const grams = v => { const x = n(v); if (x === null || x <= 0) return null; return x >= 10 ? x : x * 1000; };
+    const r2 = v => (v === null ? null : Math.round(v * 100) / 100);
+    const varPct = (std, act) => (std && act !== null) ? r2(((act - std) / std) * 100) : null;
+
+    const rows = setups.map(s => {
+      const stdCt = n(s.std_cycle_time), actCt = n(s.act_cycle_time);
+      const stdWt = grams(s.std_weight), actWt = grams(s.act_weight);
+      return {
+        status: 'FILLED',
+        date: s.date, shift: s.shift, machine: s.machine, line: lineOf[s.machine] || '', period: Number(s.period) || 1,
+        job_card_no: s.job_card_no, product_name: s.product_name || null,
+        std_ct: stdCt, act_ct: actCt, ct_var_pct: varPct(stdCt, actCt),
+        std_wt_g: r2(stdWt), act_wt_g: r2(actWt), wt_var_pct: varPct(stdWt, actWt),
+        std_cavity: n(s.std_cavity), act_cavity: n(s.act_cavity),
+        std_runner_g: r2(grams(s.std_runner_weight)), act_runner_g: r2(grams(s.act_runner_weight)),
+        setup_by: s.setup_by, setup_at: s.setup_at
+      };
+    });
+
+    // Missing QC setups: every machine-shift that produced should have period 1 and 2.
+    const have = new Set(rows.map(r => `${r.machine}|${r.date}|${r.shift}|${r.period}`));
+    ran.forEach(r => {
+      [1, 2].forEach(p => {
+        if (!have.has(`${r.machine}|${r.date}|${r.shift}|${p}`)) {
+          rows.push({ status: 'NOT_FILLED', date: r.date, shift: r.shift, machine: r.machine, line: lineOf[r.machine] || '', period: p });
+        }
+      });
+    });
+
+    const shiftRank = s => (s === 'Day' ? 0 : s === 'Night' ? 1 : 2);
+    rows.sort((a, b) => a.date.localeCompare(b.date) || shiftRank(a.shift) - shiftRank(b.shift)
+      || a.machine.localeCompare(b.machine, undefined, { numeric: true }) || a.period - b.period);
+    res.json({ ok: true, fromDate, toDate, shift: shift || 'All', rows });
   } catch (e) {
     sendServerError(res, e);
   }

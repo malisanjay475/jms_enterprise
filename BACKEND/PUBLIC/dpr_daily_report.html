@@ -468,14 +468,18 @@ async function generateReport() {
 
     if (window.JPSMS && JPSMS.toggleLoader) JPSMS.toggleLoader(true);
     try {
-        const [dayRaw, nightRaw, reasonsRes, teamDayRes, teamNightRes, machinesRes] = await Promise.all([
+        const [dayRaw, nightRaw, reasonsRes, teamDayRes, teamNightRes, machinesRes, changeRes] = await Promise.all([
             JPSMS.api.get(`/dpr/summary-matrix?fromDate=${date}&toDate=${date}&shift=Day${pq}`),
             JPSMS.api.get(`/dpr/summary-matrix?fromDate=${date}&toDate=${date}&shift=Night${pq}`),
             JPSMS.api.get('/dpr/reasons'),
             JPSMS.api.get(`/shift/team-range?fromDate=${date}&toDate=${date}&shift=Day`),
             JPSMS.api.get(`/shift/team-range?fromDate=${date}&toDate=${date}&shift=Night`),
-            JPSMS.api.get(`/masters/machines?process=${encodeURIComponent(dailyDprProcess)}`)
+            JPSMS.api.get(`/masters/machines?process=${encodeURIComponent(dailyDprProcess)}`),
+            // Mould / Colour / Job change counts from the shared server-side rule
+            // (same for every report; counts changes at the shift boundary too).
+            JPSMS.api.get(`/dpr/change-counts?date=${date}`).catch(() => null)
         ]);
+        const changeMap = (changeRes && changeRes.ok && changeRes.machines) ? changeRes.machines : null;
 
         const allowedSet = new Set((machinesRes.data||[]).map(m => m.machine));
         // Machine Master load/unload time (minutes) → STD change-over time per machine.
@@ -615,14 +619,19 @@ async function generateReport() {
                 });
 
                 if (mHasData) { L.runMachines++; mm.runMachines = 1; }
-                // Mould & Job change = distinct setups − 1 (a reused mould/job is the SAME setup,
-                // not a new change). Colour change = TRANSITIONS: one each time the colour differs
-                // from the previous hour, because a colour used again still needs a fresh purge
-                // (so Gray→Green→Brown→Gray = 3 colour changes, not 2).
-                const mcCount = Math.max(0, uniqueMoulds.size - 1);   // Mould Change
-                const jcCount = Math.max(0, uniqueJobs.size - 1);     // Job Change
-                let ccCount = 0, prevCol = null;                     // Colour Change (each purge)
-                for (const c of colourSeq) { if (prevCol !== null && c !== prevCol) ccCount++; prevCol = c; }
+                // Preferred: server counts (/api/dpr/change-counts) — event-based, A→B→A = 2,
+                // colour changes inside an hour and at the Day/Night boundary included.
+                // Fallback below only runs against an older server without that endpoint.
+                let mcCount, jcCount, ccCount;
+                if (changeMap) {
+                    const sc = (changeMap[machine] || {})[shiftName] || {};
+                    mcCount = Number(sc.mc) || 0; ccCount = Number(sc.cc) || 0; jcCount = Number(sc.jc) || 0;
+                } else {
+                    mcCount = Math.max(0, uniqueMoulds.size - 1);
+                    jcCount = Math.max(0, uniqueJobs.size - 1);
+                    ccCount = 0; let prevCol = null;
+                    for (const c of colourSeq) { if (prevCol !== null && c !== prevCol) ccCount++; prevCol = c; }
+                }
                 L.mc += mcCount; mm.mc += mcCount;
                 L.cc += ccCount; mm.cc += ccCount;
                 L.jc += jcCount; mm.jc += jcCount;
