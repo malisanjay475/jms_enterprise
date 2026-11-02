@@ -49,8 +49,28 @@ data class QueueJob(
     @SerialName("PlanQty") val planQty: Int? = null,
     @SerialName("Status") val Status: String? = null,
     @SerialName("ColourDetails") val colourDetails: JsonElement? = null,
-    val fpa_status: String? = null
+    val fpa_status: String? = null,
+    // Mould Master standards (number or string on the wire)
+    @SerialName("STD Cycle Time") val stdCycleTimeRaw: JsonElement? = null,
+    @SerialName("Article STD Weight") val stdWeightRaw: JsonElement? = null
 ) {
+    private fun num(e: JsonElement?): Double? =
+        (e as? kotlinx.serialization.json.JsonPrimitive)?.content?.trim()?.toDoubleOrNull()?.takeIf { it > 0 }
+
+    private fun fmt(d: Double): String =
+        if (d % 1.0 == 0.0) d.toLong().toString() else "%.2f".format(d).trimEnd('0').trimEnd('.')
+
+    /** e.g. "32.5 s", or null when the Mould Master has no cycle time. */
+    val stdCycleTimeText: String?
+        get() = num(stdCycleTimeRaw)?.let { "${fmt(it)} s" }
+
+    /** Weight per piece. Stored as kg (values >= 10 are already grams). */
+    val stdWeightText: String?
+        get() = num(stdWeightRaw)?.let { w ->
+            val grams = if (w >= 10) w else w * 1000
+            if (grams < 1000) "${fmt(grams)} g" else "${fmt(grams / 1000)} kg"
+        }
+
     val productName: String
         get() = product_name ?: sfgName ?: "Job"
 
@@ -296,6 +316,8 @@ data class FpaStatus(
     val approval_status: String? = null, // "Pending" | "Approved" | "Rejected"
     val reject_reason: String? = null,
     val reviewed_by: String? = null,
+    /** Remark the QC HOD left when approving the FPA. */
+    val approve_remark: String? = null,
     /** Machine the job (and this FPA) was moved from; it needs approval again here. */
     val transferred_from: String? = null,
     /** No FPA on this machine, but the job has one from another machine (moved before FPAs were copied). */
