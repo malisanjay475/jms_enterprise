@@ -33091,13 +33091,25 @@ app.get('/api/reports/qc-setup-std-vs-actual', async (req, res) => {
       q(`SELECT s.id, s.dpr_date::text AS date, s.shift, s.machine, COALESCE(s.setup_period, 1) AS period,
                 s.job_card_no, s.std_cycle_time, s.act_cycle_time, s.std_weight, s.act_weight,
                 s.std_cavity, s.act_cavity, s.std_runner_weight, s.act_runner_weight,
-                s.setup_by, s.setup_at, rpt.product_name
+                s.setup_by, s.setup_at, rpt.product_name,
+                pb.mould_code AS mould_no, pb.mould_name
            FROM qc_job_setup s
            LEFT JOIN LATERAL (
-             SELECT r.product_name FROM or_jr_report r
+             SELECT r.product_name, r.or_jr_no FROM or_jr_report r
               WHERE TRIM(r.job_card_no) = TRIM(s.job_card_no)
               ORDER BY r.job_card_date DESC NULLS LAST LIMIT 1
            ) rpt ON true
+           -- Mould of this job: the plan carrying this job card (same machine first);
+           -- else the plan of the job card's order on this machine.
+           LEFT JOIN LATERAL (
+             SELECT NULLIF(TRIM(p.mould_code), '') AS mould_code, NULLIF(TRIM(p.mould_name), '') AS mould_name
+               FROM plan_board p
+              WHERE TRIM(COALESCE(p.job_card_no, '')) = TRIM(s.job_card_no)
+                 OR (rpt.or_jr_no IS NOT NULL AND TRIM(p.order_no) = TRIM(rpt.or_jr_no) AND p.machine = s.machine)
+              ORDER BY (TRIM(COALESCE(p.job_card_no, '')) = TRIM(s.job_card_no)) DESC,
+                       (p.machine = s.machine) DESC, p.id DESC
+              LIMIT 1
+           ) pb ON true
           WHERE s.dpr_date BETWEEN $1::date AND $2::date
             AND ($3 = '' OR s.shift = $3)
             AND ($4 = '' OR s.machine = $4)
@@ -33118,6 +33130,21 @@ app.get('/api/reports/qc-setup-std-vs-actual', async (req, res) => {
     const lineOf = {};
     machineRows.forEach(m => { lineOf[m.machine] = m.line || m.building || ''; });
 
+    // Shift Team names (saved per line/date/shift): show the QC person by name
+    // instead of the line login that saved the setup.
+    const teams = await q(`SELECT line, shift_date::text AS date, shift, qc_supervisor, entry_person
+                             FROM shift_teams
+                            WHERE shift_date BETWEEN $1::date AND $2::date
+                              AND ($3::int IS NULL OR factory_id = $3 OR factory_id IS NULL)`,
+      [fromDate, toDate, factoryId]);
+    const tKey = (line, date, sh) => `${String(line || '').trim().toUpperCase()}|${date}|${sh}`;
+    const teamBy = {};
+    teams.forEach(t => { teamBy[tKey(t.line, t.date, t.shift)] = t; });
+    const qcNameOf = (machine, date, sh) => {
+      const t = teamBy[tKey(lineOf[machine], date, sh)];
+      return (t && (String(t.qc_supervisor || '').trim() || null)) || null;
+    };
+
     const n = v => (v === null || v === undefined || v === '' || isNaN(Number(v))) ? null : Number(v);
     const grams = v => { const x = n(v); if (x === null || x <= 0) return null; return x >= 10 ? x : x * 1000; };
     const r2 = v => (v === null ? null : Math.round(v * 100) / 100);
@@ -33130,6 +33157,8 @@ app.get('/api/reports/qc-setup-std-vs-actual', async (req, res) => {
         status: 'FILLED',
         date: s.date, shift: s.shift, machine: s.machine, line: lineOf[s.machine] || '', period: Number(s.period) || 1,
         job_card_no: s.job_card_no, product_name: s.product_name || null,
+        mould_no: s.mould_no || null, mould_name: s.mould_name || null,
+        qc_name: qcNameOf(s.machine, s.date, s.shift),
         std_ct: stdCt, act_ct: actCt, ct_var_pct: varPct(stdCt, actCt),
         std_wt_g: r2(stdWt), act_wt_g: r2(actWt), wt_var_pct: varPct(stdWt, actWt),
         std_cavity: n(s.std_cavity), act_cavity: n(s.act_cavity),
@@ -33143,7 +33172,8 @@ app.get('/api/reports/qc-setup-std-vs-actual', async (req, res) => {
     ran.forEach(r => {
       [1, 2].forEach(p => {
         if (!have.has(`${r.machine}|${r.date}|${r.shift}|${p}`)) {
-          rows.push({ status: 'NOT_FILLED', date: r.date, shift: r.shift, machine: r.machine, line: lineOf[r.machine] || '', period: p });
+          rows.push({ status: 'NOT_FILLED', date: r.date, shift: r.shift, machine: r.machine, line: lineOf[r.machine] || '', period: p,
+            qc_name: qcNameOf(r.machine, r.date, r.shift) });
         }
       });
     });
