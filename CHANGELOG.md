@@ -14,6 +14,7 @@ part of your PR. On release, the `[Unreleased]` items move under the new version
 ## [Unreleased]
 
 ### Added
+- Masters > ERP Item / Variant / Party / Rate Master (v1.164.0): read-only copies of the four ERP masters, pulled from Smart Ops (not the ERP) every 5 minutes on MAIN by changed rows only (cursor + 15-minute overlap, upsert by Smart Ops id). Paged search / sort, last synced + status, admin Sync now, Excel export of all rows. New tables via migration 017; needs SMARTOPS_URL / SMARTOPS_USER / SMARTOPS_PASS in the server .env (kept across deploys), otherwise the sync stays off.
 - Quality > Setup STD vs Actual report (v1.163.0): STD vs actual cycle time, weight, cavity and runner weight from the QC app one-time setup, machine-wise in Compliance Summary order, with mould no./name, QC person from the Shift Team, "Not filled" rows, Excel export.
 - QC Android app: STD cycle time and STD weight chips on Job Queue cards (v1.163.0).
 
