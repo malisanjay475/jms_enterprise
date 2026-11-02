@@ -13,6 +13,39 @@
   },
   "latest": "1.162.0",
   "versions": [
+    {
+      "version": "1.163.0",
+      "date": "2026-11-02",
+      "title": "QC setup STD vs Actual report, accurate DPR change counts, QC app updates",
+      "modules": [
+        {
+          "app": "quality",
+          "changes": [
+            {
+              "type": "feature",
+              "text": "New Quality > Setup STD vs Actual report: standard vs actual cycle time, weight, cavity and runner weight from the QC app setup, machine-wise in Compliance Summary order, with mould no./name, the QC person's name from the Shift Team, missing setups flagged, and Excel export."
+            },
+            {
+              "type": "feature",
+              "text": "QC mobile app: STD cycle time and STD weight shown on every job card in the Job Queue."
+            },
+            {
+              "type": "fix",
+              "text": "QC mobile app: the QC HOD's remark on an approved FPA is now shown, with who approved it."
+            }
+          ]
+        },
+        {
+          "app": "dpr",
+          "changes": [
+            {
+              "type": "fix",
+              "text": "DPR Daily Report: Mould, Colour and Job change counts are now accurate. A mould mounted again counts again, a colour change within the same hour counts, and a change at the Day/Night shift boundary is no longer missed."
+            }
+          ]
+        }
+      ]
+    },
     {"version": "1.162.0", "date": "2026-10-31", "title": "JMS Chat: group calls and walkie-talkie", "modules": [{"app": "all", "changes": [{"type": "feature", "text": "Group voice calls (up to 8 people) from the website and Android chat app, and walkie-talkie / push-to-talk clips that play by themselves in an open chat."}]}]},
     {"version": "1.161.1", "date": "2026-10-31", "title": "Planning machine cards show live balance", "modules": [{"app": "planning", "changes": [{"type": "fix", "text": "On the Planning Board Machines view, a flipped machine card now shows Balance and Done % from plan qty minus DPR produced (same as Master Plan and View full details), instead of a stale stored balance that stayed at full plan qty while the machine ran."}]}]},
     {"version": "1.154.2", "date": "2026-10-30", "title": "Compliance Summary shows full job flow", "modules": [{"app": "dpr", "changes": [{"type": "feature", "text": "Moulding, QC and Shifting Compliance Summary machine cells, and the DPR job popup, now show Produced, Balance, QC verified, QC hold, QC balance, Shifted, Shifting balance and Shop floor for the running job."}]}]},
