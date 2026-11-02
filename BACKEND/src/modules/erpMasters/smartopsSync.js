@@ -19,7 +19,7 @@
 
 /* Columns we copy, in table order. Any other field Smart Ops sends is ignored.
    type: t text, i integer, n numeric, b boolean. Keep in sync with
-   migrations/017_erp_masters_smartops.sql and PUBLIC/erp_masters.html. */
+   migrations/017_erp_masters_smartops.sql and ERP_MASTER_DEFS in PUBLIC/assets/masters-script-2.js. */
 const MASTERS = {
   item: {
     table: 'jo_erp_item_master',
