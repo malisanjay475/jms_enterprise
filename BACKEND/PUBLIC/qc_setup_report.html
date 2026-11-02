@@ -86,6 +86,10 @@
 <script src="/assets/app.min.js?v=1583"></script>
 <script src="/assets/vendor/jsdelivr/xlsx@0.18.5/xlsx.full.min.js"></script>
 <script>
+// App shell: login check + sidebar (every page renders its own shell).
+try { if (window.JPSMS && JPSMS.auth) JPSMS.auth.requireAuth(); } catch (e) { console.error('requireAuth:', e); }
+try { if (window.JPSMS && JPSMS.renderShell) JPSMS.renderShell('quality'); } catch (e) { console.error('renderShell:', e); }
+
 // Tolerance bands (percent). Change here if QC uses different limits.
 const TOL_OK = 5, TOL_BAD = 10;
 document.querySelectorAll('.t-ok').forEach(e => e.textContent = TOL_OK);
