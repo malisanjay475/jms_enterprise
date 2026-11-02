@@ -14,6 +14,23 @@
   "latest": "1.162.0",
   "versions": [
     {
+      "version": "1.165.0",
+      "date": "2026-11-02",
+      "title": "NPD: product code, trial colours, received-by and new H.O / Warehouse columns",
+      "modules": [
+        {
+          "app": "npd",
+          "changes": [
+            { "type": "feat", "text": "A new product must have at least one child mould; product and moulds now have a Product code column." },
+            { "type": "feat", "text": "New Colour details for trials (H.O) column - pick colours from a list." },
+            { "type": "feat", "text": "Marking Final mould received complete asks for the name of who received it." },
+            { "type": "feat", "text": "New columns: Final sample approval from HO, OR - JR making in ERP by Warehouse, Launch date by H.O and Post card making by H.O." },
+            { "type": "improvement", "text": "Renamed: Final QC approved after testing, and OR making in ERP by H.O." }
+          ]
+        }
+      ]
+    },
+    {
       "version": "1.164.1",
       "date": "2026-11-02",
       "title": "ERP masters in the Masters page format, downloads need Print rights",

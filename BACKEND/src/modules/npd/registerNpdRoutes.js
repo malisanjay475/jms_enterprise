@@ -17,6 +17,10 @@
  * Department roles (DEPT_ROLES) edit only their department's stages
  * (STAGES[].depts), on products and child moulds alike.
  *
+ * Every new product needs at least one child mould. Products and moulds carry
+ * a product code; the colours for trials are picked by HO (admin). Marking
+ * "Final mould received" complete also records who received the mould.
+ *
  * A product can have child moulds: rows with parent_sync_id = the product's
  * sync_id, tracked through the same stages and shown under their product.
  * Every stage change needs a remark; stage_info[key] keeps the latest remark,
@@ -70,23 +74,27 @@ const STAGES = [
   { key: 'mould_trials', type: 'status', group: 'Mould & Trial', label: 'Product mould final trials @ factory (Moulding)', depts: ['Moulding'] },
   { key: 'rm_colour', type: 'status', group: 'Mould & Trial', label: 'RM & colour finalization (Planning / Moulding)', depts: ['Planning', 'Moulding'] },
   { key: 'samples_ho', type: 'status', group: 'Mould & Trial', label: 'Final samples sent to HO for approval & photo shoot (QC)', depts: ['QC'] },
+  { key: 'sample_approval_ho', type: 'status', group: 'Mould & Trial', label: 'Final sample approval from HO (HO)', depts: ['HO'] },
   { key: 'pilot_drop_test', type: 'status', group: 'Mould & Trial', label: 'Pilot run & drop test @ factory (Moulding / QC)', depts: ['Moulding', 'QC'] },
-  { key: 'qc_approval_ho', type: 'status', group: 'Mould & Trial', label: 'Final QC testing & approval from HO (QC)', depts: ['QC'] },
+  { key: 'qc_approval_ho', type: 'status', group: 'Mould & Trial', label: 'Final QC approved after testing (QC)', depts: ['QC'] },
   { key: 'packing_material', type: 'status', group: 'Packing, BOM & ERP', label: 'Packing material finalization (Packing)', depts: ['Packing'] },
   { key: 'bom_approval', type: 'status', group: 'Packing, BOM & ERP', label: 'Product BOM finalization / approval (Planning)', depts: ['Planning'] },
   { key: 'packing_receiving', type: 'status', group: 'Packing, BOM & ERP', label: 'Packing material follow up & receiving @ factory (Purchase)', depts: ['Purchase'] },
-  { key: 'or_jr_erp', type: 'status', group: 'Packing, BOM & ERP', label: 'OR-JR making in ERP (HO)', depts: ['HO'] },
+  { key: 'or_jr_erp', type: 'status', group: 'Packing, BOM & ERP', label: 'OR making in ERP by H.O (HO)', depts: ['HO'] },
+  { key: 'or_jr_erp_wh', type: 'status', group: 'Packing, BOM & ERP', label: 'OR - JR making in ERP by Warehouse (W/H)', depts: ['W/H'] },
   { key: 'production_planning', type: 'status', group: 'Packing, BOM & ERP', label: 'Production planning as per OR-JR ERP (Planning)', depts: ['Planning'] },
   { key: 'jc_start_date', type: 'date', group: 'Packing, BOM & ERP', label: 'Planned job card start date (Planning)', depts: ['Planning'] },
   { key: 'jc_end_date', type: 'date', group: 'Packing, BOM & ERP', label: 'Planned job card completion date (Planning)', depts: ['Planning'] },
-  { key: 'launch_date', type: 'date', group: 'Packing, BOM & ERP', label: 'Launch date finalization (Planning)', depts: ['Planning'] },
+  { key: 'launch_date', type: 'date', group: 'Packing, BOM & ERP', label: 'Launch date finalization by Planning (Planning)', depts: ['Planning'] },
+  { key: 'launch_date_ho', type: 'date', group: 'Packing, BOM & ERP', label: 'Launch date by H.O (HO)', depts: ['HO'] },
   { key: 'mass_moulding', type: 'status', group: 'Mass Production', label: 'Mass production - moulding (Moulding)', depts: ['Moulding'] },
   { key: 'mass_printing', type: 'status', group: 'Mass Production', label: 'Mass production - printing / tufting (Production)', depts: ['Production'] },
   { key: 'mass_packaging', type: 'status', group: 'Mass Production', label: 'Mass production - packaging (Packing)', depts: ['Packing'] },
   { key: 'fg_receiving', type: 'status', group: 'Mass Production', label: 'Finish goods receiving (W/H)', depts: ['W/H'] },
   { key: 'ex_factory_cost', type: 'status', group: 'Costing & Launch', label: 'Ex factory cost finalization (Planning)', depts: ['Planning'] },
   { key: 'price_final', type: 'status', group: 'Costing & Launch', label: 'Price finalization (HO)', depts: ['HO'] },
-  { key: 'post_card_receiving', type: 'status', group: 'Costing & Launch', label: 'Final post card follow up & receiving (Planning)', depts: ['Planning'] },
+  { key: 'post_card_receiving', type: 'status', group: 'Costing & Launch', label: 'Final post card follow up & receiving by Planning (Planning)', depts: ['Planning'] },
+  { key: 'post_card_making_ho', type: 'status', group: 'Costing & Launch', label: 'Post card making by H.O (HO)', depts: ['HO'] },
   { key: 'post_card_posting', type: 'status', group: 'Costing & Launch', label: 'Posting post card in new product launch group (Planning)', depts: ['Planning'] },
   { key: 'dispatch_date', type: 'date', group: 'Costing & Launch', label: 'Actual dispatch date', depts: ['Planning', 'W/H'] }
 ];
@@ -107,6 +115,8 @@ const STATUS_STYLE = {
 };
 const STAGE_TYPE = new Map(STAGES.map(s => [s.key, s.type]));
 const STAGE_STATES = new Set(['pending', 'in_progress', 'complete', 'na']);
+/* stage whose completion also records who received it */
+const RECEIVED_BY_STAGE = 'mould_received';
 const PRODUCT_STATUSES = new Set(['', 'Hold', 'Launched', 'Delayed', 'On Schedule', 'Cancelled']);
 
 const isNpdAdmin = u => !!u && ADMIN_ROLES.has(norm(u.role_code));
@@ -144,6 +154,9 @@ const upload = multer({
 
 const todayIST = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
 const clean = (v, max = 500) => String(v == null ? '' : v).trim().slice(0, max);
+/* colours for trials: comma separated, each trimmed, no repeats */
+const cleanColours = v => [...new Set((Array.isArray(v) ? v : String(v || '').split(','))
+  .map(c => clean(c, 40)).filter(Boolean))].slice(0, 30).join(', ');
 const isDate = v => /^\d{4}-\d{2}-\d{2}$/.test(String(v || ''));
 
 /* Keep only known stage keys with valid values. */
@@ -214,6 +227,8 @@ async function ensureNpdSchema(pool) {
     ALTER TABLE npd_products ADD COLUMN IF NOT EXISTS parent_sync_id UUID;
     ALTER TABLE npd_products ADD COLUMN IF NOT EXISTS stage_info JSONB NOT NULL DEFAULT '{}'::jsonb;
     CREATE INDEX IF NOT EXISTS idx_npd_products_parent ON npd_products(parent_sync_id);
+    ALTER TABLE npd_products ADD COLUMN IF NOT EXISTS product_code TEXT NOT NULL DEFAULT '';
+    ALTER TABLE npd_products ADD COLUMN IF NOT EXISTS trial_colours TEXT NOT NULL DEFAULT '';
 
     /* Sr No: MAIN and a LOCAL can both hand out the same next number while apart.
        MAIN decides: a row arriving with a number another product already has gets
@@ -310,6 +325,7 @@ function registerNpdRoutes(app, pool) {
         can_edit: canEdit(u),
         can_add: canAddItems(u),
         can_delete: isSuperadmin(u),
+        can_colours: isAdmin(u),
         editable_stages: editableStages(u),
         departments: u ? (isAdmin(u) ? ['All'] : roleDepts(u)) : [],
         data: products.rows.map(p => ({ ...p, files: byProduct.get(String(p.sync_id)) || [] }))
@@ -339,8 +355,9 @@ function registerNpdRoutes(app, pool) {
       const ExcelJS = require('exceljs');
       const wb = new ExcelJS.Workbook();
       wb.creator = 'JMS';
-      const ws = wb.addWorksheet('NPD Tracker', { views: [{ state: 'frozen', xSplit: 2, ySplit: 3 }] });
-      const head = ['Sr No', 'Product / Mould', ...STAGES.map(s => s.label), 'Status', 'Remarks', 'Trial reports', 'Images', 'Last updated by', 'Last updated'];
+      const ws = wb.addWorksheet('NPD Tracker', { views: [{ state: 'frozen', xSplit: 4, ySplit: 3 }] });
+      const S0 = 5; /* first stage column */
+      const head = ['Sr No', 'Product / Mould', 'Product code', 'Colour details for trials (HO)', ...STAGES.map(s => s.label), 'Status', 'Remarks', 'Trial reports', 'Images', 'Last updated by', 'Last updated'];
       const last = head.length;
       const thin = { style: 'thin', color: { argb: 'FFCBD5E1' } };
       const border = { top: thin, left: thin, bottom: thin, right: thin };
@@ -356,8 +373,8 @@ function registerNpdRoutes(app, pool) {
       for (let c = 0; c < STAGES.length;) {
         let e = c;
         while (e + 1 < STAGES.length && STAGES[e + 1].group === STAGES[c].group) e++;
-        ws.mergeCells(2, c + 3, 2, e + 3);
-        const g = ws.getCell(2, c + 3);
+        ws.mergeCells(2, c + S0, 2, e + S0);
+        const g = ws.getCell(2, c + S0);
         g.value = STAGES[c].group.toUpperCase();
         g.font = { bold: true, color: { argb: 'FF334155' } };
         g.alignment = { horizontal: 'center' };
@@ -378,13 +395,14 @@ function registerNpdRoutes(app, pool) {
         const st = p.stages || {};
         const info = p.stage_info || {};
         const vals = [/^\d+$/.test(p.sr_no || '') ? Number(p.sr_no) : (p.sr_no || ''),
-          p.parent_sync_id ? `   ↳ Mould: ${p.product_name}` : p.product_name];
+          p.parent_sync_id ? `   ↳ Mould: ${p.product_name}` : p.product_name, p.product_code || '', p.trial_colours || ''];
         STAGES.forEach(s => {
           const v = st[s.key];
           if (s.type === 'date') vals.push(v ? new Date(v + 'T00:00:00Z') : null);
           else {
             const done = v === 'complete' && info[s.key] && info[s.key].completed_on;
-            vals.push((STATE_STYLE[v] || STATE_STYLE.pending).text + (done ? ` (${done})` : ''));
+            const rb = s.key === RECEIVED_BY_STAGE && v === 'complete' && info[s.key] && info[s.key].received_by;
+            vals.push((STATE_STYLE[v] || STATE_STYLE.pending).text + (done ? ` (${done})` : '') + (rb ? ` - by ${rb}` : ''));
           }
         });
         vals.push(p.status || '', p.remarks || '', count.get(`${p.sync_id}:report`) || 0, count.get(`${p.sync_id}:image`) || 0,
@@ -392,8 +410,8 @@ function registerNpdRoutes(app, pool) {
         const r = ws.addRow(vals);
         r.eachCell({ includeEmpty: true }, (c, col) => {
           c.border = border;
-          c.alignment = { vertical: 'middle', wrapText: col === 2 || col === STAGES.length + 4 };
-          const s = STAGES[col - 3];
+          c.alignment = { vertical: 'middle', wrapText: col === 2 || col === 4 || col === STAGES.length + S0 + 1 };
+          const s = STAGES[col - S0];
           if (s && s.type === 'status') {
             const k = STATE_STYLE[st[s.key]] || STATE_STYLE.pending;
             c.fill = fill(k.fill);
@@ -406,12 +424,12 @@ function registerNpdRoutes(app, pool) {
         });
         STAGES.forEach((s, i) => {
           const rm = (p.stage_info || {})[s.key];
-          if (rm && rm.remarks) r.getCell(i + 3).note = `${rm.remarks}${rm.by ? ` - ${rm.by}` : ''}`;
+          if (rm && rm.remarks) r.getCell(i + S0).note = `${rm.remarks}${rm.by ? ` - ${rm.by}` : ''}`;
         });
         r.getCell(2).font = { bold: !p.parent_sync_id, italic: !!p.parent_sync_id };
         const ps = STATUS_STYLE[p.status];
         if (ps) {
-          const c = r.getCell(STAGES.length + 3);
+          const c = r.getCell(STAGES.length + S0);
           c.fill = fill(ps.fill);
           c.font = { bold: true, color: { argb: ps.font } };
         }
@@ -420,10 +438,12 @@ function registerNpdRoutes(app, pool) {
 
       ws.getColumn(1).width = 7;
       ws.getColumn(2).width = 34;
-      STAGES.forEach((s, i) => { ws.getColumn(i + 3).width = s.type === 'date' ? 13 : 15; });
-      ws.getColumn(STAGES.length + 3).width = 14;
-      ws.getColumn(STAGES.length + 4).width = 40;
-      [STAGES.length + 5, STAGES.length + 6].forEach(c => { ws.getColumn(c).width = 10; });
+      ws.getColumn(3).width = 14;
+      ws.getColumn(4).width = 22;
+      STAGES.forEach((s, i) => { ws.getColumn(i + S0).width = s.type === 'date' ? 13 : 15; });
+      ws.getColumn(STAGES.length + S0).width = 14;
+      ws.getColumn(STAGES.length + S0 + 1).width = 40;
+      [STAGES.length + S0 + 2, STAGES.length + S0 + 3].forEach(c => { ws.getColumn(c).width = 10; });
       ws.getColumn(last - 1).width = 16;
       ws.getColumn(last).width = 17;
       if (rows.length) ws.autoFilter = { from: { row: 3, column: 1 }, to: { row: 3 + rows.length, column: last } };
@@ -444,33 +464,37 @@ function registerNpdRoutes(app, pool) {
       const name = clean(req.body?.product_name, 300);
       if (!name) return res.status(400).json({ ok: false, error: 'Product name is required' });
       const status = clean(req.body?.status, 40);
+      const code = clean(req.body?.product_code, 60);
       /* child mould of an existing product: no Sr No of its own */
       const parentId = parseInt(req.body?.parent_id, 10);
       if (parentId) {
         const par = await pool.query('SELECT sync_id, parent_sync_id FROM npd_products WHERE id = $1', [parentId]);
         if (!par.rows.length || par.rows[0].parent_sync_id) return res.status(400).json({ ok: false, error: 'Parent product not found' });
         const c = await pool.query(
-          `INSERT INTO npd_products (sr_no, product_name, parent_sync_id, created_by, updated_by)
-           VALUES (NULL, $1, $2, $3, $3) RETURNING *`, [name, par.rows[0].sync_id, u.username]);
+          `INSERT INTO npd_products (sr_no, product_name, product_code, parent_sync_id, created_by, updated_by)
+           VALUES (NULL, $1, $2, $3, $4, $4) RETURNING *`, [name, code, par.rows[0].sync_id, u.username]);
         pushNow();
         return res.json({ ok: true, data: { ...c.rows[0], files: [] } });
       }
+      /* a new product needs at least one child mould: [{ name, code }] (plain names still accepted) */
+      const moulds = (Array.isArray(req.body?.moulds) ? req.body.moulds : [])
+        .map(m => (m && typeof m === 'object') ? { name: clean(m.name, 300), code: clean(m.code, 60) } : { name: clean(m, 300), code: '' })
+        .filter(m => m.name).slice(0, 50);
+      if (!moulds.length) return res.status(400).json({ ok: false, error: 'Add at least one child mould - a product cannot be created without a mould' });
       /* Sr No is automatic: one more than the highest number used so far. */
       const r = await pool.query(
-        `INSERT INTO npd_products (sr_no, product_name, stages, status, remarks, created_by, updated_by)
+        `INSERT INTO npd_products (sr_no, product_name, product_code, trial_colours, stages, status, remarks, created_by, updated_by)
          VALUES ((SELECT (COALESCE(MAX(NULLIF(regexp_replace(sr_no, '[^0-9]', '', 'g'), '')::bigint), 0) + 1)::text
                     FROM npd_products),
-                 $1, $2, $3, $4, $5, $5) RETURNING *`,
-        [name, JSON.stringify(cleanStages(req.body?.stages)),
+                 $1, $2, $3, $4, $5, $6, $7, $7) RETURNING *`,
+        [name, code, isAdmin(u) ? cleanColours(req.body?.trial_colours) : '', JSON.stringify(cleanStages(req.body?.stages)),
           PRODUCT_STATUSES.has(status) ? status : '', clean(req.body?.remarks, 2000), u.username]
       );
       const out = [{ ...r.rows[0], files: [] }];
-      /* child moulds given with the new product */
-      const moulds = Array.isArray(req.body?.moulds) ? req.body.moulds.map(m => clean(m, 300)).filter(Boolean).slice(0, 50) : [];
       for (const m of moulds) {
         const c = await pool.query(
-          `INSERT INTO npd_products (sr_no, product_name, parent_sync_id, created_by, updated_by)
-           VALUES (NULL, $1, $2, $3, $3) RETURNING *`, [m, r.rows[0].sync_id, u.username]);
+          `INSERT INTO npd_products (sr_no, product_name, product_code, parent_sync_id, created_by, updated_by)
+           VALUES (NULL, $1, $2, $3, $4, $4) RETURNING *`, [m.name, m.code, r.rows[0].sync_id, u.username]);
         out.push({ ...c.rows[0], files: [] });
       }
       pushNow();
@@ -478,7 +502,8 @@ function registerNpdRoutes(app, pool) {
     } catch (err) { sendServerError(res, err); }
   });
 
-  /* Partial update: any of product_name, status, remarks, stages (merged).
+  /* Partial update: any of product_name, product_code, status, remarks,
+     trial_colours (admin = HO only), stages (merged).
      Sheet owners may send anything; department users only stages of their
      department. Every stage in the body needs a remark in stage_remarks. */
   app.put('/api/npd/products/:id', async (req, res) => {
@@ -489,8 +514,11 @@ function registerNpdRoutes(app, pool) {
       const id = parseInt(req.params.id, 10);
       const b = req.body || {};
       const owner = canEdit(u);
-      if (!owner && (b.product_name !== undefined || b.status !== undefined || b.remarks !== undefined)) {
-        return res.status(403).json({ ok: false, error: 'Only admin and PPC managers can change product name, status or remarks' });
+      if (!owner && (b.product_name !== undefined || b.product_code !== undefined || b.status !== undefined || b.remarks !== undefined)) {
+        return res.status(403).json({ ok: false, error: 'Only admin and PPC managers can change product name, code, status or remarks' });
+      }
+      if (b.trial_colours !== undefined && !isAdmin(u)) {
+        return res.status(403).json({ ok: false, error: 'Only H.O (admin) can set the colours for trials' });
       }
       let stageInfo = null;
       if (b.stages !== undefined) {
@@ -509,6 +537,10 @@ function registerNpdRoutes(app, pool) {
         if (!cur.rows.length) return res.status(404).json({ ok: false, error: 'Product not found' });
         const cleaned = cleanStages(b.stages);
         if (Object.keys(cleaned).length !== keys.length) return res.status(400).json({ ok: false, error: 'Invalid stage value' });
+        const receivedBy = clean(b.received_by, 100);
+        if (cleaned[RECEIVED_BY_STAGE] === 'complete' && !receivedBy) {
+          return res.status(400).json({ ok: false, error: 'Enter the name of who received the mould' });
+        }
         stageInfo = {};
         const prevInfo = cur.rows[0].stage_info || {};
         const prevStages = cur.rows[0].stages || {};
@@ -522,6 +554,7 @@ function registerNpdRoutes(app, pool) {
             else if (prevStages[k] !== 'complete' || !completedOn) completedOn = todayIST();
           }
           stageInfo[k] = { remarks: clean(remarks[k], 1000), by: u.username, at: now, completed_on: completedOn };
+          if (k === RECEIVED_BY_STAGE && v === 'complete') stageInfo[k].received_by = receivedBy;
         }
       }
       const sets = [];
@@ -532,6 +565,8 @@ function registerNpdRoutes(app, pool) {
         if (!name) return res.status(400).json({ ok: false, error: 'Product name is required' });
         add('product_name = ?', name);
       }
+      if (b.product_code !== undefined) add('product_code = ?', clean(b.product_code, 60));
+      if (b.trial_colours !== undefined) add('trial_colours = ?', cleanColours(b.trial_colours));
       if (b.status !== undefined) {
         if (!PRODUCT_STATUSES.has(b.status)) return res.status(400).json({ ok: false, error: 'Invalid status' });
         add('status = ?', b.status);
@@ -639,6 +674,7 @@ module.exports = {
   STAGE_STATES,
   PRODUCT_STATUSES,
   cleanStages,
+  cleanColours,
   roleDepts,
   norm,
   editableStageKeys,
