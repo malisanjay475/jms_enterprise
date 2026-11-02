@@ -39,6 +39,8 @@
         table.qt tr.grp td { background:#eef2ff; font-weight:800; text-align:left; color:#3730a3; }
         table.qt tr.sub td { background:#f8fafc; font-weight:700; font-size:.75rem; color:#475569; }
         table.qt tr.miss td { color:#94a3b8; font-style:italic; }
+        table.qt tr.mfirst td { border-top:2px solid #cbd5e1; }
+        table.qt tr td.mcell, table.qt tr.miss td.mcell { vertical-align:top; background:#fff; border-right:1px solid var(--line); font-style:normal; color:var(--ink); }
         .ok { background:var(--okbg); color:var(--ok); font-weight:700; }
         .warn { background:var(--warnbg); color:var(--warn); font-weight:700; }
         .bad { background:var(--badbg); color:var(--bad); font-weight:700; }
@@ -157,50 +159,64 @@ function render() {
 
     if (!rows.length) { $('out').innerHTML = '<div class="empty">No rows for the selected filters.</div>'; return; }
 
-    const head = `<tr><th>Machine</th><th>Period</th><th>Job Card</th><th>Mould No</th><th>Mould Name</th><th>Product</th>
+    const NCOL = 18;
+    const head = `<tr><th>Machine</th><th>Shift</th><th>Period</th><th>Job Card</th><th>Mould No</th><th>Mould Name</th><th>Product</th>
         <th>STD CT</th><th>Act CT</th><th>CT Var %</th>
         <th>STD Wt (g)</th><th>Act Wt (g)</th><th>Wt Var %</th>
         <th>STD Cav</th><th>Act Cav</th><th>Runner STD / Act (g)</th><th>QC By</th><th>Time</th></tr>`;
+    const pct = p => p === null || p === undefined ? '—' : (p > 0 ? '+' : '') + fmt(p, 1) + '%';
+    const shiftTag = sh => `<span class="tag" style="background:${sh === 'Night' ? '#e0e7ff;color:#3730a3' : '#fef3c7;color:#92400e'}">${esc(sh)}</span>`;
+
+    // Rows arrive sorted date → machine (Compliance Summary order) → shift → period.
+    // Group: one section per date, one block per machine with a merged machine cell.
+    const byDate = [];
+    rows.forEach(r => {
+        let d = byDate[byDate.length - 1];
+        if (!d || d.date !== r.date) byDate.push(d = { date: r.date, machines: [] });
+        let m = d.machines[d.machines.length - 1];
+        if (!m || m.machine !== r.machine) d.machines.push(m = { machine: r.machine, line: r.line, rows: [] });
+        m.rows.push(r);
+    });
+
     let html = `<table class="qt"><thead>${head}</thead><tbody>`;
-    let grpKey = null, sub = null;
-    const flushSub = () => {
-        if (!sub || !sub.n) return;
-        html += `<tr class="sub"><td class="l" colspan="8">Sub-total · ${sub.n} setup(s), ${sub.out} out of tolerance, ${sub.miss} not filled</td>
+    byDate.forEach(d => {
+        const sub = { n: 0, out: 0, miss: 0, ct: 0, ctN: 0, wt: 0, wtN: 0 };
+        const dl = new Date(d.date + 'T00:00:00').toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', weekday: 'short' });
+        html += `<tr class="grp"><td colspan="${NCOL}"><i class="bi bi-calendar3"></i> ${esc(dl)} · ${d.machines.length} machine(s)</td></tr>`;
+        d.machines.forEach(m => {
+            m.rows.forEach((r, i) => {
+                sub.n++;
+                const first = i === 0;
+                const machineCell = first
+                    ? `<td class="l mcell" rowspan="${m.rows.length}"><b>${esc(m.machine)}</b><div style="font-size:.68rem;color:var(--muted)">${esc(m.line)}</div></td>`
+                    : '';
+                const trCls = (first ? 'mfirst ' : '') + (r.status === 'NOT_FILLED' ? 'miss' : '');
+                if (r.status === 'NOT_FILLED') {
+                    sub.miss++;
+                    html += `<tr class="${trCls}">${machineCell}<td>${shiftTag(r.shift)}</td><td>P${r.period}</td>
+                        <td colspan="${NCOL - 3}" class="l"><span class="tag bad">Not filled</span> Machine produced this shift but QC setup period ${r.period} was not entered.${r.qc_name ? ` QC on shift: <b>${esc(r.qc_name)}</b>` : ''}</td></tr>`;
+                    return;
+                }
+                if (isOut(r)) sub.out++;
+                if (r.ct_var_pct != null) { sub.ct += Math.abs(r.ct_var_pct); sub.ctN++; }
+                if (r.wt_var_pct != null) { sub.wt += Math.abs(r.wt_var_pct); sub.wtN++; }
+                const t = r.setup_at ? new Date(r.setup_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : '—';
+                html += `<tr class="${trCls}">${machineCell}
+                    <td>${shiftTag(r.shift)}</td><td>P${r.period}</td><td>${esc(r.job_card_no || '—')}</td>
+                    <td>${esc(r.mould_no || '—')}</td>
+                    <td class="l" style="max-width:200px;overflow:hidden;text-overflow:ellipsis" title="${esc(r.mould_name || '')}">${esc(r.mould_name || '—')}</td>
+                    <td class="l" style="max-width:220px;overflow:hidden;text-overflow:ellipsis" title="${esc(r.product_name || '')}">${esc(r.product_name || '—')}</td>
+                    <td>${fmt(r.std_ct)}</td><td>${fmt(r.act_ct)}</td><td class="${band(r.ct_var_pct)}">${pct(r.ct_var_pct)}</td>
+                    <td>${fmt(r.std_wt_g)}</td><td>${fmt(r.act_wt_g)}</td><td class="${band(r.wt_var_pct)}">${pct(r.wt_var_pct)}</td>
+                    <td>${fmt(r.std_cavity, 0)}</td><td class="${cavBad(r) ? 'bad' : ''}">${fmt(r.act_cavity, 0)}</td>
+                    <td>${fmt(r.std_runner_g)} / ${fmt(r.act_runner_g)}</td>
+                    <td class="l"><b>${esc(r.qc_name || r.setup_by || '—')}</b>${r.qc_name && r.setup_by ? `<div style="font-size:.68rem;color:var(--muted)">${esc(r.setup_by)}</div>` : ''}</td><td>${t}</td></tr>`;
+            });
+        });
+        html += `<tr class="sub"><td class="l" colspan="9">Date total · ${sub.n} setup(s), ${sub.out} out of tolerance, ${sub.miss} not filled</td>
             <td>${sub.ctN ? fmt(sub.ct / sub.ctN, 1) + '%' : '—'}</td><td colspan="2"></td>
             <td>${sub.wtN ? fmt(sub.wt / sub.wtN, 1) + '%' : '—'}</td><td colspan="5"></td></tr>`;
-    };
-    rows.forEach(r => {
-        const g = `${r.date}|${r.shift}`;
-        if (g !== grpKey) {
-            flushSub(); grpKey = g; sub = { n: 0, out: 0, miss: 0, ct: 0, ctN: 0, wt: 0, wtN: 0 };
-            const d = new Date(r.date + 'T00:00:00').toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', weekday: 'short' });
-            html += `<tr class="grp"><td colspan="17"><i class="bi bi-calendar3"></i> ${esc(d)} · ${esc(r.shift)} shift</td></tr>`;
-        }
-        sub.n++;
-        if (r.status === 'NOT_FILLED') {
-            sub.miss++;
-            html += `<tr class="miss"><td class="l"><b>${esc(r.machine)}</b></td><td>P${r.period}</td>
-                <td colspan="15" class="l"><span class="tag bad">Not filled</span> Machine produced this shift but QC setup period ${r.period} was not entered.${r.qc_name ? ` QC on shift: <b>${esc(r.qc_name)}</b>` : ''}</td></tr>`;
-            return;
-        }
-        if (isOut(r)) sub.out++;
-        if (r.ct_var_pct != null) { sub.ct += Math.abs(r.ct_var_pct); sub.ctN++; }
-        if (r.wt_var_pct != null) { sub.wt += Math.abs(r.wt_var_pct); sub.wtN++; }
-        const t = r.setup_at ? new Date(r.setup_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : '—';
-        const pct = p => p === null || p === undefined ? '—' : (p > 0 ? '+' : '') + fmt(p, 1) + '%';
-        html += `<tr>
-            <td class="l"><b>${esc(r.machine)}</b><div style="font-size:.68rem;color:var(--muted)">${esc(r.line)}</div></td>
-            <td>P${r.period}</td><td>${esc(r.job_card_no || '—')}</td>
-            <td>${esc(r.mould_no || '—')}</td>
-            <td class="l" style="max-width:200px;overflow:hidden;text-overflow:ellipsis" title="${esc(r.mould_name || '')}">${esc(r.mould_name || '—')}</td>
-            <td class="l" style="max-width:220px;overflow:hidden;text-overflow:ellipsis" title="${esc(r.product_name || '')}">${esc(r.product_name || '—')}</td>
-            <td>${fmt(r.std_ct)}</td><td>${fmt(r.act_ct)}</td><td class="${band(r.ct_var_pct)}">${pct(r.ct_var_pct)}</td>
-            <td>${fmt(r.std_wt_g)}</td><td>${fmt(r.act_wt_g)}</td><td class="${band(r.wt_var_pct)}">${pct(r.wt_var_pct)}</td>
-            <td>${fmt(r.std_cavity, 0)}</td><td class="${cavBad(r) ? 'bad' : ''}">${fmt(r.act_cavity, 0)}</td>
-            <td>${fmt(r.std_runner_g)} / ${fmt(r.act_runner_g)}</td>
-            <td class="l"><b>${esc(r.qc_name || r.setup_by || '—')}</b>${r.qc_name && r.setup_by ? `<div style="font-size:.68rem;color:var(--muted)">${esc(r.setup_by)}</div>` : ''}</td><td>${t}</td></tr>`;
     });
-    flushSub();
     $('out').innerHTML = html + '</tbody></table>';
 }
 
