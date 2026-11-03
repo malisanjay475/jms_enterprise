@@ -65,6 +65,14 @@
         .ttag.kid { background: #e2e8f0; color: #334155; }
         .ttag small { font-weight: 700; opacity: .7; }
         .g tr.child td.c1 { position: sticky; }
+        .g td.rmall { min-width: 320px; max-width: 360px; vertical-align: top; padding: 6px; }
+        .g td.rmall textarea.rm { width: 100%; }
+        .rlist { display: flex; flex-direction: column; gap: 4px; max-height: 150px; overflow: auto; margin-bottom: 5px; }
+        .ritem { display: flex; gap: 6px; align-items: flex-start; font-size: 11.5px; line-height: 1.35; background: #f8fafc; border: 1px solid var(--line); border-radius: 8px; padding: 4px 6px; }
+        .ritem b { font-size: 10.5px; color: #334155; }
+        .ritem small { color: var(--mute); font-size: 10px; }
+        .rdept { flex: 0 0 auto; background: #0f172a; color: #fff; border-radius: 5px; padding: 1px 6px; font-size: 9.5px; font-weight: 800; letter-spacing: .3px; margin-top: 1px; }
+        .rgen { font-size: 12px; }
         .g tr.child .thumb { width: 34px; height: 34px; flex-basis: 34px; font-size: 15px; }
         .g tr.child td.c1 .pc { padding-left: 10px; border-left: 2px solid #cbd5e1; margin-left: 4px; }
         .g td.c1 input.inp { border-color: transparent; background: transparent; border-radius: 8px; }
@@ -350,6 +358,15 @@
                 if (!ed) return `<td class="lock"><span class="cell st-${st}">${(STATE.find(s => s[0] === st) || STATE[0])[1]}</span>${done}${rm}</td>`;
                 return `<td><select class="cell st-${st}" data-id="${p.id}" data-stage="${key}">${STATE.map(([k, l]) => `<option value="${k}"${k === st ? ' selected' : ''}>${l}</option>`).join('')}</select>${done}${rm}</td>`;
             }
+            /* every stage remark on this row, labelled with its department and stage */
+            function deptRemarks(p) {
+                const si = p.stage_info || {};
+                const items = COLS.filter(c => si[c[0]] && si[c[0]].remarks).map(c => {
+                    const i = si[c[0]];
+                    return `<div class="ritem"><span class="rdept">${esc(c[2] || '')}</span><div><b>${esc(c[1])}</b><div>${esc(i.remarks)}</div>${i.by ? `<small>${esc(i.by)}${i.at ? ' · ' + esc(new Date(i.at).toLocaleDateString('en-GB')) : ''}</small>` : ''}</div></div>`;
+                });
+                return items.length ? `<div class="rlist">${items.join('')}</div>` : '';
+            }
             function colourCell(p) {
                 const cur = colourList(p.trial_colours);
                 const tags = cur.map(c => `<span class="ctag">${esc(c)}${S.canColours ? `<button data-cdel="${p.id}" data-c="${esc(c)}" title="Remove">×</button>` : ''}</span>`).join('');
@@ -372,12 +389,11 @@
                     .flatMap(p => [p, ...kidsOf(p)]);
                 const counts = {};
                 parents.forEach(p => { const k = p.status || 'No status'; counts[k] = (counts[k] || 0) + 1; });
-                $('tiles').innerHTML = [['', 'All', parents.length], ...PSTAT.map(s => [s, s, counts[s] || 0])]
-                    .map(([k, l, n]) => `<span class="tile${S.fstat === k ? ' on' : ''}" data-f="${esc(k)}">${esc(l)}<b>${n}</b></span>`).join('');
+                $('tiles').innerHTML = `<span class="tile on">Products<b>${parents.length}</b></span>`;
 
                 let h = `<thead><tr class="grp"><th class="fix c0" rowspan="2" style="top:0">Sr</th><th class="fix ct" rowspan="2" style="top:0"></th><th class="fix c1" rowspan="2" style="top:0;text-align:left;padding-left:14px">Product Name</th><th rowspan="2" style="top:0;min-width:125px">Product Code / Mould Code</th><th rowspan="2" style="top:0;min-width:180px">Colour details for trials<small style="display:block;color:var(--mute)">H.O</small></th>`;
                 GROUPS.forEach(g => { h += `<th colspan="${g.cols.length}">${esc(g.label)}</th>`; });
-                h += `<th rowspan="2" style="top:0;min-width:140px">Status</th><th rowspan="2" style="top:0;min-width:230px">Remarks</th>${S.canDelete ? '<th rowspan="2" style="top:0"></th>' : ''}</tr><tr class="col">`;
+                h += `<th rowspan="2" style="top:0;min-width:320px">Remarks<small style="display:block;color:var(--mute)">All departments</small></th>${S.canDelete ? '<th rowspan="2" style="top:0"></th>' : ''}</tr><tr class="col">`;
                 COLS.forEach(c => { h += `<th>${esc(c[1])}${c[2] ? `<small>${esc(c[2])}</small>` : ''}</th>`; });
                 h += `</tr></thead><tbody>`;
                 rows.forEach(p => {
@@ -399,10 +415,9 @@
                     h += `<td class="pcode">${S.canEdit ? `<input class="code" data-id="${p.id}" data-f="product_code" value="${esc(p.product_code || '')}" maxlength="60" placeholder="Code">` : esc(p.product_code || '') || '<span class="none">—</span>'}</td>`;
                     h += `<td>${colourCell(p)}</td>`;
                     COLS.forEach(c => { h += stageCell(p, c); });
-                    h += S.canEdit
-                        ? `<td><select class="ps ${psClass(p.status)}" data-id="${p.id}" data-f="status"><option value="">— Select —</option>${PSTAT.map(s => `<option${s === p.status ? ' selected' : ''}>${s}</option>`).join('')}</select></td>
-                           <td><textarea class="rm" data-id="${p.id}" data-f="remarks">${esc(p.remarks || '')}</textarea></td>`
-                        : `<td>${p.status ? `<span class="chip ${psClass(p.status)}">${esc(p.status)}</span>` : '<span class="none">—</span>'}</td><td style="min-width:230px">${esc(p.remarks || '')}</td>`;
+                    h += `<td class="rmall">${deptRemarks(p)}${S.canEdit
+                        ? `<textarea class="rm" data-id="${p.id}" data-f="remarks" placeholder="General remark">${esc(p.remarks || '')}</textarea>`
+                        : (p.remarks ? `<div class="rgen">${esc(p.remarks)}</div>` : '')}</td>`;
                     if (S.canDelete) h += `<td><button class="btn sm danger" data-del="${p.id}" title="Delete"><i class="bi bi-trash"></i></button></td>`;
                     h += '</tr>';
                 });
