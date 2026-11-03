@@ -7468,7 +7468,9 @@ app.get('/api/machines/live-status', async (req, res) => {
       dprDate = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}`;
     }
 
-    const QUICK_TYPES = ['Maintenance','ManPowerShortage','MouldChangeover','MouldTrial','MouldMaintenance','NoPlan'];
+    // Same quick-action reasons as DPR Compliance Summary (MouldChange is the older
+    // spelling of MouldChangeover and is reported as MouldChangeover).
+    const QUICK_TYPES = ['Maintenance','ManPowerShortage','MouldChangeover','MouldChange','MouldTrial','MouldMaintenance','NoPlan','PowerCut'];
     const QUICK_LABELS = {
       Maintenance: 'Maintenance',
       ManPowerShortage: 'Man Power Shortage',
@@ -7476,7 +7478,9 @@ app.get('/api/machines/live-status', async (req, res) => {
       MouldTrial: 'Mould Trial',
       MouldMaintenance: 'Mould Maintenance',
       NoPlan: 'No Plan',
+      PowerCut: 'Power Cut',
     };
+    const normType = (t) => (t === 'MouldChange' ? 'MouldChangeover' : t);
 
     const rows = await q(
       `SELECT DISTINCT ON (machine) machine, entry_type, good_qty, reject_qty, downtime_min, remarks, hour_slot
@@ -7486,6 +7490,27 @@ app.get('/api/machines/live-status', async (req, res) => {
        ORDER BY machine, id DESC`,
       [dprDate, currentShift, factoryId || null]
     );
+
+    // since_slot: first hour slot of the latest unbroken run of the same entry type,
+    // so the grid can show how long a machine has been stopped this shift.
+    const runRows = await q(
+      `SELECT machine, entry_type, hour_slot
+       FROM dpr_hourly
+       WHERE dpr_date = $1 AND shift = $2 AND is_deleted = false
+         AND ($3::int IS NULL OR factory_id = $3 OR factory_id IS NULL)
+       ORDER BY machine, id DESC`,
+      [dprDate, currentShift, factoryId || null]
+    );
+    const sinceByMachine = new Map();
+    const runDone = new Set();
+    runRows.forEach(r => {
+      const key = r.machine;
+      if (runDone.has(key)) return;
+      const cur = sinceByMachine.get(key);
+      if (!cur) { sinceByMachine.set(key, { type: normType(r.entry_type), slot: r.hour_slot }); return; }
+      if (normType(r.entry_type) === cur.type) cur.slot = r.hour_slot;
+      else runDone.add(key);
+    });
 
     // Manpower for the current shift, same rules as DPR Compliance Summary / Manpower report:
     // actual = std_actual.man_act of the machine's latest setup this shift (a setup with
@@ -7531,9 +7556,10 @@ app.get('/api/machines/live-status', async (req, res) => {
       if (mp) mpByMachine.delete(String(r.machine || '').trim().toUpperCase());
       return {
         machine: r.machine,
-        entry_type: r.entry_type,
+        entry_type: normType(r.entry_type),
         live_status: isQuick ? 'stopped' : (hasProduction ? 'running' : 'idle'),
-        problem_label: isQuick ? (QUICK_LABELS[r.entry_type] || r.entry_type) : null,
+        problem_label: isQuick ? (QUICK_LABELS[normType(r.entry_type)] || r.entry_type) : null,
+        since_slot: (sinceByMachine.get(r.machine) || {}).slot || r.hour_slot,
         remarks: r.remarks || null,
         good_qty: Number(r.good_qty || 0),
         hour_slot: r.hour_slot,
