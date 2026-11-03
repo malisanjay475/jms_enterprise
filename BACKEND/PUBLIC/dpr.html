@@ -227,18 +227,32 @@
     }
     @media (prefers-reduced-motion:reduce) { .dpr-sc, .dpr-ring-fg, .dpr-wf > i { transition:none; } .dpr-sc:hover { transform:none; } }
     @media print { .dpr-v2-btn { display:none !important; } .dpr-line-card.is-collapsed > * { display:block !important; } .dpr-ov-chase { display:none; } }
-    /* DPR compliance v3.1: share, live, sort */
-    .dpr-v2-live { display:inline-flex; align-items:center; gap:6px; font-size:.72rem; font-weight:700; color:#15803d; background:#f0fdf4; border:1px solid #bbf7d0; border-radius:999px; padding:3px 10px; }
-    .dpr-v2-live[hidden] { display:none; }
-    .dpr-v2-live i { width:7px; height:7px; border-radius:50%; background:#16a34a; animation:dprPulse 2s ease-in-out infinite; }
-    @keyframes dprPulse { 50% { opacity:.35; } }
-    #dpr-v2-share i { color:#16a34a; }
+    /* DPR compliance v3.2: header + filter bar as one card; sort control */
+    .dpr-v2-head { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin:0; padding:12px 16px; background:#fff; border:1px solid var(--dpr-line); border-bottom:0; border-radius:14px 14px 0 0; }
+    .dpr-v2-sub { display:flex; flex-wrap:wrap; gap:6px; }
+    .dpr-chip { display:inline-flex; align-items:center; gap:6px; height:28px; padding:0 11px; border-radius:999px; background:var(--dpr-soft); border:1px solid var(--dpr-line); font-size:.78rem; font-weight:700; color:#334155; }
+    .dpr-chip i { color:var(--dpr-accent); font-size:.82rem; }
+    .dpr-chip.is-quiet { background:transparent; color:var(--dpr-mute); font-weight:600; } .dpr-chip.is-quiet i { color:var(--dpr-mute); }
+    .dpr-v2-head .dpr-v2-btn { height:34px; }
+    #sticky-dpr-filter.dpr-v2-filter { margin-bottom:14px !important; padding:12px 16px 14px !important; background:#fff !important; border:1px solid var(--dpr-line) !important; border-top:1px solid #eef2f6 !important; border-radius:0 0 14px 14px !important; box-shadow:0 1px 2px rgba(15,23,42,.04) !important; }
+    #sticky-dpr-filter > div:first-child { gap:10px 12px !important; align-items:flex-end !important; }
+    #sticky-dpr-filter label { font-size:.66rem !important; font-weight:700 !important; color:var(--dpr-mute) !important; text-transform:uppercase; letter-spacing:.05em; margin-bottom:5px !important; }
+    #sticky-dpr-filter input, #sticky-dpr-filter select, #sticky-dpr-filter #s-line-btn { height:36px !important; box-sizing:border-box; border:1px solid #d7dee7 !important; border-radius:9px !important; font-size:.84rem !important; background-color:#fff; color:var(--dpr-ink); transition:border-color .15s, box-shadow .15s; }
+    #sticky-dpr-filter input:focus, #sticky-dpr-filter select:focus, #sticky-dpr-filter #s-line-btn:focus { border-color:#38bdf8 !important; box-shadow:0 0 0 3px rgba(56,189,248,.18); outline:none; }
+    #sticky-dpr-filter #s-line-btn { align-items:center; }
+    #sticky-dpr-filter div:has(> #s-search) { display:flex !important; }
+    #sticky-dpr-filter #s-search { width:220px !important; padding-left:30px !important; }
+    #sticky-dpr-filter .bi-search { left:11px !important; }
+    #sticky-dpr-filter #btn-s-apply { height:36px; padding:0 18px !important; border-radius:9px !important; background:var(--dpr-accent) !important; font-weight:700 !important; }
+    #sticky-dpr-filter #btn-s-apply:hover { background:#075985 !important; }
+    #sticky-dpr-filter #dpr-machine-count { height:28px; display:inline-flex; align-items:center; }
     .dpr-seg { display:inline-flex; border:1px solid var(--dpr-line); border-radius:9px; overflow:hidden; background:#fff; }
     .dpr-seg button { border:0; background:transparent; padding:6px 10px; font:inherit; font-size:.74rem; font-weight:700; color:var(--dpr-mute); cursor:pointer; }
     .dpr-seg button + button { border-left:1px solid var(--dpr-line); }
     .dpr-seg button.is-on { background:#e0f2fe; color:var(--dpr-accent); }
     .dpr-wm-name small { display:block; font-size:.66rem; font-weight:600; color:var(--dpr-mute); overflow:hidden; text-overflow:ellipsis; }
-    @media (prefers-reduced-motion:reduce) { .dpr-v2-live i { animation:none; } }
+    .dpr-score { justify-content:flex-start; }
+    @media (max-width:760px) { #sticky-dpr-filter #s-search { width:100% !important; } .dpr-v2-head { border-radius:12px 12px 0 0; } }
     </style>
 </head>
 
@@ -275,7 +289,7 @@
 
     <script src="/assets/app.min.js?v=1583"></script>
   <script src="/assets/machine-status-meta.js?v=1"></script>
-  <script src="/assets/dpr-script-1.js?v=release119"></script>
+  <script src="/assets/dpr-script-1.js?v=release120"></script>
 
     <!-- ADMIN EDIT MODAL -->
     <div id="dprEditModal" class="modal"

@@ -741,10 +741,8 @@
 
                 card.innerHTML = `
                   <div class="dpr-v2-head">
-                    <div class="dpr-v2-title"><h2>DPR compliance</h2><span class="dpr-v2-sub" id="dpr-v2-sub">Loading…</span></div>
+                    <div class="dpr-v2-sub" id="dpr-v2-sub"><span class="dpr-chip">Loading…</span></div>
                     <div class="dpr-v2-spacer"></div>
-                    <span class="dpr-v2-live" id="dpr-v2-live" hidden><i></i><span>Live · refreshes every 5 min</span></span>
-                    <button type="button" class="dpr-v2-btn" id="dpr-v2-share" title="Copy a short summary to paste in WhatsApp"><i class="bi bi-whatsapp"></i> Share summary</button>
                     <button type="button" class="dpr-v2-btn" id="dpr-v2-more" aria-expanded="false"><i class="bi bi-sliders"></i> More filters</button>
                     <button type="button" class="dpr-v2-btn" onclick="window.print()"><i class="bi bi-printer"></i> Print</button>
                   </div>
@@ -1841,7 +1839,13 @@
                     const shiftMode = document.getElementById('s-shift').value; // 'Day', 'Night', 'Both'
                     window.__dprLastLoad = Date.now();
                     const dprSub = document.getElementById('dpr-v2-sub');
-                    if (dprSub) dprSub.textContent = `${fromDate}${toDate && toDate !== fromDate ? ' – ' + toDate : ''} · ${shiftMode === 'Both' ? 'Day + Night' : shiftMode + ' shift'} · ${dprProcess || 'Moulding'} · updated ${new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`;
+                    if (dprSub) {
+                        const fmt = (d) => d ? new Date(d + 'T00:00:00').toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '';
+                        dprSub.innerHTML = `<span class="dpr-chip"><i class="bi bi-calendar3"></i>${fmt(fromDate)}${toDate && toDate !== fromDate ? ' – ' + fmt(toDate) : ''}</span>`
+                            + `<span class="dpr-chip"><i class="bi ${shiftMode === 'Night' ? 'bi-moon-stars' : shiftMode === 'Both' ? 'bi-clock' : 'bi-sun'}"></i>${shiftMode === 'Both' ? 'Day + Night' : shiftMode + ' shift'}</span>`
+                            + `<span class="dpr-chip"><i class="bi bi-gear"></i>${dprEscHtml(dprProcess || 'Moulding')}</span>`
+                            + `<span class="dpr-chip is-quiet"><i class="bi bi-arrow-clockwise"></i>Updated ${new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</span>`;
+                    }
                     const container = document.getElementById('summary-container');
                     const selectedFactory = document.getElementById('s-factory')?.value || '';
 
@@ -2716,7 +2720,7 @@
                                             const now = new Date().getTime();
                                             const currentSlotStart = sEnd - 3600000;
                                             const isFuture = (now < currentSlotStart);
-                                            if (!isFuture && mIdx === 0) { machineOpenSlots++; machineSlotOpen[idx]++; }
+                                            if (sEnd < now && mIdx === 0) { machineOpenSlots++; machineSlotOpen[idx]++; }
                                             let slotCountedLate = false;
 
                                             let bg = '#ffffff';
@@ -4107,25 +4111,6 @@
                 const dprSaveOpen = (set) => { try { localStorage.setItem(DPR_OPEN_KEY, JSON.stringify(Array.from(set))); } catch (_) { /* private mode */ } };
                 const DPR_SORT_KEY = 'dpr_line_sort';
                 window.dprGetSort = () => { try { return localStorage.getItem(DPR_SORT_KEY) || 'worst'; } catch (_) { return 'worst'; } };
-                // Short plain-text summary for WhatsApp / email.
-                window.dprShareText = function () {
-                    const d = window.__dprLastDeck;
-                    if (!d) return '';
-                    const sub = (document.getElementById('dpr-v2-sub') || {}).textContent || '';
-                    const kg = (id) => ((document.getElementById(id) || {}).textContent || '').trim();
-                    const lines = d.stats.slice().sort((a, b) => (a.filledPct ?? 101) - (b.filledPct ?? 101))
-                        .map(st => `• ${st.lineName}: ${st.filledPct == null ? '—' : st.filledPct + '%'} filled, ${st.missing} missing, ${st.late} late`);
-                    const chase = d.worstMachines.slice(0, 5).map(m => `• ${m.machine} (${m.lineName}): ${m.missing} missing${m.missHours && m.missHours.length ? ' — ' + m.missHours.slice(0, 4).join(', ') : ''}`);
-                    return [
-                        `*DPR compliance* — ${sub.split(' · updated')[0]}`,
-                        `Filled: *${d.filledPct == null ? '—' : d.filledPct + '%'}* (${d.tot.open - d.tot.miss}/${d.tot.open}) · On time: ${d.onTime == null ? '—' : d.onTime + '%'}`,
-                        `Missing: ${d.tot.miss} · Late: ${d.tot.late}`,
-                        `Good: ${kg('grand-total-tonnage')} kg · Rej: ${kg('grand-total-rej')} kg · OEE ${kg('grand-total-eff')}%`,
-                        d.worstHour ? `Most missed hour: ${d.worstHour.sl}` : '',
-                        '', '*Lines*', ...lines,
-                        ...(chase.length ? ['', '*Please fill*', ...chase] : [])
-                    ].filter((x, i, arr) => x !== '' || (arr[i - 1] !== '' && i > 0)).join('\n');
-                };
                 window.dprTone = (p) => p == null ? 'none' : p >= 95 ? 'good' : p >= 80 ? 'warn' : 'bad';
                 const dprEsc = (v) => String(v == null ? '' : v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
                 // One cell per hour, coloured by how many machines filled it; a dot marks late entries.
@@ -4142,6 +4127,16 @@
                 window.dprPaintPlant = function () {
                     const num = (id) => parseFloat(String((document.getElementById(id) || {}).textContent || '').replace(/[^0-9.\-]/g, '')) || 0;
                     const target = num('grand-total-plantarget');
+                    // Entries tile uses the same finished-hours count as the score ring, so both agree.
+                    const d = window.__dprLastDeck;
+                    if (d && d.tot && d.tot.open > 0) {
+                        const f = d.tot.open - d.tot.miss, pct = Math.round(f / d.tot.open * 100);
+                        const col = pct >= 80 ? '#059669' : pct >= 50 ? '#d97706' : '#dc2626';
+                        const set = (id, v) => { const el = document.getElementById(id); if (el) { el.textContent = v; el.style.color = col; } };
+                        set('grand-total-entries-filled', f); set('grand-total-entries-pct', pct + '%');
+                        const tEl = document.getElementById('grand-total-entries-total'); if (tEl) tEl.textContent = d.tot.open;
+                        const bar = document.getElementById('grand-total-entries-bar'); if (bar) { bar.style.width = pct + '%'; bar.style.background = col; }
+                    }
                     [['grand-total-plantarget', 't-target'], ['grand-total-planest', 't-est'], ['grand-total-planach', 't-ach'], ['grand-total-overall', 't-gross'],
                      ['grand-total-tonnage', 't-good'], ['grand-total-rej', 't-rej'], ['grand-total-dtloss', 't-loss']].forEach(([id, cls]) => {
                         const tile = document.querySelector(`#sticky-plant-total .${cls}`);
@@ -4314,18 +4309,6 @@
                     dprMoreBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
                 });
                 document.getElementById('sticky-dpr-filter')?.classList.add('dpr-more-hidden');
-                document.getElementById('dpr-v2-share')?.addEventListener('click', async (ev) => {
-                    const btn = ev.currentTarget, text = window.dprShareText();
-                    if (!text) return;
-                    let ok = false;
-                    try { await navigator.clipboard.writeText(text); ok = true; } catch (_) {
-                        const ta = document.createElement('textarea'); ta.value = text; document.body.appendChild(ta); ta.select();
-                        try { ok = document.execCommand('copy'); } catch (_) { /* ignore */ } ta.remove();
-                    }
-                    const old = btn.innerHTML;
-                    btn.innerHTML = ok ? '<i class="bi bi-check2"></i> Copied' : '<i class="bi bi-x"></i> Copy failed';
-                    setTimeout(() => { btn.innerHTML = old; }, 1800);
-                });
                 // Sort buttons on the Lines deck: re-order the cards in place, no reload.
                 document.addEventListener('click', (ev) => {
                     const b = ev.target.closest && ev.target.closest('[data-dpr-sort]');
@@ -4341,20 +4324,6 @@
                     const inp = document.getElementById('s-search');
                     if (inp) { ev.preventDefault(); inp.focus(); inp.select(); }
                 });
-                // Today's shift refreshes itself every 5 minutes while the tab is visible and idle.
-                let dprLastInput = Date.now();
-                ['pointerdown', 'keydown', 'wheel'].forEach(t => document.addEventListener(t, () => { dprLastInput = Date.now(); }, { passive: true }));
-                setInterval(() => {
-                    const live = document.getElementById('dpr-v2-live');
-                    const d = (document.getElementById('s-date') || {}).value, to = (document.getElementById('s-date-to') || {}).value;
-                    const isToday = d === localDateKeyDpr() && (!to || to === d);
-                    if (live) live.hidden = !isToday;
-                    if (!isToday || document.hidden || Date.now() - dprLastInput < 60000 || (document.getElementById('s-search') || {}).value) return;
-                    if (Date.now() - (window.__dprLastLoad || 0) < 300000) return;
-                    const y = window.scrollY;
-                    Promise.resolve(loadSummary()).finally(() => window.scrollTo(0, y));
-                }, 30000);
-                function localDateKeyDpr() { const n = new Date(); return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}-${String(n.getDate()).padStart(2, '0')}`; }
                 document.getElementById('s-eff-filter')?.addEventListener('change', loadSummary);
                 document.getElementById('s-stop-hrs')?.addEventListener('change', loadSummary);
                 document.getElementById('s-factory')?.addEventListener('change', loadSummary);

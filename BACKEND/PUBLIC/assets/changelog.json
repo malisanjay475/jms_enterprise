@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.171.0",
+  "latest": "1.172.0",
   "versions": [
+    {
+      "version": "1.172.0",
+      "date": "2026-11-03",
+      "title": "DPR compliance: cleaner header",
+      "modules": [
+        {
+          "app": "dpr",
+          "changes": [
+            { "type": "improvement", "text": "Header and filters are one card: date, shift, process and update time as chips, then the filters with one height and aligned labels." },
+            { "type": "fix", "text": "The hour that is still running no longer counts as filled; it shows as not due until it ends. The Entries tile and the score now show the same numbers." },
+            { "type": "improvement", "text": "Removed the 5-minute live refresh and the WhatsApp Share summary button." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.171.0",
       "date": "2026-11-03",
