@@ -743,6 +743,8 @@
                   <div class="dpr-v2-head">
                     <div class="dpr-v2-title"><h2>DPR compliance</h2><span class="dpr-v2-sub" id="dpr-v2-sub">Loading…</span></div>
                     <div class="dpr-v2-spacer"></div>
+                    <span class="dpr-v2-live" id="dpr-v2-live" hidden><i></i><span>Live · refreshes every 5 min</span></span>
+                    <button type="button" class="dpr-v2-btn" id="dpr-v2-share" title="Copy a short summary to paste in WhatsApp"><i class="bi bi-whatsapp"></i> Share summary</button>
                     <button type="button" class="dpr-v2-btn" id="dpr-v2-more" aria-expanded="false"><i class="bi bi-sliders"></i> More filters</button>
                     <button type="button" class="dpr-v2-btn" onclick="window.print()"><i class="bi bi-printer"></i> Print</button>
                   </div>
@@ -1837,6 +1839,7 @@
                     // Tolerate a reversed range — swap so From is always the earlier day.
                     if (toDate && fromDate && toDate < fromDate) { const t = fromDate; fromDate = toDate; toDate = t; }
                     const shiftMode = document.getElementById('s-shift').value; // 'Day', 'Night', 'Both'
+                    window.__dprLastLoad = Date.now();
                     const dprSub = document.getElementById('dpr-v2-sub');
                     if (dprSub) dprSub.textContent = `${fromDate}${toDate && toDate !== fromDate ? ' – ' + toDate : ''} · ${shiftMode === 'Both' ? 'Day + Night' : shiftMode + ' shift'} · ${dprProcess || 'Moulding'} · updated ${new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`;
                     const container = document.getElementById('summary-container');
@@ -3645,12 +3648,13 @@
                                     Object.entries(rowsByMachine).forEach(([machine, passRows]) => {
                                         machinesN++;
                                         let mMiss = 0, mLate = 0;
+                                        const mMissHours = new Set();
                                         passRows.forEach(r => {
                                             open += r.openSlots || 0; missing += r.missingSlots || 0; late += r.lateSlots || 0;
                                             mMiss += r.missingSlots || 0; mLate += r.lateSlots || 0;
-                                            (r.slotOpen || []).forEach((v, i) => { hOpen[i] += v; hMiss[i] += (r.slotMiss || [])[i] || 0; hLate[i] += (r.slotLate || [])[i] || 0; });
+                                            (r.slotOpen || []).forEach((v, i) => { hOpen[i] += v; hMiss[i] += (r.slotMiss || [])[i] || 0; hLate[i] += (r.slotLate || [])[i] || 0; if ((r.slotMiss || [])[i]) mMissHours.add(i); });
                                         });
-                                        machineList.push({ machine, lineName, missing: mMiss, late: mLate });
+                                        machineList.push({ machine, lineName, missing: mMiss, late: mLate, missHours: Array.from(mMissHours).sort((a, b) => a - b).map(i => window.DPR_HOUR_SLOTS[i]) });
                                     });
                                     const t = (window.lineTheTonnages || {})[lineName] || {};
                                     const eff = (t.netEst || 0) > 0 ? (t.effGood / t.netEst * 100) : null;
@@ -4101,6 +4105,27 @@
                     try { return new Set(JSON.parse(localStorage.getItem(DPR_OPEN_KEY) || '[]')); } catch (_) { return new Set(); }
                 };
                 const dprSaveOpen = (set) => { try { localStorage.setItem(DPR_OPEN_KEY, JSON.stringify(Array.from(set))); } catch (_) { /* private mode */ } };
+                const DPR_SORT_KEY = 'dpr_line_sort';
+                window.dprGetSort = () => { try { return localStorage.getItem(DPR_SORT_KEY) || 'worst'; } catch (_) { return 'worst'; } };
+                // Short plain-text summary for WhatsApp / email.
+                window.dprShareText = function () {
+                    const d = window.__dprLastDeck;
+                    if (!d) return '';
+                    const sub = (document.getElementById('dpr-v2-sub') || {}).textContent || '';
+                    const kg = (id) => ((document.getElementById(id) || {}).textContent || '').trim();
+                    const lines = d.stats.slice().sort((a, b) => (a.filledPct ?? 101) - (b.filledPct ?? 101))
+                        .map(st => `• ${st.lineName}: ${st.filledPct == null ? '—' : st.filledPct + '%'} filled, ${st.missing} missing, ${st.late} late`);
+                    const chase = d.worstMachines.slice(0, 5).map(m => `• ${m.machine} (${m.lineName}): ${m.missing} missing${m.missHours && m.missHours.length ? ' — ' + m.missHours.slice(0, 4).join(', ') : ''}`);
+                    return [
+                        `*DPR compliance* — ${sub.split(' · updated')[0]}`,
+                        `Filled: *${d.filledPct == null ? '—' : d.filledPct + '%'}* (${d.tot.open - d.tot.miss}/${d.tot.open}) · On time: ${d.onTime == null ? '—' : d.onTime + '%'}`,
+                        `Missing: ${d.tot.miss} · Late: ${d.tot.late}`,
+                        `Good: ${kg('grand-total-tonnage')} kg · Rej: ${kg('grand-total-rej')} kg · OEE ${kg('grand-total-eff')}%`,
+                        d.worstHour ? `Most missed hour: ${d.worstHour.sl}` : '',
+                        '', '*Lines*', ...lines,
+                        ...(chase.length ? ['', '*Please fill*', ...chase] : [])
+                    ].filter((x, i, arr) => x !== '' || (arr[i - 1] !== '' && i > 0)).join('\n');
+                };
                 window.dprTone = (p) => p == null ? 'none' : p >= 95 ? 'good' : p >= 80 ? 'warn' : 'bad';
                 const dprEsc = (v) => String(v == null ? '' : v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
                 // One cell per hour, coloured by how many machines filled it; a dot marks late entries.
@@ -4139,7 +4164,11 @@
                     if (!stats || !stats.length) return { overview: '', deck: '' };
                     const esc = dprEsc, strip = window.dprHourStrip, tone = window.dprTone;
                     const kg = (v) => Math.round(v || 0).toLocaleString('en-IN');
-                    const sorted = stats.slice().sort((a, b) => (a.filledPct == null ? 101 : a.filledPct) - (b.filledPct == null ? 101 : b.filledPct) || b.missing - a.missing);
+                    const sortMode = dprGetSort();
+                    const byWorst = (a, b) => (a.filledPct == null ? 101 : a.filledPct) - (b.filledPct == null ? 101 : b.filledPct) || b.missing - a.missing;
+                    const sorted = stats.slice().sort(sortMode === 'name' ? (a, b) => String(a.lineName).localeCompare(String(b.lineName), undefined, { numeric: true })
+                        : sortMode === 'eff' ? (a, b) => (a.eff == null ? 999 : a.eff) - (b.eff == null ? 999 : b.eff) || byWorst(a, b)
+                        : sortMode === 'late' ? (a, b) => b.late - a.late || byWorst(a, b) : byWorst);
                     const slotsList = window.DPR_HOUR_SLOTS;
 
                     const P = { open: slotsList.map(() => 0), miss: slotsList.map(() => 0), late: slotsList.map(() => 0) };
@@ -4165,7 +4194,7 @@
                     ].join('');
                     const machinesHtml = worstMachines.length ? worstMachines.map(m => `
                         <button type="button" class="dpr-wm" data-line="${esc(m.lineName)}" data-machine="${esc(m.machine)}" title="Open ${esc(m.machine)}">
-                          <span class="dpr-wm-name">${esc(m.machine)}</span><span class="dpr-wm-miss">${m.missing} missing</span>${m.late ? `<span class="dpr-wm-late">${m.late} late</span>` : ''}<i class="bi bi-arrow-right-short"></i>
+                          <span class="dpr-wm-name">${esc(m.machine)}<small>${m.missHours && m.missHours.length ? 'no entry ' + m.missHours.slice(0, 4).join(', ') + (m.missHours.length > 4 ? ' +' + (m.missHours.length - 4) : '') : ''}</small></span><span class="dpr-wm-miss">${m.missing} missing</span>${m.late ? `<span class="dpr-wm-late">${m.late} late</span>` : ''}<i class="bi bi-arrow-right-short"></i>
                         </button>`).join('') : '<div class="dpr-ins-empty"><i class="bi bi-check2-circle"></i> Every machine is up to date.</div>';
 
                     const overview = `
@@ -4207,7 +4236,8 @@
                           <span class="dpr-sc-kg">Good <b>${kg(st.goodKg)}</b> kg${vsTarget != null ? ` · <b>${vsTarget}%</b> of target` : ''}${st.dtHrs ? ` · DT <b>${st.dtHrs.toFixed(1)}</b> h` : ''}</span>
                         </button>`;
                     }).join('');
-                    const deckHtml = `<section class="dpr-deck"><div class="dpr-deck-head"><strong>Lines</strong><span>worst first · click a line to open its hours</span><span class="dpr-v2-spacer"></span><button type="button" class="dpr-v2-btn" data-dpr-lines="expand"><i class="bi bi-arrows-expand"></i> Open all</button><button type="button" class="dpr-v2-btn" data-dpr-lines="collapse"><i class="bi bi-arrows-collapse"></i> Close all</button></div><div class="dpr-deck-grid">${cards}</div></section>`;
+                    const deckHtml = `<section class="dpr-deck"><div class="dpr-deck-head"><strong>Lines</strong><span>click a line to open its hours</span><span class="dpr-v2-spacer"></span><span class="dpr-seg" role="group" aria-label="Sort lines">${[['worst', 'Worst filled'], ['late', 'Most late'], ['eff', 'Lowest EFF'], ['name', 'Name']].map(([k, l]) => `<button type="button" data-dpr-sort="${k}" class="${sortMode === k ? 'is-on' : ''}">${l}</button>`).join('')}</span><button type="button" class="dpr-v2-btn" data-dpr-lines="expand"><i class="bi bi-arrows-expand"></i> Open all</button><button type="button" class="dpr-v2-btn" data-dpr-lines="collapse"><i class="bi bi-arrows-collapse"></i> Close all</button></div><div class="dpr-deck-grid">${cards}</div></section>`;
+                    window.__dprLastDeck = { stats, tot, filledPct, onTime, worstHour, worstMachines, bestLine };
                     return { overview, deck: deckHtml };
                 };
                 const dprSetLineOpen = (card, open) => card.classList.toggle('is-collapsed', !open);
@@ -4284,6 +4314,47 @@
                     dprMoreBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
                 });
                 document.getElementById('sticky-dpr-filter')?.classList.add('dpr-more-hidden');
+                document.getElementById('dpr-v2-share')?.addEventListener('click', async (ev) => {
+                    const btn = ev.currentTarget, text = window.dprShareText();
+                    if (!text) return;
+                    let ok = false;
+                    try { await navigator.clipboard.writeText(text); ok = true; } catch (_) {
+                        const ta = document.createElement('textarea'); ta.value = text; document.body.appendChild(ta); ta.select();
+                        try { ok = document.execCommand('copy'); } catch (_) { /* ignore */ } ta.remove();
+                    }
+                    const old = btn.innerHTML;
+                    btn.innerHTML = ok ? '<i class="bi bi-check2"></i> Copied' : '<i class="bi bi-x"></i> Copy failed';
+                    setTimeout(() => { btn.innerHTML = old; }, 1800);
+                });
+                // Sort buttons on the Lines deck: re-order the cards in place, no reload.
+                document.addEventListener('click', (ev) => {
+                    const b = ev.target.closest && ev.target.closest('[data-dpr-sort]');
+                    if (!b || !window.__dprLastDeck) return;
+                    try { localStorage.setItem(DPR_SORT_KEY, b.dataset.dprSort); } catch (_) { /* private mode */ }
+                    const deck = document.querySelector('#summary-container .dpr-deck');
+                    const html = window.dprRenderLineDeck(window.__dprLastDeck.stats).deck;
+                    if (deck && html) deck.outerHTML = html;
+                });
+                // "/" jumps to the search box.
+                document.addEventListener('keydown', (ev) => {
+                    if (ev.key !== '/' || ev.ctrlKey || ev.metaKey || /input|textarea|select/i.test((ev.target || {}).tagName || '')) return;
+                    const inp = document.getElementById('s-search');
+                    if (inp) { ev.preventDefault(); inp.focus(); inp.select(); }
+                });
+                // Today's shift refreshes itself every 5 minutes while the tab is visible and idle.
+                let dprLastInput = Date.now();
+                ['pointerdown', 'keydown', 'wheel'].forEach(t => document.addEventListener(t, () => { dprLastInput = Date.now(); }, { passive: true }));
+                setInterval(() => {
+                    const live = document.getElementById('dpr-v2-live');
+                    const d = (document.getElementById('s-date') || {}).value, to = (document.getElementById('s-date-to') || {}).value;
+                    const isToday = d === localDateKeyDpr() && (!to || to === d);
+                    if (live) live.hidden = !isToday;
+                    if (!isToday || document.hidden || Date.now() - dprLastInput < 60000 || (document.getElementById('s-search') || {}).value) return;
+                    if (Date.now() - (window.__dprLastLoad || 0) < 300000) return;
+                    const y = window.scrollY;
+                    Promise.resolve(loadSummary()).finally(() => window.scrollTo(0, y));
+                }, 30000);
+                function localDateKeyDpr() { const n = new Date(); return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}-${String(n.getDate()).padStart(2, '0')}`; }
                 document.getElementById('s-eff-filter')?.addEventListener('change', loadSummary);
                 document.getElementById('s-stop-hrs')?.addEventListener('change', loadSummary);
                 document.getElementById('s-factory')?.addEventListener('change', loadSummary);
