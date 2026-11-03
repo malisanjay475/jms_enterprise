@@ -11,8 +11,24 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.166.2",
+  "latest": "1.167.0",
   "versions": [
+    {
+      "version": "1.167.0",
+      "date": "2026-11-03",
+      "title": "Planning board redesign",
+      "modules": [
+        {
+          "app": "planning",
+          "changes": [
+            { "type": "improvement", "text": "New header bar: Planning board title, Moulding / Printing / Tuffting, last update time with the shift, and Balance load, Auto-assign P1 and Views on one row that stays at the top." },
+            { "type": "improvement", "text": "One filter bar with a wider search that also finds items and orders, the building list, and the status filters." },
+            { "type": "improvement", "text": "One row of six tiles (No plan, Running, Stopped / off, Machine load, Manpower, Pending orders); the repeated summary and grid titles are gone." },
+            { "type": "feature", "text": "Each line has one header with its machines, how many are running, manpower and the shift team, and can be collapsed; Views has Collapse all and Expand all." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.166.2",
       "date": "2026-11-03",
