@@ -51,7 +51,10 @@
         .g .fix { position: sticky; background: #fff; z-index: 1; }
         .g thead .fix { z-index: 3; background: #f8fafc; }
         .g .c0 { left: 0; min-width: 52px; max-width: 52px; text-align: center; }
-        .g .c1 { left: 52px; min-width: 270px; max-width: 270px; box-shadow: 2px 0 0 var(--line); }
+        .g .ct { left: 52px; min-width: 110px; max-width: 110px; font-weight: 700; font-size: 12px; text-align: left; }
+        .g .c1 { left: 162px; min-width: 270px; max-width: 270px; box-shadow: 2px 0 0 var(--line); }
+        .g tr.main td.ct, .g tr.main td.c1, .g tr.main td.pcode { background: #f8cbad; }
+        .g td.ct.kid { background: #fff !important; vertical-align: middle; }
         .g tbody tr:hover td { background-color: #fafcff; }
         .g td.c1 .nm { font-weight: 700; }
         .g td.c1 .pc { display: flex; gap: 8px; align-items: center; }
@@ -123,7 +126,7 @@
         .vw .vnav.l { left: 12px; }
         .vw .vnav.r { right: 12px; }
         .vw .zoom-only { display: inline-flex; gap: 8px; align-items: center; }
-        @media (max-width: 700px) { .npd { padding: 14px 10px 80px; } .g .c1 { min-width: 200px; max-width: 200px; } .wrap { max-height: none; } }
+        @media (max-width: 700px) { .npd { padding: 14px 10px 80px; } .g .c1 { min-width: 200px; max-width: 200px; } .g .ct { position: static; } .g .c1 { left: 52px; } .wrap { max-height: none; } }
     </style>
 </head>
 
@@ -355,7 +358,7 @@
                 $('tiles').innerHTML = [['', 'All', parents.length], ...PSTAT.map(s => [s, s, counts[s] || 0])]
                     .map(([k, l, n]) => `<span class="tile${S.fstat === k ? ' on' : ''}" data-f="${esc(k)}">${esc(l)}<b>${n}</b></span>`).join('');
 
-                let h = `<thead><tr class="grp"><th class="fix c0" rowspan="2" style="top:0">Sr</th><th class="fix c1" rowspan="2" style="top:0;text-align:left">Product / Child Mould</th><th rowspan="2" style="top:0;min-width:125px">Product code</th><th rowspan="2" style="top:0;min-width:180px">Colour details for trials<small style="display:block;color:var(--mute)">H.O</small></th>`;
+                let h = `<thead><tr class="grp"><th class="fix c0" rowspan="2" style="top:0">Sr</th><th class="fix ct" rowspan="2" style="top:0"></th><th class="fix c1" rowspan="2" style="top:0">Product Name</th><th rowspan="2" style="top:0;min-width:125px">Product Code / Mould Code</th><th rowspan="2" style="top:0;min-width:180px">Colour details for trials<small style="display:block;color:var(--mute)">H.O</small></th>`;
                 GROUPS.forEach(g => { h += `<th colspan="${g.cols.length}">${esc(g.label)}</th>`; });
                 h += `<th rowspan="2" style="top:0;min-width:140px">Status</th><th rowspan="2" style="top:0;min-width:230px">Remarks</th>${S.canDelete ? '<th rowspan="2" style="top:0"></th>' : ''}</tr><tr class="col">`;
                 COLS.forEach(c => { h += `<th>${esc(c[1])}${c[2] ? `<small>${esc(c[2])}</small>` : ''}</th>`; });
@@ -370,9 +373,13 @@
                         ? `<input class="inp" style="width:100%;padding:4px 6px;font-weight:700" data-id="${p.id}" data-f="product_name" value="${esc(p.product_name)}">`
                         : `<div class="nm">${esc(p.product_name)}</div>`;
                     const addMould = S.canAdd && !child ? `<a class="addm" data-addm="${p.id}" title="Add a child mould under this product"><i class="bi bi-plus-circle"></i> Mould</a>` : '';
-                    h += `<tr${child ? ' class="child"' : ''}><td class="fix c0">${child ? '<span class="none">↳</span>' : `<b>${esc(p.sr_no || '')}</b>`}</td>
-                        <td class="fix c1"><div class="pc">${thumb}<div>${child ? '<span class="mtag">CHILD MOULD</span>' : ''}${name}<div class="meta"><a data-files="${p.id}"><i class="bi bi-file-earmark-text"></i> Trial report (${reps})</a><a data-files="${p.id}"><i class="bi bi-images"></i> Images (${imgs})</a>${addMould}</div></div></div></td>`;
-                    h += `<td>${S.canEdit ? `<input class="code" data-id="${p.id}" data-f="product_code" value="${esc(p.product_code || '')}" maxlength="60" placeholder="Code">` : esc(p.product_code || '') || '<span class="none">—</span>'}</td>`;
+                    /* "Main Product" on the product row; one merged "Child Mould" cell over its moulds */
+                    const sibs = child ? rows.filter(r => r.parent_sync_id === p.parent_sync_id) : [];
+                    const typeCell = !child ? '<td class="fix ct">Main Product</td>'
+                        : sibs[0] === p ? `<td class="fix ct kid" rowspan="${sibs.length}">Child Mould</td>` : '';
+                    h += `<tr class="${child ? 'child' : 'main'}"><td class="fix c0">${child ? '<span class="none">↳</span>' : `<b>${esc(p.sr_no || '')}</b>`}</td>${typeCell}
+                        <td class="fix c1"><div class="pc">${thumb}<div>${name}<div class="meta"><a data-files="${p.id}"><i class="bi bi-file-earmark-text"></i> Trial report (${reps})</a><a data-files="${p.id}"><i class="bi bi-images"></i> Images (${imgs})</a>${addMould}</div></div></div></td>`;
+                    h += `<td class="pcode">${S.canEdit ? `<input class="code" data-id="${p.id}" data-f="product_code" value="${esc(p.product_code || '')}" maxlength="60" placeholder="Code">` : esc(p.product_code || '') || '<span class="none">—</span>'}</td>`;
                     h += `<td>${colourCell(p)}</td>`;
                     COLS.forEach(c => { h += stageCell(p, c); });
                     h += S.canEdit
