@@ -580,6 +580,8 @@
                   <button class="pb-menu-item" type="button" onclick="window.switchView('timeline')"><i class="bi bi-bar-chart-steps"></i> Machine Timeline</button>
                   <button class="pb-menu-item" type="button" onclick="window.switchView('excel_timeline')"><i class="bi bi-grid-3x3-gap-fill"></i> Excel View Timeline</button>
                   <button class="pb-menu-item" type="button" onclick="window.switchView('master')"><i class="bi bi-table"></i> Master Plan</button>
+                  <button class="pb-menu-item" type="button" id="toggleInactive" title="Include Off and Maintenance machines in the grid"><i class="bi bi-power"></i> Show Off / Maintenance</button>
+                  <button class="pb-menu-item" type="button" id="btnPlantOffDays" style="display:none" title="Set weekly off and holidays (Admin)"><i class="bi bi-moon-stars"></i> Plant off days</button>
                   <div class="pb-menu-sep"></div>
                   <button class="pb-menu-item" type="button" onclick="window.openMachineWiseReport()"><i class="bi bi-file-earmark-spreadsheet"></i> Machine Report</button>
                   <button class="pb-menu-item" type="button" onclick="window.downloadTimelineExcel()"><i class="bi bi-file-earmark-excel"></i> Download Excel</button>
@@ -661,14 +663,6 @@
                   <span class="demo-badge" id="demoBadge" style="display:none"><i class="bi bi-bug"></i> Demo data</span>
                 </div>
                 <div class="map-sub" id="planningMapSub">Loading machine availability for the planning department.</div>
-              </div>
-              <div class="map-actions">
-                <div style="width:8px"></div>
-                <button type="button" class="chip select" id="btnPlantOffDays" style="display:none" title="Set weekly off and holidays (Admin)"><i class="bi bi-moon-stars"></i> Plant off days</button>
-                <label class="small-muted">Show Off / Maintenance</label>
-                <label class="chip select" id="toggleInactive" role="button" title="Include Off & Maintenance">
-                  <i class="bi bi-power"></i> Toggle
-                </label>
               </div>
             </div>
             <div id="machineGrid"></div>
@@ -1746,6 +1740,7 @@
           toggleInactive.addEventListener('click', () => {
             showInactive = !showInactive;
             toggleInactive.classList.toggle('active', showInactive);
+            toggleInactive.innerHTML = `<i class="bi bi-power"></i> ${showInactive ? 'Hide' : 'Show'} Off / Maintenance`;
             renderFilteredGrid();
           });
         }
@@ -3287,7 +3282,8 @@
           // Off / maintenance machines are hidden by default; include them when that filter is picked
           if (planningStateFilter === 'blocked' && !showInactive) {
             showInactive = true;
-            document.getElementById('toggleInactive')?.classList.add('active');
+            const ti = document.getElementById('toggleInactive');
+            if (ti) { ti.classList.add('active'); ti.innerHTML = '<i class="bi bi-power"></i> Hide Off / Maintenance'; }
           }
           const wrap = document.getElementById('mapWrap');
           if (wrap && wrap.style.display === 'none') document.getElementById('btnToggleMap')?.click();
