@@ -2303,7 +2303,6 @@
                                                 <div class="dpr-pt-tile t-good"><span class="dpr-pt-label">Good</span><span class="dpr-pt-value"><span id="line-total-tonnage-${lineName.replace(/\s/g, '')}">0.00</span> <small>kg</small></span></div>
                                                 <div class="dpr-pt-tile t-rej"><span class="dpr-pt-label">Rejection</span><span class="dpr-pt-value"><span id="line-total-rej-${lineName.replace(/\s/g, '')}">0.00</span> <small>kg</small></span></div>
                                                 <div class="dpr-pt-tile t-loss" title="Plan achievable − Gross production"><span class="dpr-pt-label">DT loss</span><span class="dpr-pt-value"><span id="line-total-dtloss-${lineName.replace(/\s/g, '')}">0.00</span> <small>kg</small></span></div>
-                                                <div class="dpr-pt-tile t-pred" title="Predicted tonnage by end of this shift"><span class="dpr-pt-label">Predicted</span><span class="dpr-pt-value"><span id="line-total-pred-${lineName.replace(/\s/g, '')}">0.00</span> <small>kg</small></span></div>
                                             </div>
                                             <div class="dpr-lt-row dpr-lt-row2">
                                                 <div class="dpr-pt-tile t-oee" title="OEE (Scheduled Time)"><span class="dpr-pt-label">OEE</span><span class="dpr-pt-value"><span id="line-total-eff-${lineName.replace(/\s/g, '')}">0.0</span> <small>%</small></span></div>
