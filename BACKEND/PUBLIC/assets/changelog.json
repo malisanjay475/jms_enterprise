@@ -11,8 +11,21 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.166.1",
+  "latest": "1.166.2",
   "versions": [
+    {
+      "version": "1.166.2",
+      "date": "2026-11-03",
+      "title": "Machine Grid header cleaned up",
+      "modules": [
+        {
+          "app": "planning",
+          "changes": [
+            { "type": "improvement", "text": "Show Off / Maintenance and Plant off days moved from the Machine Grid header into the Views and actions menu." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.166.1",
       "date": "2026-11-03",
