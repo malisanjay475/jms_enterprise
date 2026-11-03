@@ -561,20 +561,18 @@
         root.innerHTML = `
         <!-- Header Removed as per user request (Now in Sidebar) -->
         <div id="view-main" class="planning-home">
-          <div class="toolbar planning-toolbar pb-toolbar" id="dashboardToolbar">
-            <div class="pb-toolbar-row">
-              <div class="search pb-search">
-                <i class="bi bi-search"></i>
-                <input id="machineSearch" placeholder="Search machine" aria-label="Search machines"/>
+          <div class="toolbar planning-toolbar pb-toolbar pb-v5" id="dashboardToolbar">
+            <div class="pb-toolbar-row pb-head-row">
+              <div class="pb-title">
+                <h2>Planning board</h2>
+                <div class="pb-updated" id="planningUpdatedAt"><i class="bi bi-arrow-repeat"></i> Loading…</div>
               </div>
-              <select id="buildingFilter" class="input pb-building" aria-label="Filter by building">
-                <option value="">All Buildings</option>
-                <option>B</option><option>C</option><option>E</option><option>F</option>
-              </select>
               <div id="planningProcessFilter" class="pb-process" aria-label="Filter by process"></div>
               <div class="pb-spacer"></div>
+              <button class="btn" id="btnBalance" style="display:${canEdit ? 'inline-flex' : 'none'}"><i class="bi bi-shuffle"></i> Balance load</button>
+              <button class="btn primary" id="btnAutoP1" style="display:${canEdit ? 'inline-flex' : 'none'}"><i class="bi bi-lightning-charge"></i> Auto-assign P1</button>
               <details class="pb-menu" id="planningActionsMenu">
-                <summary class="btn"><i class="bi bi-grid-3x3-gap"></i> Views and actions <i class="bi bi-chevron-down pb-caret"></i></summary>
+                <summary class="btn"><i class="bi bi-grid-3x3-gap"></i> Views <i class="bi bi-chevron-down pb-caret"></i></summary>
                 <div class="pb-menu-list" role="menu">
                   <button class="pb-menu-item" type="button" id="btnToggleMap"><i class="bi bi-eye-slash"></i> Hide Machine Grid</button>
                   <button class="pb-menu-item" type="button" onclick="window.switchView('timeline')"><i class="bi bi-bar-chart-steps"></i> Machine Timeline</button>
@@ -583,14 +581,23 @@
                   <button class="pb-menu-item" type="button" id="toggleInactive" title="Include Off and Maintenance machines in the grid"><i class="bi bi-power"></i> Show Off / Maintenance</button>
                   <button class="pb-menu-item" type="button" id="btnPlantOffDays" style="display:none" title="Set weekly off and holidays (Admin)"><i class="bi bi-moon-stars"></i> Plant off days</button>
                   <div class="pb-menu-sep"></div>
+                  <button class="pb-menu-item" type="button" id="btnCollapseLines"><i class="bi bi-arrows-collapse"></i> Collapse all lines</button>
+                  <button class="pb-menu-item" type="button" id="btnExpandLines"><i class="bi bi-arrows-expand"></i> Expand all lines</button>
+                  <div class="pb-menu-sep"></div>
                   <button class="pb-menu-item" type="button" onclick="window.openMachineWiseReport()"><i class="bi bi-file-earmark-spreadsheet"></i> Machine Report</button>
                   <button class="pb-menu-item" type="button" onclick="window.downloadTimelineExcel()"><i class="bi bi-file-earmark-excel"></i> Download Excel</button>
                 </div>
               </details>
-              <button class="btn" id="btnBalance" style="display:${canEdit ? 'inline-flex' : 'none'}"><i class="bi bi-shuffle"></i> Balance Load</button>
-              <button class="btn primary" id="btnAutoP1" style="display:${canEdit ? 'inline-flex' : 'none'}"><i class="bi bi-lightning-charge"></i> Auto-Assign P1</button>
             </div>
-            <div class="pb-toolbar-row pb-status-row">
+            <div class="pb-toolbar-row pb-filter-row">
+              <div class="search pb-search">
+                <i class="bi bi-search"></i>
+                <input id="machineSearch" placeholder="Search machine, item or order" aria-label="Search machines, items or orders"/>
+              </div>
+              <select id="buildingFilter" class="input pb-building" aria-label="Filter by building">
+                <option value="">All buildings</option>
+                <option>B</option><option>C</option><option>E</option><option>F</option>
+              </select>
               <div class="pb-status" id="planningStatusFilter" role="group" aria-label="Filter machines by status">
                 <button type="button" class="pb-chip active" data-state="">All <b id="pbCountAll">0</b></button>
                 <button type="button" class="pb-chip st-running" data-state="running"><span class="pb-dot"></span>Running <b id="pbCountRunning">0</b></button>
@@ -598,17 +605,17 @@
                 <button type="button" class="pb-chip st-idle" data-state="available"><span class="pb-dot"></span>No plan <b id="pbCountIdle">0</b></button>
                 <button type="button" class="pb-chip st-blocked" data-state="blocked"><span class="pb-dot"></span>Stopped / Off <b id="pbCountBlocked">0</b></button>
               </div>
-              <div class="pb-updated" id="planningUpdatedAt"><i class="bi bi-arrow-repeat"></i> Loading…</div>
             </div>
           </div>
 
-          <section class="planning-overview-card pb-overview">
-            <div class="pb-overview-head">
-              <div>
-                <h3 id="planningScopeTitle">All Buildings</h3>
-                <p id="planningSummaryText">Loading planning dashboard metrics...</p>
-              </div>
-              <span class="chip pb-filter-chip" id="planningFilterChip"><i class="bi bi-funnel"></i><span>Filters loading...</span></span>
+          <section class="planning-overview-card pb-overview pb-v5-overview">
+            <!-- Kept for the summary logic; the tiles below carry the numbers -->
+            <div class="pb-overview-head" hidden>
+              <h3 id="planningScopeTitle">All Buildings</h3>
+              <p id="planningSummaryText"></p>
+              <span id="planningFilterChip"></span>
+              <span id="planningVisibleCount">0</span>
+              <span id="planningPlannedCount">0</span>
             </div>
             <div class="kpi-deck pb-kpis" id="planningKpiDeck">
               <button type="button" class="pb-kpi tone-danger" data-state="available" title="Show machines with no plan">
@@ -619,15 +626,10 @@
               <button type="button" class="pb-kpi tone-success" data-state="running" title="Show running machines">
                 <span class="pb-kpi-label"><i class="bi bi-play-circle"></i> Running</span>
                 <span class="pb-kpi-value" id="planningRunningCount">0</span>
-                <span class="pb-kpi-sub">of <span id="planningVisibleCount">0</span> visible</span>
-              </button>
-              <button type="button" class="pb-kpi tone-accent" data-state="planned" title="Show planned machines">
-                <span class="pb-kpi-label"><i class="bi bi-calendar-check"></i> Planned</span>
-                <span class="pb-kpi-value" id="planningPlannedCount">0</span>
-                <span class="pb-kpi-sub">Not running, job queued</span>
+                <span class="pb-kpi-sub" id="planningRunningOf">of 0 machines</span>
               </button>
               <button type="button" class="pb-kpi tone-warning" data-state="blocked" title="Show stopped, off and maintenance machines">
-                <span class="pb-kpi-label"><i class="bi bi-pause-circle"></i> Stopped / Off</span>
+                <span class="pb-kpi-label"><i class="bi bi-pause-circle"></i> Stopped / off</span>
                 <span class="pb-kpi-value" id="planningBlockedCount">0</span>
                 <span class="pb-kpi-sub">Stoppage, off or maintenance</span>
               </button>
@@ -650,20 +652,10 @@
           </section>
         </div> <!-- End view-main -->
 
-          <div class="map-wrap" id="mapWrap" aria-expanded="false">
-            <div class="map-head">
-              <div class="map-title-wrap">
-                <div class="planning-panel-kicker">
-                  <i class="bi bi-diagram-3"></i>
-                        <span>Machine Grid</span>
-                </div>
-                <div class="map-title-row">
-                  <strong class="map-title">Live Machine Load Overview</strong>
-                  <span class="chip">Building Wise</span>
-                  <span class="demo-badge" id="demoBadge" style="display:none"><i class="bi bi-bug"></i> Demo data</span>
-                </div>
-                <div class="map-sub" id="planningMapSub">Loading machine availability for the planning department.</div>
-              </div>
+          <div class="map-wrap pb-v5-map" id="mapWrap" aria-expanded="false">
+            <div class="map-head pb-v5-maphead">
+              <span class="demo-badge" id="demoBadge" style="display:none"><i class="bi bi-bug"></i> Demo data</span>
+              <div class="map-sub" id="planningMapSub" hidden></div>
             </div>
             <div id="machineGrid"></div>
           </div>
@@ -1382,6 +1374,8 @@
           if (scopeTitle) scopeTitle.textContent = scopeText;
           if (summaryText) summaryText.textContent = summary;
           if (visibleEl) visibleEl.textContent = visible;
+          const runningOfEl = document.getElementById('planningRunningOf');
+          if (runningOfEl) runningOfEl.textContent = `of ${visible} machine${visible === 1 ? '' : 's'}`;
           if (runningEl) runningEl.textContent = running;
           if (plannedEl) plannedEl.textContent = planned;
           if (blockedEl) blockedEl.textContent = blocked;
@@ -1415,7 +1409,8 @@
           const updatedAt = document.getElementById('planningUpdatedAt');
           if (updatedAt) {
             const time = new Intl.DateTimeFormat('en-IN', { timeZone: PLANNING_TIMEZONE, hour: '2-digit', minute: '2-digit' }).format(new Date());
-            updatedAt.innerHTML = `<i class="bi bi-arrow-repeat"></i> Updated ${pEsc(time)}`;
+            const shiftInfo = window._planningShiftTeamInfo;
+            updatedAt.innerHTML = `<i class="bi bi-arrow-repeat"></i> Updated ${pEsc(time)}${shiftInfo && shiftInfo.shift ? ` · ${pEsc(shiftInfo.shift)} shift` : ''}`;
           }
           if (focusPending && /loading/i.test(focusPending.textContent || '')) {
             focusPending.textContent = 'Pending order summary is updating live';
@@ -3256,7 +3251,10 @@
 
           let list = lastMachines.slice();
           if (b) list = list.filter(x => getMachineScopeValue(x).toUpperCase() === b.toUpperCase());
-          if (q) list = list.filter(x => (x.code + ' ' + x.name).toLowerCase().includes(q));
+          if (q) list = list.filter(x => {
+            const planText = getMachinePlans(x).map(p => `${p.itemName || ''} ${p.mouldName || ''} ${p.orderNo || ''}`).join(' ');
+            return `${x.code} ${x.name} ${planText}`.toLowerCase().includes(q);
+          });
           if (!showInactive) list = list.filter(x => !x.is_maintenance && (x.is_active !== false || (x.status || '').toLowerCase() !== 'off'));
 
           updatePlanningOverview(list);
@@ -3318,8 +3316,13 @@
             section.appendChild(header);
 
             Object.keys(lines).sort((a, b) => String(a).localeCompare(String(b), undefined, { numeric: true })).forEach(line => {
-              const wrap = document.createElement('div'); wrap.style.marginBottom = '8px';
-              const title = document.createElement('div'); title.className = 'line-title'; title.innerHTML = `${pEsc(line === 'Machines' ? 'Machines' : `Line ${line}`)}<span class="pb-line-count">${lines[line].length} machine${lines[line].length === 1 ? '' : 's'}</span>`;
+              const wrap = document.createElement('div'); wrap.className = 'pb-line'; wrap.style.marginBottom = '8px';
+              const lineKey = `${building}|${line}`;
+              wrap.dataset.lineKey = lineKey;
+              if (getCollapsedLines().has(lineKey)) wrap.classList.add('is-collapsed');
+              const runningOnLine = lines[line].filter(x => getPlanningMachineState(x) === 'running').length;
+              const title = document.createElement('div'); title.className = 'line-title pb-line-head';
+              title.innerHTML = `<button type="button" class="pb-line-toggle" aria-expanded="${wrap.classList.contains('is-collapsed') ? 'false' : 'true'}" title="Collapse or expand this line"><i class="bi bi-chevron-down"></i></button>${pEsc(line === 'Machines' ? 'Machines' : `Line ${line}`)}<span class="pb-line-count">${lines[line].length} machine${lines[line].length === 1 ? '' : 's'}</span><span class="pb-line-count pb-line-run">${runningOnLine} running</span>`;
               const row = document.createElement('div'); row.className = 'machine-row';
 
               // Keep line machines in final machine-number order such as ...-1, ...-2, ...-3, ...-4.
@@ -3333,8 +3336,8 @@
                 title.insertAdjacentHTML('beforeend', `<span class="pb-line-count pb-line-mp" title="Manpower this shift: actual (setup) / STD (mould master)"><i class="bi bi-people"></i> ${fmtMp(lineMp.act)} / ${fmtMp(lineMp.std)} std</span>`);
               }
               sortedMachines.forEach(m => row.appendChild(machineSeat(m)));
+              title.insertAdjacentHTML('beforeend', renderLineShiftTeam(line));
               wrap.appendChild(title);
-              wrap.insertAdjacentHTML('beforeend', renderLineShiftTeam(line));
               wrap.appendChild(row);
               section.appendChild(wrap);
             });
@@ -3342,6 +3345,41 @@
             grid.appendChild(section);
           });
         }
+
+        // Collapsed lines are remembered per browser.
+        const COLLAPSED_LINES_KEY = 'pb_collapsed_lines';
+        function getCollapsedLines() {
+          try { return new Set(JSON.parse(localStorage.getItem(COLLAPSED_LINES_KEY) || '[]')); } catch (_) { return new Set(); }
+        }
+        function saveCollapsedLines(set) {
+          try { localStorage.setItem(COLLAPSED_LINES_KEY, JSON.stringify(Array.from(set))); } catch (_) { /* private mode */ }
+        }
+        function setLineCollapsed(wrap, collapsed) {
+          wrap.classList.toggle('is-collapsed', collapsed);
+          const btn = wrap.querySelector('.pb-line-toggle');
+          if (btn) btn.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+        }
+        document.addEventListener('click', (ev) => {
+          const toggle = ev.target.closest && ev.target.closest('.pb-line-toggle');
+          if (toggle) {
+            const wrap = toggle.closest('.pb-line');
+            const set = getCollapsedLines();
+            const collapsed = !wrap.classList.contains('is-collapsed');
+            setLineCollapsed(wrap, collapsed);
+            if (collapsed) set.add(wrap.dataset.lineKey); else set.delete(wrap.dataset.lineKey);
+            saveCollapsedLines(set);
+            return;
+          }
+          const all = ev.target.closest && ev.target.closest('#btnCollapseLines, #btnExpandLines');
+          if (!all) return;
+          const collapse = all.id === 'btnCollapseLines';
+          const set = getCollapsedLines();
+          document.querySelectorAll('#machineGrid .pb-line').forEach(w => {
+            setLineCollapsed(w, collapse);
+            if (collapse) set.add(w.dataset.lineKey); else set.delete(w.dataset.lineKey);
+          });
+          saveCollapsedLines(set);
+        });
 
         // Heatmap: one square per machine, grouped by building + line in the same order
         // as the cards; click a square to scroll to its card.
@@ -3440,6 +3478,8 @@
           if (!cell) return;
           const card = Array.from(document.querySelectorAll('#machineGrid .machine')).find(c => c.dataset.code === cell.dataset.code);
           if (!card) return;
+          const lineWrap = card.closest('.pb-line');
+          if (lineWrap && lineWrap.classList.contains('is-collapsed')) lineWrap.querySelector('.pb-line-toggle')?.click();
           card.scrollIntoView({ behavior: 'smooth', block: 'center' });
           card.classList.remove('mg-flash'); void card.offsetWidth; card.classList.add('mg-flash');
         });
