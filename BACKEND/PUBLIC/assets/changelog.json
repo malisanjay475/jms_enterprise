@@ -14,6 +14,21 @@
   "latest": "1.172.1",
   "versions": [
     {
+      "version": "1.173.0",
+      "date": "2026-11-03",
+      "title": "NPD: Factory column, Status back, code before name",
+      "modules": [
+        {
+          "app": "npd",
+          "changes": [
+            { "type": "feat", "text": "New Factory column after Product Name - H.O picks the factory from the factory list." },
+            { "type": "improvement", "text": "Status column and status filter are back; Product Code now comes before Product Name." },
+            { "type": "improvement", "text": "Actual dispatch date is now filled by W/H & Dispatch." }
+          ]
+        }
+      ]
+    },
+    {
       "version": "1.172.1",
       "date": "2026-11-03",
       "title": "DPR compliance: compact layout",
