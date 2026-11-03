@@ -11,10 +11,10 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.174.1",
+  "latest": "1.174.3",
   "versions": [
     {
-      "version": "1.174.1",
+      "version": "1.174.3",
       "date": "2026-11-03",
       "title": "NPD: simpler product / mould numbering",
       "modules": [
@@ -22,6 +22,33 @@
           "app": "npd",
           "changes": [
             { "type": "improvement", "text": "The Main Product / Child Mould column is gone; child moulds are numbered under their product in the Sr column (20.1, 20.2 ...)." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.174.2",
+      "date": "2026-11-03",
+      "title": "DPR compliance: no Predicted tile per line",
+      "modules": [
+        {
+          "app": "dpr",
+          "changes": [
+            { "type": "improvement", "text": "Removed the Predicted tile from each line's totals." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.174.1",
+      "date": "2026-11-03",
+      "title": "DPR compliance: line totals fixed and smaller",
+      "modules": [
+        {
+          "app": "dpr",
+          "changes": [
+            { "type": "fix", "text": "Each line's Target, Estimated, Achievable and DT loss now show their values (they stayed at 0.00)." },
+            { "type": "improvement", "text": "Line totals are one compact row of small tiles with short labels." }
           ]
         }
       ]
