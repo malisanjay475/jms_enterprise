@@ -96,7 +96,7 @@ const STAGES = [
   { key: 'post_card_receiving', type: 'status', group: 'Costing & Launch', label: 'Final post card follow up & receiving by Planning (Planning)', depts: ['Planning'] },
   { key: 'post_card_making_ho', type: 'status', group: 'Costing & Launch', label: 'Post card making by H.O (HO)', depts: ['HO'] },
   { key: 'post_card_posting', type: 'status', group: 'Costing & Launch', label: 'Posting post card in new product launch group (Planning)', depts: ['Planning'] },
-  { key: 'dispatch_date', type: 'date', group: 'Costing & Launch', label: 'Actual dispatch date', depts: ['Planning', 'W/H'] }
+  { key: 'dispatch_date', type: 'date', group: 'Costing & Launch', label: 'Actual dispatch date (W/H & Dispatch)', depts: ['W/H'] }
 ];
 /* Excel export: same words and colours as the page (Blue pending, Yellow in
    progress, Green complete, Red N/A) */
@@ -229,6 +229,7 @@ async function ensureNpdSchema(pool) {
     CREATE INDEX IF NOT EXISTS idx_npd_products_parent ON npd_products(parent_sync_id);
     ALTER TABLE npd_products ADD COLUMN IF NOT EXISTS product_code TEXT NOT NULL DEFAULT '';
     ALTER TABLE npd_products ADD COLUMN IF NOT EXISTS trial_colours TEXT NOT NULL DEFAULT '';
+      ALTER TABLE npd_products ADD COLUMN IF NOT EXISTS factory TEXT NOT NULL DEFAULT '';
 
     /* Sr No: MAIN and a LOCAL can both hand out the same next number while apart.
        MAIN decides: a row arriving with a number another product already has gets
@@ -355,9 +356,9 @@ function registerNpdRoutes(app, pool) {
       const ExcelJS = require('exceljs');
       const wb = new ExcelJS.Workbook();
       wb.creator = 'JMS';
-      const ws = wb.addWorksheet('NPD Tracker', { views: [{ state: 'frozen', xSplit: 4, ySplit: 3 }] });
-      const S0 = 5; /* first stage column */
-      const head = ['Sr No', 'Product / Mould', 'Product code', 'Colour details for trials (HO)', ...STAGES.map(s => s.label), 'Status', 'Remarks', 'Trial reports', 'Images', 'Last updated by', 'Last updated'];
+      const ws = wb.addWorksheet('NPD Tracker', { views: [{ state: 'frozen', xSplit: 5, ySplit: 3 }] });
+      const S0 = 6; /* first stage column */
+      const head = ['Sr No', 'Product / Mould', 'Factory (HO)', 'Product code', 'Colour details for trials (HO)', ...STAGES.map(s => s.label), 'Status', 'Remarks', 'Trial reports', 'Images', 'Last updated by', 'Last updated'];
       const last = head.length;
       const thin = { style: 'thin', color: { argb: 'FFCBD5E1' } };
       const border = { top: thin, left: thin, bottom: thin, right: thin };
@@ -395,7 +396,7 @@ function registerNpdRoutes(app, pool) {
         const st = p.stages || {};
         const info = p.stage_info || {};
         const vals = [/^\d+$/.test(p.sr_no || '') ? Number(p.sr_no) : (p.sr_no || ''),
-          p.parent_sync_id ? `   ↳ Mould: ${p.product_name}` : p.product_name, p.product_code || '', p.trial_colours || ''];
+          p.parent_sync_id ? `   ↳ Mould: ${p.product_name}` : p.product_name, p.factory || '', p.product_code || '', p.trial_colours || ''];
         STAGES.forEach(s => {
           const v = st[s.key];
           if (s.type === 'date') vals.push(v ? new Date(v + 'T00:00:00Z') : null);
@@ -410,7 +411,7 @@ function registerNpdRoutes(app, pool) {
         const r = ws.addRow(vals);
         r.eachCell({ includeEmpty: true }, (c, col) => {
           c.border = border;
-          c.alignment = { vertical: 'middle', wrapText: col === 2 || col === 4 || col === STAGES.length + S0 + 1 };
+          c.alignment = { vertical: 'middle', wrapText: col === 2 || col === 5 || col === STAGES.length + S0 + 1 };
           const s = STAGES[col - S0];
           if (s && s.type === 'status') {
             const k = STATE_STYLE[st[s.key]] || STATE_STYLE.pending;
@@ -517,6 +518,9 @@ function registerNpdRoutes(app, pool) {
       if (!owner && (b.product_name !== undefined || b.product_code !== undefined || b.status !== undefined || b.remarks !== undefined)) {
         return res.status(403).json({ ok: false, error: 'Only admin and PPC managers can change product name, code, status or remarks' });
       }
+      if (b.factory !== undefined && !isAdmin(u)) {
+        return res.status(403).json({ ok: false, error: 'Only H.O (admin) can set the factory' });
+      }
       if (b.trial_colours !== undefined && !isAdmin(u)) {
         return res.status(403).json({ ok: false, error: 'Only H.O (admin) can set the colours for trials' });
       }
@@ -567,6 +571,7 @@ function registerNpdRoutes(app, pool) {
       }
       if (b.product_code !== undefined) add('product_code = ?', clean(b.product_code, 60));
       if (b.trial_colours !== undefined) add('trial_colours = ?', cleanColours(b.trial_colours));
+      if (b.factory !== undefined) add('factory = ?', clean(b.factory, 120));
       if (b.status !== undefined) {
         if (!PRODUCT_STATUSES.has(b.status)) return res.status(400).json({ ok: false, error: 'Invalid status' });
         add('status = ?', b.status);
