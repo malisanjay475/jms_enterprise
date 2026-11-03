@@ -52,7 +52,11 @@
         .g thead .fix { z-index: 3; background: #f8fafc; }
         .g .c0 { left: 0; min-width: 52px; max-width: 52px; text-align: center; }
         .g .ct { left: 52px; min-width: 148px; max-width: 148px; padding: 6px 10px; }
-        .g .c1 { left: 200px; min-width: 320px; max-width: 320px; box-shadow: 2px 0 0 var(--line); }
+        .g .cc { left: 200px; min-width: 130px; max-width: 130px; }
+        .g td.cc input.code { width: 100%; }
+        select.fsel { width: 140px; border: 1px solid var(--line); border-radius: 7px; padding: 5px 6px; font-size: 12px; font-weight: 600; background: #fff; }
+        .fac { font-weight: 700; font-size: 12px; }
+        .g .c1 { left: 330px; min-width: 320px; max-width: 320px; box-shadow: 2px 0 0 var(--line); }
         /* product block: warm main row with an accent edge, child moulds grouped under one label */
         .g tr.main td { border-top: 2px solid #e2e8f0; }
         .g tbody tr.main:first-child td { border-top: 0; }
@@ -156,7 +160,7 @@
         .vw .vnav.l { left: 12px; }
         .vw .vnav.r { right: 12px; }
         .vw .zoom-only { display: inline-flex; gap: 8px; align-items: center; }
-        @media (max-width: 700px) { .npd { padding: 14px 10px 80px; } .g .c1 { min-width: 200px; max-width: 200px; } .g .ct { position: static; } .g .c1 { left: 52px; } .wrap { max-height: none; } }
+        @media (max-width: 700px) { .npd { padding: 14px 10px 80px; } .g .c1 { min-width: 200px; max-width: 200px; } .g .ct, .g .cc { position: static; } .g .c1 { left: 52px; } .wrap { max-height: none; } }
     </style>
 </head>
 
@@ -311,7 +315,7 @@
                     ['post_card_receiving', 'Final post card follow up & receiving by Planning', 'Planning'],
                     ['post_card_making_ho', 'Post card making by H.O', 'H.O'],
                     ['post_card_posting', 'Posting post card in new product launch group', 'Planning'],
-                    ['dispatch_date', 'Actual dispatch date', '', 'date']] }
+                    ['dispatch_date', 'Actual dispatch date', 'W/H & Dispatch', 'date']] }
             ];
             const COLS = GROUPS.flatMap(g => g.cols);
             const STATE = [['pending', 'Pending'], ['in_progress', 'In Progress'], ['complete', 'Complete'], ['na', 'N/A']];
@@ -319,7 +323,7 @@
             /* colours for trials (picked by H.O): this list plus any colour already used */
             const COLOURS = ['White', 'Black', 'Red', 'Blue', 'Navy Blue', 'Sky Blue', 'Green', 'Parrot Green', 'Yellow', 'Orange', 'Pink', 'Purple', 'Grey', 'Brown', 'Beige', 'Ivory', 'Maroon', 'Transparent', 'Natural'];
             const colourList = v => String(v || '').split(',').map(c => c.trim()).filter(Boolean);
-            const S = { rows: [], canEdit: false, canDelete: false, editable: new Set(), depts: [], q: '', fstat: '', open: null, pending: null };
+            const S = { rows: [], canEdit: false, canDelete: false, editable: new Set(), depts: [], q: '', fstat: '', factories: [], open: null, pending: null };
             const $ = id => document.getElementById(id);
             const esc = v => String(v == null ? '' : v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
             const psClass = s => 'ps-' + String(s || '').replace(/\s+/g, '');
@@ -334,6 +338,10 @@
                     S.canAdd = !!res.can_add;
                     S.canDelete = !!res.can_delete;
                     S.canColours = !!res.can_colours;
+                    if (S.canColours && !S.factories.length) {
+                        const fr = await api('/factories').catch(() => null);
+                        S.factories = ((fr && fr.data) || []).map(f => f.name).filter(Boolean);
+                    }
                     S.editable = new Set(res.editable_stages || []);
                     S.depts = res.departments || [];
                     $('addBtn').style.display = S.canAdd ? '' : 'none';
@@ -362,6 +370,12 @@
                     + (st === 'complete' && info.received_by ? `<span class="srb"><i class="bi bi-person-check"></i> by ${esc(info.received_by)}</span>` : '');
                 if (!ed) return `<td class="lock"><span class="cell st-${st}">${(STATE.find(s => s[0] === st) || STATE[0])[1]}</span>${done}${rm}</td>`;
                 return `<td><select class="cell st-${st}" data-id="${p.id}" data-stage="${key}">${STATE.map(([k, l]) => `<option value="${k}"${k === st ? ' selected' : ''}>${l}</option>`).join('')}</select>${done}${rm}</td>`;
+            }
+            /* factory the product is made at: chosen by H.O (admin) from the factory master */
+            function factoryCell(p) {
+                if (!S.canColours) return p.factory ? `<span class="fac">${esc(p.factory)}</span>` : '<span class="none">—</span>';
+                const names = [...new Set([...S.factories, p.factory].filter(Boolean))];
+                return `<select class="fsel" data-id="${p.id}" data-f="factory"><option value="">— Factory —</option>${names.map(n => `<option${n === p.factory ? ' selected' : ''}>${esc(n)}</option>`).join('')}</select>`;
             }
             /* every stage remark on this row, labelled with its department and stage */
             function deptRemarks(p) {
@@ -394,11 +408,12 @@
                     .flatMap(p => [p, ...kidsOf(p)]);
                 const counts = {};
                 parents.forEach(p => { const k = p.status || 'No status'; counts[k] = (counts[k] || 0) + 1; });
-                $('tiles').innerHTML = `<span class="tile on">Products<b>${parents.length}</b></span>`;
+                $('tiles').innerHTML = [['', 'All', parents.length], ...PSTAT.map(s => [s, s, counts[s] || 0])]
+                    .map(([k, l, n]) => `<span class="tile${S.fstat === k ? ' on' : ''}" data-f="${esc(k)}">${esc(l)}<b>${n}</b></span>`).join('');
 
-                let h = `<thead><tr class="grp"><th class="fix c0" rowspan="2" style="top:0">Sr</th><th class="fix ct" rowspan="2" style="top:0"></th><th class="fix c1" rowspan="2" style="top:0;text-align:left;padding-left:14px">Product Name</th><th rowspan="2" style="top:0;min-width:125px">Product Code / Mould Code</th><th rowspan="2" style="top:0;min-width:180px">Colour details for trials<small style="display:block;color:var(--mute)">H.O</small></th>`;
+                let h = `<thead><tr class="grp"><th class="fix c0" rowspan="2" style="top:0">Sr</th><th class="fix ct" rowspan="2" style="top:0"></th><th class="fix cc" rowspan="2" style="top:0">Product Code / Mould Code</th><th class="fix c1" rowspan="2" style="top:0;text-align:left;padding-left:14px">Product Name</th><th rowspan="2" style="top:0;min-width:150px">Factory<small style="display:block;color:var(--mute)">H.O</small></th><th rowspan="2" style="top:0;min-width:180px">Colour details for trials<small style="display:block;color:var(--mute)">H.O</small></th>`;
                 GROUPS.forEach(g => { h += `<th colspan="${g.cols.length}">${esc(g.label)}</th>`; });
-                h += `<th rowspan="2" style="top:0;min-width:320px">Remarks<small style="display:block;color:var(--mute)">All departments</small></th>${S.canDelete ? '<th rowspan="2" style="top:0"></th>' : ''}</tr><tr class="col">`;
+                h += `<th rowspan="2" style="top:0;min-width:140px">Status</th><th rowspan="2" style="top:0;min-width:320px">Remarks<small style="display:block;color:var(--mute)">All departments</small></th>${S.canDelete ? '<th rowspan="2" style="top:0"></th>' : ''}</tr><tr class="col">`;
                 COLS.forEach(c => { h += `<th>${esc(c[1])}${c[2] ? `<small>${esc(c[2])}</small>` : ''}</th>`; });
                 h += `</tr></thead><tbody>`;
                 rows.forEach(p => {
@@ -416,20 +431,25 @@
                     const typeCell = !child ? '<td class="fix ct"><span class="ttag main"><i class="bi bi-box-seam"></i> Main Product</span></td>'
                         : sibs[0] === p ? `<td class="fix ct kid" rowspan="${sibs.length}"><span class="ttag kid"><i class="bi bi-diagram-2"></i> Child Mould <small>${sibs.length}</small></span></td>` : '';
                     h += `<tr class="${child ? 'child' : 'main'}"><td class="fix c0">${child ? '<span class="none">↳</span>' : `<b>${esc(p.sr_no || '')}</b>`}</td>${typeCell}
+                        <td class="fix cc pcode">${S.canEdit ? `<input class="code" data-id="${p.id}" data-f="product_code" value="${esc(p.product_code || '')}" maxlength="60" placeholder="Code">` : esc(p.product_code || '') || '<span class="none">—</span>'}</td>
                         <td class="fix c1"><div class="pc">${thumb}<div>${name}<div class="meta"><a data-files="${p.id}"><i class="bi bi-file-earmark-text"></i> Trial report (${reps})</a><a data-files="${p.id}"><i class="bi bi-images"></i> Images (${imgs})</a>${addMould}</div></div></div></td>`;
-                    h += `<td class="pcode">${S.canEdit ? `<input class="code" data-id="${p.id}" data-f="product_code" value="${esc(p.product_code || '')}" maxlength="60" placeholder="Code">` : esc(p.product_code || '') || '<span class="none">—</span>'}</td>`;
+                    h += `<td>${factoryCell(p)}</td>`;
+                    const statusCell = S.canEdit
+                        ? `<td><select class="ps ${psClass(p.status)}" data-id="${p.id}" data-f="status"><option value="">— Select —</option>${PSTAT.map(s => `<option${s === p.status ? ' selected' : ''}>${s}</option>`).join('')}</select></td>`
+                        : `<td>${p.status ? `<span class="chip ${psClass(p.status)}">${esc(p.status)}</span>` : '<span class="none">—</span>'}</td>`;
                     /* stages, colours and remarks are tracked per child mould; the main product row only sums them up */
                     if (!child) {
                         const ks = kidsOf(p), tot = ks.length * COLS.length;
                         const n = st => ks.reduce((a, k) => a + COLS.filter(c => (k.stages || {})[c[0]] === st).length, 0);
                         const done = n('complete'), pct = tot ? Math.round(done * 100 / tot) : 0;
-                        h += `<td colspan="${COLS.length + 2}" class="msum"><div class="msum-in"><span class="msum-l">${ks.length} mould${ks.length === 1 ? '' : 's'} · ${pct}% complete</span><span class="mbar"><i style="width:${pct}%"></i></span><span class="chip st-complete">${done} done</span><span class="chip st-in_progress">${n('in_progress')} in progress</span><span class="chip st-na">${n('na')} N/A</span></div></td>`;
+                        h += `<td colspan="${COLS.length + 1}" class="msum"><div class="msum-in"><span class="msum-l">${ks.length} mould${ks.length === 1 ? '' : 's'} · ${pct}% complete</span><span class="mbar"><i style="width:${pct}%"></i></span><span class="chip st-complete">${done} done</span><span class="chip st-in_progress">${n('in_progress')} in progress</span><span class="chip st-na">${n('na')} N/A</span></div></td>${statusCell}<td class="msum"></td>`;
                         if (S.canDelete) h += `<td><button class="btn sm danger" data-del="${p.id}" title="Delete"><i class="bi bi-trash"></i></button></td>`;
                         h += '</tr>';
                         return;
                     }
                     h += `<td>${colourCell(p)}</td>`;
                     COLS.forEach(c => { h += stageCell(p, c); });
+                    h += statusCell;
                     h += `<td class="rmall">${deptRemarks(p)}${S.canEdit
                         ? `<textarea class="rm" data-id="${p.id}" data-f="remarks" placeholder="General remark">${esc(p.remarks || '')}</textarea>`
                         : (p.remarks ? `<div class="rgen">${esc(p.remarks)}</div>` : '')}</td>`;
