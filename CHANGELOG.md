@@ -13,6 +13,9 @@ part of your PR. On release, the `[Unreleased]` items move under the new version
 
 ## [Unreleased]
 
+### Changed
+- NPD Tracker (v1.165.1): Main Product / Child Mould column (main row highlighted, child moulds under one merged cell); headers Product Name and Product Code / Mould Code.
+
 ### Added
 - NPD Tracker (v1.165.0): a new product needs at least one child mould (add form has mould rows); Product code column for products and moulds; Colour details for trials (H.O, admin only) picked from a list; "Final mould received" Complete asks for and shows who received it; new stages Final sample approval from HO, OR - JR making in ERP by Warehouse (W/H), Launch date by H.O (date) and Post card making by H.O. Renamed: Final QC approved after testing, OR making in ERP by H.O. Excel export carries the new columns.
 

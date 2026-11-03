@@ -14,6 +14,19 @@
   "latest": "1.162.0",
   "versions": [
     {
+      "version": "1.165.1",
+      "date": "2026-11-03",
+      "title": "NPD: Main Product / Child Mould column",
+      "modules": [
+        {
+          "app": "npd",
+          "changes": [
+            { "type": "improvement", "text": "New first column marks each row Main Product (highlighted) or Child Mould (one merged cell for all moulds); headers now read Product Name and Product Code / Mould Code." }
+          ]
+        }
+      ]
+    },
+    {
       "version": "1.165.0",
       "date": "2026-11-02",
       "title": "NPD: product code, trial colours, received-by and new H.O / Warehouse columns",
