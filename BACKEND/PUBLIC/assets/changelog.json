@@ -11,8 +11,22 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.166.0",
+  "latest": "1.166.1",
   "versions": [
+    {
+      "version": "1.166.1",
+      "date": "2026-11-03",
+      "title": "Machine Grid: cards fit, attention and finishing-soon panels",
+      "modules": [
+        {
+          "app": "planning",
+          "changes": [
+            { "type": "fix", "text": "Machine cards no longer get cut off on the right when the item name is long; item names wrap to two lines and the stoppage time has its own line." },
+            { "type": "feature", "text": "Next to the plant heatmap: Needs attention now (stopped and no-plan machines, longest first, plus manpower short) and Jobs finishing soon (jobs at 90% or more, flagging those with no next job). Click a row to jump to the machine." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.166.0",
       "date": "2026-11-03",
