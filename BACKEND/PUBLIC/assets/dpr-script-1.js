@@ -2293,38 +2293,24 @@
                             lineInnerHtml += `
                                 <div style="margin-bottom:24px; background:white; border:1px solid #cbd5e1; border-radius:0 0 12px 12px; overflow:hidden; box-shadow:0 4px 6px -1px rgba(0,0,0,0.05); margin-top:-1px">
                                     <div style="padding:8px 20px; background:#f1f5f9; border-bottom:1px solid #e2e8f0; border-top:1px solid #e2e8f0">
-                                        <div style="display:flex; justify-content:space-between; align-items:center">
-                                            <span style="font-weight:700; color:#0f172a; font-size:1rem">${lineName}</span>
-                                            <div style="display:flex; gap:12px; align-items:center">
-                                                <div style="font-weight:700; color:#7c3aed; font-size:0.9rem">
-                                                    Overall: <span id="line-total-overall-${lineName.replace(/\s/g, '')}">0.00</span> Kg
-                                                </div>
-                                                <div style="font-weight:700; color:#0f172a; font-size:0.9rem; border-left:1px solid #cbd5e1; padding-left:12px">
-                                                    Total: <span id="line-total-tonnage-${lineName.replace(/\s/g, '')}">0.00</span> Kg
-                                                </div>
-                                                <div style="font-weight:700; color:#0891b2; font-size:0.9rem; border-left:1px solid #cbd5e1; padding-left:12px" title="Predicted tonnage by end of this shift — current pace (or STD rate) × remaining hours, machine-wise sum">
-                                                    Pred: <span id="line-total-pred-${lineName.replace(/\s/g, '')}">0.00</span> Kg
-                                                </div>
-                                                <div style="font-weight:700; color:#dc2626; font-size:0.9rem; border-left:1px solid #cbd5e1; padding-left:12px">
-                                                    Rej: <span id="line-total-rej-${lineName.replace(/\s/g, '')}">0.00</span> Kg
-                                                </div>
-                                                <div style="font-weight:700; color:#0369a1; font-size:0.9rem; border-left:1px solid #cbd5e1; padding-left:12px" title="OEE (Scheduled Time)">
-                                                    OEE: <span id="line-total-eff-${lineName.replace(/\s/g, '')}">0.0</span>%
-                                                </div>
-                                                <div style="font-weight:700; color:#16a34a; font-size:0.9rem; border-left:1px solid #cbd5e1; padding-left:12px" title="EFF (Net Run Time after Downtime)">
-                                                    EFF: <span id="line-total-effnet-${lineName.replace(/\s/g, '')}">0.0</span>%
-                                                </div>
-                                                <div style="font-weight:700; color:#db2777; font-size:0.9rem; border-left:1px solid #cbd5e1; padding-left:12px">
-                                                    DT: <span id="line-total-dt-${lineName.replace(/\s/g, '')}">0.0</span> Hrs
-                                                </div>
-                                                <div style="font-weight:700; color:#be185d; font-size:0.9rem; border-left:1px solid #cbd5e1; padding-left:12px" title="Auto Calculated Downtime">
-                                                    Auto: <span id="line-total-autodt-${lineName.replace(/\s/g, '')}">0</span> m
-                                                </div>
-                                                <div style="font-weight:600; color:#64748b; font-size:0.8rem; border-left:1px solid #cbd5e1; padding-left:12px; display:flex; gap:6px">
-                                                    <span title="Mould Change" style="color:#d97706">MC: <span id="line-total-mc-${lineName.replace(/\s/g, '')}">0</span></span>
-                                                    <span title="Colour Change" style="color:#c2410c">CC: <span id="line-total-cc-${lineName.replace(/\s/g, '')}">0</span></span>
-                                                    <span title="Job Change" style="color:#7c3aed">JC: <span id="line-total-jc-${lineName.replace(/\s/g, '')}">0</span></span>
-                                                </div>
+                                        <div class="dpr-lt">
+                                            <div class="dpr-lt-name">${lineName}</div>
+                                            <div class="dpr-lt-row">
+                                                <div class="dpr-pt-tile t-target"><span class="dpr-pt-label">Planned target</span><span class="dpr-pt-value"><span id="line-total-plantarget-${lineName.replace(/\s/g, '')}">0.00</span> <small>kg</small></span></div>
+                                                <div class="dpr-pt-tile t-est"><span class="dpr-pt-label">Planned estimated</span><span class="dpr-pt-value"><span id="line-total-planest-${lineName.replace(/\s/g, '')}">0.00</span> <small>kg</small></span></div>
+                                                <div class="dpr-pt-tile t-ach"><span class="dpr-pt-label">Plan achievable</span><span class="dpr-pt-value"><span id="line-total-planach-${lineName.replace(/\s/g, '')}">0.00</span> <small>kg</small></span></div>
+                                                <div class="dpr-pt-tile t-gross"><span class="dpr-pt-label">Gross production</span><span class="dpr-pt-value"><span id="line-total-overall-${lineName.replace(/\s/g, '')}">0.00</span> <small>kg</small></span></div>
+                                                <div class="dpr-pt-tile t-good"><span class="dpr-pt-label">Good production</span><span class="dpr-pt-value"><span id="line-total-tonnage-${lineName.replace(/\s/g, '')}">0.00</span> <small>kg</small></span></div>
+                                                <div class="dpr-pt-tile t-rej"><span class="dpr-pt-label">Rejection</span><span class="dpr-pt-value"><span id="line-total-rej-${lineName.replace(/\s/g, '')}">0.00</span> <small>kg</small></span></div>
+                                                <div class="dpr-pt-tile t-loss" title="Plan achievable − Gross production"><span class="dpr-pt-label">Downtime loss</span><span class="dpr-pt-value"><span id="line-total-dtloss-${lineName.replace(/\s/g, '')}">0.00</span> <small>kg</small></span></div>
+                                                <div class="dpr-pt-tile t-pred" title="Predicted tonnage by end of this shift"><span class="dpr-pt-label">Predicted</span><span class="dpr-pt-value"><span id="line-total-pred-${lineName.replace(/\s/g, '')}">0.00</span> <small>kg</small></span></div>
+                                            </div>
+                                            <div class="dpr-lt-row dpr-lt-row2">
+                                                <div class="dpr-pt-tile t-oee" title="OEE (Scheduled Time)"><span class="dpr-pt-label">OEE</span><span class="dpr-pt-value"><span id="line-total-eff-${lineName.replace(/\s/g, '')}">0.0</span> <small>%</small></span></div>
+                                                <div class="dpr-pt-tile t-eff" title="EFF (Net Run Time after Downtime)"><span class="dpr-pt-label">EFF</span><span class="dpr-pt-value"><span id="line-total-effnet-${lineName.replace(/\s/g, '')}">0.0</span> <small>%</small></span></div>
+                                                <div class="dpr-pt-tile t-dt"><span class="dpr-pt-label">Downtime</span><span class="dpr-pt-value"><span id="line-total-dt-${lineName.replace(/\s/g, '')}">0.0</span> <small>hrs</small></span></div>
+                                                <div class="dpr-pt-tile t-adt" title="Auto Calculated Downtime"><span class="dpr-pt-label">Auto DT</span><span class="dpr-pt-value"><span id="line-total-autodt-${lineName.replace(/\s/g, '')}">0</span> <small>min</small></span></div>
+                                                <div class="dpr-pt-tile t-chg"><span class="dpr-pt-label">Changes</span><span class="dpr-pt-value dpr-pt-chg"><span title="Mould Change">MC <b id="line-total-mc-${lineName.replace(/\s/g, '')}">0</b></span><span title="Colour Change">CC <b id="line-total-cc-${lineName.replace(/\s/g, '')}">0</b></span><span title="Job Change">JC <b id="line-total-jc-${lineName.replace(/\s/g, '')}">0</b></span></span></div>
                                             </div>
                                         </div>
                                         <div style="margin-top:2px; font-size:0.75rem; color:#475569;">
@@ -2354,6 +2340,7 @@
                                 const machineSlotOpen = new Array(12).fill(0); // per-hour counts for the hour strips
                                 const machineSlotMiss = new Array(12).fill(0);
                                 const machineSlotLate = new Array(12).fill(0);
+                                let machineClosedBy = '';    // plant / line closed for this shift (Settings → Plant closure)
                                 let machineBalComplete = false; // true when any mould's plan is met/exceeded (bal <= 0) → blink
                                 let machinePlanNearDone = false; // true when any mould has <= 20% qty left to produce (Plan Change Over filter)
                                 // Determine Shifts for this Machine Row(s)
@@ -2600,7 +2587,8 @@
                                     const mObj = machines.find(ma => ma.machine === machine) || {};
                                     const building = mObj.building || mObj.machine_process || '';
                                     const machineLine = mObj.line || mObj.building || mObj.machine_process || '';
-                                    const closure = rowClosed.find(c => c.plant === building || c.plant === machineLine || c.plant === 'All');
+                                    const closure = rowClosed.find(c => (!c.shift || c.shift === 'Both' || c.shift === rowShift) && (c.plant === building || c.plant === machineLine || c.plant === 'All'));
+                                    if (closure) machineClosedBy = closure.plant === 'All' ? 'Factory' : closure.plant;
 
                                     // [NEW] Machine-wise JC Highlight Detection (Trigger on 1 or more Job Changes)
                                     const isHighJC = (machineJC >= 1);
@@ -2717,7 +2705,7 @@
                                             const now = new Date().getTime();
                                             const currentSlotStart = sEnd - 3600000;
                                             const isFuture = (now < currentSlotStart);
-                                            if (sEnd < now && mIdx === 0) { machineOpenSlots++; machineSlotOpen[idx]++; }
+                                            if (sEnd < now && mIdx === 0 && !closure) { machineOpenSlots++; machineSlotOpen[idx]++; }
                                             let slotCountedLate = false;
 
                                             let bg = '#ffffff';
@@ -2959,7 +2947,7 @@
                                                         if (!hasMachineProduction && !overrideTriggeredThisSlot) {
                                                             if (mouldStartTs === 0 || sEnd > (mouldStartTs + 600000)) {
                                                                 showCross = true;
-                                                                machineMissingSlots++; machineSlotMiss[idx]++; // count for Pending filter
+                                                                if (!closure) { machineMissingSlots++; machineSlotMiss[idx]++; } // count for Pending filter; closed plant hours are not missing
                                                             }
                                                         }
                                                     } else {
@@ -3426,9 +3414,9 @@
                                 // not the whole machine row — see planBalHtml above.
 
                                 if (flatMode) {
-                                    globalMachineBuffer.push({ html: machineRowHtml, eff: mEff, oee: mOee, name: machine, entryTypes: machineEntryTypes, hasEntries: machineGood > 0 || machineEst > 0, missingSlots: machineMissingSlots, openSlots: machineOpenSlots, lateSlots: machineLateSlots, slotOpen: machineSlotOpen, slotMiss: machineSlotMiss, slotLate: machineSlotLate, balComplete: machineBalComplete, planNearDone: machinePlanNearDone });
+                                    globalMachineBuffer.push({ html: machineRowHtml, eff: mEff, oee: mOee, name: machine, entryTypes: machineEntryTypes, hasEntries: machineGood > 0 || machineEst > 0, missingSlots: machineMissingSlots, openSlots: machineOpenSlots, lateSlots: machineLateSlots, slotOpen: machineSlotOpen, slotMiss: machineSlotMiss, slotLate: machineSlotLate, closedBy: machineClosedBy, balComplete: machineBalComplete, planNearDone: machinePlanNearDone });
                                 } else {
-                                    machineBuffer.push({ html: machineRowHtml, eff: mEff, oee: mOee, name: machine, entryTypes: machineEntryTypes, hasEntries: machineGood > 0 || machineEst > 0, missingSlots: machineMissingSlots, openSlots: machineOpenSlots, lateSlots: machineLateSlots, slotOpen: machineSlotOpen, slotMiss: machineSlotMiss, slotLate: machineSlotLate, balComplete: machineBalComplete, planNearDone: machinePlanNearDone });
+                                    machineBuffer.push({ html: machineRowHtml, eff: mEff, oee: mOee, name: machine, entryTypes: machineEntryTypes, hasEntries: machineGood > 0 || machineEst > 0, missingSlots: machineMissingSlots, openSlots: machineOpenSlots, lateSlots: machineLateSlots, slotOpen: machineSlotOpen, slotMiss: machineSlotMiss, slotLate: machineSlotLate, closedBy: machineClosedBy, balComplete: machineBalComplete, planNearDone: machinePlanNearDone });
                                 }
                             }); // End machines loop
 
@@ -3474,6 +3462,16 @@
                                 if (el) el.textContent = typeof val === 'number' ? val.toFixed(fixed) : val;
                             };
                             updateEl('overall', t.good + t.rej);
+                            {
+                                // Same waterfall as Plant total: target → − changeover → estimated → −5% → achievable
+                                const lTarget = t.plannedKg || 0;
+                                const lEst = Math.max(0, lTarget - (t.changeoverKg || 0));
+                                const lAch = lEst * 0.95;
+                                updateEl('plantarget', lTarget);
+                                updateEl('planest', lEst);
+                                updateEl('planach', lAch);
+                                updateEl('dtloss', Math.max(0, lAch - (t.good + t.rej)));
+                            }
                             updateEl('tonnage', t.good);
                             updateEl('pred', t.predKg || 0);
                             updateEl('rej', t.rej);
@@ -3640,27 +3638,30 @@
                             } else {
                                 // No View Filter → grouped machine-wise (one table per line).
                                 const lineStats = [];
-                                const dprOpenLines = dprGetOpenLines(); // lines start collapsed; the set holds the ones the user opened
+                                const dprClosedLines = dprGetClosedLines(); // lines start open; the set holds the ones the user closed
                                 // Scorecard numbers for one line, from the per-machine counters above.
                                 const dprLineStats = (lineName, rowsByMachine) => {
-                                    let open = 0, missing = 0, late = 0, machinesN = 0;
+                                    let open = 0, missing = 0, late = 0, machinesN = 0, closedN = 0;
+                                    const closedBy = new Set();
                                     const hOpen = new Array(12).fill(0), hMiss = new Array(12).fill(0), hLate = new Array(12).fill(0);
                                     const machineList = [];
                                     Object.entries(rowsByMachine).forEach(([machine, passRows]) => {
                                         machinesN++;
-                                        let mMiss = 0, mLate = 0;
+                                        let mMiss = 0, mLate = 0, mClosed = '';
                                         const mMissHours = new Set();
                                         passRows.forEach(r => {
                                             open += r.openSlots || 0; missing += r.missingSlots || 0; late += r.lateSlots || 0;
-                                            mMiss += r.missingSlots || 0; mLate += r.lateSlots || 0;
+                                            mMiss += r.missingSlots || 0; mLate += r.lateSlots || 0; if (r.closedBy) mClosed = r.closedBy;
                                             (r.slotOpen || []).forEach((v, i) => { hOpen[i] += v; hMiss[i] += (r.slotMiss || [])[i] || 0; hLate[i] += (r.slotLate || [])[i] || 0; if ((r.slotMiss || [])[i]) mMissHours.add(i); });
                                         });
-                                        machineList.push({ machine, lineName, missing: mMiss, late: mLate, missHours: Array.from(mMissHours).sort((a, b) => a - b).map(i => window.DPR_HOUR_SLOTS[i]) });
+                                        if (mClosed) closedN++, closedBy.add(mClosed);
+                                        machineList.push({ machine, lineName, missing: mMiss, late: mLate, closed: mClosed, missHours: Array.from(mMissHours).sort((a, b) => a - b).map(i => window.DPR_HOUR_SLOTS[i]) });
                                     });
                                     const t = (window.lineTheTonnages || {})[lineName] || {};
                                     const eff = (t.netEst || 0) > 0 ? (t.effGood / t.netEst * 100) : null;
                                     const filledPct = open > 0 ? Math.max(0, Math.round((open - missing) / open * 100)) : null;
                                     return { lineName, machinesN, open, missing, late, eff, filledPct, sup: dprLineSupervisor[lineName] || '',
+                                        plantOff: machinesN > 0 && closedN === machinesN, offLabel: Array.from(closedBy).join(', '), closedN,
                                         slots: window.DPR_HOUR_SLOTS, hOpen, hMiss, hLate, machineList, goodKg: t.good || 0, rejKg: t.rej || 0, targetKg: t.plannedKg || 0, dtHrs: t.dt || 0 };
                                 };
                                 mmOrder.sort((a, b) => String(a).localeCompare(String(b), undefined, { numeric: true }));
@@ -3682,7 +3683,7 @@
                                     html += `</table></div></div>`;
                                     const lineStat = dprLineStats(lineName, mmRows[lineName]);
                                     lineStats.push(lineStat);
-                                    masterHtml += `<div class="dpr-line-card${dprOpenLines.has(lineName) ? '' : ' is-collapsed'}" data-line="${dprEscHtml(lineName)}"><button type="button" class="dpr-line-headbar"><i class="bi bi-chevron-down"></i><b>${dprEscHtml(lineName)}</b><span class="dpr-lh-pct dpr-tone-${dprTone(lineStat.filledPct)}">${lineStat.filledPct == null ? '—' : lineStat.filledPct + '%'}</span><span>${lineStat.missing} missing · ${lineStat.late} late${lineStat.sup ? ' · Sup. ' + dprEscHtml(lineStat.sup) : ''}</span>${dprHourStrip(lineStat.hOpen, lineStat.hMiss, lineStat.hLate, false)}</button>${html}</div>`;
+                                    masterHtml += `<div class="dpr-line-card${dprClosedLines.has(lineName) ? ' is-collapsed' : ''}" data-line="${dprEscHtml(lineName)}"><button type="button" class="dpr-line-headbar"><i class="bi bi-chevron-down"></i><b>${dprEscHtml(lineName)}</b>${lineStat.plantOff ? `<span class="dpr-off-chip"><i class="bi bi-lock-fill"></i> Plant OFF</span>` : `<span class="dpr-lh-pct dpr-tone-${dprTone(lineStat.filledPct)}">${lineStat.filledPct == null ? '—' : lineStat.filledPct + '%'}</span>`}<span>${lineStat.missing} missing · ${lineStat.late} late${lineStat.sup ? ' · Sup. ' + dprEscHtml(lineStat.sup) : ''}</span>${dprHourStrip(lineStat.hOpen, lineStat.hMiss, lineStat.hLate, false, lineStat.plantOff)}</button>${html}</div>`;
                                 });
                                 const dprDeck = dprRenderLineDeck(lineStats);
                                 dprDeckHtml = dprDeck.deck;
@@ -4100,22 +4101,23 @@
                 };
 
                 // Line scorecards (DPR compliance v2): worst line first, click to open its hourly grid.
-                const DPR_OPEN_KEY = 'dpr_open_lines';
+                const DPR_CLOSED_KEY = 'dpr_closed_lines';
                 window.DPR_HOUR_SLOTS = ['07-08', '08-09', '09-10', '10-11', '11-12', '12-01', '01-02', '02-03', '03-04', '04-05', '05-06', '06-07'];
-                window.dprGetOpenLines = function () {
-                    try { return new Set(JSON.parse(localStorage.getItem(DPR_OPEN_KEY) || '[]')); } catch (_) { return new Set(); }
+                window.dprGetClosedLines = function () {
+                    try { return new Set(JSON.parse(localStorage.getItem(DPR_CLOSED_KEY) || '[]')); } catch (_) { return new Set(); }
                 };
-                const dprSaveOpen = (set) => { try { localStorage.setItem(DPR_OPEN_KEY, JSON.stringify(Array.from(set))); } catch (_) { /* private mode */ } };
+                const dprSaveClosed = (set) => { try { localStorage.setItem(DPR_CLOSED_KEY, JSON.stringify(Array.from(set))); } catch (_) { /* private mode */ } };
                 const DPR_SORT_KEY = 'dpr_line_sort';
                 window.dprGetSort = () => { try { return localStorage.getItem(DPR_SORT_KEY) || 'worst'; } catch (_) { return 'worst'; } };
                 window.dprTone = (p) => p == null ? 'none' : p >= 95 ? 'good' : p >= 80 ? 'warn' : 'bad';
                 const dprEsc = (v) => String(v == null ? '' : v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
                 // One cell per hour, coloured by how many machines filled it; a dot marks late entries.
-                window.dprHourStrip = function (open, miss, late, big) {
+                window.dprHourStrip = function (open, miss, late, big, off) {
                     const slotsList = window.DPR_HOUR_SLOTS;
                     return `<span class="dpr-hs${big ? ' dpr-hs-big' : ''}">${slotsList.map((sl, i) => {
                         const o = (open || [])[i] || 0, m = (miss || [])[i] || 0, l = (late || [])[i] || 0;
                         const p = o ? Math.round((o - m) / o * 100) : null;
+                        if (off) return `<i class="h-off" title="${sl}: plant off">${big ? `<b>${sl}</b><em>OFF</em>` : ''}</i>`;
                         const cls = p == null ? 'h-fut' : p >= 95 ? 'h-good' : p >= 80 ? 'h-warn' : 'h-bad';
                         return `<i class="${cls}${l ? ' h-late' : ''}" title="${sl}: ${p == null ? 'not due yet' : `${p}% filled · ${m} missing · ${l} late`}">${big ? `<b>${sl}</b><em>${p == null ? '·' : p + '%'}</em>` : ''}</i>`;
                     }).join('')}</span>`;
@@ -4157,7 +4159,7 @@
                     const esc = dprEsc, strip = window.dprHourStrip, tone = window.dprTone;
                     const kg = (v) => Math.round(v || 0).toLocaleString('en-IN');
                     const sortMode = dprGetSort();
-                    const byWorst = (a, b) => (a.filledPct == null ? 101 : a.filledPct) - (b.filledPct == null ? 101 : b.filledPct) || b.missing - a.missing;
+                    const byWorst = (a, b) => (a.plantOff - b.plantOff) || (a.filledPct == null ? 101 : a.filledPct) - (b.filledPct == null ? 101 : b.filledPct) || b.missing - a.missing;
                     const sorted = stats.slice().sort(sortMode === 'name' ? (a, b) => String(a.lineName).localeCompare(String(b.lineName), undefined, { numeric: true })
                         : sortMode === 'eff' ? (a, b) => (a.eff == null ? 999 : a.eff) - (b.eff == null ? 999 : b.eff) || byWorst(a, b)
                         : sortMode === 'late' ? (a, b) => b.late - a.late || byWorst(a, b) : byWorst);
@@ -4182,6 +4184,7 @@
                         worstHour ? `<li><i class="bi bi-clock-history"></i><span>Most missed hour is <b>${worstHour.sl}</b>: ${Math.round(worstHour.r * 100)}% of machines have no entry.</span></li>` : '<li><i class="bi bi-check2-circle"></i><span>No missed hours so far.</span></li>',
                         lateLine && lateLine.late ? `<li><i class="bi bi-hourglass-split"></i><span><b>${esc(lateLine.lineName)}</b> has the most late entries (${lateLine.late}).</span></li>` : '',
                         bestLine ? `<li><i class="bi bi-trophy"></i><span>Best line: <b>${esc(bestLine.lineName)}</b> at ${bestLine.filledPct}% filled.</span></li>` : '',
+                        stats.some(st => st.plantOff) ? `<li><i class="bi bi-lock-fill"></i><span>Plant OFF: <b>${esc(stats.filter(st => st.plantOff).map(st => st.lineName).join(', '))}</b> (not counted).</span></li>` : '',
                         `<li><i class="bi bi-cpu"></i><span><b>${clean}</b> of ${allMachines.length} machines have every hour filled on time.</span></li>`
                     ].join('');
                     const machinesHtml = worstMachines.length ? worstMachines.map(m => `
@@ -4213,12 +4216,12 @@
                         const rejPct = st.goodKg + st.rejKg > 0 ? st.rejKg / (st.goodKg + st.rejKg) * 100 : null;
                         const vsTarget = st.targetKg > 0 ? Math.round((st.goodKg + st.rejKg) / st.targetKg * 100) : null;
                         return `
-                        <button type="button" class="dpr-sc dpr-tone-${tone(st.filledPct)}" data-line="${esc(st.lineName)}" title="Open ${esc(st.lineName)}">
+                        <button type="button" class="dpr-sc dpr-tone-${st.plantOff ? 'none' : tone(st.filledPct)}${st.plantOff ? ' is-off' : ''}" data-line="${esc(st.lineName)}" title="Open ${esc(st.lineName)}">
                           <span class="dpr-sc-top">
-                            <span class="dpr-sc-ring">${dprRing(st.filledPct, 52)}<b>${st.filledPct == null ? '—' : st.filledPct}</b></span>
-                            <span class="dpr-sc-id"><b>${esc(st.lineName)}</b><span>${st.machinesN} machines${st.sup ? ' · ' + esc(st.sup) : ''}</span></span>
+                            ${st.plantOff ? `<span class="dpr-sc-off"><i class="bi bi-lock-fill"></i><b>OFF</b></span>` : `<span class="dpr-sc-ring">${dprRing(st.filledPct, 52)}<b>${st.filledPct == null ? '—' : st.filledPct}</b></span>`}
+                            <span class="dpr-sc-id"><b>${esc(st.lineName)}</b><span>${st.plantOff ? `Plant OFF · ${esc(st.offLabel)}` : `${st.machinesN} machines${st.closedN ? ` · ${st.closedN} off` : ''}${st.sup ? ' · ' + esc(st.sup) : ''}`}</span></span>
                           </span>
-                          ${strip(st.hOpen, st.hMiss, st.hLate, false)}
+                          ${strip(st.hOpen, st.hMiss, st.hLate, false, st.plantOff)}
                           <span class="dpr-sc-stats">
                             <span><small>Missing</small><b class="${st.missing ? 'is-bad' : ''}">${st.missing}</b></span>
                             <span><small>Late</small><b class="${st.late ? 'is-warn' : ''}">${st.late}</b></span>
@@ -4240,7 +4243,7 @@
                         const card = Array.from(document.querySelectorAll('#summary-container .dpr-line-card[data-line]')).find(c => c.dataset.line === wm.dataset.line);
                         if (!card) return;
                         dprSetLineOpen(card, true);
-                        const open = window.dprGetOpenLines(); open.add(wm.dataset.line); dprSaveOpen(open);
+                        const closedSet = window.dprGetClosedLines(); closedSet.delete(wm.dataset.line); dprSaveClosed(closedSet);
                         const row = Array.from(card.querySelectorAll('tbody.mm-machine[data-machine]')).find(t => t.dataset.machine === wm.dataset.machine) || card;
                         row.scrollIntoView({ behavior: 'smooth', block: 'center' });
                         row.classList.add('dpr-flash'); setTimeout(() => row.classList.remove('dpr-flash'), 1800);
@@ -4250,21 +4253,21 @@
                     const all = ev.target.closest && ev.target.closest('[data-dpr-lines]');
                     const head = ev.target.closest && ev.target.closest('.dpr-line-card .dpr-line-headbar');
                     if (!sc && !all && !head) return;
-                    const set = window.dprGetOpenLines();
+                    const set = window.dprGetClosedLines();
                     const cards = Array.from(document.querySelectorAll('#summary-container .dpr-line-card[data-line]'));
                     if (all) {
                         const open = all.dataset.dprLines === 'expand';
-                        cards.forEach(c => { dprSetLineOpen(c, open); if (open) set.add(c.dataset.line); else set.delete(c.dataset.line); });
+                        cards.forEach(c => { dprSetLineOpen(c, open); if (open) set.delete(c.dataset.line); else set.add(c.dataset.line); });
                     } else {
                         const name = sc ? sc.dataset.line : head.closest('.dpr-line-card').dataset.line;
                         const card = cards.find(c => c.dataset.line === name);
                         if (!card) return;
                         const open = sc ? true : card.classList.contains('is-collapsed');
                         dprSetLineOpen(card, open);
-                        if (open) set.add(name); else set.delete(name);
+                        if (open) set.delete(name); else set.add(name);
                         if (sc) card.scrollIntoView({ behavior: 'smooth', block: 'start' });
                     }
-                    dprSaveOpen(set);
+                    dprSaveClosed(set);
                 });
 
                 // Show/hide machine blocks by the top Search box (machine / OR / client).

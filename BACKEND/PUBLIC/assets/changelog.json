@@ -11,10 +11,10 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.172.1",
+  "latest": "1.174.0",
   "versions": [
     {
-      "version": "1.173.0",
+      "version": "1.174.0",
       "date": "2026-11-03",
       "title": "NPD: Factory column, Status back, code before name",
       "modules": [
@@ -24,6 +24,21 @@
             { "type": "feat", "text": "New Factory column after Product Name - H.O picks the factory from the factory list." },
             { "type": "improvement", "text": "Status column and status filter are back; Product Code now comes before Product Name." },
             { "type": "improvement", "text": "Actual dispatch date is now filled by W/H & Dispatch." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.173.0",
+      "date": "2026-11-03",
+      "title": "DPR compliance: line tiles and plant OFF",
+      "modules": [
+        {
+          "app": "dpr",
+          "changes": [
+            { "type": "feature", "text": "Each line's totals are tiles like Plant total: planned target, estimated, achievable, gross, good, rejection, downtime loss, predicted, then OEE, EFF, downtime, auto DT and MC / CC / JC." },
+            { "type": "fix", "text": "A plant or line closed in Settings now shows Plant OFF on its line card, header and hour strip; its hours are no longer counted as missing. Closures show at once and a closure saved without a factory applies to every factory." },
+            { "type": "improvement", "text": "Lines open by default (any you close stay closed); the score boxes no longer spill numbers outside." }
           ]
         }
       ]

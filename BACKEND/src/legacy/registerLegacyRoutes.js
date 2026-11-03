@@ -1773,6 +1773,7 @@ app.post('/api/admin/close-plant', async (req, res) => {
         DO UPDATE SET remarks = EXCLUDED.remarks, closed_by = EXCLUDED.closed_by, created_at = NOW()
     `;
     await q(sql, [dpr_date, plant, shift, remarks, closed_by, factoryId]);
+    ttlCacheClear('dprSummaryMatrix'); // the Compliance Summary must show the closure at once
     
     syncService.triggerSync();
     res.json({ ok: true, message: 'Plant status updated' });
@@ -1785,6 +1786,7 @@ app.post('/api/admin/close-plant', async (req, res) => {
 app.delete('/api/admin/close-plant/:id', async (req, res) => {
   try {
     await q('DELETE FROM closed_plants WHERE id = $1', [req.params.id]);
+    ttlCacheClear('dprSummaryMatrix');
     syncService.triggerSync();
     res.json({ ok: true, message: 'Plant re-opened' });
   } catch (e) {
@@ -26041,7 +26043,7 @@ app.get('/api/dpr/summary-matrix', async (req, res) => {
     let sqlClosed = `SELECT id, dpr_date::text as dpr_date_str, plant, shift, remarks FROM closed_plants WHERE dpr_date BETWEEN $1 AND $2`;
     const cParams = [fDate, tDate];
     if (factoryId) {
-      sqlClosed += ` AND factory_id = $3`;
+      sqlClosed += ` AND (factory_id = $3 OR factory_id IS NULL)`; // a closure saved without a factory applies to all
       cParams.push(factoryId);
     }
     const closedPlants = await q(sqlClosed, cParams);

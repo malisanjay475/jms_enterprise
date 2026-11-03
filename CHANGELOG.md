@@ -14,7 +14,7 @@ part of your PR. On release, the `[Unreleased]` items move under the new version
 ## [Unreleased]
 
 ### Added
-- NPD Tracker (v1.173.0): Factory column after Product Name (H.O / admin picks from the factory master, stored as `npd_products.factory`); Status column and status filter tiles restored; Product Code column moved before Product Name; Actual dispatch date now edited by W/H & Dispatch only (Planning removed). Excel export carries Factory.
+- NPD Tracker (v1.174.0): Factory column after Product Name (H.O / admin picks from the factory master, stored as `npd_products.factory`); Status column and status filter tiles restored; Product Code column moved before Product Name; Actual dispatch date now edited by W/H & Dispatch only (Planning removed). Excel export carries Factory.
 
 ### Changed
 - NPD Tracker (v1.165.1): Main Product / Child Mould column (main row highlighted, child moulds under one merged cell); headers Product Name and Product Code / Mould Code.

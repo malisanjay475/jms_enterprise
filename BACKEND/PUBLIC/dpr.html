@@ -291,6 +291,28 @@
     @media (max-width:760px) {
       .dpr-ov { grid-template-columns:minmax(0,1fr); grid-template-areas:"score" "hours" "notes" "chase"; }
     }
+    /* DPR compliance v3.4: score boxes fit, line totals as tiles, plant OFF */
+    .dpr-score dl > div { flex-direction:column; align-items:flex-start; justify-content:center; gap:1px; min-width:0; padding:5px 8px; }
+    .dpr-score dt { white-space:nowrap; }
+    .dpr-score dd { font-size:.95rem; line-height:1.15; max-width:100%; overflow:hidden; text-overflow:ellipsis; }
+    .dpr-score dd small { font-size:.66rem; }
+    .dpr-lt { width:100%; }
+    .dpr-lt-name { font-weight:800; font-size:1rem; color:var(--dpr-ink); margin-bottom:8px; }
+    .dpr-lt-row { display:grid; grid-template-columns:repeat(8,minmax(0,1fr)); gap:6px; }
+    .dpr-lt-row2 { grid-template-columns:repeat(5,minmax(0,1fr)); margin-top:6px; }
+    .dpr-lt .dpr-pt-tile { padding:6px 9px; background:#fff; }
+    .dpr-lt .dpr-pt-tile.t-good { background:#f0fdf4; } .dpr-lt .dpr-pt-tile.t-loss { background:#fef2f2; }
+    .dpr-lt .dpr-pt-value { font-size:.95rem; }
+    .dpr-lt-row2 .dpr-pt-tile { border:1px solid var(--dpr-line); }
+    .t-pred { --bar:#0891b2; }
+    .dpr-line-card[data-line] .dpr-lt-name { display:none; } /* the header bar above already names the line */
+    .dpr-off-chip { display:inline-flex; align-items:center; gap:5px; font-weight:800; font-size:.76rem; color:#fff; background:#64748b; border-radius:999px; padding:2px 10px; }
+    .dpr-hs .h-off { background:repeating-linear-gradient(135deg,#e2e8f0 0 4px,#f1f5f9 4px 8px); color:#475569; }
+    .dpr-sc.is-off { background:#f8fafc; }
+    .dpr-sc-off { width:52px; height:52px; flex:0 0 52px; border-radius:50%; background:#e2e8f0; color:#475569; display:flex; flex-direction:column; align-items:center; justify-content:center; font-size:.7rem; }
+    .dpr-sc-off i { font-size:.95rem; }
+    @media (max-width:1280px) { .dpr-lt-row { grid-template-columns:repeat(4,minmax(0,1fr)); } }
+    @media (max-width:760px) { .dpr-lt-row, .dpr-lt-row2 { grid-template-columns:repeat(2,minmax(0,1fr)); } }
     </style>
 </head>
 
@@ -327,7 +349,7 @@
 
     <script src="/assets/app.min.js?v=1583"></script>
   <script src="/assets/machine-status-meta.js?v=1"></script>
-  <script src="/assets/dpr-script-1.js?v=release121"></script>
+  <script src="/assets/dpr-script-1.js?v=release122"></script>
 
     <!-- ADMIN EDIT MODAL -->
     <div id="dprEditModal" class="modal"
