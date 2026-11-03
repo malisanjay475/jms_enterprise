@@ -3572,7 +3572,7 @@
                         // e.g. M-1 04 Day, M-1 04 Night, M-1 05 Day, M-1 05 Night, then M-2, …
                         if (mmMode && mmOrder.length) {
                             const dprDeckAt = masterHtml.length; // line scorecards go above the column header
-                            let dprDeckHtml = '';
+                            let dprDeckHtml = '', dprOverviewHtml = '';
                             masterHtml += mmStickyHeader;
                             const extractIdx = (str) => { const m = String(str).match(/-(\d+)$/); return m ? parseInt(m[1]) : 999999; };
                             // View Filter: a machine passes if ANY of its date/shift passes matches.
@@ -3677,11 +3677,14 @@
                                     html += `</table></div></div>`;
                                     const lineStat = dprLineStats(lineName, mmRows[lineName]);
                                     lineStats.push(lineStat);
-                                    masterHtml += `<div class="dpr-line-card${dprOpenLines.has(lineName) ? '' : ' is-collapsed'}" data-line="${dprEscHtml(lineName)}"><button type="button" class="dpr-line-headbar"><i class="bi bi-chevron-down"></i><b>${dprEscHtml(lineName)}</b><span>${lineStat.filledPct == null ? '—' : lineStat.filledPct + '% filled'} · ${lineStat.missing} missing · ${lineStat.late} late</span></button>${html}</div>`;
+                                    masterHtml += `<div class="dpr-line-card${dprOpenLines.has(lineName) ? '' : ' is-collapsed'}" data-line="${dprEscHtml(lineName)}"><button type="button" class="dpr-line-headbar"><i class="bi bi-chevron-down"></i><b>${dprEscHtml(lineName)}</b><span class="dpr-lh-pct dpr-tone-${dprTone(lineStat.filledPct)}">${lineStat.filledPct == null ? '—' : lineStat.filledPct + '%'}</span><span>${lineStat.missing} missing · ${lineStat.late} late${lineStat.sup ? ' · Sup. ' + dprEscHtml(lineStat.sup) : ''}</span>${dprHourStrip(lineStat.hOpen, lineStat.hMiss, lineStat.hLate, false)}</button>${html}</div>`;
                                 });
-                                dprDeckHtml = dprRenderLineDeck(lineStats);
+                                const dprDeck = dprRenderLineDeck(lineStats);
+                                dprDeckHtml = dprDeck.deck;
+                                dprOverviewHtml = dprDeck.overview;
                             }
                             if (dprDeckHtml) masterHtml = masterHtml.slice(0, dprDeckAt) + dprDeckHtml + masterHtml.slice(dprDeckAt);
+                            if (dprOverviewHtml) masterHtml = dprOverviewHtml + masterHtml; // Plant total is the first block
                         }
 
                         // ---- ENTRIES COUNT: Standalone calculation from raw API data ----
@@ -4082,6 +4085,7 @@
                                 if (elEntBar) { elEntBar.style.width = entPct + '%'; elEntBar.style.background = entColor; }
                                 if (elEntPct) { elEntPct.textContent = entPct + '%'; elEntPct.style.color = entColor; }
                             }
+                            if (window.dprPaintPlant) window.dprPaintPlant();
                         }
 
                     }).catch(err => {
@@ -4097,65 +4101,114 @@
                     try { return new Set(JSON.parse(localStorage.getItem(DPR_OPEN_KEY) || '[]')); } catch (_) { return new Set(); }
                 };
                 const dprSaveOpen = (set) => { try { localStorage.setItem(DPR_OPEN_KEY, JSON.stringify(Array.from(set))); } catch (_) { /* private mode */ } };
-                window.dprRenderLineDeck = function (stats) {
-                    if (!stats || !stats.length) return '';
-                    const esc = (v) => String(v == null ? '' : v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-                    const kg = (v) => Math.round(v || 0).toLocaleString('en-IN');
-                    const sorted = stats.slice().sort((a, b) => (a.filledPct == null ? 101 : a.filledPct) - (b.filledPct == null ? 101 : b.filledPct) || b.missing - a.missing);
-                    const tone = (p) => p == null ? 'is-none' : p >= 95 ? 'is-good' : p >= 80 ? 'is-warn' : 'is-bad';
-                    const slotsList = stats[0].slots || [];
-                    // One cell per hour, coloured by how many machines filled it; a dot marks late entries.
-                    const strip = (open, miss, late, big) => `<span class="dpr-hs${big ? ' dpr-hs-big' : ''}">${slotsList.map((sl, i) => {
-                        const o = open[i] || 0, m = miss[i] || 0, l = late[i] || 0;
+                window.dprTone = (p) => p == null ? 'none' : p >= 95 ? 'good' : p >= 80 ? 'warn' : 'bad';
+                const dprEsc = (v) => String(v == null ? '' : v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+                // One cell per hour, coloured by how many machines filled it; a dot marks late entries.
+                window.dprHourStrip = function (open, miss, late, big) {
+                    const slotsList = window.DPR_HOUR_SLOTS;
+                    return `<span class="dpr-hs${big ? ' dpr-hs-big' : ''}">${slotsList.map((sl, i) => {
+                        const o = (open || [])[i] || 0, m = (miss || [])[i] || 0, l = (late || [])[i] || 0;
                         const p = o ? Math.round((o - m) / o * 100) : null;
                         const cls = p == null ? 'h-fut' : p >= 95 ? 'h-good' : p >= 80 ? 'h-warn' : 'h-bad';
-                        return `<i class="${cls}${l ? ' h-late' : ''}" title="${sl}: ${p == null ? 'not due yet' : `${p}% filled · ${m} missing · ${l} late`}">${big ? `<b>${sl}</b><em>${p == null ? '' : p + '%'}</em>` : ''}</i>`;
+                        return `<i class="${cls}${l ? ' h-late' : ''}" title="${sl}: ${p == null ? 'not due yet' : `${p}% filled · ${m} missing · ${l} late`}">${big ? `<b>${sl}</b><em>${p == null ? '·' : p + '%'}</em>` : ''}</i>`;
                     }).join('')}</span>`;
+                };
+                // Plant total: each production tile gets a bar against the planned target.
+                window.dprPaintPlant = function () {
+                    const num = (id) => parseFloat(String((document.getElementById(id) || {}).textContent || '').replace(/[^0-9.\-]/g, '')) || 0;
+                    const target = num('grand-total-plantarget');
+                    [['grand-total-plantarget', 't-target'], ['grand-total-planest', 't-est'], ['grand-total-planach', 't-ach'], ['grand-total-overall', 't-gross'],
+                     ['grand-total-tonnage', 't-good'], ['grand-total-rej', 't-rej'], ['grand-total-dtloss', 't-loss']].forEach(([id, cls]) => {
+                        const tile = document.querySelector(`#sticky-plant-total .${cls}`);
+                        if (!tile) return;
+                        let wf = tile.querySelector('.dpr-wf');
+                        if (!wf) { tile.insertAdjacentHTML('beforeend', '<span class="dpr-wf"><i></i></span><span class="dpr-wf-pct"></span>'); wf = tile.querySelector('.dpr-wf'); }
+                        const pct = target > 0 ? num(id) / target * 100 : 0;
+                        wf.firstChild.style.width = Math.max(0, Math.min(100, pct)).toFixed(1) + '%';
+                        tile.querySelector('.dpr-wf-pct').textContent = target > 0 && cls !== 't-target' ? `${pct.toFixed(pct < 10 ? 1 : 0)}% of target` : (cls === 't-target' ? 'the plan' : '');
+                    });
+                };
+                const dprRing = (pct, size) => {
+                    const r = size / 2 - 7, c = 2 * Math.PI * r, p = pct == null ? 0 : Math.max(0, Math.min(100, pct));
+                    return `<svg class="dpr-ring dpr-tone-${window.dprTone(pct)}" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" aria-hidden="true">
+                        <circle cx="${size / 2}" cy="${size / 2}" r="${r}" class="dpr-ring-bg"/>
+                        <circle cx="${size / 2}" cy="${size / 2}" r="${r}" class="dpr-ring-fg" stroke-dasharray="${(c * p / 100).toFixed(1)} ${c.toFixed(1)}" transform="rotate(-90 ${size / 2} ${size / 2})"/>
+                      </svg>`;
+                };
+                window.dprRenderLineDeck = function (stats) {
+                    if (!stats || !stats.length) return { overview: '', deck: '' };
+                    const esc = dprEsc, strip = window.dprHourStrip, tone = window.dprTone;
+                    const kg = (v) => Math.round(v || 0).toLocaleString('en-IN');
+                    const sorted = stats.slice().sort((a, b) => (a.filledPct == null ? 101 : a.filledPct) - (b.filledPct == null ? 101 : b.filledPct) || b.missing - a.missing);
+                    const slotsList = window.DPR_HOUR_SLOTS;
 
-                    // Whole-plant hour strip and the "what stands out" notes
                     const P = { open: slotsList.map(() => 0), miss: slotsList.map(() => 0), late: slotsList.map(() => 0) };
                     stats.forEach(st => slotsList.forEach((_, i) => { P.open[i] += st.hOpen[i]; P.miss[i] += st.hMiss[i]; P.late[i] += st.hLate[i]; }));
                     const tot = stats.reduce((a, st) => ({ open: a.open + st.open, miss: a.miss + st.missing, late: a.late + st.late }), { open: 0, miss: 0, late: 0 });
                     const filled = tot.open - tot.miss;
+                    const filledPct = tot.open > 0 ? Math.max(0, Math.round(filled / tot.open * 100)) : null;
                     const onTime = filled > 0 ? Math.max(0, Math.round((filled - tot.late) / filled * 100)) : null;
                     let worstHour = null;
                     slotsList.forEach((sl, i) => { if (P.open[i] && P.miss[i] && (!worstHour || P.miss[i] / P.open[i] > worstHour.r)) worstHour = { sl, r: P.miss[i] / P.open[i], m: P.miss[i] }; });
                     const lateLine = stats.slice().sort((a, b) => b.late - a.late)[0];
+                    const bestLine = stats.filter(st => st.filledPct != null).sort((a, b) => b.filledPct - a.filledPct || a.late - b.late)[0];
                     const allMachines = [].concat(...stats.map(st => st.machineList));
                     const worstMachines = allMachines.filter(m => m.missing > 0).sort((a, b) => b.missing - a.missing || b.late - a.late).slice(0, 8);
                     const clean = allMachines.filter(m => m.missing === 0 && m.late === 0).length;
-                    const insights = [
-                        onTime != null ? `<li><b>${onTime}%</b> of filled hours were entered on time (${tot.late} late, after 45 min).</li>` : '',
-                        worstHour ? `<li>Most missed hour: <b>${worstHour.sl}</b>, ${Math.round(worstHour.r * 100)}% of machines had no entry (${worstHour.m}).</li>` : '<li>No missed hours so far.</li>',
-                        lateLine && lateLine.late ? `<li>Most late entries: <b>${esc(lateLine.lineName)}</b> (${lateLine.late}).</li>` : '',
-                        `<li><b>${clean}</b> of ${allMachines.length} machines have every hour filled on time.</li>`
+                    const verdict = filledPct == null ? 'No hours due yet' : filledPct >= 95 ? 'On track' : filledPct >= 80 ? 'Needs a push' : 'Falling behind';
+
+                    const notes = [
+                        worstHour ? `<li><i class="bi bi-clock-history"></i><span>Most missed hour is <b>${worstHour.sl}</b>: ${Math.round(worstHour.r * 100)}% of machines have no entry.</span></li>` : '<li><i class="bi bi-check2-circle"></i><span>No missed hours so far.</span></li>',
+                        lateLine && lateLine.late ? `<li><i class="bi bi-hourglass-split"></i><span><b>${esc(lateLine.lineName)}</b> has the most late entries (${lateLine.late}).</span></li>` : '',
+                        bestLine ? `<li><i class="bi bi-trophy"></i><span>Best line: <b>${esc(bestLine.lineName)}</b> at ${bestLine.filledPct}% filled.</span></li>` : '',
+                        `<li><i class="bi bi-cpu"></i><span><b>${clean}</b> of ${allMachines.length} machines have every hour filled on time.</span></li>`
                     ].join('');
                     const machinesHtml = worstMachines.length ? worstMachines.map(m => `
                         <button type="button" class="dpr-wm" data-line="${esc(m.lineName)}" data-machine="${esc(m.machine)}" title="Open ${esc(m.machine)}">
-                          <span class="dpr-wm-name">${esc(m.machine)}</span><span class="dpr-wm-miss">${m.missing} missing</span>${m.late ? `<span class="dpr-wm-late">${m.late} late</span>` : ''}
-                        </button>`).join('') : '<div class="dpr-ins-empty">Every machine is up to date.</div>';
+                          <span class="dpr-wm-name">${esc(m.machine)}</span><span class="dpr-wm-miss">${m.missing} missing</span>${m.late ? `<span class="dpr-wm-late">${m.late} late</span>` : ''}<i class="bi bi-arrow-right-short"></i>
+                        </button>`).join('') : '<div class="dpr-ins-empty"><i class="bi bi-check2-circle"></i> Every machine is up to date.</div>';
+
                     const overview = `
-                      <div class="dpr-ins">
-                        <div class="dpr-ins-card dpr-ins-hours"><div class="dpr-ins-title"><strong>Entries by hour</strong><span>whole plant · % of machines filled</span></div>${strip(P.open, P.miss, P.late, true)}
-                          <div class="dpr-hs-legend"><span><i class="h-good"></i>95%+</span><span><i class="h-warn"></i>80–94%</span><span><i class="h-bad"></i>below 80%</span><span><i class="h-fut"></i>not due</span><span><i class="h-good h-late"></i>has late</span></div></div>
-                        <div class="dpr-ins-card"><div class="dpr-ins-title"><strong>What stands out</strong></div><ul class="dpr-ins-list">${insights}</ul></div>
-                        <div class="dpr-ins-card"><div class="dpr-ins-title"><strong>Machines to chase</strong><span>most missing hours</span></div><div class="dpr-wm-list">${machinesHtml}</div></div>
-                      </div>`;
+                      <section class="dpr-ov">
+                        <div class="dpr-ov-card dpr-score dpr-tone-${tone(filledPct)}">
+                          <div class="dpr-score-ring">${dprRing(filledPct, 132)}<div class="dpr-score-num"><b>${filledPct == null ? '—' : filledPct + '%'}</b><span>filled</span></div></div>
+                          <div class="dpr-score-side">
+                            <span class="dpr-score-verdict">${verdict}</span>
+                            <dl>
+                              <div><dt>On time</dt><dd>${onTime == null ? '—' : onTime + '%'}</dd></div>
+                              <div><dt>Filled</dt><dd>${filled} <small>/ ${tot.open}</small></dd></div>
+                              <div class="is-miss"><dt>Missing</dt><dd>${tot.miss}</dd></div>
+                              <div class="is-late"><dt>Late</dt><dd>${tot.late}</dd></div>
+                            </dl>
+                          </div>
+                        </div>
+                        <div class="dpr-ov-card dpr-ov-hours"><div class="dpr-ins-title"><strong>Entries by hour</strong><span>whole plant · % of machines that filled the hour</span></div>${strip(P.open, P.miss, P.late, true)}
+                          <div class="dpr-hs-legend"><span><i class="h-good"></i>95%+</span><span><i class="h-warn"></i>80–94%</span><span><i class="h-bad"></i>below 80%</span><span><i class="h-fut"></i>not due</span><span><i class="h-good h-late"></i>late entries</span></div></div>
+                        <div class="dpr-ov-card dpr-ov-notes"><div class="dpr-ins-title"><strong>What stands out</strong></div><ul class="dpr-ins-list">${notes}</ul></div>
+                        <div class="dpr-ov-card dpr-ov-chase"><div class="dpr-ins-title"><strong>Machines to chase</strong><span>most missing hours</span></div><div class="dpr-wm-list">${machinesHtml}</div></div>
+                      </section>`;
 
                     const cards = sorted.map(st => {
                         const rejPct = st.goodKg + st.rejKg > 0 ? st.rejKg / (st.goodKg + st.rejKg) * 100 : null;
                         const vsTarget = st.targetKg > 0 ? Math.round((st.goodKg + st.rejKg) / st.targetKg * 100) : null;
                         return `
-                        <button type="button" class="dpr-sc ${tone(st.filledPct)}" data-line="${esc(st.lineName)}" title="Open ${esc(st.lineName)}">
-                          <span class="dpr-sc-top"><b>${esc(st.lineName)}</b><span>${st.machinesN} m/c</span></span>
-                          <span class="dpr-sc-pct">${st.filledPct == null ? '—' : st.filledPct + '%'} <small>filled</small></span>
+                        <button type="button" class="dpr-sc dpr-tone-${tone(st.filledPct)}" data-line="${esc(st.lineName)}" title="Open ${esc(st.lineName)}">
+                          <span class="dpr-sc-top">
+                            <span class="dpr-sc-ring">${dprRing(st.filledPct, 52)}<b>${st.filledPct == null ? '—' : st.filledPct}</b></span>
+                            <span class="dpr-sc-id"><b>${esc(st.lineName)}</b><span>${st.machinesN} machines${st.sup ? ' · ' + esc(st.sup) : ''}</span></span>
+                          </span>
                           ${strip(st.hOpen, st.hMiss, st.hLate, false)}
-                          <span class="dpr-sc-meta">${st.missing} missing · ${st.late} late${st.eff != null ? ` · EFF ${st.eff.toFixed(0)}%` : ''}</span>
-                          <span class="dpr-sc-kg"><span>Good <b>${kg(st.goodKg)}</b> kg</span>${rejPct != null ? `<span class="${rejPct > 3 ? 'is-hi' : ''}">Rej <b>${rejPct.toFixed(1)}%</b></span>` : ''}${vsTarget != null ? `<span>vs target <b>${vsTarget}%</b></span>` : ''}${st.dtHrs ? `<span>DT <b>${st.dtHrs.toFixed(1)}</b> h</span>` : ''}</span>
-                          ${st.sup ? `<span class="dpr-sc-sup">Sup. ${esc(st.sup)}</span>` : ''}
+                          <span class="dpr-sc-stats">
+                            <span><small>Missing</small><b class="${st.missing ? 'is-bad' : ''}">${st.missing}</b></span>
+                            <span><small>Late</small><b class="${st.late ? 'is-warn' : ''}">${st.late}</b></span>
+                            <span><small>EFF</small><b>${st.eff != null ? st.eff.toFixed(0) + '%' : '—'}</b></span>
+                            <span><small>Rej</small><b class="${rejPct > 3 ? 'is-bad' : ''}">${rejPct != null ? rejPct.toFixed(1) + '%' : '—'}</b></span>
+                          </span>
+                          <span class="dpr-sc-kg">Good <b>${kg(st.goodKg)}</b> kg${vsTarget != null ? ` · <b>${vsTarget}%</b> of target` : ''}${st.dtHrs ? ` · DT <b>${st.dtHrs.toFixed(1)}</b> h` : ''}</span>
                         </button>`;
                     }).join('');
-                    return `${overview}<div class="dpr-deck"><div class="dpr-deck-head"><strong>Lines</strong><span>Worst first · click a line to open its hours</span><span class="dpr-v2-spacer"></span><button type="button" class="dpr-v2-btn" data-dpr-lines="expand"><i class="bi bi-arrows-expand"></i> Open all</button><button type="button" class="dpr-v2-btn" data-dpr-lines="collapse"><i class="bi bi-arrows-collapse"></i> Close all</button></div><div class="dpr-deck-grid">${cards}</div></div>`;
+                    const deckHtml = `<section class="dpr-deck"><div class="dpr-deck-head"><strong>Lines</strong><span>worst first · click a line to open its hours</span><span class="dpr-v2-spacer"></span><button type="button" class="dpr-v2-btn" data-dpr-lines="expand"><i class="bi bi-arrows-expand"></i> Open all</button><button type="button" class="dpr-v2-btn" data-dpr-lines="collapse"><i class="bi bi-arrows-collapse"></i> Close all</button></div><div class="dpr-deck-grid">${cards}</div></section>`;
+                    return { overview, deck: deckHtml };
                 };
                 const dprSetLineOpen = (card, open) => card.classList.toggle('is-collapsed', !open);
                 document.addEventListener('click', (ev) => {

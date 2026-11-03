@@ -11,8 +11,24 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.169.0",
+  "latest": "1.170.0",
   "versions": [
+    {
+      "version": "1.170.0",
+      "date": "2026-11-03",
+      "title": "DPR compliance: new look",
+      "modules": [
+        {
+          "app": "dpr",
+          "changes": [
+            { "type": "feature", "text": "Compliance score at the top: a ring with the % of hours filled, a verdict (On track / Needs a push / Falling behind), and on-time %, filled, missing and late." },
+            { "type": "improvement", "text": "Plant total tiles show a bar and % against the planned target, so the drop from target to good production is easy to see." },
+            { "type": "improvement", "text": "Line cards have a score ring, hour strip and Missing / Late / EFF / Rej boxes; each open line's header shows its % and hour strip." },
+            { "type": "improvement", "text": "What stands out now also names the best line; softer cards, colours and spacing across the page." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.169.0",
       "date": "2026-11-03",
