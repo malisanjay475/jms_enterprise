@@ -3549,6 +3549,65 @@
     .mg-po-err { color: #b91c1c; font-size: 0.76rem; min-height: 1em; margin-top: 4px; }
     .mg-po-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px; }
 
+    /* ===== Planning board v5: one header bar, one filter bar, one KPI row,
+       overview row, collapsible line sections (Nov-2026 redesign). ===== */
+    #dashboardToolbar.pb-v5 {
+      top: 0; gap: 0; padding: 0 !important; overflow: visible;
+      background: #fff !important; backdrop-filter: none; -webkit-backdrop-filter: none;
+      box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05) !important;
+    }
+    #dashboardToolbar.pb-v5 .pb-head-row { padding: 12px 16px; gap: 12px; border-bottom: 1px solid #eef2f6; }
+    #dashboardToolbar.pb-v5 .pb-filter-row { padding: 10px 16px; gap: 10px; }
+    #dashboardToolbar.pb-v5 .pb-title { display: flex; flex-direction: column; gap: 1px; margin-right: 6px; }
+    #dashboardToolbar.pb-v5 .pb-title h2 { margin: 0; font-size: 1.15rem; font-weight: 800; color: #0f172a; letter-spacing: -0.01em; }
+    #dashboardToolbar.pb-v5 .pb-updated { font-size: 0.72rem; }
+    #dashboardToolbar.pb-v5 .btn { height: 36px; padding: 0 14px; display: inline-flex; align-items: center; gap: 6px; font-size: 0.84rem; font-weight: 700; }
+    #dashboardToolbar.pb-v5 .pb-search { flex: 1 1 320px; min-width: 220px; max-width: 460px; }
+    #dashboardToolbar.pb-v5 .pb-search input { width: 100%; height: 36px; font-size: 0.86rem; }
+    #dashboardToolbar.pb-v5 .pb-building { width: 160px; height: 36px; font-size: 0.86rem; }
+    #dashboardToolbar.pb-v5 .pb-status { margin-left: auto; }
+
+    .pb-v5-overview .pb-overview-head[hidden], .map-wrap.pb-v5-map .map-sub[hidden] { display: none !important; }
+    .pb-v5-overview.planning-overview-card { padding: 0; border: 0; background: transparent; box-shadow: none; margin-bottom: 14px; }
+    .pb-v5-overview #planningKpiDeck.pb-kpis { grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; }
+    .pb-v5-overview #planningKpiDeck .pb-kpi { padding: 12px 14px; border-radius: 12px; min-width: 0; }
+    .pb-v5-overview #planningKpiDeck .pb-kpi-value { font-size: 1.55rem; }
+    .pb-v5-overview #planningKpiDeck .pb-kpi-of { font-size: 0.8rem; color: #64748b; font-weight: 700; }
+    .pb-v5-overview #planningKpiDeck .pb-kpi-bar i { background: #0369a1; }
+
+    .map-wrap.pb-v5-map { padding-top: 0; }
+    .map-wrap.pb-v5-map .pb-v5-maphead { padding: 0; margin: 0; min-height: 0; border: 0; }
+    .map-wrap.pb-v5-map .pb-v5-maphead:not(:has(#demoBadge[style*="inline"])) { display: none; }
+
+    #machineGrid .mg-heat-wrap { grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr) minmax(0, 1fr); }
+    #machineGrid .mg-heat-wrap .mg-side { display: contents; }
+
+    #machineGrid .pb-line { border-top: 1px solid #eef2f6; padding-top: 10px; }
+    #machineGrid .pb-line-head { flex-wrap: wrap; row-gap: 6px; margin-bottom: 10px; }
+    #machineGrid .pb-line-head .pb-line-team { margin: 0 0 0 auto; }
+    #machineGrid .pb-line-run { color: #166534; background: #dcfce7; }
+    #machineGrid .pb-line-toggle {
+      width: 26px; height: 26px; display: inline-flex; align-items: center; justify-content: center;
+      border: 1px solid #e2e8f0; border-radius: 8px; background: #fff; color: #475569; cursor: pointer; padding: 0;
+    }
+    #machineGrid .pb-line-toggle i { transition: transform .15s ease; }
+    #machineGrid .pb-line.is-collapsed .pb-line-toggle i { transform: rotate(-90deg); }
+    #machineGrid .pb-line.is-collapsed > .machine-row { display: none; }
+    #machineGrid .pb-line.is-collapsed .pb-line-head { margin-bottom: 0; }
+
+    @media (max-width: 1280px) {
+      .pb-v5-overview #planningKpiDeck.pb-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      #machineGrid .mg-heat-wrap { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+      #machineGrid .mg-heat-wrap .mg-heat { grid-column: 1 / -1; }
+    }
+    @media (max-width: 760px) {
+      #dashboardToolbar.pb-v5 .pb-status { margin-left: 0; }
+      #dashboardToolbar.pb-v5 .pb-search { max-width: none; }
+      .pb-v5-overview #planningKpiDeck.pb-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      #machineGrid .mg-heat-wrap { grid-template-columns: minmax(0, 1fr); }
+      #machineGrid .pb-line-head .pb-line-team { margin-left: 0; }
+    }
+
     @media (max-width: 480px) {
       #machineGrid .machine { flex: 1 0 150px !important; max-width: none !important; }
       #machineGrid .mg-heat-label { flex-basis: 48px; }
@@ -3564,7 +3623,7 @@
   <script defer src="/assets/app.min.js?v=1583" onerror="alert('Failed to load /assets/app.min.js?v=1583');"></script>
 
   <script src="/assets/machine-status-meta.js?v=1"></script>
-  <script src="/assets/planning-script-3.js?v=release100"></script>
+  <script src="/assets/planning-script-3.js?v=release101"></script>
   <script>
     // --- VIEW SWITCHER ---
     window.switchView = function (viewName) {
