@@ -3458,7 +3458,15 @@
     /* ===== Machine card v4: DPR Compliance status colours, job on the front,
        plant heatmap and plant-off state. Colours come from machine-status-meta.js
        through --mc-st-color / --mc-st-bg / --mc-st-bd set on each card. */
-    #machineGrid .machine { flex: 0 0 172px !important; max-width: 172px !important; border-color: var(--mc-st-bd, #e5eaf1); }
+    /* Fixed card width; long item names ellipsize instead of widening the face
+       (a grid/flex child's min-width:auto made the face overflow the card). */
+    #machineGrid .machine {
+      flex: 0 0 196px !important; width: 196px !important; max-width: 196px !important; min-width: 0 !important;
+      box-sizing: border-box; border-color: var(--mc-st-bd, #e5eaf1);
+    }
+    #machineGrid .machine .machine-flip { grid-template-columns: minmax(0, 1fr); width: 100%; }
+    #machineGrid .machine .machine-face, #machineGrid .machine .mc-title, #machineGrid .machine .mc-front-job { min-width: 0; max-width: 100%; box-sizing: border-box; }
+    #machineGrid .machine .name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
     #machineGrid .machine::after { background: var(--mc-st-color, var(--machine-accent)); }
     #machineGrid .machine.s-running::after { background: #16a34a; }
     #machineGrid .machine .mc-dpr-badge {
@@ -3470,8 +3478,9 @@
     #machineGrid .machine:not(.s-running):not(.s-planned):not(.s-unplanned) .mc-hero .thumb { filter: grayscale(1); opacity: .55; }
     #machineGrid .machine.s-stopped .media.mc-hero::after { border-color: var(--mc-st-color); }
     #machineGrid .machine .mc-front-job { display: flex; flex-direction: column; gap: 2px; min-width: 0; font-size: 0.68rem; line-height: 1.25; }
-    #machineGrid .machine .mc-fj-item { color: #0f172a; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    #machineGrid .machine .mc-fj-item { color: #0f172a; font-weight: 700; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; word-break: break-word; }
     #machineGrid .machine .mc-fj-sub { color: #5b6b80; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    #machineGrid .machine .mc-fj-since { color: var(--mc-st-color, #b91c1c); font-weight: 700; display: inline-flex; gap: 4px; align-items: center; }
     #machineGrid .machine .mc-front-job .mc-progress { height: 5px; margin-top: 3px; }
     #machineGrid .machine .mc-front-job .mc-progress i { background: #16a34a; }
     #machineGrid .machine .mc-front-job .mc-foot { font-size: 0.62rem; }
@@ -3488,6 +3497,25 @@
     #machineGrid .mg-plant-off strong { display: block; font-size: 0.9rem; }
     #machineGrid .mg-plant-off span { font-size: 0.76rem; color: #475569; }
 
+    #machineGrid .mg-heat-wrap { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr); gap: 12px; margin: 0 0 14px; align-items: stretch; }
+    #machineGrid .mg-heat-wrap .mg-heat { margin: 0; }
+    #machineGrid .mg-side { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
+    #machineGrid .mg-side-card { background: #fff; border: 1px solid #e5eaf1; border-radius: 12px; padding: 12px 14px; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+    #machineGrid .mg-side-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+    #machineGrid .mg-side-head strong { font-size: 0.86rem; color: #0f172a; display: inline-flex; gap: 6px; align-items: center; }
+    #machineGrid .mg-side-head span { font-size: 0.7rem; font-weight: 700; color: #475569; background: #f1f5f9; border-radius: 999px; padding: 1px 8px; }
+    #machineGrid .mg-side-row {
+      display: flex; justify-content: space-between; gap: 8px; width: 100%; padding: 6px 4px; border: 0; border-bottom: 1px solid #f1f5f9;
+      background: none; cursor: pointer; text-align: left; font: inherit; font-size: 0.74rem; border-radius: 0;
+    }
+    #machineGrid .mg-side-row:hover { background: #f8fafc; }
+    #machineGrid .mg-side-name { font-weight: 700; color: #0f172a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+    #machineGrid .mg-side-val { font-weight: 600; color: #475569; white-space: nowrap; flex: 0 0 auto; }
+    #machineGrid .mg-side-warn { color: #b45309; }
+    #machineGrid .mg-side-empty { font-size: 0.76rem; color: #64748b; padding: 8px 0; }
+    #machineGrid .mg-side-more { font-size: 0.7rem; color: #64748b; padding-top: 6px; }
+    @media (max-width: 1280px) { #machineGrid .mg-heat-wrap { grid-template-columns: minmax(0, 1fr); } }
+    @media (max-width: 640px) { #machineGrid .mg-side { grid-template-columns: minmax(0, 1fr); } }
     #machineGrid .mg-heat {
       margin: 0 0 14px; padding: 12px 14px; border-radius: 12px; background: #fff; border: 1px solid #e5eaf1;
     }
@@ -3500,7 +3528,7 @@
     #machineGrid .mg-heat-label { flex: 0 0 64px; font-size: 0.68rem; font-weight: 700; color: #475569; }
     #machineGrid .mg-heat-cells { display: flex; flex-wrap: wrap; gap: 3px; }
     #machineGrid .mg-heat-cell {
-      width: 16px; height: 16px; padding: 0; border-radius: 3px; cursor: pointer;
+      width: 18px; height: 18px; padding: 0; border-radius: 3px; cursor: pointer;
       background: var(--hc); border: 1px solid var(--hc);
     }
     #machineGrid .mg-heat-cell:hover, #machineGrid .mg-heat-cell:focus-visible { outline: 2px solid #0f172a; outline-offset: 1px; }
@@ -3536,7 +3564,7 @@
   <script defer src="/assets/app.min.js?v=1583" onerror="alert('Failed to load /assets/app.min.js?v=1583');"></script>
 
   <script src="/assets/machine-status-meta.js?v=1"></script>
-  <script src="/assets/planning-script-3.js?v=release97"></script>
+  <script src="/assets/planning-script-3.js?v=release99"></script>
   <script>
     // --- VIEW SWITCHER ---
     window.switchView = function (viewName) {
