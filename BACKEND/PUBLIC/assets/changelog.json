@@ -11,8 +11,24 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.168.0",
+  "latest": "1.169.0",
   "versions": [
+    {
+      "version": "1.169.0",
+      "date": "2026-11-03",
+      "title": "DPR compliance: hour-by-hour view and insights",
+      "modules": [
+        {
+          "app": "dpr",
+          "changes": [
+            { "type": "feature", "text": "Entries by hour: one strip for the whole plant showing what % of machines filled each hour, with a dot where entries were late." },
+            { "type": "feature", "text": "What stands out: on-time %, the most missed hour, the line with the most late entries, and how many machines are fully up to date." },
+            { "type": "feature", "text": "Machines to chase: the machines with the most missing hours; click one to open its line and jump to it." },
+            { "type": "improvement", "text": "Each line card now has its own hour strip plus good kg, rejection %, output vs target and downtime hours." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.168.0",
       "date": "2026-11-03",

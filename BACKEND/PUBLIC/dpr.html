@@ -139,6 +139,38 @@
     @media (max-width:1100px) { .dpr-pt-row, .dpr-pt-row2 { grid-template-columns:repeat(3,minmax(0,1fr)); } }
     @media (max-width:600px) { .dpr-pt-row, .dpr-pt-row2 { grid-template-columns:repeat(2,minmax(0,1fr)); } }
     @media print { .dpr-v2-head .dpr-v2-btn, .dpr-deck-head .dpr-v2-btn { display:none; } .dpr-line-card.is-collapsed > * { display:block !important; } }
+    /* DPR compliance v2.1: hour strips, insights, machines to chase */
+    .dpr-ins { display:grid; grid-template-columns:minmax(0,1.6fr) minmax(0,1fr) minmax(0,1fr); gap:10px; margin-bottom:14px; }
+    .dpr-ins-card { background:#fff; border:1px solid #e2e8f0; border-radius:12px; padding:12px; min-width:0; }
+    .dpr-ins-title { display:flex; gap:8px; align-items:baseline; margin-bottom:8px; font-size:.75rem; color:#64748b; }
+    .dpr-ins-title strong { font-size:.9rem; color:#0f172a; }
+    .dpr-hs { display:grid; grid-template-columns:repeat(12,minmax(0,1fr)); gap:2px; }
+    .dpr-hs i { display:block; height:8px; border-radius:2px; position:relative; font-style:normal; }
+    .dpr-hs-big i { height:auto; padding:6px 2px; text-align:center; border-radius:6px; }
+    .dpr-hs-big b { display:block; font-size:.62rem; font-weight:700; opacity:.85; }
+    .dpr-hs-big em { display:block; font-style:normal; font-size:.8rem; font-weight:800; min-height:1em; }
+    .dpr-hs .h-good, .dpr-hs-legend .h-good { background:#bbf7d0; color:#14532d; }
+    .dpr-hs .h-warn, .dpr-hs-legend .h-warn { background:#fde68a; color:#78350f; }
+    .dpr-hs .h-bad, .dpr-hs-legend .h-bad { background:#fecaca; color:#7f1d1d; }
+    .dpr-hs .h-fut, .dpr-hs-legend .h-fut { background:#f1f5f9; color:#94a3b8; }
+    .h-late::after { content:''; position:absolute; top:2px; right:2px; width:5px; height:5px; border-radius:50%; background:#d97706; }
+    .dpr-hs:not(.dpr-hs-big) .h-late::after { top:-1px; right:-1px; width:4px; height:4px; }
+    .dpr-hs-legend { display:flex; flex-wrap:wrap; gap:10px; margin-top:8px; font-size:.7rem; color:#64748b; }
+    .dpr-hs-legend span { display:inline-flex; align-items:center; gap:4px; }
+    .dpr-hs-legend i { display:inline-block; width:12px; height:8px; border-radius:2px; position:relative; }
+    .dpr-ins-list { margin:0; padding-left:16px; font-size:.8rem; color:#334155; display:grid; gap:5px; }
+    .dpr-wm-list { display:grid; gap:4px; max-height:170px; overflow:auto; }
+    .dpr-wm { display:flex; gap:6px; align-items:center; border:1px solid #eef2f6; border-radius:8px; background:#f8fafc; padding:5px 8px; font:inherit; font-size:.76rem; cursor:pointer; text-align:left; min-width:0; }
+    .dpr-wm:hover { background:#f1f5f9; }
+    .dpr-wm-name { flex:1 1 auto; font-weight:700; color:#0f172a; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .dpr-wm-miss { color:#b91c1c; font-weight:700; white-space:nowrap; } .dpr-wm-late { color:#b45309; font-weight:700; white-space:nowrap; }
+    .dpr-ins-empty { font-size:.8rem; color:#15803d; }
+    .dpr-sc-kg { display:flex; flex-wrap:wrap; gap:2px 8px; font-size:.7rem; color:#64748b; } .dpr-sc-kg b { color:#0f172a; } .dpr-sc-kg .is-hi b { color:#b91c1c; }
+    .dpr-deck-grid { grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); }
+    tbody.mm-machine.dpr-flash > tr > td { animation:dprFlash 1.8s ease; }
+    @keyframes dprFlash { 0%, 40% { background-color:#fef9c3; } }
+    @media (max-width:1100px) { .dpr-ins { grid-template-columns:minmax(0,1fr) minmax(0,1fr); } .dpr-ins-hours { grid-column:1 / -1; } }
+    @media (max-width:640px) { .dpr-ins { grid-template-columns:minmax(0,1fr); } .dpr-hs-big { grid-template-columns:repeat(6,minmax(0,1fr)); } }
     </style>
 </head>
 
@@ -175,7 +207,7 @@
 
     <script src="/assets/app.min.js?v=1583"></script>
   <script src="/assets/machine-status-meta.js?v=1"></script>
-  <script src="/assets/dpr-script-1.js?v=release116"></script>
+  <script src="/assets/dpr-script-1.js?v=release117"></script>
 
     <!-- ADMIN EDIT MODAL -->
     <div id="dprEditModal" class="modal"

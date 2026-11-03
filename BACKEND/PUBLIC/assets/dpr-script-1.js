@@ -2347,6 +2347,9 @@
                                 let machineMissingSlots = 0; // count of past unfilled slots (for Pending filter)
                                 let machineOpenSlots = 0;    // past (non-future) slots, for the line scorecard
                                 let machineLateSlots = 0;    // slots with an entry made 45+ min late
+                                const machineSlotOpen = new Array(12).fill(0); // per-hour counts for the hour strips
+                                const machineSlotMiss = new Array(12).fill(0);
+                                const machineSlotLate = new Array(12).fill(0);
                                 let machineBalComplete = false; // true when any mould's plan is met/exceeded (bal <= 0) → blink
                                 let machinePlanNearDone = false; // true when any mould has <= 20% qty left to produce (Plan Change Over filter)
                                 // Determine Shifts for this Machine Row(s)
@@ -2710,7 +2713,7 @@
                                             const now = new Date().getTime();
                                             const currentSlotStart = sEnd - 3600000;
                                             const isFuture = (now < currentSlotStart);
-                                            if (!isFuture && mIdx === 0) machineOpenSlots++;
+                                            if (!isFuture && mIdx === 0) { machineOpenSlots++; machineSlotOpen[idx]++; }
                                             let slotCountedLate = false;
 
                                             let bg = '#ffffff';
@@ -2838,7 +2841,7 @@
                                                         // 45 minutes = 2700000 ms. If entered after this, mark Late.
                                                         if (slotEndTime > 0 && entryTime > (slotEndTime + 2700000)) isLate = true;
                                                     }
-                                                    if (isLate && !slotCountedLate && mIdx === 0) { slotCountedLate = true; machineLateSlots++; }
+                                                    if (isLate && !slotCountedLate && mIdx === 0) { slotCountedLate = true; machineLateSlots++; machineSlotLate[idx]++; }
 
                                                     // Background: yellow for late entries, green for on-time
                                                     const blockBg = isLate ? '#fef9c3' : '#dcfce7';
@@ -2952,7 +2955,7 @@
                                                         if (!hasMachineProduction && !overrideTriggeredThisSlot) {
                                                             if (mouldStartTs === 0 || sEnd > (mouldStartTs + 600000)) {
                                                                 showCross = true;
-                                                                machineMissingSlots++; // count for Pending filter
+                                                                machineMissingSlots++; machineSlotMiss[idx]++; // count for Pending filter
                                                             }
                                                         }
                                                     } else {
@@ -3419,9 +3422,9 @@
                                 // not the whole machine row — see planBalHtml above.
 
                                 if (flatMode) {
-                                    globalMachineBuffer.push({ html: machineRowHtml, eff: mEff, oee: mOee, name: machine, entryTypes: machineEntryTypes, hasEntries: machineGood > 0 || machineEst > 0, missingSlots: machineMissingSlots, openSlots: machineOpenSlots, lateSlots: machineLateSlots, balComplete: machineBalComplete, planNearDone: machinePlanNearDone });
+                                    globalMachineBuffer.push({ html: machineRowHtml, eff: mEff, oee: mOee, name: machine, entryTypes: machineEntryTypes, hasEntries: machineGood > 0 || machineEst > 0, missingSlots: machineMissingSlots, openSlots: machineOpenSlots, lateSlots: machineLateSlots, slotOpen: machineSlotOpen, slotMiss: machineSlotMiss, slotLate: machineSlotLate, balComplete: machineBalComplete, planNearDone: machinePlanNearDone });
                                 } else {
-                                    machineBuffer.push({ html: machineRowHtml, eff: mEff, oee: mOee, name: machine, entryTypes: machineEntryTypes, hasEntries: machineGood > 0 || machineEst > 0, missingSlots: machineMissingSlots, openSlots: machineOpenSlots, lateSlots: machineLateSlots, balComplete: machineBalComplete, planNearDone: machinePlanNearDone });
+                                    machineBuffer.push({ html: machineRowHtml, eff: mEff, oee: mOee, name: machine, entryTypes: machineEntryTypes, hasEntries: machineGood > 0 || machineEst > 0, missingSlots: machineMissingSlots, openSlots: machineOpenSlots, lateSlots: machineLateSlots, slotOpen: machineSlotOpen, slotMiss: machineSlotMiss, slotLate: machineSlotLate, balComplete: machineBalComplete, planNearDone: machinePlanNearDone });
                                 }
                             }); // End machines loop
 
@@ -3637,14 +3640,23 @@
                                 // Scorecard numbers for one line, from the per-machine counters above.
                                 const dprLineStats = (lineName, rowsByMachine) => {
                                     let open = 0, missing = 0, late = 0, machinesN = 0;
-                                    Object.values(rowsByMachine).forEach(passRows => {
+                                    const hOpen = new Array(12).fill(0), hMiss = new Array(12).fill(0), hLate = new Array(12).fill(0);
+                                    const machineList = [];
+                                    Object.entries(rowsByMachine).forEach(([machine, passRows]) => {
                                         machinesN++;
-                                        passRows.forEach(r => { open += r.openSlots || 0; missing += r.missingSlots || 0; late += r.lateSlots || 0; });
+                                        let mMiss = 0, mLate = 0;
+                                        passRows.forEach(r => {
+                                            open += r.openSlots || 0; missing += r.missingSlots || 0; late += r.lateSlots || 0;
+                                            mMiss += r.missingSlots || 0; mLate += r.lateSlots || 0;
+                                            (r.slotOpen || []).forEach((v, i) => { hOpen[i] += v; hMiss[i] += (r.slotMiss || [])[i] || 0; hLate[i] += (r.slotLate || [])[i] || 0; });
+                                        });
+                                        machineList.push({ machine, lineName, missing: mMiss, late: mLate });
                                     });
                                     const t = (window.lineTheTonnages || {})[lineName] || {};
                                     const eff = (t.netEst || 0) > 0 ? (t.effGood / t.netEst * 100) : null;
                                     const filledPct = open > 0 ? Math.max(0, Math.round((open - missing) / open * 100)) : null;
-                                    return { lineName, machinesN, open, missing, late, eff, filledPct, sup: dprLineSupervisor[lineName] || '' };
+                                    return { lineName, machinesN, open, missing, late, eff, filledPct, sup: dprLineSupervisor[lineName] || '',
+                                        slots: window.DPR_HOUR_SLOTS, hOpen, hMiss, hLate, machineList, goodKg: t.good || 0, rejKg: t.rej || 0, targetKg: t.plannedKg || 0, dtHrs: t.dt || 0 };
                                 };
                                 mmOrder.sort((a, b) => String(a).localeCompare(String(b), undefined, { numeric: true }));
                                 mmOrder.forEach(lineName => {
@@ -3660,7 +3672,7 @@
                                         const passRows = mmRows[lineName][machine];
                                         mmMachineCount++;
                                         const rowsHtml = passRows.map(r => r.html).join('');
-                                        html += `<tbody class="mm-machine" data-search="${mkSearchText(machine, rowsHtml)}">${rowsHtml}</tbody>`;
+                                        html += `<tbody class="mm-machine" data-machine="${dprEscHtml(machine)}" data-search="${mkSearchText(machine, rowsHtml)}">${rowsHtml}</tbody>`;
                                     });
                                     html += `</table></div></div>`;
                                     const lineStat = dprLineStats(lineName, mmRows[lineName]);
@@ -4080,6 +4092,7 @@
 
                 // Line scorecards (DPR compliance v2): worst line first, click to open its hourly grid.
                 const DPR_OPEN_KEY = 'dpr_open_lines';
+                window.DPR_HOUR_SLOTS = ['07-08', '08-09', '09-10', '10-11', '11-12', '12-01', '01-02', '02-03', '03-04', '04-05', '05-06', '06-07'];
                 window.dprGetOpenLines = function () {
                     try { return new Set(JSON.parse(localStorage.getItem(DPR_OPEN_KEY) || '[]')); } catch (_) { return new Set(); }
                 };
@@ -4087,20 +4100,77 @@
                 window.dprRenderLineDeck = function (stats) {
                     if (!stats || !stats.length) return '';
                     const esc = (v) => String(v == null ? '' : v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+                    const kg = (v) => Math.round(v || 0).toLocaleString('en-IN');
                     const sorted = stats.slice().sort((a, b) => (a.filledPct == null ? 101 : a.filledPct) - (b.filledPct == null ? 101 : b.filledPct) || b.missing - a.missing);
                     const tone = (p) => p == null ? 'is-none' : p >= 95 ? 'is-good' : p >= 80 ? 'is-warn' : 'is-bad';
-                    const cards = sorted.map(st => `
+                    const slotsList = stats[0].slots || [];
+                    // One cell per hour, coloured by how many machines filled it; a dot marks late entries.
+                    const strip = (open, miss, late, big) => `<span class="dpr-hs${big ? ' dpr-hs-big' : ''}">${slotsList.map((sl, i) => {
+                        const o = open[i] || 0, m = miss[i] || 0, l = late[i] || 0;
+                        const p = o ? Math.round((o - m) / o * 100) : null;
+                        const cls = p == null ? 'h-fut' : p >= 95 ? 'h-good' : p >= 80 ? 'h-warn' : 'h-bad';
+                        return `<i class="${cls}${l ? ' h-late' : ''}" title="${sl}: ${p == null ? 'not due yet' : `${p}% filled · ${m} missing · ${l} late`}">${big ? `<b>${sl}</b><em>${p == null ? '' : p + '%'}</em>` : ''}</i>`;
+                    }).join('')}</span>`;
+
+                    // Whole-plant hour strip and the "what stands out" notes
+                    const P = { open: slotsList.map(() => 0), miss: slotsList.map(() => 0), late: slotsList.map(() => 0) };
+                    stats.forEach(st => slotsList.forEach((_, i) => { P.open[i] += st.hOpen[i]; P.miss[i] += st.hMiss[i]; P.late[i] += st.hLate[i]; }));
+                    const tot = stats.reduce((a, st) => ({ open: a.open + st.open, miss: a.miss + st.missing, late: a.late + st.late }), { open: 0, miss: 0, late: 0 });
+                    const filled = tot.open - tot.miss;
+                    const onTime = filled > 0 ? Math.max(0, Math.round((filled - tot.late) / filled * 100)) : null;
+                    let worstHour = null;
+                    slotsList.forEach((sl, i) => { if (P.open[i] && P.miss[i] && (!worstHour || P.miss[i] / P.open[i] > worstHour.r)) worstHour = { sl, r: P.miss[i] / P.open[i], m: P.miss[i] }; });
+                    const lateLine = stats.slice().sort((a, b) => b.late - a.late)[0];
+                    const allMachines = [].concat(...stats.map(st => st.machineList));
+                    const worstMachines = allMachines.filter(m => m.missing > 0).sort((a, b) => b.missing - a.missing || b.late - a.late).slice(0, 8);
+                    const clean = allMachines.filter(m => m.missing === 0 && m.late === 0).length;
+                    const insights = [
+                        onTime != null ? `<li><b>${onTime}%</b> of filled hours were entered on time (${tot.late} late, after 45 min).</li>` : '',
+                        worstHour ? `<li>Most missed hour: <b>${worstHour.sl}</b>, ${Math.round(worstHour.r * 100)}% of machines had no entry (${worstHour.m}).</li>` : '<li>No missed hours so far.</li>',
+                        lateLine && lateLine.late ? `<li>Most late entries: <b>${esc(lateLine.lineName)}</b> (${lateLine.late}).</li>` : '',
+                        `<li><b>${clean}</b> of ${allMachines.length} machines have every hour filled on time.</li>`
+                    ].join('');
+                    const machinesHtml = worstMachines.length ? worstMachines.map(m => `
+                        <button type="button" class="dpr-wm" data-line="${esc(m.lineName)}" data-machine="${esc(m.machine)}" title="Open ${esc(m.machine)}">
+                          <span class="dpr-wm-name">${esc(m.machine)}</span><span class="dpr-wm-miss">${m.missing} missing</span>${m.late ? `<span class="dpr-wm-late">${m.late} late</span>` : ''}
+                        </button>`).join('') : '<div class="dpr-ins-empty">Every machine is up to date.</div>';
+                    const overview = `
+                      <div class="dpr-ins">
+                        <div class="dpr-ins-card dpr-ins-hours"><div class="dpr-ins-title"><strong>Entries by hour</strong><span>whole plant · % of machines filled</span></div>${strip(P.open, P.miss, P.late, true)}
+                          <div class="dpr-hs-legend"><span><i class="h-good"></i>95%+</span><span><i class="h-warn"></i>80–94%</span><span><i class="h-bad"></i>below 80%</span><span><i class="h-fut"></i>not due</span><span><i class="h-good h-late"></i>has late</span></div></div>
+                        <div class="dpr-ins-card"><div class="dpr-ins-title"><strong>What stands out</strong></div><ul class="dpr-ins-list">${insights}</ul></div>
+                        <div class="dpr-ins-card"><div class="dpr-ins-title"><strong>Machines to chase</strong><span>most missing hours</span></div><div class="dpr-wm-list">${machinesHtml}</div></div>
+                      </div>`;
+
+                    const cards = sorted.map(st => {
+                        const rejPct = st.goodKg + st.rejKg > 0 ? st.rejKg / (st.goodKg + st.rejKg) * 100 : null;
+                        const vsTarget = st.targetKg > 0 ? Math.round((st.goodKg + st.rejKg) / st.targetKg * 100) : null;
+                        return `
                         <button type="button" class="dpr-sc ${tone(st.filledPct)}" data-line="${esc(st.lineName)}" title="Open ${esc(st.lineName)}">
                           <span class="dpr-sc-top"><b>${esc(st.lineName)}</b><span>${st.machinesN} m/c</span></span>
                           <span class="dpr-sc-pct">${st.filledPct == null ? '—' : st.filledPct + '%'} <small>filled</small></span>
-                          <span class="dpr-sc-bar"><i style="width:${st.filledPct || 0}%"></i></span>
+                          ${strip(st.hOpen, st.hMiss, st.hLate, false)}
                           <span class="dpr-sc-meta">${st.missing} missing · ${st.late} late${st.eff != null ? ` · EFF ${st.eff.toFixed(0)}%` : ''}</span>
+                          <span class="dpr-sc-kg"><span>Good <b>${kg(st.goodKg)}</b> kg</span>${rejPct != null ? `<span class="${rejPct > 3 ? 'is-hi' : ''}">Rej <b>${rejPct.toFixed(1)}%</b></span>` : ''}${vsTarget != null ? `<span>vs target <b>${vsTarget}%</b></span>` : ''}${st.dtHrs ? `<span>DT <b>${st.dtHrs.toFixed(1)}</b> h</span>` : ''}</span>
                           ${st.sup ? `<span class="dpr-sc-sup">Sup. ${esc(st.sup)}</span>` : ''}
-                        </button>`).join('');
-                    return `<div class="dpr-deck"><div class="dpr-deck-head"><strong>Lines</strong><span>Worst first · click a line to open its hours</span><span class="dpr-v2-spacer"></span><button type="button" class="dpr-v2-btn" data-dpr-lines="expand"><i class="bi bi-arrows-expand"></i> Open all</button><button type="button" class="dpr-v2-btn" data-dpr-lines="collapse"><i class="bi bi-arrows-collapse"></i> Close all</button></div><div class="dpr-deck-grid">${cards}</div></div>`;
+                        </button>`;
+                    }).join('');
+                    return `${overview}<div class="dpr-deck"><div class="dpr-deck-head"><strong>Lines</strong><span>Worst first · click a line to open its hours</span><span class="dpr-v2-spacer"></span><button type="button" class="dpr-v2-btn" data-dpr-lines="expand"><i class="bi bi-arrows-expand"></i> Open all</button><button type="button" class="dpr-v2-btn" data-dpr-lines="collapse"><i class="bi bi-arrows-collapse"></i> Close all</button></div><div class="dpr-deck-grid">${cards}</div></div>`;
                 };
                 const dprSetLineOpen = (card, open) => card.classList.toggle('is-collapsed', !open);
                 document.addEventListener('click', (ev) => {
+                    const wm = ev.target.closest && ev.target.closest('.dpr-wm');
+                    if (wm) {
+                        // "Machines to chase": open that line and jump to the machine
+                        const card = Array.from(document.querySelectorAll('#summary-container .dpr-line-card[data-line]')).find(c => c.dataset.line === wm.dataset.line);
+                        if (!card) return;
+                        dprSetLineOpen(card, true);
+                        const open = window.dprGetOpenLines(); open.add(wm.dataset.line); dprSaveOpen(open);
+                        const row = Array.from(card.querySelectorAll('tbody.mm-machine[data-machine]')).find(t => t.dataset.machine === wm.dataset.machine) || card;
+                        row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        row.classList.add('dpr-flash'); setTimeout(() => row.classList.remove('dpr-flash'), 1800);
+                        return;
+                    }
                     const sc = ev.target.closest && ev.target.closest('.dpr-sc');
                     const all = ev.target.closest && ev.target.closest('[data-dpr-lines]');
                     const head = ev.target.closest && ev.target.closest('.dpr-line-card .dpr-line-headbar');
