@@ -11,8 +11,24 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.170.0",
+  "latest": "1.171.0",
   "versions": [
+    {
+      "version": "1.171.0",
+      "date": "2026-11-03",
+      "title": "DPR compliance: share, live refresh, sort",
+      "modules": [
+        {
+          "app": "dpr",
+          "changes": [
+            { "type": "feature", "text": "Share summary copies a short WhatsApp-ready report: filled %, on time, missing, late, production, each line, and the machines that must fill entries with their missed hours." },
+            { "type": "feature", "text": "Today's shift refreshes by itself every 5 minutes (only while the tab is open and you are not using it), with a Live badge." },
+            { "type": "feature", "text": "Sort the line cards by Worst filled, Most late, Lowest EFF or Name; the choice is remembered." },
+            { "type": "improvement", "text": "Machines to chase shows which hours have no entry; press / to jump to the search box." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.170.0",
       "date": "2026-11-03",

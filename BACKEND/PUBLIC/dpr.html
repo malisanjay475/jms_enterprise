@@ -227,6 +227,18 @@
     }
     @media (prefers-reduced-motion:reduce) { .dpr-sc, .dpr-ring-fg, .dpr-wf > i { transition:none; } .dpr-sc:hover { transform:none; } }
     @media print { .dpr-v2-btn { display:none !important; } .dpr-line-card.is-collapsed > * { display:block !important; } .dpr-ov-chase { display:none; } }
+    /* DPR compliance v3.1: share, live, sort */
+    .dpr-v2-live { display:inline-flex; align-items:center; gap:6px; font-size:.72rem; font-weight:700; color:#15803d; background:#f0fdf4; border:1px solid #bbf7d0; border-radius:999px; padding:3px 10px; }
+    .dpr-v2-live[hidden] { display:none; }
+    .dpr-v2-live i { width:7px; height:7px; border-radius:50%; background:#16a34a; animation:dprPulse 2s ease-in-out infinite; }
+    @keyframes dprPulse { 50% { opacity:.35; } }
+    #dpr-v2-share i { color:#16a34a; }
+    .dpr-seg { display:inline-flex; border:1px solid var(--dpr-line); border-radius:9px; overflow:hidden; background:#fff; }
+    .dpr-seg button { border:0; background:transparent; padding:6px 10px; font:inherit; font-size:.74rem; font-weight:700; color:var(--dpr-mute); cursor:pointer; }
+    .dpr-seg button + button { border-left:1px solid var(--dpr-line); }
+    .dpr-seg button.is-on { background:#e0f2fe; color:var(--dpr-accent); }
+    .dpr-wm-name small { display:block; font-size:.66rem; font-weight:600; color:var(--dpr-mute); overflow:hidden; text-overflow:ellipsis; }
+    @media (prefers-reduced-motion:reduce) { .dpr-v2-live i { animation:none; } }
     </style>
 </head>
 
@@ -263,7 +275,7 @@
 
     <script src="/assets/app.min.js?v=1583"></script>
   <script src="/assets/machine-status-meta.js?v=1"></script>
-  <script src="/assets/dpr-script-1.js?v=release118"></script>
+  <script src="/assets/dpr-script-1.js?v=release119"></script>
 
     <!-- ADMIN EDIT MODAL -->
     <div id="dprEditModal" class="modal"
