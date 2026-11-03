@@ -11,8 +11,22 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.174.0",
+  "latest": "1.174.1",
   "versions": [
+    {
+      "version": "1.174.1",
+      "date": "2026-11-03",
+      "title": "DPR compliance: line totals fixed and smaller",
+      "modules": [
+        {
+          "app": "dpr",
+          "changes": [
+            { "type": "fix", "text": "Each line's Target, Estimated, Achievable and DT loss now show their values (they stayed at 0.00)." },
+            { "type": "improvement", "text": "Line totals are one compact row of small tiles with short labels." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.174.0",
       "date": "2026-11-03",

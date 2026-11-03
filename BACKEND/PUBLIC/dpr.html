@@ -313,6 +313,18 @@
     .dpr-sc-off i { font-size:.95rem; }
     @media (max-width:1280px) { .dpr-lt-row { grid-template-columns:repeat(4,minmax(0,1fr)); } }
     @media (max-width:760px) { .dpr-lt-row, .dpr-lt-row2 { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+    /* DPR compliance v3.5: line totals as one compact strip */
+    .dpr-lt-row, .dpr-lt-row2 { grid-template-columns:repeat(13,minmax(0,1fr)); gap:4px; margin-top:0; }
+    .dpr-lt { display:grid; grid-template-columns:repeat(13,minmax(0,1fr)); gap:4px; }
+    .dpr-lt > .dpr-lt-row, .dpr-lt > .dpr-lt-row2 { display:contents; }
+    .dpr-lt-name { grid-column:1 / -1; }
+    .dpr-lt .dpr-pt-tile { padding:3px 7px; border-radius:7px; border:1px solid var(--dpr-line); }
+    .dpr-lt .dpr-pt-label { font-size:.56rem; letter-spacing:.03em; }
+    .dpr-lt .dpr-pt-value { font-size:.8rem; margin-top:0; }
+    .dpr-lt .dpr-pt-value small { font-size:.6rem; }
+    .dpr-lt .dpr-pt-chg { gap:6px; font-size:.72rem; } .dpr-lt .dpr-pt-chg b { font-size:.8rem; }
+    @media (max-width:1280px) { .dpr-lt { grid-template-columns:repeat(7,minmax(0,1fr)); } }
+    @media (max-width:760px) { .dpr-lt { grid-template-columns:repeat(3,minmax(0,1fr)); } }
     </style>
 </head>
 
@@ -349,7 +361,7 @@
 
     <script src="/assets/app.min.js?v=1583"></script>
   <script src="/assets/machine-status-meta.js?v=1"></script>
-  <script src="/assets/dpr-script-1.js?v=release122"></script>
+  <script src="/assets/dpr-script-1.js?v=release123"></script>
 
     <!-- ADMIN EDIT MODAL -->
     <div id="dprEditModal" class="modal"
