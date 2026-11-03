@@ -11,8 +11,24 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.167.0",
+  "latest": "1.168.0",
   "versions": [
+    {
+      "version": "1.168.0",
+      "date": "2026-11-03",
+      "title": "DPR compliance redesign",
+      "modules": [
+        {
+          "app": "dpr",
+          "changes": [
+            { "type": "improvement", "text": "New header with the date, shift and process, Print, and a More filters button; To date, Process and Factory sit under More filters. Date and shift reload the page as soon as they change." },
+            { "type": "improvement", "text": "Plant total is two rows of tiles: target, estimated, achievable, gross, good, rejection and downtime loss, then OEE, EFF, downtime, auto DT, MC / CC / JC and entries." },
+            { "type": "feature", "text": "Line scorecards, worst first: % filled, missing and late slots, EFF and the supervisor. Click a card to open that line's hours; Open all / Close all." },
+            { "type": "improvement", "text": "Lines start closed and remember which ones you opened, so the page loads lighter; a search opens every line with a match." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.167.0",
       "date": "2026-11-03",

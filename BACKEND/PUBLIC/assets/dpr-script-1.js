@@ -740,7 +740,13 @@
                 let dprProcess = localStorage.getItem('jpsms_dpr_process') || 'Moulding';
 
                 card.innerHTML = `
-                  <div id="sticky-dpr-filter" style="position:relative; z-index:60; margin-bottom:15px; padding:12px 14px; background:#f8fafc; border-radius:8px; border:1px solid #e2e8f0; box-shadow:0 1px 3px rgba(0,0,0,0.1)">
+                  <div class="dpr-v2-head">
+                    <div class="dpr-v2-title"><h2>DPR compliance</h2><span class="dpr-v2-sub" id="dpr-v2-sub">Loading…</span></div>
+                    <div class="dpr-v2-spacer"></div>
+                    <button type="button" class="dpr-v2-btn" id="dpr-v2-more" aria-expanded="false"><i class="bi bi-sliders"></i> More filters</button>
+                    <button type="button" class="dpr-v2-btn" onclick="window.print()"><i class="bi bi-printer"></i> Print</button>
+                  </div>
+                  <div id="sticky-dpr-filter" class="dpr-v2-filter" style="position:relative; z-index:60; margin-bottom:15px; padding:12px 14px; background:#f8fafc; border-radius:8px; border:1px solid #e2e8f0; box-shadow:0 1px 3px rgba(0,0,0,0.1)">
                     <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:flex-end">
                       <div>
                         <label style="display:block; font-size:0.7rem; font-weight:600; color:#64748b; margin-bottom:3px">Search</label>
@@ -754,11 +760,11 @@
                         <label style="display:block; font-size:0.7rem; font-weight:600; color:#64748b; margin-bottom:3px">From</label>
                         <input type="date" id="s-date" class="form-control" style="padding:6px; border:1px solid #cbd5e1; border-radius:4px; font-size:0.8rem" value="${today}">
                       </div>
-                      <div>
+                      <div class="dpr-more">
                         <label style="display:block; font-size:0.7rem; font-weight:600; color:#64748b; margin-bottom:3px">To</label>
                         <input type="date" id="s-date-to" class="form-control" style="padding:6px; border:1px solid #cbd5e1; border-radius:4px; font-size:0.8rem" value="${today}">
                       </div>
-                      <div>
+                      <div class="dpr-more">
                         <label style="display:block; font-size:0.7rem; font-weight:600; color:#64748b; margin-bottom:3px">Process</label>
                         <select id="s-process-sel" class="form-control" style="padding:6px 7px; border:1px solid #cbd5e1; border-radius:4px; font-size:0.8rem; min-width:110px">
                           ${DPR_PROCESS_OPTIONS.map(o => `<option value="${o}" ${o === dprProcess ? 'selected' : ''}>${o}</option>`).join('')}
@@ -772,7 +778,7 @@
                            <option value="Both">Both (24h)</option>
                         </select>
                       </div>
-                      <div>
+                      <div class="dpr-more">
                         <label style="display:block; font-size:0.7rem; font-weight:600; color:#64748b; margin-bottom:3px">Factory</label>
                         <select id="s-factory" class="form-control" style="padding:6px 7px; border:1px solid #cbd5e1; border-radius:4px; font-size:0.8rem; min-width:95px; max-width:130px">
                           <option value="">All</option>
@@ -805,7 +811,7 @@
                           <option value="Stopped">⛔ Machine Stopped</option>
                         </select>
                       </div>
-                      <div id="s-stop-hrs-wrap" style="display:none">
+                      <div id="s-stop-hrs-wrap" class="dpr-more-keep" style="display:none">
                         <label style="display:block; font-size:0.7rem; font-weight:600; color:#64748b; margin-bottom:3px" title="No production (0 pcs) for at least this long, for any reason except Power Cut">Stopped for</label>
                         <select id="s-stop-hrs" class="form-control" style="padding:6px 7px; border:1px solid #fca5a5; border-radius:4px; font-size:0.8rem; min-width:90px; color:#b91c1c; font-weight:700">
                           <option value="2">2 hours +</option>
@@ -1831,6 +1837,8 @@
                     // Tolerate a reversed range — swap so From is always the earlier day.
                     if (toDate && fromDate && toDate < fromDate) { const t = fromDate; fromDate = toDate; toDate = t; }
                     const shiftMode = document.getElementById('s-shift').value; // 'Day', 'Night', 'Both'
+                    const dprSub = document.getElementById('dpr-v2-sub');
+                    if (dprSub) dprSub.textContent = `${fromDate}${toDate && toDate !== fromDate ? ' – ' + toDate : ''} · ${shiftMode === 'Both' ? 'Day + Night' : shiftMode + ' shift'} · ${dprProcess || 'Moulding'} · updated ${new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`;
                     const container = document.getElementById('summary-container');
                     const selectedFactory = document.getElementById('s-factory')?.value || '';
 
@@ -2022,111 +2030,29 @@
                         let grandTotalFilledSlots = 0;
 
                         // 1. Render Global Plant Total Section (Visible once at top)
+                        // Main row reads as a waterfall: target → estimated → achievable → actual → loss.
                         masterHtml += `
-                            <div id="sticky-plant-total" style="position:relative; z-index:1; background:white; border:1px solid #cbd5e1; border-radius:12px; padding:15px; margin-bottom:20px; display:flex; justify-content:space-between; align-items:center; box-shadow:0 4px 6px -1px rgba(0,0,0,0.05)">
-                                <div style="font-size:1.1rem; font-weight:700; color:#0f172a">
-                                    Plant Total (${new Date(fromDate).toLocaleDateString('en-GB')}${toDate && toDate !== fromDate ? ' – ' + new Date(toDate).toLocaleDateString('en-GB') : ''})
-                                    <span style="font-size:0.8rem; font-weight:400; color:#64748b; margin-left:8px">(Combined Summary)</span>
+                            <div id="sticky-plant-total" class="dpr-pt">
+                                <div class="dpr-pt-head">
+                                    <strong>Plant total</strong>
+                                    <span>${new Date(fromDate).toLocaleDateString('en-GB')}${toDate && toDate !== fromDate ? ' – ' + new Date(toDate).toLocaleDateString('en-GB') : ''} · ${dprEscHtml(shiftMode === 'Both' ? 'Day + Night' : shiftMode + ' shift')}</span>
                                 </div>
-                                <div style="display:flex; gap:20px; flex-wrap:wrap; row-gap:12px; justify-content:flex-end; align-items:center">
-                                    <div style="text-align:right" title="Planned Target for the selected shift: std rate × piece weight × the hours each running machine was active, summed machine-wise.">
-                                        <div style="font-size:0.75rem; font-weight:600; color:#4c1d95; text-transform:uppercase">Planned Target</div>
-                                        <div style="font-size:1.4rem; font-weight:800; color:#4c1d95">
-                                            <span id="grand-total-plantarget">0.00</span> <span style="font-size:0.9rem">Kg</span>
-                                        </div>
-                                    </div>
-                                    <div style="height:40px; border-right:1px solid #e2e8f0"></div>
-                                    <div style="text-align:right" title="Planned Estimated = Planned Target − Std Mould Changeover (mould changes × machine load + unload time × rate).">
-                                        <div style="font-size:0.75rem; font-weight:600; color:#7c3aed; text-transform:uppercase">Planned Estimated</div>
-                                        <div style="font-size:1.4rem; font-weight:800; color:#7c3aed">
-                                            <span id="grand-total-planest">0.00</span> <span style="font-size:0.9rem">Kg</span>
-                                        </div>
-                                    </div>
-                                    <div style="height:40px; border-right:1px solid #e2e8f0"></div>
-                                    <div style="text-align:right" title="Planned Achievable Target = Planned Estimated − 5% allowance.">
-                                        <div style="font-size:0.75rem; font-weight:600; color:#0ea5e9; text-transform:uppercase">Plan Achievable</div>
-                                        <div style="font-size:1.4rem; font-weight:800; color:#0ea5e9">
-                                            <span id="grand-total-planach">0.00</span> <span style="font-size:0.9rem">Kg</span>
-                                        </div>
-                                    </div>
-                                    <div style="height:40px; border-right:1px solid #e2e8f0"></div>
-                                    <div style="text-align:right" title="Downtime Loss = Planned Achievable Target − Gross Production. Output lost to all stoppages plus running below rated speed.">
-                                        <div style="font-size:0.75rem; font-weight:600; color:#db2777; text-transform:uppercase">Downtime Loss</div>
-                                        <div style="font-size:1.4rem; font-weight:800; color:#db2777">
-                                            <span id="grand-total-dtloss">0.00</span> <span style="font-size:0.9rem">Kg</span>
-                                        </div>
-                                    </div>
-                                    <div style="height:40px; border-right:1px solid #e2e8f0"></div>
-                                    <div style="text-align:right" title="Gross Production = Good + Rejection (Overall Tonnage).">
-                                        <div style="font-size:0.75rem; font-weight:600; color:#7c3aed; text-transform:uppercase">Gross Production</div>
-                                        <div style="font-size:1.4rem; font-weight:800; color:#7c3aed">
-                                            <span id="grand-total-overall">0.00</span> <span style="font-size:0.9rem">Kg</span>
-                                        </div>
-                                    </div>
-                                    <div style="height:40px; border-right:1px solid #e2e8f0"></div>
-                                    <div style="text-align:right">
-                                        <div style="font-size:0.75rem; font-weight:600; color:#64748b; text-transform:uppercase">Rejection</div>
-                                        <div style="font-size:1.4rem; font-weight:800; color:#dc2626">
-                                            <span id="grand-total-rej">0.00</span> <span style="font-size:0.9rem">Kg</span>
-                                        </div>
-                                    </div>
-                                    <div style="height:40px; border-right:1px solid #e2e8f0"></div>
-                                    <div style="text-align:right" title="Good Production = Gross − Rejection.">
-                                        <div style="font-size:0.75rem; font-weight:600; color:#64748b; text-transform:uppercase">Good Production</div>
-                                        <div style="font-size:1.4rem; font-weight:800; color:#2563eb">
-                                            <span id="grand-total-tonnage">0.00</span> <span style="font-size:0.9rem">Kg</span>
-                                        </div>
-                                    </div>
-                                    <div style="height:40px; border-right:1px solid #e2e8f0"></div>
-                                    <div style="text-align:right" title="OEE (Scheduled Time)">
-                                        <div style="font-size:0.75rem; font-weight:600; color:#0369a1; text-transform:uppercase">OEE</div>
-                                        <div style="font-size:1.4rem; font-weight:800; color:#0369a1">
-                                            <span id="grand-total-eff">0.0</span> <span style="font-size:0.9rem">%</span>
-                                        </div>
-                                    </div>
-                                    <div style="height:40px; border-right:1px solid #e2e8f0"></div>
-                                    <div style="text-align:right" title="EFF (Net Run Time after Downtime)">
-                                        <div style="font-size:0.75rem; font-weight:600; color:#16a34a; text-transform:uppercase">EFF</div>
-                                        <div style="font-size:1.4rem; font-weight:800; color:#16a34a">
-                                            <span id="grand-total-effnet">0.0</span> <span style="font-size:0.9rem">%</span>
-                                        </div>
-                                    </div>
-                                    <div style="height:40px; border-right:1px solid #e2e8f0"></div>
-                                    <div style="text-align:right">
-                                        <div style="font-size:0.75rem; font-weight:600; color:#64748b; text-transform:uppercase">Downtime</div>
-                                        <div style="font-size:1.4rem; font-weight:800; color:#db2777">
-                                            <span id="grand-total-dt">0.0</span> <span style="font-size:0.9rem">Hrs</span>
-                                        </div>
-                                    </div>
-                                    <div style="height:40px; border-right:1px solid #e2e8f0"></div>
-                                    <div style="text-align:right">
-                                        <div style="font-size:0.75rem; font-weight:600; color:#be185d; text-transform:uppercase" title="Auto Calculated Downtime">Auto DT</div>
-                                        <div style="font-size:1.4rem; font-weight:800; color:#be185d">
-                                            <span id="grand-total-autodt">0.0</span> <span style="font-size:0.9rem">Hrs</span>
-                                        </div>
-                                    </div>
-                                    <div style="height:40px; border-right:1px solid #e2e8f0"></div>
-                                    <div style="text-align:right">
-                                        <div style="font-size:0.75rem; font-weight:600; color:#64748b; text-transform:uppercase">Changes</div>
-                                        <div style="font-size:1rem; font-weight:700; color:#475569; display:flex; gap:10px; align-items:center;">
-                                            <span title="Mould Changes" style="color:#d97706">MC: <span id="grand-total-mc" style="font-weight:800; font-size:1.2rem">0</span></span>
-                                            <span style="color:#cbd5e1">|</span>
-                                            <span title="Colour Changes" style="color:#c2410c">CC: <span id="grand-total-cc" style="font-weight:800; font-size:1.2rem">0</span></span>
-                                            <span style="color:#cbd5e1">|</span>
-                                            <span title="Job Changes" style="color:#7c3aed">JC: <span id="grand-total-jc" style="font-weight:800; font-size:1.2rem">0</span></span>
-                                        </div>
-                                    </div>
-                                    <div style="height:40px; border-right:1px solid #e2e8f0"></div>
-                                    <div style="text-align:center; min-width:110px" title="Filled Entries / Total Open Slots (non-future)">
-                                        <div style="font-size:0.75rem; font-weight:600; color:#0891b2; text-transform:uppercase; letter-spacing:0.5px">Entries</div>
-                                        <div style="font-size:1.1rem; font-weight:800; white-space:nowrap; margin:2px 0 3px">
-                                            <span id="grand-total-entries-filled" style="font-size:1.4rem; color:#059669; font-weight:900">–</span><span style="color:#cbd5e1; font-size:0.9rem; margin:0 2px">/</span><span id="grand-total-entries-total" style="color:#64748b; font-size:1rem; font-weight:700">–</span>
-                                        </div>
-                                        <div style="background:#e2e8f0; border-radius:99px; height:5px; width:100%; overflow:hidden; margin-bottom:2px">
-                                            <div id="grand-total-entries-bar" style="height:5px; width:0%; background:#059669; border-radius:99px; transition:width 0.5s ease"></div>
-                                        </div>
-                                        <div id="grand-total-entries-pct" style="font-size:0.72rem; font-weight:700; color:#059669">–%</div>
-                                    </div>
+                                <div class="dpr-pt-row">
+                                    <div class="dpr-pt-tile t-target" title="Planned Target for the selected shift: std rate × piece weight × the hours each running machine was active, summed machine-wise."><span class="dpr-pt-label">Planned target</span><span class="dpr-pt-value"><span id="grand-total-plantarget">0.00</span> <small>kg</small></span></div>
+                                    <div class="dpr-pt-tile t-est" title="Planned Estimated = Planned Target − Std Mould Changeover (mould changes × machine load + unload time × rate)."><span class="dpr-pt-label">Planned estimated</span><span class="dpr-pt-value"><span id="grand-total-planest">0.00</span> <small>kg</small></span></div>
+                                    <div class="dpr-pt-tile t-ach" title="Planned Achievable Target = Planned Estimated − 5% allowance."><span class="dpr-pt-label">Plan achievable</span><span class="dpr-pt-value"><span id="grand-total-planach">0.00</span> <small>kg</small></span></div>
+                                    <div class="dpr-pt-tile t-gross" title="Gross Production = Good + Rejection (Overall Tonnage)."><span class="dpr-pt-label">Gross production</span><span class="dpr-pt-value"><span id="grand-total-overall">0.00</span> <small>kg</small></span></div>
+                                    <div class="dpr-pt-tile t-good" title="Good Production = Gross − Rejection."><span class="dpr-pt-label">Good production</span><span class="dpr-pt-value"><span id="grand-total-tonnage">0.00</span> <small>kg</small></span></div>
+                                    <div class="dpr-pt-tile t-rej"><span class="dpr-pt-label">Rejection</span><span class="dpr-pt-value"><span id="grand-total-rej">0.00</span> <small>kg</small></span></div>
+                                    <div class="dpr-pt-tile t-loss" title="Downtime Loss = Planned Achievable Target − Gross Production. Output lost to all stoppages plus running below rated speed."><span class="dpr-pt-label">Downtime loss</span><span class="dpr-pt-value"><span id="grand-total-dtloss">0.00</span> <small>kg</small></span></div>
+                                </div>
+                                <div class="dpr-pt-row dpr-pt-row2">
+                                    <div class="dpr-pt-tile t-oee" title="OEE (Scheduled Time)"><span class="dpr-pt-label">OEE</span><span class="dpr-pt-value"><span id="grand-total-eff">0.0</span> <small>%</small></span></div>
+                                    <div class="dpr-pt-tile t-eff" title="EFF (Net Run Time after Downtime)"><span class="dpr-pt-label">EFF</span><span class="dpr-pt-value"><span id="grand-total-effnet">0.0</span> <small>%</small></span></div>
+                                    <div class="dpr-pt-tile t-dt"><span class="dpr-pt-label">Downtime</span><span class="dpr-pt-value"><span id="grand-total-dt">0.0</span> <small>hrs</small></span></div>
+                                    <div class="dpr-pt-tile t-adt" title="Auto Calculated Downtime"><span class="dpr-pt-label">Auto DT</span><span class="dpr-pt-value"><span id="grand-total-autodt">0.0</span> <small>hrs</small></span></div>
+                                    <div class="dpr-pt-tile t-chg"><span class="dpr-pt-label">Changes</span><span class="dpr-pt-value dpr-pt-chg"><span title="Mould Changes">MC <b id="grand-total-mc">0</b></span><span title="Colour Changes">CC <b id="grand-total-cc">0</b></span><span title="Job Changes">JC <b id="grand-total-jc">0</b></span></span></div>
+                                    <div class="dpr-pt-tile t-ent" title="Filled Entries / Total Open Slots (non-future)"><span class="dpr-pt-label">Entries</span><span class="dpr-pt-value"><span id="grand-total-entries-filled">–</span> <small>/ <span id="grand-total-entries-total">–</span> · <span id="grand-total-entries-pct">–%</span></small></span><div class="dpr-pt-bar"><div id="grand-total-entries-bar"></div></div></div>
                                 </div>
                             </div>
                         `;
@@ -2143,6 +2069,7 @@
                         const mmMode = groupBy === 'machine';
                         const mmOrder = [];          // line names in first-seen order
                         const mmHeader = {};         // lineName -> line header + <table><tbody> open
+                        const dprLineSupervisor = {}; // lineName -> production supervisor (scorecards)
                         const mmRows = {};           // lineName -> machine -> [rowHtml, ...] (pass order)
                         let mmStickyHeader = '';     // the column header, emitted once
                         let mmMachineCount = 0;      // machines shown after View/Line filters
@@ -2350,6 +2277,7 @@
                             if (lineName.startsWith('B') || lineName.startsWith('F')) mgr = 'Rajesh Shrivastav';
                             else if (lineName.startsWith('C') || lineName.startsWith('E')) mgr = 'Ratnakar Behra';
 
+                            if (team.prod_supervisor) dprLineSupervisor[lineName] = team.prod_supervisor;
                             const teamInfo = team.entry_person ?
                                 `Entry Person: <b>${team.entry_person}</b>&nbsp;|&nbsp;` +
                                 `Prodn Supervisor: <b>${team.prod_supervisor || '-'}</b>&nbsp;|&nbsp;` +
@@ -2417,6 +2345,8 @@
                                 let machineCapRate = 0; // best (std rate × piece wt) across this machine's planned moulds → full-shift capacity
                                 const machineEntryTypes = new Set(); // track special entry_types for View Filter
                                 let machineMissingSlots = 0; // count of past unfilled slots (for Pending filter)
+                                let machineOpenSlots = 0;    // past (non-future) slots, for the line scorecard
+                                let machineLateSlots = 0;    // slots with an entry made 45+ min late
                                 let machineBalComplete = false; // true when any mould's plan is met/exceeded (bal <= 0) → blink
                                 let machinePlanNearDone = false; // true when any mould has <= 20% qty left to produce (Plan Change Over filter)
                                 // Determine Shifts for this Machine Row(s)
@@ -2780,6 +2710,8 @@
                                             const now = new Date().getTime();
                                             const currentSlotStart = sEnd - 3600000;
                                             const isFuture = (now < currentSlotStart);
+                                            if (!isFuture && mIdx === 0) machineOpenSlots++;
+                                            let slotCountedLate = false;
 
                                             let bg = '#ffffff';
                                             let border = '1px solid #f1f5f9';
@@ -2906,6 +2838,7 @@
                                                         // 45 minutes = 2700000 ms. If entered after this, mark Late.
                                                         if (slotEndTime > 0 && entryTime > (slotEndTime + 2700000)) isLate = true;
                                                     }
+                                                    if (isLate && !slotCountedLate && mIdx === 0) { slotCountedLate = true; machineLateSlots++; }
 
                                                     // Background: yellow for late entries, green for on-time
                                                     const blockBg = isLate ? '#fef9c3' : '#dcfce7';
@@ -3486,9 +3419,9 @@
                                 // not the whole machine row — see planBalHtml above.
 
                                 if (flatMode) {
-                                    globalMachineBuffer.push({ html: machineRowHtml, eff: mEff, oee: mOee, name: machine, entryTypes: machineEntryTypes, hasEntries: machineGood > 0 || machineEst > 0, missingSlots: machineMissingSlots, balComplete: machineBalComplete, planNearDone: machinePlanNearDone });
+                                    globalMachineBuffer.push({ html: machineRowHtml, eff: mEff, oee: mOee, name: machine, entryTypes: machineEntryTypes, hasEntries: machineGood > 0 || machineEst > 0, missingSlots: machineMissingSlots, openSlots: machineOpenSlots, lateSlots: machineLateSlots, balComplete: machineBalComplete, planNearDone: machinePlanNearDone });
                                 } else {
-                                    machineBuffer.push({ html: machineRowHtml, eff: mEff, oee: mOee, name: machine, entryTypes: machineEntryTypes, hasEntries: machineGood > 0 || machineEst > 0, missingSlots: machineMissingSlots, balComplete: machineBalComplete, planNearDone: machinePlanNearDone });
+                                    machineBuffer.push({ html: machineRowHtml, eff: mEff, oee: mOee, name: machine, entryTypes: machineEntryTypes, hasEntries: machineGood > 0 || machineEst > 0, missingSlots: machineMissingSlots, openSlots: machineOpenSlots, lateSlots: machineLateSlots, balComplete: machineBalComplete, planNearDone: machinePlanNearDone });
                                 }
                             }); // End machines loop
 
@@ -3635,6 +3568,8 @@
                         // Each machine shows its rows for every date+shift together (labelled per row),
                         // e.g. M-1 04 Day, M-1 04 Night, M-1 05 Day, M-1 05 Night, then M-2, …
                         if (mmMode && mmOrder.length) {
+                            const dprDeckAt = masterHtml.length; // line scorecards go above the column header
+                            let dprDeckHtml = '';
                             masterHtml += mmStickyHeader;
                             const extractIdx = (str) => { const m = String(str).match(/-(\d+)$/); return m ? parseInt(m[1]) : 999999; };
                             // View Filter: a machine passes if ANY of its date/shift passes matches.
@@ -3697,6 +3632,20 @@
                                     <div style="overflow-x:auto"><table style="width:100%; border-collapse:separate; border-spacing:0; font-size:0.8rem; text-align:center; table-layout:fixed">${colgroup}<tbody></tbody>${tbodies}</table></div></div></div>`;
                             } else {
                                 // No View Filter → grouped machine-wise (one table per line).
+                                const lineStats = [];
+                                const dprOpenLines = dprGetOpenLines(); // lines start collapsed; the set holds the ones the user opened
+                                // Scorecard numbers for one line, from the per-machine counters above.
+                                const dprLineStats = (lineName, rowsByMachine) => {
+                                    let open = 0, missing = 0, late = 0, machinesN = 0;
+                                    Object.values(rowsByMachine).forEach(passRows => {
+                                        machinesN++;
+                                        passRows.forEach(r => { open += r.openSlots || 0; missing += r.missingSlots || 0; late += r.lateSlots || 0; });
+                                    });
+                                    const t = (window.lineTheTonnages || {})[lineName] || {};
+                                    const eff = (t.netEst || 0) > 0 ? (t.effGood / t.netEst * 100) : null;
+                                    const filledPct = open > 0 ? Math.max(0, Math.round((open - missing) / open * 100)) : null;
+                                    return { lineName, machinesN, open, missing, late, eff, filledPct, sup: dprLineSupervisor[lineName] || '' };
+                                };
                                 mmOrder.sort((a, b) => String(a).localeCompare(String(b), undefined, { numeric: true }));
                                 mmOrder.forEach(lineName => {
                                     // Close the header's auto-opened (empty) tbody, then give each machine its
@@ -3714,9 +3663,13 @@
                                         html += `<tbody class="mm-machine" data-search="${mkSearchText(machine, rowsHtml)}">${rowsHtml}</tbody>`;
                                     });
                                     html += `</table></div></div>`;
-                                    masterHtml += `<div class="dpr-line-card">${html}</div>`;
+                                    const lineStat = dprLineStats(lineName, mmRows[lineName]);
+                                    lineStats.push(lineStat);
+                                    masterHtml += `<div class="dpr-line-card${dprOpenLines.has(lineName) ? '' : ' is-collapsed'}" data-line="${dprEscHtml(lineName)}"><button type="button" class="dpr-line-headbar"><i class="bi bi-chevron-down"></i><b>${dprEscHtml(lineName)}</b><span>${lineStat.filledPct == null ? '—' : lineStat.filledPct + '% filled'} · ${lineStat.missing} missing · ${lineStat.late} late</span></button>${html}</div>`;
                                 });
+                                dprDeckHtml = dprRenderLineDeck(lineStats);
                             }
+                            if (dprDeckHtml) masterHtml = masterHtml.slice(0, dprDeckAt) + dprDeckHtml + masterHtml.slice(dprDeckAt);
                         }
 
                         // ---- ENTRIES COUNT: Standalone calculation from raw API data ----
@@ -4125,6 +4078,50 @@
                     });
                 };
 
+                // Line scorecards (DPR compliance v2): worst line first, click to open its hourly grid.
+                const DPR_OPEN_KEY = 'dpr_open_lines';
+                window.dprGetOpenLines = function () {
+                    try { return new Set(JSON.parse(localStorage.getItem(DPR_OPEN_KEY) || '[]')); } catch (_) { return new Set(); }
+                };
+                const dprSaveOpen = (set) => { try { localStorage.setItem(DPR_OPEN_KEY, JSON.stringify(Array.from(set))); } catch (_) { /* private mode */ } };
+                window.dprRenderLineDeck = function (stats) {
+                    if (!stats || !stats.length) return '';
+                    const esc = (v) => String(v == null ? '' : v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+                    const sorted = stats.slice().sort((a, b) => (a.filledPct == null ? 101 : a.filledPct) - (b.filledPct == null ? 101 : b.filledPct) || b.missing - a.missing);
+                    const tone = (p) => p == null ? 'is-none' : p >= 95 ? 'is-good' : p >= 80 ? 'is-warn' : 'is-bad';
+                    const cards = sorted.map(st => `
+                        <button type="button" class="dpr-sc ${tone(st.filledPct)}" data-line="${esc(st.lineName)}" title="Open ${esc(st.lineName)}">
+                          <span class="dpr-sc-top"><b>${esc(st.lineName)}</b><span>${st.machinesN} m/c</span></span>
+                          <span class="dpr-sc-pct">${st.filledPct == null ? '—' : st.filledPct + '%'} <small>filled</small></span>
+                          <span class="dpr-sc-bar"><i style="width:${st.filledPct || 0}%"></i></span>
+                          <span class="dpr-sc-meta">${st.missing} missing · ${st.late} late${st.eff != null ? ` · EFF ${st.eff.toFixed(0)}%` : ''}</span>
+                          ${st.sup ? `<span class="dpr-sc-sup">Sup. ${esc(st.sup)}</span>` : ''}
+                        </button>`).join('');
+                    return `<div class="dpr-deck"><div class="dpr-deck-head"><strong>Lines</strong><span>Worst first · click a line to open its hours</span><span class="dpr-v2-spacer"></span><button type="button" class="dpr-v2-btn" data-dpr-lines="expand"><i class="bi bi-arrows-expand"></i> Open all</button><button type="button" class="dpr-v2-btn" data-dpr-lines="collapse"><i class="bi bi-arrows-collapse"></i> Close all</button></div><div class="dpr-deck-grid">${cards}</div></div>`;
+                };
+                const dprSetLineOpen = (card, open) => card.classList.toggle('is-collapsed', !open);
+                document.addEventListener('click', (ev) => {
+                    const sc = ev.target.closest && ev.target.closest('.dpr-sc');
+                    const all = ev.target.closest && ev.target.closest('[data-dpr-lines]');
+                    const head = ev.target.closest && ev.target.closest('.dpr-line-card .dpr-line-headbar');
+                    if (!sc && !all && !head) return;
+                    const set = window.dprGetOpenLines();
+                    const cards = Array.from(document.querySelectorAll('#summary-container .dpr-line-card[data-line]'));
+                    if (all) {
+                        const open = all.dataset.dprLines === 'expand';
+                        cards.forEach(c => { dprSetLineOpen(c, open); if (open) set.add(c.dataset.line); else set.delete(c.dataset.line); });
+                    } else {
+                        const name = sc ? sc.dataset.line : head.closest('.dpr-line-card').dataset.line;
+                        const card = cards.find(c => c.dataset.line === name);
+                        if (!card) return;
+                        const open = sc ? true : card.classList.contains('is-collapsed');
+                        dprSetLineOpen(card, open);
+                        if (open) set.add(name); else set.delete(name);
+                        if (sc) card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    }
+                    dprSaveOpen(set);
+                });
+
                 // Show/hide machine blocks by the top Search box (machine / OR / client).
                 // AND-matches space-separated words; hides line cards left with no matches.
                 window.applyDprSearch = function() {
@@ -4133,6 +4130,7 @@
                     if (!cont) return;
                     const q = (box ? box.value : '').toLowerCase().trim();
                     const words = q ? q.split(/\s+/) : [];
+                    cont.classList.toggle('dpr-searching', words.length > 0);
                     const blocks = cont.querySelectorAll('tbody.mm-machine');
                     let shown = 0;
                     blocks.forEach(tb => {
@@ -4156,6 +4154,13 @@
                 };
 
                 document.getElementById('btn-s-apply').onclick = loadSummary;
+                ['s-date', 's-date-to', 's-shift'].forEach(id => document.getElementById(id)?.addEventListener('change', loadSummary));
+                const dprMoreBtn = document.getElementById('dpr-v2-more');
+                if (dprMoreBtn) dprMoreBtn.addEventListener('click', () => {
+                    const open = !document.getElementById('sticky-dpr-filter').classList.toggle('dpr-more-hidden');
+                    dprMoreBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
+                });
+                document.getElementById('sticky-dpr-filter')?.classList.add('dpr-more-hidden');
                 document.getElementById('s-eff-filter')?.addEventListener('change', loadSummary);
                 document.getElementById('s-stop-hrs')?.addEventListener('change', loadSummary);
                 document.getElementById('s-factory')?.addEventListener('change', loadSummary);
