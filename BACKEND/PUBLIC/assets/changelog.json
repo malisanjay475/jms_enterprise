@@ -11,8 +11,22 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.172.0",
+  "latest": "1.172.1",
   "versions": [
+    {
+      "version": "1.172.1",
+      "date": "2026-11-03",
+      "title": "DPR compliance: compact layout",
+      "modules": [
+        {
+          "app": "dpr",
+          "changes": [
+            { "type": "improvement", "text": "All filters are shown again (To, Process, Factory) on one row; the More filters and Print buttons are gone. Machine count and the colour key moved to the header row." },
+            { "type": "improvement", "text": "Tighter layout: the score sits beside Entries by hour, What stands out and Machines to chase share the next row, and spacing is smaller across the page." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.172.0",
       "date": "2026-11-03",

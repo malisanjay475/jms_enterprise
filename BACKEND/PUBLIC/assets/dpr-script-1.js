@@ -742,9 +742,6 @@
                 card.innerHTML = `
                   <div class="dpr-v2-head">
                     <div class="dpr-v2-sub" id="dpr-v2-sub"><span class="dpr-chip">Loading…</span></div>
-                    <div class="dpr-v2-spacer"></div>
-                    <button type="button" class="dpr-v2-btn" id="dpr-v2-more" aria-expanded="false"><i class="bi bi-sliders"></i> More filters</button>
-                    <button type="button" class="dpr-v2-btn" onclick="window.print()"><i class="bi bi-printer"></i> Print</button>
                   </div>
                   <div id="sticky-dpr-filter" class="dpr-v2-filter" style="position:relative; z-index:60; margin-bottom:15px; padding:12px 14px; background:#f8fafc; border-radius:8px; border:1px solid #e2e8f0; box-shadow:0 1px 3px rgba(0,0,0,0.1)">
                     <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:flex-end">
@@ -4302,13 +4299,17 @@
                 };
 
                 document.getElementById('btn-s-apply').onclick = loadSummary;
+                // Machine count and the colour key sit on the header row, so all filters fit on one line.
+                (() => {
+                    const head = document.querySelector('.dpr-v2-head'), cnt = document.getElementById('dpr-machine-count');
+                    if (!head || !cnt) return;
+                    const row = document.querySelector('#sticky-dpr-filter > div');
+                    const legend = row && row.lastElementChild && !row.lastElementChild.contains(cnt) ? row.lastElementChild : null;
+                    const right = document.createElement('div'); right.className = 'dpr-head-right';
+                    right.appendChild(cnt); if (legend) right.appendChild(legend);
+                    head.appendChild(right);
+                })();
                 ['s-date', 's-date-to', 's-shift'].forEach(id => document.getElementById(id)?.addEventListener('change', loadSummary));
-                const dprMoreBtn = document.getElementById('dpr-v2-more');
-                if (dprMoreBtn) dprMoreBtn.addEventListener('click', () => {
-                    const open = !document.getElementById('sticky-dpr-filter').classList.toggle('dpr-more-hidden');
-                    dprMoreBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
-                });
-                document.getElementById('sticky-dpr-filter')?.classList.add('dpr-more-hidden');
                 // Sort buttons on the Lines deck: re-order the cards in place, no reload.
                 document.addEventListener('click', (ev) => {
                     const b = ev.target.closest && ev.target.closest('[data-dpr-sort]');

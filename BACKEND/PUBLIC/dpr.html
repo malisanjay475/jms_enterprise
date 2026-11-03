@@ -253,6 +253,44 @@
     .dpr-wm-name small { display:block; font-size:.66rem; font-weight:600; color:var(--dpr-mute); overflow:hidden; text-overflow:ellipsis; }
     .dpr-score { justify-content:flex-start; }
     @media (max-width:760px) { #sticky-dpr-filter #s-search { width:100% !important; } .dpr-v2-head { border-radius:12px 12px 0 0; } }
+    /* DPR compliance v3.3: compact overview — score beside the hours, notes + chase below */
+    .dpr-v2-head { padding:10px 16px; }
+    #sticky-dpr-filter.dpr-v2-filter { padding:10px 16px 12px !important; margin-bottom:12px !important; }
+    .dpr-ov { grid-template-columns:330px repeat(3,minmax(0,1fr)); grid-template-areas:"score hours hours hours" "notes notes chase chase"; gap:10px; margin-bottom:12px; }
+    .dpr-ov-card { padding:12px 14px; }
+    .dpr-score { flex-direction:row; align-items:center; justify-content:flex-start; gap:14px; }
+    .dpr-score-ring, .dpr-score-ring svg { width:96px; height:96px; flex:0 0 96px; }
+    .dpr-score-num b { font-size:1.55rem; }
+    .dpr-score-num span { font-size:.62rem; margin-top:2px; }
+    .dpr-score-side { flex:1 1 auto; min-width:0; }
+    .dpr-score-verdict { margin:0 0 8px; }
+    .dpr-score dl { grid-template-columns:repeat(2,minmax(0,1fr)); gap:5px; }
+    .dpr-score dl > div { padding:4px 6px; text-align:left; display:flex; justify-content:space-between; align-items:baseline; gap:6px; }
+    .dpr-score dd { font-size:.92rem; }
+    .dpr-ins-title { margin-bottom:8px; }
+    .dpr-hs-big i { padding:7px 2px 6px; }
+    .dpr-hs-legend { margin-top:8px; }
+    .dpr-ins-list { gap:6px; }
+    .dpr-wm-list { max-height:132px; grid-template-columns:repeat(2,minmax(0,1fr)); }
+    .dpr-wm { padding:5px 8px; }
+    .dpr-pt { padding:12px 14px; margin-bottom:12px; }
+    .dpr-pt-head { margin-bottom:10px; }
+    .dpr-pt-row { gap:8px; } .dpr-pt-row2 { gap:8px; margin-top:8px; padding-top:8px; }
+    .dpr-pt-tile { padding:8px 10px; }
+    .dpr-wf { margin-top:5px; } .dpr-wf-pct { margin-top:2px; }
+    .dpr-deck { margin-bottom:12px; } .dpr-deck-head { margin-bottom:8px; }
+    #sticky-dpr-filter #s-search { width:160px !important; }
+    #sticky-dpr-filter #s-eff-filter { min-width:0 !important; width:170px; }
+    #sticky-dpr-filter input[type="date"] { width:130px; }
+    #sticky-dpr-filter > div:first-child { gap:10px !important; }
+    .dpr-v2-head .dpr-head-right { margin-left:auto; display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+    @media (max-width:1280px) {
+      .dpr-ov { grid-template-columns:300px minmax(0,1fr); grid-template-areas:"score hours" "notes chase"; }
+      .dpr-wm-list { grid-template-columns:minmax(0,1fr); }
+    }
+    @media (max-width:760px) {
+      .dpr-ov { grid-template-columns:minmax(0,1fr); grid-template-areas:"score" "hours" "notes" "chase"; }
+    }
     </style>
 </head>
 
@@ -289,7 +327,7 @@
 
     <script src="/assets/app.min.js?v=1583"></script>
   <script src="/assets/machine-status-meta.js?v=1"></script>
-  <script src="/assets/dpr-script-1.js?v=release120"></script>
+  <script src="/assets/dpr-script-1.js?v=release121"></script>
 
     <!-- ADMIN EDIT MODAL -->
     <div id="dprEditModal" class="modal"
