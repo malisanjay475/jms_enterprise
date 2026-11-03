@@ -11,8 +11,101 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.167.0",
+  "latest": "1.172.1",
   "versions": [
+    {
+      "version": "1.172.1",
+      "date": "2026-11-03",
+      "title": "DPR compliance: compact layout",
+      "modules": [
+        {
+          "app": "dpr",
+          "changes": [
+            { "type": "improvement", "text": "All filters are shown again (To, Process, Factory) on one row; the More filters and Print buttons are gone. Machine count and the colour key moved to the header row." },
+            { "type": "improvement", "text": "Tighter layout: the score sits beside Entries by hour, What stands out and Machines to chase share the next row, and spacing is smaller across the page." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.172.0",
+      "date": "2026-11-03",
+      "title": "DPR compliance: cleaner header",
+      "modules": [
+        {
+          "app": "dpr",
+          "changes": [
+            { "type": "improvement", "text": "Header and filters are one card: date, shift, process and update time as chips, then the filters with one height and aligned labels." },
+            { "type": "fix", "text": "The hour that is still running no longer counts as filled; it shows as not due until it ends. The Entries tile and the score now show the same numbers." },
+            { "type": "improvement", "text": "Removed the 5-minute live refresh and the WhatsApp Share summary button." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.171.0",
+      "date": "2026-11-03",
+      "title": "DPR compliance: share, live refresh, sort",
+      "modules": [
+        {
+          "app": "dpr",
+          "changes": [
+            { "type": "feature", "text": "Share summary copies a short WhatsApp-ready report: filled %, on time, missing, late, production, each line, and the machines that must fill entries with their missed hours." },
+            { "type": "feature", "text": "Today's shift refreshes by itself every 5 minutes (only while the tab is open and you are not using it), with a Live badge." },
+            { "type": "feature", "text": "Sort the line cards by Worst filled, Most late, Lowest EFF or Name; the choice is remembered." },
+            { "type": "improvement", "text": "Machines to chase shows which hours have no entry; press / to jump to the search box." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.170.0",
+      "date": "2026-11-03",
+      "title": "DPR compliance: new look",
+      "modules": [
+        {
+          "app": "dpr",
+          "changes": [
+            { "type": "feature", "text": "Compliance score at the top: a ring with the % of hours filled, a verdict (On track / Needs a push / Falling behind), and on-time %, filled, missing and late." },
+            { "type": "improvement", "text": "Plant total tiles show a bar and % against the planned target, so the drop from target to good production is easy to see." },
+            { "type": "improvement", "text": "Line cards have a score ring, hour strip and Missing / Late / EFF / Rej boxes; each open line's header shows its % and hour strip." },
+            { "type": "improvement", "text": "What stands out now also names the best line; softer cards, colours and spacing across the page." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.169.0",
+      "date": "2026-11-03",
+      "title": "DPR compliance: hour-by-hour view and insights",
+      "modules": [
+        {
+          "app": "dpr",
+          "changes": [
+            { "type": "feature", "text": "Entries by hour: one strip for the whole plant showing what % of machines filled each hour, with a dot where entries were late." },
+            { "type": "feature", "text": "What stands out: on-time %, the most missed hour, the line with the most late entries, and how many machines are fully up to date." },
+            { "type": "feature", "text": "Machines to chase: the machines with the most missing hours; click one to open its line and jump to it." },
+            { "type": "improvement", "text": "Each line card now has its own hour strip plus good kg, rejection %, output vs target and downtime hours." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.168.0",
+      "date": "2026-11-03",
+      "title": "DPR compliance redesign",
+      "modules": [
+        {
+          "app": "dpr",
+          "changes": [
+            { "type": "improvement", "text": "New header with the date, shift and process, Print, and a More filters button; To date, Process and Factory sit under More filters. Date and shift reload the page as soon as they change." },
+            { "type": "improvement", "text": "Plant total is two rows of tiles: target, estimated, achievable, gross, good, rejection and downtime loss, then OEE, EFF, downtime, auto DT, MC / CC / JC and entries." },
+            { "type": "feature", "text": "Line scorecards, worst first: % filled, missing and late slots, EFF and the supervisor. Click a card to open that line's hours; Open all / Close all." },
+            { "type": "improvement", "text": "Lines start closed and remember which ones you opened, so the page loads lighter; a search opens every line with a match." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.167.0",
       "date": "2026-11-03",
