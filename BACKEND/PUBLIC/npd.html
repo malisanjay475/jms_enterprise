@@ -51,10 +51,28 @@
         .g .fix { position: sticky; background: #fff; z-index: 1; }
         .g thead .fix { z-index: 3; background: #f8fafc; }
         .g .c0 { left: 0; min-width: 52px; max-width: 52px; text-align: center; }
-        .g .ct { left: 52px; min-width: 110px; max-width: 110px; font-weight: 700; font-size: 12px; text-align: left; }
-        .g .c1 { left: 162px; min-width: 270px; max-width: 270px; box-shadow: 2px 0 0 var(--line); }
-        .g tr.main td.ct, .g tr.main td.c1, .g tr.main td.pcode { background: #f8cbad; }
-        .g td.ct.kid { background: #fff !important; vertical-align: middle; }
+        .g .ct { left: 52px; min-width: 148px; max-width: 148px; padding: 6px 10px; }
+        .g .c1 { left: 200px; min-width: 320px; max-width: 320px; box-shadow: 2px 0 0 var(--line); }
+        /* product block: warm main row with an accent edge, child moulds grouped under one label */
+        .g tr.main td { border-top: 2px solid #e2e8f0; }
+        .g tbody tr.main:first-child td { border-top: 0; }
+        .g tr.main td.c0, .g tr.main td.ct, .g tr.main td.c1, .g tr.main td.pcode { background: #fff4ea; }
+        .g tr.main td.c0 { box-shadow: inset 3px 0 0 #ea7a2c; }
+        .g tr.main td.c0 b { color: #9a3412; font-size: 14px; }
+        .g td.ct.kid { background: #f8fafc !important; }
+        .ttag { display: inline-flex; align-items: center; gap: 5px; border-radius: 999px; padding: 3px 9px; font-size: 10.5px; font-weight: 800; letter-spacing: .3px; text-transform: uppercase; white-space: nowrap; }
+        .ttag.main { background: #fde3cf; color: #9a3412; }
+        .ttag.kid { background: #e2e8f0; color: #334155; }
+        .ttag small { font-weight: 700; opacity: .7; }
+        .g tr.child td.c1 { position: sticky; }
+        .g tr.child .thumb { width: 34px; height: 34px; flex-basis: 34px; font-size: 15px; }
+        .g tr.child td.c1 .pc { padding-left: 10px; border-left: 2px solid #cbd5e1; margin-left: 4px; }
+        .g td.c1 input.inp { border-color: transparent; background: transparent; border-radius: 8px; }
+        .g td.c1 input.inp:hover { border-color: var(--line); background: #fff; }
+        .g td.c1 input.inp:focus { border-color: #ea7a2c; background: #fff; outline: 0; box-shadow: 0 0 0 3px #ea7a2c22; }
+        .g tr.main td.c1 input.inp { font-size: 13.5px; color: #431407; }
+        .g td.pcode input.code { font-variant-numeric: tabular-nums; letter-spacing: .3px; font-weight: 700; background: #fff; }
+        .g td.pcode input.code:placeholder-shown { font-weight: 500; border-style: dashed; }
         .g tbody tr:hover td { background-color: #fafcff; }
         .g td.c1 .nm { font-weight: 700; }
         .g td.c1 .pc { display: flex; gap: 8px; align-items: center; }
@@ -74,7 +92,6 @@
         .ps-Cancelled { background: #e5e7eb; color: #374151; text-decoration: line-through; }
         textarea.rm { width: 220px; min-height: 34px; border: 1px solid var(--line); border-radius: 7px; padding: 5px; font-size: 12px; resize: vertical; font-family: inherit; }
         .g tr.child td { background: #fbfdff; }
-        .g tr.child td.c1 { padding-left: 22px; }
         .g tr.child td.c1 .nm, .g tr.child td.c1 input { font-weight: 600 !important; }
         .mtag { display: inline-block; font-size: 10px; font-weight: 700; color: #7c3aed; background: #ede9fe; border-radius: 5px; padding: 1px 5px; margin-bottom: 2px; }
         .addm { color: #7c3aed !important; }
@@ -358,7 +375,7 @@
                 $('tiles').innerHTML = [['', 'All', parents.length], ...PSTAT.map(s => [s, s, counts[s] || 0])]
                     .map(([k, l, n]) => `<span class="tile${S.fstat === k ? ' on' : ''}" data-f="${esc(k)}">${esc(l)}<b>${n}</b></span>`).join('');
 
-                let h = `<thead><tr class="grp"><th class="fix c0" rowspan="2" style="top:0">Sr</th><th class="fix ct" rowspan="2" style="top:0"></th><th class="fix c1" rowspan="2" style="top:0">Product Name</th><th rowspan="2" style="top:0;min-width:125px">Product Code / Mould Code</th><th rowspan="2" style="top:0;min-width:180px">Colour details for trials<small style="display:block;color:var(--mute)">H.O</small></th>`;
+                let h = `<thead><tr class="grp"><th class="fix c0" rowspan="2" style="top:0">Sr</th><th class="fix ct" rowspan="2" style="top:0"></th><th class="fix c1" rowspan="2" style="top:0;text-align:left;padding-left:14px">Product Name</th><th rowspan="2" style="top:0;min-width:125px">Product Code / Mould Code</th><th rowspan="2" style="top:0;min-width:180px">Colour details for trials<small style="display:block;color:var(--mute)">H.O</small></th>`;
                 GROUPS.forEach(g => { h += `<th colspan="${g.cols.length}">${esc(g.label)}</th>`; });
                 h += `<th rowspan="2" style="top:0;min-width:140px">Status</th><th rowspan="2" style="top:0;min-width:230px">Remarks</th>${S.canDelete ? '<th rowspan="2" style="top:0"></th>' : ''}</tr><tr class="col">`;
                 COLS.forEach(c => { h += `<th>${esc(c[1])}${c[2] ? `<small>${esc(c[2])}</small>` : ''}</th>`; });
@@ -375,8 +392,8 @@
                     const addMould = S.canAdd && !child ? `<a class="addm" data-addm="${p.id}" title="Add a child mould under this product"><i class="bi bi-plus-circle"></i> Mould</a>` : '';
                     /* "Main Product" on the product row; one merged "Child Mould" cell over its moulds */
                     const sibs = child ? rows.filter(r => r.parent_sync_id === p.parent_sync_id) : [];
-                    const typeCell = !child ? '<td class="fix ct">Main Product</td>'
-                        : sibs[0] === p ? `<td class="fix ct kid" rowspan="${sibs.length}">Child Mould</td>` : '';
+                    const typeCell = !child ? '<td class="fix ct"><span class="ttag main"><i class="bi bi-box-seam"></i> Main Product</span></td>'
+                        : sibs[0] === p ? `<td class="fix ct kid" rowspan="${sibs.length}"><span class="ttag kid"><i class="bi bi-diagram-2"></i> Child Mould <small>${sibs.length}</small></span></td>` : '';
                     h += `<tr class="${child ? 'child' : 'main'}"><td class="fix c0">${child ? '<span class="none">↳</span>' : `<b>${esc(p.sr_no || '')}</b>`}</td>${typeCell}
                         <td class="fix c1"><div class="pc">${thumb}<div>${name}<div class="meta"><a data-files="${p.id}"><i class="bi bi-file-earmark-text"></i> Trial report (${reps})</a><a data-files="${p.id}"><i class="bi bi-images"></i> Images (${imgs})</a>${addMould}</div></div></div></td>`;
                     h += `<td class="pcode">${S.canEdit ? `<input class="code" data-id="${p.id}" data-f="product_code" value="${esc(p.product_code || '')}" maxlength="60" placeholder="Code">` : esc(p.product_code || '') || '<span class="none">—</span>'}</td>`;
