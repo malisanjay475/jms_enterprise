@@ -3371,10 +3371,76 @@
             const { n, meta } = counts[k];
             return `<span class="mg-heat-key" style="color:${meta.color};background:${meta.bg};border-color:${meta.bd}"><i class="bi ${meta.icon}"></i> ${pEsc(meta.label)} <b>${n}</b></span>`;
           }).join('');
-          return `<div class="mg-heat"><div class="mg-heat-head"><strong>Plant heatmap</strong><span>Click a square to jump to the machine</span></div><div class="mg-heat-legend">${legend}</div>${html}</div>`;
+          const allMachines = Object.keys(byB).reduce((acc, b) => acc.concat(byB[b]), []);
+          return `<div class="mg-heat-wrap">
+            <div class="mg-heat"><div class="mg-heat-head"><strong>Plant heatmap</strong><span>Click a square to jump to the machine</span></div><div class="mg-heat-legend">${legend}</div>${html}</div>
+            <div class="mg-side">${renderAttentionPanel(allMachines)}${renderFinishingPanel(allMachines)}</div>
+          </div>`;
+        }
+
+        // Minutes since a DPR hour slot started ("10:00-11:00" → minutes since 10:00 today;
+        // a slot later than now belongs to yesterday's night shift).
+        function minutesSinceSlot(slot) {
+          const m = String(slot || '').match(/^\s*(\d{1,2})(?::(\d{2}))?/);
+          if (!m) return null;
+          const now = new Date();
+          let mins = (now.getHours() * 60 + now.getMinutes()) - (Number(m[1]) * 60 + Number(m[2] || 0));
+          if (mins < 0) mins += 24 * 60;
+          return mins;
+        }
+        function fmtDuration(mins) {
+          if (mins == null) return '';
+          const h = Math.floor(mins / 60), mm = mins % 60;
+          return h ? `${h}h ${String(mm).padStart(2, '0')}m` : `${mm}m`;
+        }
+        const mgShortName = (code) => (String(code || '').includes('>') ? String(code).split('>').pop().trim() : String(code || ''));
+
+        // Panel 1: stopped / no-plan machines (longest first) and running machines short of STD manpower.
+        function renderAttentionPanel(machines) {
+          const rows = [];
+          machines.forEach(m => {
+            const st = getPlanningMachineState(m);
+            if (st === 'plantoff' || st === 'planned') return;
+            const meta = getMachineStatusMeta(m, st);
+            if (st === 'blocked' || st === 'maintenance' || st === 'available') {
+              if (st === 'blocked' && m.is_active === false) return; // switched off on purpose
+              const mins = minutesSinceSlot(m.live_since);
+              rows.push({ m, meta, rank: 2, mins: mins == null ? -1 : mins, text: `${meta.short || meta.label}${mins != null ? ` · ${fmtDuration(mins)}` : ''}` });
+            } else if (st === 'running' && m.act_manpower != null && m.std_manpower != null && m.act_manpower < m.std_manpower) {
+              rows.push({ m, meta: { color: '#b45309' }, rank: 1, mins: 0, text: `MP short ${fmtMp(m.act_manpower)}/${fmtMp(m.std_manpower)}` });
+            }
+          });
+          rows.sort((a, b) => b.rank - a.rank || b.mins - a.mins);
+          const shown = rows.slice(0, 7);
+          const body = shown.length
+            ? shown.map(r => `<button type="button" class="mg-jump mg-side-row" data-code="${pEsc(r.m.code)}"><span class="mg-side-name">${pEsc(mgShortName(r.m.code))}</span><span class="mg-side-val" style="color:${r.meta.color}">${pEsc(r.text)}</span></button>`).join('')
+            : '<div class="mg-side-empty"><i class="bi bi-check-circle"></i> All machines running</div>';
+          return `<div class="mg-side-card"><div class="mg-side-head"><strong><i class="bi bi-exclamation-triangle"></i> Needs attention now</strong>${rows.length ? `<span>${rows.length}</span>` : ''}</div>${body}${rows.length > shown.length ? `<div class="mg-side-more">+${rows.length - shown.length} more in the grid</div>` : ''}</div>`;
+        }
+
+        // Panel 3: running jobs at 90%+ so the next mould can be planned before they stop.
+        function renderFinishingPanel(machines) {
+          const rows = [];
+          machines.forEach(m => {
+            const plans = getMachinePlans(m);
+            const run = plans.find(p => String(p.status || '').trim().toUpperCase() === 'RUNNING');
+            if (!run) return;
+            const planQty = Number(run.planQty || 0), bal = Number(run.balQty || 0);
+            if (planQty <= 0) return;
+            const pct = Math.max(0, Math.min(100, Math.round((planQty - bal) / planQty * 100)));
+            if (pct < 90) return;
+            const hasNext = plans.some(p => p !== run);
+            rows.push({ m, pct, bal, hasNext });
+          });
+          rows.sort((a, b) => b.pct - a.pct || a.bal - b.bal);
+          const shown = rows.slice(0, 7);
+          const body = shown.length
+            ? shown.map(r => `<button type="button" class="mg-jump mg-side-row" data-code="${pEsc(r.m.code)}"><span class="mg-side-name">${pEsc(mgShortName(r.m.code))}</span><span class="mg-side-val">${r.pct}% · bal ${r.bal.toLocaleString('en-IN')}${r.hasNext ? '' : ' · <b class="mg-side-warn">no next job</b>'}</span></button>`).join('')
+            : '<div class="mg-side-empty">No job is above 90% yet</div>';
+          return `<div class="mg-side-card"><div class="mg-side-head"><strong><i class="bi bi-hourglass-split"></i> Jobs finishing soon</strong>${rows.length ? `<span>${rows.length}</span>` : ''}</div>${body}${rows.length > shown.length ? `<div class="mg-side-more">+${rows.length - shown.length} more</div>` : ''}</div>`;
         }
         document.addEventListener('click', (ev) => {
-          const cell = ev.target.closest && ev.target.closest('.mg-heat-cell');
+          const cell = ev.target.closest && ev.target.closest('.mg-heat-cell, .mg-jump');
           if (!cell) return;
           const card = Array.from(document.querySelectorAll('#machineGrid .machine')).find(c => c.dataset.code === cell.dataset.code);
           if (!card) return;
@@ -3509,7 +3575,8 @@
             const jobName = activePlan.itemName || activePlan.mouldName || 'Job';
             frontJobHtml = `<div class="mc-front-job">
               <span class="mc-fj-item" title="${esc(detailJob)}">${runningPlan ? '' : '<em class="mc-next">Next</em> '}${esc(jobName)}</span>
-              <span class="mc-fj-sub">${esc(activePlan.orderNo || '')}${sinceText ? ` · ${esc(sinceText)}` : ''}</span>
+              <span class="mc-fj-sub">${esc(activePlan.orderNo || '')}</span>
+              ${sinceText ? `<span class="mc-fj-since"><i class="bi bi-clock"></i> ${esc(sinceText)}</span>` : ''}
               ${progressPct !== null ? `<div class="mc-progress" title="${progressPct}% done"><i style="width:${progressPct}%"></i></div><div class="mc-foot"><span>${progressPct}%</span><span>Bal ${detail(detailBalance)}</span></div>` : ''}
             </div>`;
           } else {
