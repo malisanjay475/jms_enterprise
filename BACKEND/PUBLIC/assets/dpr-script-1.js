@@ -2296,19 +2296,19 @@
                                         <div class="dpr-lt">
                                             <div class="dpr-lt-name">${lineName}</div>
                                             <div class="dpr-lt-row">
-                                                <div class="dpr-pt-tile t-target"><span class="dpr-pt-label">Planned target</span><span class="dpr-pt-value"><span id="line-total-plantarget-${lineName.replace(/\s/g, '')}">0.00</span> <small>kg</small></span></div>
-                                                <div class="dpr-pt-tile t-est"><span class="dpr-pt-label">Planned estimated</span><span class="dpr-pt-value"><span id="line-total-planest-${lineName.replace(/\s/g, '')}">0.00</span> <small>kg</small></span></div>
-                                                <div class="dpr-pt-tile t-ach"><span class="dpr-pt-label">Plan achievable</span><span class="dpr-pt-value"><span id="line-total-planach-${lineName.replace(/\s/g, '')}">0.00</span> <small>kg</small></span></div>
-                                                <div class="dpr-pt-tile t-gross"><span class="dpr-pt-label">Gross production</span><span class="dpr-pt-value"><span id="line-total-overall-${lineName.replace(/\s/g, '')}">0.00</span> <small>kg</small></span></div>
-                                                <div class="dpr-pt-tile t-good"><span class="dpr-pt-label">Good production</span><span class="dpr-pt-value"><span id="line-total-tonnage-${lineName.replace(/\s/g, '')}">0.00</span> <small>kg</small></span></div>
+                                                <div class="dpr-pt-tile t-target"><span class="dpr-pt-label">Target</span><span class="dpr-pt-value"><span id="line-total-plantarget-${lineName.replace(/\s/g, '')}">0.00</span> <small>kg</small></span></div>
+                                                <div class="dpr-pt-tile t-est"><span class="dpr-pt-label">Estimated</span><span class="dpr-pt-value"><span id="line-total-planest-${lineName.replace(/\s/g, '')}">0.00</span> <small>kg</small></span></div>
+                                                <div class="dpr-pt-tile t-ach"><span class="dpr-pt-label">Achievable</span><span class="dpr-pt-value"><span id="line-total-planach-${lineName.replace(/\s/g, '')}">0.00</span> <small>kg</small></span></div>
+                                                <div class="dpr-pt-tile t-gross"><span class="dpr-pt-label">Gross</span><span class="dpr-pt-value"><span id="line-total-overall-${lineName.replace(/\s/g, '')}">0.00</span> <small>kg</small></span></div>
+                                                <div class="dpr-pt-tile t-good"><span class="dpr-pt-label">Good</span><span class="dpr-pt-value"><span id="line-total-tonnage-${lineName.replace(/\s/g, '')}">0.00</span> <small>kg</small></span></div>
                                                 <div class="dpr-pt-tile t-rej"><span class="dpr-pt-label">Rejection</span><span class="dpr-pt-value"><span id="line-total-rej-${lineName.replace(/\s/g, '')}">0.00</span> <small>kg</small></span></div>
-                                                <div class="dpr-pt-tile t-loss" title="Plan achievable − Gross production"><span class="dpr-pt-label">Downtime loss</span><span class="dpr-pt-value"><span id="line-total-dtloss-${lineName.replace(/\s/g, '')}">0.00</span> <small>kg</small></span></div>
+                                                <div class="dpr-pt-tile t-loss" title="Plan achievable − Gross production"><span class="dpr-pt-label">DT loss</span><span class="dpr-pt-value"><span id="line-total-dtloss-${lineName.replace(/\s/g, '')}">0.00</span> <small>kg</small></span></div>
                                                 <div class="dpr-pt-tile t-pred" title="Predicted tonnage by end of this shift"><span class="dpr-pt-label">Predicted</span><span class="dpr-pt-value"><span id="line-total-pred-${lineName.replace(/\s/g, '')}">0.00</span> <small>kg</small></span></div>
                                             </div>
                                             <div class="dpr-lt-row dpr-lt-row2">
                                                 <div class="dpr-pt-tile t-oee" title="OEE (Scheduled Time)"><span class="dpr-pt-label">OEE</span><span class="dpr-pt-value"><span id="line-total-eff-${lineName.replace(/\s/g, '')}">0.0</span> <small>%</small></span></div>
                                                 <div class="dpr-pt-tile t-eff" title="EFF (Net Run Time after Downtime)"><span class="dpr-pt-label">EFF</span><span class="dpr-pt-value"><span id="line-total-effnet-${lineName.replace(/\s/g, '')}">0.0</span> <small>%</small></span></div>
-                                                <div class="dpr-pt-tile t-dt"><span class="dpr-pt-label">Downtime</span><span class="dpr-pt-value"><span id="line-total-dt-${lineName.replace(/\s/g, '')}">0.0</span> <small>hrs</small></span></div>
+                                                <div class="dpr-pt-tile t-dt"><span class="dpr-pt-label">DT</span><span class="dpr-pt-value"><span id="line-total-dt-${lineName.replace(/\s/g, '')}">0.0</span> <small>hrs</small></span></div>
                                                 <div class="dpr-pt-tile t-adt" title="Auto Calculated Downtime"><span class="dpr-pt-label">Auto DT</span><span class="dpr-pt-value"><span id="line-total-autodt-${lineName.replace(/\s/g, '')}">0</span> <small>min</small></span></div>
                                                 <div class="dpr-pt-tile t-chg"><span class="dpr-pt-label">Changes</span><span class="dpr-pt-value dpr-pt-chg"><span title="Mould Change">MC <b id="line-total-mc-${lineName.replace(/\s/g, '')}">0</b></span><span title="Colour Change">CC <b id="line-total-cc-${lineName.replace(/\s/g, '')}">0</b></span><span title="Job Change">JC <b id="line-total-jc-${lineName.replace(/\s/g, '')}">0</b></span></span></div>
                                             </div>
@@ -4001,6 +4001,16 @@
                                 // Predicted tonnage (shift-end) per line
                                 const elPred = document.getElementById(`line-total-pred-${name.replace(/\s/g, '')}`);
                                 if (elPred) elPred.textContent = (data.predKg || 0).toFixed(2);
+                                {
+                                    // Line waterfall, same formulas as Plant total (set here: the tiles exist only after render)
+                                    const lid = name.replace(/\s/g, '');
+                                    const lTarget = data.plannedKg || 0;
+                                    const lEst = Math.max(0, lTarget - (data.changeoverKg || 0));
+                                    const lAch = lEst * 0.95;
+                                    const put = (sfx, v) => { const el = document.getElementById(`line-total-${sfx}-${lid}`); if (el) el.textContent = v.toFixed(2); };
+                                    put('plantarget', lTarget); put('planest', lEst); put('planach', lAch);
+                                    put('dtloss', Math.max(0, lAch - ((data.good || 0) + (data.rej || 0))));
+                                }
 
                                 grandTotal += goodVal;
                                 grandTotalRej += rejVal;
