@@ -65,6 +65,11 @@
         .ttag.kid { background: #e2e8f0; color: #334155; }
         .ttag small { font-weight: 700; opacity: .7; }
         .g tr.child td.c1 { position: sticky; }
+        .g td.msum { background: #fff4ea; padding: 6px 14px; }
+        .msum-in { position: sticky; left: 540px; display: inline-flex; gap: 8px; align-items: center; white-space: nowrap; }
+        .msum-l { font-weight: 800; color: #9a3412; font-size: 12px; }
+        .mbar { width: 160px; height: 7px; background: #fde3cf; border-radius: 99px; overflow: hidden; }
+        .mbar i { display: block; height: 100%; background: #16a34a; border-radius: 99px; }
         .g td.rmall { min-width: 320px; max-width: 360px; vertical-align: top; padding: 6px; }
         .g td.rmall textarea.rm { width: 100%; }
         .rlist { display: flex; flex-direction: column; gap: 4px; max-height: 150px; overflow: auto; margin-bottom: 5px; }
@@ -413,6 +418,16 @@
                     h += `<tr class="${child ? 'child' : 'main'}"><td class="fix c0">${child ? '<span class="none">↳</span>' : `<b>${esc(p.sr_no || '')}</b>`}</td>${typeCell}
                         <td class="fix c1"><div class="pc">${thumb}<div>${name}<div class="meta"><a data-files="${p.id}"><i class="bi bi-file-earmark-text"></i> Trial report (${reps})</a><a data-files="${p.id}"><i class="bi bi-images"></i> Images (${imgs})</a>${addMould}</div></div></div></td>`;
                     h += `<td class="pcode">${S.canEdit ? `<input class="code" data-id="${p.id}" data-f="product_code" value="${esc(p.product_code || '')}" maxlength="60" placeholder="Code">` : esc(p.product_code || '') || '<span class="none">—</span>'}</td>`;
+                    /* stages, colours and remarks are tracked per child mould; the main product row only sums them up */
+                    if (!child) {
+                        const ks = kidsOf(p), tot = ks.length * COLS.length;
+                        const n = st => ks.reduce((a, k) => a + COLS.filter(c => (k.stages || {})[c[0]] === st).length, 0);
+                        const done = n('complete'), pct = tot ? Math.round(done * 100 / tot) : 0;
+                        h += `<td colspan="${COLS.length + 2}" class="msum"><div class="msum-in"><span class="msum-l">${ks.length} mould${ks.length === 1 ? '' : 's'} · ${pct}% complete</span><span class="mbar"><i style="width:${pct}%"></i></span><span class="chip st-complete">${done} done</span><span class="chip st-in_progress">${n('in_progress')} in progress</span><span class="chip st-na">${n('na')} N/A</span></div></td>`;
+                        if (S.canDelete) h += `<td><button class="btn sm danger" data-del="${p.id}" title="Delete"><i class="bi bi-trash"></i></button></td>`;
+                        h += '</tr>';
+                        return;
+                    }
                     h += `<td>${colourCell(p)}</td>`;
                     COLS.forEach(c => { h += stageCell(p, c); });
                     h += `<td class="rmall">${deptRemarks(p)}${S.canEdit
