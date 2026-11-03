@@ -3454,6 +3454,77 @@
       font-weight: 600;
       color: #0f172a;
     }
+
+    /* ===== Machine card v4: DPR Compliance status colours, job on the front,
+       plant heatmap and plant-off state. Colours come from machine-status-meta.js
+       through --mc-st-color / --mc-st-bg / --mc-st-bd set on each card. */
+    #machineGrid .machine { flex: 0 0 172px !important; max-width: 172px !important; border-color: var(--mc-st-bd, #e5eaf1); }
+    #machineGrid .machine::after { background: var(--mc-st-color, var(--machine-accent)); }
+    #machineGrid .machine.s-running::after { background: #16a34a; }
+    #machineGrid .machine .mc-dpr-badge {
+      background: var(--mc-st-bg); color: var(--mc-st-color); border: 1px solid var(--mc-st-bd);
+      font-weight: 700; gap: 4px;
+    }
+    #machineGrid .machine .mc-dpr-badge i { font-size: 0.7rem; }
+    #machineGrid .machine:not(.s-running):not(.s-planned) .media.mc-hero { background: var(--mc-st-bg); border-color: var(--mc-st-bd); }
+    #machineGrid .machine:not(.s-running):not(.s-planned):not(.s-unplanned) .mc-hero .thumb { filter: grayscale(1); opacity: .55; }
+    #machineGrid .machine.s-stopped .media.mc-hero::after { border-color: var(--mc-st-color); }
+    #machineGrid .machine .mc-front-job { display: flex; flex-direction: column; gap: 2px; min-width: 0; font-size: 0.68rem; line-height: 1.25; }
+    #machineGrid .machine .mc-fj-item { color: #0f172a; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    #machineGrid .machine .mc-fj-sub { color: #5b6b80; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    #machineGrid .machine .mc-front-job .mc-progress { height: 5px; margin-top: 3px; }
+    #machineGrid .machine .mc-front-job .mc-progress i { background: #16a34a; }
+    #machineGrid .machine .mc-front-job .mc-foot { font-size: 0.62rem; }
+    #machineGrid .machine.s-plantoff { opacity: .72; }
+    #machineGrid .machine.is-overtime { outline: 2px solid #f59e0b; outline-offset: 1px; opacity: 1; }
+    #machineGrid .machine.mg-flash { animation: mgFlash 1.4s ease; }
+    @keyframes mgFlash { 0%, 60% { outline: 3px solid #0ea5e9; outline-offset: 2px; } 100% { outline: 0 solid transparent; } }
+
+    #machineGrid .mg-plant-off {
+      display: flex; gap: 12px; align-items: center; margin: 0 0 12px; padding: 12px 14px;
+      border-radius: 12px; background: #f1f5f9; border: 1px solid #cbd5e1; color: #334155;
+    }
+    #machineGrid .mg-plant-off > i { font-size: 1.4rem; color: #475569; }
+    #machineGrid .mg-plant-off strong { display: block; font-size: 0.9rem; }
+    #machineGrid .mg-plant-off span { font-size: 0.76rem; color: #475569; }
+
+    #machineGrid .mg-heat {
+      margin: 0 0 14px; padding: 12px 14px; border-radius: 12px; background: #fff; border: 1px solid #e5eaf1;
+    }
+    #machineGrid .mg-heat-head { display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; align-items: baseline; }
+    #machineGrid .mg-heat-head strong { font-size: 0.86rem; color: #0f172a; }
+    #machineGrid .mg-heat-head span { font-size: 0.7rem; color: #64748b; }
+    #machineGrid .mg-heat-legend { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 10px; }
+    #machineGrid .mg-heat-key { font-size: 0.68rem; font-weight: 700; padding: 2px 8px; border-radius: 999px; border: 1px solid; display: inline-flex; gap: 4px; align-items: center; }
+    #machineGrid .mg-heat-line { display: flex; align-items: center; gap: 10px; margin-top: 4px; }
+    #machineGrid .mg-heat-label { flex: 0 0 64px; font-size: 0.68rem; font-weight: 700; color: #475569; }
+    #machineGrid .mg-heat-cells { display: flex; flex-wrap: wrap; gap: 3px; }
+    #machineGrid .mg-heat-cell {
+      width: 16px; height: 16px; padding: 0; border-radius: 3px; cursor: pointer;
+      background: var(--hc); border: 1px solid var(--hc);
+    }
+    #machineGrid .mg-heat-cell:hover, #machineGrid .mg-heat-cell:focus-visible { outline: 2px solid #0f172a; outline-offset: 1px; }
+    #machineGrid.is-plant-off .mg-heat-cell { opacity: .9; }
+
+    .mg-po-backdrop {
+      position: fixed; inset: 0; z-index: 2000; background: rgba(15, 23, 42, .45);
+      display: flex; align-items: center; justify-content: center; padding: 16px;
+    }
+    .mg-po-box { width: min(440px, 100%); background: #fff; border-radius: 14px; padding: 18px; box-shadow: 0 20px 50px rgba(15, 23, 42, .25); }
+    .mg-po-box h3 { margin: 0 0 4px; font-size: 1rem; }
+    .mg-po-help { margin: 0 0 12px; font-size: 0.78rem; color: #64748b; }
+    .mg-po-label { font-size: 0.76rem; font-weight: 700; margin: 10px 0 6px; color: #334155; }
+    .mg-po-label span { font-weight: 500; color: #64748b; }
+    .mg-po-days { display: flex; flex-wrap: wrap; gap: 8px; font-size: 0.8rem; }
+    .mg-po-days label { display: inline-flex; gap: 4px; align-items: center; }
+    .mg-po-box textarea { width: 100%; box-sizing: border-box; font: inherit; font-size: 0.8rem; padding: 8px; border: 1px solid #cbd5e1; border-radius: 8px; }
+    .mg-po-err { color: #b91c1c; font-size: 0.76rem; min-height: 1em; margin-top: 4px; }
+    .mg-po-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px; }
+
+    @media (max-width: 480px) {
+      #machineGrid .machine { flex: 1 0 150px !important; max-width: none !important; }
+      #machineGrid .mg-heat-label { flex-basis: 48px; }
+    }
   </style>
 </head>
 
@@ -3464,7 +3535,8 @@
   <!-- App shell -->
   <script defer src="/assets/app.min.js?v=1583" onerror="alert('Failed to load /assets/app.min.js?v=1583');"></script>
 
-  <script src="/assets/planning-script-3.js?v=release96"></script>
+  <script src="/assets/machine-status-meta.js?v=1"></script>
+  <script src="/assets/planning-script-3.js?v=release97"></script>
   <script>
     // --- VIEW SWITCHER ---
     window.switchView = function (viewName) {

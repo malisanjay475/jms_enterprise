@@ -291,8 +291,10 @@
             '12': 'Crane / Loading'
         };
         // Quick-action reasons: icon + colors per entry_type (single source of truth
-        // for override cells, in-slot downtime badges and the legend)
-        const QUICK_ACTION_META = {
+        // for override cells, in-slot downtime badges and the legend). Lives in
+        // machine-status-meta.js so the Planning Machine Grid shows the same reasons;
+        // the inline copy is only a fallback if that file fails to load.
+        const QUICK_ACTION_META = window.JMS_QUICK_ACTION_META || {
             Maintenance:      { label: 'Machine Maintenance', short: 'M/C Maint',   code: 'M/C',     icon: 'bi-tools',                 color: '#713f12', bg: '#fde047', bd: '#eab308' },
             ManPowerShortage: { label: 'Manpower Shortage',   short: 'MP Short',    code: 'MP',      icon: 'bi-person-slash',          color: '#b91c1c', bg: '#fee2e2', bd: '#fca5a5' },
             NoPlan:           { label: 'No Plan',             short: 'No Plan',     code: 'No Plan', icon: 'bi-calendar-x',            color: '#e11d48', bg: '#fff1f2', bd: '#fda4af' },

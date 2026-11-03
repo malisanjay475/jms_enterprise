@@ -11,8 +11,24 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.162.0",
+  "latest": "1.166.0",
   "versions": [
+    {
+      "version": "1.166.0",
+      "date": "2026-11-03",
+      "title": "Planning Machine Grid: DPR statuses, job on the card, heatmap, plant off",
+      "modules": [
+        {
+          "app": "planning",
+          "changes": [
+            { "type": "feature", "text": "Machine cards now show the same stoppage reasons and colours as DPR Compliance Summary (Machine Maintenance, Manpower Shortage, No Plan, Mould Maintenance, Mould Trial, Power Cut, Mould Changeover)." },
+            { "type": "improvement", "text": "The front of each card shows the running or next job, order number, progress, balance and how long a stoppage has lasted." },
+            { "type": "feature", "text": "New plant heatmap above the grid: one square per machine, coloured by status; click a square to jump to that machine." },
+            { "type": "feature", "text": "Admins can set Plant off days (weekly off and holidays). On those days the grid turns grey, idle machines are not counted as No plan, machines running overtime stay highlighted, and Auto-Assign asks first." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.165.1",
       "date": "2026-11-03",

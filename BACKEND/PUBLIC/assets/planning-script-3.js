@@ -664,6 +664,7 @@
               </div>
               <div class="map-actions">
                 <div style="width:8px"></div>
+                <button type="button" class="chip select" id="btnPlantOffDays" style="display:none" title="Set weekly off and holidays (Admin)"><i class="bi bi-moon-stars"></i> Plant off days</button>
                 <label class="small-muted">Show Off / Maintenance</label>
                 <label class="chip select" id="toggleInactive" role="button" title="Include Off & Maintenance">
                   <i class="bi bi-power"></i> Toggle
@@ -1293,6 +1294,9 @@
         //   available   - nothing running and nothing planned, or DPR says No Plan
         function getPlanningMachineState(machine) {
           if (machine.is_maintenance) return 'maintenance';
+          // Plant off (weekly off / holiday): only a machine actually producing stays
+          // running; everything else is off, not "No plan" waiting to be loaded.
+          if (window._plantOff && machine.live_status !== 'running') return 'plantoff';
           // DPR 'No Plan' entry: the machine has no job, so it belongs under No plan,
           // not under Stopped (live-status reports it as a stoppage).
           if (machine.live_entry_type === 'NoPlan') return 'available';
@@ -1302,6 +1306,39 @@
           if (plans.some(plan => String(plan.status || '').trim().toUpperCase() === 'RUNNING')) return 'running';
           if (machine.is_active === false) return 'blocked';
           return plans.length ? 'planned' : 'available';
+        }
+
+        /* Plant off days: app_settings key 'planning_plant_off' holds
+           {"weekdays":[0],"dates":[{"date":"2026-11-08","reason":"Diwali"}]}
+           (weekdays 0 = Sunday). On an off day the grid turns grey, idle machines are
+           not counted as "No plan", and Auto-Assign asks before running. */
+        const PLANT_OFF_KEY = 'planning_plant_off';
+        const WEEKDAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+        function localDateKey(d) {
+          const pad = (n) => String(n).padStart(2, '0');
+          return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+        }
+        function readPlantOffConfig(settings) {
+          const empty = { weekdays: [], dates: [] };
+          try {
+            const raw = settings && settings[PLANT_OFF_KEY];
+            if (!raw) return empty;
+            const cfg = typeof raw === 'string' ? JSON.parse(raw) : raw;
+            return {
+              weekdays: (Array.isArray(cfg.weekdays) ? cfg.weekdays : []).map(Number).filter(n => n >= 0 && n <= 6),
+              dates: (Array.isArray(cfg.dates) ? cfg.dates : [])
+                .map(x => (typeof x === 'string' ? { date: x, reason: '' } : x))
+                .filter(x => x && /^\d{4}-\d{2}-\d{2}$/.test(String(x.date)))
+            };
+          } catch (_) { return empty; }
+        }
+        function getPlantOffInfo(cfg, dateKey) {
+          if (!cfg || !dateKey) return null;
+          const hit = cfg.dates.find(x => x.date === dateKey);
+          if (hit) return { date: dateKey, reason: hit.reason || 'Holiday' };
+          const day = new Date(`${dateKey}T00:00:00`).getDay();
+          if (cfg.weekdays.includes(day)) return { date: dateKey, reason: `${WEEKDAY_NAMES[day]} weekly off` };
+          return null;
         }
 
         function updatePlanningOverview(list) {
@@ -1329,19 +1366,21 @@
           let running = 0;
           let planned = 0;
           let blocked = 0;
+          let plantOff = 0;
 
           (list || []).forEach(machine => {
             const state = getPlanningMachineState(machine);
             if (state === 'running') running += 1;
             else if (state === 'planned') planned += 1;
             else if (state === 'blocked' || state === 'maintenance') blocked += 1;
+            else if (state === 'plantoff') plantOff += 1;
           });
 
           const visible = (list || []).length;
-          const available = Math.max(visible - running - planned - blocked, 0);
+          const available = Math.max(visible - running - planned - blocked - plantOff, 0);
           const filterText = `${process} | ${horizonText}${showInactive ? ' | Showing off and maintenance' : ' | Active machines only'}${query ? ` | Search: ${query}` : ''}`;
           const summary = visible
-            ? `${visible} ${process.toLowerCase()} machines visible. ${running} running, ${planned} planned, ${available} available, ${blocked} off or maintenance.`
+            ? `${visible} ${process.toLowerCase()} machines visible. ${running} running, ${planned} planned, ${available} available, ${blocked} off or maintenance.${plantOff ? ` Plant off: ${plantOff} machines idle.` : ''}`
             : 'No machines match the current planning filters.';
 
           if (scopeChip) scopeChip.innerHTML = `<i class="bi bi-building"></i><span>${pEsc(scopeText)}</span>`;
@@ -1358,7 +1397,7 @@
 
           // Toolbar status chips, "No plan" tile, load % and last-updated stamp
           const setText = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
-          const usable = Math.max(visible - blocked, 0);
+          const usable = Math.max(visible - blocked - plantOff, 0);
           const loadPct = usable ? Math.round((running + planned) / usable * 100) : 0;
           setText('pbCountAll', visible);
           setText('pbCountRunning', running);
@@ -3114,11 +3153,16 @@
             // Parallel Fetch: Machines + Master Plan + Live DPR Status
             // Plan board uses 2-min cache — repeat view switches are instant.
             const boardKey = `board|${getPlanningProcessQuerySuffix()}`;
-            const [mList, pRes, liveRes] = await Promise.all([
+            const [mList, pRes, liveRes, settingsRes] = await Promise.all([
               api.get(`/masters/machines?process=${encodeURIComponent(getPlanningProcessFilter())}`),
               window._planCache.get(boardKey, () => api.get(`/planning/board?${getPlanningProcessQuerySuffix()}`)),
-              api.get('/machines/live-status').catch(() => null)
+              api.get('/machines/live-status').catch(() => null),
+              api.get('/settings').catch(() => null)
             ]);
+            // Plant off is judged on the DPR date of the current shift (night shift after
+            // midnight still belongs to the previous day).
+            window._plantOffConfig = readPlantOffConfig(settingsRes && settingsRes.data);
+            window._plantOff = getPlantOffInfo(window._plantOffConfig, (liveRes && liveRes.date) || localDateKey(new Date()));
 
             // Populate Global Master Plans
             if (pRes && pRes.data && pRes.data.plans) {
@@ -3193,6 +3237,7 @@
                 live_status: liveStatus,
                 live_problem: (live && live.problem_label) || null,
                 live_entry_type: (live && live.entry_type) || null,
+                live_since: (live && live.since_slot) || null,
                 // Actual (setup man_act) and STD (mould master) manpower for the current shift
                 act_manpower: live && live.act_manpower != null ? Number(live.act_manpower) : null,
                 std_manpower: live && live.std_manpower != null ? Number(live.std_manpower) : null,
@@ -3259,6 +3304,12 @@
             grid.innerHTML = `<div class="muted" style="padding:20px">No machines found matching filters.</div>`;
             return;
           }
+          grid.classList.toggle('is-plant-off', !!window._plantOff);
+          if (window._plantOff) {
+            const overtime = list.filter(x => getPlanningMachineState(x) === 'running').length;
+            grid.insertAdjacentHTML('beforeend', `<div class="mg-plant-off"><i class="bi bi-moon-stars"></i><div><strong>Plant off · ${pEsc(window._plantOff.reason)}</strong><span>Idle machines are shown as off, not as "No plan".${overtime ? ` ${overtime} machine${overtime === 1 ? ' is' : 's are'} running anyway (overtime) and stay highlighted.` : ''}</span></div></div>`);
+          }
+          grid.insertAdjacentHTML('beforeend', renderMachineHeatmap(byB));
 
           Object.keys(byB).sort((a, b) => String(a).localeCompare(String(b), undefined, { numeric: true })).forEach(building => {
             const lines = groupBy(byB[building], x => getMachineLineValue(x));
@@ -3295,6 +3346,41 @@
             grid.appendChild(section);
           });
         }
+
+        // Heatmap: one square per machine, grouped by building + line in the same order
+        // as the cards; click a square to scroll to its card.
+        function renderMachineHeatmap(byB) {
+          const numSort = (a, b) => String(a).localeCompare(String(b), undefined, { numeric: true });
+          const counts = {};
+          let html = '';
+          Object.keys(byB).sort(numSort).forEach(building => {
+            const lines = groupBy(byB[building], x => getMachineLineValue(x));
+            Object.keys(lines).sort(numSort).forEach(line => {
+              const cells = lines[line].slice().sort((a, b) => compareMachineSeriesCodes(a.code, b.code)).map(m => {
+                const meta = getMachineStatusMeta(m, getPlanningMachineState(m));
+                counts[meta.label] = counts[meta.label] || { n: 0, meta };
+                counts[meta.label].n += 1;
+                const name = String(m.code || '').includes('>') ? String(m.code).split('>').pop().trim() : m.code;
+                return `<button type="button" class="mg-heat-cell" style="--hc:${meta.bd};--hcb:${meta.bg}" data-code="${pEsc(m.code)}" title="${pEsc(name)} · ${pEsc(meta.label)}" aria-label="${pEsc(name)} ${pEsc(meta.label)}"></button>`;
+              }).join('');
+              const label = line === 'Machines' ? building : `Line ${line}`;
+              html += `<div class="mg-heat-line"><span class="mg-heat-label">${pEsc(label)}</span><div class="mg-heat-cells">${cells}</div></div>`;
+            });
+          });
+          const legend = Object.keys(counts).sort((a, b) => counts[b].n - counts[a].n).map(k => {
+            const { n, meta } = counts[k];
+            return `<span class="mg-heat-key" style="color:${meta.color};background:${meta.bg};border-color:${meta.bd}"><i class="bi ${meta.icon}"></i> ${pEsc(meta.label)} <b>${n}</b></span>`;
+          }).join('');
+          return `<div class="mg-heat"><div class="mg-heat-head"><strong>Plant heatmap</strong><span>Click a square to jump to the machine</span></div><div class="mg-heat-legend">${legend}</div>${html}</div>`;
+        }
+        document.addEventListener('click', (ev) => {
+          const cell = ev.target.closest && ev.target.closest('.mg-heat-cell');
+          if (!cell) return;
+          const card = Array.from(document.querySelectorAll('#machineGrid .machine')).find(c => c.dataset.code === cell.dataset.code);
+          if (!card) return;
+          card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          card.classList.remove('mg-flash'); void card.offsetWidth; card.classList.add('mg-flash');
+        });
 
         // Manpower helpers. A .5 value means one operator is shared with a neighbouring
         // machine: pair it with the next machine on the line that is also .5, else the
@@ -3369,7 +3455,8 @@
 
           // 3. Visual Class
           let sClass = 's-unplanned';
-          if (statusRaw === 'maintenance') sClass = 's-maint';
+          if (statusRaw === 'plantoff') sClass = 's-plantoff';
+          else if (statusRaw === 'maintenance') sClass = 's-maint';
           else if (statusRaw === 'running') sClass = 's-running';
           else if (statusRaw === 'blocked') sClass = 's-stopped';
           else if (statusRaw === 'planned') sClass = 's-planned';
@@ -3384,7 +3471,10 @@
           else if (statusRaw === 'running') frontStatusText = 'Running';
           else if (statusRaw === 'maintenance') frontStatusText = 'Maintenance';
           else if (statusRaw === 'planned') frontStatusText = 'Planned';
+          else if (statusRaw === 'plantoff') frontStatusText = 'Plant off';
           else frontStatusText = 'No plan';
+          const statusMeta = getMachineStatusMeta(m, statusRaw);
+          if (statusMeta.label && statusRaw !== 'running' && statusRaw !== 'planned') frontStatusText = statusMeta.label;
           const subText = statusRaw === 'running' && !activePlan ? 'Running without a plan' : 'No plan assigned';
 
           const detailOrder = activePlan ? activePlan.orderNo : 'No active order';
@@ -3408,6 +3498,23 @@
             ? Math.max(0, Math.min(100, Math.round((planQtyNum - balQtyNum) / planQtyNum * 100)))
             : null;
           const detailLine = m.line || '-';
+
+          // Front-face job summary: what runs (or what is next), progress, and for a
+          // stoppage how long it has lasted this shift.
+          const sinceText = (statusRaw === 'blocked' || statusRaw === 'available') && m.live_since ? formatSinceSlot(m.live_since) : '';
+          let frontJobHtml;
+          if (statusRaw === 'plantoff') {
+            frontJobHtml = `<div class="mc-front-job"><span class="mc-fj-sub">${esc(window._plantOff ? window._plantOff.reason : 'Plant off')}</span></div>`;
+          } else if (activePlan) {
+            const jobName = activePlan.itemName || activePlan.mouldName || 'Job';
+            frontJobHtml = `<div class="mc-front-job">
+              <span class="mc-fj-item" title="${esc(detailJob)}">${runningPlan ? '' : '<em class="mc-next">Next</em> '}${esc(jobName)}</span>
+              <span class="mc-fj-sub">${esc(activePlan.orderNo || '')}${sinceText ? ` · ${esc(sinceText)}` : ''}</span>
+              ${progressPct !== null ? `<div class="mc-progress" title="${progressPct}% done"><i style="width:${progressPct}%"></i></div><div class="mc-foot"><span>${progressPct}%</span><span>Bal ${detail(detailBalance)}</span></div>` : ''}
+            </div>`;
+          } else {
+            frontJobHtml = `<div class="mc-front-job"><span class="mc-fj-sub">${sinceText ? esc(sinceText) : 'No job assigned'}</span></div>`;
+          }
           const detailTonnage = m.tonnage ? `${m.tonnage}T` : '-';
 
           // 6. Manpower (actual from today's setup vs STD from mould master)
@@ -3434,7 +3541,11 @@
           }
 
           const btn = document.createElement('div');
-          btn.className = `machine ${sClass}`;
+          btn.className = `machine ${sClass}${window._plantOff && statusRaw === 'running' ? ' is-overtime' : ''}`;
+          btn.dataset.code = m.code;
+          btn.style.setProperty('--mc-st-color', statusMeta.color);
+          btn.style.setProperty('--mc-st-bg', statusMeta.bg);
+          btn.style.setProperty('--mc-st-bd', statusMeta.bd);
           btn.setAttribute('role', 'button');
           btn.setAttribute('tabindex', '0');
           btn.setAttribute('aria-pressed', 'false');
@@ -3461,13 +3572,12 @@
               <div class="mc-fx-sweep" aria-hidden="true"></div>
               <i class="bi bi-gear-fill mc-fx-gear" aria-hidden="true"></i>
               <div class="mc-fx-belt" aria-hidden="true"></div>
-              ${statusRaw === 'blocked'
-                ? `<div class="mc-stop-banner"><i class="bi bi-stop-circle-fill"></i> STOPPED · ${esc(frontStatusText)}</div>`
-                : `<div class="status-text mc-status-badge"><span class="mc-dot"></span>${esc(frontStatusText)}</div>`}
+              <div class="status-text mc-status-badge mc-dpr-badge" title="${esc(statusMeta.label)}"><i class="bi ${statusMeta.icon}"></i>${esc(statusRaw === 'running' && window._plantOff ? 'Running · overtime' : frontStatusText)}</div>
             </div>
             <div class="mc-title">
               <div class="name">${displayName}</div>
             </div>
+            ${frontJobHtml}
             ${manpowerHtml}
           </div>
           <div class="machine-face machine-back">
@@ -3533,6 +3643,29 @@
             toggleMachineCardFlip(btn);
           });
           return btn;
+        }
+
+        // Status name + colours for a machine, using the same DPR Compliance reasons
+        // (machine-status-meta.js) so both pages always agree.
+        function getMachineStatusMeta(m, statusRaw) {
+          const reasons = window.JMS_QUICK_ACTION_META || {};
+          const states = window.JMS_MACHINE_STATE_META || {};
+          const fallback = { label: 'No Plan', icon: 'bi-calendar-x', color: '#e11d48', bg: '#fff1f2', bd: '#fda4af' };
+          let key;
+          if (statusRaw === 'plantoff') key = 'PlantOff';
+          else if (statusRaw === 'maintenance') return reasons.Maintenance || fallback;
+          else if (statusRaw === 'running') key = 'Running';
+          else if (m.live_entry_type && reasons[m.live_entry_type]) return reasons[m.live_entry_type];
+          else if (statusRaw === 'blocked') key = m.is_active === false ? 'Off' : 'Stopped';
+          else if (statusRaw === 'planned') key = 'Planned';
+          else return reasons.NoPlan || fallback;
+          return states[key] || fallback;
+        }
+        // DPR hour slots look like "08:00-09:00" (or "8-9"); show the start as "since 08:00"
+        function formatSinceSlot(slot) {
+          const m = String(slot || '').match(/^\s*(\d{1,2})(?::(\d{2}))?/);
+          if (!m) return '';
+          return `since ${m[1].padStart(2, '0')}:${m[2] || '00'}`;
         }
 
         // Helper for pretty status (Fallbacks)
@@ -7697,6 +7830,7 @@
 
         /* ------------------ Auto-Assign P1 (Urgent) ------------------ */
         async function autoAssignP1() {
+          if (window._plantOff && !confirm(`Plant is off today (${window._plantOff.reason}). Run Auto-Assign P1 anyway?`)) return;
           previewMode = 'p1';
           const payload = {
             limit: 20,
@@ -8312,6 +8446,71 @@
            Rebuilds a hard-deleted plan_board row from the JC-approval
            snapshot via /api/admin/recover-deleted-plan.
         ───────────────────────────────────────────────────────────── */
+        // Plant off days editor (Admin / Superadmin): weekly off days + holiday dates,
+        // saved to app_settings under PLANT_OFF_KEY.
+        (function initPlantOffDaysUI() {
+          const isAdminLike = () => {
+            try {
+              const u = (window.JPSMS && JPSMS.auth && JPSMS.auth.getUser()) || {};
+              const r = String(u.role_code || u.role || '').toLowerCase();
+              return r === 'admin' || r === 'superadmin';
+            } catch (_) { return false; }
+          };
+          const reveal = () => {
+            const btn = document.getElementById('btnPlantOffDays');
+            if (btn) btn.style.display = isAdminLike() ? '' : 'none';
+          };
+          setTimeout(reveal, 600); setTimeout(reveal, 2500);
+
+          document.addEventListener('click', (ev) => {
+            if (!ev.target.closest || !ev.target.closest('#btnPlantOffDays')) return;
+            const cfg = window._plantOffConfig || { weekdays: [], dates: [] };
+            const old = document.getElementById('plantOffModal');
+            if (old) old.remove();
+            const modal = document.createElement('div');
+            modal.id = 'plantOffModal';
+            modal.className = 'mg-po-backdrop';
+            modal.innerHTML = `
+              <div class="mg-po-box" role="dialog" aria-modal="true" aria-labelledby="mgPoTitle">
+                <h3 id="mgPoTitle"><i class="bi bi-moon-stars"></i> Plant off days</h3>
+                <p class="mg-po-help">On these days the Machine Grid turns grey and idle machines are not counted as "No plan".</p>
+                <div class="mg-po-label">Weekly off</div>
+                <div class="mg-po-days">${WEEKDAY_NAMES.map((d, i) => `<label><input type="checkbox" value="${i}" ${cfg.weekdays.includes(i) ? 'checked' : ''}> ${d.slice(0, 3)}</label>`).join('')}</div>
+                <div class="mg-po-label">Holidays <span>(one per line: date, reason)</span></div>
+                <textarea id="mgPoDates" rows="6" placeholder="2026-11-08, Diwali">${pEsc(cfg.dates.map(x => `${x.date}${x.reason ? `, ${x.reason}` : ''}`).join('\n'))}</textarea>
+                <div class="mg-po-err" id="mgPoErr"></div>
+                <div class="mg-po-actions"><button type="button" class="btn" data-act="cancel">Cancel</button><button type="button" class="btn primary" data-act="save">Save</button></div>
+              </div>`;
+            document.body.appendChild(modal);
+            const err = modal.querySelector('#mgPoErr');
+            modal.querySelector('#mgPoDates').addEventListener('input', () => { err.textContent = ''; });
+            modal.addEventListener('click', async (e) => {
+              const act = e.target.dataset && e.target.dataset.act;
+              if (e.target === modal || act === 'cancel') { modal.remove(); return; }
+              if (act !== 'save') return;
+              const weekdays = Array.from(modal.querySelectorAll('.mg-po-days input:checked')).map(x => Number(x.value));
+              const dates = [];
+              const bad = [];
+              modal.querySelector('#mgPoDates').value.split('\n').map(x => x.trim()).filter(Boolean).forEach(line => {
+                const [date, ...rest] = line.split(',');
+                const d = String(date || '').trim();
+                if (!/^\d{4}-\d{2}-\d{2}$/.test(d) || isNaN(new Date(`${d}T00:00:00`))) bad.push(line);
+                else dates.push({ date: d, reason: rest.join(',').trim() });
+              });
+              if (bad.length) { err.textContent = `Use YYYY-MM-DD for: ${bad.join('; ')}`; return; }
+              dates.sort((a, b) => a.date.localeCompare(b.date));
+              try {
+                await api.post('/settings', { key: PLANT_OFF_KEY, value: JSON.stringify({ weekdays, dates }) });
+                modal.remove();
+                if (typeof toast === 'function') toast('Plant off days saved');
+                loadMachines();
+              } catch (e2) {
+                err.textContent = `Couldn't save: ${e2.message || e2}`;
+              }
+            });
+          });
+        })();
+
         (function initRecoverDeletedUI() {
           const isAdminLike = () => {
             try {
