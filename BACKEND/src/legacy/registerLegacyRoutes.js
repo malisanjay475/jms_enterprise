@@ -7099,6 +7099,7 @@ app.post('/api/users/save', async (req, res) => {
     const isActiveParam = (typeof payload.is_active === 'boolean') ? payload.is_active : null;
     let userId = normalizeFactoryId(payload.id);
     let existingUser = null;
+    let renamedFrom = null;
 
     if (!userId) {
       const existingRows = await q(
@@ -7143,6 +7144,22 @@ app.post('/api/users/save', async (req, res) => {
       // Guard: don't let an admin lock themselves out by deactivating their own account.
       if (isActiveParam === false && actor && actor.id != null && Number(actor.id) === Number(userId)) {
         return res.status(400).json({ ok: false, error: 'You cannot deactivate your own account.' });
+      }
+
+      // Username change (login ID rename): superadmin only, and the new name must be free.
+      if (payload.id && String(existingUser.username || '') !== username) {
+        if (!isSuperadminRole(actor)) {
+          return res.status(403).json({ ok: false, error: 'Only superadmin can change a username' });
+        }
+        if (!/^[A-Za-z0-9._@-]{2,60}$/.test(username)) {
+          return res.status(400).json({ ok: false, error: 'Username must be 2-60 characters: letters, numbers, . _ @ -' });
+        }
+        const clash = await q(
+          'SELECT id FROM users WHERE LOWER(username) = LOWER($1) AND id <> $2 LIMIT 1',
+          [username, userId]
+        );
+        if (clash.length) return res.status(400).json({ ok: false, error: 'Username already exists' });
+        renamedFrom = existingUser.username;
       }
 
       // UPDATE
@@ -7198,7 +7215,11 @@ app.post('/api/users/save', async (req, res) => {
 
 
     authSessions.invalidateUserCache(username);
-    res.json({ ok: true });
+    if (renamedFrom) {
+      _invalidateFactoryCache(renamedFrom);
+      authSessions.invalidateUserCache(renamedFrom);
+    }
+    res.json({ ok: true, renamed_from: renamedFrom || undefined });
   } catch (e) {
     console.error('user save error', e);
     sendServerError(res, e);
