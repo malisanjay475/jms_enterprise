@@ -445,6 +445,7 @@
         let userRowsCache = [];
         let isEditMode = false;
         let editUserId = null;
+        let editOriginalUsername = '';
         const PERMISSION_ACTIONS = ['view', 'add', 'edit', 'print', 'delete'];
 
         function normalizePermissionMap(perms = {}) {
@@ -792,6 +793,7 @@
         function openUserModal() {
             isEditMode = false;
             editUserId = null;
+            editOriginalUsername = '';
             document.getElementById('userModal').style.display = 'flex';
             document.querySelector('#userModal h3').textContent = 'Add User';
 
@@ -829,7 +831,14 @@
             populateCopyFromDropdown(editUserId);
 
             document.getElementById('u_username').value = user.username || '';
-            document.getElementById('u_username').disabled = true;
+            // Only a superadmin may change a user's login name (rename).
+            editOriginalUsername = user.username || '';
+            const meRole = String(JPSMS.auth.getUser()?.role_code || '').toLowerCase();
+            const unameEl = document.getElementById('u_username');
+            unameEl.disabled = meRole !== 'superadmin';
+            unameEl.title = meRole === 'superadmin'
+                ? 'Superadmin: you can change this user\'s login name'
+                : 'Only superadmin can change the username';
 
             document.getElementById('u_password').parentElement.style.display = 'none';
 
@@ -898,10 +907,22 @@
                     loadUsers();
                 } catch (e) { /* handled */ }
             } else {
+                u.username = String(u.username || '').trim();
+                if (!u.username) return JPSMS.toast('Username required', 'error');
+                const renaming = editOriginalUsername && u.username !== editOriginalUsername;
+                if (renaming && !confirm(
+                    'Change login name "' + editOriginalUsername + '" to "' + u.username + '"?\n\n' +
+                    'The user must sign in with the new name. Old records keep the old name.')) return;
                 try {
                     await JPSMS.api.post('/users/save', u);
-                    JPSMS.toast('User updated');
+                    JPSMS.toast(renaming ? 'Username changed' : 'User updated');
                     closeUserModal();
+                    const me = JPSMS.auth.getUser();
+                    if (renaming && me && String(me.username).toLowerCase() === editOriginalUsername.toLowerCase()) {
+                        alert('Your login name changed. Please sign in again with "' + u.username + '".');
+                        JPSMS.auth.logout();
+                        return;
+                    }
                     const refreshedCurrentUser = await refreshCurrentSessionAccess(u);
                     loadUsers();
                     if (refreshedCurrentUser) {

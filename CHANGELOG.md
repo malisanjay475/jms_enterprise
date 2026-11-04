@@ -13,6 +13,9 @@ part of your PR. On release, the `[Unreleased]` items move under the new version
 
 ## [Unreleased]
 
+### Added
+- Users (v1.175.0): superadmin can change any user's login name from Edit User. Server checks superadmin, format and uniqueness; renaming yourself signs you out. Old records keep the old name.
+
 ### Changed
 - NPD Tracker (v1.174.3): removed the Main Product / Child Mould column; child moulds show their number in the Sr column (e.g. 20.1, 20.2).
 
