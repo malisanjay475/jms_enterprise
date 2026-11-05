@@ -2714,6 +2714,26 @@ function maxRowId(rows) {
     return max;
 }
 
+// A delete loses to the receiver's row only when that row was genuinely edited AFTER the
+// delete. The two timestamps come from different servers' clocks (the factory-1 PC ran
+// ~12 s behind MAIN), and MAIN restamps rows on its own (e.g. the one-RUNNING-per-machine
+// rule sets other plans to Stopped with updated_at = NOW()). Comparing them strictly let
+// 76 deleted plans live on MAIN forever (found 04-Nov-2026). So:
+//  - every table: the row must be newer by more than DELETE_SKEW_TOLERANCE_MS;
+//  - plan_board: only a plan still Running survives; a Planned/Stopped plan the user
+//    deleted is removed (a plan with production can't be hard-deleted on the sender).
+const DELETE_SKEW_TOLERANCE_MS = 2 * 60 * 1000;
+
+function shouldKeepRowOverDeletion(table, row, deletion) {
+    if (!row || !row.updated_at || !deletion || !deletion.deleted_at) return false;
+    const rowUpdatedAt = new Date(row.updated_at).getTime();
+    const deletedAt = new Date(deletion.deleted_at).getTime();
+    if (!Number.isFinite(rowUpdatedAt) || !Number.isFinite(deletedAt)) return false;
+    if (rowUpdatedAt <= deletedAt + DELETE_SKEW_TOLERANCE_MS) return false;
+    if (table === 'plan_board') return String(row.status || '').toUpperCase() === 'RUNNING';
+    return true;
+}
+
 async function applyRemoteDeletions(deletions) {
     if (!Array.isArray(deletions) || deletions.length === 0) return { deleted: 0, failed: 0 };
 
@@ -2766,13 +2786,12 @@ async function applyRemoteDeletions(deletions) {
                 const result = await client.query(`SELECT * FROM ${table} WHERE ${where} LIMIT 1`, params);
                 const existingRow = result.rows[0] || null;
 
-                if (existingRow && existingRow.updated_at && deletion.deleted_at) {
-                    const rowUpdatedAt = new Date(existingRow.updated_at).getTime();
-                    const deletedAt = new Date(deletion.deleted_at).getTime();
-                    if (Number.isFinite(rowUpdatedAt) && Number.isFinite(deletedAt) && rowUpdatedAt > deletedAt) {
-                        await client.query('RELEASE SAVEPOINT sync_del');
-                        continue;
-                    }
+                if (existingRow && shouldKeepRowOverDeletion(table, existingRow, deletion)) {
+                    console.warn('[Sync] Deletion skipped for %s (record_pk=%s): row edited after delete (row updated_at=%s, deleted_at=%s, status=%s)',
+                        table, deletion.record_pk, existingRow.updated_at, deletion.deleted_at, existingRow.status);
+                    stats.skipped += 1;
+                    await client.query('RELEASE SAVEPOINT sync_del');
+                    continue;
                 }
 
                 const deleteResult = await client.query(`DELETE FROM ${table} WHERE ${where}`, params);
@@ -3627,6 +3646,7 @@ module.exports = {
         getDeletionChanges,
         pushDeletionChanges,
         pullDeletionChanges,
+        shouldKeepRowOverDeletion,
         ensureSyncTouchFunctions,
         buildTouchFunctionSql,
         maxRowId

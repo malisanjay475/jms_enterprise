@@ -14,6 +14,7 @@ part of your PR. On release, the `[Unreleased]` items move under the new version
 ## [Unreleased]
 
 ### Added
+- QC app (v1.176.0, app 1.10.0): QC Inspection has a "Machine Stop" option per hour slot. QC picks a stop reason (+ optional remarks) and the slot is saved as filled with status "Machine Stop", so it no longer shows as missing. DPR QC popups and the job QC table show it as ⛔ Machine Stop with the reason.
 - Users (v1.175.0): superadmin can change any user's login name from Edit User. Server checks superadmin, format and uniqueness; renaming yourself signs you out. Old records keep the old name.
 
 ### Changed

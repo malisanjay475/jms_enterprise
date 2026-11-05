@@ -45,6 +45,15 @@ private fun minsIntoShift(date: String, shift: String): Long {
     return (System.currentTimeMillis() - start.time) / 60000
 }
 
+/** Status saved for every check of a slot when the machine was stopped. */
+const val MACHINE_STOP = "Machine Stop"
+
+/** Why the machine was stopped in the slot (QC picks one). */
+val STOP_REASONS = listOf(
+    "No Plan", "Mould Change", "Mould Breakdown", "Machine Breakdown", "Power Cut",
+    "No Material", "No Manpower", "Mould Maintenance", "Colour Change", "Trial", "Other"
+)
+
 val QC_DEFECTS = listOf(
     "Short Moulding", "Oil Mark / White Mark", "Black Spot", "Overlapping",
     "Colour Shade", "Finishing", "Stability", "Parting Line / Shifting",
@@ -80,6 +89,8 @@ data class QcInspectUiState(
     val visualOk: Boolean? = null, val visualDefect: String = "", val visualRemarks: String = "",
     val colourOk: Boolean? = null, val colourDefect: String = "", val colourRemarks: String = "",
     val ffOk: Boolean? = null, val ffRemarks: String = "", val ffPhoto: File? = null,
+    // machine stopped for the whole slot — fills the slot with "Machine Stop" instead of checks
+    val machineStop: Boolean = false, val stopReason: String = "", val stopRemarks: String = "",
     // status
     val submitting: Boolean = false,
     val error: String? = null,
@@ -88,8 +99,10 @@ data class QcInspectUiState(
     val ffApplies: Boolean get() = slot in FF_SLOTS
     val colourMissing: Boolean get() = colours.isNotEmpty() && colour.isBlank()
     val canSubmit: Boolean
-        get() = !submitting && slot.isNotBlank() && !colourMissing &&
-            (visualOk != null || colourOk != null || (ffApplies && ffOk != null))
+        get() = !submitting && slot.isNotBlank() && (
+            if (machineStop) stopReason.isNotBlank()
+            else !colourMissing && (visualOk != null || colourOk != null || (ffApplies && ffOk != null))
+        )
 
     /** Today / Yesterday, like supervisor.html. */
     val dateOptions: List<Pair<String, String>>
@@ -214,6 +227,9 @@ class QcInspectionViewModel : ViewModel() {
     fun setFfOk(v: Boolean) = _state.update { it.copy(ffOk = v) }
     fun setFfRemarks(v: String) = _state.update { it.copy(ffRemarks = v) }
     fun setFfPhoto(f: File) = _state.update { it.copy(ffPhoto = f) }
+    fun setMachineStop(v: Boolean) = _state.update { it.copy(machineStop = v, error = null) }
+    fun setStopReason(v: String) = _state.update { it.copy(stopReason = v) }
+    fun setStopRemarks(v: String) = _state.update { it.copy(stopRemarks = v) }
 
     fun saveSetup() {
         val job = _state.value.job ?: return
@@ -248,6 +264,7 @@ class QcInspectionViewModel : ViewModel() {
         if (!s.canSubmit) {
             val why = when {
                 s.slot.isBlank() -> "Select the hour slot."
+                s.machineStop -> "Select the machine stop reason."
                 s.colourMissing -> "Select the colour."
                 else -> "Fill at least one check."
             }
@@ -255,7 +272,21 @@ class QcInspectionViewModel : ViewModel() {
         }
         _state.update { it.copy(submitting = true, error = null, message = null) }
         viewModelScope.launch {
-            repo.submitSlotCheck(
+            val result = if (s.machineStop) {
+                // Machine stopped: every check of the slot reads "Machine Stop" with the reason,
+                // so the slot counts as filled (not missing) everywhere it is reported.
+                val reason = s.stopReason
+                val remarks = s.stopRemarks.ifBlank { null }
+                repo.submitSlotCheck(
+                    machine = s.machine, date = s.date, shift = s.shift, slot = s.slot, job = job,
+                    colour = s.colour.ifBlank { null },
+                    visualStatus = MACHINE_STOP, visualProblem = reason, visualRemarks = remarks,
+                    colourStatus = MACHINE_STOP, colourProblem = reason, colourRemarks = remarks,
+                    ffStatus = if (s.ffApplies) MACHINE_STOP else null,
+                    ffProblem = if (s.ffApplies) reason else null,
+                    ffPhoto = null
+                )
+            } else repo.submitSlotCheck(
                 machine = s.machine, date = s.date, shift = s.shift, slot = s.slot, job = job,
                 colour = s.colour.ifBlank { null },
                 visualStatus = s.visualOk?.let { if (it) "OK" else "Not OK" },
@@ -267,10 +298,13 @@ class QcInspectionViewModel : ViewModel() {
                 ffStatus = if (s.ffApplies) s.ffOk?.let { if (it) "OK" else "Not OK" } else null,
                 ffProblem = if (s.ffApplies && s.ffOk == false) s.ffRemarks.ifBlank { null } else null,
                 ffPhoto = if (s.ffApplies) s.ffPhoto else null
-            ).onSuccess {
+            )
+            result.onSuccess {
                 _state.update {
                     it.copy(
-                        submitting = false, message = "Slot ${s.slot} check saved.",
+                        submitting = false,
+                        message = if (s.machineStop) "Slot ${s.slot} saved as Machine Stop." else "Slot ${s.slot} check saved.",
+                        machineStop = false, stopReason = "", stopRemarks = "",
                         colour = "",
                         visualOk = null, visualDefect = "", visualRemarks = "",
                         colourOk = null, colourDefect = "", colourRemarks = "",

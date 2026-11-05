@@ -11,8 +11,34 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.174.3",
+  "latest": "1.176.0",
   "versions": [
+    {
+      "version": "1.176.0",
+      "date": "2026-11-05",
+      "title": "QC app: mark Machine Stop for an hour slot",
+      "modules": [
+        {
+          "app": "quality",
+          "changes": [
+            { "type": "feature", "text": "In the QC app's QC Inspection, an hour slot can be saved as Machine Stop with a reason. The slot then counts as filled instead of missing, and DPR QC views show it as Machine Stop with the reason." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.175.1",
+      "date": "2026-11-04",
+      "title": "Deleted plans no longer linger on the main server",
+      "modules": [
+        {
+          "app": "planning",
+          "changes": [
+            { "type": "fix", "text": "A plan deleted at the factory is now also removed on the main server, even when the two servers' clocks differ a little or the main server had marked the plan Stopped." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.174.3",
       "date": "2026-11-03",

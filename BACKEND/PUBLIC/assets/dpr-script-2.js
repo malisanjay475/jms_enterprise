@@ -108,6 +108,10 @@
     const QC_ONLINE_SLOTS = ['06-07', '08-09', '10-11', '12-01', '02-03', '04-05'];
     function qcSlotCell(status, problem, remarks) {
         if (!status) return '<span style="color:#cbd5e1">—</span>';
+        if (/machine\s*stop/i.test(String(status))) {
+            return '<span style="color:#b45309;font-weight:700">⛔ Machine Stop</span>'
+                + `<div style="font-size:11px;color:#64748b">${dprEsc([problem, remarks].filter(Boolean).join(' · '))}</div>`;
+        }
         const ok = String(status).toUpperCase().includes('OK') && !String(status).toUpperCase().includes('NOT');
         const badge = ok ? '<span style="color:#059669;font-weight:700">✔ OK</span>'
                          : '<span style="color:#dc2626;font-weight:700">✘ Not OK</span>';
