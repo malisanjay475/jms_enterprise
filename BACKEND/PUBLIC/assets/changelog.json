@@ -349,11 +349,11 @@
           "app": "quality",
           "changes": [
             {
-              "type": "feature",
+              "type": "feat",
               "text": "New Quality > Setup STD vs Actual report: standard vs actual cycle time, weight, cavity and runner weight from the QC app setup, machine-wise in Compliance Summary order, with mould no./name, the QC person's name from the Shift Team, missing setups flagged, and Excel export."
             },
             {
-              "type": "feature",
+              "type": "feat",
               "text": "QC mobile app: STD cycle time and STD weight shown on every job card in the Job Queue."
             },
             {
