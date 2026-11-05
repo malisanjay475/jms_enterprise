@@ -110,6 +110,36 @@ describe('profile writes (createProfileOps)', () => {
   });
 });
 
+describe('blue tick (setVerified)', () => {
+  test('only a superadmin may give it; nothing is written otherwise', async () => {
+    const pool = fakePool(() => [{ username: 'Ravi' }]);
+    const ops = chatProfiles.createProfileOps(pool, { uploadRoot: '/tmp' });
+    for (const role of ['admin', 'operator']) {
+      await expect(ops.setVerified({ username: 'x', role }, 'ravi', true)).rejects.toMatchObject({ status: 403 });
+    }
+    expect(ran(pool, /verified_by/)).toBe(false);
+  });
+
+  test('a superadmin gives it, it is stored and the person is told', async () => {
+    const pool = fakePool((sql) => (/FROM users/.test(sql) ? [{ username: 'Ravi' }] : []));
+    const notice = jest.fn(async () => {});
+    const ops = chatProfiles.createProfileOps(pool, { uploadRoot: '/tmp', notice });
+    const r = await ops.setVerified({ username: 'sa', role: 'superadmin' }, 'ravi', true);
+    expect(r.verified).toBe(true);
+    const w = pool.calls.find((c) => /verified_by/.test(c.sql) && /INSERT/.test(c.sql));
+    expect(w.params).toEqual(['ravi', true, 'sa']);
+    expect(notice).toHaveBeenCalledWith(['Ravi'], expect.objectContaining({ kind: 'verified' }));
+  });
+
+  test('taking it away clears who gave it; unknown users are a 404', async () => {
+    const pool = fakePool((sql, p) => (/FROM users/.test(sql) && p[0] === 'ravi' ? [{ username: 'Ravi' }] : []));
+    const ops = chatProfiles.createProfileOps(pool, { uploadRoot: '/tmp' });
+    expect((await ops.setVerified({ username: 'sa', role: 'superadmin' }, 'ravi', false)).verified).toBe(false);
+    expect(pool.calls.find((c) => /verified_by/.test(c.sql) && /INSERT/.test(c.sql)).params).toEqual(['ravi', false, null]);
+    await expect(ops.setVerified({ username: 'sa', role: 'superadmin' }, 'ghost', true)).rejects.toMatchObject({ status: 404 });
+  });
+});
+
 describe('look-alike names', () => {
   test('sameNameUsers asks for other active users with that shown name', async () => {
     const pool = fakePool(() => [{ username: 'sanjay2', display_name: 'Sanjay Mali' }]);

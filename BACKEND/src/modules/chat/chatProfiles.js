@@ -54,6 +54,9 @@ function ensureProfileSchema(pool) {
       ALTER TABLE chat_profiles ADD COLUMN IF NOT EXISTS name_note TEXT;
       ALTER TABLE chat_profiles ADD COLUMN IF NOT EXISTS designation TEXT;
       ALTER TABLE chat_profiles ADD COLUMN IF NOT EXISTS department TEXT;
+      ALTER TABLE chat_profiles ADD COLUMN IF NOT EXISTS verified BOOLEAN NOT NULL DEFAULT FALSE;
+      ALTER TABLE chat_profiles ADD COLUMN IF NOT EXISTS verified_by TEXT;
+      ALTER TABLE chat_profiles ADD COLUMN IF NOT EXISTS verified_at TIMESTAMPTZ;
       CREATE TABLE IF NOT EXISTS chat_name_history (
         id BIGSERIAL PRIMARY KEY,
         username_lower TEXT NOT NULL,
@@ -94,14 +97,14 @@ function isRecent(ts) {
   return Boolean(ts) && Date.now() - new Date(ts).getTime() < ONLINE_MS;
 }
 
-/** Map username lower -> { about, photo_v, last_seen_at, display_name } for these users. */
+/** Map username lower -> { about, photo_v, last_seen_at, display_name, verified } for these users. */
 async function lookup(pool, usernames) {
   const keys = [...new Set((usernames || []).map((u) => String(u || '').toLowerCase()).filter(Boolean))];
   const out = new Map();
   if (!keys.length) return out;
   await ensureProfileSchema(pool);
   const { rows } = await pool.query(
-    `SELECT k AS username_lower, p.about, p.photo_updated_at, p.display_name, s.last_seen_at
+    `SELECT k AS username_lower, p.about, p.photo_updated_at, p.display_name, p.verified, s.last_seen_at
        FROM unnest($1::text[]) AS k
        LEFT JOIN chat_profiles p ON p.username_lower = k
        LEFT JOIN chat_presence s ON s.username_lower = k`, [keys]
@@ -111,7 +114,8 @@ async function lookup(pool, usernames) {
       about: r.about || '',
       photo_v: r.photo_updated_at ? String(new Date(r.photo_updated_at).getTime()) : null,
       last_seen_at: r.last_seen_at || null,
-      display_name: r.display_name || ''
+      display_name: r.display_name || '',
+      verified: Boolean(r.verified)
     });
   }
   return out;
@@ -304,7 +308,27 @@ function createProfileOps(pool, { uploadRoot, notice = async () => {} }) {
     return { remaining: await pendingCount() };
   }
 
-  return { saveFields, cancelName, setPhoto, removePhoto, decide, pendingCount, avatarDir };
+  // Blue tick: only a superadmin may give or take it (on a LOCAL this is forwarded to
+  // MAIN, which checks the role from its own users table).
+  async function setVerified(user, target, on) {
+    if (!isSuperadmin(user)) throw new HttpError(403, 'Only a superadmin can give the blue tick.');
+    await ensureProfileSchema(pool);
+    const { rows: [u] } = await pool.query(
+      'SELECT username FROM users WHERE LOWER(username) = LOWER($1) AND COALESCE(is_active, TRUE) = TRUE LIMIT 1', [String(target || '')]
+    );
+    if (!u) throw new HttpError(404, 'User not found.');
+    const yes = on === true || on === 'true' || on === 1;
+    await pool.query(
+      `INSERT INTO chat_profiles (username_lower, verified, verified_by, verified_at) VALUES ($1, $2, $3, NOW())
+       ON CONFLICT (username_lower) DO UPDATE SET verified = EXCLUDED.verified, verified_by = EXCLUDED.verified_by,
+         verified_at = EXCLUDED.verified_at, updated_at = NOW()`,
+      [u.username.toLowerCase(), yes, yes ? user.username : null]
+    );
+    if (yes) notice([u.username], { kind: 'verified', title: 'You got the blue tick ✔', body: 'Your chat profile is now verified.' }).catch(() => {});
+    return { verified: yes };
+  }
+
+  return { saveFields, cancelName, setPhoto, removePhoto, decide, setVerified, pendingCount, avatarDir };
 }
 
 /**
@@ -334,7 +358,7 @@ function registerProfileRoutes(app, pool, { ready, fail, uploadRoot, isOnline, a
 
   async function run(op, auth, ...args) {
     if (forward) return forward(op, auth.username, args);
-    if (op === 'decide') return ops.decide(auth, ...args);
+    if (op === 'decide' || op === 'setVerified') return ops[op]({ username: auth.username, role: auth.role }, ...args);
     return ops[op]({ username: auth.username, role: auth.role }, ...args);
   }
 
@@ -374,6 +398,7 @@ function registerProfileRoutes(app, pool, { ready, fail, uploadRoot, isOnline, a
     const out = {
       username: login,
       display_name: shownName(login, p.display_name),
+      verified: Boolean(p.verified),
       role: (u && u.role_code) || '',
       line: (u && u.line) || '',
       designation: (n && n.designation) || (su && su.designation) || String((u && u.role_code) || '').replace(/_/g, ' '),
@@ -390,6 +415,7 @@ function registerProfileRoutes(app, pool, { ready, fail, uploadRoot, isOnline, a
     }
     if ((self || admin) && su && su.mobile) out.mobile = su.mobile;
     if (admin) { out.admin_view = true; out.name_history = await history(key); }
+    if (viewer) out.can_verify = isSuperadmin(viewer);
     if (self) {
       out.can_approve_names = admin;
       if (admin) out.name_requests = await ops.pendingCount();
@@ -473,6 +499,16 @@ function registerProfileRoutes(app, pool, { ready, fail, uploadRoot, isOnline, a
       res.setHeader('X-Content-Type-Options', 'nosniff');
       fs.createReadStream(file).on('error', () => { if (!res.headersSent) res.status(404).end(); else res.end(); }).pipe(res);
     } catch (err) { fail(res, err, 'avatar'); }
+  });
+
+  // ---- blue tick (superadmin) ---- Body: { verified: true | false }
+  app.put('/api/chat/verified/:username', async (req, res) => {
+    try {
+      if (!(await ready(req, res))) return;
+      if (!isSuperadmin(req.auth)) return res.status(403).json({ ok: false, error: 'Only a superadmin can give the blue tick.' });
+      const r = await run('setVerified', req.auth, String(req.params.username || ''), Boolean((req.body || {}).verified));
+      res.json({ ok: true, verified: Boolean(r && r.verified) });
+    } catch (err) { sendError(res, err, 'blue tick'); }
   });
 
   // ---- name approvals (admin / superadmin) ----

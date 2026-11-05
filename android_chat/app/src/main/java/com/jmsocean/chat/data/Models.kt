@@ -43,7 +43,8 @@ data class ChatUser(
     val online: Boolean = false,
     val about: String = "",
     val photo_v: String? = null,
-    val last_seen_at: String? = null
+    val last_seen_at: String? = null,
+    val verified: Boolean = false
 )
 
 @Serializable
@@ -69,7 +70,9 @@ data class Conversation(
     val photo_v: String? = null,
     val last_seen_at: String? = null,
     val disappear_seconds: Int = 0,
-    val protected: Boolean = false
+    val protected: Boolean = false,
+    /** Blue tick given by a superadmin (direct chats: the other person). */
+    val verified: Boolean = false
 ) {
     val isGroup get() = type == "group"
     val name get() = title ?: "Chat"
@@ -272,7 +275,11 @@ data class Profile(
     /** The viewer is an admin / superadmin (sees login and earlier names). */
     val admin_view: Boolean = false,
     val can_approve_names: Boolean = false,
-    val name_requests: Int = 0
+    val name_requests: Int = 0,
+    /** Blue tick given by a superadmin. */
+    val verified: Boolean = false,
+    /** The viewer is a superadmin and may give / take the blue tick. */
+    val can_verify: Boolean = false
 ) {
     val shownName: String get() = display_name.ifBlank { username }
 }
