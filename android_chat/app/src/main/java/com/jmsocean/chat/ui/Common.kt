@@ -23,6 +23,7 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.jmsocean.chat.data.Session
 import androidx.compose.ui.Alignment
+import androidx.compose.material.icons.filled.Verified
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
