@@ -212,25 +212,56 @@ fun QcInspectionScreen(
                 }
             }
 
-            // Visual & Colour (2-hourly)
+            // Machine stopped in this slot → save the slot as "Machine Stop" instead of checks
             Spacer(Modifier.size(10.dp))
             SectionCard {
-                Label("Visual & Colour check (every 2h)")
-                CheckBlock(
-                    title = "Visual", ok = s.visualOk, onOk = { vm.setVisualOk(true) }, onNot = { vm.setVisualOk(false) },
-                    defect = s.visualDefect, onDefect = vm::setVisualDefect,
-                    remarks = s.visualRemarks, onRemarks = vm::setVisualRemarks
-                )
+                Label("Machine running in this slot?")
+                Row(Modifier.padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(selected = !s.machineStop, onClick = { vm.setMachineStop(false) }, label = { Text("Running") })
+                    FilterChip(selected = s.machineStop, onClick = { vm.setMachineStop(true) }, label = { Text("⛔ Machine Stop") })
+                }
+                if (s.machineStop) {
+                    Spacer(Modifier.size(8.dp))
+                    FieldLabel("Stop reason")
+                    PickDropdown(
+                        value = s.stopReason, placeholder = "Select reason",
+                        options = STOP_REASONS.map { it to it },
+                        onSelect = vm::setStopReason,
+                        highlightEmpty = true
+                    )
+                    Spacer(Modifier.size(6.dp))
+                    OutlinedTextField(
+                        value = s.stopRemarks, onValueChange = vm::setStopRemarks,
+                        label = { Text("Remarks (optional)") }, singleLine = true, modifier = Modifier.fillMaxWidth()
+                    )
+                    Text(
+                        "No checks needed — the slot is saved as Machine Stop.",
+                        fontSize = 12.sp, color = Warn, modifier = Modifier.padding(top = 6.dp)
+                    )
+                }
+            }
+
+            // Visual & Colour (2-hourly)
+            if (!s.machineStop) {
                 Spacer(Modifier.size(10.dp))
-                CheckBlock(
-                    title = "Colour", ok = s.colourOk, onOk = { vm.setColourOk(true) }, onNot = { vm.setColourOk(false) },
-                    defect = s.colourDefect, onDefect = vm::setColourDefect,
-                    remarks = s.colourRemarks, onRemarks = vm::setColourRemarks
-                )
+                SectionCard {
+                    Label("Visual & Colour check (every 2h)")
+                    CheckBlock(
+                        title = "Visual", ok = s.visualOk, onOk = { vm.setVisualOk(true) }, onNot = { vm.setVisualOk(false) },
+                        defect = s.visualDefect, onDefect = vm::setVisualDefect,
+                        remarks = s.visualRemarks, onRemarks = vm::setVisualRemarks
+                    )
+                    Spacer(Modifier.size(10.dp))
+                    CheckBlock(
+                        title = "Colour", ok = s.colourOk, onOk = { vm.setColourOk(true) }, onNot = { vm.setColourOk(false) },
+                        defect = s.colourDefect, onDefect = vm::setColourDefect,
+                        remarks = s.colourRemarks, onRemarks = vm::setColourRemarks
+                    )
+                }
             }
 
             // Function / Fitment (4-hourly)
-            if (s.ffApplies) {
+            if (s.ffApplies && !s.machineStop) {
                 Spacer(Modifier.size(10.dp))
                 SectionCard {
                     Label("Function / Fitment (every 4h)")
@@ -258,7 +289,7 @@ fun QcInspectionScreen(
                 modifier = Modifier.fillMaxWidth().height(48.dp)
             ) {
                 if (s.submitting) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
-                else Text("Save slot check", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimary)
+                else Text(if (s.machineStop) "Save as Machine Stop" else "Save slot check", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimary)
             }
             Spacer(Modifier.size(24.dp))
         }
