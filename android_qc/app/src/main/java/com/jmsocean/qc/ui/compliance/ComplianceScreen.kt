@@ -270,6 +270,7 @@ private fun SlotCellView(c: SlotCell, onCell: (QcmSlot) -> Unit) {
 private fun SlotDialog(e: QcmSlot, onClose: () -> Unit) {
     fun st(s: String?, p: String?, rm: String?): String = when {
         s.isNullOrBlank() -> "Not checked"
+        Regex("machine\\s*stop", RegexOption.IGNORE_CASE).containsMatchIn(s) -> "Machine Stop" + (p?.let { " — $it" } ?: "") + (rm?.let { " ($it)" } ?: "")
         Regex("not\\s*ok", RegexOption.IGNORE_CASE).containsMatchIn(s) -> "Not OK" + (p?.let { " — $it" } ?: "") + (rm?.let { " ($it)" } ?: "")
         else -> "OK"
     }

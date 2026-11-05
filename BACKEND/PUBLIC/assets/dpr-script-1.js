@@ -1600,6 +1600,7 @@
                     if (!machine) return;
                     const list = (window._qcSummarySlots || {})[[date, sh, machine, slot].join('|')] || [];
                     const st = (s, p, rm) => !s ? '<span style="color:#94a3b8">Not checked</span>'
+                        : /machine\s*stop/i.test(s) ? `<b style="color:#b45309">⛔ Machine Stop</b>${p ? ' — ' + esc(p) : ''}${rm ? `<div style="color:#64748b; font-size:0.8rem">${esc(rm)}</div>` : ''}`
                         : /not\s*ok/i.test(s) ? `<b style="color:#b91c1c">Not OK</b>${p ? ' — ' + esc(p) : ''}${rm ? `<div style="color:#64748b; font-size:0.8rem">${esc(rm)}</div>` : ''}`
                         : '<b style="color:#047857">OK</b>';
                     const when = t => t ? new Date(t).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false }) : '';
