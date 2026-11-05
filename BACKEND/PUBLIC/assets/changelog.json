@@ -11,8 +11,21 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.176.0",
+  "latest": "1.177.0",
   "versions": [
+    {
+      "version": "1.177.0",
+      "date": "2026-11-05",
+      "title": "JMS Chat: blue tick from the superadmin",
+      "modules": [
+        {
+          "app": "all",
+          "changes": [
+            { "type": "feature", "text": "A superadmin can give or remove a blue tick on anyone's chat profile (open their Contact info, then Give blue tick). The tick shows next to the person's name in the chat list, the chat header, group messages, the people list and their Contact info, on the website and the Android chat app." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.176.0",
       "date": "2026-11-05",

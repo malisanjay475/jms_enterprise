@@ -216,3 +216,13 @@ fun fileSize(bytes: Long): String = when {
 
 @Composable
 fun dark() = isSystemInDarkTheme()
+
+/** Blue tick a superadmin gave this person (like a verified account). */
+@Composable
+fun BlueTick(size: Dp) {
+    androidx.compose.material3.Icon(
+        androidx.compose.material.icons.Icons.Default.Verified, contentDescription = "Verified",
+        tint = androidx.compose.ui.graphics.Color(0xFF1D9BF0),
+        modifier = Modifier.padding(start = 4.dp).size(size)
+    )
+}

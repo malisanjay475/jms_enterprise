@@ -327,7 +327,9 @@ private fun ChatRow(
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(c.name, fontWeight = if (c.unread > 0) FontWeight.Bold else FontWeight.SemiBold, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                Text(c.name, fontWeight = if (c.unread > 0) FontWeight.Bold else FontWeight.SemiBold, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                if (c.verified && !c.isGroup) BlueTick(16.dp)
+                Spacer(Modifier.weight(1f))
                 Text(
                     listTime(c.last_message_at), fontSize = 12.sp,
                     color = if (c.unread > 0) Color(0xFF00A884) else MaterialTheme.colorScheme.onSurfaceVariant
