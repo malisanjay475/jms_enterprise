@@ -79,6 +79,10 @@
         .ritem small { color: var(--mute); font-size: 10px; }
         .rdept { flex: 0 0 auto; background: #0f172a; color: #fff; border-radius: 5px; padding: 1px 6px; font-size: 9.5px; font-weight: 800; letter-spacing: .3px; margin-top: 1px; }
         .rgen { font-size: 12px; }
+        .rline { font-size: 12px; line-height: 1.5; margin-bottom: 5px; word-break: break-word; }
+        .rseg b { color: #64748b; font-weight: 700; }
+        .rseg.has b { color: #0f172a; }
+        .rseg.has { cursor: help; }
         .g tr.child .thumb { width: 34px; height: 34px; flex-basis: 34px; font-size: 15px; }
         .g tr.child td.c1 .pc { padding-left: 10px; border-left: 2px solid #cbd5e1; margin-left: 4px; }
         .g td.c1 input.inp { border-color: transparent; background: transparent; border-radius: 8px; }
@@ -227,13 +231,13 @@
         </div>
     </div>
 
-    <!-- mandatory remark for a stage change -->
+    <!-- optional remark for a stage change -->
     <div class="mb" id="rmModal">
         <div class="md" style="max-width:460px">
             <h3>Stage Remark</h3>
             <div class="none" id="rmWhat"></div>
             <div class="row2" id="rbRow" style="display:none"><label>Received by *</label><input class="inp" id="rbName" maxlength="100" placeholder="Name of who received the mould"></div>
-            <div class="row2"><label>Remarks *</label><textarea class="inp" id="rmText" rows="3" maxlength="1000" style="font-family:inherit;resize:vertical"></textarea></div>
+            <div class="row2"><label>Remarks</label><textarea class="inp" id="rmText" placeholder="Optional" rows="3" maxlength="1000" style="font-family:inherit;resize:vertical"></textarea></div>
             <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
                 <button class="btn" id="rmCancel">Cancel</button>
                 <button class="btn pri" id="rmSave">Save</button>
@@ -304,7 +308,7 @@
                     ['jc_start_date', 'Planned job card start date', 'Planning', 'date'],
                     ['jc_end_date', 'Planned job card completion date', 'Planning', 'date'],
                     ['launch_date', 'Launch date finalization by Planning', 'Planning', 'date'],
-                    ['launch_date_ho', 'Launch date by H.O', 'H.O', 'date']] },
+                    ['launch_date_ho', 'Launch Date', 'H.O', 'date']] },
                 { label: 'Mass Production', cols: [
                     ['mass_moulding', 'Mass production - moulding', 'Moulding'],
                     ['mass_printing', 'Mass production - printing', 'Production'],
@@ -404,14 +408,21 @@
                 const names = [...new Set([...S.factories, p.factory].filter(Boolean))];
                 return `<select class="fsel" data-id="${p.id}" data-f="factory"><option value="">— Factory —</option>${names.map(n => `<option${n === p.factory ? ' selected' : ''}>${esc(n)}</option>`).join('')}</select>`;
             }
-            /* every stage remark on this row, labelled with its department and stage */
+            /* Remarks column: one line, every department in sheet order with its latest
+               stage remark - same as remarkLine() in registerNpdRoutes.js:
+               (Planning)P-1, check WIP stock- (Moulding)- (QC)ok ...
+               Hover a department for the stage, who and when. */
+            const RDEPTS = [];
+            COLS.forEach(c => { const d = String(c[2] || '').split(/\s+[\/&]\s+/)[0]; if (d && !RDEPTS.includes(d)) RDEPTS.push(d); });
             function deptRemarks(p) {
                 const si = p.stage_info || {};
-                const items = COLS.filter(c => si[c[0]] && si[c[0]].remarks).map(c => {
-                    const i = si[c[0]];
-                    return `<div class="ritem"><span class="rdept">${esc(c[2] || '')}</span><div><b>${esc(c[1])}</b><div>${esc(i.remarks)}</div>${i.by ? `<small>${esc(i.by)}${i.at ? ' · ' + esc(new Date(i.at).toLocaleDateString('en-GB')) : ''}</small>` : ''}</div></div>`;
+                const parts = RDEPTS.map(d => {
+                    const hit = COLS.filter(c => String(c[2] || '').split(/\s+[\/&]\s+/)[0] === d && si[c[0]] && si[c[0]].remarks)
+                        .map(c => ({ c, i: si[c[0]] })).sort((x, y) => String(y.i.at || '').localeCompare(String(x.i.at || '')))[0];
+                    const tip = hit ? ` title="${esc(hit.c[1])}${hit.i.by ? ' - ' + esc(hit.i.by) : ''}${hit.i.at ? ' · ' + esc(new Date(hit.i.at).toLocaleString('en-GB')) : ''}"` : '';
+                    return `<span class="rseg${hit ? ' has' : ''}"${tip}><b>(${esc(d)})</b>${hit ? esc(hit.i.remarks) : ''}</span>`;
                 });
-                return items.length ? `<div class="rlist">${items.join('')}</div>` : '';
+                return `<div class="rline">${parts.join('- ')}</div>`;
             }
             function colourCell(p) {
                 const cur = colourList(p.trial_colours);
@@ -535,7 +546,7 @@
                     save(id, { [t.dataset.f]: t.value });
                 }
             });
-            /* every stage change needs a remark before it is saved; cancel puts the cell back */
+            /* a stage change opens the remark box (remark optional); cancel puts the cell back */
             function askRemark(id, key, value) {
                 const p = S.rows.find(r => r.id === id), c = COLS.find(x => x[0] === key);
                 const label = c[3] === 'date' ? (value ? fmtDate(value) : 'cleared') : (STATE.find(s => s[0] === value) || STATE[0])[1];
@@ -552,10 +563,9 @@
             $('rmCancel').onclick = () => { S.pending = null; $('rmModal').classList.remove('on'); render(); };
             $('rmSave').onclick = async () => {
                 const txt = $('rmText').value.trim();
-                if (!txt) return toast('Remarks are mandatory', 'error');
                 const pd = S.pending;
                 if (!pd) return;
-                const body = { stages: { [pd.key]: pd.value }, stage_remarks: { [pd.key]: txt } };
+                const body = { stages: { [pd.key]: pd.value }, stage_remarks: txt ? { [pd.key]: txt } : {} };
                 if (pd.key === 'mould_received' && pd.value === 'complete') {
                     body.received_by = $('rbName').value.trim();
                     if (!body.received_by) return toast('Enter the name of who received the mould', 'error');
