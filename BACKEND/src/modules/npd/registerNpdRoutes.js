@@ -90,7 +90,7 @@ const STAGES = [
   { key: 'jc_start_date', level: 'mould', type: 'date', group: 'Packing, BOM & ERP', label: 'Planned job card start date (Planning)', depts: ['Planning'] },
   { key: 'jc_end_date', level: 'mould', type: 'date', group: 'Packing, BOM & ERP', label: 'Planned job card completion date (Planning)', depts: ['Planning'] },
   { key: 'launch_date', level: 'product', type: 'date', group: 'Packing, BOM & ERP', label: 'Launch date finalization by Planning (Planning)', depts: ['Planning'] },
-  { key: 'launch_date_ho', level: 'product', type: 'date', group: 'Packing, BOM & ERP', label: 'Launch date by H.O (HO)', depts: ['HO'] },
+  { key: 'launch_date_ho', level: 'product', type: 'date', group: 'Packing, BOM & ERP', label: 'Launch Date (HO)', depts: ['HO'] },
   { key: 'mass_moulding', level: 'mould', type: 'status', group: 'Mass Production', label: 'Mass production - moulding (Moulding)', depts: ['Moulding'] },
   { key: 'mass_printing', level: 'product', type: 'status', group: 'Mass Production', label: 'Mass production - printing (Production)', depts: ['Production'] },
   { key: 'mass_tufting', level: 'product', type: 'status', group: 'Mass Production', label: 'Mass production - tufting (Production)', depts: ['Production'] },
@@ -139,6 +139,19 @@ function rollupStage(key, moulds) {
   return 'pending';
 }
 const STAGE_TYPE = new Map(STAGES.map(s => [s.key, s.type]));
+/* Remarks column: one line per row, every department in sheet order with its
+   latest stage remark: "(Planning)P-1, check WIP stock- (Moulding)- (QC)ok".
+   A stage's remark counts for its first department. */
+const deptName = d => (d === 'HO' ? 'H.O' : d);
+const REMARK_DEPTS = [...new Set(STAGES.map(s => s.depts[0]))];
+function remarkLine(stageInfo) {
+  const si = stageInfo || {};
+  return REMARK_DEPTS.map(d => {
+    const latest = STAGES.filter(s => s.depts[0] === d && si[s.key] && si[s.key].remarks)
+      .map(s => si[s.key]).sort((a, b) => String(b.at || '').localeCompare(String(a.at || '')))[0];
+    return `(${deptName(d)})${latest ? latest.remarks : ''}`;
+  }).join('- ');
+}
 const STAGE_STATES = new Set(['pending', 'in_progress', 'complete', 'na']);
 /* stage whose completion also records who received it */
 const RECEIVED_BY_STAGE = 'mould_received';
@@ -473,7 +486,7 @@ function registerNpdRoutes(app, pool) {
             vals.push((STATE_STYLE[v] || STATE_STYLE.pending).text + (done ? ` (${done})` : '') + (rb ? ` - by ${rb}` : ''));
           }
         });
-        vals.push(p.status || '', p.remarks || '', count.get(`${p.sync_id}:report`) || 0, count.get(`${p.sync_id}:image`) || 0,
+        vals.push(p.status || '', [remarkLine(p.stage_info), p.remarks].filter(Boolean).join('\n'), count.get(`${p.sync_id}:report`) || 0, count.get(`${p.sync_id}:image`) || 0,
           p.updated_by || '', p.updated_at ? new Date(p.updated_at) : null);
         const r = ws.addRow(vals);
         r.eachCell({ includeEmpty: true }, (c, col) => {
@@ -606,9 +619,8 @@ function registerNpdRoutes(app, pool) {
           const s = STAGES.find(x => x.key === denied);
           return res.status(403).json({ ok: false, error: `You cannot edit "${s ? s.label : denied}" - only ${s ? s.depts.join(' / ') : 'its department'} can` });
         }
+        /* a remark is optional; without one the stage keeps its last remark */
         const remarks = b.stage_remarks || {};
-        const missing = keys.find(k => !clean(remarks[k], 1000));
-        if (missing) return res.status(400).json({ ok: false, error: 'Remarks are mandatory for every stage change' });
         const cur = await pool.query('SELECT stages, stage_info, parent_sync_id FROM npd_products WHERE id = $1', [id]);
         if (!cur.rows.length) return res.status(404).json({ ok: false, error: 'Product not found' });
         const rowLevel = cur.rows[0].parent_sync_id ? 'mould' : 'product';
@@ -635,7 +647,7 @@ function registerNpdRoutes(app, pool) {
             if (v !== 'complete') completedOn = null;
             else if (prevStages[k] !== 'complete' || !completedOn) completedOn = todayIST();
           }
-          stageInfo[k] = { remarks: clean(remarks[k], 1000), by: u.username, at: now, completed_on: completedOn };
+          stageInfo[k] = { remarks: clean(remarks[k], 1000) || old.remarks || '', by: u.username, at: now, completed_on: completedOn };
           if (k === RECEIVED_BY_STAGE && v === 'complete') stageInfo[k].received_by = receivedBy;
         }
       }
@@ -753,6 +765,7 @@ module.exports = {
   STAGES,
   STAGE_LEVEL,
   rollupStage,
+  remarkLine,
   migrateNpdLevels,
   DEPT_ROLES,
   ADMIN_ROLES,
