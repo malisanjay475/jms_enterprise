@@ -173,3 +173,26 @@ describe('NPD product / mould levels', () => {
     expect(rollupStage('jc_end_date', [m({})])).toBe('');
   });
 });
+
+describe('NPD remarks line', () => {
+  const { remarkLine } = require('../src/modules/npd/registerNpdRoutes');
+
+  test('every department in sheet order, latest remark per department, joined with "- "', () => {
+    const line = remarkLine({
+      bom_approval: { remarks: 'P-1, Please Check WIP Stock', at: '2026-11-10T00:00:00Z' },
+      production_planning: { remarks: 'As Discussed With NKB Sir.', at: '2026-11-12T00:00:00Z' },
+      mould_trials: { remarks: 'ok', at: '2026-11-01T00:00:00Z' }
+    });
+    expect(line).toBe('(Tool Room)- (Moulding)ok- (Planning)As Discussed With NKB Sir.- (QC)- (H.O)- (Packing)- (Purchase)- (W/H)- (Production)');
+  });
+
+  test('no remarks still lists every department', () => {
+    expect(remarkLine(null).split('- ')).toHaveLength(9);
+  });
+
+  test('launch date column is named Launch Date, H.O', () => {
+    const s = STAGES.find((x) => x.key === 'launch_date_ho');
+    expect(s.label).toBe('Launch Date (HO)');
+    expect(s.depts).toEqual(['HO']);
+  });
+});

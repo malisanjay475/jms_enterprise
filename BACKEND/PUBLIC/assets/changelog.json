@@ -14,6 +14,21 @@
   "latest": "1.177.0",
   "versions": [
     {
+      "version": "1.178.1",
+      "date": "2026-11-12",
+      "title": "NPD Tracker: optional remarks, one-line department remarks",
+      "modules": [
+        {
+          "app": "npd",
+          "changes": [
+            { "type": "improvement", "text": "Stage remarks are now optional. Leave the box empty and Save; the stage keeps its last remark." },
+            { "type": "improvement", "text": "The Remarks column shows one line with every department and its latest remark, like (Planning)P-1, check WIP stock- (Moulding)- (QC)... Hover a department to see the stage, who and when. The Excel export uses the same line." },
+            { "type": "improvement", "text": "The H.O launch date column is now called Launch Date." }
+          ]
+        }
+      ]
+    },
+    {
       "version": "1.178.0",
       "date": "2026-11-12",
       "title": "NPD Tracker: product and mould stages, separate printing and tufting",
