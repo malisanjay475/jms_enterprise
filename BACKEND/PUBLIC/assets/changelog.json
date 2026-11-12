@@ -11,8 +11,36 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.176.0",
+  "latest": "1.177.0",
   "versions": [
+    {
+      "version": "1.178.0",
+      "date": "2026-11-12",
+      "title": "NPD Tracker: product and mould stages, separate printing and tufting",
+      "modules": [
+        {
+          "app": "npd",
+          "changes": [
+            { "type": "feature", "text": "Each NPD stage is now filled either per mould (mould received, trials, RM & colour, pilot run, QC approval, job card dates, mass moulding) or once per product (all other stages). Cells that do not apply to a row are greyed out." },
+            { "type": "feature", "text": "The main product row shows the mould stages automatically from its moulds: Complete when every mould is done, the earliest job card start and the latest job card end." },
+            { "type": "feature", "text": "Mass production now has separate Printing, Tufting and Packing columns. The Excel export has a Level (Product / Mould) column." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.177.0",
+      "date": "2026-11-05",
+      "title": "JMS Chat: blue tick from the superadmin",
+      "modules": [
+        {
+          "app": "all",
+          "changes": [
+            { "type": "feature", "text": "A superadmin can give or remove a blue tick on anyone's chat profile (open their Contact info, then Give blue tick). The tick shows next to the person's name in the chat list, the chat header, group messages, the people list and their Contact info, on the website and the Android chat app." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.176.0",
       "date": "2026-11-05",

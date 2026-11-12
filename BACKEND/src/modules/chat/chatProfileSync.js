@@ -28,7 +28,7 @@ const OVERLAP_MS = 10 * 1000;
 const BATCH = 500;
 const LOCK = 'jms_chat_profile_pull';
 const CURSOR_KEY = 'CHAT_PROFILES_PULL';
-const OPS = ['saveFields', 'cancelName', 'setPhoto', 'removePhoto', 'decide'];
+const OPS = ['saveFields', 'cancelName', 'setPhoto', 'removePhoto', 'decide', 'setVerified'];
 
 function mainUrl() { return String(chatSync.runtime().mainUrl || '').trim().replace(/\/$/, ''); }
 function headers() { return { 'x-sync-api-key': chatSync.runtime().apiKey }; }
@@ -53,7 +53,7 @@ function registerProfileSyncRoutes(app, pool, { uploadRoot, notice }) {
       const from = Number.isNaN(since.getTime()) ? new Date(0) : since;
       const { rows: profiles } = await pool.query(
         `SELECT username_lower, about, display_name, pending_name, pending_at, name_note, designation, department,
-                photo_mime, photo_updated_at, updated_at
+                verified, verified_by, verified_at, photo_mime, photo_updated_at, updated_at
            FROM chat_profiles WHERE updated_at >= $1 ORDER BY updated_at LIMIT $2`, [from, BATCH]
       );
       const { rows: history } = await pool.query(
@@ -103,6 +103,8 @@ function registerProfileSyncRoutes(app, pool, { uploadRoot, notice }) {
         const buf = Buffer.from(String(args[0] || ''), 'base64');
         if (!buf.length || buf.length > chatProfiles.MAX_PHOTO) return res.status(413).json({ ok: false, error: 'Photo is too big (max 5 MB).' });
         out = await ops.setPhoto(user, buf);
+      } else if (op === 'setVerified') {
+        out = await ops.setVerified(user, String(args[0] || ''), args[1] === true);
       } else if (op === 'decide') {
         out = await ops.decide(user, String(args[0] || ''), String(args[1] || ''), args[2]);
       } else {
@@ -168,14 +170,17 @@ function createProfileSync(pool, { uploadRoot }) {
     }
     await pool.query(
       `INSERT INTO chat_profiles (username_lower, about, display_name, pending_name, pending_at, name_note,
-                                  designation, department, photo_storage, photo_mime, photo_updated_at, updated_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+                                  designation, department, photo_storage, photo_mime, photo_updated_at, updated_at,
+                                  verified, verified_by, verified_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
        ON CONFLICT (username_lower) DO UPDATE SET about = EXCLUDED.about, display_name = EXCLUDED.display_name,
          pending_name = EXCLUDED.pending_name, pending_at = EXCLUDED.pending_at, name_note = EXCLUDED.name_note,
          designation = EXCLUDED.designation, department = EXCLUDED.department, photo_storage = EXCLUDED.photo_storage,
-         photo_mime = EXCLUDED.photo_mime, photo_updated_at = EXCLUDED.photo_updated_at, updated_at = EXCLUDED.updated_at`,
+         photo_mime = EXCLUDED.photo_mime, photo_updated_at = EXCLUDED.photo_updated_at, updated_at = EXCLUDED.updated_at,
+         verified = EXCLUDED.verified, verified_by = EXCLUDED.verified_by, verified_at = EXCLUDED.verified_at`,
       [p.username_lower, p.about, p.display_name, p.pending_name, p.pending_at, p.name_note, p.designation,
-        p.department, storage, storage ? mime : null, storage ? p.photo_updated_at : null, p.updated_at]
+        p.department, storage, storage ? mime : null, storage ? p.photo_updated_at : null, p.updated_at,
+        Boolean(p.verified), p.verified_by || null, p.verified_at || null]
     );
     if (oldFile && oldFile !== storage) fs.promises.unlink(path.join(avatarDir, path.basename(oldFile))).catch(() => {});
   }

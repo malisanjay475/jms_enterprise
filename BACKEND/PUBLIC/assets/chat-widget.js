@@ -113,7 +113,14 @@
   // Approved display names by login (from messages, members and the chat list), so every
   // place shows the same name as the chat list and contact info.
   var displayNames = {};
-  function rememberName(user, name) { if (user && name) displayNames[String(user).toLowerCase()] = name; }
+  function rememberName(user, name, verified) {
+    if (user && name) displayNames[String(user).toLowerCase()] = name;
+    if (user && verified != null) verifiedUsers[String(user).toLowerCase()] = Boolean(verified);
+  }
+  // Blue tick given by a superadmin (profile.verified), remembered per user.
+  var verifiedUsers = {};
+  function isVerified(user) { return Boolean(user) && verifiedUsers[String(user).toLowerCase()] === true; }
+  function blueTick(title) { var vb = el('span', 'jc-verified', '✓'); vb.title = title || 'Verified by JMS'; return vb; }
   function nameOf(user, given) {
     if (given) { rememberName(user, given); return given; }
     return displayNames[String(user || '').toLowerCase()] || user;
@@ -806,7 +813,8 @@
       var mid = el('div', 'jc-mid');
       var r1 = el('div', 'jc-row');
       var nm = el('div', 'jc-name', c.title);
-      if (c.system) nm.appendChild(el('span', 'jc-verified', '✓'));
+      if (c.peer && c.verified != null) rememberName(c.peer, null, c.verified);
+      if (c.system || (!isGroup(c) && c.verified)) nm.appendChild(blueTick());
       if (isMuted(c)) { var mi = el('span', 'jc-mute', '🔕'); mi.title = muteLabel(c); nm.appendChild(mi); }
       if (c.pinned) nm.appendChild(el('span', 'jc-pin', '📌'));
       r1.appendChild(nm);
@@ -1175,7 +1183,7 @@
     if (!peer) return;
     var dlg = modal('Contact info');
     dlg.box.classList.add('jc-prof', 'jc-ci');
-    var p = { username: peer, display_name: c.title, photo_v: c.photo_v, online: c.online, last_seen_at: c.last_seen_at };
+    var p = { username: peer, display_name: c.title, photo_v: c.photo_v, online: c.online, last_seen_at: c.last_seen_at, verified: c.verified };
     var shared = null;
 
     function row(card, icon, label, value, onClick, sub) {
@@ -1206,7 +1214,9 @@
       });
       pav.appendChild(av);
       head.appendChild(pav);
-      head.appendChild(el('div', 'jc-pn', shown));
+      var pn = el('div', 'jc-pn', shown);
+      if (p.verified) pn.appendChild(blueTick());
+      head.appendChild(pn);
       head.appendChild(el('div', 'jc-pu', '~ @' + p.username));
       var dd = [p.designation, p.department].filter(Boolean).join('  |  ');
       if (dd) head.appendChild(el('div', 'jc-dd', dd));
@@ -1299,6 +1309,18 @@
         any = true;
       }
       if (any) dlg.body.appendChild(det);
+      if (p.can_verify) {
+        var vc = el('div', 'jc-card');
+        row(vc, '✔', p.verified ? 'Remove blue tick' : 'Give blue tick', null, function () {
+          var want = !p.verified;
+          api('PUT', API + '/verified/' + encodeURIComponent(p.username), { verified: want }).then(function (d) {
+            p.verified = Boolean(d.verified); c.verified = p.verified;
+            rememberName(p.username, null, p.verified);
+            draw(); if (current === c) convHeader(); renderList();
+          }).catch(function (e) { toast((e && e.message) || 'Could not change the blue tick.'); });
+        }, 'Superadmin only');
+        dlg.body.appendChild(vc);
+      }
     }
 
     draw();
@@ -1435,7 +1457,10 @@
     setAvatar(av, u.username, u.photo_v);
     av.firstChild.nodeValue = initials(shown);
     var mid = el('div', 'jc-mid');
-    mid.appendChild(el('div', 'jc-name', shown));
+    var un = el('div', 'jc-name', shown);
+    if (u.verified) un.appendChild(blueTick());
+    rememberName(u.username, null, u.verified);
+    mid.appendChild(un);
     mid.appendChild(el('div', 'jc-prev', [u.role, u.line].filter(Boolean).join(' · ')));
     it.appendChild(av); it.appendChild(mid);
     if (checkbox) it.addEventListener('click', function (e) { if (e.target !== checkbox) checkbox.click(); });
@@ -1567,6 +1592,7 @@
     var readOnly = c.is_member === false;
     els.mName.textContent = c.title;
     if (c.system) { var vb = el('span', 'jc-verified', '✓'); vb.title = 'Verified JMS account'; els.mName.appendChild(vb); }
+    else if (!isGroup(c) && (c.verified || isVerified(c.peer))) els.mName.appendChild(blueTick());
     els.mInfo.style.display = isGroup(c) && (!readOnly || isAdmin) ? '' : 'none';
     els.mTitle.classList.toggle('jc-mh-click', isGroup(c) && (!readOnly || isAdmin));
     var typing = typingText(c.sync_id);
@@ -1627,7 +1653,7 @@
       if (d.title && isGroup(c)) c.title = d.title;
       c.members = d.members || c.members;
       c.member_roles = d.member_roles || [];
-      c.member_roles.forEach(function (r) { rememberName(r.username, r.display_name); });
+      c.member_roles.forEach(function (r) { rememberName(r.username, r.display_name, r.verified); });
       c.my_role = d.my_role;
       convHeader();
       var ms = d.messages || [];
@@ -2074,6 +2100,7 @@
         var sn = el('div', 'jc-snd', nameOf(m.sender, m.sender_name));
         sn.style.color = m.verified ? '#008069' : avatarColor(m.sender);
         if (m.verified) { var vb = el('span', 'jc-verified', '✓'); vb.title = 'Verified JMS account'; sn.appendChild(vb); }
+        else if (isVerified(m.sender)) sn.appendChild(blueTick());
         b.appendChild(sn);
       }
       if (m.purged) {
@@ -2410,7 +2437,7 @@
   function refreshInfo(c) {
     api('GET', API + '/conversations/' + encodeURIComponent(c.sync_id) + '/messages').then(function (d) {
       c.members = d.members; c.member_roles = d.member_roles; c.my_role = d.my_role;
-      (d.member_roles || []).forEach(function (r) { rememberName(r.username, r.display_name); });
+      (d.member_roles || []).forEach(function (r) { rememberName(r.username, r.display_name, r.verified); });
       if (d.title) c.title = d.title;
       if (current === c) showGroupInfo();
       loadConvs();

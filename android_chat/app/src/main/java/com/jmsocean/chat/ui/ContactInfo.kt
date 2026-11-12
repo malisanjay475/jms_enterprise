@@ -28,6 +28,7 @@ import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.HourglassTop
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Verified
 import androidx.compose.material.icons.filled.NotificationsOff
 import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.PhotoLibrary
@@ -85,6 +86,7 @@ fun ContactDetails(p: Profile, shared: SharedReply?, convId: String, onBack: () 
     }
     val muted = mutedUntil?.let { runCatching { java.time.Instant.parse(it).isAfter(java.time.Instant.now()) }.getOrDefault(true) } ?: false
     val photo = Api.avatarUrl(p.username, p.photo_v)
+    var verified by remember(p.username, p.verified) { mutableStateOf(p.verified) }
 
     Column(Modifier.fillMaxWidth().padding(bottom = 16.dp)) {
         Column(Modifier.fillMaxWidth().padding(top = 20.dp, bottom = 12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -92,7 +94,10 @@ fun ContactDetails(p: Profile, shared: SharedReply?, convId: String, onBack: () 
                 Avatar(p.shownName, 150.dp, online = p.online, photoUrl = photo)
             }
             Spacer(Modifier.height(14.dp))
-            Text(p.shownName, fontSize = 24.sp, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(p.shownName, fontSize = 24.sp, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center)
+                if (verified) BlueTick(22.dp)
+            }
             Text("~ @${p.username}", fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             val dd = listOf(p.designation, p.department).filter { it.isNotBlank() }.joinToString("  |  ")
             if (dd.isNotEmpty()) Text(dd, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = Accent, modifier = Modifier.padding(top = 6.dp))
@@ -208,6 +213,19 @@ fun ContactDetails(p: Profile, shared: SharedReply?, convId: String, onBack: () 
                 p.pending_name?.let { CardRow(Icons.Default.HourglassTop, it, null, sub = "Requested name — waiting for approval") }
                 val old = p.name_history.filter { it.status == "approved" }.mapNotNull { it.old_name }.distinct()
                 if (old.isNotEmpty()) CardRow(Icons.Default.History, old.joinToString(", "), null, sub = "Earlier names")
+            }
+        }
+        // Superadmin only: give or take the blue tick.
+        if (p.can_verify) Card("Blue tick") {
+            Box(Modifier.clickable {
+                val want = !verified
+                scope.launch {
+                    runCatching { Api.setVerified(p.username, want) }
+                        .onSuccess { verified = want }
+                        .onFailure { Toast.makeText(ctx, it.message ?: "Could not change the blue tick.", Toast.LENGTH_SHORT).show() }
+                }
+            }) {
+                CardRow(Icons.Default.Verified, if (verified) "Remove blue tick" else "Give blue tick", null, sub = "Superadmin only")
             }
         }
     }

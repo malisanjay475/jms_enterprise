@@ -395,6 +395,11 @@ object Api {
             jsonBody("action" to (if (approve) "approve" else "reject"), "note" to note))
     }
 
+    // ---- blue tick (superadmin) ----
+    suspend fun setVerified(username: String, verified: Boolean) {
+        call("PUT", "/api/chat/verified/" + pathSeg(username), jsonBody("verified" to verified))
+    }
+
     suspend fun uploadPhoto(file: File, mime: String): Profile {
         val form = MultipartBody.Builder().setType(MultipartBody.FORM)
             .addFormDataPart("photo", file.name, file.asRequestBodyCompat(mime)).build()
