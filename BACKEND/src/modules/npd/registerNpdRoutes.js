@@ -70,33 +70,34 @@ function roleDepts(u) {
 /* Columns of the NPD tracking sheet, in sheet order. type 'status' cells hold a
    stage state, type 'date' cells hold a YYYY-MM-DD date. Keep in sync with npd.html. */
 const STAGES = [
-  { key: 'mould_received', type: 'status', group: 'Mould & Trial', label: 'Final mould received @ factory (Tool Room)', depts: ['Tool Room'] },
-  { key: 'mould_trials', type: 'status', group: 'Mould & Trial', label: 'Product mould final trials @ factory (Moulding)', depts: ['Moulding'] },
-  { key: 'rm_colour', type: 'status', group: 'Mould & Trial', label: 'RM & colour finalization (Planning / Moulding)', depts: ['Planning', 'Moulding'] },
-  { key: 'samples_ho', type: 'status', group: 'Mould & Trial', label: 'Final samples sent to HO for approval & photo shoot (QC)', depts: ['QC'] },
-  { key: 'sample_approval_ho', type: 'status', group: 'Mould & Trial', label: 'Final sample approval from HO (HO)', depts: ['HO'] },
-  { key: 'pilot_drop_test', type: 'status', group: 'Mould & Trial', label: 'Pilot run & drop test @ factory (Moulding / QC)', depts: ['Moulding', 'QC'] },
-  { key: 'qc_approval_ho', type: 'status', group: 'Mould & Trial', label: 'Final QC approved after testing (QC)', depts: ['QC'] },
-  { key: 'packing_material', type: 'status', group: 'Packing, BOM & ERP', label: 'Packing material finalization (Packing)', depts: ['Packing'] },
-  { key: 'bom_approval', type: 'status', group: 'Packing, BOM & ERP', label: 'Product BOM finalization / approval (Planning)', depts: ['Planning'] },
-  { key: 'packing_receiving', type: 'status', group: 'Packing, BOM & ERP', label: 'Packing material follow up & receiving @ factory (Purchase)', depts: ['Purchase'] },
-  { key: 'or_jr_erp', type: 'status', group: 'Packing, BOM & ERP', label: 'OR making in ERP by H.O (HO)', depts: ['HO'] },
-  { key: 'or_jr_erp_wh', type: 'status', group: 'Packing, BOM & ERP', label: 'OR - JR making in ERP by Warehouse (W/H)', depts: ['W/H'] },
-  { key: 'production_planning', type: 'status', group: 'Packing, BOM & ERP', label: 'Production planning as per OR-JR ERP (Planning)', depts: ['Planning'] },
-  { key: 'jc_start_date', type: 'date', group: 'Packing, BOM & ERP', label: 'Planned job card start date (Planning)', depts: ['Planning'] },
-  { key: 'jc_end_date', type: 'date', group: 'Packing, BOM & ERP', label: 'Planned job card completion date (Planning)', depts: ['Planning'] },
-  { key: 'launch_date', type: 'date', group: 'Packing, BOM & ERP', label: 'Launch date finalization by Planning (Planning)', depts: ['Planning'] },
-  { key: 'launch_date_ho', type: 'date', group: 'Packing, BOM & ERP', label: 'Launch date by H.O (HO)', depts: ['HO'] },
-  { key: 'mass_moulding', type: 'status', group: 'Mass Production', label: 'Mass production - moulding (Moulding)', depts: ['Moulding'] },
-  { key: 'mass_printing', type: 'status', group: 'Mass Production', label: 'Mass production - printing / tufting (Production)', depts: ['Production'] },
-  { key: 'mass_packaging', type: 'status', group: 'Mass Production', label: 'Mass production - packaging (Packing)', depts: ['Packing'] },
-  { key: 'fg_receiving', type: 'status', group: 'Mass Production', label: 'Finish goods receiving (W/H)', depts: ['W/H'] },
-  { key: 'ex_factory_cost', type: 'status', group: 'Costing & Launch', label: 'Ex factory cost finalization (Planning)', depts: ['Planning'] },
-  { key: 'price_final', type: 'status', group: 'Costing & Launch', label: 'Price finalization (HO)', depts: ['HO'] },
-  { key: 'post_card_receiving', type: 'status', group: 'Costing & Launch', label: 'Final post card follow up & receiving by Planning (Planning)', depts: ['Planning'] },
-  { key: 'post_card_making_ho', type: 'status', group: 'Costing & Launch', label: 'Post card making by H.O (HO)', depts: ['HO'] },
-  { key: 'post_card_posting', type: 'status', group: 'Costing & Launch', label: 'Posting post card in new product launch group (Planning)', depts: ['Planning'] },
-  { key: 'dispatch_date', type: 'date', group: 'Costing & Launch', label: 'Actual dispatch date (W/H & Dispatch)', depts: ['W/H'] }
+  { key: 'mould_received', level: 'mould', type: 'status', group: 'Mould & Trial', label: 'Final mould received @ factory (Tool Room)', depts: ['Tool Room'] },
+  { key: 'mould_trials', level: 'mould', type: 'status', group: 'Mould & Trial', label: 'Product mould final trials @ factory (Moulding)', depts: ['Moulding'] },
+  { key: 'rm_colour', level: 'mould', type: 'status', group: 'Mould & Trial', label: 'RM & colour finalization (Planning / Moulding)', depts: ['Planning', 'Moulding'] },
+  { key: 'samples_ho', level: 'product', type: 'status', group: 'Mould & Trial', label: 'Final samples sent to HO for approval & photo shoot (QC)', depts: ['QC'] },
+  { key: 'sample_approval_ho', level: 'product', type: 'status', group: 'Mould & Trial', label: 'Final sample approval from HO (HO)', depts: ['HO'] },
+  { key: 'pilot_drop_test', level: 'mould', type: 'status', group: 'Mould & Trial', label: 'Pilot run & drop test @ factory (Moulding / QC)', depts: ['Moulding', 'QC'] },
+  { key: 'qc_approval_ho', level: 'mould', type: 'status', group: 'Mould & Trial', label: 'Final QC approved after testing (QC)', depts: ['QC'] },
+  { key: 'packing_material', level: 'product', type: 'status', group: 'Packing, BOM & ERP', label: 'Packing material finalization (Packing)', depts: ['Packing'] },
+  { key: 'bom_approval', level: 'product', type: 'status', group: 'Packing, BOM & ERP', label: 'Product BOM finalization / approval (Planning)', depts: ['Planning'] },
+  { key: 'packing_receiving', level: 'product', type: 'status', group: 'Packing, BOM & ERP', label: 'Packing material follow up & receiving @ factory (Purchase)', depts: ['Purchase'] },
+  { key: 'or_jr_erp', level: 'product', type: 'status', group: 'Packing, BOM & ERP', label: 'OR making in ERP by H.O (HO)', depts: ['HO'] },
+  { key: 'or_jr_erp_wh', level: 'product', type: 'status', group: 'Packing, BOM & ERP', label: 'OR - JR making in ERP by Warehouse (W/H)', depts: ['W/H'] },
+  { key: 'production_planning', level: 'product', type: 'status', group: 'Packing, BOM & ERP', label: 'Production planning as per OR-JR ERP (Planning)', depts: ['Planning'] },
+  { key: 'jc_start_date', level: 'mould', type: 'date', group: 'Packing, BOM & ERP', label: 'Planned job card start date (Planning)', depts: ['Planning'] },
+  { key: 'jc_end_date', level: 'mould', type: 'date', group: 'Packing, BOM & ERP', label: 'Planned job card completion date (Planning)', depts: ['Planning'] },
+  { key: 'launch_date', level: 'product', type: 'date', group: 'Packing, BOM & ERP', label: 'Launch date finalization by Planning (Planning)', depts: ['Planning'] },
+  { key: 'launch_date_ho', level: 'product', type: 'date', group: 'Packing, BOM & ERP', label: 'Launch date by H.O (HO)', depts: ['HO'] },
+  { key: 'mass_moulding', level: 'mould', type: 'status', group: 'Mass Production', label: 'Mass production - moulding (Moulding)', depts: ['Moulding'] },
+  { key: 'mass_printing', level: 'product', type: 'status', group: 'Mass Production', label: 'Mass production - printing (Production)', depts: ['Production'] },
+  { key: 'mass_tufting', level: 'product', type: 'status', group: 'Mass Production', label: 'Mass production - tufting (Production)', depts: ['Production'] },
+  { key: 'mass_packaging', level: 'product', type: 'status', group: 'Mass Production', label: 'Mass production - packing (Packing)', depts: ['Packing'] },
+  { key: 'fg_receiving', level: 'product', type: 'status', group: 'Mass Production', label: 'Finish goods receiving (W/H)', depts: ['W/H'] },
+  { key: 'ex_factory_cost', level: 'product', type: 'status', group: 'Costing & Launch', label: 'Ex factory cost finalization (Planning)', depts: ['Planning'] },
+  { key: 'price_final', level: 'product', type: 'status', group: 'Costing & Launch', label: 'Price finalization (HO)', depts: ['HO'] },
+  { key: 'post_card_receiving', level: 'product', type: 'status', group: 'Costing & Launch', label: 'Final post card follow up & receiving by Planning (Planning)', depts: ['Planning'] },
+  { key: 'post_card_making_ho', level: 'product', type: 'status', group: 'Costing & Launch', label: 'Post card making by H.O (HO)', depts: ['HO'] },
+  { key: 'post_card_posting', level: 'product', type: 'status', group: 'Costing & Launch', label: 'Posting post card in new product launch group (Planning)', depts: ['Planning'] },
+  { key: 'dispatch_date', level: 'product', type: 'date', group: 'Costing & Launch', label: 'Actual dispatch date (W/H & Dispatch)', depts: ['W/H'] }
 ];
 /* Excel export: same words and colours as the page (Blue pending, Yellow in
    progress, Green complete, Red N/A) */
@@ -113,6 +114,26 @@ const STATUS_STYLE = {
   'On Schedule': { fill: 'FFDBEAFE', font: 'FF1D4ED8' },
   Cancelled: { fill: 'FFE5E7EB', font: 'FF374151' }
 };
+/* level: 'mould' stages are worked on each child mould and the product row
+   shows their roll-up; 'product' stages are worked once on the product row. */
+const STAGE_LEVEL = new Map(STAGES.map(s => [s.key, s.level]));
+/* Product-row value of a mould stage, from its child moulds. Status: N/A when
+   every mould is N/A, Complete when every mould is Complete or N/A, In Progress
+   once any mould has started, else Pending. Dates: earliest start, latest end. */
+function rollupStage(key, moulds) {
+  const vals = (moulds || []).map(m => (m.stages || {})[key]);
+  if (STAGE_TYPE.get(key) === 'date') {
+    const d = vals.filter(isDate).sort();
+    if (!d.length) return '';
+    return key === 'jc_start_date' ? d[0] : d[d.length - 1];
+  }
+  const st = vals.map(v => STAGE_STATES.has(v) ? v : 'pending');
+  if (!st.length) return 'pending';
+  if (st.every(v => v === 'na')) return 'na';
+  if (st.every(v => v === 'complete' || v === 'na')) return 'complete';
+  if (st.some(v => v !== 'pending')) return 'in_progress';
+  return 'pending';
+}
 const STAGE_TYPE = new Map(STAGES.map(s => [s.key, s.type]));
 const STAGE_STATES = new Set(['pending', 'in_progress', 'complete', 'na']);
 /* stage whose completion also records who received it */
@@ -267,10 +288,44 @@ async function ensureNpdSchema(pool) {
   `);
 }
 
+/* One-time data move for the Product / Mould split (MAIN only, so it runs once
+   and syncs out): the old combined printing / tufting stage is copied to the
+   new tufting stage, and every product stage worked on the moulds so far is
+   copied up to its product row (roll-up rule) when the product has no value. */
+async function migrateNpdLevels(pool) {
+  if (String(process.env.SERVER_TYPE || '').toUpperCase() === 'LOCAL') return;
+  await pool.query('CREATE TABLE IF NOT EXISTS server_config (key TEXT PRIMARY KEY, value TEXT)');
+  const flag = await pool.query(
+    `INSERT INTO server_config (key, value) VALUES ('NPD_LEVELS_V1', NOW()::text)
+     ON CONFLICT (key) DO NOTHING RETURNING key`);
+  if (!flag.rowCount) return;
+  await pool.query(`UPDATE npd_products
+     SET stages = stages || jsonb_build_object('mass_tufting', stages->'mass_printing'),
+         stage_info = CASE WHEN stage_info ? 'mass_printing'
+           THEN stage_info || jsonb_build_object('mass_tufting', stage_info->'mass_printing') ELSE stage_info END,
+         updated_at = NOW()
+   WHERE stages ? 'mass_printing' AND NOT stages ? 'mass_tufting'`);
+  const all = (await pool.query('SELECT id, sync_id, parent_sync_id, stages FROM npd_products')).rows;
+  const productKeys = STAGES.filter(s => s.level === 'product').map(s => s.key);
+  for (const p of all.filter(r => !r.parent_sync_id)) {
+    const kids = all.filter(c => String(c.parent_sync_id) === String(p.sync_id));
+    const add = {};
+    for (const k of productKeys) {
+      if ((p.stages || {})[k] !== undefined) continue;
+      if (!kids.some(c => (c.stages || {})[k] !== undefined)) continue;
+      add[k] = rollupStage(k, kids);
+    }
+    if (Object.keys(add).length) {
+      await pool.query('UPDATE npd_products SET stages = stages || $1::jsonb, updated_at = NOW() WHERE id = $2',
+        [JSON.stringify(add), p.id]);
+    }
+  }
+}
+
 function registerNpdRoutes(app, pool) {
   let ready = null;
   function ensureTables() {
-    if (!ready) ready = ensureNpdSchema(pool).catch(err => { ready = null; throw err; });
+    if (!ready) ready = ensureNpdSchema(pool).then(() => migrateNpdLevels(pool)).catch(err => { ready = null; throw err; });
     return ready;
   }
   /* LOCAL: send the change to MAIN now instead of waiting for the next cycle */
@@ -356,9 +411,9 @@ function registerNpdRoutes(app, pool) {
       const ExcelJS = require('exceljs');
       const wb = new ExcelJS.Workbook();
       wb.creator = 'JMS';
-      const ws = wb.addWorksheet('NPD Tracker', { views: [{ state: 'frozen', xSplit: 5, ySplit: 3 }] });
-      const S0 = 6; /* first stage column */
-      const head = ['Sr No', 'Product / Mould', 'Factory (HO)', 'Product code', 'Colour details for trials (HO)', ...STAGES.map(s => s.label), 'Status', 'Remarks', 'Trial reports', 'Images', 'Last updated by', 'Last updated'];
+      const ws = wb.addWorksheet('NPD Tracker', { views: [{ state: 'frozen', xSplit: 6, ySplit: 3 }] });
+      const S0 = 7; /* first stage column */
+      const head = ['Sr No', 'Level', 'Product / Mould', 'Factory (HO)', 'Product code', 'Colour details for trials (HO)', ...STAGES.map(s => s.label), 'Status', 'Remarks', 'Trial reports', 'Images', 'Last updated by', 'Last updated'];
       const last = head.length;
       const thin = { style: 'thin', color: { argb: 'FFCBD5E1' } };
       const border = { top: thin, left: thin, bottom: thin, right: thin };
@@ -393,13 +448,20 @@ function registerNpdRoutes(app, pool) {
       });
 
       rows.forEach(p => {
-        const st = p.stages || {};
+        const isMould = !!p.parent_sync_id;
+        const kids = isMould ? [] : products.rows.filter(c => String(c.parent_sync_id) === String(p.sync_id));
+        /* product row: mould stages are the roll-up of its moulds */
+        const st = { ...(p.stages || {}) };
+        if (!isMould) STAGES.forEach(s => { if (s.level === 'mould') st[s.key] = rollupStage(s.key, kids); });
         const info = p.stage_info || {};
-        const vals = [/^\d+$/.test(p.sr_no || '') ? Number(p.sr_no) : (p.sr_no || ''),
+        /* stage that does not belong to this row's level: left blank and greyed */
+        const off = s => s.level !== (isMould ? 'mould' : 'product');
+        const vals = [/^\d+$/.test(p.sr_no || '') ? Number(p.sr_no) : (p.sr_no || ''), isMould ? 'Mould' : 'Product',
           p.parent_sync_id ? `   ↳ Mould: ${p.product_name}` : p.product_name, p.factory || '', p.product_code || '', p.trial_colours || ''];
         STAGES.forEach(s => {
           const v = st[s.key];
-          if (s.type === 'date') vals.push(v ? new Date(v + 'T00:00:00Z') : null);
+          if (off(s)) vals.push(null);
+          else if (s.type === 'date') vals.push(v ? new Date(v + 'T00:00:00Z') : null);
           else {
             const done = v === 'complete' && info[s.key] && info[s.key].completed_on;
             const rb = s.key === RECEIVED_BY_STAGE && v === 'complete' && info[s.key] && info[s.key].received_by;
@@ -411,9 +473,11 @@ function registerNpdRoutes(app, pool) {
         const r = ws.addRow(vals);
         r.eachCell({ includeEmpty: true }, (c, col) => {
           c.border = border;
-          c.alignment = { vertical: 'middle', wrapText: col === 2 || col === 5 || col === STAGES.length + S0 + 1 };
+          c.alignment = { vertical: 'middle', wrapText: col === 3 || col === 6 || col === STAGES.length + S0 + 1 };
           const s = STAGES[col - S0];
-          if (s && s.type === 'status') {
+          if (s && off(s)) {
+            c.fill = fill('FFE5E7EB');
+          } else if (s && s.type === 'status') {
             const k = STATE_STYLE[st[s.key]] || STATE_STYLE.pending;
             c.fill = fill(k.fill);
             c.font = { bold: true, color: { argb: k.font } };
@@ -424,10 +488,11 @@ function registerNpdRoutes(app, pool) {
           }
         });
         STAGES.forEach((s, i) => {
+          if (off(s)) return;
           const rm = (p.stage_info || {})[s.key];
           if (rm && rm.remarks) r.getCell(i + S0).note = `${rm.remarks}${rm.by ? ` - ${rm.by}` : ''}`;
         });
-        r.getCell(2).font = { bold: !p.parent_sync_id, italic: !!p.parent_sync_id };
+        r.getCell(3).font = { bold: !p.parent_sync_id, italic: !!p.parent_sync_id };
         const ps = STATUS_STYLE[p.status];
         if (ps) {
           const c = r.getCell(STAGES.length + S0);
@@ -438,9 +503,11 @@ function registerNpdRoutes(app, pool) {
       });
 
       ws.getColumn(1).width = 7;
-      ws.getColumn(2).width = 34;
-      ws.getColumn(3).width = 14;
-      ws.getColumn(4).width = 22;
+      ws.getColumn(2).width = 10;
+      ws.getColumn(3).width = 34;
+      ws.getColumn(4).width = 14;
+      ws.getColumn(5).width = 16;
+      ws.getColumn(6).width = 22;
       STAGES.forEach((s, i) => { ws.getColumn(i + S0).width = s.type === 'date' ? 13 : 15; });
       ws.getColumn(STAGES.length + S0).width = 14;
       ws.getColumn(STAGES.length + S0 + 1).width = 40;
@@ -537,8 +604,14 @@ function registerNpdRoutes(app, pool) {
         const remarks = b.stage_remarks || {};
         const missing = keys.find(k => !clean(remarks[k], 1000));
         if (missing) return res.status(400).json({ ok: false, error: 'Remarks are mandatory for every stage change' });
-        const cur = await pool.query('SELECT stages, stage_info FROM npd_products WHERE id = $1', [id]);
+        const cur = await pool.query('SELECT stages, stage_info, parent_sync_id FROM npd_products WHERE id = $1', [id]);
         if (!cur.rows.length) return res.status(404).json({ ok: false, error: 'Product not found' });
+        const rowLevel = cur.rows[0].parent_sync_id ? 'mould' : 'product';
+        const wrong = keys.find(k => STAGE_LEVEL.get(k) !== rowLevel);
+        if (wrong) {
+          const s = STAGES.find(x => x.key === wrong);
+          return res.status(400).json({ ok: false, error: `"${s ? s.label : wrong}" is filled on the ${rowLevel === 'mould' ? 'main product' : 'child mould'} row` });
+        }
         const cleaned = cleanStages(b.stages);
         if (Object.keys(cleaned).length !== keys.length) return res.status(400).json({ ok: false, error: 'Invalid stage value' });
         const receivedBy = clean(b.received_by, 100);
@@ -673,6 +746,9 @@ module.exports = {
   registerNpdRoutes,
   ensureNpdSchema,
   STAGES,
+  STAGE_LEVEL,
+  rollupStage,
+  migrateNpdLevels,
   DEPT_ROLES,
   ADMIN_ROLES,
   SHEET_ROLES,
