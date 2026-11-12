@@ -69,9 +69,6 @@
         .ttag.kid { background: #e2e8f0; color: #334155; }
         .ttag small { font-weight: 700; opacity: .7; }
         .g tr.child td.c1 { position: sticky; }
-        .g td.msum { background: #fff4ea; padding: 6px 14px; }
-        .msum-in { position: sticky; left: 540px; display: inline-flex; gap: 8px; align-items: center; white-space: nowrap; }
-        .msum-l { font-weight: 800; color: #9a3412; font-size: 12px; }
         .mbar { width: 160px; height: 7px; background: #fde3cf; border-radius: 99px; overflow: hidden; }
         .mbar i { display: block; height: 100%; background: #16a34a; border-radius: 99px; }
         .g td.rmall { min-width: 320px; max-width: 360px; vertical-align: top; padding: 6px; }
@@ -115,6 +112,10 @@
         .sdone { display: block; font-size: 10px; color: var(--c-ink); font-weight: 700; text-align: center; margin-top: 2px; }
         .srm { display: block; font-size: 10px; color: var(--mute); text-align: center; margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 120px; cursor: help; }
         .lock { opacity: .85; }
+        .g td.off { background: repeating-linear-gradient(45deg, #f1f5f9, #f1f5f9 6px, #e9eef4 6px, #e9eef4 12px) !important; }
+        .g td.auto { background: #f5f9ff; }
+        .sauto { display: block; font-size: 10px; color: #2563eb; font-weight: 700; text-align: center; margin-top: 2px; }
+        .msum-t { color: #9a3412; font-weight: 700; }
         .srb { display: block; font-size: 10px; color: #0f766e; font-weight: 700; text-align: center; margin-top: 1px; }
         input.code { width: 110px; border: 1px solid var(--line); border-radius: 7px; padding: 5px 6px; font-size: 12px; }
         .cols { display: flex; flex-wrap: wrap; gap: 4px; min-width: 170px; align-items: center; }
@@ -306,8 +307,9 @@
                     ['launch_date_ho', 'Launch date by H.O', 'H.O', 'date']] },
                 { label: 'Mass Production', cols: [
                     ['mass_moulding', 'Mass production - moulding', 'Moulding'],
-                    ['mass_printing', 'Mass production - printing / tufting', 'Production'],
-                    ['mass_packaging', 'Mass production - packaging', 'Packing'],
+                    ['mass_printing', 'Mass production - printing', 'Production'],
+                    ['mass_tufting', 'Mass production - tufting', 'Production'],
+                    ['mass_packaging', 'Mass production - packing', 'Packing'],
                     ['fg_receiving', 'Finish goods receiving', 'W/H']] },
                 { label: 'Costing & Launch', cols: [
                     ['ex_factory_cost', 'Ex factory cost finalization', 'Planning'],
@@ -318,6 +320,31 @@
                     ['dispatch_date', 'Actual dispatch date', 'W/H & Dispatch', 'date']] }
             ];
             const COLS = GROUPS.flatMap(g => g.cols);
+            /* stages worked on each child mould; the product row shows their roll-up.
+               Every other stage is worked once on the product row. Keep in sync with
+               STAGES[].level in registerNpdRoutes.js */
+            const MOULD_KEYS = new Set(['mould_received', 'mould_trials', 'rm_colour', 'pilot_drop_test', 'qc_approval_ho', 'jc_start_date', 'jc_end_date', 'mass_moulding']);
+            /* same rule as rollupStage() on the server */
+            function rollup(key, type, kids) {
+                const vals = kids.map(k => (k.stages || {})[key]);
+                if (type === 'date') {
+                    const d = vals.filter(v => /^\d{4}-\d{2}-\d{2}$/.test(v || '')).sort();
+                    return d.length ? (key === 'jc_start_date' ? d[0] : d[d.length - 1]) : '';
+                }
+                const st = vals.map(v => v || 'pending');
+                if (!st.length) return 'pending';
+                if (st.every(v => v === 'na')) return 'na';
+                if (st.every(v => v === 'complete' || v === 'na')) return 'complete';
+                return st.some(v => v !== 'pending') ? 'in_progress' : 'pending';
+            }
+            /* product row, mould stage: read-only roll-up of its moulds */
+            function rollupCell(c, kids) {
+                const v = rollup(c[0], c[3], kids);
+                const tip = 'title="Automatic: from the child moulds"';
+                if (c[3] === 'date') return `<td class="lock auto" ${tip}>${v ? esc(fmtDate(v)) : '<span class="none">—</span>'}<span class="sauto"><i class="bi bi-arrow-repeat"></i> auto</span></td>`;
+                return `<td class="lock auto" ${tip}><span class="cell st-${v}">${(STATE.find(s => s[0] === v) || STATE[0])[1]}</span><span class="sauto"><i class="bi bi-arrow-repeat"></i> from moulds</span></td>`;
+            }
+            const offCell = '<td class="off" title="Not used on this row"></td>';
             const STATE = [['pending', 'Pending'], ['in_progress', 'In Progress'], ['complete', 'Complete'], ['na', 'N/A']];
             const PSTAT = ['Hold', 'Launched', 'Delayed', 'On Schedule', 'Cancelled'];
             /* colours for trials (picked by H.O): this list plus any colour already used */
@@ -397,6 +424,17 @@
             function setColours(id, list) {
                 save(id, { trial_colours: list.join(', ') }).then(ok => ok && render());
             }
+            /* product row: share of all stages complete (product stages here + mould stages on each mould) */
+            function progress(p) {
+                const ks = S.rows.filter(c => c.parent_sync_id && String(c.parent_sync_id) === String(p.sync_id));
+                let tot = 0, done = 0;
+                COLS.filter(c => c[3] !== 'date').forEach(c => {
+                    const src = MOULD_KEYS.has(c[0]) ? ks : [p];
+                    src.forEach(r => { tot++; if ((r.stages || {})[c[0]] === 'complete') done++; });
+                });
+                const pct = tot ? Math.round(done * 100 / tot) : 0;
+                return `<div class="meta"><span class="msum-t">${ks.length} mould${ks.length === 1 ? '' : 's'} · ${pct}% complete</span><span class="mbar" style="width:90px;align-self:center"><i style="width:${pct}%"></i></span></div>`;
+            }
             function fmtDate(v) { const d = new Date(v + 'T00:00:00'); return isNaN(d) ? v : d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: '2-digit' }); }
 
             function render() {
@@ -414,7 +452,7 @@
                 let h = `<thead><tr class="grp"><th class="fix c0" rowspan="2" style="top:0">Sr</th><th class="fix cc" rowspan="2" style="top:0">Product Code / Mould Code</th><th class="fix c1" rowspan="2" style="top:0;text-align:left;padding-left:14px">Product Name</th><th rowspan="2" style="top:0;min-width:150px">Factory<small style="display:block;color:var(--mute)">H.O</small></th><th rowspan="2" style="top:0;min-width:180px">Colour details for trials<small style="display:block;color:var(--mute)">H.O</small></th>`;
                 GROUPS.forEach(g => { h += `<th colspan="${g.cols.length}">${esc(g.label)}</th>`; });
                 h += `<th rowspan="2" style="top:0;min-width:140px">Status</th><th rowspan="2" style="top:0;min-width:320px">Remarks<small style="display:block;color:var(--mute)">All departments</small></th>${S.canDelete ? '<th rowspan="2" style="top:0"></th>' : ''}</tr><tr class="col">`;
-                COLS.forEach(c => { h += `<th>${esc(c[1])}${c[2] ? `<small>${esc(c[2])}</small>` : ''}</th>`; });
+                COLS.forEach(c => { h += `<th>${esc(c[1])}${c[2] ? `<small>${esc(c[2])}</small>` : ''}<small style="color:${MOULD_KEYS.has(c[0]) ? '#7c3aed' : '#9a3412'}">${MOULD_KEYS.has(c[0]) ? 'Per mould' : 'Per product'}</small></th>`; });
                 h += `</tr></thead><tbody>`;
                 rows.forEach(p => {
                     const child = !!p.parent_sync_id;
@@ -435,23 +473,26 @@
                     }
                     h += `<tr class="${child ? 'child' : 'main'}"><td class="fix c0">${srCell}</td>
                         <td class="fix cc pcode">${S.canEdit ? `<input class="code" data-id="${p.id}" data-f="product_code" value="${esc(p.product_code || '')}" maxlength="60" placeholder="Code">` : esc(p.product_code || '') || '<span class="none">—</span>'}</td>
-                        <td class="fix c1"><div class="pc">${thumb}<div>${name}<div class="meta"><a data-files="${p.id}"><i class="bi bi-file-earmark-text"></i> Trial report (${reps})</a><a data-files="${p.id}"><i class="bi bi-images"></i> Images (${imgs})</a>${addMould}</div></div></div></td>`;
+                        <td class="fix c1"><div class="pc">${thumb}<div>${name}<div class="meta"><a data-files="${p.id}"><i class="bi bi-file-earmark-text"></i> Trial report (${reps})</a><a data-files="${p.id}"><i class="bi bi-images"></i> Images (${imgs})</a>${addMould}</div>${child ? '' : progress(p)}</div></div></td>`;
                     h += `<td>${factoryCell(p)}</td>`;
                     const statusCell = S.canEdit
                         ? `<td><select class="ps ${psClass(p.status)}" data-id="${p.id}" data-f="status"><option value="">— Select —</option>${PSTAT.map(s => `<option${s === p.status ? ' selected' : ''}>${s}</option>`).join('')}</select></td>`
                         : `<td>${p.status ? `<span class="chip ${psClass(p.status)}">${esc(p.status)}</span>` : '<span class="none">—</span>'}</td>`;
-                    /* stages, colours and remarks are tracked per child mould; the main product row only sums them up */
+                    /* product row: product stages are edited here, mould stages show the roll-up of its moulds */
                     if (!child) {
-                        const ks = kidsOf(p), tot = ks.length * COLS.length;
-                        const n = st => ks.reduce((a, k) => a + COLS.filter(c => (k.stages || {})[c[0]] === st).length, 0);
-                        const done = n('complete'), pct = tot ? Math.round(done * 100 / tot) : 0;
-                        h += `<td colspan="${COLS.length + 1}" class="msum"><div class="msum-in"><span class="msum-l">${ks.length} mould${ks.length === 1 ? '' : 's'} · ${pct}% complete</span><span class="mbar"><i style="width:${pct}%"></i></span><span class="chip st-complete">${done} done</span><span class="chip st-in_progress">${n('in_progress')} in progress</span><span class="chip st-na">${n('na')} N/A</span></div></td>${statusCell}<td class="msum"></td>`;
+                        const ks = kidsOf(p);
+                        h += '<td></td>';
+                        COLS.forEach(c => { h += MOULD_KEYS.has(c[0]) ? rollupCell(c, ks) : stageCell(p, c); });
+                        h += statusCell;
+                        h += `<td class="rmall">${deptRemarks(p)}${S.canEdit
+                            ? `<textarea class="rm" data-id="${p.id}" data-f="remarks" placeholder="General remark">${esc(p.remarks || '')}</textarea>`
+                            : (p.remarks ? `<div class="rgen">${esc(p.remarks)}</div>` : '')}</td>`;
                         if (S.canDelete) h += `<td><button class="btn sm danger" data-del="${p.id}" title="Delete"><i class="bi bi-trash"></i></button></td>`;
                         h += '</tr>';
                         return;
                     }
                     h += `<td>${colourCell(p)}</td>`;
-                    COLS.forEach(c => { h += stageCell(p, c); });
+                    COLS.forEach(c => { h += MOULD_KEYS.has(c[0]) ? stageCell(p, c) : offCell; });
                     h += statusCell;
                     h += `<td class="rmall">${deptRemarks(p)}${S.canEdit
                         ? `<textarea class="rm" data-id="${p.id}" data-f="remarks" placeholder="General remark">${esc(p.remarks || '')}</textarea>`

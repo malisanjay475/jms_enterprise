@@ -143,3 +143,33 @@ describe('NPD Sales Co-ordinator (add only)', () => {
     expect(canAddItems(null)).toBe(false);
   });
 });
+
+describe('NPD product / mould levels', () => {
+  const { STAGE_LEVEL, rollupStage } = require('../src/modules/npd/registerNpdRoutes');
+  const m = (stages) => ({ stages });
+
+  test('every stage is product or mould level; printing and tufting are separate product stages', () => {
+    for (const s of STAGES) expect(['product', 'mould']).toContain(s.level);
+    expect(STAGE_LEVEL.get('mass_moulding')).toBe('mould');
+    expect(STAGE_LEVEL.get('mass_printing')).toBe('product');
+    expect(STAGE_LEVEL.get('mass_tufting')).toBe('product');
+    expect(STAGE_LEVEL.get('mass_packaging')).toBe('product');
+    const keys = STAGES.map((s) => s.key);
+    expect(keys.indexOf('mass_tufting')).toBe(keys.indexOf('mass_printing') + 1);
+  });
+
+  test('status roll-up from moulds', () => {
+    expect(rollupStage('mould_trials', [])).toBe('pending');
+    expect(rollupStage('mould_trials', [m({}), m({})])).toBe('pending');
+    expect(rollupStage('mould_trials', [m({ mould_trials: 'complete' }), m({})])).toBe('in_progress');
+    expect(rollupStage('mould_trials', [m({ mould_trials: 'complete' }), m({ mould_trials: 'na' })])).toBe('complete');
+    expect(rollupStage('mould_trials', [m({ mould_trials: 'na' }), m({ mould_trials: 'na' })])).toBe('na');
+  });
+
+  test('date roll-up: earliest job card start, latest end', () => {
+    const ks = [m({ jc_start_date: '2026-11-10', jc_end_date: '2026-11-20' }), m({ jc_start_date: '2026-11-05', jc_end_date: '2026-11-25' }), m({})];
+    expect(rollupStage('jc_start_date', ks)).toBe('2026-11-05');
+    expect(rollupStage('jc_end_date', ks)).toBe('2026-11-25');
+    expect(rollupStage('jc_end_date', [m({})])).toBe('');
+  });
+});
