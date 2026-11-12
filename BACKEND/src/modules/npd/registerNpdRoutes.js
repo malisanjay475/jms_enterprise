@@ -43,12 +43,15 @@ const SHEET_ROLES = new Set(['ppcassmanager', 'ppcmanager', 'srppcmanager']);
    remarks, file or delete rights). Matched loosely: 'sales_coordinator',
    'Sales Co-ordinator', 'Sales Coord.' all normalise to contain 'salescoord'. */
 const ADD_ONLY_ROLE = /salescoord/;
+/* Sales Co-ordinator H.O also does the H.O work: H.O stages, factory and the
+   colours for trials ('sales_coordinator_ho', 'Sales Co-ordinator H.O'). */
+const HO_ROLE = /^salescoord.*ho$/;
 
 /* Department roles, matched on the role code or its label with everything but
    letters / digits removed (so 'sr__ppc_manager' and 'Sr. PPC Manager' are the
    same); a RegExp entry matches any role containing it (Purchase roles are
    created in Settings with varying names). Production (printing / tufting) is
-   run by Moulding; W/H is the Dispatch Manager. HO stages are admin only. */
+   run by Moulding; W/H is the Dispatch Manager. HO stages are admin and Sales Co-ordinator H.O. */
 const DEPT_ROLES = {
   'Tool Room': ['toolroommanager'],
   Moulding: ['mouldingmanager'],
@@ -57,7 +60,8 @@ const DEPT_ROLES = {
   Packing: ['packingmanager'],
   Purchase: [/purchase/],
   Production: ['mouldingmanager'],
-  'W/H': ['dispatchmanager']
+  'W/H': ['dispatchmanager'],
+  HO: [HO_ROLE]
 };
 const norm = v => String(v || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 const userKeys = u => [norm(u && u.role_code), norm(u && u.role_label)].filter(Boolean);
@@ -141,6 +145,7 @@ const RECEIVED_BY_STAGE = 'mould_received';
 const PRODUCT_STATUSES = new Set(['', 'Hold', 'Launched', 'Delayed', 'On Schedule', 'Cancelled']);
 
 const isNpdAdmin = u => !!u && ADMIN_ROLES.has(norm(u.role_code));
+const isNpdHo = u => isNpdAdmin(u) || (!!u && userKeys(u).some(k => HO_ROLE.test(k)));
 const isNpdSuperadmin = u => !!u && norm(u.role_code) === 'superadmin';
 const canEditSheet = u => isNpdAdmin(u) || (!!u && userKeys(u).some(k => SHEET_ROLES.has(k)));
 const canAddItems = u => canEditSheet(u) || (!!u && userKeys(u).some(k => ADD_ONLY_ROLE.test(k)));
@@ -381,7 +386,7 @@ function registerNpdRoutes(app, pool) {
         can_edit: canEdit(u),
         can_add: canAddItems(u),
         can_delete: isSuperadmin(u),
-        can_colours: isAdmin(u),
+        can_colours: isNpdHo(u),
         editable_stages: editableStages(u),
         departments: u ? (isAdmin(u) ? ['All'] : roleDepts(u)) : [],
         data: products.rows.map(p => ({ ...p, files: byProduct.get(String(p.sync_id)) || [] }))
@@ -555,7 +560,7 @@ function registerNpdRoutes(app, pool) {
          VALUES ((SELECT (COALESCE(MAX(NULLIF(regexp_replace(sr_no, '[^0-9]', '', 'g'), '')::bigint), 0) + 1)::text
                     FROM npd_products),
                  $1, $2, $3, $4, $5, $6, $7, $7) RETURNING *`,
-        [name, code, isAdmin(u) ? cleanColours(req.body?.trial_colours) : '', JSON.stringify(cleanStages(req.body?.stages)),
+        [name, code, isNpdHo(u) ? cleanColours(req.body?.trial_colours) : '', JSON.stringify(cleanStages(req.body?.stages)),
           PRODUCT_STATUSES.has(status) ? status : '', clean(req.body?.remarks, 2000), u.username]
       );
       const out = [{ ...r.rows[0], files: [] }];
@@ -585,10 +590,10 @@ function registerNpdRoutes(app, pool) {
       if (!owner && (b.product_name !== undefined || b.product_code !== undefined || b.status !== undefined || b.remarks !== undefined)) {
         return res.status(403).json({ ok: false, error: 'Only admin and PPC managers can change product name, code, status or remarks' });
       }
-      if (b.factory !== undefined && !isAdmin(u)) {
+      if (b.factory !== undefined && !isNpdHo(u)) {
         return res.status(403).json({ ok: false, error: 'Only H.O (admin) can set the factory' });
       }
-      if (b.trial_colours !== undefined && !isAdmin(u)) {
+      if (b.trial_colours !== undefined && !isNpdHo(u)) {
         return res.status(403).json({ ok: false, error: 'Only H.O (admin) can set the colours for trials' });
       }
       let stageInfo = null;
