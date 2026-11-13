@@ -102,12 +102,29 @@
 
 ---
 
+## Product map
+
+- **What:** The job spine and the role workspaces. This is the contract later module extractions follow. It does not replace the shop-floor pages.
+- **Why:** The plant already runs requirement → plan → run → quality → move → dispatch. The map names that flow once, so new screens stop inventing a second one.
+- **UI:** `workspace.html` (also linked from the home dashboard and the Dashboard menu)
+- **API:** `GET /api/platform/map` (read-only, no database)
+- **Code:** `BACKEND/src/modules/platform/productMap.js`
+- **Rule:** `plan_id` + `factory_id` is the job. A quantity is typed once, on the floor. Reports only read it. LOCAL/MAIN sync stays on natural keys and tombstones.
+
+Floor logins (moulding supervisor, QC supervisor, shifting supervisor) still open their phone portals. The workspace is the office map of the same modules.
+
+---
+
 ## Infrastructure surfaces (not HTML)
 
 | Surface | Folder | Purpose |
 |---------|--------|---------|
 | Scanner Bridge | `CLIENT_BRIDGE/` | WebSocket bridge (:8999) for barcode scanners — **scanner tasks only** |
-| Flutter mobile | `ios_app_demo/` | Mobile app |
-| Desktop app | `DESKTOP_APP/` | Desktop client |
+| QC Android | `android_qc/` | Native QC app against `/api/qc` |
+| Shifting Android | `android_shifting/` | Native shifting app against `/api/shifting` |
+| Chat Android / Mac | `android_chat/`, `mac_chat/` | Chat clients against `/api/chat` |
+| Mobile shell | `MOBILE_APP/` | Capacitor wrapper around the HTML app |
+| Flutter demo | `ios_app_demo/` | Abandoned placeholder. Not a product surface. |
+| Desktop app | `DESKTOP_APP/` | Windows tray that runs the LOCAL backend |
 | LOCAL provisioning | `BACKEND/src/local-servers/` | Builds the install package for a new factory LOCAL server |
 | Deploy/ops | `scripts/`, `.github/workflows/` | CI/CD and ops |
