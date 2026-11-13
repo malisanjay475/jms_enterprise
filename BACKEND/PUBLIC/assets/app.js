@@ -1361,6 +1361,7 @@ function escHtml(value) {
             icon: 'bi-grid-1x2-fill',
             href: 'index.html',
             items: [
+                { id: 'dash_workspace', label: 'Role Workspace', icon: 'bi-compass', href: 'workspace.html' },
                 { id: 'dash_planning', label: 'Planning', icon: 'bi-calendar3', href: 'index.html?view=planning' },
                 { id: 'dash_moulding', label: 'Moulding', icon: 'bi-box-seam', href: 'production_dashboard.html' },
                 { id: 'dash_shifting', label: 'Shifting', icon: 'bi-arrow-left-right', href: 'index.html?view=shifting' },

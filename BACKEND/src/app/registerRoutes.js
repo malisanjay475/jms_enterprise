@@ -317,6 +317,10 @@ function registerRoutes(app, deps) {
   const { registerErpMastersRoutes } = require('../modules/erpMasters/registerErpMastersRoutes');
   registerErpMastersRoutes(app, pool);
 
+  // Product map: the job spine and role workspaces. Read-only, no database.
+  const { registerPlatformRoutes } = require('../modules/platform/registerPlatformRoutes');
+  registerPlatformRoutes(app);
+
   return registerLegacyRoutes({ app, pool, config, services });
 }
 

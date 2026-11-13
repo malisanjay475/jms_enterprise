@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JMS OCEAN - Role Workspace</title>
+    <link rel="icon" href="/favicon.ico" type="image/x-icon">
+    <link rel="stylesheet" href="/assets/app.css?v=12">
+    <link rel="stylesheet" href="/assets/bootstrap-icons.min.css">
+    <style>
+        .ws {
+            height: 100%;
+            overflow-y: auto;
+            padding: 20px 22px 48px;
+            background: var(--bg-body);
+        }
+
+        .ws-inner {
+            max-width: 1120px;
+            margin: 0 auto;
+        }
+
+        .ws-top {
+            display: flex;
+            justify-content: space-between;
+            gap: 16px;
+            align-items: flex-end;
+            margin-bottom: 16px;
+        }
+
+        .ws-kicker {
+            margin: 0 0 4px;
+            font-size: 0.72rem;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            font-weight: 700;
+            color: var(--accent-teal);
+        }
+
+        .ws h1 {
+            margin: 0;
+            font-size: 1.55rem;
+            letter-spacing: -0.03em;
+            color: var(--text-main);
+        }
+
+        .ws-promise {
+            margin: 6px 0 0;
+            max-width: 62ch;
+            color: var(--text-muted);
+            line-height: 1.45;
+        }
+
+        .ws-meta {
+            text-align: right;
+            color: var(--text-muted);
+            font-size: 0.85rem;
+            line-height: 1.45;
+        }
+
+        .ws-meta strong {
+            display: block;
+            color: var(--text-main);
+        }
+
+        .spine {
+            display: grid;
+            grid-template-columns: repeat(6, minmax(0, 1fr));
+            gap: 8px;
+            margin: 0 0 14px;
+        }
+
+        .spine a {
+            display: block;
+            min-height: 72px;
+            padding: 10px 12px;
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            background: var(--bg-card);
+            color: inherit;
+            text-decoration: none;
+        }
+
+        .spine a.current {
+            border-color: var(--primary);
+            background: var(--primary-light);
+        }
+
+        .spine .step {
+            font-size: 0.7rem;
+            color: var(--text-muted);
+            font-weight: 700;
+        }
+
+        .spine strong {
+            display: block;
+            margin-top: 2px;
+            color: var(--text-main);
+        }
+
+        .spine span {
+            display: block;
+            margin-top: 2px;
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            line-height: 1.3;
+        }
+
+        .now {
+            display: grid;
+            grid-template-columns: minmax(220px, 280px) 1fr;
+            gap: 12px;
+            margin-bottom: 22px;
+        }
+
+        .primary-go {
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            gap: 12px;
+            min-height: 148px;
+            padding: 16px;
+            border-radius: 12px;
+            background: var(--primary);
+            color: #fff;
+            text-decoration: none;
+        }
+
+        .primary-go span {
+            font-size: 0.78rem;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+            opacity: 0.85;
+        }
+
+        .primary-go strong {
+            font-size: 1.25rem;
+            letter-spacing: -0.02em;
+        }
+
+        .kpis {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 8px;
+        }
+
+        .kpi {
+            padding: 12px;
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            background: var(--bg-card);
+        }
+
+        .kpi em {
+            display: block;
+            font-style: normal;
+            font-size: 0.75rem;
+            color: var(--text-muted);
+        }
+
+        .kpi b {
+            display: block;
+            margin: 4px 0 2px;
+            font-size: 1.35rem;
+            color: var(--text-main);
+        }
+
+        .kpi small {
+            color: var(--text-muted);
+            line-height: 1.3;
+        }
+
+        .ws h2 {
+            margin: 0 0 10px;
+            font-size: 1rem;
+            color: var(--text-main);
+        }
+
+        .mods {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+            gap: 10px;
+            margin-bottom: 22px;
+        }
+
+        .mod {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            padding: 14px;
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            background: var(--bg-card);
+        }
+
+        .mod .tag {
+            font-size: 0.7rem;
+            font-weight: 700;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+            color: var(--accent-teal);
+        }
+
+        .mod a {
+            color: var(--primary);
+            font-weight: 700;
+            text-decoration: none;
+        }
+
+        .mod p {
+            margin: 0;
+            color: var(--text-muted);
+            font-size: 0.86rem;
+            line-height: 1.4;
+        }
+
+        .gaps {
+            padding: 14px 16px;
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            background: var(--bg-card);
+        }
+
+        .gaps li {
+            margin: 0 0 6px;
+            color: var(--text-muted);
+            font-size: 0.88rem;
+            line-height: 1.4;
+        }
+
+        .ws-note {
+            margin: 0 0 18px;
+            color: var(--text-muted);
+            font-size: 0.86rem;
+        }
+
+        @media (max-width: 860px) {
+            .ws-top,
+            .now {
+                display: block;
+            }
+
+            .ws-meta {
+                text-align: left;
+                margin-top: 10px;
+            }
+
+            .spine,
+            .kpis {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+
+            .primary-go {
+                margin-bottom: 10px;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="ws">
+        <div class="ws-inner">
+            <header class="ws-top">
+                <div>
+                    <p class="ws-kicker" id="wsKicker">Workspace</p>
+                    <h1 id="wsTitle">Loading the plant map</h1>
+                    <p class="ws-promise" id="wsPromise">The job runs from requirement to dispatch. This screen opens the part that belongs to this login.</p>
+                </div>
+                <div class="ws-meta" id="wsMeta"></div>
+            </header>
+            <nav class="spine" id="wsSpine" aria-label="Job spine"></nav>
+            <section class="now">
+                <a class="primary-go" id="wsPrimary" href="pulse.html">
+                    <span>Open this now</span>
+                    <strong>Live machines</strong>
+                </a>
+                <div class="kpis" id="wsKpis" aria-label="Today">
+                    <article class="kpi"><em>Production today</em><b id="kpi-prod">—</b><small>Good quantity recorded today</small></article>
+                    <article class="kpi"><em>Active machines</em><b id="kpi-active">—</b><small>With a DPR entry in the last 2 hours</small></article>
+                    <article class="kpi"><em>Pending orders</em><b id="kpi-orders">—</b><small>Orders still marked pending</small></article>
+                    <article class="kpi"><em>DPR entries</em><b id="kpi-dpr">—</b><small>Hourly logs in the last 24 hours</small></article>
+                </div>
+            </section>
+            <p class="ws-note">Moulding, QC, and shifting logins still open their phone portal. This page is the office map of the same modules.</p>
+            <h2 id="wsModulesTitle">Modules for this login</h2>
+            <div class="mods" id="wsModules"></div>
+            <h2>Still to close</h2>
+            <div class="gaps">
+                <ul id="wsGaps"></ul>
+            </div>
+        </div>
+    </div>
+    <script src="/assets/app.js?v=workspace1"></script>
+    <script>
+        function esc(value) {
+            return String(value == null ? '' : value).replace(/[&<>"']/g, (ch) => ({
+                '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+            }[ch]));
+        }
+
+        function factoryClock(now) {
+            const fmt = new Intl.DateTimeFormat('en-IN', {
+                timeZone: 'Asia/Kolkata',
+                hour: 'numeric',
+                hourCycle: 'h23',
+                weekday: 'short',
+                day: 'numeric',
+                month: 'short'
+            });
+            const parts = Object.fromEntries(fmt.formatToParts(now).map((part) => [part.type, part.value]));
+            const hour = Number(parts.hour);
+            const shift = (hour >= 20 || hour < 8) ? 'Night shift' : 'Day shift';
+            return {
+                shift,
+                label: `${parts.weekday} ${parts.day} ${parts.month} · ${shift}`
+            };
+        }
+
+        function stageName(map, stageId) {
+            if (stageId === 'support') return 'Support';
+            const stage = (map.stages || []).find((item) => item.id === stageId);
+            return stage ? stage.name : stageId;
+        }
+
+        function renderSpine(map, workspace) {
+            const host = document.getElementById('wsSpine');
+            host.innerHTML = (map.stages || []).map((stage, index) => {
+                const current = stage.id === workspace.stageId;
+                const opener = (map.modules || []).find((mod) => mod.stageId === stage.id);
+                const href = opener ? opener.primaryHref : workspace.primaryHref;
+                return `<a class="${current ? 'current' : ''}" href="${esc(href)}">
+                    <div class="step">${index + 1}</div>
+                    <strong>${esc(stage.name)}</strong>
+                    <span>${esc(stage.question)}</span>
+                </a>`;
+            }).join('');
+        }
+
+        function renderWorkspace(map, workspace, user) {
+            const clock = factoryClock(new Date());
+            const scope = (window.JPSMS && JPSMS.factories && JPSMS.factories.getCurrentScope)
+                ? JPSMS.factories.getCurrentScope()
+                : { name: '' };
+            document.getElementById('wsKicker').textContent = workspace.name;
+            document.getElementById('wsTitle').textContent = user.full_name || user.name || user.username || 'Workspace';
+            document.getElementById('wsPromise').textContent = workspace.promise;
+            document.getElementById('wsMeta').innerHTML = `<strong>${esc(scope.name || 'Factory')}</strong>${esc(user.role || user.role_code || 'User')}<br>${esc(clock.label)}`;
+            const primary = document.getElementById('wsPrimary');
+            primary.href = workspace.primaryHref;
+            primary.querySelector('strong').textContent = workspace.primaryLabel;
+            renderSpine(map, workspace);
+
+            const mine = new Set(workspace.moduleIds || []);
+            document.getElementById('wsModulesTitle').textContent = `Modules for ${workspace.name}`;
+            const ordered = (map.modules || []).slice().sort((a, b) => {
+                const aMine = mine.has(a.id) ? 0 : 1;
+                const bMine = mine.has(b.id) ? 0 : 1;
+                return aMine - bMine;
+            });
+            document.getElementById('wsModules').innerHTML = ordered.map((mod) => `
+                <article class="mod">
+                    <div class="tag">${mine.has(mod.id) ? 'This login' : 'Rest of plant'} · ${esc(stageName(map, mod.stageId))}</div>
+                    <a href="${esc(mod.primaryHref)}">${esc(mod.primaryLabel)}</a>
+                    <p>${esc(mod.target)}</p>
+                </article>
+            `).join('');
+
+            document.getElementById('wsGaps').innerHTML = (map.gaps || [])
+                .map((gap) => `<li>${esc(gap.text)}</li>`)
+                .join('');
+        }
+
+        function renderKpis(body) {
+            const data = body || {};
+            const set = (id, value) => {
+                const el = document.getElementById(id);
+                if (!el) return;
+                const n = Number(value);
+                el.textContent = Number.isFinite(n) ? n.toLocaleString('en-IN') : '—';
+            };
+            set('kpi-prod', data.production);
+            set('kpi-active', data.active_machines);
+            set('kpi-orders', data.pending_orders);
+            set('kpi-dpr', data.dpr_24h);
+        }
+
+        document.addEventListener('DOMContentLoaded', async () => {
+            const user = JPSMS.auth.requireAuth();
+            JPSMS.renderShell('dashboard');
+            try {
+                const map = await JPSMS.api.request('/platform/map', { method: 'GET', skipLoader: true });
+                const workspace = (map.workspaces || []).find((item) => (item.roles || []).includes(String(user.role_code || '').toLowerCase()))
+                    || (map.workspaces || []).find((item) => item.fallback)
+                    || { name: 'Plant command', promise: '', primaryHref: 'pulse.html', primaryLabel: 'Open live machines', stageId: 'run', moduleIds: [] };
+                renderWorkspace(map, workspace, user);
+            } catch (error) {
+                document.getElementById('wsTitle').textContent = 'The plant map did not load';
+                document.getElementById('wsPromise').textContent = error.message || 'Try again in a moment.';
+            }
+            try {
+                const kpis = await JPSMS.api.request('/dashboard/kpis', { method: 'GET', skipLoader: true });
+                renderKpis(kpis);
+            } catch (_error) {
+                renderKpis(null);
+            }
+        });
+    </script>
+</body>
+
+</html>
