@@ -188,6 +188,8 @@ const SYNC_ALL = [
     'order_completion_history',
     'or_jr_report',
     'orders',
+    'packing_item_standards',
+    'packing_stations',
     'plan_audit_logs',
     'plan_board',
     'plan_history',
@@ -261,7 +263,10 @@ const LOCAL_NO_PUSH_TABLES = ['users', 'roles', 'erp_jr_status', 'erp_jr_summary
     'hr_kra_assignments', 'hr_kra_assignment_items', 'hr_interviews', 'hr_interview_scores',
     // Shifting destinations master: edited on MAIN only (the API refuses writes on a LOCAL,
     // which falls back to the built-in list until MAIN's rows arrive), so MAIN mints every id.
-    'shifting_locations'];
+    'shifting_locations',
+    // Packing masters (stations + item packing standard): edited on MAIN only, like
+    // shifting_locations; the API refuses writes on a LOCAL.
+    'packing_stations', 'packing_item_standards'];
 
 const CONFLICT_KEYS = {
     users: 'id',
@@ -396,6 +401,9 @@ const CONFLICT_KEYS = {
     factories: 'id',
     // MAIN-only writer (LOCAL_NO_PUSH_TABLES) — serial id is globally unique.
     shifting_locations: 'id',
+    // MAIN-only writers (LOCAL_NO_PUSH_TABLES) — serial id is globally unique.
+    packing_stations: 'id',
+    packing_item_standards: 'id',
     // Surrogate UUID key (full-replication batch 5): LOCAL floor grinding/rejection log,
     // serial id collides across factories. Deterministic seed in SYNC_ID_SEED_COLUMNS.
     grinding_logs: 'sync_id',
@@ -650,7 +658,8 @@ const SYNC_SCHEMA_READY_KEY = 'SYNC_SCHEMA_READY_VERSION';
 // 2026-10-06: qc_verifications replicate (sync_id; linked to dpr_hourly by dpr_global_id).
 // 2026-10-14: npd_products / npd_files replicate both ways (sync_id; files by product_sync_id).
 // 2026-10-26: shifting_closures (job shifting closed by hand) replicates, natural key.
-const SYNC_SCHEMA_READY_VERSION = '2026-10-26-shifting-closures-v13';
+// 2026-11-18: packing_stations / packing_item_standards masters (MAIN-only writer, id key).
+const SYNC_SCHEMA_READY_VERSION = '2026-11-18-packing-masters-v14';
 
 // "Sync token" columns: app-schema UNIQUE columns that carry a per-row identity
 // token (a UUID) MAIN considers authoritative, but which a LOCAL row may have been
@@ -1393,6 +1402,11 @@ async function ensureSyncRuntimeSchema(config = {}) {
         await require('../src/modules/npd/registerNpdRoutes').ensureNpdSchema(pool);
     } catch (e) {
         console.warn('[Sync] NPD schema ensure failed:', e.message);
+    }
+    try {
+        await require('../src/modules/packing/registerPackingMasterRoutes').ensurePackingSchema(pool);
+    } catch (e) {
+        console.warn('[Sync] Packing masters schema ensure failed:', e.message);
     }
     await resyncIdKeyedSequences();
     await ensureSyncTouchFunctions();

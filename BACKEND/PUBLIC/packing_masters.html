@@ -1,0 +1,543 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JMS OCEAN - Packing Masters</title>
+    <link href="/assets/vendor/fonts/g-e34670640e.css" rel="stylesheet">
+    <link rel="stylesheet" href="/assets/bootstrap-icons.min.css">
+    <link rel="stylesheet" href="/assets/app.css?v=12">
+    <style>
+        .pm { --ok: #047857; --ok-bg: #ecfdf5; --warn: #92400e; --warn-bg: #fffbeb; --bad: #b91c1c; --bad-bg: #fef2f2; --info-bg: #eff6ff; }
+        .pm-head { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; justify-content: space-between; margin-bottom: var(--layout-section-gap); }
+        .pm-head h1 { margin: 0; font-size: 1.5rem; color: var(--primary-dark); }
+        .pm-head p { margin: 4px 0 0; color: var(--text-muted); font-size: .9rem; }
+        .pm-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+        .pm-note { padding: 10px 14px; border-radius: 10px; background: var(--warn-bg); color: var(--warn); border: 1px solid #fde68a; font-size: .88rem; margin-bottom: 14px; display: none; }
+        .pm-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 16px; }
+        .pm-tab { border: 0; background: none; padding: 10px 16px; font-weight: 600; color: var(--text-muted); cursor: pointer; border-bottom: 3px solid transparent; margin-bottom: -1px; font-size: .95rem; }
+        .pm-tab.on { color: var(--primary); border-bottom-color: var(--primary); }
+        .pm-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-bottom: 14px; }
+        .pm-tile { background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; text-align: left; cursor: pointer; font: inherit; color: inherit; }
+        .pm-tile:hover { border-color: var(--accent-cyan); }
+        .pm-tile.on { border-color: var(--primary); box-shadow: inset 0 0 0 1px var(--primary); }
+        .pm-tile small { display: block; color: var(--text-muted); font-size: .78rem; }
+        .pm-tile b { display: block; font-size: 1.45rem; color: var(--primary-dark); margin-top: 2px; }
+        .pm-tile i { margin-right: 4px; }
+        .pm-bar { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+        .pm-bar .form-control { min-height: 38px; }
+        .pm-bar .grow { flex: 1 1 260px; }
+        .pm-bar select { flex: 0 1 220px; }
+        .pm-table-wrap { overflow: auto; border: 1px solid var(--border); border-radius: 12px; background: var(--bg-card); }
+        table.pm-t { width: 100%; border-collapse: collapse; font-size: .86rem; }
+        .pm-t th { position: sticky; top: 0; background: #f4f9fb; color: var(--text-muted); font-weight: 600; text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; font-size: .78rem; text-transform: uppercase; letter-spacing: .03em; }
+        .pm-t td { padding: 8px 10px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+        .pm-t tr:hover td { background: #f8fcfd; }
+        .pm-t .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+        .pm-t .dim { color: #64748b; }
+        .pm-t .item { min-width: 230px; }
+        .pm-t .party { min-width: 150px; }
+        .pm-t .item b { color: var(--text-main); font-weight: 600; }
+        .pm-t .item small { display: block; color: var(--text-muted); }
+        .pill { display: inline-flex; align-items: center; gap: 4px; padding: 2px 9px; border-radius: 999px; font-size: .76rem; font-weight: 600; white-space: nowrap; }
+        .pill.ok { background: var(--ok-bg); color: var(--ok); }
+        .pill.warn { background: var(--warn-bg); color: var(--warn); }
+        .pill.bad { background: var(--bad-bg); color: var(--bad); }
+        .pill.info { background: var(--info-bg); color: var(--primary); }
+        .pm-iconbtn { border: 1px solid var(--border); background: #fff; border-radius: 8px; width: 32px; height: 32px; cursor: pointer; color: var(--primary); }
+        .pm-iconbtn:hover { border-color: var(--primary); }
+        .pm-pager { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 10px 2px; color: var(--text-muted); font-size: .85rem; flex-wrap: wrap; }
+        .pm-pager button { min-width: 36px; }
+        .pm-empty { padding: 36px 16px; text-align: center; color: var(--text-muted); }
+        .pm-stations { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
+        .pm-st { background: var(--bg-card); border: 1px solid var(--border); border-radius: 14px; padding: 16px; display: flex; flex-direction: column; gap: 10px; }
+        .pm-st.off { background: #f8fafc; border-style: dashed; }
+        .pm-st-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+        .pm-st-code { font-size: 1.35rem; font-weight: 700; color: var(--primary-dark); line-height: 1.1; }
+        .pm-st-name { font-size: .8rem; color: var(--text-muted); }
+        .pm-st-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+        .pm-st-stats div { background: #f4f9fb; border-radius: 8px; padding: 8px 10px; }
+        .pm-st-stats small { display: block; font-size: .7rem; color: var(--text-muted); }
+        .pm-st-stats b { font-size: .98rem; color: var(--text-main); }
+        .pm-st-foot { display: flex; justify-content: space-between; align-items: center; font-size: .8rem; color: var(--text-muted); gap: 8px; }
+        .pm-modal { width: min(94vw, 640px); max-height: calc(100vh - 40px); overflow: auto; background: var(--bg-card); border-radius: 16px; padding: 22px; box-shadow: var(--shadow-premium); }
+        .pm-modal.wide { width: min(96vw, 900px); }
+        .pm-modal-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
+        .pm-modal-head h2 { margin: 0; font-size: 1.15rem; color: var(--primary-dark); }
+        .pm-x { border: 0; background: none; font-size: 1.5rem; line-height: 1; cursor: pointer; color: var(--text-muted); }
+        .pm-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+        .pm-grid .full { grid-column: 1 / -1; }
+        .pm-field label { display: block; font-size: .78rem; font-weight: 600; color: var(--text-muted); margin-bottom: 4px; }
+        .pm-field .hint { font-size: .75rem; color: var(--text-muted); margin-top: 3px; }
+        .pm-section { font-size: .78rem; font-weight: 700; color: var(--primary); text-transform: uppercase; letter-spacing: .05em; margin: 6px 0 -2px; grid-column: 1 / -1; }
+        .pm-calc { grid-column: 1 / -1; background: var(--info-bg); color: var(--primary); border-radius: 10px; padding: 10px 12px; font-size: .88rem; }
+        .pm-err { color: var(--bad); font-size: .85rem; min-height: 1.2em; margin-top: 8px; }
+        .pm-foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+        .pm-drop { border: 2px dashed var(--border); border-radius: 14px; padding: 26px; text-align: center; color: var(--text-muted); cursor: pointer; }
+        .pm-drop:hover, .pm-drop.over { border-color: var(--accent-cyan); background: #f4fbfe; }
+        .pm-drop i { font-size: 2rem; color: var(--primary); display: block; margin-bottom: 6px; }
+        .pm-rep { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; margin: 14px 0; }
+        .pm-rep div { border-radius: 10px; padding: 10px 12px; background: #f4f9fb; }
+        .pm-rep small { display: block; font-size: .74rem; color: var(--text-muted); }
+        .pm-rep b { font-size: 1.25rem; color: var(--primary-dark); }
+        .pm-list { max-height: 220px; overflow: auto; border: 1px solid var(--border); border-radius: 10px; font-size: .82rem; }
+        .pm-list div { padding: 6px 10px; border-bottom: 1px solid var(--border); }
+        details.pm-det { margin-top: 10px; }
+        details.pm-det summary { cursor: pointer; font-weight: 600; color: var(--text-main); font-size: .9rem; padding: 4px 0; }
+        @media (max-width: 640px) {
+            .pm-grid { grid-template-columns: 1fr; }
+            .pm-head h1 { font-size: 1.25rem; }
+            .pm-bar select { flex: 1 1 140px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="pm" id="pmRoot">
+        <div class="pm-head">
+            <div>
+                <h1><i class="bi bi-box-seam"></i> Packing Masters</h1>
+                <p>Packing stations and each item's packing standard. Cycle time is seconds per piece for the whole station.</p>
+            </div>
+            <div class="pm-actions">
+                <button class="btn btn-outline" id="btnExport"><i class="bi bi-download"></i> Export Excel</button>
+                <button class="btn btn-outline pm-edit" id="btnImport"><i class="bi bi-upload"></i> Import Excel</button>
+                <button class="btn btn-primary pm-edit" id="btnAdd"><i class="bi bi-plus-lg"></i> <span id="btnAddLabel">Add item</span></button>
+            </div>
+        </div>
+
+        <div class="pm-note" id="readOnlyNote"></div>
+
+        <div class="pm-tabs" role="tablist">
+            <button class="pm-tab on" data-tab="items" role="tab">Item packing standard</button>
+            <button class="pm-tab" data-tab="stations" role="tab">Stations</button>
+        </div>
+
+        <section id="tabItems">
+            <div class="pm-tiles" id="tiles"></div>
+            <div class="pm-bar">
+                <input class="form-control grow" id="q" type="search" placeholder="Search code, item, party or EAN">
+                <select class="form-control" id="fStation"><option value="">All stations</option></select>
+                <select class="form-control" id="fFilter">
+                    <option value="all">All rows</option>
+                    <option value="ready">Ready</option>
+                    <option value="missing">No station</option>
+                    <option value="check">Needs check</option>
+                    <option value="no_ean">No EAN</option>
+                </select>
+            </div>
+            <div class="pm-table-wrap">
+                <table class="pm-t">
+                    <thead>
+                        <tr>
+                            <th>Code</th><th>Item</th><th>Party group</th><th>Station</th>
+                            <th class="num">Cycle (s/pc)</th><th class="num">Persons</th><th class="num">Pcs / hr</th>
+                            <th>EAN</th><th class="num">Pcs / box</th><th class="num">Box / carton</th><th>Status</th><th></th>
+                        </tr>
+                    </thead>
+                    <tbody id="rows"><tr><td colspan="12" class="pm-empty">Loading…</td></tr></tbody>
+                </table>
+            </div>
+            <div class="pm-pager" id="pager"></div>
+        </section>
+
+        <section id="tabStations" hidden>
+            <div class="pm-stations" id="stations"></div>
+        </section>
+    </div>
+
+    <!-- Item standard -->
+    <div class="modal-overlay" id="mItem" role="dialog" aria-modal="true" aria-labelledby="mItemTitle">
+        <div class="pm-modal">
+            <div class="pm-modal-head"><h2 id="mItemTitle">Item packing standard</h2><button class="pm-x" data-close aria-label="Close">&times;</button></div>
+            <div class="pm-grid">
+                <div class="pm-section">Item</div>
+                <div class="pm-field"><label for="iCode">Item code</label><input class="form-control" id="iCode" maxlength="60"></div>
+                <div class="pm-field"><label for="iParty">Party group</label><input class="form-control" id="iParty" maxlength="120" placeholder="General Trade"></div>
+                <div class="pm-field full"><label for="iName">Item name</label><input class="form-control" id="iName" maxlength="200"></div>
+                <div class="pm-section">Station</div>
+                <div class="pm-field"><label for="iStation">Station</label><select class="form-control" id="iStation"></select></div>
+                <div class="pm-field"><label for="iPersons">Persons</label><input class="form-control" id="iPersons" type="number" min="1" step="1"></div>
+                <div class="pm-field"><label for="iCycle">Cycle time (seconds per piece)</label><input class="form-control" id="iCycle" type="number" min="0.01" step="0.01"><div class="hint">For the whole station, not per person.</div></div>
+                <div class="pm-calc" id="iCalc"></div>
+                <div class="pm-section">Packing</div>
+                <div class="pm-field"><label for="iEan">EAN</label><input class="form-control" id="iEan" maxlength="40" inputmode="numeric"></div>
+                <div class="pm-field"><label for="iCarton">Carton type</label><input class="form-control" id="iCarton" maxlength="80" placeholder="5 ply, 60x40x40"></div>
+                <div class="pm-field"><label for="iPcsBox">Pcs per box</label><input class="form-control" id="iPcsBox" type="number" min="1" step="1"></div>
+                <div class="pm-field"><label for="iBoxCarton">Boxes per carton</label><input class="form-control" id="iBoxCarton" type="number" min="1" step="1"></div>
+            </div>
+            <div class="pm-err" id="iErr"></div>
+            <div class="pm-foot">
+                <button class="btn btn-outline" id="iRemove" style="margin-right:auto; color:#b91c1c"><i class="bi bi-archive"></i> Remove</button>
+                <button class="btn btn-outline" data-close>Cancel</button>
+                <button class="btn btn-primary" id="iSave">Save</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Station -->
+    <div class="modal-overlay" id="mStation" role="dialog" aria-modal="true" aria-labelledby="mStationTitle">
+        <div class="pm-modal">
+            <div class="pm-modal-head"><h2 id="mStationTitle">Station</h2><button class="pm-x" data-close aria-label="Close">&times;</button></div>
+            <div class="pm-grid">
+                <div class="pm-field full"><label for="sName">Station name</label><input class="form-control" id="sName" maxlength="80" placeholder="Assembly Station - B1"><div class="hint">Renaming moves every item on this station to the new name.</div></div>
+                <div class="pm-field"><label for="sCode">Short code</label><input class="form-control" id="sCode" maxlength="40" placeholder="B1"></div>
+                <div class="pm-field"><label for="sPersons">Usual persons</label><input class="form-control" id="sPersons" type="number" min="0" step="1"></div>
+                <div class="pm-field"><label for="sScanner">Scanner</label><input class="form-control" id="sScanner" maxlength="120" placeholder="IP:192.168.1.50:9000 or BRIDGE:COM1"></div>
+                <div class="pm-field"><label for="sSort">Order</label><input class="form-control" id="sSort" type="number" step="1"></div>
+                <div class="pm-field full"><label><input type="checkbox" id="sActive" checked> Active</label></div>
+            </div>
+            <div class="pm-err" id="sErr"></div>
+            <div class="pm-foot"><button class="btn btn-outline" data-close>Cancel</button><button class="btn btn-primary" id="sSave">Save</button></div>
+        </div>
+    </div>
+
+    <!-- Import -->
+    <div class="modal-overlay" id="mImport" role="dialog" aria-modal="true" aria-labelledby="mImportTitle">
+        <div class="pm-modal wide">
+            <div class="pm-modal-head"><h2 id="mImportTitle">Import item packing standard</h2><button class="pm-x" data-close aria-label="Close">&times;</button></div>
+            <div id="impPick">
+                <label class="pm-drop" id="impDrop" for="impFile">
+                    <i class="bi bi-file-earmark-spreadsheet"></i>
+                    <b>Choose the Excel file</b><br>
+                    Columns: ItemCode, ItemName, Store, CycleTime, Persons, PartyGroup
+                </label>
+                <input type="file" id="impFile" accept=".xlsx,.xls,.csv" hidden>
+                <p class="hint" style="font-size:.82rem; color:var(--text-muted); margin-top:10px">Nothing is saved until you check the preview and press Import. EAN, box and carton details already filled here are never overwritten.</p>
+            </div>
+            <div id="impReport" hidden></div>
+            <div class="pm-err" id="impErr"></div>
+            <div class="pm-foot">
+                <button class="btn btn-outline" id="impAgain" hidden>Choose another file</button>
+                <button class="btn btn-outline" data-close>Close</button>
+                <button class="btn btn-primary" id="impCommit" hidden><i class="bi bi-check2"></i> Import</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/assets/app.min.js?v=1583"></script>
+    <script>
+        (function () {
+            const $ = (id) => document.getElementById(id);
+            const esc = (v) => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+            const fmt = (n, d = 0) => (n === null || n === undefined || n === '' ? '' : Number(n).toLocaleString('en-IN', { maximumFractionDigits: d }));
+            const pph = (c) => (Number(c) > 0 ? Math.round(3600 / Number(c)) : null);
+            const S = { tab: 'items', page: 1, limit: 100, filter: 'all', canEdit: false, rows: [], stations: [], editId: null, stEditId: null, file: null };
+
+            function open(id) { $(id).classList.add('active'); const f = $(id).querySelector('input:not([type=hidden]):not([hidden]), select'); if (f) setTimeout(() => f.focus(), 30); }
+            function close(id) { $(id).classList.remove('active'); }
+            document.querySelectorAll('.modal-overlay').forEach(m => {
+                m.addEventListener('click', e => { if (e.target === m || e.target.closest('[data-close]')) close(m.id); });
+            });
+            document.addEventListener('keydown', e => { if (e.key === 'Escape') document.querySelectorAll('.modal-overlay.active').forEach(m => close(m.id)); });
+
+            async function api(url, opts) {
+                if (!opts) return JPSMS.api.get(url);
+                return JPSMS.api.request(url, opts);
+            }
+
+            /* ---------- tabs ---------- */
+            document.querySelectorAll('.pm-tab').forEach(t => t.onclick = () => setTab(t.dataset.tab));
+            function setTab(tab) {
+                S.tab = tab;
+                document.querySelectorAll('.pm-tab').forEach(t => t.classList.toggle('on', t.dataset.tab === tab));
+                $('tabItems').hidden = tab !== 'items';
+                $('tabStations').hidden = tab !== 'stations';
+                $('btnAddLabel').textContent = tab === 'items' ? 'Add item' : 'Add station';
+                $('btnImport').style.display = tab === 'items' && S.canEdit ? '' : 'none';
+                $('btnExport').style.display = tab === 'items' ? '' : 'none';
+                if (tab === 'stations') loadStations();
+            }
+
+            /* ---------- stations ---------- */
+            async function loadStations() {
+                try {
+                    const res = await api('/packing/stations');
+                    S.stations = res.data || [];
+                } catch (e) { S.stations = []; }
+                renderStationOptions();
+                renderStations();
+            }
+            function renderStationOptions() {
+                const cur = $('fStation').value;
+                $('fStation').innerHTML = '<option value="">All stations</option>' +
+                    S.stations.filter(s => s.is_active).map(s => `<option value="${esc(s.name)}">${esc(s.code || s.name)}</option>`).join('') +
+                    '<option value="__none__">No station</option>';
+                $('fStation').value = cur;
+            }
+            function renderStations() {
+                const box = $('stations');
+                if (!S.stations.length) {
+                    box.innerHTML = `<div class="pm-empty" style="grid-column:1/-1"><b>Set up your packing stations</b><br>Add them one by one, or import the item Excel and the stations in it are created for you.</div>`;
+                    return;
+                }
+                box.innerHTML = S.stations.map(s => `
+                    <div class="pm-st ${s.is_active ? '' : 'off'}">
+                        <div class="pm-st-top">
+                            <div><div class="pm-st-code">${esc(s.code || s.name)}</div><div class="pm-st-name">${esc(s.name)}</div></div>
+                            ${s.is_active ? '<span class="pill ok">Active</span>' : '<span class="pill bad">Inactive</span>'}
+                        </div>
+                        <div class="pm-st-stats">
+                            <div><small>Items</small><b>${fmt(s.items)}</b></div>
+                            <div><small>Avg cycle</small><b>${s.avg_cycle ? fmt(s.avg_cycle, 1) + ' s' : '–'}</b></div>
+                            <div><small>Persons</small><b>${s.min_persons != null ? (s.min_persons === s.max_persons ? s.min_persons : s.min_persons + '–' + s.max_persons) : (s.persons ?? '–')}</b></div>
+                        </div>
+                        <div class="pm-st-foot">
+                            <span><i class="bi bi-upc-scan"></i> ${s.scanner_config ? esc(s.scanner_config) : 'No scanner set'}</span>
+                            ${S.canEdit ? `<button class="pm-iconbtn" data-st="${s.id}" aria-label="Edit ${esc(s.name)}"><i class="bi bi-pencil"></i></button>` : ''}
+                        </div>
+                    </div>`).join('');
+                box.querySelectorAll('[data-st]').forEach(b => b.onclick = () => editStation(Number(b.dataset.st)));
+            }
+            function editStation(id) {
+                const s = S.stations.find(x => x.id === id) || {};
+                S.stEditId = s.id || null;
+                $('mStationTitle').textContent = s.id ? `Edit ${s.code || s.name}` : 'Add station';
+                $('sName').value = s.name || '';
+                $('sCode').value = s.code || '';
+                $('sPersons').value = s.persons ?? '';
+                $('sScanner').value = s.scanner_config || '';
+                $('sSort').value = s.sort_order ?? '';
+                $('sActive').checked = s.id ? s.is_active : true;
+                $('sErr').textContent = '';
+                open('mStation');
+            }
+            $('sSave').onclick = async () => {
+                const body = { name: $('sName').value, code: $('sCode').value, persons: $('sPersons').value, scanner_config: $('sScanner').value, sort_order: $('sSort').value, is_active: $('sActive').checked };
+                if (!body.name.trim()) { $('sErr').textContent = 'Enter a station name.'; return; }
+                try {
+                    await api(S.stEditId ? `/packing/stations/${S.stEditId}` : '/packing/stations', { method: S.stEditId ? 'PUT' : 'POST', body: JSON.stringify(body) });
+                    close('mStation');
+                    JPSMS.toast('Station saved', 'success');
+                    loadStations();
+                } catch (e) { $('sErr').textContent = e.message; }
+            };
+
+            /* ---------- item standards ---------- */
+            const TILES = [
+                { k: 'all', label: 'All rows', icon: 'bi-list-ul', key: 'total' },
+                { k: 'ready', label: 'Ready', icon: 'bi-check-circle', key: 'ready' },
+                { k: 'missing', label: 'No station', icon: 'bi-exclamation-circle', key: 'missing' },
+                { k: 'check', label: 'Needs check', icon: 'bi-flag', key: 'check' },
+                { k: 'no_ean', label: 'No EAN', icon: 'bi-upc', key: 'no_ean' }
+            ];
+            function renderTiles(sum) {
+                $('tiles').innerHTML = TILES.map(t => `
+                    <button class="pm-tile ${S.filter === t.k ? 'on' : ''}" data-f="${t.k}">
+                        <small><i class="bi ${t.icon}"></i>${t.label}</small><b>${fmt(sum ? sum[t.key] : 0)}</b>
+                    </button>`).join('');
+                $('tiles').querySelectorAll('[data-f]').forEach(b => b.onclick = () => { S.filter = b.dataset.f; $('fFilter').value = S.filter; S.page = 1; loadRows(); });
+            }
+            function status(r) {
+                if (!r.station_name) return '<span class="pill bad">No station</span>';
+                if (r.check_note) return `<span class="pill warn" title="${esc(r.check_note)}"><i class="bi bi-flag"></i> Check</span>`;
+                if (!r.ean) return '<span class="pill info">No EAN</span>';
+                return '<span class="pill ok">Ready</span>';
+            }
+            function stationLabel(name) {
+                const s = S.stations.find(x => String(x.name).toLowerCase() === String(name).toLowerCase());
+                return s ? (s.code || s.name) : name;
+            }
+            function query() {
+                const p = new URLSearchParams({ page: S.page, limit: S.limit, filter: S.filter });
+                if ($('q').value.trim()) p.set('q', $('q').value.trim());
+                if ($('fStation').value) p.set('station', $('fStation').value);
+                return p;
+            }
+            let loadSeq = 0;
+            async function loadRows() {
+                const seq = ++loadSeq;
+                let res;
+                try { res = await api('/packing/standards?' + query().toString()); } catch (e) { return; }
+                if (seq !== loadSeq) return;
+                S.rows = res.data || [];
+                renderTiles(res.summary);
+                const tb = $('rows');
+                if (!S.rows.length) {
+                    tb.innerHTML = res.summary && Number(res.summary.total) === 0
+                        ? `<tr><td colspan="12" class="pm-empty"><b>No item standards yet</b><br>${S.canEdit ? 'Import the StoreMachineOutPut Excel to fill this in one go.' : 'They arrive from the MAIN server once they are entered there.'}</td></tr>`
+                        : '<tr><td colspan="12" class="pm-empty">No rows match these filters.</td></tr>';
+                } else {
+                    tb.innerHTML = S.rows.map(r => `
+                        <tr>
+                            <td>${esc(r.item_code)}</td>
+                            <td class="item"><b>${esc(r.item_name)}</b>${r.check_note ? `<small>${esc(r.check_note)}</small>` : ''}</td>
+                            <td class="party">${esc(r.party_group)}</td>
+                            <td>${r.station_name ? esc(stationLabel(r.station_name)) : '<span class="dim">–</span>'}</td>
+                            <td class="num">${r.cycle_time_sec != null ? fmt(r.cycle_time_sec, 2) : '<span class="dim">–</span>'}</td>
+                            <td class="num">${r.persons ?? '<span class="dim">–</span>'}</td>
+                            <td class="num">${r.pcs_per_hour ? fmt(r.pcs_per_hour) : '<span class="dim">–</span>'}</td>
+                            <td>${r.ean ? esc(r.ean) : '<span class="dim">–</span>'}</td>
+                            <td class="num">${r.pcs_per_box ?? '<span class="dim">–</span>'}</td>
+                            <td class="num">${r.boxes_per_carton ?? '<span class="dim">–</span>'}</td>
+                            <td>${status(r)}</td>
+                            <td>${S.canEdit ? `<button class="pm-iconbtn" data-id="${r.id}" aria-label="Edit ${esc(r.item_name)}"><i class="bi bi-pencil"></i></button>` : ''}</td>
+                        </tr>`).join('');
+                    tb.querySelectorAll('[data-id]').forEach(b => b.onclick = () => editItem(Number(b.dataset.id)));
+                }
+                const pages = Math.max(1, Math.ceil(res.total / S.limit));
+                const from = res.total ? (S.page - 1) * S.limit + 1 : 0;
+                $('pager').innerHTML = `<span>${fmt(from)}–${fmt(Math.min(res.total, S.page * S.limit))} of ${fmt(res.total)} rows${res.summary && res.summary.last_updated ? ' · last change ' + new Date(res.summary.last_updated).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }) : ''}</span>
+                    <span><button class="btn btn-outline" id="pgPrev" ${S.page <= 1 ? 'disabled' : ''} aria-label="Previous page"><i class="bi bi-chevron-left"></i></button>
+                    <b style="margin:0 8px">${S.page} / ${pages}</b>
+                    <button class="btn btn-outline" id="pgNext" ${S.page >= pages ? 'disabled' : ''} aria-label="Next page"><i class="bi bi-chevron-right"></i></button></span>`;
+                $('pgPrev').onclick = () => { S.page--; loadRows(); };
+                $('pgNext').onclick = () => { S.page++; loadRows(); };
+            }
+            let qTimer;
+            $('q').oninput = () => { clearTimeout(qTimer); qTimer = setTimeout(() => { S.page = 1; loadRows(); }, 300); };
+            $('fStation').onchange = () => { S.page = 1; loadRows(); };
+            $('fFilter').onchange = () => { S.filter = $('fFilter').value; S.page = 1; loadRows(); };
+
+            function updateCalc() {
+                const c = Number($('iCycle').value), p = Number($('iPersons').value);
+                $('iCalc').innerHTML = c > 0
+                    ? `<i class="bi bi-clock"></i> ${fmt(pph(c))} pcs per hour${p > 0 ? ` with ${p} persons` : ''} · 1,000 pcs take ${fmt(1000 * c / 60)} min`
+                    : 'Enter the cycle time to see pieces per hour.';
+            }
+            ['iCycle', 'iPersons'].forEach(id => $(id).addEventListener('input', updateCalc));
+            function editItem(id) {
+                const r = S.rows.find(x => x.id === id) || {};
+                S.editId = r.id || null;
+                $('mItemTitle').textContent = r.id ? 'Edit item packing standard' : 'Add item packing standard';
+                $('iStation').innerHTML = '<option value="">No station yet</option>' + S.stations.filter(s => s.is_active || s.name === r.station_name)
+                    .map(s => `<option value="${esc(s.name)}">${esc(s.code ? s.code + ' — ' + s.name : s.name)}</option>`).join('');
+                $('iCode').value = r.item_code || '';
+                $('iName').value = r.item_name || '';
+                $('iParty').value = r.party_group || '';
+                $('iStation').value = r.station_name || '';
+                $('iCycle').value = r.cycle_time_sec ?? '';
+                $('iPersons').value = r.persons ?? '';
+                $('iEan').value = r.ean || '';
+                $('iPcsBox').value = r.pcs_per_box ?? '';
+                $('iBoxCarton').value = r.boxes_per_carton ?? '';
+                $('iCarton').value = r.carton_type || '';
+                $('iRemove').style.display = r.id ? '' : 'none';
+                $('iErr').textContent = r.check_note ? 'Import note: ' + r.check_note + '. Saving marks it as checked.' : '';
+                updateCalc();
+                open('mItem');
+            }
+            $('iSave').onclick = async () => {
+                const body = {
+                    item_code: $('iCode').value, item_name: $('iName').value, party_group: $('iParty').value,
+                    station_name: $('iStation').value, cycle_time_sec: $('iCycle').value, persons: $('iPersons').value,
+                    ean: $('iEan').value, pcs_per_box: $('iPcsBox').value, boxes_per_carton: $('iBoxCarton').value, carton_type: $('iCarton').value
+                };
+                if (!body.item_code.trim()) { $('iErr').textContent = 'Enter the item code.'; return; }
+                if (body.station_name && !(Number(body.cycle_time_sec) > 0)) { $('iErr').textContent = 'Enter the cycle time in seconds per piece.'; return; }
+                if (body.station_name && !(Number(body.persons) >= 1)) { $('iErr').textContent = 'Enter how many persons the station needs.'; return; }
+                try {
+                    await api(S.editId ? `/packing/standards/${S.editId}` : '/packing/standards', { method: S.editId ? 'PUT' : 'POST', body: JSON.stringify(body) });
+                    close('mItem');
+                    JPSMS.toast('Saved', 'success');
+                    loadRows();
+                } catch (e) { $('iErr').textContent = e.message; }
+            };
+            $('iRemove').onclick = async () => {
+                if (!S.editId || !confirm('Remove this row from the packing standard? It can be added again later.')) return;
+                try {
+                    await api(`/packing/standards/${S.editId}`, { method: 'PUT', body: JSON.stringify({ is_active: false }) });
+                    close('mItem'); JPSMS.toast('Row removed', 'success'); loadRows();
+                } catch (e) { $('iErr').textContent = e.message; }
+            };
+
+            $('btnAdd').onclick = () => (S.tab === 'items' ? editItem(null) : editStation(null));
+
+            $('btnExport').onclick = async () => {
+                const p = query(); p.delete('page'); p.delete('limit');
+                try {
+                    const token = localStorage.getItem('token');
+                    const user = JSON.parse(localStorage.getItem('user') || '{}');
+                    const headers = {};
+                    if (token) headers.Authorization = `Bearer ${token}`;
+                    if (user.username) headers['X-User-Name'] = user.username;
+                    const fid = localStorage.getItem('jpsms_factory_id'); if (fid) headers['X-Factory-ID'] = fid;
+                    const r = await fetch('/api/packing/standards/export.xlsx?' + p.toString(), { headers });
+                    if (!r.ok) throw new Error('Export failed');
+                    const blob = await r.blob();
+                    const a = document.createElement('a');
+                    a.href = URL.createObjectURL(blob); a.download = 'packing_item_standards.xlsx'; a.click();
+                    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+                } catch (e) { JPSMS.toast(e.message, 'error'); }
+            };
+
+            /* ---------- import ---------- */
+            function resetImport() {
+                S.file = null; $('impFile').value = '';
+                $('impPick').hidden = false; $('impReport').hidden = true; $('impReport').innerHTML = '';
+                $('impCommit').hidden = true; $('impAgain').hidden = true; $('impErr').textContent = '';
+            }
+            $('btnImport').onclick = () => { resetImport(); open('mImport'); };
+            $('impAgain').onclick = resetImport;
+            const drop = $('impDrop');
+            ['dragover', 'dragenter'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add('over'); }));
+            ['dragleave', 'drop'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove('over'); }));
+            drop.addEventListener('drop', e => { if (e.dataTransfer.files[0]) runImport(e.dataTransfer.files[0], false); });
+            $('impFile').onchange = () => { if ($('impFile').files[0]) runImport($('impFile').files[0], false); };
+            $('impCommit').onclick = () => { if (S.file) runImport(S.file, true); };
+
+            async function runImport(file, commit) {
+                S.file = file; $('impErr').textContent = '';
+                const fd = new FormData(); fd.append('file', file);
+                try {
+                    const res = await JPSMS.api.upload('/packing/standards/import' + (commit ? '?commit=1' : ''), fd);
+                    showReport(res.report, commit, file.name);
+                    if (commit) { JPSMS.toast('Packing standard imported', 'success'); S.page = 1; loadStations(); loadRows(); }
+                } catch (e) { $('impErr').textContent = e.message; }
+            }
+            function showReport(r, committed, name) {
+                const list = (rows, fn) => rows.length ? `<div class="pm-list">${rows.map(fn).join('')}</div>` : '';
+                const stations = Object.entries(r.station_counts || {}).sort((a, b) => a[0].localeCompare(b[0]));
+                $('impPick').hidden = true; $('impReport').hidden = false;
+                $('impReport').innerHTML = `
+                    <div class="${committed ? 'pill ok' : 'pill info'}" style="font-size:.85rem; padding:6px 12px">
+                        <i class="bi ${committed ? 'bi-check2-circle' : 'bi-eye'}"></i> ${committed ? 'Imported' : 'Preview — nothing saved yet'} · ${esc(name)}
+                    </div>
+                    <div class="pm-rep">
+                        <div><small>Rows in file</small><b>${fmt(r.file_rows)}</b></div>
+                        <div><small>Items</small><b>${fmt(r.items)}</b></div>
+                        <div><small>New rows</small><b>${fmt(r.new_rows)}</b></div>
+                        <div><small>Updated</small><b>${fmt(r.updated_rows)}</b></div>
+                        <div><small>Unchanged</small><b>${fmt(r.unchanged_rows)}</b></div>
+                        <div><small>With station</small><b>${fmt(r.with_station)}</b></div>
+                        <div><small>No station (kept to fill later)</small><b>${fmt(r.without_station)}</b></div>
+                        <div><small>Needs check</small><b style="color:#92400e">${fmt(r.check)}</b></div>
+                        <div><small>Skipped</small><b style="color:#b91c1c">${fmt(r.skipped)}</b></div>
+                    </div>
+                    ${r.new_stations.length ? `<div class="pm-calc" style="margin-bottom:10px"><i class="bi bi-plus-circle"></i> New stations ${committed ? 'created' : 'to be created'}: ${r.new_stations.map(esc).join(', ')}</div>` : ''}
+                    ${stations.length ? `<details class="pm-det" open><summary>Rows per station</summary>${list(stations, ([s, n]) => `<div><b>${esc(s)}</b> — ${fmt(n)} rows</div>`)}</details>` : ''}
+                    ${r.check ? `<details class="pm-det"><summary>Needs check (${fmt(r.check)}) — imported, marked “Check”</summary>${list(r.check_rows, x => `<div>Row ${x.row}: <b>${esc(x.item_code)}</b> ${esc(x.item_name)} · ${esc(x.party_group)} — ${esc(x.message)}</div>`)}</details>` : ''}
+                    ${r.skipped ? `<details class="pm-det" open><summary>Skipped (${fmt(r.skipped)}) — not imported</summary>${list(r.skipped_rows, x => `<div>Row ${x.row}${x.item_code ? ': <b>' + esc(x.item_code) + '</b>' : ''} — ${esc(x.reason)}</div>`)}</details>` : ''}
+                    ${r.kept_edited ? `<details class="pm-det"><summary>Kept as edited here (${fmt(r.kept_edited)}) — the file differs, but a person changed these rows on this page</summary>${list(r.kept_edited_rows, x => `<div>Row ${x.row}: <b>${esc(x.item_code)}</b> ${esc(x.item_name)} · ${esc(x.party_group)}</div>`)}</details>` : ''}
+                    ${r.warnings.length ? `<details class="pm-det"><summary>Repeated rows (${fmt(r.warnings.length)})</summary>${list(r.warnings, x => `<div>Row ${x.row}: <b>${esc(x.item_code)}</b> — ${esc(x.message)}</div>`)}</details>` : ''}
+                    ${r.retired_blank_rows ? `<p style="font-size:.82rem;color:var(--text-muted)">${fmt(r.retired_blank_rows)} older “no station” rows are replaced because those items now have a station.</p>` : ''}`;
+                $('impCommit').hidden = committed || (r.new_rows + r.updated_rows + r.retired_blank_rows) === 0;
+                $('impAgain').hidden = false;
+                if (!committed && (r.new_rows + r.updated_rows + r.retired_blank_rows) === 0) $('impErr').textContent = 'Everything in this file is already up to date.';
+            }
+
+            /* ---------- start ---------- */
+            document.addEventListener('DOMContentLoaded', async () => {
+                JPSMS.auth.requireAuth();
+                JPSMS.renderShell('packing');
+                try {
+                    const meta = await api('/packing/meta');
+                    S.canEdit = !!meta.can_edit;
+                    if (!S.canEdit) {
+                        $('readOnlyNote').style.display = 'block';
+                        $('readOnlyNote').innerHTML = meta.is_local
+                            ? '<i class="bi bi-cloud-arrow-down"></i> This is a factory server. Packing masters are edited on the MAIN server and arrive here automatically.'
+                            : '<i class="bi bi-lock"></i> You can view the packing masters. Editing needs the Masters edit right.';
+                    } else if (!meta.factory_id) {
+                        $('readOnlyNote').style.display = 'block';
+                        $('readOnlyNote').innerHTML = '<i class="bi bi-building"></i> Showing all factories. Pick one factory in the sidebar to add, edit or import — packing masters are kept per factory.';
+                    }
+                } catch (e) { }
+                document.querySelectorAll('.pm-edit').forEach(b => b.style.display = S.canEdit ? '' : 'none');
+                $('btnAdd').style.display = S.canEdit ? '' : 'none';
+                await loadStations();
+                loadRows();
+            });
+        })();
+    </script>
+</body>
+</html>
