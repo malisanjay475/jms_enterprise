@@ -177,6 +177,31 @@
             grid-template-columns: 1fr 1fr;
             gap: 16px;
         }
+        .pp-modal { width: min(96vw, 680px); max-height: calc(100vh - 32px); overflow: auto; padding: 22px; }
+        .pp-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
+        .pp-head h2 { margin: 0; font-size: 1.15rem; color: var(--primary-dark); }
+        .pp-x { border: 0; background: none; font-size: 1.5rem; cursor: pointer; color: var(--text-muted); }
+        .pp-label { display: block; font-size: .78rem; font-weight: 600; color: var(--text-muted); margin-bottom: 4px; }
+        .pp-fetch { display: flex; gap: 8px; }
+        .pp-fetch .form-control { flex: 1; }
+        .pp-msg { min-height: 1.3em; font-size: .84rem; margin: 6px 0 12px; }
+        .pp-msg.ok { color: #047857; } .pp-msg.bad { color: #b91c1c; }
+        .pp-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+        .pp-full { grid-column: 1 / -1; }
+        .pp-src { font-size: .68rem; font-weight: 600; padding: 1px 7px; border-radius: 999px; margin-left: 4px; text-transform: none; }
+        .pp-src:empty { display: none; }
+        .pp-src.jc { background: #eff6ff; color: #1d4ed8; }
+        .pp-src.pm { background: #ecfdf5; color: #047857; }
+        .pp-src.erp { background: #f5f3ff; color: #6d28d9; }
+        .pp-src.last { background: #fffbeb; color: #92400e; }
+        .pp-calc { margin-top: 14px; padding: 10px 12px; border-radius: 10px; background: #eff6ff; color: #1e40af; font-size: .88rem; }
+        .pp-warn { margin-top: 10px; padding: 10px 12px; border-radius: 10px; background: #fffbeb; color: #92400e; font-size: .86rem; }
+        .pp-warn a { color: inherit; font-weight: 600; }
+        .pp-foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+        .pp-del { margin-right: auto; color: #b91c1c; }
+        .gantt-row-label small { display: block; font-size: .68rem; color: var(--text-muted); font-weight: 400; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        @media (max-width: 768px) { .pp-modal { margin-top: 56px; max-height: calc(100vh - 72px); } }
+        @media (max-width: 640px) { .pp-grid { grid-template-columns: 1fr; } }
     </style>
 </head>
 
@@ -203,7 +228,7 @@
             </div>
             <div class="gantt-body" id="ganttBodyScroll">
                 <div class="gantt-sidebar" id="sidebarContainer">
-                    <!-- Labels B1..B14 -->
+                    <!-- Station rows -->
                 </div>
                 <div class="gantt-timeline-body" id="timelineBody">
                     <div class="gantt-rows-container" id="rowsContainer">
@@ -218,83 +243,43 @@
         </div>
     </div>
 
-    <!-- Add Plan Modal -->
+    <!-- Add / edit packing plan -->
     <div class="modal-overlay" id="planModal">
-        <div class="modal-content" style="max-width: 600px;">
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px">
-                <h3 style="margin:0">Add Packing Plan</h3>
-                <button onclick="closePlanModal()"
-                    style="background:none; border:none; font-size:1.5rem; cursor:pointer">&times;</button>
+        <div class="modal-content pp-modal">
+            <div class="pp-head">
+                <h2 id="planTitle">New packing plan</h2>
+                <button class="pp-x" onclick="closePlanModal()" aria-label="Close">&times;</button>
             </div>
+            <input type="hidden" id="p_id">
 
-            <div class="modal-body">
-                <!-- Hidden ID for Edit -->
-                <input type="hidden" id="p_id">
-
-                <div class="form-group">
-                    <label class="form-label">Table</label>
-                    <input id="p_table_id" class="form-control" readonly style="background:#f1f5f9; font-weight:bold">
-                </div>
-
-                <div class="form-group">
-                    <label class="form-label">Item / Component</label>
-                    <input id="p_item" class="form-control" placeholder="Search Item...">
-                </div>
-
-                <div class="form-group">
-                    <label class="form-label">Client Name</label>
-                    <input id="p_client" class="form-control" placeholder="Enter Client Name">
-                </div>
-
-                <div class="form-group">
-                    <label class="form-label">Job Card No.</label>
-                    <input id="p_jobcard" class="form-control" placeholder="Enter Job Card No.">
-                </div>
-
-                <div class="form-group">
-                    <label class="form-label">No of Pieces</label>
-                    <input id="p_qty" type="number" class="form-control">
-                </div>
-
-                <div class="form-group">
-                    <label class="form-label">EAN Number</label>
-                    <input id="p_ean" class="form-control" placeholder="Enter EAN Number">
-                </div>
-
-                <div class="form-group">
-                    <!-- Reusing 'Machine' field effectively as a 'Line' or 'Packer' ref if needed, or just descriptive -->
-                    <label class="form-label">Machine / Resource (Optional)</label>
-                    <input id="p_machine" class="form-control" placeholder="e.g. Packer A">
-                </div>
-
-                <div class="form-group">
-                    <label class="form-label">Start Time</label>
-                    <input id="p_start" type="datetime-local" class="form-control" onchange="calcEndTime()">
-                </div>
-
-                <div class="form-group">
-                    <label class="form-label">Duration (Mins)</label>
-                    <input id="p_duration" type="number" class="form-control" oninput="calcEndTime()">
-                </div>
-
-                <div class="form-group">
-                    <label class="form-label">Delay Time (Mins)</label>
-                    <input id="p_delay" type="number" class="form-control" value="0" oninput="calcEndTime()">
-                </div>
-
-                <div class="form-group">
-                    <label class="form-label">End Time (Calc)</label>
-                    <input id="p_end" class="form-control" readonly style="background:#f1f5f9">
-                </div>
+            <label class="pp-label" for="p_jobcard">Job card no.</label>
+            <div class="pp-fetch">
+                <input id="p_jobcard" class="form-control" placeholder="JC/JGUI/2627/4252" autocomplete="off">
+                <button class="btn btn-outline" id="p_fetch" onclick="fetchJobCard()"><i class="bi bi-search"></i> Fetch</button>
             </div>
+            <div class="pp-msg" id="p_jcinfo"></div>
 
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-top:20px">
-                <button class="btn btn-outline-danger" id="deletePlanBtn" onclick="deletePlan()"
-                    style="display:none"><i class="bi bi-trash"></i> Delete</button>
-                <div style="display:flex; gap:10px; margin-left:auto">
-                    <button class="btn btn-outline" onclick="closePlanModal()">Cancel</button>
-                    <button class="btn btn-primary" onclick="savePlan()">Save Plan</button>
-                </div>
+            <div class="pp-grid">
+                <div><label class="pp-label" for="p_item">Item <span class="pp-src" id="src_item"></span></label><input id="p_item" class="form-control"></div>
+                <div><label class="pp-label" for="p_client">Party <span class="pp-src" id="src_client"></span></label><input id="p_client" class="form-control"></div>
+                <div><label class="pp-label" for="p_ean">EAN <span class="pp-src" id="src_ean"></span></label><input id="p_ean" class="form-control" inputmode="numeric"></div>
+                <div><label class="pp-label" for="p_qty">Qty (pcs) <span class="pp-src" id="src_qty"></span></label><input id="p_qty" type="number" min="1" class="form-control" oninput="calcDuration()"></div>
+                <div><label class="pp-label" for="p_table_id">Station <span class="pp-src" id="src_station"></span></label><select id="p_table_id" class="form-control" onchange="stationChanged()"></select></div>
+                <div><label class="pp-label" for="p_persons">Persons <span class="pp-src" id="src_persons"></span></label><input id="p_persons" type="number" min="1" class="form-control" oninput="calcDuration()"></div>
+                <div><label class="pp-label" for="p_cycle">Cycle (sec / pc) <span class="pp-src" id="src_cycle"></span></label><input id="p_cycle" type="number" min="0.01" step="0.01" class="form-control" oninput="calcDuration()"></div>
+                <div><label class="pp-label" for="p_start">Start</label><input id="p_start" type="datetime-local" class="form-control" onchange="calcEndTime()"></div>
+                <div><label class="pp-label" for="p_duration">Duration (min)</label><input id="p_duration" type="number" min="1" class="form-control" oninput="durationTyped()"></div>
+                <div><label class="pp-label" for="p_delay">Delay (min)</label><input id="p_delay" type="number" min="0" class="form-control" value="0" oninput="calcEndTime()"></div>
+                <div class="pp-full"><label class="pp-label" for="p_machine">Note / resource (optional)</label><input id="p_machine" class="form-control" placeholder="Packer A"></div>
+            </div>
+            <div class="pp-calc" id="p_calc"></div>
+            <div class="pp-warn" id="p_warn" hidden></div>
+            <input type="hidden" id="p_end">
+
+            <div class="pp-foot">
+                <button class="btn btn-outline pp-del" id="deletePlanBtn" onclick="deletePlan()" style="display:none"><i class="bi bi-trash"></i> Delete</button>
+                <button class="btn btn-outline" onclick="closePlanModal()">Cancel</button>
+                <button class="btn btn-primary" onclick="savePlan()">Save plan</button>
             </div>
         </div>
     </div>
@@ -302,303 +287,371 @@
     <script src="/assets/app.min.js?v=1583"></script>
     <script>
         const PX_PER_MIN = 2; // Scale
-        const TABLES = Array.from({ length: 14 }, (_, i) => `Table B${i + 1}`);
+        /* Old fixed tables, used only when no packing station is set up yet. */
+        const LEGACY_TABLES = Array.from({ length: 14 }, (_, i) => `Table B${i + 1}`);
+        let STATIONS = [];          // active packing stations from Packing Masters
+        let ROWS = [];              // [{ id: table_id, label, sub }]
+        let JOB = null;             // last fetched job card
+        let durationByHand = false; // the user typed a duration: stop recalculating it
+        const $ = (id) => document.getElementById(id);
+        const esc = (v) => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+        const fmt = (n, d = 0) => Number(n || 0).toLocaleString('en-IN', { maximumFractionDigits: d });
 
-        document.addEventListener('DOMContentLoaded', () => {
+        document.addEventListener('DOMContentLoaded', async () => {
             JPSMS.auth.requireAuth();
             JPSMS.renderShell('packing');
-
-            // Set Date to Today
-            document.getElementById('viewDate').valueAsDate = new Date();
-
-            initGanttStructure();
+            $('viewDate').valueAsDate = new Date();
+            initTicks();
+            await loadStations();
             loadPlans();
 
-            // Sync Header Scroll
-            const bodyScroll = document.getElementById('timelineBody');
-            const headerScroll = document.getElementById('timelineHeader');
-            bodyScroll.addEventListener('scroll', () => {
-                headerScroll.scrollLeft = bodyScroll.scrollLeft;
-            });
-
-            // Scroll to 8 AM initially (8 * 60 * 2 = 960px)
-            setTimeout(() => {
-                bodyScroll.scrollLeft = 900;
-                updateNowMarker();
-            }, 100);
-
-            // Live Marker
+            const bodyScroll = $('timelineBody');
+            const headerScroll = $('timelineHeader');
+            bodyScroll.addEventListener('scroll', () => { headerScroll.scrollLeft = bodyScroll.scrollLeft; });
+            setTimeout(() => { bodyScroll.scrollLeft = 900; updateNowMarker(); }, 100);
             setInterval(updateNowMarker, 60000);
+
+            $('p_jobcard').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); fetchJobCard(); } });
+            $('planModal').addEventListener('click', e => { if (e.target === $('planModal')) closePlanModal(); });
+            document.addEventListener('keydown', e => { if (e.key === 'Escape' && $('planModal').style.display === 'flex') closePlanModal(); });
         });
 
-        function initGanttStructure() {
-            // 1. Ticks (00:00 to 23:00)
-            const ticksCon = document.getElementById('ticksContainer');
-            let ticksHtml = '';
-            for (let i = 0; i < 24; i++) {
-                const hour = i.toString().padStart(2, '0') + ':00';
-                ticksHtml += `<div class="tick-hour">${hour}</div>`;
-            }
-            ticksCon.innerHTML = ticksHtml;
-            // Width setting: 24 * 120px = 2880px
+        async function loadStations() {
+            try {
+                const res = await JPSMS.api.request('/packing/stations', { skipLoader: true });
+                STATIONS = (res.data || []).filter(s => s.is_active);
+            } catch (e) { STATIONS = []; }
+        }
+
+        function stationOf(tableId) {
+            return STATIONS.find(s => String(s.name).toLowerCase() === String(tableId || '').toLowerCase()) || null;
+        }
+
+        function initTicks() {
+            const ticksCon = $('ticksContainer');
+            let html = '';
+            for (let i = 0; i < 24; i++) html += `<div class="tick-hour">${String(i).padStart(2, '0')}:00</div>`;
+            ticksCon.innerHTML = html;
             ticksCon.style.width = (24 * 120) + 'px';
+        }
 
-            // 2. Sidebar Labels
-            const sbCon = document.getElementById('sidebarContainer');
-            sbCon.innerHTML = TABLES.map(t => `
-                <div class="gantt-row-label" onclick="openPlanModal('${t}')" style="cursor:pointer" title="Click to Add Plan">
-                    <i class="bi bi-plus-circle" style="color:var(--accent); margin-right:6px; font-size:0.8rem"></i> ${t}
-                </div>
-            `).join('');
+        /* Rows: every active station, plus any other table that has a plan on the day,
+           so an old "Table B3" plan never disappears from the board. */
+        function buildRows(planTables) {
+            const rows = STATIONS.map(s => ({ id: s.name, label: s.code || s.name, sub: s.code && s.code !== s.name ? s.name : '' }));
+            const base = rows.length ? rows : LEGACY_TABLES.map(t => ({ id: t, label: t, sub: '' }));
+            const seen = new Set(base.map(r => r.id.toLowerCase()));
+            planTables.forEach(t => {
+                if (t && !seen.has(String(t).toLowerCase())) {
+                    seen.add(String(t).toLowerCase());
+                    base.push({ id: t, label: t, sub: rows.length ? 'Old table' : '' });
+                }
+            });
+            ROWS = base;
+            $('sidebarContainer').innerHTML = ROWS.map((r, i) => `
+                <div class="gantt-row-label" data-row="${i}" style="cursor:pointer" title="Add a plan on ${esc(r.id)}">
+                    <i class="bi bi-plus-circle" style="color:var(--accent); margin-right:6px; font-size:0.8rem"></i>
+                    <div style="min-width:0">${esc(r.label)}${r.sub ? `<small>${esc(r.sub)}</small>` : ''}</div>
+                </div>`).join('');
+            $('rowsContainer').innerHTML = ROWS.map((r, i) => `<div class="gantt-row" data-row="${i}"></div>`).join('');
+            $('sidebarContainer').querySelectorAll('[data-row]').forEach(el => el.onclick = () => openPlanModal(ROWS[Number(el.dataset.row)].id));
+        }
 
-            // 3. Rows
-            const rowsCon = document.getElementById('rowsContainer');
-            rowsCon.innerHTML = TABLES.map((t, idx) => `
-                <div class="gantt-row" id="row-${t.replace(' ', '-')}"></div>
-            `).join('');
+        function rowElement(tableId) {
+            const i = ROWS.findIndex(r => r.id.toLowerCase() === String(tableId || '').toLowerCase());
+            return i < 0 ? null : $('rowsContainer').querySelector(`[data-row="${i}"]`);
         }
 
         function updateNowMarker() {
             const now = new Date();
-            const viewDate = new Date(document.getElementById('viewDate').value);
-
-            // Only show if today
-            if (now.toDateString() !== viewDate.toDateString()) {
-                document.getElementById('nowMarker').style.display = 'none';
-                return;
-            }
-
-            const mm = (now.getHours() * 60) + now.getMinutes();
-            const left = mm * PX_PER_MIN;
-
-            const marker = document.getElementById('nowMarker');
+            const viewDate = new Date($('viewDate').value);
+            if (now.toDateString() !== viewDate.toDateString()) { $('nowMarker').style.display = 'none'; return; }
+            const marker = $('nowMarker');
             marker.style.display = 'block';
-            marker.style.left = left + 'px';
+            marker.style.left = ((now.getHours() * 60) + now.getMinutes()) * PX_PER_MIN + 'px';
         }
 
         async function loadPlans() {
-            const dateStr = document.getElementById('viewDate').value;
+            const dateStr = $('viewDate').value;
             try {
-                // Ideally backend filters by date, but we can filter here for now
-                // Or update API to accept ?date=YYYY-MM-DD
                 const res = await JPSMS.api.get(`/assembly/grid?date=${dateStr}`);
                 const plans = res.data || [];
-                console.log('[Assembly] Loaded Plans:', plans);
-
-                // Clear
-                document.querySelectorAll('.gantt-row').forEach(row => row.innerHTML = '');
-
                 const viewStart = new Date(dateStr + 'T00:00:00');
                 const viewEnd = new Date(dateStr + 'T23:59:59');
-
                 const nowDate = new Date();
                 const viewingToday = viewStart.toDateString() === nowDate.toDateString();
 
+                const bars = [];
                 plans.forEach(p => {
-                    // Parse the wall-clock strings (start_local/end_local) so bar
-                    // placement is timezone-immune. Fall back to the ISO field only
-                    // if the local fields are missing (older server).
+                    // Wall-clock strings (start_local/end_local) keep bar placement timezone-immune.
                     let start = new Date(p.start_local || p.start_time);
                     let end = new Date(p.end_local || p.end_time);
-
-                    // A schedule counts as valid only if BOTH ends parse to real
-                    // dates. NULL/garbage schedules (Invalid Date) otherwise slip past
-                    // the overlap test and render as invisible NaN-width bars.
+                    // A schedule is valid only if both ends parse; NULL/garbage ones would
+                    // otherwise render as invisible NaN-width bars.
                     const validSched = !isNaN(start) && !isNaN(end);
                     const overlaps = validSched && !(end < viewStart || start > viewEnd);
-
-                    // RUNNING plans whose scheduled window isn't on the viewed day (or
-                    // that have no schedule) are still surfaced when you're looking at
-                    // today — pinned to "now" so an in-progress job is never hidden.
+                    // RUNNING plans off the viewed day are pinned to "now" when viewing today.
                     const isRunning = String(p.status || '').toUpperCase() === 'RUNNING';
                     let pinned = false;
                     if (!overlaps) {
-                        if (isRunning && viewingToday) {
-                            pinned = true;
-                            const durMin = Number(p.duration_min) > 0
-                                ? Number(p.duration_min)
-                                : (validSched && end > start ? (end - start) / 60000 : 60);
-                            start = new Date(nowDate);
-                            end = new Date(nowDate.getTime() + durMin * 60000);
-                        } else {
-                            return; // schedule not on this day — keep hidden
-                        }
+                        if (!(isRunning && viewingToday)) return;
+                        pinned = true;
+                        const durMin = Number(p.duration_min) > 0 ? Number(p.duration_min) : (validSched && end > start ? (end - start) / 60000 : 60);
+                        start = new Date(nowDate);
+                        end = new Date(nowDate.getTime() + durMin * 60000);
                     }
-
-                    // Calculate Position relative to 00:00 of View Date
-                    // (Handle multi-day crossover simply by clamping or raw calc)
                     let startMins = (start - viewStart) / 60000;
-                    if (startMins < 0) startMins = 0; // Starts previous day
-
+                    if (startMins < 0) startMins = 0;
                     let durationMins = (end - start) / 60000;
-
-                    // If start was clamped, duration reduces
-                    if ((start - viewStart) < 0) {
-                        const diff = (viewStart - start) / 60000;
-                        durationMins -= diff;
-                    }
-
-                    // Clamp the bar so it never runs off the end of the day
+                    if ((start - viewStart) < 0) durationMins -= (viewStart - start) / 60000;
                     const maxMins = 24 * 60 - startMins;
                     if (durationMins > maxMins) durationMins = maxMins;
-
-                    // Handles Negative Duration (Data Error)
                     let isError = false;
-                    if (durationMins <= 0) {
-                        durationMins = 30; // Force 30 mins to make it visible
-                        isError = true;
-                    }
-
-                    const left = startMins * PX_PER_MIN;
+                    if (durationMins <= 0) { durationMins = 30; isError = true; }
                     const width = durationMins * PX_PER_MIN;
-
-                    if (width < 5 && !isError && !pinned) return; // Too small
-
-                    const rowId = `row-${p.table_id.replace(' ', '-')}`;
-                    const row = document.getElementById(rowId);
-
-                    if (row) {
-                        const bar = document.createElement('div');
-                        bar.className = 'gantt-bar';
-                        if (pinned) {
-                            bar.classList.add('status-running');
-                        } else if (isError) {
-                            bar.classList.add('status-delayed');
-                            bar.style.border = '2px solid yellow';
-                        }
-
-                        bar.style.left = left + 'px';
-                        bar.style.width = width + 'px';
-
-                        bar.innerHTML = `
-                            <div style="font-weight:600">${p.item_name}</div>
-                            <div style="opacity:0.9">${p.plan_qty} Pcs</div>
-                            ${pinned ? '<div style="font-size:0.6rem; color:#ecfdf5"><i class="bi bi-broadcast"></i> Running (off-schedule)</div>' : ''}
-                            ${isError ? '<div style="font-size:0.6rem; color:white"><i class="bi bi-exclamation-triangle-fill"></i> Duration Error</div>' : ''}
-                        `;
-                        // Bind Full Object for Edit
-                        bar.onclick = (e) => { e.stopPropagation(); editPlan(p); };
-                        const schedTxt = validSched
-                            ? `${new Date(p.start_local || p.start_time).toLocaleString()} - ${new Date(p.end_local || p.end_time).toLocaleString()}`
-                            : 'No schedule set';
-                        bar.title = `${p.item_name} (${p.plan_qty})` +
-                            `${p.client_name ? '\nClient: ' + p.client_name : ''}` +
-                            `${p.job_card_no ? '\nJC: ' + p.job_card_no : ''}` +
-                            (pinned ? `\nStatus: RUNNING (pinned to now — scheduled ${schedTxt})` : `\n${schedTxt}`);
-                        row.appendChild(bar);
-                    }
+                    if (width < 5 && !isError && !pinned) return;
+                    bars.push({ p, left: startMins * PX_PER_MIN, width, pinned, isError, validSched });
                 });
 
+                buildRows([...new Set(bars.map(b => b.p.table_id))]);
+
+                bars.forEach(({ p, left, width, pinned, isError, validSched }) => {
+                    const row = rowElement(p.table_id);
+                    if (!row) return;
+                    const bar = document.createElement('div');
+                    bar.className = 'gantt-bar';
+                    if (pinned) bar.classList.add('status-running');
+                    else if (isError) { bar.classList.add('status-delayed'); bar.style.border = '2px solid yellow'; }
+                    bar.style.left = left + 'px';
+                    bar.style.width = width + 'px';
+                    bar.innerHTML = `
+                        <div style="font-weight:600">${esc(p.item_name)}</div>
+                        <div style="opacity:0.9">${esc(p.plan_qty)} Pcs</div>
+                        ${pinned ? '<div style="font-size:0.6rem; color:#ecfdf5"><i class="bi bi-broadcast"></i> Running (off-schedule)</div>' : ''}
+                        ${isError ? '<div style="font-size:0.6rem; color:white"><i class="bi bi-exclamation-triangle-fill"></i> Duration Error</div>' : ''}`;
+                    bar.onclick = (e) => { e.stopPropagation(); editPlan(p); };
+                    const schedTxt = validSched
+                        ? `${new Date(p.start_local || p.start_time).toLocaleString()} - ${new Date(p.end_local || p.end_time).toLocaleString()}`
+                        : 'No schedule set';
+                    bar.title = `${p.item_name} (${p.plan_qty})` +
+                        `${p.client_name ? '\nClient: ' + p.client_name : ''}` +
+                        `${p.job_card_no ? '\nJC: ' + p.job_card_no : ''}` +
+                        (pinned ? `\nStatus: RUNNING (pinned to now — scheduled ${schedTxt})` : `\n${schedTxt}`);
+                    row.appendChild(bar);
+                });
             } catch (e) {
                 console.error(e);
             }
         }
 
+        /* ---------- plan form ---------- */
+
+        function setSrc(id, text, cls) {
+            const el = $(id);
+            el.textContent = text || '';
+            el.className = 'pp-src' + (cls ? ' ' + cls : '');
+        }
+
+        function fillStationOptions(selected, suggested) {
+            const ids = new Set();
+            const opts = [];
+            const add = (id, label) => {
+                if (!id || ids.has(String(id).toLowerCase())) return;
+                ids.add(String(id).toLowerCase());
+                opts.push(`<option value="${esc(id)}">${esc(label)}</option>`);
+            };
+            (suggested || []).forEach(s => add(s.station_name, `${(stationOf(s.station_name) || {}).code || s.station_name} — ${fmt(s.cycle_time_sec, 2)} s/pc, ${s.persons} persons`));
+            ROWS.forEach(r => add(r.id, r.sub && r.sub !== 'Old table' ? `${r.label} — ${r.sub}` : r.label));
+            if (selected) add(selected, selected);
+            $('p_table_id').innerHTML = opts.join('');
+            if (selected) $('p_table_id').value = selected;
+        }
+
+        function resetForm() {
+            JOB = null; durationByHand = false;
+            ['p_id', 'p_item', 'p_client', 'p_jobcard', 'p_qty', 'p_ean', 'p_machine', 'p_duration', 'p_persons', 'p_cycle'].forEach(id => $(id).value = '');
+            $('p_delay').value = 0;
+            ['src_item', 'src_client', 'src_ean', 'src_qty', 'src_station', 'src_persons', 'src_cycle'].forEach(id => setSrc(id, ''));
+            $('p_jcinfo').textContent = ''; $('p_jcinfo').className = 'pp-msg';
+            $('p_warn').hidden = true;
+        }
+
         function openPlanModal(tableId) {
-            document.getElementById('planModal').style.display = 'flex';
-            document.getElementById('p_table_id').value = tableId;
-            document.querySelector('#planModal h3').textContent = 'Add Packing Plan';
-
-            // Reset
-            document.getElementById('p_id').value = '';
-            document.getElementById('p_item').value = '';
-            document.getElementById('p_client').value = '';
-            document.getElementById('p_jobcard').value = '';
-            document.getElementById('p_qty').value = '';
-            document.getElementById('p_ean').value = '';
-            document.getElementById('p_machine').value = '';
-            document.getElementById('p_duration').value = '';
-            document.getElementById('p_delay').value = 0;
-            document.getElementById('deletePlanBtn').style.display = 'none';
-
-            // Set start based on current time or scroll position? Default to Now for simplicity
-            const dateStr = document.getElementById('viewDate').value;
-            const now = new Date();
-            // If view date is today, use now. Else 08:00
+            resetForm();
+            $('planModal').style.display = 'flex';
+            $('planTitle').textContent = 'New packing plan';
+            $('deletePlanBtn').style.display = 'none';
+            fillStationOptions(tableId);
+            const dateStr = $('viewDate').value;
             let defaultTime = '08:00';
             if (dateStr === new Date().toISOString().slice(0, 10)) {
-                defaultTime = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+                defaultTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
             }
-
-            document.getElementById('p_start').value = `${dateStr}T${defaultTime}`;
-
-            calcEndTime();
+            $('p_start').value = `${dateStr}T${defaultTime}`;
+            stationChanged(true);
+            setTimeout(() => $('p_jobcard').focus(), 30);
         }
 
         function editPlan(p) {
-            document.getElementById('planModal').style.display = 'flex';
-            document.getElementById('p_table_id').value = p.table_id;
-            document.querySelector('#planModal h3').textContent = 'Edit Packing Plan';
-
-            document.getElementById('p_id').value = p.id;
-            document.getElementById('deletePlanBtn').style.display = 'inline-block';
-            document.getElementById('p_item').value = p.item_name;
-            document.getElementById('p_client').value = p.client_name || '';
-            document.getElementById('p_jobcard').value = p.job_card_no || '';
-            document.getElementById('p_qty').value = p.plan_qty;
-            document.getElementById('p_ean').value = p.ean_number || '';
-            document.getElementById('p_machine').value = p.machine || '';
-            document.getElementById('p_duration').value = p.duration_min;
-            document.getElementById('p_delay').value = p.delay_min || 0;
-
-            // datetime-local wants YYYY-MM-DDTHH:MM. Prefer the wall-clock
-            // start_local ("YYYY-MM-DDTHH:MM:SS") so the input matches what was
-            // entered regardless of the viewer's timezone; fall back to the ISO
-            // field with a manual local shift only if start_local is absent.
+            resetForm();
+            $('planModal').style.display = 'flex';
+            $('planTitle').textContent = 'Edit packing plan';
+            $('p_id').value = p.id;
+            $('deletePlanBtn').style.display = 'inline-block';
+            fillStationOptions(p.table_id);
+            $('p_item').value = p.item_name || '';
+            $('p_client').value = p.client_name || '';
+            $('p_jobcard').value = p.job_card_no || '';
+            $('p_qty').value = p.plan_qty || '';
+            $('p_ean').value = p.ean_number || '';
+            $('p_machine').value = p.machine || '';
+            $('p_duration').value = p.duration_min || '';
+            $('p_delay').value = p.delay_min || 0;
+            durationByHand = true; // keep the saved duration unless the user changes qty or cycle
+            // datetime-local wants YYYY-MM-DDTHH:MM; prefer the wall-clock start_local.
             let localIso;
-            if (p.start_local) {
-                localIso = String(p.start_local).slice(0, 16);
-            } else {
+            if (p.start_local) localIso = String(p.start_local).slice(0, 16);
+            else {
                 const d = new Date(p.start_time);
                 localIso = new Date(d.getTime() - (d.getTimezoneOffset() * 60000)).toISOString().slice(0, 16);
             }
-            document.getElementById('p_start').value = localIso;
-
+            $('p_start').value = localIso;
+            if (p.job_card_no) fetchJobCard(true);
             calcEndTime();
         }
 
-        function closePlanModal() {
-            document.getElementById('planModal').style.display = 'none';
+        function closePlanModal() { $('planModal').style.display = 'none'; }
+
+        async function fetchJobCard(keepValues) {
+            const jc = $('p_jobcard').value.trim();
+            const info = $('p_jcinfo');
+            if (!jc) { info.textContent = 'Enter the job card number first.'; info.className = 'pp-msg bad'; return; }
+            info.textContent = 'Looking up…'; info.className = 'pp-msg';
+            let res;
+            try {
+                const q = new URLSearchParams({ jc });
+                if ($('p_id').value) q.set('exclude_plan', $('p_id').value);
+                res = await JPSMS.api.request('/packing/jobcard?' + q.toString(), { skipLoader: true });
+            } catch (e) {
+                info.textContent = e.message || 'Job card not found.'; info.className = 'pp-msg bad';
+                JOB = null; return;
+            }
+            JOB = res.data;
+            $('p_jobcard').value = JOB.job_card_no;
+            info.className = 'pp-msg ok';
+            info.innerHTML = `<i class="bi bi-check-circle"></i> ${esc(JOB.or_jr_no || '')} · JR qty ${fmt(JOB.jr_qty)}` +
+                (JOB.planned_qty ? ` · already in packing plans ${fmt(JOB.planned_qty)}` : '') +
+                ` · balance <b>${fmt(JOB.balance_qty)}</b>`;
+            if (keepValues) {
+                const std = JOB.stations.find(s => s.station_name.toLowerCase() === String($('p_table_id').value).toLowerCase());
+                if (std) { $('p_cycle').value = std.cycle_time_sec; $('p_persons').value = std.persons; }
+                showStandardHint();
+                calcEndTime();
+                return;
+            }
+
+            $('p_item').value = JOB.item_name || ''; setSrc('src_item', 'job card', 'jc');
+            $('p_client').value = JOB.party_group || ''; setSrc('src_client', 'job card', 'jc');
+            $('p_qty').value = JOB.balance_qty || '';
+            setSrc('src_qty', JOB.planned_qty ? `${fmt(JOB.jr_qty)} − ${fmt(JOB.planned_qty)}` : 'JR qty', 'jc');
+            if (JOB.ean) {
+                $('p_ean').value = JOB.ean.value;
+                const src = { packing_master: ['packing master', 'pm'], erp_variant: ['ERP variant', 'erp'], last_plan: ['last plan', 'last'] }[JOB.ean.source] || ['', ''];
+                setSrc('src_ean', src[0], src[1]);
+            } else { $('p_ean').value = ''; setSrc('src_ean', ''); }
+
+            /* clear the last job's station figures before taking this job's */
+            ['p_cycle', 'p_persons', 'p_duration'].forEach(id => $(id).value = '');
+            fillStationOptions(JOB.stations[0] ? JOB.stations[0].station_name : $('p_table_id').value, JOB.stations);
+            durationByHand = false;
+            stationChanged();
+            showStandardHint();
+        }
+
+        function showStandardHint() {
+            const warn = $('p_warn');
+            if (!JOB || JOB.stations.length) { warn.hidden = true; return; }
+            const others = JOB.other_party_stations || [];
+            warn.hidden = false;
+            warn.innerHTML = `<i class="bi bi-exclamation-triangle"></i> No packing standard for <b>${esc(JOB.item_code)}</b> with party <b>${esc(JOB.party_group)}</b>. ` +
+                (others.length ? `Other parties pack it on ${others.slice(0, 3).map(o => esc((stationOf(o.station_name) || {}).code || o.station_name) + ' at ' + fmt(o.cycle_time_sec, 2) + ' s/pc').join(', ')}. ` : '') +
+                `Type the cycle time and persons here, and <a href="/packing_masters.html" target="_blank" rel="noopener">add it to Packing Masters</a> for next time.`;
+        }
+
+        /* A station picked: take its cycle time and persons from the job's packing standard. */
+        function stationChanged(silent) {
+            const st = $('p_table_id').value;
+            const std = JOB && JOB.stations.find(s => s.station_name.toLowerCase() === String(st).toLowerCase());
+            if (std) {
+                $('p_cycle').value = std.cycle_time_sec; setSrc('src_cycle', 'packing master', 'pm');
+                $('p_persons').value = std.persons; setSrc('src_persons', 'packing master', 'pm');
+                setSrc('src_station', 'packing master', 'pm');
+                durationByHand = false;
+            } else {
+                setSrc('src_station', ''); setSrc('src_cycle', ''); setSrc('src_persons', '');
+                const s = stationOf(st);
+                if (s && s.persons && !$('p_persons').value) $('p_persons').value = s.persons;
+            }
+            if (silent) calcEndTime(); else calcDuration();
+        }
+
+        function durationTyped() { durationByHand = true; calcEndTime(); }
+
+        /* duration = qty × cycle seconds per piece (whole station) */
+        function calcDuration() {
+            const qty = Number($('p_qty').value), cycle = Number($('p_cycle').value);
+            const typingQtyOrCycle = document.activeElement === $('p_qty') || document.activeElement === $('p_cycle');
+            if (qty > 0 && cycle > 0 && (!durationByHand || typingQtyOrCycle)) {
+                $('p_duration').value = Math.ceil(qty * cycle / 60);
+                durationByHand = false;
+            }
+            calcEndTime();
         }
 
         function calcEndTime() {
-            const startStr = document.getElementById('p_start').value;
-            const dur = parseInt(document.getElementById('p_duration').value) || 0;
-            const delay = parseInt(document.getElementById('p_delay').value) || 0;
-
-            if (!startStr) return;
-
+            const startStr = $('p_start').value;
+            const dur = parseInt($('p_duration').value) || 0;
+            const delay = parseInt($('p_delay').value) || 0;
+            const qty = Number($('p_qty').value), cycle = Number($('p_cycle').value);
+            const calc = $('p_calc');
+            if (!startStr) { calc.textContent = ''; return; }
             const d = new Date(startStr);
             d.setMinutes(d.getMinutes() + dur + delay);
-            document.getElementById('p_end').value = d.toLocaleString();
+            const h = Math.floor(dur / 60), m = dur % 60;
+            const ends = d.toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false });
+            calc.innerHTML = `<i class="bi bi-clock"></i> ` +
+                (qty > 0 && cycle > 0 ? `${fmt(qty)} × ${fmt(cycle, 2)} s = ` : '') +
+                `${fmt(dur)} min${dur >= 60 ? ` (${h} h ${m} m)` : ''}${delay ? ` + ${delay} min delay` : ''} · ends <b>${ends}</b>` +
+                (cycle > 0 ? ` · ${fmt(Math.round(3600 / cycle))} pcs/hr` : '');
         }
 
         async function savePlan() {
+            const start = $('p_start').value;
+            const dur = parseInt($('p_duration').value);
+            const delay = parseInt($('p_delay').value) || 0;
             const plan = {
-                id: document.getElementById('p_id').value || null,
-                table_id: document.getElementById('p_table_id').value,
-                item_name: document.getElementById('p_item').value,
-                client_name: document.getElementById('p_client').value,
-                job_card_no: document.getElementById('p_jobcard').value,
-                plan_qty: parseInt(document.getElementById('p_qty').value),
-                ean_number: document.getElementById('p_ean').value,
-                machine: document.getElementById('p_machine').value, // Optional text
-                start_time: document.getElementById('p_start').value,
-                duration_min: parseInt(document.getElementById('p_duration').value),
-                delay_min: parseInt(document.getElementById('p_delay').value),
-                end_time: new Date(new Date(document.getElementById('p_start').value).getTime() +
-                    ((parseInt(document.getElementById('p_duration').value) || 0) +
-                        (parseInt(document.getElementById('p_delay').value) || 0)) * 60000),
+                id: $('p_id').value || null,
+                table_id: $('p_table_id').value,
+                item_name: $('p_item').value.trim(),
+                client_name: $('p_client').value.trim(),
+                job_card_no: $('p_jobcard').value.trim(),
+                plan_qty: parseInt($('p_qty').value),
+                ean_number: $('p_ean').value.trim(),
+                machine: $('p_machine').value.trim(),
+                start_time: start,
+                duration_min: dur,
+                delay_min: delay,
+                end_time: new Date(new Date(start).getTime() + ((dur || 0) + delay) * 60000),
                 created_by: JPSMS.auth.getUser().username
             };
-
-            if (!plan.item_name || !plan.plan_qty || !plan.start_time) {
-                return JPSMS.toast('Review required fields', 'error');
-            }
-
+            if (!plan.table_id) return JPSMS.toast('Pick a station', 'error');
+            if (!plan.item_name || !plan.plan_qty || !start) return JPSMS.toast('Item, qty and start are needed', 'error');
+            if (!(dur > 0)) return JPSMS.toast('Enter the duration, or the cycle time to calculate it', 'error');
+            if (JOB && JOB.jr_qty > 0 && plan.plan_qty > JOB.balance_qty &&
+                !confirm(`Qty ${fmt(plan.plan_qty)} is more than the job card balance ${fmt(JOB.balance_qty)}. Save anyway?`)) return;
             try {
                 await JPSMS.api.post('/assembly/plan', plan);
-                JPSMS.toast('Plan Saved');
+                JPSMS.toast('Plan saved', 'success');
                 closePlanModal();
                 loadPlans();
             } catch (e) {
@@ -607,12 +660,12 @@
         }
 
         async function deletePlan() {
-            const id = document.getElementById('p_id').value;
+            const id = $('p_id').value;
             if (!id) return;
             if (!confirm('Delete this packing plan? This cannot be undone.')) return;
             try {
                 await JPSMS.api.delete(`/assembly/plan/${id}`);
-                JPSMS.toast('Plan Deleted');
+                JPSMS.toast('Plan deleted');
                 closePlanModal();
                 loadPlans();
             } catch (e) {
@@ -620,6 +673,7 @@
             }
         }
     </script>
+
 </body>
 
 </html>
