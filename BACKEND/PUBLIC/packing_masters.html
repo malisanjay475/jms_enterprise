@@ -56,14 +56,14 @@
         .pm-st-code { font-size: 1.35rem; font-weight: 700; color: var(--primary-dark); line-height: 1.1; }
         .pm-st-name { font-size: .8rem; color: var(--text-muted); }
         .pm-st-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
-        .pm-st-stats div { background: #f4f9fb; border-radius: 8px; padding: 6px 8px; }
+        .pm-st-stats div { background: #f4f9fb; border-radius: 8px; padding: 8px 10px; }
         .pm-st-stats small { display: block; font-size: .7rem; color: var(--text-muted); }
         .pm-st-stats b { font-size: .98rem; color: var(--text-main); }
         .pm-st-foot { display: flex; justify-content: space-between; align-items: center; font-size: .8rem; color: var(--text-muted); gap: 8px; }
         .pm-modal { width: min(94vw, 640px); max-height: calc(100vh - 40px); overflow: auto; background: var(--bg-card); border-radius: 16px; padding: 22px; box-shadow: var(--shadow-premium); }
         .pm-modal.wide { width: min(96vw, 900px); }
         .pm-modal-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
-        .pm-modal-head h3 { margin: 0; font-size: 1.15rem; color: var(--primary-dark); }
+        .pm-modal-head h2 { margin: 0; font-size: 1.15rem; color: var(--primary-dark); }
         .pm-x { border: 0; background: none; font-size: 1.5rem; line-height: 1; cursor: pointer; color: var(--text-muted); }
         .pm-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
         .pm-grid .full { grid-column: 1 / -1; }
@@ -148,7 +148,7 @@
     <!-- Item standard -->
     <div class="modal-overlay" id="mItem" role="dialog" aria-modal="true" aria-labelledby="mItemTitle">
         <div class="pm-modal">
-            <div class="pm-modal-head"><h3 id="mItemTitle">Item packing standard</h3><button class="pm-x" data-close aria-label="Close">&times;</button></div>
+            <div class="pm-modal-head"><h2 id="mItemTitle">Item packing standard</h2><button class="pm-x" data-close aria-label="Close">&times;</button></div>
             <div class="pm-grid">
                 <div class="pm-section">Item</div>
                 <div class="pm-field"><label for="iCode">Item code</label><input class="form-control" id="iCode" maxlength="60"></div>
@@ -177,7 +177,7 @@
     <!-- Station -->
     <div class="modal-overlay" id="mStation" role="dialog" aria-modal="true" aria-labelledby="mStationTitle">
         <div class="pm-modal">
-            <div class="pm-modal-head"><h3 id="mStationTitle">Station</h3><button class="pm-x" data-close aria-label="Close">&times;</button></div>
+            <div class="pm-modal-head"><h2 id="mStationTitle">Station</h2><button class="pm-x" data-close aria-label="Close">&times;</button></div>
             <div class="pm-grid">
                 <div class="pm-field full"><label for="sName">Station name</label><input class="form-control" id="sName" maxlength="80" placeholder="Assembly Station - B1"><div class="hint">Renaming moves every item on this station to the new name.</div></div>
                 <div class="pm-field"><label for="sCode">Short code</label><input class="form-control" id="sCode" maxlength="40" placeholder="B1"></div>
@@ -194,7 +194,7 @@
     <!-- Import -->
     <div class="modal-overlay" id="mImport" role="dialog" aria-modal="true" aria-labelledby="mImportTitle">
         <div class="pm-modal wide">
-            <div class="pm-modal-head"><h3 id="mImportTitle">Import item packing standard</h3><button class="pm-x" data-close aria-label="Close">&times;</button></div>
+            <div class="pm-modal-head"><h2 id="mImportTitle">Import item packing standard</h2><button class="pm-x" data-close aria-label="Close">&times;</button></div>
             <div id="impPick">
                 <label class="pm-drop" id="impDrop" for="impFile">
                     <i class="bi bi-file-earmark-spreadsheet"></i>
