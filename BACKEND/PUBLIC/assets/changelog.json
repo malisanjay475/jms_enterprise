@@ -14,6 +14,22 @@
   "latest": "1.177.0",
   "versions": [
     {
+      "version": "1.179.0",
+      "date": "2026-11-18",
+      "title": "Packing Masters: stations and item packing standard",
+      "modules": [
+        {
+          "app": "packing",
+          "changes": [
+            { "type": "feat", "text": "New Packing > Packing Masters page. Stations tab lists every packing station with its items, average cycle time, persons and scanner." },
+            { "type": "feat", "text": "Item packing standard: per item and party group, the station, cycle time (seconds per piece for the whole station), persons, pieces per hour, EAN, pcs per box, boxes per carton and carton type." },
+            { "type": "feat", "text": "Import the StoreMachineOutPut Excel. You see a preview first (new, updated, skipped and rows to check) and nothing is saved until you press Import. Rows you edited on the page are kept." },
+            { "type": "feat", "text": "Tiles and filters show what is ready, what has no station, what needs checking and what has no EAN. Export to Excel any time." }
+          ]
+        }
+      ]
+    },
+    {
       "version": "1.178.1",
       "date": "2026-11-12",
       "title": "NPD Tracker: optional remarks, one-line department remarks",
