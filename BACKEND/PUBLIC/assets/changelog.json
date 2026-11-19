@@ -14,6 +14,23 @@
   "latest": "1.177.0",
   "versions": [
     {
+      "version": "1.187.0",
+      "date": "2026-11-19",
+      "title": "Packing station tables",
+      "modules": [
+        {
+          "app": "packing",
+          "changes": [
+            { "type": "feat", "text": "Every packing station now has its tables (A1-A13, B1-B14, C1-C13, D1-D13, DC1-DC7, E1-E3, F1, SF1-SF15). A plan stays on its station and can run on one or more tables." },
+            { "type": "feat", "text": "Planning a job: pick a station to see all its open job cards with total, already planned and balance. Pick the tables and the day qty fills itself: what those tables can pack until 17:00, up to the balance. More tables pack faster." },
+            { "type": "feat", "text": "A table already busy at that time is shown, and you are asked before using it." },
+            { "type": "feat", "text": "Packing Settings lists every table station-wise. Give a table its own scanner, name, persons and a note; its scans count on the plan of that station running on the table. One scanner can be on one table only." },
+            { "type": "improvement", "text": "Packing Masters shows each station's tables and lets you change the list (for example A1-A13)." }
+          ]
+        }
+      ]
+    },
+    {
       "version": "1.186.0",
       "date": "2026-11-19",
       "title": "Packed stock and dispatch",

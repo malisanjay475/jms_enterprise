@@ -87,6 +87,7 @@ async function ensurePackingFloorSchema(pool) {
       IF to_regclass('public.assembly_plans') IS NOT NULL THEN
         ALTER TABLE assembly_plans ADD COLUMN IF NOT EXISTS finished_at TIMESTAMP;
         ALTER TABLE assembly_plans ADD COLUMN IF NOT EXISTS finished_by TEXT;
+        ALTER TABLE assembly_plans ADD COLUMN IF NOT EXISTS tables TEXT;
       END IF;
       IF to_regclass('public.assembly_scans') IS NOT NULL THEN
         CREATE INDEX IF NOT EXISTS ix_assembly_scans_plan_ts ON assembly_scans (plan_id, "timestamp");
@@ -178,7 +179,7 @@ function registerPackingFloorRoutes(app, pool) {
       SELECT p.id, p.table_id, p.item_name, p.client_name, p.job_card_no, p.ean_number, p.plan_qty,
              COALESCE(p.scanned_qty, 0)::int AS scanned_qty,
              UPPER(COALESCE(NULLIF(TRIM(p.status), ''), 'PLANNED')) AS status,
-             p.duration_min, p.delay_min, p.finished_at, p.machine,
+             p.duration_min, p.delay_min, p.finished_at, p.machine, p.tables,
              to_char(p.start_time, 'YYYY-MM-DD"T"HH24:MI:SS') AS start_local,
              to_char(p.end_time, 'YYYY-MM-DD"T"HH24:MI:SS') AS end_local,
              to_char(p.finished_at, 'YYYY-MM-DD"T"HH24:MI:SS') AS finished_local,
