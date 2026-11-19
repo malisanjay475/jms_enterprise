@@ -71,6 +71,7 @@
             <button class="pr-tab" role="tab" data-type="handover">Store handover</button>
             <button class="pr-tab" role="tab" data-type="stock">Packed stock</button>
             <button class="pr-tab" role="tab" data-type="dispatch">Dispatch</button>
+            <button class="pr-tab" role="tab" data-type="packers">Packers</button>
         </div>
 
         <form class="pr-filters" id="filters" onsubmit="event.preventDefault(); load();">
@@ -134,6 +135,7 @@
                     let cls = '';
                     if (c.key === 'eff') cls = v < 75 ? 'eff-lo' : v >= 95 ? 'eff-hi' : '';
                     if (c.key === 'pct' && v > 110) cls = 'eff-lo';
+                    if (c.key === 'vs_std') cls = v < 75 ? 'eff-lo' : v >= 95 ? 'eff-hi' : '';
                     return `<td class="n ${cls}">${v}%</td>`;
                 }
                 case 'heat': {
@@ -280,7 +282,7 @@
             } catch (_) { /* stations list is optional */ }
             if (q.get('station')) { addStations([q.get('station')]); $('f_station').value = q.get('station'); }
 
-            selectTab(['daily', 'jobs', 'jobcards', 'hourly', 'wrong', 'boxes', 'handover', 'stock', 'dispatch'].includes(q.get('type')) ? q.get('type') : 'daily');
+            selectTab(['daily', 'jobs', 'jobcards', 'hourly', 'wrong', 'boxes', 'handover', 'stock', 'dispatch', 'packers'].includes(q.get('type')) ? q.get('type') : 'daily');
         });
     </script>
 </body>

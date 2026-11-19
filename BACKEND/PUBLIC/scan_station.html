@@ -13,6 +13,8 @@
         .ss-chip { display: inline-flex; align-items: center; gap: 6px; font-size: .8rem; font-weight: 600; padding: 3px 10px; border-radius: 999px; border: 1px solid #cbd5e1; color: #334155; background: #fff; }
         .ss-chip.run { background: #ecfdf5; border-color: #6ee7b7; color: #065f46; }
         .ss-chip.plan { background: #f8fafc; }
+        .ss-crew { cursor: pointer; min-height: 30px; }
+        .ss-crew.short { background: #fffbeb; border-color: #fcd34d; color: #92400e; }
         .ss-chip.off { background: #fef2f2; border-color: #fecaca; color: #991b1b; }
         .ss-chip.on { background: #ecfdf5; border-color: #6ee7b7; color: #065f46; }
         .ss-main { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(280px, 1fr); gap: 16px; }
@@ -114,6 +116,7 @@
             <div class="ss-top">
                 <span class="ss-chip" id="ssStatus" hidden></span>
                 <span class="ss-chip" id="ssScanner" hidden></span>
+                <button type="button" class="ss-chip ss-crew" id="ssCrew" hidden onclick="openCrew()"></button>
                 <span class="ss-chip" id="ssClock"></span>
                 <button class="btn btn-sm btn-outline" id="ssChange" onclick="showPicker()" hidden><i class="bi bi-arrow-left-right"></i> Change station</button>
                 <button class="btn btn-sm btn-outline" onclick="toggleFull()"><i class="bi bi-arrows-fullscreen"></i> Full screen</button>
@@ -150,6 +153,7 @@
     <script src="/assets/vendor/jsdelivr/jsbarcode@3.11.5/JsBarcode.all.min.js"></script>
     <script src="/assets/app.min.js?v=1583"></script>
     <script src="/assets/packing-shift.js?v=1"></script>
+    <script src="/assets/packing-crew.js?v=1"></script>
     <script>
         const STORE_KEY = 'JMS_SCAN_STATION';
         const $ = (id) => document.getElementById(id);
@@ -237,6 +241,21 @@
             if (S.data.auto_print && S.data.pending_labels > 0) printPending();
         }
 
+        /* Crew on this station (step 10): "Crew 3 / 4", amber when short. */
+        function renderCrewChip() {
+            const d = S.data, b = $('ssCrew');
+            const crew = d.crew || { n: 0, names: [] };
+            const std = (d.current && d.current.std_persons) || (d.station && d.station.persons) || null;
+            b.hidden = false;
+            b.className = 'ss-chip ss-crew' + (std && crew.n < std && d.crew_in_use ? ' short' : '');
+            b.innerHTML = `<i class="bi bi-people"></i> Crew ${crew.n}${std ? ' / ' + std : ''}`;
+            b.title = crew.names.length ? crew.names.join(', ') : 'No packers recorded on this station. Tap to add.';
+        }
+
+        function openCrew() {
+            if (S.station) PackCrew.open({ station: S.station, onChange: () => reload(true) });
+        }
+
         function reloadSoon() {
             clearTimeout(S.reloadTimer);
             S.reloadTimer = setTimeout(() => reload(true), 800);
@@ -253,6 +272,7 @@
             chip.className = 'ss-chip ' + (c && c.status === 'RUNNING' ? 'run' : 'plan');
             chip.textContent = c ? (c.status === 'RUNNING' ? 'Running' : 'Not started') : 'No job';
             renderScannerChip();
+            renderCrewChip();
             showLock();
 
             if (!c) {
