@@ -49,6 +49,9 @@
         .pm-pager { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 10px 2px; color: var(--text-muted); font-size: .85rem; flex-wrap: wrap; }
         .pm-pager button { min-width: 36px; }
         .pm-empty { padding: 36px 16px; text-align: center; color: var(--text-muted); }
+        .pm-setting { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; background: var(--bg-card); border: 1px solid var(--border); border-radius: 14px; padding: 12px 16px; margin-bottom: 14px; font-size: .9rem; }
+        .pm-setting input { width: 90px; }
+        .pm-setting .hint { color: var(--text-muted); font-size: .8rem; flex-basis: 100%; }
         .pm-stations { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
         .pm-st { background: var(--bg-card); border: 1px solid var(--border); border-radius: 14px; padding: 16px; display: flex; flex-direction: column; gap: 10px; }
         .pm-st.off { background: #f8fafc; border-style: dashed; }
@@ -145,6 +148,13 @@
         </section>
 
         <section id="tabStations" hidden>
+            <div class="pm-setting">
+                <label for="setAlertDays"><i class="bi bi-boxes"></i> Flag packed stock older than</label>
+                <input class="form-control" id="setAlertDays" type="number" min="1" max="365" step="1" value="30">
+                <span>days</span>
+                <button class="btn btn-outline" id="setSave">Save</button>
+                <span class="hint" id="setHint">Shown on Packed Stock and the Packed stock report.</span>
+            </div>
             <div class="pm-stations" id="stations"></div>
         </section>
     </div>
@@ -562,7 +572,26 @@
                 $('btnAdd').style.display = S.canEdit ? '' : 'none';
                 await loadStations();
                 loadRows();
+                loadSettings();
             });
+
+            /* ---------- settings ---------- */
+            async function loadSettings() {
+                try {
+                    const res = await api('/packing/settings');
+                    $('setAlertDays').value = res.data.stock_alert_days;
+                } catch (e) { }
+                $('setAlertDays').disabled = !S.canEdit;
+                $('setSave').style.display = S.canEdit ? '' : 'none';
+                $('setSave').onclick = async () => {
+                    const days = parseInt($('setAlertDays').value, 10);
+                    if (!(days >= 1 && days <= 365)) { $('setHint').textContent = 'Days must be between 1 and 365.'; return; }
+                    try {
+                        await api('/packing/settings', { method: 'PUT', body: JSON.stringify({ stock_alert_days: days }) });
+                        $('setHint').textContent = `Saved. Packed stock older than ${days} days is flagged.`;
+                    } catch (e) { $('setHint').textContent = e.message; }
+                };
+            }
         })();
     </script>
 </body>

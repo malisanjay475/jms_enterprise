@@ -496,6 +496,82 @@ async function handoverReport(pool, f, t) {
   };
 }
 
+/* Packed stock right now (received by the store, not dispatched), by item + party. */
+async function stockReport(pool, f, t) {
+  if (!t.dispatches) return { columns: [], rows: [], summary: [{ label: 'Cartons in store', value: 0, type: 'int' }] };
+  const dispatch = require('./registerPackingDispatchRoutes');
+  const days = await dispatch.alertDays(pool, t.factoryId);
+  const r = await pool.query(`
+    SELECT b.item_name, MAX(b.item_code) AS item_code, b.client_name, COUNT(*)::int AS units,
+           COUNT(*) FILTER (WHERE b.kind = 'BOX')::int AS loose_boxes, COALESCE(SUM(b.qty), 0)::int AS pcs,
+           COUNT(DISTINCT b.job_card_no)::int AS jobs,
+           FLOOR(EXTRACT(EPOCH FROM NOW() - MIN(b.received_at)) / 86400)::int AS oldest_days,
+           COUNT(*) FILTER (WHERE b.received_at < NOW() - make_interval(days => $3))::int AS old_units
+      FROM packing_boxes b
+     WHERE ${dispatch.STOCK_SQL}
+       AND ($1::int IS NULL OR b.factory_id = $1)
+       AND ($2::text IS NULL OR LOWER(COALESCE(b.client_name, '')) = LOWER($2))
+     GROUP BY b.item_name, b.client_name
+     ORDER BY MIN(b.received_at) LIMIT ${ROW_LIMIT}`, [t.factoryId, f.party, days]);
+  const rows = r.rows.map(x => ({
+    item: x.item_name, code: x.item_code || '', party: x.client_name || '', jobs: x.jobs,
+    cartons: x.units - x.loose_boxes, boxes: x.loose_boxes, pcs: x.pcs, oldest_days: x.oldest_days,
+    status: x.old_units ? 'old-stock' : 'ok'
+  }));
+  return {
+    columns: [
+      { key: 'item', label: 'Item' }, { key: 'code', label: 'Code' }, { key: 'party', label: 'Party' }, { key: 'jobs', label: 'Job cards', type: 'int' },
+      { key: 'cartons', label: 'Cartons', type: 'int' }, { key: 'boxes', label: 'Loose boxes', type: 'int' }, { key: 'pcs', label: 'Pcs', type: 'int' },
+      { key: 'oldest_days', label: 'Oldest (days)', type: 'int' }, { key: 'status', label: 'Status', type: 'status' }
+    ],
+    rows,
+    note: `Stock right now: cartons the store received and has not dispatched. Dates do not apply. Old stock = older than ${days} days (Packing Masters).`,
+    summary: [
+      { label: 'Items', value: rows.length, type: 'int' },
+      { label: 'Cartons', value: rows.reduce((s, x) => s + x.cartons, 0), type: 'int' },
+      { label: 'Loose boxes', value: rows.reduce((s, x) => s + x.boxes, 0), type: 'int' },
+      { label: 'Pcs', value: rows.reduce((s, x) => s + x.pcs, 0), type: 'int' },
+      { label: `Items with stock over ${days} days`, value: rows.filter(x => x.status === 'old-stock').length, type: 'int' }
+    ]
+  };
+}
+
+/* Dispatch slips opened in the period. */
+async function dispatchReport(pool, f, t) {
+  if (!t.dispatches) return { columns: [], rows: [], summary: [{ label: 'Slips', value: 0, type: 'int' }] };
+  const r = await pool.query(`
+    SELECT d.slip_no, d.status, d.party, d.vehicle_no, d.invoice_no, d.cartons, d.pcs, d.opened_by, d.reopen_count, d.last_reopen_reason,
+           to_char(d.opened_at AT TIME ZONE '${TZ}', 'YYYY-MM-DD HH24:MI') AS opened,
+           to_char(d.closed_at AT TIME ZONE '${TZ}', 'YYYY-MM-DD HH24:MI') AS closed,
+           (SELECT COUNT(DISTINCT b.job_card_no)::int FROM packing_boxes b WHERE b.dispatch_sync_id = d.sync_id) AS jobs
+      FROM packing_dispatches d
+     WHERE d.opened_at >= ($1::date)::timestamp AT TIME ZONE '${TZ}' AND d.opened_at < ($2::date + 1)::timestamp AT TIME ZONE '${TZ}'
+       AND ($3::int IS NULL OR d.factory_id = $3)
+       AND ($4::text IS NULL OR LOWER(d.party) = LOWER($4))
+     ORDER BY d.opened_at DESC LIMIT ${ROW_LIMIT}`, [f.from, f.to, t.factoryId, f.party]);
+  const rows = r.rows.map(x => ({
+    slip: x.slip_no, opened: x.opened, closed: x.closed || '', party: x.party, vehicle: x.vehicle_no || '', invoice: x.invoice_no || '',
+    opened_by: x.opened_by || '', jobs: x.jobs, cartons: x.cartons, pcs: x.pcs,
+    status: x.status === 'OPEN' ? 'open' : 'closed', reopened: x.reopen_count ? `${x.reopen_count} times (${x.last_reopen_reason || ''})` : ''
+  }));
+  return {
+    columns: [
+      { key: 'slip', label: 'Slip' }, { key: 'opened', label: 'Opened' }, { key: 'closed', label: 'Closed' }, { key: 'party', label: 'Party' },
+      { key: 'vehicle', label: 'Vehicle' }, { key: 'invoice', label: 'Invoice / DC' }, { key: 'opened_by', label: 'Store person' },
+      { key: 'jobs', label: 'Jobs', type: 'int' }, { key: 'cartons', label: 'Cartons', type: 'int' }, { key: 'pcs', label: 'Pcs', type: 'int' },
+      { key: 'status', label: 'Status', type: 'status' }, { key: 'reopened', label: 'Reopened' }
+    ],
+    rows,
+    note: 'Dispatch slips opened in the period. The station filter does not apply.',
+    summary: [
+      { label: 'Slips', value: rows.length, type: 'int' },
+      { label: 'Cartons dispatched', value: rows.reduce((s, x) => s + x.cartons, 0), type: 'int' },
+      { label: 'Pcs dispatched', value: rows.reduce((s, x) => s + x.pcs, 0), type: 'int' },
+      { label: 'Vehicles', value: new Set(rows.map(x => x.vehicle).filter(Boolean)).size, type: 'int' }
+    ]
+  };
+}
+
 const REPORTS = {
   daily: { title: 'Daily summary', run: (pool, f, t) => dailyReport(pool, f, t.jr) },
   jobs: { title: 'Jobs', run: (pool, f, t) => jobsReport(pool, f, t.jr, t.boxes) },
@@ -503,7 +579,9 @@ const REPORTS = {
   hourly: { title: 'Hourly output', run: (pool, f, t) => hourlyReport(pool, f, t.jr) },
   wrong: { title: 'Wrong scans', run: (pool, f, t) => wrongReport(pool, f, t.locks, t.factoryId) },
   boxes: { title: 'Boxes and labels', run: (pool, f, t) => boxesReport(pool, f, t.boxes) },
-  handover: { title: 'Store handover', run: (pool, f, t) => handoverReport(pool, f, t) }
+  handover: { title: 'Store handover', run: (pool, f, t) => handoverReport(pool, f, t) },
+  stock: { title: 'Packed stock', run: (pool, f, t) => stockReport(pool, f, t) },
+  dispatch: { title: 'Dispatch', run: (pool, f, t) => dispatchReport(pool, f, t) }
 };
 
 function minText(v) {
@@ -525,10 +603,10 @@ function toSheetRows(report) {
 
 function registerPackingReportRoutes(app, pool) {
   async function tables() {
-    const r = await pool.query(`SELECT to_regclass('public.or_jr_report') AS jr, to_regclass('public.packing_lock_events') AS locks, to_regclass('public.packing_boxes') AS boxes, to_regclass('public.packing_handovers') AS handovers,
+    const r = await pool.query(`SELECT to_regclass('public.or_jr_report') AS jr, to_regclass('public.packing_lock_events') AS locks, to_regclass('public.packing_boxes') AS boxes, to_regclass('public.packing_handovers') AS handovers, to_regclass('public.packing_dispatches') AS dispatches,
                                        to_regclass('public.assembly_scans') AS scans, to_regclass('public.packing_item_standards') AS std`);
     const t = r.rows[0] || {};
-    return { jr: Boolean(t.jr), locks: Boolean(t.locks), boxes: Boolean(t.boxes), handovers: Boolean(t.handovers), ready: Boolean(t.scans) && Boolean(t.std) };
+    return { jr: Boolean(t.jr), locks: Boolean(t.locks), boxes: Boolean(t.boxes), handovers: Boolean(t.handovers), dispatches: Boolean(t.dispatches), ready: Boolean(t.scans) && Boolean(t.std) };
   }
 
   async function build(req) {
