@@ -89,6 +89,7 @@ async function ensurePackingFloorSchema(pool) {
       END IF;
       IF to_regclass('public.assembly_scans') IS NOT NULL THEN
         CREATE INDEX IF NOT EXISTS ix_assembly_scans_plan_ts ON assembly_scans (plan_id, "timestamp");
+        CREATE INDEX IF NOT EXISTS ix_assembly_scans_ts ON assembly_scans ("timestamp");
       END IF;
     END $$;
   `);
