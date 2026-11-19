@@ -14,6 +14,23 @@
   "latest": "1.177.0",
   "versions": [
     {
+      "version": "1.186.0",
+      "date": "2026-11-19",
+      "title": "Packed stock and dispatch",
+      "modules": [
+        {
+          "app": "packing",
+          "changes": [
+            { "type": "feat", "text": "New Packed Stock page: everything the store has received and not yet dispatched, by item and party, with job cards and carton labels inside each row. Stock older than 30 days is flagged (change the days in Packing Masters > Stations)." },
+            { "type": "feat", "text": "New Dispatch page: pick the party and vehicle, scan cartons out, then close and print the dispatch slip with signature lines for store and driver." },
+            { "type": "feat", "text": "A dispatch scan is refused when the carton is not yet received by the store, already dispatched, voided, or belongs to another party." },
+            { "type": "improvement", "text": "Packing can no longer void a label the store has received or dispatched, and a handover scan cannot be undone once that carton is dispatched." },
+            { "type": "feat", "text": "Packing Reports has Packed stock and Dispatch tabs, with Excel export." }
+          ]
+        }
+      ]
+    },
+    {
       "version": "1.185.0",
       "date": "2026-11-19",
       "title": "Packing day shift",

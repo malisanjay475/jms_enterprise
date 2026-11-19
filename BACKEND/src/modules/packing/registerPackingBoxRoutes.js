@@ -74,6 +74,9 @@ async function ensurePackingBoxSchema(pool) {
     ALTER TABLE packing_boxes ADD COLUMN IF NOT EXISTS rejected_at TIMESTAMPTZ;
     ALTER TABLE packing_boxes ADD COLUMN IF NOT EXISTS rejected_by TEXT;
     ALTER TABLE packing_boxes ADD COLUMN IF NOT EXISTS reject_reason TEXT;
+    ALTER TABLE packing_boxes ADD COLUMN IF NOT EXISTS dispatch_sync_id UUID;
+    ALTER TABLE packing_boxes ADD COLUMN IF NOT EXISTS dispatched_at TIMESTAMPTZ;
+    ALTER TABLE packing_boxes ADD COLUMN IF NOT EXISTS dispatched_by TEXT;
     CREATE INDEX IF NOT EXISTS ix_packing_boxes_handover ON packing_boxes (handover_sync_id);
     CREATE INDEX IF NOT EXISTS ix_packing_boxes_waiting ON packing_boxes (factory_id, created_at) WHERE received_at IS NULL AND voided_at IS NULL;
     CREATE INDEX IF NOT EXISTS ix_packing_boxes_plan ON packing_boxes (plan_id, kind, seq_no);
@@ -394,6 +397,8 @@ function registerPackingBoxRoutes(app, pool) {
       const box = await loadBox(idOf(req));
       if (!box || box.kind === 'OPENING') return res.status(404).json({ ok: false, error: 'Label not found.' });
       if (box.voided_at) return res.json({ ok: true, already: true });
+      if (box.dispatched_at) return res.status(400).json({ ok: false, error: 'This label is already dispatched. It cannot be voided.' });
+      if (box.received_at) return res.status(400).json({ ok: false, error: 'The store has received this label. Take it off the handover slip first.' });
       if (box.kind === 'BOX' && box.carton_code) {
         return res.status(400).json({ ok: false, error: `This box is in carton ${box.carton_code}. Void the carton first.` });
       }

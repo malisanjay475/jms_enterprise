@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JMS OCEAN - Dispatch</title>
+    <link href="/assets/vendor/fonts/g-e34670640e.css" rel="stylesheet">
+    <link rel="stylesheet" href="/assets/bootstrap-icons.min.css">
+    <link rel="stylesheet" href="/assets/app.css?v=12">
+    <style>
+        [hidden] { display: none !important; }
+        .ds-main { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(300px, 1fr); gap: 16px; align-items: start; }
+        .ds-main > * { min-width: 0; }
+        .ds-card { background: #fff; border: 1px solid #e2e8f0; border-radius: 14px; padding: 16px 18px; }
+        .ds-h { font-size: .8rem; font-weight: 700; color: #475569; margin: 0 0 8px; }
+        .ds-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; }
+        .ds-form label { display: block; font-size: .76rem; font-weight: 600; color: #475569; margin-bottom: 4px; }
+        .ds-slip { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+        .ds-slip b { font-size: 1.25rem; color: #0f172a; }
+        .ds-slip small { display: block; color: #64748b; font-size: .82rem; }
+        .ds-total { font-size: 2rem; font-weight: 800; color: #0f172a; font-variant-numeric: tabular-nums; }
+        .ds-total span { font-size: .95rem; color: #64748b; font-weight: 600; }
+        .ds-scan { display: flex; gap: 8px; margin-top: 12px; }
+        .ds-scan input { flex: 1; font-size: 1.15rem; font-family: ui-monospace, monospace; }
+        .ds-msg { margin-top: 10px; padding: 9px 12px; border-radius: 10px; font-weight: 600; font-size: .92rem; }
+        .ds-msg.ok { background: #ecfdf5; color: #065f46; border: 1px solid #a7f3d0; }
+        .ds-msg.bad { background: #fef2f2; color: #991b1b; border: 1px solid #fecaca; }
+        .ds-tbl { overflow-x: auto; }
+        .ds-lines { width: 100%; border-collapse: collapse; font-size: .88rem; margin-top: 12px; }
+        .ds-lines th { text-align: left; font-size: .74rem; color: #475569; padding: 7px 6px; border-bottom: 1px solid #e2e8f0; }
+        .ds-lines td { padding: 7px 6px; border-bottom: 1px solid #f1f5f9; }
+        .ds-lines .n { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+        .ds-actions { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+        .ds-actions .btn { flex: 1; min-height: 44px; }
+        .ds-codes { font-family: ui-monospace, monospace; font-size: .82rem; line-height: 1.8; color: #334155; max-height: 180px; overflow: auto; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 6px 10px; margin-top: 10px; }
+        .ds-stock div { display: flex; justify-content: space-between; gap: 8px; padding: 7px 0; border-bottom: 1px solid #f1f5f9; font-size: .86rem; }
+        .ds-stock small { color: #64748b; }
+        .ds-recent { font-size: .84rem; }
+        .ds-recent div { display: flex; justify-content: space-between; gap: 8px; padding: 6px 0; border-bottom: 1px solid #f1f5f9; }
+        .ds-recent button { border: 0; background: none; color: #1d4ed8; padding: 0; cursor: pointer; font-weight: 600; }
+        .ds-empty { color: #64748b; font-size: .9rem; }
+        .ds-note { color: #64748b; font-size: .82rem; margin-top: 8px; }
+        .ds-err { color: #b91c1c; font-size: .82rem; margin-top: 6px; }
+        #dsPrint { display: none; }
+        @media print {
+            @page { size: A4; margin: 14mm; }
+            body > *:not(#dsPrint) { display: none !important; }
+            #dsPrint { display: block !important; font-family: Arial, sans-serif; color: #000; font-size: 10.5pt; }
+            #dsPrint h1 { font-size: 16pt; margin: 0 0 4mm; }
+            #dsPrint .meta { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5mm 8mm; }
+            #dsPrint table { width: 100%; border-collapse: collapse; margin-top: 4mm; }
+            #dsPrint th, #dsPrint td { border: 1px solid #555; padding: 1.6mm 2mm; text-align: left; }
+            #dsPrint .n { text-align: right; }
+            #dsPrint .codes { font-family: monospace; font-size: 8.5pt; margin-top: 4mm; line-height: 1.5; }
+            #dsPrint .sign { display: flex; justify-content: space-between; margin-top: 18mm; }
+            #dsPrint .sign div { width: 45%; border-top: 1px solid #000; padding-top: 1.5mm; }
+        }
+        @media (max-width: 900px) { .ds-main { grid-template-columns: minmax(0, 1fr); } .ds-total { font-size: 1.5rem; } }
+    </style>
+</head>
+
+<body>
+    <div class="main-content">
+        <div class="header">
+            <div class="page-title">Dispatch</div>
+        </div>
+        <div class="ds-main">
+            <div class="ds-card" id="dsSlipCard"><div class="ds-empty">Loading…</div></div>
+            <div>
+                <div class="ds-card">
+                    <h2 class="ds-h" id="dsStockTitle">In store for this party</h2>
+                    <div class="ds-stock" id="dsStock"></div>
+                </div>
+                <div class="ds-card" style="margin-top:16px">
+                    <h2 class="ds-h">Recent dispatch slips</h2>
+                    <div class="ds-recent" id="dsRecent"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <datalist id="dsParties"></datalist>
+    <div id="dsPrint" aria-hidden="true"></div>
+
+    <script src="/assets/app.min.js?v=1583"></script>
+    <script>
+        const $ = (id) => document.getElementById(id);
+        const esc = (v) => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+        const fmt = (n) => Number(n || 0).toLocaleString('en-IN');
+        const api = (url, opts = {}) => JPSMS.api.request(url, { skipLoader: true, ...opts });
+        const send = (method, url, body, extra) => api(url, { method, body: JSON.stringify(body || {}), ...(extra || {}) });
+        const S = { data: null, msg: null, cardFor: null };
+        // a line's units can include loose boxes (items with no carton size)
+        const unitText = (units, loose) => {
+            const ctn = Number(units || 0) - Number(loose || 0);
+            const parts = [];
+            if (ctn) parts.push(`${fmt(ctn)} ctn`);
+            if (loose) parts.push(`${fmt(loose)} box${Number(loose) === 1 ? '' : 'es'}`);
+            return parts.join(' + ') || '0';
+        };
+
+        document.addEventListener('DOMContentLoaded', () => {
+            JPSMS.auth.requireAuth();
+            JPSMS.renderShell('packing');
+            load();
+            setInterval(() => { const i = $('dsScan'); if (!i || !i.value) load(true); }, 30000);
+            document.addEventListener('click', e => {
+                if (!e.target.closest('input, select, textarea, button, a, label') && $('dsScan')) $('dsScan').focus();
+            });
+        });
+
+        async function load(quiet) {
+            try {
+                const res = await api('/packing/dispatch/summary');
+                S.data = res.data;
+                render();
+            } catch (e) {
+                if (!quiet) $('dsSlipCard').innerHTML = `<div class="ds-empty">${esc(e.message)}</div>`;
+            }
+        }
+
+        function render() {
+            const d = S.data;
+            const s = d.slip;
+            $('dsParties').innerHTML = (d.parties || []).map(p => `<option value="${esc(p.party)}">${esc(p.party)} · ${fmt(p.units)} in store</option>`).join('');
+            const msg = S.msg ? `<div class="ds-msg ${S.msg.ok ? 'ok' : 'bad'}" role="status"><i class="bi ${S.msg.ok ? 'bi-check-circle' : 'bi-x-circle'}"></i> ${esc(S.msg.text)}</div>` : '';
+            if (!s) {
+                S.cardFor = null;
+                const keep = { party: $('dsParty') ? $('dsParty').value : '', vehicle: $('dsVehicle') ? $('dsVehicle').value : '', invoice: $('dsInvoice') ? $('dsInvoice').value : '' };
+                $('dsSlipCard').innerHTML = `
+                    <h2 class="ds-h">New dispatch slip</h2>
+                    <div class="ds-form">
+                        <div><label for="dsParty">Party</label><input id="dsParty" class="form-control" list="dsParties" autocomplete="off" placeholder="Reliance Retail"></div>
+                        <div><label for="dsVehicle">Vehicle no</label><input id="dsVehicle" class="form-control" autocomplete="off" placeholder="MH04GX2231"></div>
+                        <div><label for="dsInvoice">Invoice / DC no (optional)</label><input id="dsInvoice" class="form-control" autocomplete="off"></div>
+                    </div>
+                    <div class="ds-err" id="dsErr"></div>
+                    ${d.other_open.length ? `<p class="ds-note">Open slips of other people: ${d.other_open.map(o => `${esc(o.slip_no)} (${esc(o.party)}, ${esc(o.opened_by)}, ${fmt(o.cartons)} cartons)`).join(', ')}</p>` : ''}
+                    <div class="ds-actions"><button class="btn btn-primary" onclick="startSlip()"><i class="bi bi-truck"></i> Start dispatch slip</button></div>${msg}`;
+                $('dsParty').value = keep.party; $('dsVehicle').value = keep.vehicle; $('dsInvoice').value = keep.invoice;
+                $('dsParty').addEventListener('input', () => { $('dsErr').textContent = ''; renderStock(); });
+                renderStock();
+            } else {
+                // The scan box is built once per slip and never replaced, so a fast scanner keeps typing while the slip refreshes.
+                if (S.cardFor !== s.id || !$('dsScan')) {
+                    S.cardFor = s.id;
+                    $('dsSlipCard').innerHTML = `<div id="dsHead"></div>
+                        <div class="ds-scan"><input id="dsScan" class="form-control" placeholder="Scan carton label, then Enter" aria-label="Carton label" autocomplete="off"></div>
+                        <div id="dsBody"></div>`;
+                    const input = $('dsScan');
+                    input.addEventListener('keydown', e => {
+                        if (e.key === 'Enter') { e.preventDefault(); const v = input.value.trim(); input.value = ''; if (v) scan(S.cardFor, v); }
+                    });
+                    input.focus();
+                }
+                $('dsHead').innerHTML = `
+                    <div class="ds-slip">
+                        <div><b>Slip ${esc(s.slip_no)} · ${esc(s.party)}</b>
+                            <small>Vehicle ${esc(s.vehicle_no || '–')} · Invoice ${esc(s.invoice_no || '–')} · <button class="btn btn-link p-0" style="font-size:.82rem" onclick="editSlip()">Change</button></small>
+                            <small>Open · ${esc(s.opened_by || '')} · ${esc(s.opened_local)}${s.reopen_count ? ` · reopened (${esc(s.last_reopen_reason || '')})` : ''}</small></div>
+                        <div class="ds-total">${fmt(s.cartons)} <span>cartons · ${fmt(s.pcs)} pcs</span></div>
+                    </div>`;
+                $('dsBody').innerHTML = `
+                    ${msg}
+                    ${s.lines.length ? `<div class="ds-tbl"><table class="ds-lines"><thead><tr><th>Item</th><th>Job card</th><th class="n">Cartons</th><th class="n">Pcs</th></tr></thead><tbody>
+                        ${s.lines.map(l => `<tr><td>${esc(l.item_name)}</td><td>${esc(l.job_card_no)}</td><td class="n">${unitText(l.cartons, l.loose_boxes)}</td><td class="n">${fmt(l.pcs)}</td></tr>`).join('')}
+                        </tbody></table></div>
+                        <div class="ds-codes">${s.codes.map(c => `<div>${esc(c.at)} ${esc(c.code)} · ${fmt(c.qty)} pcs</div>`).join('')}</div>` : '<p class="ds-empty" style="margin-top:12px">Nothing scanned on this slip yet.</p>'}
+                    <div class="ds-actions">
+                        <button class="btn btn-outline" onclick="undoLast(${Number(s.id)})"><i class="bi bi-arrow-counterclockwise"></i> Undo last</button>
+                        <button class="btn btn-primary" onclick="closeSlip(${Number(s.id)})"><i class="bi bi-printer"></i> Close slip and print</button>
+                    </div>`;
+                renderStock();
+            }
+            renderRecent();
+        }
+
+        /* What is in store for the slip's party (or the party typed on the new-slip form). */
+        function renderStock() {
+            const d = S.data;
+            if (d.slip) {
+                const rows = d.slip.party_stock || [];
+                $('dsStockTitle').textContent = `Still in store for ${d.slip.party}`;
+                $('dsStock').innerHTML = rows.length ? rows.map(r => `<div><span>${esc(r.item_name)}<br><small>${fmt(r.jobs)} job card${r.jobs === 1 ? '' : 's'} · oldest ${fmt(r.oldest_days)} d</small></span><span>${unitText(r.units, r.loose_boxes)}<br><small>${fmt(r.pcs)} pcs</small></span></div>`).join('')
+                    : '<div class="ds-empty" style="border:0">Nothing more in store for this party.</div>';
+                return;
+            }
+            const typed = ($('dsParty') ? $('dsParty').value : '').trim().toLowerCase();
+            const list = (d.parties || []).filter(p => !typed || String(p.party).toLowerCase().includes(typed));
+            $('dsStockTitle').textContent = 'Parties with stock in store';
+            $('dsStock').innerHTML = list.length ? list.slice(0, 30).map(p => `<div><span><button class="btn btn-link p-0" style="font-size:.86rem;text-align:left" onclick="pickParty(this.dataset.p)" data-p="${esc(p.party)}">${esc(p.party)}</button></span><span>${fmt(p.units)} · <small>${fmt(p.pcs)} pcs</small></span></div>`).join('')
+                : '<div class="ds-empty" style="border:0">No packed stock in store.</div>';
+        }
+
+        function pickParty(p) { $('dsParty').value = p; $('dsErr').textContent = ''; renderStock(); $('dsVehicle').focus(); }
+
+        function renderRecent() {
+            const r = S.data.recent || [];
+            $('dsRecent').innerHTML = r.length ? r.map(x => `<div><span><b>${esc(x.slip_no)}</b> · ${esc(x.party)} · ${esc(x.vehicle_no || '')} · ${esc(x.closed_local || '')} · ${fmt(x.cartons)} ctn</span>
+                <span><button onclick="printSlip(${Number(x.id)})">Print</button> · <button onclick="reopenSlip(${Number(x.id)}, this.dataset.no)" data-no="${esc(x.slip_no)}">Reopen</button></span></div>`).join('')
+                : '<div class="ds-empty" style="border:0">No closed dispatch slips yet.</div>';
+        }
+
+        async function startSlip() {
+            const party = $('dsParty').value.trim();
+            if (!party) { $('dsErr').textContent = 'Pick the party first.'; $('dsParty').focus(); return; }
+            const known = (S.data.parties || []).some(p => String(p.party).toLowerCase() === party.toLowerCase());
+            if (!known && !confirm(`${party} has no stock in store. Start the slip anyway?`)) return;
+            try {
+                await send('POST', '/packing/dispatch/slips', { party, vehicle_no: $('dsVehicle').value, invoice_no: $('dsInvoice').value });
+                S.msg = null;
+                load();
+            } catch (e) { $('dsErr').textContent = e.message; }
+        }
+
+        async function editSlip() {
+            const s = S.data.slip;
+            const vehicle = prompt('Vehicle no', s.vehicle_no || '');
+            if (vehicle === null) return;
+            const invoice = prompt('Invoice / DC no', s.invoice_no || '');
+            if (invoice === null) return;
+            try { await send('PUT', `/packing/dispatch/slips/${s.id}`, { vehicle_no: vehicle, invoice_no: invoice }); load(); } catch (e) { JPSMS.toast(e.message, 'error'); }
+        }
+
+        let audio = null;
+        function beep(ok) {
+            try {
+                audio = audio || new (window.AudioContext || window.webkitAudioContext)();
+                const o = audio.createOscillator(), g = audio.createGain();
+                o.frequency.value = ok ? 1200 : 220; o.type = ok ? 'sine' : 'square';
+                g.gain.value = 0.08; o.connect(g); g.connect(audio.destination);
+                o.start(); o.stop(audio.currentTime + (ok ? 0.08 : 0.5));
+            } catch (_) { /* no sound */ }
+        }
+
+        async function scan(id, code) {
+            try {
+                const res = await send('POST', `/packing/dispatch/slips/${id}/scan`, { code }, { silentError: true });
+                const r = res.data;
+                S.msg = { ok: true, text: `${r.code} · ${r.item_name} · ${fmt(r.qty)} pcs` };
+                beep(true);
+            } catch (e) {
+                S.msg = { ok: false, text: `${code.toUpperCase()}: ${e.message}` };
+                beep(false);
+            }
+            load(true);
+        }
+
+        async function undoLast(id) {
+            try {
+                const res = await send('POST', `/packing/dispatch/slips/${id}/undo`);
+                S.msg = { ok: true, text: `Took ${res.data.code} off the slip. It is back in stock.` };
+                load();
+            } catch (e) { JPSMS.toast(e.message, 'error'); }
+        }
+
+        async function closeSlip(id) {
+            const s = S.data.slip;
+            if (!s.cartons) { JPSMS.toast('Scan at least one carton first.', 'error'); return; }
+            if (!s.vehicle_no && !confirm('No vehicle number on this slip. Close it anyway?')) return;
+            if (!confirm(`Close dispatch slip ${s.slip_no} for ${s.party}: ${fmt(s.cartons)} cartons (${fmt(s.pcs)} pcs), and print it?`)) return;
+            try {
+                await send('POST', `/packing/dispatch/slips/${id}/close`);
+                S.msg = null;
+                await printSlip(id);
+                load();
+            } catch (e) { JPSMS.toast(e.message, 'error'); }
+        }
+
+        async function printSlip(id) {
+            try {
+                const res = await api(`/packing/dispatch/slips/${id}`);
+                const s = res.data;
+                $('dsPrint').innerHTML = `
+                    <h1>Dispatch slip · ${esc(s.slip_no)}</h1>
+                    <div class="meta">
+                        <div><b>Party:</b> ${esc(s.party)}</div><div><b>Vehicle:</b> ${esc(s.vehicle_no || '')}</div>
+                        <div><b>Invoice / DC:</b> ${esc(s.invoice_no || '')}</div><div><b>Store:</b> ${esc(s.opened_by || '')}</div>
+                        <div><b>Opened:</b> ${esc(s.opened_local)}</div><div><b>Closed:</b> ${esc(s.closed_local || '')}</div>
+                    </div>
+                    ${s.reopen_count ? `<div>Reopened ${s.reopen_count} time(s): ${esc(s.last_reopen_reason || '')}</div>` : ''}
+                    <table><thead><tr><th>Item</th><th>Code</th><th>Job card</th><th class="n">Cartons</th><th class="n">Pcs</th></tr></thead><tbody>
+                        ${s.lines.map(l => `<tr><td>${esc(l.item_name)}</td><td>${esc(l.item_code)}</td><td>${esc(l.job_card_no)}</td><td class="n">${unitText(l.cartons, l.loose_boxes)}</td><td class="n">${fmt(l.pcs)}</td></tr>`).join('')}
+                        <tr><th colspan="3">Total</th><th class="n">${fmt(s.cartons)}</th><th class="n">${fmt(s.pcs)}</th></tr>
+                    </tbody></table>
+                    <div class="codes"><b>Labels:</b> ${s.codes.map(c => esc(c.code)).join(', ')}</div>
+                    <div class="sign"><div>Dispatched by (store)</div><div>Received by (driver)</div></div>`;
+                window.print();
+            } catch (e) { JPSMS.toast(e.message, 'error'); }
+        }
+
+        async function reopenSlip(id, no) {
+            const reason = prompt(`Reason to reopen ${no}?`);
+            if (reason === null) return;
+            if (reason.trim().length < 3) { JPSMS.toast('Give a reason of a few words.', 'error'); return; }
+            const pin = prompt('Supervisor PIN');
+            if (pin === null) return;
+            try {
+                const res = await send('POST', `/packing/dispatch/slips/${id}/reopen`, { reason: reason.trim(), pin: pin.trim() });
+                JPSMS.toast(`${no} reopened by ${res.data ? res.data.reopened_by : 'supervisor'}`, 'success');
+                load();
+            } catch (e) { JPSMS.toast(e.message, 'error'); }
+        }
+    </script>
+</body>
+
+</html>

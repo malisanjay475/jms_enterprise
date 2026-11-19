@@ -138,6 +138,24 @@ async function findLabel(db, code, fid) {
   return r.rows[0] || null;
 }
 
+/*
+ * Supervisor PIN check for reopening a closed slip. tries: Map of key -> wrong-PIN times,
+ * 5 wrong PINs a minute per key. Returns { name } or { status, error }.
+ */
+async function verifySupervisorPin(db, fid, rawPin, tries, key) {
+  const pin = String(rawPin || '').trim();
+  const now = Date.now();
+  const recent = (tries.get(key) || []).filter(t => now - t < 60e3);
+  if (recent.length >= 5) return { status: 429, error: 'Too many wrong PINs. Wait one minute.' };
+  const floor = require('./registerPackingFloorRoutes');
+  const pins = await db.query('SELECT * FROM packing_supervisor_pins WHERE is_active AND factory_id IS NOT DISTINCT FROM $1', [fid]);
+  if (!pins.rows.length) return { status: 400, error: 'No supervisor PIN is set for this factory. Set one in Packing Settings.' };
+  const who = /^\d{4,6}$/.test(pin) ? pins.rows.find(p => floor.pinMatches(pin, p)) : null;
+  if (!who) { recent.push(now); tries.set(key, recent); return { status: 403, error: 'Wrong supervisor PIN.' }; }
+  tries.delete(key);
+  return { name: who.display_name || who.username };
+}
+
 function registerPackingHandoverRoutes(app, pool) {
   let ready = null;
   function ensureTables() {
@@ -270,14 +288,16 @@ function registerPackingHandoverRoutes(app, pool) {
       if (slip.status !== 'OPEN') return bad(res, 400, 'This slip is closed.');
       const out = await inTx(async (db) => {
         const last = await db.query(
-          `SELECT id, code FROM packing_boxes WHERE handover_sync_id = $1 ORDER BY received_at DESC, id DESC LIMIT 1`, [slip.sync_id]);
+          `SELECT id, code, dispatch_sync_id FROM packing_boxes WHERE handover_sync_id = $1 ORDER BY received_at DESC, id DESC LIMIT 1`, [slip.sync_id]);
         if (!last.rows.length) return null;
+        if (last.rows[0].dispatch_sync_id) return { blocked: last.rows[0].code };
         await db.query(
           `UPDATE packing_boxes SET received_at = NULL, received_by = NULL, handover_sync_id = NULL, updated_at = NOW() WHERE id = $1`, [last.rows[0].id]);
         await slipTotals(db, slip);
         return last.rows[0].code;
       });
       if (!out) return bad(res, 400, 'Nothing scanned on this slip yet.');
+      if (out.blocked) return bad(res, 409, `${out.blocked} is already dispatched. Undo it on the dispatch slip first.`);
       res.json({ ok: true, data: { code: out } });
     } catch (err) { sendServerError(res, err); }
   });
@@ -304,25 +324,17 @@ function registerPackingHandoverRoutes(app, pool) {
       await ensureTables();
       const fid = factoryOf(req);
       const reason = clean(req.body && req.body.reason, 200);
-      const pin = String((req.body && req.body.pin) || '').trim();
       if (reason.length < 3) return bad(res, 400, 'Give a reason to reopen the slip.');
       const slip = await loadSlip(parseInt(req.params.id, 10), fid);
       if (!slip) return bad(res, 404, 'Slip not found.');
       if (slip.status === 'OPEN') return res.json({ ok: true, already: true });
-      const now = Date.now();
-      const tries = (reopenTries.get(slip.id) || []).filter(t => now - t < 60e3);
-      if (tries.length >= 5) return bad(res, 429, 'Too many wrong PINs. Wait one minute.');
-      const floor = require('./registerPackingFloorRoutes');
-      const pins = await pool.query('SELECT * FROM packing_supervisor_pins WHERE is_active AND factory_id IS NOT DISTINCT FROM $1', [fid]);
-      if (!pins.rows.length) return bad(res, 400, 'No supervisor PIN is set for this factory. Set one in Packing Settings.');
-      const who = /^\d{4,6}$/.test(pin) ? pins.rows.find(p => floor.pinMatches(pin, p)) : null;
-      if (!who) { tries.push(now); reopenTries.set(slip.id, tries); return bad(res, 403, 'Wrong supervisor PIN.'); }
-      reopenTries.delete(slip.id);
+      const check = await verifySupervisorPin(pool, fid, req.body && req.body.pin, reopenTries, slip.id);
+      if (check.error) return bad(res, check.status, check.error);
       await pool.query(
         `UPDATE packing_handovers SET status = 'OPEN', closed_at = NULL, closed_by = NULL, reopen_count = reopen_count + 1,
                 last_reopen_reason = $2, last_reopen_by = $3, updated_at = NOW() WHERE id = $1`,
-        [slip.id, reason, who.display_name || who.username]);
-      res.json({ ok: true, data: { reopened_by: who.display_name || who.username } });
+        [slip.id, reason, check.name]);
+      res.json({ ok: true, data: { reopened_by: check.name } });
     } catch (err) { sendServerError(res, err); }
   });
 
@@ -347,4 +359,4 @@ function registerPackingHandoverRoutes(app, pool) {
   });
 }
 
-module.exports = { registerPackingHandoverRoutes, ensureHandoverSchema, refusal, slipNo, waitingCount, UNIT_SQL };
+module.exports = { registerPackingHandoverRoutes, ensureHandoverSchema, refusal, slipNo, waitingCount, verifySupervisorPin, UNIT_SQL };
