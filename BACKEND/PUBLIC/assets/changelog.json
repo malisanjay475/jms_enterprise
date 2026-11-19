@@ -14,6 +14,19 @@
   "latest": "1.177.0",
   "versions": [
     {
+      "version": "1.187.2",
+      "date": "2026-11-19",
+      "title": "Packing tables safety fix",
+      "modules": [
+        {
+          "app": "packing",
+          "changes": [
+            { "type": "security", "text": "Saving a station's table list reads at most 60 tables, however long the list sent." }
+          ]
+        }
+      ]
+    },
+    {
       "version": "1.187.1",
       "date": "2026-11-19",
       "title": "Dispatch rules and slip fixes",

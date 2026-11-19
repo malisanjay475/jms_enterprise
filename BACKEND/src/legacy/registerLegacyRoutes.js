@@ -35003,7 +35003,7 @@ app.get('/api/dpr/labour/summary', async (req, res) => {
 // Packing tables a plan runs on ("A1,A2"), or null when the form sent none (keeps the saved list on edit).
 function planTables(v) {
   if (v === undefined || v === null) return null;
-  const list = Array.isArray(v) ? v : String(v).split(/[\s,;]+/);
+  const list = Array.isArray(v) ? v.slice(0, 240) : String(v).slice(0, 2000).split(/[s,;]+/);
   const out = [];
   for (const c of list) {
     const code = String(c || '').trim().toUpperCase().slice(0, 20);
