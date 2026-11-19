@@ -98,6 +98,10 @@
             .pm-oldscan{font-size:12px;color:#64748b;margin-top:6px;line-height:1.8}
         .pm-linkbtn{border:1px solid #cbd5e1;background:#f8fafc;color:#1e293b;border-radius:6px;padding:2px 8px;font-size:12px;cursor:pointer}
         .pm-linkbtn:hover{background:#e2e8f0}
+        .pm-badge{display:inline-block;font-size:.75rem;font-weight:700;border-radius:999px;padding:2px 9px;background:#f1f5f9;color:#475569}
+        .pm-badge.ok{background:#dcfce7;color:#166534}
+        .pm-check{display:flex;align-items:center;gap:6px;font-size:.88rem;color:#334155;white-space:nowrap}
+        table.pm-t td.muted{color:#64748b;font-size:.8rem}
 </style>
 </head>
 <body>
@@ -120,6 +124,7 @@
         <div class="pm-tabs" role="tablist">
             <button class="pm-tab on" data-tab="items" role="tab">Item packing standard</button>
             <button class="pm-tab" data-tab="stations" role="tab">Stations</button>
+            <button class="pm-tab" data-tab="packers" role="tab">Packers</button>
         </div>
 
         <section id="tabItems">
@@ -160,6 +165,37 @@
             </div>
             <div class="pm-stations" id="stations"></div>
         </section>
+
+        <section id="tabPackers" hidden>
+            <div class="pm-bar">
+                <input class="form-control grow" id="wQ" type="search" placeholder="Search name, badge or contractor" aria-label="Search packers">
+                <label class="pm-check"><input type="checkbox" id="wAll"> Show removed</label>
+                <button class="btn btn-outline pm-edit" id="wImportBtn" type="button"><i class="bi bi-upload"></i> Import packers</button>
+                <input type="file" id="wFile" accept=".xlsx,.xls,.csv" hidden>
+            </div>
+            <div class="pm-note" id="wNote" style="display:block">Packers are put on stations each day from the Packing Plan (Crew button) or a station screen. Import an Excel with columns <b>Name</b>, <b>Badge No</b>, <b>Contractor</b>; a packer with the same badge (or name, when there is no badge) is updated.</div>
+            <div class="pm-table-wrap">
+                <table class="pm-t">
+                    <thead><tr><th>Name</th><th>Badge</th><th>Contractor</th><th>Status</th><th>Updated</th><th></th></tr></thead>
+                    <tbody id="wRows"><tr><td colspan="6" class="pm-empty">Loading…</td></tr></tbody>
+                </table>
+            </div>
+        </section>
+    </div>
+
+    <!-- Packer -->
+    <div class="modal-overlay" id="mWorker" role="dialog" aria-modal="true" aria-labelledby="mWorkerTitle">
+        <div class="pm-modal">
+            <div class="pm-modal-head"><h2 id="mWorkerTitle">Packer</h2><button class="pm-x" data-close aria-label="Close">&times;</button></div>
+            <div class="pm-grid">
+                <div class="pm-field full"><label for="wName">Name</label><input class="form-control" id="wName" maxlength="80"></div>
+                <div class="pm-field"><label for="wBadge">Badge no</label><input class="form-control" id="wBadge" maxlength="30"></div>
+                <div class="pm-field"><label for="wCon">Contractor</label><input class="form-control" id="wCon" maxlength="80"></div>
+                <div class="pm-field full"><label><input type="checkbox" id="wActive" checked> Active</label></div>
+            </div>
+            <div class="pm-err" id="wErr"></div>
+            <div class="pm-foot"><button class="btn btn-outline" data-close>Cancel</button><button class="btn btn-primary" id="wSave">Save</button></div>
+        </div>
     </div>
 
     <!-- Item standard -->
@@ -260,11 +296,13 @@
                 document.querySelectorAll('.pm-tab').forEach(t => t.classList.toggle('on', t.dataset.tab === tab));
                 $('tabItems').hidden = tab !== 'items';
                 $('tabStations').hidden = tab !== 'stations';
-                $('btnAddLabel').textContent = tab === 'items' ? 'Add item' : 'Add station';
+                $('tabPackers').hidden = tab !== 'packers';
+                $('btnAddLabel').textContent = tab === 'items' ? 'Add item' : tab === 'packers' ? 'Add packer' : 'Add station';
                 $('btnImport').style.display = tab === 'items' && S.canEdit ? '' : 'none';
                 $('btnFillEan').style.display = tab === 'items' && S.canEdit ? '' : 'none';
                 $('btnExport').style.display = tab === 'items' ? '' : 'none';
                 if (tab === 'stations') loadStations();
+                if (tab === 'packers') loadWorkers();
             }
 
             /* ---------- stations ---------- */
@@ -500,7 +538,7 @@
                 } catch (e) { $('iErr').textContent = e.message; }
             };
 
-            $('btnAdd').onclick = () => (S.tab === 'items' ? editItem(null) : editStation(null));
+            $('btnAdd').onclick = () => (S.tab === 'items' ? editItem(null) : S.tab === 'packers' ? editWorker(null) : editStation(null));
 
             $('btnExport').onclick = async () => {
                 const p = query(); p.delete('page'); p.delete('limit');
@@ -586,6 +624,64 @@
                 $('impAgain').hidden = false;
                 if (!committed && (r.new_rows + r.updated_rows + r.retired_blank_rows) === 0) $('impErr').textContent = 'Everything in this file is already up to date.';
             }
+
+
+            /* ---------- packers (step 10) ---------- */
+            S.workers = [];
+            async function loadWorkers() {
+                try {
+                    const res = await api('/packing/workers' + ($('wAll').checked ? '?all=1' : ''));
+                    S.workers = res.data || [];
+                } catch (e) { S.workers = []; $('wRows').innerHTML = `<tr><td colspan="6" class="pm-empty">${esc(e.message)}</td></tr>`; return; }
+                renderWorkers();
+            }
+            function renderWorkers() {
+                const q = $('wQ').value.trim().toLowerCase();
+                const list = S.workers.filter(w => !q || [w.name, w.badge_no, w.contractor].some(v => String(v || '').toLowerCase().includes(q)));
+                $('wRows').innerHTML = list.length ? list.map(w => `<tr>
+                    <td><b>${esc(w.name)}</b></td><td>${esc(w.badge_no)}</td><td>${esc(w.contractor)}</td>
+                    <td>${w.is_active ? '<span class="pm-badge ok">Active</span>' : '<span class="pm-badge">Removed</span>'}</td>
+                    <td class="muted">${esc(w.updated || '')}</td>
+                    <td>${S.canEdit ? `<button class="pm-iconbtn" data-wedit="${w.id}" aria-label="Edit ${esc(w.name)}"><i class="bi bi-pencil"></i></button>` : ''}</td></tr>`).join('')
+                    : `<tr><td colspan="6" class="pm-empty">${S.workers.length ? 'No packer matches.' : 'No packers yet. Add them one by one or import an Excel.'}</td></tr>`;
+                $('wRows').querySelectorAll('[data-wedit]').forEach(b => b.onclick = () => editWorker(Number(b.dataset.wedit)));
+            }
+            function editWorker(id) {
+                const w = S.workers.find(x => x.id === id) || {};
+                S.wEditId = w.id || null;
+                $('mWorkerTitle').textContent = w.id ? `Edit ${w.name}` : 'Add packer';
+                $('wName').value = w.name || '';
+                $('wBadge').value = w.badge_no || '';
+                $('wCon').value = w.contractor || '';
+                $('wActive').checked = w.id ? w.is_active : true;
+                $('wErr').textContent = '';
+                open('mWorker');
+            }
+            $('wSave').onclick = async () => {
+                const body = { id: S.wEditId || undefined, name: $('wName').value, badge_no: $('wBadge').value, contractor: $('wCon').value, is_active: $('wActive').checked };
+                if (!body.name.trim()) { $('wErr').textContent = 'Enter the packer\'s name.'; return; }
+                try {
+                    await api('/packing/workers', { method: 'POST', body: JSON.stringify(body) });
+                    close('mWorker');
+                    JPSMS.toast('Packer saved', 'success');
+                    loadWorkers();
+                } catch (e) { $('wErr').textContent = e.message; }
+            };
+            $('wQ').oninput = renderWorkers;
+            $('wAll').onchange = loadWorkers;
+            $('wImportBtn').onclick = () => $('wFile').click();
+            $('wFile').onchange = async () => {
+                const f = $('wFile').files[0];
+                $('wFile').value = '';
+                if (!f) return;
+                const fd = new FormData();
+                fd.append('file', f);
+                try {
+                    const res = await api('/packing/workers/import', { method: 'POST', body: fd });
+                    JPSMS.toast(`Packers imported: ${res.data.added} added, ${res.data.updated} updated`, 'success');
+                    loadWorkers();
+                } catch (e) { JPSMS.toast(e.message, 'error'); }
+            };
 
             /* ---------- start ---------- */
             document.addEventListener('DOMContentLoaded', async () => {

@@ -6,7 +6,7 @@
  *   GET /api/packing/reports/:type?from=YYYY-MM-DD&to=YYYY-MM-DD&station=&party=
  *   GET /api/packing/reports/:type/export.xlsx?...same filters
  *
- * Types: daily, jobs, jobcards, hourly, wrong. Read-only over assembly_plans,
+ * Types: daily, jobs, jobcards, hourly, wrong, boxes, handover, stock, dispatch, packers (step 10). Read-only over assembly_plans,
  * assembly_scans, packing_item_standards, or_jr_report and packing_lock_events.
  *
  * Rules agreed with the owner (19-Nov-2026):
@@ -21,6 +21,8 @@
 const XLSX = require('xlsx');
 const { getRequestUsername, getFactoryId } = require('../../app/requestContext');
 const { sendServerError } = require('../../app/httpErrors');
+const crewMath = require('./packingCrew');
+const crewRoutes = require('./registerPackingCrewRoutes');
 
 const IDLE_MIN = 10;
 const OVER_PCT = 110;
@@ -69,11 +71,11 @@ function planStdSql(hasJr, idsSql) {
        LIMIT 1
     ) jr ON TRUE` : 'LEFT JOIN LATERAL (SELECT NULL::text AS item_code) jr ON TRUE';
   return `
-    SELECT p.id, st.cycle
+    SELECT p.id, st.cycle, st.persons
       FROM assembly_plans p
       ${jr}
       LEFT JOIN LATERAL (
-        SELECT s.cycle_time_sec::float AS cycle FROM packing_item_standards s
+        SELECT s.cycle_time_sec::float AS cycle, s.persons::float AS persons FROM packing_item_standards s
          WHERE s.is_active AND jr.item_code IS NOT NULL AND s.item_key = ${KEY_SQL('jr.item_code')}
            AND LOWER(s.station_name) = LOWER(p.table_id) AND s.cycle_time_sec > 0
          ORDER BY (LOWER(s.party_group) = LOWER(COALESCE(p.client_name, ''))) DESC
@@ -573,6 +575,52 @@ async function dispatchReport(pool, f, t) {
   };
 }
 
+/* Packers (step 10): each packer's hours on station and share of the station's pieces. */
+async function packersReport(pool, f, t) {
+  const empty = (note) => ({ columns: PACKER_COLUMNS, rows: [], note, summary: [] });
+  if (!t.crew) return empty('No crew has been recorded on this server yet. Put packers on stations from the Packing Plan or a station screen.');
+  const fid = t.factoryId || crewRoutes.serverFactoryId();
+  const fromMs = Date.parse(`${f.from}T00:00:00+05:30`);
+  const toMs = Date.parse(`${f.to}T00:00:00+05:30`) + 864e5;
+  let crew = await crewRoutes.crewRows(pool, fid, fromMs, toMs);
+  crew = crew.filter(c => c.start_ms < toMs && c.start_ms >= fromMs - 864e5 && (!f.station || c.station_name.toLowerCase() === f.station.toLowerCase()));
+  const r = await pool.query(`
+    WITH s AS (
+      SELECT sc.plan_id, p.table_id, date_trunc('hour', sc."timestamp" AT TIME ZONE '${TZ}') AS h
+        FROM assembly_scans sc JOIN assembly_plans p ON p.id = sc.plan_id
+       WHERE sc.is_match AND ${SCAN_RANGE} AND ($3::text IS NULL OR LOWER(p.table_id) = LOWER($3)) AND ($4::text IS NULL OR TRUE)
+    ), ps AS (${planStdSql(t.jr, 'SELECT DISTINCT plan_id FROM s')})
+    SELECT s.table_id, to_char(s.h, 'YYYY-MM-DD"T"HH24:MI:SS') AS h, COUNT(*)::int AS n, ps.cycle, COALESCE(ps.persons, stn.persons)::float AS persons
+      FROM s LEFT JOIN ps ON ps.id = s.plan_id
+      LEFT JOIN LATERAL (SELECT persons FROM packing_stations x WHERE LOWER(x.name) = LOWER(s.table_id) AND x.is_active ORDER BY x.id LIMIT 1) stn ON TRUE
+     GROUP BY s.table_id, s.h, ps.cycle, COALESCE(ps.persons, stn.persons)`, filterParams(f));
+  const scans = r.rows.map(x => ({ station: x.table_id, hour_ms: Date.parse(`${x.h}+05:30`), n: x.n, cycle: x.cycle, persons: x.persons }));
+  const { rows, unassigned } = crewMath.shareOutput(crew, scans, Date.now());
+  const inRange = rows.filter(x => x.day >= f.from && x.day <= f.to);
+  const noCrewPcs = unassigned.filter(x => x.day >= f.from && x.day <= f.to).reduce((s, x) => s + x.pcs, 0);
+  const stdRows = inRange.filter(x => x.vs_std !== null);
+  return {
+    columns: PACKER_COLUMNS,
+    rows: inRange,
+    note: 'A station\'s good scans in each hour are shared among the packers on it in that hour, by their minutes there. Hours count 09:00-17:00 only. vs std = standard person-time earned (pieces x cycle seconds x standard persons) / time on station.' +
+      (noCrewPcs ? ` ${noCrewPcs.toLocaleString('en-IN')} pieces were packed while no packer was recorded on the station.` : ''),
+    summary: [
+      { label: 'Packers', value: new Set(inRange.map(x => x.worker_id)).size, type: 'int' },
+      { label: 'Person-hours', value: (Math.round(inRange.reduce((s, x) => s + x.hours, 0) * 10) / 10).toFixed(1), type: 'text' },
+      { label: 'Pieces shared', value: inRange.reduce((s, x) => s + x.pcs, 0), type: 'int' },
+      { label: 'Pieces with no crew', value: noCrewPcs, type: 'int' },
+      { label: 'Average vs std', value: stdRows.length ? `${Math.round(stdRows.reduce((s, x) => s + x.vs_std * x.hours, 0) / Math.max(0.1, stdRows.reduce((s, x) => s + x.hours, 0)))}%` : '–', type: 'text' }
+    ]
+  };
+}
+
+const PACKER_COLUMNS = [
+  { key: 'day', label: 'Day' }, { key: 'worker_name', label: 'Packer' }, { key: 'badge_no', label: 'Badge' },
+  { key: 'contractor', label: 'Contractor' }, { key: 'stations', label: 'Stations' },
+  { key: 'hours', label: 'Hours', type: 'dec' }, { key: 'pcs', label: 'Pieces', type: 'int' },
+  { key: 'pcs_hr', label: 'Pcs / hr', type: 'int' }, { key: 'vs_std', label: 'vs std %', type: 'pct' }
+];
+
 const REPORTS = {
   daily: { title: 'Daily summary', run: (pool, f, t) => dailyReport(pool, f, t.jr) },
   jobs: { title: 'Jobs', run: (pool, f, t) => jobsReport(pool, f, t.jr, t.boxes) },
@@ -582,7 +630,8 @@ const REPORTS = {
   boxes: { title: 'Boxes and labels', run: (pool, f, t) => boxesReport(pool, f, t.boxes) },
   handover: { title: 'Store handover', run: (pool, f, t) => handoverReport(pool, f, t) },
   stock: { title: 'Packed stock', run: (pool, f, t) => stockReport(pool, f, t) },
-  dispatch: { title: 'Dispatch', run: (pool, f, t) => dispatchReport(pool, f, t) }
+  dispatch: { title: 'Dispatch', run: (pool, f, t) => dispatchReport(pool, f, t) },
+  packers: { title: 'Packers', run: (pool, f, t) => packersReport(pool, f, t) }
 };
 
 function minText(v) {
@@ -604,10 +653,10 @@ function toSheetRows(report) {
 
 function registerPackingReportRoutes(app, pool) {
   async function tables() {
-    const r = await pool.query(`SELECT to_regclass('public.or_jr_report') AS jr, to_regclass('public.packing_lock_events') AS locks, to_regclass('public.packing_boxes') AS boxes, to_regclass('public.packing_handovers') AS handovers, to_regclass('public.packing_dispatches') AS dispatches,
+    const r = await pool.query(`SELECT to_regclass('public.or_jr_report') AS jr, to_regclass('public.packing_lock_events') AS locks, to_regclass('public.packing_boxes') AS boxes, to_regclass('public.packing_handovers') AS handovers, to_regclass('public.packing_dispatches') AS dispatches, to_regclass('public.packing_crew') AS crew,
                                        to_regclass('public.assembly_scans') AS scans, to_regclass('public.packing_item_standards') AS std`);
     const t = r.rows[0] || {};
-    return { jr: Boolean(t.jr), locks: Boolean(t.locks), boxes: Boolean(t.boxes), handovers: Boolean(t.handovers), dispatches: Boolean(t.dispatches), ready: Boolean(t.scans) && Boolean(t.std) };
+    return { jr: Boolean(t.jr), locks: Boolean(t.locks), boxes: Boolean(t.boxes), handovers: Boolean(t.handovers), dispatches: Boolean(t.dispatches), crew: Boolean(t.crew), ready: Boolean(t.scans) && Boolean(t.std) };
   }
 
   async function build(req) {
