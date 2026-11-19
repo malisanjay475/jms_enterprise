@@ -32,6 +32,10 @@
         .pb-label b { display: block; font-size: .88rem; color: #1e293b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .pb-label small { display: block; font-size: .72rem; color: #64748b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .pb-label small .on { color: #047857; font-weight: 600; }
+        .pb-dc { display: inline-block; margin-top: 3px; border: 1px solid #cbd5e1; background: #fff; border-radius: 999px; padding: 1px 8px; font-size: .7rem; font-weight: 600; color: #334155; cursor: pointer; min-height: 22px; }
+        .pb-dc:hover { border-color: #2563eb; color: #1d4ed8; }
+        .pb-dc.closed { background: #dcfce7; border-color: #bbf7d0; color: #166534; }
+        .pb-dc.open { background: #fef3c7; border-color: #fde68a; color: #92400e; }
         .pb-lane { position: relative; height: 72px; border-bottom: 1px solid #f1f5f9;
             background: repeating-linear-gradient(90deg, transparent, transparent 119px, #f1f5f9 119px, #f1f5f9 120px); }
         .pb-lane.drop { background-color: #eff6ff; }
@@ -119,6 +123,7 @@
                 <button class="btn btn-sm btn-outline" onclick="loadBoard()"><i class="bi bi-arrow-clockwise"></i> Refresh</button>
                 <a class="btn btn-sm btn-outline" href="scan_station.html"><i class="bi bi-upc-scan"></i> Station screen</a>
                 <button class="btn btn-sm btn-outline" onclick="PackCrew.open()"><i class="bi bi-people"></i> Crew</button>
+                <button class="btn btn-sm btn-outline" onclick="openDayClose()"><i class="bi bi-moon-stars"></i> Close day</button>
                 <button class="btn btn-sm btn-primary" onclick="openPlanModal()"><i class="bi bi-plus-lg"></i> Plan job</button>
             </div>
         </div>
@@ -193,6 +198,7 @@
     <script src="/assets/app.min.js?v=1583"></script>
     <script src="/assets/packing-shift.js?v=1"></script>
     <script src="/assets/packing-crew.js?v=1"></script>
+    <script src="/assets/packing-dayclose.js?v=3"></script>
     <script>
         const PX_PER_MIN = 3; // 180 px per hour
         /* Old fixed tables, used only when no packing station is set up yet. */
@@ -208,6 +214,8 @@
         let JOB = null;             // last fetched job card
         let durationByHand = false; // the user typed a duration: stop recalculating it
         let firstScroll = true;
+        let DAYST = {};             // day close per station (lower-case name) for the day shown
+        let dayStTick = 0;
         let VIEW = { fromH: 9, toH: 17 }; // hours shown on the board for the day
         /* Plan end. Plans saved before v1.185.0 stored the end in UTC, so if it is not after the
            start, work it out from the start and the working minutes. */
@@ -285,9 +293,24 @@
                 if (!quiet) JPSMS.toast(e.message || 'Could not load the packing plan', 'error');
                 return;
             }
+            if (!quiet || ++dayStTick % 4 === 0) DAYST = await PackDayClose.dayStatus(BOARD.date || dateStr);
             renderSummary();
             renderBoard();
             renderWaiting();
+        }
+
+        function openDayClose(station) {
+            PackDayClose.open({ day: (BOARD && BOARD.date) || $('viewDate').value || todayStr(), station, onChange: () => loadBoard(true).then(async () => { DAYST = await PackDayClose.dayStatus(BOARD.date); renderBoard(); }) });
+        }
+
+        /* the station's day-close tag: closed / not closed (after 17:00 or an earlier day) / close day */
+        function dayCloseTag(name) {
+            const s = DAYST[String(name).toLowerCase()];
+            if (!s || BOARD.date > todayStr()) return '';
+            if (s.status === 'CLOSED') return `<button type="button" class="pb-dc closed" data-dc="${esc(name)}" title="Closed by ${esc(s.closed_by || '')}"><i class="bi bi-check2"></i> Day closed</button>`;
+            if (!s.has_work && s.status !== 'REOPENED') return '';
+            const late = BOARD.date < todayStr() || new Date().getHours() >= PackShift.END_H;
+            return `<button type="button" class="pb-dc${late ? ' open' : ''}" data-dc="${esc(name)}">${late ? 'Not closed · ' : ''}Close day</button>`;
         }
 
         function renderSummary() {
@@ -333,7 +356,7 @@
                 const scanner = raw.scanner ? '<span class="on">scanner on</span>' : 'no scanner';
                 const persons = raw.persons ? `${raw.persons} persons · ` : '';
                 const plans = BOARD.plans.filter(p => String(p.table_id).toLowerCase() === r.id.toLowerCase());
-                html += `<div class="pb-label" data-row="${i}" title="Plan a job on ${esc(r.id)}"><b>${esc(r.label)}</b><small>${r.sub ? esc(r.sub) + ' · ' : ''}${persons}${scanner}</small></div>`;
+                html += `<div class="pb-label" data-row="${i}" title="Plan a job on ${esc(r.id)}"><b>${esc(r.label)}</b><small>${r.sub ? esc(r.sub) + ' · ' : ''}${persons}${scanner}</small>${raw.is_station ? dayCloseTag(r.id) : ''}</div>`;
                 html += `<div class="pb-lane" data-lane="${i}">${plans.length ? '' : '<span class="pb-free">Free — click the station name or drag a job card here</span>'}`;
                 plans.forEach(p => {
                     const start = new Date(p.start_local), end = planEnd(p);
@@ -362,6 +385,7 @@
             grid.style.gridTemplateColumns = `${lbl}px ${(toH - fromH) * 60 * PX_PER_MIN}px`;
             grid.innerHTML = html;
             grid.querySelectorAll('[data-row]').forEach(el => el.onclick = () => openPlanModal(ROWS[Number(el.dataset.row)].id));
+            grid.querySelectorAll('[data-dc]').forEach(el => el.onclick = (e) => { e.stopPropagation(); openDayClose(el.dataset.dc); });
             grid.querySelectorAll('[data-plan]').forEach(el => el.onclick = (e) => {
                 e.stopPropagation();
                 const p = BOARD.plans.find(x => String(x.id) === el.dataset.plan);
