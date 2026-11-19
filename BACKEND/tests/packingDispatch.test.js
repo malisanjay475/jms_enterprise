@@ -34,6 +34,12 @@ describe('packing dispatch refusal', () => {
     expect(dispatchRefusal({ ...received, client_name: 'ABRL Pvt. Label' }, 'Reliance Retail'))
       .toBe('This carton is for ABRL Pvt. Label, not Reliance Retail.');
   });
+
+  test('a supervisor override lets only the party rule go', () => {
+    expect(dispatchRefusal({ ...received, client_name: 'ABRL Pvt. Label' }, 'Reliance Retail', null, true)).toBeNull();
+    expect(dispatchRefusal({ kind: 'CARTON', client_name: 'ABRL Pvt. Label' }, 'Reliance Retail', null, true)).toMatch(/not received/);
+    expect(dispatchRefusal(null, 'Reliance Retail', null, true)).toMatch(/Unknown label/);
+  });
 });
 
 describe('packing dispatch numbers and stock rule', () => {

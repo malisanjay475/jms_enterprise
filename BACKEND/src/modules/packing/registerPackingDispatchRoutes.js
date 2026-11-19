@@ -41,6 +41,8 @@ async function ensureDispatchSchema(pool) {
   await ensureHandoverSchema(pool);
   await pool.query(`
     SELECT pg_advisory_xact_lock(hashtext('packing_dispatch_schema'));
+    ALTER TABLE packing_boxes ADD COLUMN IF NOT EXISTS dispatch_override_by TEXT;
+    ALTER TABLE packing_boxes ADD COLUMN IF NOT EXISTS dispatch_override_reason TEXT;
     CREATE INDEX IF NOT EXISTS ix_packing_boxes_dispatch ON packing_boxes (dispatch_sync_id) WHERE dispatch_sync_id IS NOT NULL;
     CREATE INDEX IF NOT EXISTS ix_packing_boxes_stock ON packing_boxes (factory_id, client_name) WHERE received_at IS NOT NULL AND dispatched_at IS NULL AND voided_at IS NULL;
     CREATE TABLE IF NOT EXISTS packing_dispatches (
@@ -83,13 +85,13 @@ async function ensureDispatchSchema(pool) {
 const dispatchSlipNo = (fid, seq) => `DS${fid || 'M'}-${String(seq).padStart(4, '0')}`;
 
 /* Why a label can't go out on this slip, or null when it can. */
-function dispatchRefusal(box, slipParty, dispatchedSlip) {
+function dispatchRefusal(box, slipParty, dispatchedSlip, allowOtherParty = false) {
   if (!box || box.kind === 'OPENING') return 'Unknown label. Check the code.';
   if (box.voided_at) return `This label was voided${box.void_reason ? ` (${box.void_reason})` : ''}.`;
   if (box.kind === 'BOX' && box.carton_code) return `This box is in carton ${box.carton_code}. Scan the carton.`;
   if (box.dispatched_at) return `Already dispatched on slip ${dispatchedSlip || 'another slip'}.`;
   if (!box.received_at) return 'The store has not received this carton yet. Scan it on a handover slip first.';
-  if (partyKey(box.client_name) !== partyKey(slipParty)) {
+  if (!allowOtherParty && partyKey(box.client_name) !== partyKey(slipParty)) {
     return `This carton is for ${clean(box.client_name) || 'no party'}, not ${clean(slipParty)}.`;
   }
   return null;
@@ -164,7 +166,7 @@ async function slipLines(db, slip) {
       FROM packing_boxes WHERE dispatch_sync_id = $1
      GROUP BY 1, 2, 3 ORDER BY 1, 3`, [slip.sync_id]);
   const codes = await db.query(`
-    SELECT code, kind, qty, item_name, job_card_no,
+    SELECT code, kind, qty, item_name, job_card_no, client_name, dispatch_override_by, dispatch_override_reason,
            to_char(dispatched_at AT TIME ZONE 'Asia/Kolkata', 'HH24:MI') AS at
       FROM packing_boxes WHERE dispatch_sync_id = $1 ORDER BY dispatched_at DESC, id DESC`, [slip.sync_id]);
   return { lines: lines.rows, codes: codes.rows };
@@ -205,6 +207,15 @@ function registerPackingDispatchRoutes(app, pool) {
   async function loadSlip(id, fid) {
     const r = await pool.query(`${SLIP_SQL} WHERE d.id = $1 AND d.factory_id IS NOT DISTINCT FROM $2`, [id, fid]);
     return r.rows[0] || null;
+  }
+
+  /* Every change to a slip runs under one lock per slip, with the slip re-read inside it. */
+  async function withSlip(id, fid, fn) {
+    return inTx(async (db) => {
+      await db.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`packing_dispatch_slip_${id}`]);
+      const r = await db.query(`${SLIP_SQL} WHERE d.id = $1 AND d.factory_id IS NOT DISTINCT FROM $2`, [id, fid]);
+      return fn(db, r.rows[0] || null);
+    });
   }
 
   async function inTx(fn) {
@@ -278,7 +289,8 @@ function registerPackingDispatchRoutes(app, pool) {
       const user = userOf(req);
       const open = await pool.query(
         `${SLIP_SQL} WHERE d.status = 'OPEN' AND d.factory_id IS NOT DISTINCT FROM $1 ORDER BY (d.opened_by = $2) DESC, d.id DESC`, [fid, user]);
-      const mine = open.rows.find(s => s.opened_by === user) || null;
+      const pick = parseInt(req.query.slip, 10);
+      const mine = (pick && open.rows.find(s => s.id === pick)) || open.rows.find(s => s.opened_by === user) || null;
       const recent = await pool.query(
         `${SLIP_SQL} WHERE d.status = 'CLOSED' AND d.factory_id IS NOT DISTINCT FROM $1 ORDER BY d.closed_at DESC LIMIT 15`, [fid]);
       const parties = await pool.query(`
@@ -335,13 +347,16 @@ function registerPackingDispatchRoutes(app, pool) {
     try {
       if (!requireUser(req, res)) return;
       await ensureTables();
-      const slip = await loadSlip(parseInt(req.params.id, 10), factoryOf(req));
-      if (!slip) return bad(res, 404, 'Slip not found.');
-      if (slip.status !== 'OPEN') return bad(res, 400, 'This slip is closed.');
       const vehicle = clean(req.body && req.body.vehicle_no, 30).toUpperCase();
       const invoice = clean(req.body && req.body.invoice_no, 60);
-      await pool.query('UPDATE packing_dispatches SET vehicle_no = $2, invoice_no = $3, updated_at = NOW() WHERE id = $1',
-        [slip.id, vehicle || null, invoice || null]);
+      const out = await withSlip(parseInt(req.params.id, 10), factoryOf(req), async (db, slip) => {
+        if (!slip) return { status: 404, error: 'Slip not found.' };
+        if (slip.status !== 'OPEN') return { status: 400, error: 'This slip is closed.' };
+        await db.query('UPDATE packing_dispatches SET vehicle_no = $2, invoice_no = $3, updated_at = NOW() WHERE id = $1',
+          [slip.id, vehicle || null, invoice || null]);
+        return {};
+      });
+      if (out.error) return bad(res, out.status, out.error);
       res.json({ ok: true });
     } catch (err) { sendServerError(res, err); }
   });
@@ -363,22 +378,34 @@ function registerPackingDispatchRoutes(app, pool) {
       const fid = factoryOf(req);
       const code = clean(req.body && req.body.code, 60).toUpperCase();
       if (!code) return bad(res, 400, 'Scan a label.');
-      const slip = await loadSlip(parseInt(req.params.id, 10), fid);
-      if (!slip) return bad(res, 404, 'Slip not found.');
-      if (slip.status !== 'OPEN') return bad(res, 400, `Slip ${slip.slip_no} is closed. Start a new slip.`);
-      const result = await inTx(async (db) => {
+      const result = await withSlip(parseInt(req.params.id, 10), fid, async (db, slip) => {
+        if (!slip) return { status: 404, error: 'Slip not found.' };
+        if (slip.status !== 'OPEN') return { status: 400, error: `Slip ${slip.slip_no} is closed. Start a new slip.` };
         await db.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`packing_label_${code}`]);
         const box = await findLabel(db, code, fid);
         const why = dispatchRefusal(box, slip.party, box && box.dispatched_slip);
-        if (why) return { refused: why, box };
+        let override = null;
+        if (why) {
+          // another party's carton: a supervisor PIN + reason lets it go once
+          const onlyParty = !dispatchRefusal(box, slip.party, box && box.dispatched_slip, true);
+          if (!onlyParty) return { refused: why, box };
+          if (!req.body || !req.body.pin) return { refused: why, box, needPin: true };
+          const reason = clean(req.body.reason, 200);
+          if (reason.length < 3) return { refused: "Give a reason to send another party's carton.", box, needPin: true };
+          const check = await verifySupervisorPin(db, fid, req.body.pin, reopenTries, `party:${slip.id}`);
+          if (check.error) return { refused: check.error, box, needPin: check.status === 403 };
+          override = { by: check.name, reason };
+        }
         await db.query(
-          'UPDATE packing_boxes SET dispatched_at = NOW(), dispatched_by = $2, dispatch_sync_id = $3, updated_at = NOW() WHERE id = $1',
-          [box.id, userOf(req), slip.sync_id]);
+          `UPDATE packing_boxes SET dispatched_at = NOW(), dispatched_by = $2, dispatch_sync_id = $3,
+                  dispatch_override_by = $4, dispatch_override_reason = $5, updated_at = NOW() WHERE id = $1`,
+          [box.id, userOf(req), slip.sync_id, override ? override.by : null, override ? override.reason : null]);
         const totals = await slipTotals(db, slip);
         return { box, totals };
       });
+      if (result.error) return bad(res, result.status, result.error);
       if (result.refused) {
-        return res.status(409).json({ ok: false, error: result.refused, code, label: result.box ? { item_name: result.box.item_name, kind: result.box.kind } : null });
+        return res.status(409).json({ ok: false, error: result.refused, code, need_pin: Boolean(result.needPin), label: result.box ? { item_name: result.box.item_name, kind: result.box.kind } : null });
       }
       const b = result.box;
       res.json({ ok: true, data: { code: b.code, kind: b.kind, qty: b.qty, item_name: b.item_name, job_card_no: b.job_card_no, ...result.totals } });
@@ -389,20 +416,21 @@ function registerPackingDispatchRoutes(app, pool) {
     try {
       if (!requireUser(req, res)) return;
       await ensureTables();
-      const slip = await loadSlip(parseInt(req.params.id, 10), factoryOf(req));
-      if (!slip) return bad(res, 404, 'Slip not found.');
-      if (slip.status !== 'OPEN') return bad(res, 400, 'This slip is closed.');
-      const out = await inTx(async (db) => {
+      const out = await withSlip(parseInt(req.params.id, 10), factoryOf(req), async (db, slip) => {
+        if (!slip) return { status: 404, error: 'Slip not found.' };
+        if (slip.status !== 'OPEN') return { status: 400, error: 'This slip is closed.' };
         const last = await db.query(
           'SELECT id, code FROM packing_boxes WHERE dispatch_sync_id = $1 ORDER BY dispatched_at DESC, id DESC LIMIT 1', [slip.sync_id]);
-        if (!last.rows.length) return null;
+        if (!last.rows.length) return { status: 400, error: 'Nothing scanned on this slip yet.' };
+        await db.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`packing_label_${String(last.rows[0].code).toUpperCase()}`]);
         await db.query(
-          'UPDATE packing_boxes SET dispatched_at = NULL, dispatched_by = NULL, dispatch_sync_id = NULL, updated_at = NOW() WHERE id = $1', [last.rows[0].id]);
+          `UPDATE packing_boxes SET dispatched_at = NULL, dispatched_by = NULL, dispatch_sync_id = NULL,
+                  dispatch_override_by = NULL, dispatch_override_reason = NULL, updated_at = NOW() WHERE id = $1`, [last.rows[0].id]);
         await slipTotals(db, slip);
-        return last.rows[0].code;
+        return { code: last.rows[0].code };
       });
-      if (!out) return bad(res, 400, 'Nothing scanned on this slip yet.');
-      res.json({ ok: true, data: { code: out } });
+      if (out.error) return bad(res, out.status, out.error);
+      res.json({ ok: true, data: { code: out.code } });
     } catch (err) { sendServerError(res, err); }
   });
 
@@ -410,14 +438,18 @@ function registerPackingDispatchRoutes(app, pool) {
     try {
       if (!requireUser(req, res)) return;
       await ensureTables();
-      const slip = await loadSlip(parseInt(req.params.id, 10), factoryOf(req));
-      if (!slip) return bad(res, 404, 'Slip not found.');
-      if (slip.status !== 'OPEN') return res.json({ ok: true, already: true });
-      const totals = await slipTotals(pool, slip);
-      if (!totals.cartons) return bad(res, 400, 'Scan at least one carton before closing the slip.');
-      await pool.query(
-        `UPDATE packing_dispatches SET status = 'CLOSED', closed_by = $2, closed_at = NOW(), updated_at = NOW() WHERE id = $1`, [slip.id, userOf(req)]);
-      res.json({ ok: true });
+      const out = await withSlip(parseInt(req.params.id, 10), factoryOf(req), async (db, slip) => {
+        if (!slip) return { status: 404, error: 'Slip not found.' };
+        if (slip.status !== 'OPEN') return { already: true };
+        const totals = await slipTotals(db, slip);
+        if (!totals.cartons) return { status: 400, error: 'Scan at least one carton before closing the slip.' };
+        if (!clean(slip.invoice_no, 60)) return { status: 400, error: 'Enter the invoice / DC number before closing the slip.' };
+        await db.query(
+          `UPDATE packing_dispatches SET status = 'CLOSED', closed_by = $2, closed_at = NOW(), updated_at = NOW() WHERE id = $1`, [slip.id, userOf(req)]);
+        return {};
+      });
+      if (out.error) return bad(res, out.status, out.error);
+      res.json(out.already ? { ok: true, already: true } : { ok: true });
     } catch (err) { sendServerError(res, err); }
   });
 
@@ -443,5 +475,6 @@ function registerPackingDispatchRoutes(app, pool) {
 }
 
 module.exports = {
+  serverFactoryId,
   registerPackingDispatchRoutes, ensureDispatchSchema, dispatchRefusal, dispatchSlipNo, alertDays, STOCK_SQL, DEFAULT_ALERT_DAYS
 };
