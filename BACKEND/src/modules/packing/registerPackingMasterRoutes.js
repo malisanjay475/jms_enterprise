@@ -441,6 +441,19 @@ function registerPackingMasterRoutes(app, pool) {
             `UPDATE packing_item_standards SET station_name = $1, updated_by = $2, updated_at = NOW()
               WHERE factory_id = $3 AND LOWER(station_name) = LOWER($4)`,
             [s.name, w.user, w.factoryId, old.name]);
+          const hasTables = await client.query(`SELECT to_regclass('public.packing_tables') AS t`);
+          if (hasTables.rows[0].t) {
+            const moved = await client.query(
+              `UPDATE packing_tables SET station_name = $1, updated_by = $2, updated_at = NOW()
+                WHERE factory_id = $3 AND LOWER(station_name) = LOWER($4) RETURNING code, scanner_config, is_active`,
+              [s.name, w.user, w.factoryId, old.name]);
+            const { mirrorTableScanner } = require('./registerPackingTableRoutes');
+            for (const t of moved.rows) {
+              if (!t.scanner_config) continue;
+              await mirrorTableScanner(client, old.name, t.code, '');
+              if (t.is_active) await mirrorTableScanner(client, s.name, t.code, t.scanner_config);
+            }
+          }
         }
         await mirrorScanner(client, s.name, s.scanner_config, old.name, req.body && req.body.replace_line);
         await client.query('COMMIT');

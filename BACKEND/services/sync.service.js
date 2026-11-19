@@ -196,6 +196,7 @@ const SYNC_ALL = [
     'packing_lock_events',
     'packing_settings',
     'packing_stations',
+    'packing_tables',
     'packing_supervisor_pins',
     'plan_audit_logs',
     'plan_board',
@@ -273,7 +274,7 @@ const LOCAL_NO_PUSH_TABLES = ['users', 'roles', 'erp_jr_status', 'erp_jr_summary
     'shifting_locations',
     // Packing masters (stations + item packing standard): edited on MAIN only, like
     // shifting_locations; the API refuses writes on a LOCAL.
-    'packing_stations', 'packing_item_standards',
+    'packing_stations', 'packing_item_standards', 'packing_tables',
     // Supervisor PINs that unlock a packing station after a wrong barcode: set on MAIN only.
     'packing_supervisor_pins',
     // Packing settings (stock age alert days): set on MAIN only.
@@ -414,6 +415,7 @@ const CONFLICT_KEYS = {
     shifting_locations: 'id',
     // MAIN-only writers (LOCAL_NO_PUSH_TABLES) — serial id is globally unique.
     packing_stations: 'id',
+    packing_tables: 'id',
     packing_item_standards: 'id',
     packing_supervisor_pins: 'id',
     // Wrong-barcode station locks: opened and cleared on the factory LOCAL, replicate
@@ -683,7 +685,8 @@ const SYNC_SCHEMA_READY_KEY = 'SYNC_SCHEMA_READY_VERSION';
 // 2026-11-20: packing_boxes + packing_label_reprints (sync_id, LOCAL -> MAIN); packing_stations.auto_print_labels.
 // 2026-11-20: packing_handovers (sync_id, LOCAL -> MAIN); packing_boxes received / rejected / handover columns.
 // 2026-11-21: packing_dispatches (sync_id, LOCAL -> MAIN); packing_boxes dispatched columns; packing_settings (MAIN-only, id).
-const SYNC_SCHEMA_READY_VERSION = '2026-11-21-packing-dispatch-v18';
+// 2026-11-22: packing_tables (MAIN-only, id); packing_stations.tables_seeded; assembly_plans.tables.
+const SYNC_SCHEMA_READY_VERSION = '2026-11-22-packing-tables-v19';
 
 // "Sync token" columns: app-schema UNIQUE columns that carry a per-row identity
 // token (a UUID) MAIN considers authoritative, but which a LOCAL row may have been
@@ -1432,6 +1435,7 @@ async function ensureSyncRuntimeSchema(config = {}) {
         await require('../src/modules/packing/registerPackingBoxRoutes').ensurePackingBoxSchema(pool);
         await require('../src/modules/packing/registerPackingHandoverRoutes').ensureHandoverSchema(pool);
         await require('../src/modules/packing/registerPackingDispatchRoutes').ensureDispatchSchema(pool);
+        await require('../src/modules/packing/registerPackingTableRoutes').ensureTableSchema(pool);
     } catch (e) {
         console.warn('[Sync] Packing masters schema ensure failed:', e.message);
     }

@@ -733,7 +733,7 @@
                 if (!res.data) return;
 
                 const isRunning = (p) => String(p && p.status || '').toUpperCase() === 'RUNNING';
-                const plans = Object.values(res.data.reduce((acc, p) => {
+                const plans = Object.values(res.data.filter(p => !p.is_table_alias).reduce((acc, p) => {
                     const cur = acc[p.table_id];
                     if (!cur || (isRunning(p) && !isRunning(cur))) acc[p.table_id] = p;
                     return acc;
