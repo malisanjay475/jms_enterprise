@@ -190,11 +190,13 @@ const SYNC_ALL = [
     'orders',
     'packing_boxes',
     'packing_crew',
+    'packing_day_closes',
     'packing_dispatches',
     'packing_handovers',
     'packing_item_standards',
     'packing_label_reprints',
     'packing_lock_events',
+    'packing_loss_reasons',
     'packing_settings',
     'packing_stations',
     'packing_tables',
@@ -282,7 +284,9 @@ const LOCAL_NO_PUSH_TABLES = ['users', 'roles', 'erp_jr_status', 'erp_jr_summary
     // Packing settings (stock age alert days): set on MAIN only.
     'packing_settings',
     // Packers list (packing crew): set on MAIN only.
-    'packing_workers'];
+    'packing_workers',
+    // Day close lost-time reasons: set on MAIN only.
+    'packing_loss_reasons'];
 
 const CONFLICT_KEYS = {
     users: 'id',
@@ -433,6 +437,9 @@ const CONFLICT_KEYS = {
     // Packers list: MAIN-only writer, id key. Crew rows: written on the factory LOCAL, sync_id.
     packing_workers: 'id',
     packing_crew: 'sync_id',
+    // Day close reasons: MAIN-only writer, id key. Day closes: written on the factory LOCAL, sync_id.
+    packing_loss_reasons: 'id',
+    packing_day_closes: 'sync_id',
     // Surrogate UUID key (full-replication batch 5): LOCAL floor grinding/rejection log,
     // serial id collides across factories. Deterministic seed in SYNC_ID_SEED_COLUMNS.
     grinding_logs: 'sync_id',
@@ -619,7 +626,7 @@ const GLOBAL_MASTER_TABLES = new Set([
     'erp_mould_item'
 ]);
 
-const SYNC_ID_REQUIRED_TABLES = ['notifications', 'dpr_reasons', 'assembly_plans', 'assembly_scans', 'maintenance_tickets', 'maintenance_worklogs', 'org_units', 'org_departments', 'org_grades', 'org_designations', 'org_people', 'mould_verify_notes', 'qc_online_reports', 'qc_issue_memos', 'qc_training_sheets', 'qc_deviations', 'qc_job_checks', 'plan_audit_logs', 'mould_audit_logs', 'machine_status_logs', 'operator_history', 'plan_job_card_approval_history', 'jobs_queue', 'planning_drops', 'shifting_records', 'wip_inventory', 'wip_outward_logs', 'grinding_logs', 'qc_shift_team', 'qc_holds', 'qc_material_issues', 'qc_verifications', 'npd_products', 'npd_files', 'packing_lock_events', 'packing_boxes', 'packing_label_reprints', 'packing_handovers', 'packing_dispatches', 'packing_crew'];
+const SYNC_ID_REQUIRED_TABLES = ['notifications', 'dpr_reasons', 'assembly_plans', 'assembly_scans', 'maintenance_tickets', 'maintenance_worklogs', 'org_units', 'org_departments', 'org_grades', 'org_designations', 'org_people', 'mould_verify_notes', 'qc_online_reports', 'qc_issue_memos', 'qc_training_sheets', 'qc_deviations', 'qc_job_checks', 'plan_audit_logs', 'mould_audit_logs', 'machine_status_logs', 'operator_history', 'plan_job_card_approval_history', 'jobs_queue', 'planning_drops', 'shifting_records', 'wip_inventory', 'wip_outward_logs', 'grinding_logs', 'qc_shift_team', 'qc_holds', 'qc_material_issues', 'qc_verifications', 'npd_products', 'npd_files', 'packing_lock_events', 'packing_boxes', 'packing_label_reprints', 'packing_handovers', 'packing_dispatches', 'packing_crew', 'packing_day_closes'];
 
 // Deterministic sync_id backfill seeds for tables converted to a surrogate UUID key.
 // The same physical row already exists on MAIN AND on its factory's LOCAL (LOCAL pushed
@@ -694,7 +701,8 @@ const SYNC_SCHEMA_READY_KEY = 'SYNC_SCHEMA_READY_VERSION';
 // 2026-11-21: packing_dispatches (sync_id, LOCAL -> MAIN); packing_boxes dispatched columns; packing_settings (MAIN-only, id).
 // 2026-11-22: packing_tables (MAIN-only, id); packing_stations.tables_seeded; assembly_plans.tables.
 // 2026-11-23: packing_workers (MAIN-only, id) + packing_crew (sync_id, LOCAL -> MAIN).
-const SYNC_SCHEMA_READY_VERSION = '2026-11-23-packing-crew-v20';
+// 2026-11-24: packing_loss_reasons (MAIN-only, id) + packing_day_closes (sync_id, LOCAL -> MAIN).
+const SYNC_SCHEMA_READY_VERSION = '2026-11-24-packing-day-close-v21';
 
 // "Sync token" columns: app-schema UNIQUE columns that carry a per-row identity
 // token (a UUID) MAIN considers authoritative, but which a LOCAL row may have been
@@ -1445,6 +1453,7 @@ async function ensureSyncRuntimeSchema(config = {}) {
         await require('../src/modules/packing/registerPackingDispatchRoutes').ensureDispatchSchema(pool);
         await require('../src/modules/packing/registerPackingTableRoutes').ensureTableSchema(pool);
         await require('../src/modules/packing/registerPackingCrewRoutes').ensureCrewSchema(pool);
+        await require('../src/modules/packing/registerPackingDayCloseRoutes').ensureDayCloseSchema(pool);
     } catch (e) {
         console.warn('[Sync] Packing masters schema ensure failed:', e.message);
     }

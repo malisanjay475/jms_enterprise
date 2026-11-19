@@ -339,6 +339,17 @@ function registerPackingFloorRoutes(app, pool) {
         delete store.waiting_by_station;
       } catch (e) { console.warn('[Packing live] store figures failed:', e.message); }
 
+      const alerts = live.alertsOf(tiles, store || { waiting_old: 0, old_stock_units: 0 });
+      /* step 11: an earlier day a station worked on and nobody closed */
+      try {
+        const dayClose = require('./registerPackingDayCloseRoutes');
+        await dayClose.ensureDayCloseSchema(pool);
+        const open = await dayClose.unclosedDays(pool, serverFactoryId() || fid, stations.map(s => s.name), now);
+        for (const o of open.slice(0, 12)) {
+          alerts.push({ level: 'warning', kind: 'day_not_closed', station: o.station, day: o.day, text: `${o.station}: ${o.day} not closed. Close it on the Packing Plan board.` });
+        }
+      } catch (e) { console.warn('[Packing live] day close check failed:', e.message); }
+
       res.json({
         ok: true,
         data: {
@@ -350,7 +361,7 @@ function registerPackingFloorRoutes(app, pool) {
           stations: tiles,
           totals: live.totalsOf(tiles),
           store,
-          alerts: live.alertsOf(tiles, store || { waiting_old: 0, old_stock_units: 0 })
+          alerts
         }
       });
     } catch (err) { sendServerError(res, err); }

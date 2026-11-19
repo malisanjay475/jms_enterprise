@@ -125,6 +125,7 @@
             <button class="pm-tab on" data-tab="items" role="tab">Item packing standard</button>
             <button class="pm-tab" data-tab="stations" role="tab">Stations</button>
             <button class="pm-tab" data-tab="packers" role="tab">Packers</button>
+            <button class="pm-tab" data-tab="reasons" role="tab">Lost time reasons</button>
         </div>
 
         <section id="tabItems">
@@ -181,6 +182,31 @@
                 </table>
             </div>
         </section>
+
+        <section id="tabReasons" hidden>
+            <div class="pm-note" style="display:block">When a station's day is closed on the Packing Plan board, every short plan and every stoppage (more than 10 minutes with no good scan) gets one of these reasons. A reason that needs a note asks the supervisor to write one. Switch a reason off instead of deleting it, so old days keep their reason.</div>
+            <div class="pm-table-wrap">
+                <table class="pm-t">
+                    <thead><tr><th>Reason</th><th>Note needed</th><th>Order</th><th>Status</th><th>Updated</th><th></th></tr></thead>
+                    <tbody id="rRows"><tr><td colspan="6" class="pm-empty">Loading…</td></tr></tbody>
+                </table>
+            </div>
+        </section>
+    </div>
+
+    <!-- Lost time reason (step 11) -->
+    <div class="modal-overlay" id="mReason" role="dialog" aria-modal="true" aria-labelledby="mReasonTitle">
+        <div class="pm-modal">
+            <div class="pm-modal-head"><h2 id="mReasonTitle">Reason</h2><button class="pm-x" data-close aria-label="Close">&times;</button></div>
+            <div class="pm-grid">
+                <div class="pm-field full"><label for="rLabel">Reason</label><input class="form-control" id="rLabel" maxlength="60"></div>
+                <div class="pm-field"><label for="rOrder">Order in the list</label><input class="form-control" id="rOrder" type="number" min="0" max="9999"></div>
+                <div class="pm-field full"><label><input type="checkbox" id="rNote"> A note is needed (like "Other")</label></div>
+                <div class="pm-field full"><label><input type="checkbox" id="rActive" checked> Active</label></div>
+            </div>
+            <div class="pm-err" id="rErr"></div>
+            <div class="pm-foot"><button class="btn btn-outline" data-close>Cancel</button><button class="btn btn-primary" id="rSave">Save</button></div>
+        </div>
     </div>
 
     <!-- Packer -->
@@ -297,12 +323,14 @@
                 $('tabItems').hidden = tab !== 'items';
                 $('tabStations').hidden = tab !== 'stations';
                 $('tabPackers').hidden = tab !== 'packers';
-                $('btnAddLabel').textContent = tab === 'items' ? 'Add item' : tab === 'packers' ? 'Add packer' : 'Add station';
+                $('tabReasons').hidden = tab !== 'reasons';
+                $('btnAddLabel').textContent = tab === 'items' ? 'Add item' : tab === 'packers' ? 'Add packer' : tab === 'reasons' ? 'Add reason' : 'Add station';
                 $('btnImport').style.display = tab === 'items' && S.canEdit ? '' : 'none';
                 $('btnFillEan').style.display = tab === 'items' && S.canEdit ? '' : 'none';
                 $('btnExport').style.display = tab === 'items' ? '' : 'none';
                 if (tab === 'stations') loadStations();
                 if (tab === 'packers') loadWorkers();
+                if (tab === 'reasons') loadReasons();
             }
 
             /* ---------- stations ---------- */
@@ -538,7 +566,7 @@
                 } catch (e) { $('iErr').textContent = e.message; }
             };
 
-            $('btnAdd').onclick = () => (S.tab === 'items' ? editItem(null) : S.tab === 'packers' ? editWorker(null) : editStation(null));
+            $('btnAdd').onclick = () => (S.tab === 'items' ? editItem(null) : S.tab === 'packers' ? editWorker(null) : S.tab === 'reasons' ? editReason(null) : editStation(null));
 
             $('btnExport').onclick = async () => {
                 const p = query(); p.delete('page'); p.delete('limit');
@@ -681,6 +709,44 @@
                     JPSMS.toast(`Packers imported: ${res.data.added} added, ${res.data.updated} updated`, 'success');
                     loadWorkers();
                 } catch (e) { JPSMS.toast(e.message, 'error'); }
+            };
+
+            /* ---------- lost time reasons (step 11) ---------- */
+            S.reasons = [];
+            async function loadReasons() {
+                try {
+                    const res = await api('/packing/loss-reasons?all=1');
+                    S.reasons = res.data || [];
+                } catch (e) { S.reasons = []; $('rRows').innerHTML = `<tr><td colspan="6" class="pm-empty">${esc(e.message)}</td></tr>`; return; }
+                $('rRows').innerHTML = S.reasons.length ? S.reasons.map(r => `<tr>
+                    <td><b>${esc(r.label)}</b></td><td>${r.needs_note ? 'Yes' : ''}</td><td class="muted">${esc(r.sort_order)}</td>
+                    <td>${r.is_active ? '<span class="pm-badge ok">Active</span>' : '<span class="pm-badge">Off</span>'}</td>
+                    <td class="muted">${esc(r.updated || '')}</td>
+                    <td>${S.canEdit && r.id ? `<button class="pm-iconbtn" data-redit="${r.id}" aria-label="Edit ${esc(r.label)}"><i class="bi bi-pencil"></i></button>` : ''}</td></tr>`).join('')
+                    : '<tr><td colspan="6" class="pm-empty">No reasons yet.</td></tr>';
+                $('rRows').querySelectorAll('[data-redit]').forEach(b => b.onclick = () => editReason(Number(b.dataset.redit)));
+            }
+            function editReason(id) {
+                const r = S.reasons.find(x => x.id === id) || {};
+                S.rEditId = r.id || null;
+                $('mReasonTitle').textContent = r.id ? `Edit ${r.label}` : 'Add reason';
+                $('rLabel').value = r.label || '';
+                $('rOrder').value = r.sort_order ?? '';
+                $('rNote').checked = !!r.needs_note;
+                $('rActive').checked = r.id ? r.is_active : true;
+                $('rErr').textContent = '';
+                open('mReason');
+            }
+            $('rSave').onclick = async () => {
+                const body = { id: S.rEditId || undefined, label: $('rLabel').value, needs_note: $('rNote').checked, is_active: $('rActive').checked,
+                    sort_order: $('rOrder').value === '' ? undefined : Number($('rOrder').value) };
+                if (!body.label.trim()) { $('rErr').textContent = 'Enter the reason.'; return; }
+                try {
+                    await api('/packing/loss-reasons', { method: 'POST', body: JSON.stringify(body) });
+                    close('mReason');
+                    JPSMS.toast('Reason saved', 'success');
+                    loadReasons();
+                } catch (e) { $('rErr').textContent = e.message; }
             };
 
             /* ---------- start ---------- */

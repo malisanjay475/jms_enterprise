@@ -330,6 +330,8 @@ function registerRoutes(app, deps) {
   registerPackingTableRoutes(app, pool);
   const { registerPackingCrewRoutes } = require('../modules/packing/registerPackingCrewRoutes');
   registerPackingCrewRoutes(app, pool);
+  const { registerPackingDayCloseRoutes } = require('../modules/packing/registerPackingDayCloseRoutes');
+  registerPackingDayCloseRoutes(app, pool);
 
   // ERP Masters copied from Smart Ops (Masters page ERP types; sync runs on MAIN)
   const { registerErpMastersRoutes } = require('../modules/erpMasters/registerErpMastersRoutes');
