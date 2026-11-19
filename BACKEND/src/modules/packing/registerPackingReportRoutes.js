@@ -448,13 +448,62 @@ async function boxesReport(pool, f, hasBoxes) {
   };
 }
 
+/* Handover slips opened in the period, plus what is waiting at packing now. */
+async function handoverReport(pool, f, t) {
+  if (!t.handovers) return { columns: [], rows: [], summary: [{ label: 'Slips', value: 0, type: 'int' }] };
+  const fid = t.factoryId;
+  const r = await pool.query(`
+    SELECT h.slip_no, h.status, h.cartons, h.pcs, h.opened_by, h.closed_by, h.reopen_count, h.last_reopen_reason,
+           to_char(h.opened_at AT TIME ZONE '${TZ}', 'YYYY-MM-DD HH24:MI') AS opened,
+           to_char(h.closed_at AT TIME ZONE '${TZ}', 'YYYY-MM-DD HH24:MI') AS closed,
+           (SELECT string_agg(DISTINCT b.table_id, ', ') FROM packing_boxes b WHERE b.handover_sync_id = h.sync_id) AS stations,
+           (SELECT COUNT(DISTINCT b.job_card_no)::int FROM packing_boxes b WHERE b.handover_sync_id = h.sync_id) AS jobs
+      FROM packing_handovers h
+     WHERE h.opened_at >= ($1::date)::timestamp AT TIME ZONE '${TZ}' AND h.opened_at < ($2::date + 1)::timestamp AT TIME ZONE '${TZ}'
+       AND ($3::int IS NULL OR h.factory_id = $3)
+     ORDER BY h.opened_at DESC LIMIT ${ROW_LIMIT}`, [f.from, f.to, fid]);
+  const w = await pool.query(`
+    SELECT COUNT(*)::int AS n, COUNT(*) FILTER (WHERE b.created_at < NOW() - INTERVAL '24 hours')::int AS old,
+           COUNT(*) FILTER (WHERE b.rejected_at IS NOT NULL)::int AS rejected
+      FROM packing_boxes b
+     WHERE (b.kind = 'CARTON' OR (b.kind = 'BOX' AND b.carton_code IS NULL AND COALESCE(b.boxes_per_carton, 0) = 0))
+       AND b.voided_at IS NULL AND b.received_at IS NULL
+       AND ($1::int IS NULL OR b.factory_id = $1)
+       AND ($2::text IS NULL OR LOWER(b.table_id) = LOWER($2))`, [fid, f.station]);
+  const rows = r.rows.map(x => ({
+    slip: x.slip_no, opened: x.opened, closed: x.closed || '', opened_by: x.opened_by, closed_by: x.closed_by || '',
+    stations: x.stations || '', jobs: x.jobs, cartons: x.cartons, pcs: x.pcs,
+    status: x.status === 'OPEN' ? 'open' : 'closed', reopened: x.reopen_count ? `${x.reopen_count} times (${x.last_reopen_reason || ''})` : ''
+  }));
+  const wt = w.rows[0];
+  return {
+    columns: [
+      { key: 'slip', label: 'Slip' }, { key: 'opened', label: 'Opened' }, { key: 'closed', label: 'Closed' },
+      { key: 'opened_by', label: 'Store person' }, { key: 'stations', label: 'Stations' }, { key: 'jobs', label: 'Jobs', type: 'int' },
+      { key: 'cartons', label: 'Cartons', type: 'int' }, { key: 'pcs', label: 'Pcs', type: 'int' },
+      { key: 'status', label: 'Status', type: 'status' }, { key: 'reopened', label: 'Reopened' }
+    ],
+    rows,
+    note: 'Handover slips opened in the period. The waiting figures are for right now; the list is on the Store Handover page.',
+    summary: [
+      { label: 'Slips', value: rows.length, type: 'int' },
+      { label: 'Cartons received', value: rows.reduce((s, x) => s + x.cartons, 0), type: 'int' },
+      { label: 'Pcs received', value: rows.reduce((s, x) => s + x.pcs, 0), type: 'int' },
+      { label: 'Waiting at packing now', value: wt.n, type: 'int' },
+      { label: 'Waiting over 24 h', value: wt.old, type: 'int' },
+      { label: 'Rejected by store', value: wt.rejected, type: 'int' }
+    ]
+  };
+}
+
 const REPORTS = {
   daily: { title: 'Daily summary', run: (pool, f, t) => dailyReport(pool, f, t.jr) },
   jobs: { title: 'Jobs', run: (pool, f, t) => jobsReport(pool, f, t.jr, t.boxes) },
   jobcards: { title: 'Job cards', run: (pool, f, t) => jobcardsReport(pool, f, t.jr) },
   hourly: { title: 'Hourly output', run: (pool, f, t) => hourlyReport(pool, f, t.jr) },
   wrong: { title: 'Wrong scans', run: (pool, f, t) => wrongReport(pool, f, t.locks, t.factoryId) },
-  boxes: { title: 'Boxes and labels', run: (pool, f, t) => boxesReport(pool, f, t.boxes) }
+  boxes: { title: 'Boxes and labels', run: (pool, f, t) => boxesReport(pool, f, t.boxes) },
+  handover: { title: 'Store handover', run: (pool, f, t) => handoverReport(pool, f, t) }
 };
 
 function minText(v) {
@@ -476,10 +525,10 @@ function toSheetRows(report) {
 
 function registerPackingReportRoutes(app, pool) {
   async function tables() {
-    const r = await pool.query(`SELECT to_regclass('public.or_jr_report') AS jr, to_regclass('public.packing_lock_events') AS locks, to_regclass('public.packing_boxes') AS boxes,
+    const r = await pool.query(`SELECT to_regclass('public.or_jr_report') AS jr, to_regclass('public.packing_lock_events') AS locks, to_regclass('public.packing_boxes') AS boxes, to_regclass('public.packing_handovers') AS handovers,
                                        to_regclass('public.assembly_scans') AS scans, to_regclass('public.packing_item_standards') AS std`);
     const t = r.rows[0] || {};
-    return { jr: Boolean(t.jr), locks: Boolean(t.locks), boxes: Boolean(t.boxes), ready: Boolean(t.scans) && Boolean(t.std) };
+    return { jr: Boolean(t.jr), locks: Boolean(t.locks), boxes: Boolean(t.boxes), handovers: Boolean(t.handovers), ready: Boolean(t.scans) && Boolean(t.std) };
   }
 
   async function build(req) {

@@ -14,6 +14,38 @@
   "latest": "1.177.0",
   "versions": [
     {
+      "version": "1.185.0",
+      "date": "2026-11-19",
+      "title": "Packing day shift",
+      "modules": [
+        {
+          "app": "packing",
+          "changes": [
+            { "type": "improvement", "text": "Packing works one day shift, 09:00 to 17:00. The Packing Plan board shows those hours, and a job that does not fit today carries on at 09:00 the next day." },
+            { "type": "improvement", "text": "A plan's end time counts only shift hours. A start before 09:00 or after 17:00 moves to the next shift start, and the form says so." },
+            { "type": "fix", "text": "Plan end times are saved in factory time. Before, they were saved 5.5 hours early." },
+            { "type": "improvement", "text": "Station Scanning and the board show the expected finish within shift hours, for example 'tomorrow 10:30'. Hours outside the shift appear on the board, greyed as OT, only when a plan runs in them." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.184.0",
+      "date": "2026-11-19",
+      "title": "Store handover",
+      "modules": [
+        {
+          "app": "packing",
+          "changes": [
+            { "type": "feat", "text": "New Store Handover page: the store opens a slip, scans each carton label as it takes it from packing, then closes the slip and prints it with signature lines for packing and store." },
+            { "type": "feat", "text": "A scan is refused when the label is unknown, voided, already on a slip, or is a box that belongs in a carton. Items without a carton size are received as loose boxes." },
+            { "type": "feat", "text": "The store can reject a carton with a reason. It stays on packing's waiting list until it is fixed and scanned again. A closed slip can only be reopened with a supervisor PIN and a reason." },
+            { "type": "feat", "text": "The page lists what is waiting at packing by station, marking anything older than 24 hours. Station Scanning shows the cartons waiting for the store, and Packing Reports has a Store handover tab." }
+          ]
+        }
+      ]
+    },
+    {
       "version": "1.183.0",
       "date": "2026-11-19",
       "title": "Box and carton labels",
