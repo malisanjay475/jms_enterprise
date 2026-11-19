@@ -14,6 +14,36 @@
   "latest": "1.177.0",
   "versions": [
     {
+      "version": "1.182.1",
+      "date": "2026-11-19",
+      "title": "Packing reports fixes",
+      "modules": [
+        {
+          "app": "packing",
+          "changes": [
+            { "type": "fix", "text": "Packing Reports: a job's working time now counts pauses for the whole station, so switching between two jobs no longer shows as idle time." },
+            { "type": "fix", "text": "Packing Reports: switching tabs quickly always shows the tab you picked; hours with only a few pieces no longer drop out of the Hourly view; lock totals follow the party filter." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.182.0",
+      "date": "2026-11-19",
+      "title": "Packing reports",
+      "modules": [
+        {
+          "app": "packing",
+          "changes": [
+            { "type": "feat", "text": "New Packing Reports page (Packing menu, also linked from Reports) with date, station and party filters and Excel export." },
+            { "type": "feat", "text": "Daily summary per station: planned, packed, first to last scan, working time, idle time (pauses over 10 minutes), pieces per hour against the standard, efficiency and wrong scans." },
+            { "type": "feat", "text": "Jobs report: plan vs packed per packing plan with standard and actual time, flags for over-packed (above 110%) and short jobs. Job cards report: JR qty vs packed and balance." },
+            { "type": "feat", "text": "Hourly output per station with slow hours shaded, and a wrong scans list showing the station lock, who unlocked it and how long it was locked." }
+          ]
+        }
+      ]
+    },
+    {
       "version": "1.181.0",
       "date": "2026-11-19",
       "title": "New packing board and station scanning screen",
