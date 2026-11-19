@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JMS OCEAN - Station Scanning</title>
+    <link rel="stylesheet" href="/assets/app.css?v=12">
+    <link rel="stylesheet" href="/assets/bootstrap-icons.min.css">
+    <style>
+        [hidden] { display: none !important; }
+        .ss-top { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+        .ss-chip { display: inline-flex; align-items: center; gap: 6px; font-size: .8rem; font-weight: 600; padding: 3px 10px; border-radius: 999px; border: 1px solid #cbd5e1; color: #334155; background: #fff; }
+        .ss-chip.run { background: #ecfdf5; border-color: #6ee7b7; color: #065f46; }
+        .ss-chip.plan { background: #f8fafc; }
+        .ss-chip.off { background: #fef2f2; border-color: #fecaca; color: #991b1b; }
+        .ss-chip.on { background: #ecfdf5; border-color: #6ee7b7; color: #065f46; }
+        .ss-main { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(280px, 1fr); gap: 16px; }
+        .ss-card { background: #fff; border: 1px solid #e2e8f0; border-radius: 14px; padding: 18px 20px; }
+        .ss-item { font-size: 1.6rem; font-weight: 700; color: #0f172a; line-height: 1.25; }
+        .ss-meta { font-size: .9rem; color: #64748b; margin-top: 4px; }
+        .ss-meta b { color: #334155; font-weight: 600; }
+        .ss-count { display: flex; align-items: baseline; gap: 12px; margin: 18px 0 8px; flex-wrap: wrap; }
+        .ss-count .big { font-size: clamp(3.5rem, 9vw, 6.5rem); font-weight: 800; line-height: 1; color: #0f172a; font-variant-numeric: tabular-nums; }
+        .ss-count .of { font-size: 1.8rem; color: #64748b; font-weight: 600; font-variant-numeric: tabular-nums; }
+        .ss-progress { height: 14px; background: #e2e8f0; border-radius: 8px; overflow: hidden; }
+        .ss-progress i { display: block; height: 100%; background: #059669; transition: width .3s; }
+        .ss-tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 16px; }
+        .ss-tile { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 10px 12px; }
+        .ss-tile small { display: block; font-size: .76rem; color: #64748b; font-weight: 600; }
+        .ss-tile b { display: block; font-size: 1.5rem; color: #0f172a; font-variant-numeric: tabular-nums; }
+        .ss-tile span { font-size: .76rem; color: #64748b; }
+        .ss-tile.good b { color: #047857; } .ss-tile.slow b { color: #b45309; }
+        .ss-reached { margin-top: 14px; padding: 12px 14px; border-radius: 10px; background: #fffbeb; border: 1px solid #fcd34d; color: #92400e; font-weight: 600; }
+        .ss-scanbox { display: flex; gap: 8px; margin-top: 16px; }
+        .ss-scanbox input { flex: 1; font-size: 1.1rem; font-family: ui-monospace, monospace; }
+        .ss-h { font-size: .8rem; font-weight: 700; color: #475569; margin: 0 0 8px; }
+        .ss-log { font-family: ui-monospace, monospace; font-size: .86rem; line-height: 1.9; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 6px 10px; min-height: 120px; }
+        .ss-log .ok { color: #047857; } .ss-log .bad { color: #b91c1c; } .ss-log .info { color: #64748b; }
+        .ss-queue { display: flex; flex-direction: column; gap: 8px; }
+        .ss-q { display: flex; align-items: center; gap: 8px; border: 1px solid #e2e8f0; border-radius: 10px; padding: 8px 10px; font-size: .86rem; }
+        .ss-q div { flex: 1; min-width: 0; }
+        .ss-q b { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #1e293b; }
+        .ss-q small { color: #64748b; }
+        .ss-q .btn { padding: 4px 10px; min-height: 32px; font-size: .8rem; }
+        .ss-actions { display: flex; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
+        .ss-actions .btn { flex: 1; min-height: 44px; }
+        .ss-empty { text-align: center; padding: 40px 20px; color: #64748b; }
+        .ss-empty b { display: block; font-size: 1.2rem; color: #1e293b; margin-bottom: 6px; }
+        .ss-pick { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 12px; }
+        .ss-pick button { text-align: left; background: #fff; border: 1px solid #cbd5e1; border-radius: 12px; padding: 14px 16px; cursor: pointer; }
+        .ss-pick button:hover { border-color: #2563eb; background: #f8fafc; }
+        .ss-pick b { display: block; font-size: 1.05rem; color: #0f172a; }
+        .ss-pick small { color: #64748b; }
+        .ss-lock { position: fixed; inset: 0; z-index: 2000; background: rgba(127, 29, 29, .96); color: #fff; display: flex; align-items: center; justify-content: center; padding: 20px; }
+        .ss-lock-box { max-width: 640px; width: 100%; text-align: center; }
+        .ss-lock-box h2 { font-size: clamp(2rem, 6vw, 3.4rem); font-weight: 800; margin: 0 0 10px; color: #fff; }
+        .ss-lock-box p { font-size: 1.1rem; margin: 6px 0; color: #fee2e2; }
+        .ss-lock-box code { background: rgba(0, 0, 0, .3); padding: 2px 8px; border-radius: 6px; color: #fff; font-size: 1.2rem; }
+        .ss-lock-form { display: flex; gap: 10px; justify-content: center; margin-top: 22px; flex-wrap: wrap; }
+        .ss-lock-form input { width: 200px; font-size: 1.4rem; text-align: center; letter-spacing: .3em; }
+        .ss-lock-form .btn { min-height: 48px; padding: 0 22px; font-weight: 700; background: #fff; color: #991b1b; border: 0; }
+        .ss-lock-err { min-height: 1.4em; margin-top: 10px; color: #fecaca; font-weight: 600; }
+        .ss-flash-ok { animation: ssOk .5s; } .ss-flash-bad { animation: ssBad .6s; }
+        @keyframes ssOk { 0% { background: #d1fae5; } 100% { background: #fff; } }
+        @keyframes ssBad { 0% { background: #fee2e2; } 100% { background: #fff; } }
+        @media (prefers-reduced-motion: reduce) { .ss-flash-ok, .ss-flash-bad { animation: none; } .ss-progress i { transition: none; } }
+        @media (max-width: 900px) { .ss-main { grid-template-columns: 1fr; } }
+        @media (max-width: 520px) { .ss-tiles { grid-template-columns: 1fr 1fr; } .ss-item { font-size: 1.3rem; } }
+    </style>
+</head>
+
+<body>
+    <div class="main-content">
+        <div class="header">
+            <div class="page-title" id="ssTitle">Station scanning</div>
+            <div class="ss-top">
+                <span class="ss-chip" id="ssStatus" hidden></span>
+                <span class="ss-chip" id="ssScanner" hidden></span>
+                <span class="ss-chip" id="ssClock"></span>
+                <button class="btn btn-sm btn-outline" id="ssChange" onclick="showPicker()" hidden><i class="bi bi-arrow-left-right"></i> Change station</button>
+                <button class="btn btn-sm btn-outline" onclick="toggleFull()"><i class="bi bi-arrows-fullscreen"></i> Full screen</button>
+            </div>
+        </div>
+        <div id="ssBody"><div class="ss-empty">Loading…</div></div>
+    </div>
+
+    <div class="ss-lock" id="ssLock" hidden role="alertdialog" aria-modal="true" aria-labelledby="ssLockTitle">
+        <div class="ss-lock-box">
+            <i class="bi bi-exclamation-octagon" style="font-size:3.5rem" aria-hidden="true"></i>
+            <h2 id="ssLockTitle">Stop — wrong product</h2>
+            <p id="ssLockMsg"></p>
+            <div class="ss-lock-form" id="ssLockPinForm">
+                <input type="password" inputmode="numeric" maxlength="6" id="ssPin" class="form-control" placeholder="PIN" aria-label="Supervisor PIN" autocomplete="off">
+                <button class="btn" onclick="unlock()"><i class="bi bi-unlock"></i> Unlock</button>
+            </div>
+            <div class="ss-lock-form" id="ssLockResume" hidden>
+                <button class="btn" onclick="resumeLocal()"><i class="bi bi-play-fill"></i> Resume</button>
+            </div>
+            <div class="ss-lock-err" id="ssLockErr"></div>
+            <p style="font-size:.9rem" id="ssLockHint">Take the wrong piece out. A supervisor unlocks the station with a PIN.</p>
+        </div>
+    </div>
+
+    <script src="/assets/app.min.js?v=1583"></script>
+    <script>
+        const STORE_KEY = 'JMS_SCAN_STATION';
+        const $ = (id) => document.getElementById(id);
+        const esc = (v) => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+        const fmt = (n, d = 0) => Number(n || 0).toLocaleString('en-IN', { maximumFractionDigits: d });
+        const hhmm = (d) => d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: false });
+        const S = { station: null, data: null, log: [], localLock: null, bridge: null, bridgeScanner: null, pagePort: null, reloadTimer: null, busy: false };
+
+        function store(k, v) { try { if (v === undefined) return localStorage.getItem(k); if (v === null) localStorage.removeItem(k); else localStorage.setItem(k, v); } catch (_) { return null; } }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            JPSMS.auth.requireAuth();
+            JPSMS.renderShell('packing');
+            setInterval(() => { $('ssClock').textContent = hhmm(new Date()); }, 1000);
+            $('ssClock').textContent = hhmm(new Date());
+            const fromUrl = new URLSearchParams(location.search).get('station');
+            S.station = fromUrl || store(STORE_KEY);
+            if (S.station) openStation(S.station); else showPicker();
+            connectBridge();
+            connectEvents();
+            setInterval(() => { if (S.station) reload(true); }, 15000);
+            $('ssPin').addEventListener('keydown', e => { if (e.key === 'Enter') unlock(); });
+            /* keyboard-wedge scanners type into the page: keep the scan box focused */
+            document.addEventListener('click', e => {
+                if (!e.target.closest('input, select, textarea, button, a') && $('ssScan') && $('ssLock').hidden) $('ssScan').focus();
+            });
+        });
+
+        function toggleFull() {
+            if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+            else document.documentElement.requestFullscreen().catch(() => {});
+        }
+
+        /* ---------- sounds ---------- */
+        let audio = null;
+        function beep(ok) {
+            try {
+                audio = audio || new (window.AudioContext || window.webkitAudioContext)();
+                const o = audio.createOscillator(), g = audio.createGain();
+                o.frequency.value = ok ? 1200 : 220; o.type = ok ? 'sine' : 'square';
+                g.gain.value = 0.08; o.connect(g); g.connect(audio.destination);
+                o.start(); o.stop(audio.currentTime + (ok ? 0.08 : 0.6));
+            } catch (_) { /* no sound */ }
+        }
+
+        /* ---------- station picker ---------- */
+        async function showPicker() {
+            $('ssChange').hidden = true; $('ssStatus').hidden = true; $('ssScanner').hidden = true;
+            $('ssTitle').textContent = 'Pick this screen\'s station';
+            let stations = [];
+            try {
+                const res = await JPSMS.api.request('/packing/station-screen', { skipLoader: true });
+                stations = res.data.stations || [];
+            } catch (e) { JPSMS.toast(e.message, 'error'); }
+            $('ssBody').innerHTML = stations.length ? `
+                <p style="color:#64748b;margin:0 0 12px">This PC or tablet remembers the station you pick.</p>
+                <div class="ss-pick">${stations.map((s, i) => `
+                    <button type="button" data-st="${i}"><b>${esc(s.code || s.name)}</b><small>${esc(s.name)}${s.persons ? ' · ' + s.persons + ' persons' : ''}${s.scanner ? ' · scanner set' : ''}</small></button>`).join('')}
+                </div>` : `<div class="ss-empty"><b>No packing stations yet</b>Add them in <a href="packing_masters.html">Packing Masters</a> first.</div>`;
+            $('ssBody').querySelectorAll('[data-st]').forEach(b => b.onclick = () => {
+                const s = stations[Number(b.dataset.st)];
+                store(STORE_KEY, s.name);
+                history.replaceState(null, '', location.pathname);
+                openStation(s.name);
+            });
+        }
+
+        function openStation(name) {
+            S.station = name; S.data = null; S.log = []; S.localLock = null;
+            reload();
+        }
+
+        /* ---------- data ---------- */
+        async function reload(quiet) {
+            if (!S.station) return;
+            try {
+                const res = await JPSMS.api.request('/packing/station-screen?station=' + encodeURIComponent(S.station), { skipLoader: true });
+                S.data = res.data;
+            } catch (e) {
+                if (!quiet) $('ssBody').innerHTML = `<div class="ss-empty"><b>Could not load the station</b>${esc(e.message)}</div>`;
+                return;
+            }
+            render();
+            attachPageScanner();
+        }
+
+        function reloadSoon() {
+            clearTimeout(S.reloadTimer);
+            S.reloadTimer = setTimeout(() => reload(true), 800);
+        }
+
+        function render() {
+            const d = S.data;
+            const st = d.station;
+            $('ssTitle').textContent = st.code || st.name;
+            $('ssChange').hidden = false;
+            const c = d.current;
+            const chip = $('ssStatus');
+            chip.hidden = false;
+            chip.className = 'ss-chip ' + (c && c.status === 'RUNNING' ? 'run' : 'plan');
+            chip.textContent = c ? (c.status === 'RUNNING' ? 'Running' : 'Not started') : 'No job';
+            renderScannerChip();
+            showLock();
+
+            if (!c) {
+                $('ssBody').innerHTML = `<div class="ss-card ss-empty"><b>No job planned for ${esc(st.code || st.name)}</b>Plan one on the <a href="assembly.html">packing plan board</a>.
+                    ${finishedHtml()}</div>`;
+                return;
+            }
+            const qty = Number(c.plan_qty) || 0, packed = Number(c.scanned_qty) || 0;
+            const pct = qty > 0 ? Math.min(100, packed * 100 / qty) : 0;
+            const left = Math.max(0, qty - packed);
+            let eta = '–', etaNote = '';
+            if (left === 0) { eta = 'Now'; etaNote = 'qty reached'; }
+            else if (c.rate_now > 0) { const t = new Date(Date.now() + left / c.rate_now * 3600e3); eta = hhmm(t); etaNote = `${fmt(left)} pcs left`; }
+            else if (c.end_local) { eta = String(c.end_local).slice(11, 16); etaNote = 'as planned'; }
+            const rateCls = c.std_pcs_hr ? (c.rate_now >= c.std_pcs_hr * 0.9 ? 'good' : (c.rate_now > 0 ? 'slow' : '')) : '';
+            const box = Number(c.pcs_per_box) || 0;
+            const boxes = box > 0 ? `${fmt(Math.floor(packed / box))}${packed % box ? ' + ' + (packed % box) : ''}` : '–';
+            const scans = d.scans.map(s => `<div class="${s.is_match ? 'ok' : 'bad'}">${esc(s.at ? new Date(s.at).toLocaleTimeString('en-IN', { hour12: false }) : '')} ${s.is_match ? '✓' : '✗'} ${esc(s.scanned_ean)}</div>`).join('');
+            const local = S.log.map(l => `<div class="${l.cls}">${esc(l.t)} ${esc(l.msg)}</div>`).join('');
+            $('ssBody').innerHTML = `
+                <div class="ss-main">
+                    <div class="ss-card" id="ssCard">
+                        <div class="ss-item">${esc(c.item_name || 'Plan ' + c.id)}</div>
+                        <div class="ss-meta">${esc(c.client_name || '')}${c.job_card_no ? ' · <b>' + esc(c.job_card_no) + '</b>' : ''} · EAN <b>${esc(c.ean_number || 'not set')}</b></div>
+                        <div class="ss-count"><span class="big" id="ssPacked">${fmt(packed)}</span><span class="of">/ ${fmt(qty)}</span></div>
+                        <div class="ss-progress" role="progressbar" aria-label="Packed" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(pct)}"><i style="width:${pct}%"></i></div>
+                        <div class="ss-tiles">
+                            <div class="ss-tile ${rateCls}"><small>Rate now</small><b>${fmt(c.rate_now)}/hr</b><span>${c.std_pcs_hr ? 'standard ' + fmt(c.std_pcs_hr) + '/hr' : 'no standard set'}</span></div>
+                            <div class="ss-tile"><small>Boxes</small><b>${boxes}</b><span>${box > 0 ? box + ' pcs per box' : 'pcs/box not in master'}</span></div>
+                            <div class="ss-tile"><small>Ends at</small><b>${eta}</b><span>${etaNote}</span></div>
+                        </div>
+                        ${qty > 0 && packed >= qty ? `<div class="ss-reached"><i class="bi bi-flag"></i> Plan qty reached (${fmt(qty)}). Finish the job, or keep packing — extra pieces still count.</div>` : ''}
+                        ${!c.ean_number ? `<div class="ss-reached"><i class="bi bi-exclamation-triangle"></i> This plan has no EAN, so every scan will be wrong. Add the EAN on the packing plan.</div>` : ''}
+                        <div class="ss-scanbox">
+                            <input id="ssScan" class="form-control" placeholder="Scan or type the barcode, then Enter" aria-label="Barcode" autocomplete="off">
+                        </div>
+                    </div>
+                    <div class="ss-card">
+                        <h2 class="ss-h">Last scans · packed today on this station ${fmt(d.packed_today)}</h2>
+                        <div class="ss-log">${local}${scans || '<div class="info">No scans yet for this job.</div>'}</div>
+                        <h2 class="ss-h" style="margin-top:16px">Next on this station</h2>
+                        <div class="ss-queue">${d.queue.length ? d.queue.map(q => `
+                            <div class="ss-q"><div><b>${esc(q.item_name || 'Plan ' + q.id)}</b><small>${fmt(q.plan_qty)} pcs · ${esc(String(q.start_local || '').slice(11, 16))}${q.scanned_qty ? ' · ' + fmt(q.scanned_qty) + ' packed' : ''}</small></div>
+                            <button class="btn btn-outline" onclick="startPlan(${Number(q.id)})">Start</button></div>`).join('') : '<div class="info" style="color:#64748b;font-size:.86rem">Nothing else planned.</div>'}</div>
+                        <div class="ss-actions">
+                            ${c.status !== 'RUNNING' ? `<button class="btn btn-primary" onclick="startPlan(${Number(c.id)})"><i class="bi bi-play-fill"></i> Start this job</button>` : ''}
+                            <button class="btn btn-outline" onclick="finishPlan(${Number(c.id)})"><i class="bi bi-check2-circle"></i> Finish job</button>
+                        </div>
+                        ${finishedHtml()}
+                    </div>
+                </div>`;
+            const input = $('ssScan');
+            input.addEventListener('keydown', e => {
+                if (e.key === 'Enter') { e.preventDefault(); const v = input.value.trim(); input.value = ''; if (v) scan(v); }
+            });
+            if ($('ssLock').hidden && !document.activeElement.closest('.ss-lock')) input.focus();
+        }
+
+        function finishedHtml() {
+            const f = (S.data && S.data.finished_today) || [];
+            if (!f.length) return '';
+            return `<h2 class="ss-h" style="margin-top:16px">Done today</h2><div class="ss-log">${f.map(x => `<div class="info">${esc(String(x.finished_local || '').slice(11, 16))} ${esc(x.item_name)} · ${fmt(x.scanned_qty)}/${fmt(x.plan_qty)}</div>`).join('')}</div>`;
+        }
+
+        function addLog(msg, cls) {
+            S.log.unshift({ t: hhmm(new Date()), msg, cls });
+            S.log = S.log.slice(0, 4);
+        }
+
+        function flash(ok) {
+            const card = $('ssCard'); if (!card) return;
+            card.classList.remove('ss-flash-ok', 'ss-flash-bad'); void card.offsetWidth;
+            card.classList.add(ok ? 'ss-flash-ok' : 'ss-flash-bad');
+        }
+
+        /* ---------- scanning ---------- */
+        async function scan(ean) {
+            const c = S.data && S.data.current;
+            if (!c) { addLog('No job to count against', 'bad'); beep(false); render(); return; }
+            if (S.localLock || (S.data && S.data.lock)) { beep(false); return; }
+            try {
+                const res = await JPSMS.api.request('/assembly/scan', { method: 'POST', body: JSON.stringify({ plan_id: c.id, ean }), skipLoader: true });
+                afterScan(res, ean);
+            } catch (e) {
+                addLog('Not counted: ' + e.message, 'bad'); beep(false); render();
+            }
+        }
+
+        function afterScan(res, ean) {
+            const c = S.data && S.data.current;
+            if (res.locked) { beep(false); reload(true); return; }
+            if (!res.ok) { addLog(`${ean}: ${res.error || 'not counted'}`, 'bad'); beep(false); render(); return; }
+            if (res.match) {
+                beep(true);
+                if (c && res.new_qty != null) c.scanned_qty = res.new_qty;
+                const el = $('ssPacked'); if (el && res.new_qty != null) el.textContent = fmt(res.new_qty);
+                flash(true);
+                if (c && res.new_qty != null && Number(c.plan_qty) > 0 && res.new_qty === Number(c.plan_qty)) { addLog('Plan qty reached', 'info'); render(); }
+                reloadSoon();
+            } else {
+                beep(false); flash(false);
+                addLog(`${ean} ✗ expected ${c ? c.ean_number : ''}`, 'bad');
+                if (S.data.pins_enabled) reload(true);
+                else { S.localLock = { scanned: ean, expected: c ? c.ean_number : '' }; showLock(); }
+            }
+        }
+
+        async function startPlan(id) {
+            try {
+                await JPSMS.api.post(`/packing/plans/${id}/start`, {});
+                JPSMS.toast('Job started', 'success');
+                reload();
+            } catch (e) { JPSMS.toast(e.message, 'error'); }
+        }
+
+        async function finishPlan(id) {
+            const c = S.data.current;
+            const short = c && Number(c.plan_qty) > 0 && Number(c.scanned_qty) < Number(c.plan_qty);
+            if (!confirm(short ? `Only ${fmt(c.scanned_qty)} of ${fmt(c.plan_qty)} packed. Finish this job anyway?` : 'Finish this job?')) return;
+            try {
+                await JPSMS.api.post(`/packing/plans/${id}/finish`, {});
+                JPSMS.toast('Job finished', 'success');
+                reload();
+            } catch (e) { JPSMS.toast(e.message, 'error'); }
+        }
+
+        /* ---------- wrong-barcode lock ---------- */
+        function showLock() {
+            const lock = (S.data && S.data.lock) || null;
+            const local = S.localLock;
+            const box = $('ssLock');
+            if (!lock && !local) { box.hidden = true; return; }
+            const l = lock ? { scanned: lock.scanned_ean, expected: lock.expected_ean } : local;
+            $('ssLockMsg').innerHTML = `Scanned <code>${esc(l.scanned)}</code><br>expected <code>${esc(l.expected || 'no EAN on the plan')}</code>`;
+            $('ssLockPinForm').hidden = !lock;
+            $('ssLockResume').hidden = !!lock;
+            $('ssLockHint').textContent = lock ? 'Take the wrong piece out. A supervisor unlocks the station with a PIN.' : 'Take the wrong piece out, then resume.';
+            if (box.hidden) { box.hidden = false; $('ssLockErr').textContent = ''; $('ssPin').value = ''; setTimeout(() => (lock ? $('ssPin') : $('ssLockResume').querySelector('button')).focus(), 30); }
+        }
+
+        async function unlock() {
+            const pin = $('ssPin').value.trim();
+            if (!/^\d{4,6}$/.test(pin)) { $('ssLockErr').textContent = 'Enter the 4 to 6 digit PIN.'; return; }
+            try {
+                const res = await JPSMS.api.request('/packing/unlock', { method: 'POST', body: JSON.stringify({ station: S.station, pin }), skipLoader: true });
+                $('ssLock').hidden = true;
+                addLog('Unlocked by ' + (res.unlocked_by || 'supervisor'), 'info');
+                reload();
+            } catch (e) {
+                $('ssLockErr').textContent = e.message || 'Wrong PIN.';
+                $('ssPin').value = ''; $('ssPin').focus();
+            }
+        }
+
+        function resumeLocal() { S.localLock = null; $('ssLock').hidden = true; render(); }
+
+        /* ---------- live updates: server events ---------- */
+        function connectEvents() {
+            try {
+                const es = new EventSource('/api/assembly/events');
+                es.onmessage = (e) => {
+                    let msg; try { msg = JSON.parse(e.data); } catch (_) { return; }
+                    const d = msg.data || {};
+                    if (!S.station || String(d.table_id || '').toLowerCase() !== S.station.toLowerCase()) return;
+                    if (msg.type === 'scan' || msg.type === 'alert') reloadSoon();
+                };
+            } catch (_) { /* polling covers it */ }
+        }
+
+        /* ---------- scanner bridge (CLIENT_BRIDGE on this PC, port 8999) ---------- */
+        function connectBridge() {
+            let ws;
+            try { ws = new WebSocket('ws://localhost:8999'); } catch (_) { return; }
+            ws.onopen = () => { S.bridge = ws; renderScannerChip(); attachPageScanner(); };
+            ws.onclose = () => { S.bridge = null; S.bridgeScanner = null; S.pagePort = null; renderScannerChip(); setTimeout(connectBridge, 10000); };
+            ws.onerror = () => {};
+            ws.onmessage = (event) => {
+                let msg; try { msg = JSON.parse(event.data); } catch (_) { return; }
+                const mine = S.station && String(msg.table_id || '').toLowerCase() === S.station.toLowerCase();
+                if (msg.type === 'scanner-status' && mine) { S.bridgeScanner = msg.connected ? (msg.path || 'connected') : null; renderScannerChip(); }
+                else if (msg.type === 'scan-result' && mine) {
+                    /* the bridge already posted this scan for its IP scanner: only show it */
+                    afterScan({ ok: msg.ok, match: msg.match, new_qty: msg.new_qty, error: msg.error, locked: /LOCKED/i.test(msg.error || '') }, msg.ean);
+                } else if (msg.type === 'data' && S.pagePort && msg.path === S.pagePort) {
+                    scan(String(msg.data || '').trim());
+                }
+            };
+        }
+
+        /* A COM-port scanner set on the station is opened by this page through the bridge. */
+        function attachPageScanner() {
+            const cfg = String((S.data && S.data.scanner) || '').trim();
+            if (!S.bridge || !cfg) return;
+            const m = cfg.match(/^(?:BRIDGE:)?(COM\d+)/i);
+            if (!m || S.pagePort === m[1]) return;
+            S.pagePort = m[1];
+            S.bridge.send(JSON.stringify({ action: 'open', path: m[1], baudRate: 9600, dataBits: 8, stopBits: 1, parity: 'none' }));
+            renderScannerChip();
+        }
+
+        function renderScannerChip() {
+            const chip = $('ssScanner');
+            if (!S.data) { chip.hidden = true; return; }
+            chip.hidden = false;
+            const cfg = String(S.data.scanner || '');
+            if (S.bridgeScanner) { chip.className = 'ss-chip on'; chip.innerHTML = '<i class="bi bi-upc-scan"></i> Scanner connected'; }
+            else if (S.pagePort) { chip.className = 'ss-chip on'; chip.innerHTML = `<i class="bi bi-usb-symbol"></i> ${esc(S.pagePort)}`; }
+            else if (cfg && S.bridge) { chip.className = 'ss-chip off'; chip.innerHTML = '<i class="bi bi-upc-scan"></i> Scanner not connected'; }
+            else if (cfg) { chip.className = 'ss-chip off'; chip.innerHTML = '<i class="bi bi-plug"></i> Bridge not running'; chip.title = 'Scanner bridge not running on this PC. USB scanners that type into the box still work.'; }
+            else { chip.className = 'ss-chip'; chip.innerHTML = '<i class="bi bi-keyboard"></i> USB / typed scans'; }
+        }
+    </script>
+</body>
+
+</html>
