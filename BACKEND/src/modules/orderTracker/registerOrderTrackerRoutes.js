@@ -29,6 +29,7 @@
 const { getFactoryId } = require('../../app/requestContext');
 const { sendServerError } = require('../../app/httpErrors');
 const { buildTonnageWorkbook } = require('./tonnageWorkbook');
+const packingProgress = require('./packingProgress');
 
 const RATE_DAYS = 3;
 /* a set needing more pieces of one mould than this is almost certainly a data error */
@@ -220,7 +221,7 @@ async function loadOrders(pool, orderNos, factoryId, sched, board, { itemFallbac
   const planBy = group(plans.rows, r => r.order_no);
   const dprBy = group(dpr.rows, r => r.order_no);
 
-  return orderNos.map(orderNo => buildOrder(orderNo, {
+  const built = orderNos.map(orderNo => buildOrder(orderNo, {
     jcRows: jcBy.get(orderNo) || [],
     bomRows: bomBy.get(orderNo) || [],
     planRows: planBy.get(orderNo) || [],
@@ -230,6 +231,14 @@ async function loadOrders(pool, orderNos, factoryId, sched, board, { itemFallbac
     board,
     shiftByPlan
   })).filter(Boolean);
+  /* packing to dispatch (packing module scans); never fails the order view */
+  try {
+    const pk = await packingProgress.loadPackingRows(pool, built.flatMap(o => o.job_cards.map(j => j.job_card_no)), factoryId);
+    built.forEach(o => packingProgress.applyPacking(o, pk));
+  } catch (e) {
+    console.warn('[order-tracker] packing progress skipped:', e.message);
+  }
+  return built;
 }
 
 function buildOrder(orderNo, { jcRows, bomRows, planRows, dprRows, mouldStd, sched, board, shiftByPlan }) {
@@ -716,9 +725,10 @@ function suggest(o, board) {
 }
 
 const slim = o => {
-  const { moulds, job_cards, suggestions, ...rest } = o;
+  const { moulds, job_cards, suggestions, packing, ...rest } = o;
   return {
     ...rest,
+    packing: packingProgress.slimPacking(packing),
     action_count: (suggestions || []).filter(x => x.level !== 'good').length,
     moulds: moulds.map(m => ({ mould_no: m.mould_no, mould_name: m.mould_name, ratio: m.ratio, pct: m.pct,
       produced: m.produced, required: m.required, status: m.status, machines: m.machines, eta: m.eta,
@@ -1149,7 +1159,7 @@ function registerOrderTrackerRoutes(app, pool) {
       const q = await queueSchedule(pool, factoryId);
       const orders = await loadOrders(pool, orderNos, factoryId, q.map, q.board);
       /* open scope hides orders already complete in production */
-      const data = (scope === 'open' ? orders.filter(o => o.status !== 'COMPLETE') : orders).map(slim);
+      const data = (scope === 'open' ? orders.filter(o => !packingProgress.fullyDone(o)) : orders).map(slim);
       res.json({ ok: true, scope, server_time: new Date().toISOString(), data });
     } catch (e) {
       console.error('[order-tracker/orders]', e);
