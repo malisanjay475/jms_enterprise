@@ -193,14 +193,18 @@
             history.replaceState(null, '', '?' + p.toString());
         }
 
+        let loadSeq = 0;
         async function load() {
             saveState();
+            const seq = ++loadSeq;
             $('out').className = 'pr-empty';
             $('out').textContent = 'Loading…';
             try {
                 const res = await JPSMS.api.request(`/packing/reports/${type}?${params().toString()}`, { skipLoader: true });
+                if (seq !== loadSeq) return; /* a newer request was made */
                 render(res.data);
             } catch (err) {
+                if (seq !== loadSeq) return;
                 $('tiles').innerHTML = '';
                 $('out').className = 'pr-empty';
                 $('out').textContent = err.message || 'Could not load the report.';

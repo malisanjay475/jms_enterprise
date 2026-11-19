@@ -89,3 +89,39 @@ describe('packing reports - daily summary maths', () => {
     expect(res2.statusCode).toBe(401);
   });
 });
+
+describe('packing reports - review fixes', () => {
+  test('an hour with a few scans keeps its column', async () => {
+    const app = fakeApp();
+    const pool = {
+      query: async (sql) => {
+        if (/to_regclass/.test(sql)) return { rows: [{ jr: 1, locks: 1, scans: 1, std: 1 }] };
+        if (/EXTRACT\(HOUR/.test(sql)) return { rows: [{ table_id: 'B1', h: 9, n: 900, days: 3, avg_cycle: 7.5 }, { table_id: 'B1', h: 18, n: 1, days: 3, avg_cycle: 7.5 }] };
+        return { rows: [] };
+      }
+    };
+    reports.registerPackingReportRoutes(app, pool);
+    const res = fakeRes();
+    await app.routes['/api/packing/reports/:type']({ params: { type: 'hourly' }, query: {}, auth: { username: 't' } }, res);
+    const row = res.body.data.rows[0];
+    expect(row.h18).toBe(1);
+    expect(row.total).toBe(901);
+  });
+
+  test('lock events are filtered by party and the request factory', async () => {
+    const app = fakeApp();
+    let lockCall = null;
+    const pool = {
+      query: async (sql, params) => {
+        if (/to_regclass/.test(sql)) return { rows: [{ jr: 1, locks: 1, scans: 1, std: 1 }] };
+        if (/FROM packing_lock_events/.test(sql)) { lockCall = { sql, params }; return { rows: [] }; }
+        return { rows: [] };
+      }
+    };
+    reports.registerPackingReportRoutes(app, pool);
+    await app.routes['/api/packing/reports/:type']({ params: { type: 'wrong' }, query: { party: 'Reliance' }, headers: { 'x-factory-id': '2' }, auth: { username: 't' } }, fakeRes());
+    expect(lockCall.sql).toMatch(/client_name/);
+    expect(lockCall.params[3]).toBe('%reliance%');
+    expect(lockCall.params[4]).toBe(2);
+  });
+});
