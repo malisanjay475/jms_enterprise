@@ -301,6 +301,27 @@
         .verdict.AT_RISK { background: var(--amber-bg); border-color: var(--amber-br); } .verdict.AT_RISK .vi { background: var(--amber); }
         .verdict.LATE { background: var(--red-bg); border-color: var(--red-br); } .verdict.LATE .vi { background: var(--red); }
         .verdict.NO_TARGET { background: var(--grey-bg); border-color: var(--line); } .verdict.NO_TARGET .vi { background: var(--faint); }
+        .verdict.DISPATCH { background: var(--blue-bg); border-color: var(--blue-br); } .verdict.DISPATCH .vi { background: var(--blue); }
+        /* packing to dispatch */
+        .pk-stages { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; padding: 16px; }
+        .pk-st .l { font-size: 12px; font-weight: 700; color: var(--ink2); display: flex; justify-content: space-between; gap: 6px; }
+        .pk-st .v { font-size: 20px; font-weight: 800; margin: 2px 0 6px; font-variant-numeric: tabular-nums; }
+        .pk-st .v span { font-size: 12px; font-weight: 600; color: var(--mute); }
+        .pk-st .s { font-size: 12px; color: var(--mute); margin-top: 4px; min-height: 16px; }
+        .pk-dates { display: flex; flex-wrap: wrap; gap: 6px 18px; padding: 0 16px 14px; font-size: 12px; color: var(--mute); }
+        .pk-dates b { color: var(--ink); }
+        .pk-gaps { padding: 0 16px 12px; display: grid; gap: 6px; }
+        .pk-more { border-top: 1px solid var(--line2); padding: 10px 16px; font-size: 13px; }
+        .pk-more summary { cursor: pointer; font-weight: 700; color: var(--ink2); }
+        .pk-more table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 12.5px; }
+        .pk-more th { text-align: left; font-weight: 600; color: var(--mute); border-bottom: 1px solid var(--line); padding: 5px 6px; }
+        .pk-more td { border-bottom: 1px solid var(--line2); padding: 5px 6px; }
+        .pk-more .n { text-align: right; font-variant-numeric: tabular-nums; }
+        .pk-tw { overflow-x: auto; width: 0; min-width: 100%; } /* scrolls inside, never widens the page */
+        .pk-more th, .pk-more td { white-space: nowrap; }
+        .pk-line { font-size: 12px; color: var(--mute); }
+        .pk-line b { color: var(--ink2); }
+        @media (max-width: 760px) { .pk-stages { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
         .verdict .proc { margin-left: auto; text-align: right; }
         .verdict .proc .l { font-size: 10px; text-transform: uppercase; letter-spacing: .5px; color: var(--mute); font-weight: 800; }
         .verdict .proc .v { font-size: 16px; font-weight: 800; }
@@ -346,7 +367,7 @@
         .sdates { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; font-size: 11px; color: var(--mute); margin-top: 10px; }
         .sdates b { display: block; font-size: 12px; color: var(--ink); }
         .shortb { margin-top: 8px; background: var(--red-bg); color: #991b1b; border-radius: 8px; padding: 6px 9px; font-size: 12px; font-weight: 700; }
-        @media (max-width: 900px) { .pipe { grid-template-columns: 1fr; gap: 14px; } .stg .bar { display: none; } .verdict { flex-wrap: wrap; } .verdict .proc { margin-left: 0; text-align: left; } }
+        @media (max-width: 900px) { .pipe { grid-template-columns: 1fr; gap: 14px; } .stg .bar { display: none; } .verdict { flex-wrap: wrap; } .verdict > div:nth-child(2) { flex: 1 1 200px; min-width: 0; } .verdict .proc { margin-left: 0; text-align: left; } }
         .qtiles { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; margin: 0 0 10px; }
         .qtile { background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; position: relative; overflow: hidden; }
         .qtile::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--blue); opacity: .55; }
@@ -661,6 +682,7 @@
                         <div class="right">
                             <div>${pill(o.status)}${late ? ' ' + pill('LATE') : ''}</div>
                             <div class="small"><span class="muted">Process:</span> <b>${esc(o.process ? o.process.current_name : '—')}</b></div>
+                            ${packingLine(o)}
                             ${o.action_count ? `<div class="small" style="color:var(--red);font-weight:700"><i class="bi bi-lightning-charge-fill"></i> ${o.action_count} action${o.action_count > 1 ? 's' : ''} needed</div>` : ''}
                             <div>${o.running_machines.slice(0, 3).map(m => `<span class="mc">${esc(m)}</span>`).join('')}${o.running_machines.length > 3 ? `<span class="muted small">+${o.running_machines.length - 3}</span>` : ''}</div>
                         </div>
@@ -869,7 +891,38 @@
                 return `<div class="otc scroll"><table class="tbl grid-t"><thead><tr><th>Job card</th>${head}<th>Job card done</th></tr></thead><tbody>${body}</tbody></table></div>`;
             }
 
-            const VIC = { ON_TIME: 'bi-check-lg', DONE: 'bi-check2-all', AT_RISK: 'bi-exclamation-lg', LATE: 'bi-x-lg', NO_TARGET: 'bi-question-lg' };
+            const VIC = { ON_TIME: 'bi-check-lg', DONE: 'bi-check2-all', AT_RISK: 'bi-exclamation-lg', LATE: 'bi-x-lg', NO_TARGET: 'bi-question-lg', DISPATCH: 'bi-truck' };
+            /* Packing to dispatch: moulded -> packed -> reached store -> dispatched, from the packing module's scans */
+            function packingHtml(o) {
+                const p = o.packing;
+                if (!p || !p.tracked) {
+                    return `<div class="sec"><div class="sech"><h3><i class="bi bi-truck"></i> Packing to dispatch</h3></div>
+                        <div class="otc" style="padding:14px 16px"><span class="muted small">No packing scans for this order's job cards yet. It shows here once a job card is planned on the Packing Plan and scanned.</span></div></div>`;
+                }
+                const stages = p.stages.map(st => `<div class="pk-st"><div class="l"><span>${esc(st.name)}</span><span>${pf(st.pct)}</span></div>
+                    <div class="v">${n0(st.qty)} <span>/ ${n0(p.order_qty)} ${esc(st.unit)}</span></div>
+                    ${track(st.pct, st.pct >= 100 ? 'g' : '')}<div class="s">${esc(st.sub || '')}</div></div>`).join('');
+                const dates = [['First packed', p.first_packed], ['Last packed', p.last_packed], ['First in store', p.first_received], ['Last dispatched', p.last_dispatched]]
+                    .filter(d => d[1]).map(d => `<span>${d[0]} <b>${fd(d[1], true)}</b></span>`).join('');
+                const gaps = p.gaps.length ? `<div class="pk-gaps">${p.gaps.map(g => `<div class="note ${g.level === 'bad' ? 'r' : 'a'}" style="margin-top:0"><i class="bi ${g.level === 'bad' ? 'bi-exclamation-octagon' : 'bi-hourglass-split'}"></i><div>${esc(g.text)}</div></div>`).join('')}</div>` : '';
+                const jcs = p.job_cards || [];
+                const tbl = (head, rows) => rows.length ? `<div class="pk-tw"><table><thead><tr>${head.map(h => `<th class="${h[1] || ''}">${h[0]}</th>`).join('')}</tr></thead><tbody>${rows.join('')}</tbody></table></div>` : '<div class="muted small" style="margin-top:6px">None yet.</div>';
+                const plans = jcs.flatMap(j => j.plans.map(x => `<tr><td>${esc(j.job_card_no)}</td><td>${esc(x.station)}</td><td>${fd(x.start, true)}</td><td>${x.first_scan ? fd(x.first_scan, true) : '—'}</td><td>${x.last_scan ? fd(x.last_scan, true) : '—'}</td><td class="n">${n0(x.packed)} / ${n0(x.plan_qty)}</td><td>${esc(x.status || '')}</td></tr>`));
+                const hos = jcs.flatMap(j => j.handovers.map(x => `<tr><td>${esc(j.job_card_no)}</td><td>${esc(x.slip_no)}</td><td>${fd(x.at, true)}</td><td class="n">${n0(x.units)}</td><td class="n">${n0(x.pcs)}</td></tr>`));
+                const dss = jcs.flatMap(j => j.dispatches.map(x => `<tr><td>${esc(j.job_card_no)}</td><td>${esc(x.slip_no)}${x.status === 'CLOSED' ? '' : ' <span class="muted">(loading)</span>'}</td><td>${fd(x.at, true)}</td><td>${esc(x.vehicle_no || '—')}</td><td>${esc(x.invoice_no || '—')}</td><td class="n">${n0(x.units)}</td><td class="n">${n0(x.pcs)}</td></tr>`));
+                return `<div class="sec"><div class="sech"><h3><i class="bi bi-truck"></i> Packing to dispatch</h3><span class="muted small">From packing station scans, store handover and dispatch slips · the order is complete when dispatched</span></div>
+                    <div class="otc"><div class="pk-stages">${stages}</div>
+                        ${dates ? `<div class="pk-dates">${dates}</div>` : ''}${gaps}
+                        <details class="pk-more"><summary>Packing plans (${plans.length})</summary>${tbl([['Job card'], ['Station'], ['Planned'], ['First scan'], ['Last scan'], ['Packed', 'n'], ['Status']], plans)}</details>
+                        <details class="pk-more"><summary>Store handover slips (${hos.length})</summary>${tbl([['Job card'], ['Slip'], ['Received'], ['Cartons', 'n'], ['Pcs', 'n']], hos)}</details>
+                        <details class="pk-more"><summary>Dispatch slips (${dss.length})</summary>${tbl([['Job card'], ['Slip'], ['Date'], ['Vehicle'], ['Invoice / DC'], ['Cartons', 'n'], ['Pcs', 'n']], dss)}</details>
+                    </div></div>`;
+            }
+            function packingLine(o) {
+                const p = o.packing;
+                if (!p || !p.tracked) return '';
+                return `<div class="pk-line">Packed <b>${n0(p.packed)}</b> · Store <b>${n0(p.in_store)}</b> · Dispatched <b>${n0(p.dispatched)}</b>${p.gaps && p.gaps.length ? ` · <span style="color:var(--amber)"><i class="bi bi-hourglass-split"></i> ${p.gaps.length}</span>` : ''}</div>`;
+            }
             function verdictHtml(o) {
                 const v = o.verdict || {};
                 return `<div class="verdict ${esc(v.code)}"><div class="vi"><i class="bi ${VIC[v.code] || 'bi-question-lg'}"></i></div>
@@ -995,6 +1048,7 @@
                     <div class="dtiles">${tiles}</div>
                     ${adviceHtml(o)}
                     ${processHtml(o)}
+                    ${packingHtml(o)}
                     ${sequenceHtml(o)}
                     ${notes.length ? '<div style="margin-top:12px">' + notes.join('') + '</div>' : ''}
 
