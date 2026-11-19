@@ -15,6 +15,28 @@
             <div class="page-title">Packing Settings</div>
         </div>
 
+        <div class="card" style="margin-bottom:16px">
+            <div class="card-header">
+                <h5 class="mb-0">Supervisor PINs</h5>
+            </div>
+            <div class="card-body">
+                <p style="color:#475569;font-size:.9rem;margin:0 0 12px">When a wrong product is scanned on a <a href="scan_station.html">station screen</a>, the station locks and only a supervisor's PIN unlocks it. While no PIN is set for this factory, stations do not lock (the operator presses Resume, as before). PINs are kept per factory and set on the MAIN server.</p>
+                <div id="pinNote" style="display:none;padding:8px 12px;border-radius:8px;background:#fffbeb;color:#92400e;font-size:.86rem;margin-bottom:12px"></div>
+                <div class="table-responsive">
+                    <table class="table align-middle">
+                        <thead><tr><th>User name</th><th>Name</th><th>Last changed</th><th></th></tr></thead>
+                        <tbody id="pinTable"><tr><td colspan="4" style="color:#64748b">Loading…</td></tr></tbody>
+                    </table>
+                </div>
+                <form id="pinForm" style="display:none;gap:8px;flex-wrap:wrap;align-items:flex-end" onsubmit="savePin(event)">
+                    <div><label class="form-label" for="pin_user">User name</label><input class="form-control" id="pin_user" maxlength="60" required></div>
+                    <div><label class="form-label" for="pin_name">Name</label><input class="form-control" id="pin_name" maxlength="80"></div>
+                    <div><label class="form-label" for="pin_pin">PIN (4–6 digits)</label><input class="form-control" id="pin_pin" type="password" inputmode="numeric" maxlength="6" autocomplete="new-password" required></div>
+                    <button class="btn btn-primary" type="submit"><i class="bi bi-key"></i> Save PIN</button>
+                </form>
+            </div>
+        </div>
+
         <div class="card">
             <div class="card-header d-flex justify-content-between align-items-center">
                 <h5 class="mb-0">Assembly Lines & Scanner Configuration</h5>
@@ -107,7 +129,43 @@
             // Escape closes the dialog
             document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && isModalOpen()) closeModal(); });
             loadLines();
+            loadPins();
         });
+
+        const escH = (v) => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+        async function loadPins() {
+            const tbody = document.getElementById('pinTable');
+            try {
+                const res = await JPSMS.api.request('/packing/pins', { skipLoader: true });
+                const pins = res.data || [];
+                const canEdit = !!res.can_edit;
+                document.getElementById('pinForm').style.display = canEdit ? 'flex' : 'none';
+                const note = document.getElementById('pinNote');
+                note.style.display = canEdit ? 'none' : 'block';
+                note.textContent = 'PINs can only be set on the MAIN server by someone with Masters edit permission, with one factory selected.';
+                tbody.innerHTML = pins.length ? pins.map(p => `
+                    <tr><td class="font-mono">${escH(p.username)}</td><td>${escH(p.display_name)}</td><td>${escH(p.updated)}${p.updated_by ? ' · ' + escH(p.updated_by) : ''}</td>
+                    <td>${canEdit ? `<button class="btn btn-sm btn-outline-danger" onclick="removePin(${Number(p.id)}, '${escH(p.username)}')" aria-label="Remove PIN of ${escH(p.username)}"><i class="bi bi-trash"></i></button>` : ''}</td></tr>`).join('')
+                    : '<tr><td colspan="4" style="color:#64748b">No PIN set for this factory, so stations do not lock.</td></tr>';
+            } catch (e) {
+                tbody.innerHTML = `<tr><td colspan="4" style="color:#b91c1c">${escH(e.message)}</td></tr>`;
+            }
+        }
+        async function savePin(e) {
+            e.preventDefault();
+            const body = { username: document.getElementById('pin_user').value.trim(), display_name: document.getElementById('pin_name').value.trim(), pin: document.getElementById('pin_pin').value.trim() };
+            if (!/^\d{4,6}$/.test(body.pin)) return JPSMS.toast('PIN must be 4 to 6 digits', 'error');
+            try {
+                await JPSMS.api.post('/packing/pins', body);
+                JPSMS.toast('PIN saved', 'success');
+                document.getElementById('pinForm').reset();
+                loadPins();
+            } catch (err) { JPSMS.toast(err.message, 'error'); }
+        }
+        async function removePin(id, user) {
+            if (!confirm(`Remove the PIN of ${user}? They can no longer unlock stations.`)) return;
+            try { await JPSMS.api.delete(`/packing/pins/${id}`); loadPins(); } catch (err) { JPSMS.toast(err.message, 'error'); }
+        }
 
         async function loadLines() {
             const tbody = document.getElementById('linesTable');

@@ -89,7 +89,10 @@
             .pm-head h1 { font-size: 1.25rem; }
             .pm-bar select { flex: 1 1 140px; }
         }
-    </style>
+            .pm-oldscan{font-size:12px;color:#64748b;margin-top:6px;line-height:1.8}
+        .pm-linkbtn{border:1px solid #cbd5e1;background:#f8fafc;color:#1e293b;border-radius:6px;padding:2px 8px;font-size:12px;cursor:pointer}
+        .pm-linkbtn:hover{background:#e2e8f0}
+</style>
 </head>
 <body>
     <div class="pm" id="pmRoot">
@@ -183,7 +186,7 @@
                 <div class="pm-field full"><label for="sName">Station name</label><input class="form-control" id="sName" maxlength="80" placeholder="Assembly Station - B1"><div class="hint">Renaming moves every item on this station to the new name.</div></div>
                 <div class="pm-field"><label for="sCode">Short code</label><input class="form-control" id="sCode" maxlength="40" placeholder="B1"></div>
                 <div class="pm-field"><label for="sPersons">Usual persons</label><input class="form-control" id="sPersons" type="number" min="0" step="1"></div>
-                <div class="pm-field"><label for="sScanner">Scanner</label><input class="form-control" id="sScanner" maxlength="120" placeholder="IP:192.168.1.50:9000 or BRIDGE:COM1"></div>
+                <div class="pm-field"><label for="sScanner">Scanner</label><input class="form-control" id="sScanner" maxlength="120" placeholder="IP:192.168.1.50:9000 or BRIDGE:COM1"><div id="sOldScan" class="pm-oldscan"></div></div>
                 <div class="pm-field"><label for="sSort">Order</label><input class="form-control" id="sSort" type="number" step="1"></div>
                 <div class="pm-field full"><label><input type="checkbox" id="sActive" checked> Active</label></div>
             </div>
@@ -255,6 +258,7 @@
                 try {
                     const res = await api('/packing/stations');
                     S.stations = res.data || [];
+                    S.oldScanners = res.old_scanners || [];
                 } catch (e) { S.stations = []; }
                 renderStationOptions();
                 renderStations();
@@ -298,13 +302,19 @@
                 $('sCode').value = s.code || '';
                 $('sPersons').value = s.persons ?? '';
                 $('sScanner').value = s.scanner_config || '';
+                /* scanners still set on the old "Table B1..." lines: one click copies one here */
+                const olds = S.oldScanners || [];
+                $('sOldScan').innerHTML = olds.length ? 'Old table scanners: ' + olds.map((o, i) =>
+                    `<button type="button" class="pm-linkbtn" data-old="${i}">${esc(o.line_id)} · ${esc(o.scanner_config)}</button>`).join(' ') : '';
+                $('sOldScan').querySelectorAll('[data-old]').forEach(b => b.onclick = () => { const o = olds[Number(b.dataset.old)]; $('sScanner').value = o.scanner_config; S.copiedLine = o.line_id; });
+                S.copiedLine = null;
                 $('sSort').value = s.sort_order ?? '';
                 $('sActive').checked = s.id ? s.is_active : true;
                 $('sErr').textContent = '';
                 open('mStation');
             }
             $('sSave').onclick = async () => {
-                const body = { name: $('sName').value, code: $('sCode').value, persons: $('sPersons').value, scanner_config: $('sScanner').value, sort_order: $('sSort').value, is_active: $('sActive').checked };
+                const body = { name: $('sName').value, code: $('sCode').value, persons: $('sPersons').value, scanner_config: $('sScanner').value, sort_order: $('sSort').value, is_active: $('sActive').checked, replace_line: S.copiedLine || undefined };
                 if (!body.name.trim()) { $('sErr').textContent = 'Enter a station name.'; return; }
                 try {
                     await api(S.stEditId ? `/packing/stations/${S.stEditId}` : '/packing/stations', { method: S.stEditId ? 'PUT' : 'POST', body: JSON.stringify(body) });
