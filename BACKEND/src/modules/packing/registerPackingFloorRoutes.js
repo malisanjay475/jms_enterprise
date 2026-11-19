@@ -28,6 +28,7 @@ const crypto = require('crypto');
 const { getFactoryId, getRequestUsername, normalizeFactoryId } = require('../../app/requestContext');
 const { sendServerError } = require('../../app/httpErrors');
 const { itemKey, canEditMasters, pcsPerHour, ensurePackingSchema } = require('./registerPackingMasterRoutes');
+const packingBoxes = require('./registerPackingBoxRoutes');
 
 const isLocalServer = () => String(process.env.SERVER_TYPE || '').toUpperCase() === 'LOCAL';
 /* The factory this server stands in: a LOCAL box's own factory, null on MAIN. */
@@ -212,7 +213,7 @@ function registerPackingFloorRoutes(app, pool) {
 
   async function stationRows(fid) {
     const r = await pool.query(
-      `SELECT st.id, st.name, st.code, st.persons, st.sort_order, st.scanner_config,
+      `SELECT st.id, st.name, st.code, st.persons, st.sort_order, st.scanner_config, st.auto_print_labels,
               COALESCE(NULLIF(al.scanner_config, ''), NULLIF(st.scanner_config, ''), '') AS scanner
          FROM packing_stations st
          LEFT JOIN assembly_lines al ON al.line_id = st.name
@@ -331,6 +332,13 @@ function registerPackingFloorRoutes(app, pool) {
             AND p.finished_at >= CURRENT_DATE
           ORDER BY p.finished_at DESC LIMIT 5`, [name]);
       const lock = await openLockFor(pool, name);
+      let box = null, labels = [], pendingLabels = 0;
+      try {
+        await packingBoxes.ensurePackingBoxSchema(pool);
+        if (current) box = await packingBoxes.boxState(pool, current);
+        labels = await packingBoxes.recentLabels(pool, name);
+        pendingLabels = await packingBoxes.pendingCount(pool, name);
+      } catch (e) { console.warn('[Packing] box state failed:', e.message); }
 
       res.json({
         ok: true,
@@ -344,7 +352,11 @@ function registerPackingFloorRoutes(app, pool) {
           finished_today: finished.rows,
           packed_today: today.rows[0].n,
           lock,
-          pins_enabled: await pinsEnabled(pool)
+          pins_enabled: await pinsEnabled(pool),
+          box,
+          labels,
+          pending_labels: pendingLabels,
+          auto_print: station ? station.auto_print_labels !== false : true
         }
       });
     } catch (err) { sendServerError(res, err); }
@@ -392,10 +404,13 @@ function registerPackingFloorRoutes(app, pool) {
       await ensureTables();
       const plan = await loadPlan(parseInt(req.params.id, 10));
       if (!plan) return res.status(404).json({ ok: false, error: 'Plan not found.' });
+      /* the last part box and part carton are closed with the job */
+      let made = [];
+      try { made = await packingBoxes.closeOpenBoxes(pool, plan, userOf(req)); } catch (e) { console.warn('[Packing] close boxes failed:', e.message); }
       await pool.query(
         `UPDATE assembly_plans SET status = 'DONE', finished_at = LOCALTIMESTAMP, finished_by = $2, updated_at = NOW() WHERE id = $1`,
         [plan.id, userOf(req)]);
-      res.json({ ok: true });
+      res.json({ ok: true, boxes_made: made.length });
     } catch (err) { sendServerError(res, err); }
   });
 

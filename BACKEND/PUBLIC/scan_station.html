@@ -64,9 +64,46 @@
         .ss-flash-ok { animation: ssOk .5s; } .ss-flash-bad { animation: ssBad .6s; }
         @keyframes ssOk { 0% { background: #d1fae5; } 100% { background: #fff; } }
         @keyframes ssBad { 0% { background: #fee2e2; } 100% { background: #fff; } }
+        .ss-tiles.four { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+        .ss-tile b span { font-size: .9rem; color: #64748b; font-weight: 600; }
+        .ss-mini { height: 6px; background: #e2e8f0; border-radius: 4px; overflow: hidden; margin-top: 6px; }
+        .ss-mini i { display: block; height: 100%; background: #2563eb; }
+        .ss-label { margin-top: 12px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 12px; border-radius: 10px; background: #ecfdf5; border: 1px solid #a7f3d0; color: #065f46; font-weight: 600; font-size: .92rem; }
+        .ss-label.todo { background: #eff6ff; border-color: #bfdbfe; color: #1e40af; }
+        .ss-label span { flex: 1; min-width: 180px; }
+        .ss-label .btn { min-height: 36px; padding: 4px 12px; }
+        .ss-modal { position: fixed; inset: 0; z-index: 1900; background: rgba(15, 23, 42, .55); display: flex; align-items: center; justify-content: center; padding: 16px; }
+        .ss-modal-box { background: #fff; border-radius: 14px; width: min(880px, 100%); max-height: 86vh; display: flex; flex-direction: column; }
+        .ss-modal-head { display: flex; align-items: center; gap: 10px; padding: 14px 18px; border-bottom: 1px solid #e2e8f0; }
+        .ss-modal-head h2 { flex: 1; font-size: 1.1rem; margin: 0; }
+        .ss-modal-body { overflow: auto; padding: 8px 18px 16px; }
+        .ss-boxes { width: 100%; border-collapse: collapse; font-size: .86rem; }
+        .ss-boxes th { text-align: left; font-size: .74rem; color: #475569; padding: 8px 6px; border-bottom: 1px solid #e2e8f0; position: sticky; top: 0; background: #fff; }
+        .ss-boxes td { padding: 7px 6px; border-bottom: 1px solid #f1f5f9; vertical-align: middle; }
+        .ss-boxes td.n { text-align: right; font-variant-numeric: tabular-nums; }
+        .ss-boxes tr.void td { color: #64748b; text-decoration: line-through; }
+        .ss-boxes tr.void td:last-child { text-decoration: none; }
+        .ss-boxes .btn { padding: 2px 8px; min-height: 30px; font-size: .78rem; }
+        .ss-tag { display: inline-block; font-size: .72rem; font-weight: 700; padding: 1px 6px; border-radius: 6px; background: #e0e7ff; color: #3730a3; }
+        .ss-tag.c { background: #fef3c7; color: #92400e; }
+        #ssPrint { display: none; }
+        @media print {
+            @page { size: 100mm 50mm; margin: 0; }
+            body > *:not(#ssPrint) { display: none !important; }
+            #ssPrint { display: block !important; }
+            .lbl { width: 100mm; height: 50mm; box-sizing: border-box; padding: 3mm 4mm; font-family: Arial, sans-serif; color: #000; page-break-after: always; break-after: page; overflow: hidden; }
+            .lbl:last-child { page-break-after: auto; break-after: auto; }
+            .lbl .r { display: flex; justify-content: space-between; gap: 2mm; }
+            .lbl .t { font-size: 12pt; font-weight: 700; line-height: 1.15; max-height: 2.3em; overflow: hidden; }
+            .lbl .k { font-size: 12pt; font-weight: 700; white-space: nowrap; }
+            .lbl .m { font-size: 8.5pt; line-height: 1.3; }
+            .lbl svg { display: block; width: 100%; height: 14mm; margin-top: 1mm; }
+            .lbl .code { text-align: center; font-family: monospace; font-size: 9pt; font-weight: 700; }
+        }
+        @media (max-width: 1100px) { .ss-tiles.four { grid-template-columns: 1fr 1fr; } }
         @media (prefers-reduced-motion: reduce) { .ss-flash-ok, .ss-flash-bad { animation: none; } .ss-progress i { transition: none; } }
         @media (max-width: 900px) { .ss-main { grid-template-columns: 1fr; } }
-        @media (max-width: 520px) { .ss-tiles { grid-template-columns: 1fr 1fr; } .ss-item { font-size: 1.3rem; } }
+        @media (max-width: 520px) { .ss-tiles, .ss-tiles.four { grid-template-columns: 1fr 1fr; } .ss-item { font-size: 1.3rem; } }
     </style>
 </head>
 
@@ -102,6 +139,15 @@
         </div>
     </div>
 
+    <div class="ss-modal" id="ssBoxes" hidden role="dialog" aria-modal="true" aria-labelledby="ssBoxesTitle">
+        <div class="ss-modal-box">
+            <div class="ss-modal-head"><h2 id="ssBoxesTitle">Boxes and cartons</h2><button class="btn btn-outline btn-sm" onclick="closeBoxes()"><i class="bi bi-x-lg"></i> Close</button></div>
+            <div class="ss-modal-body" id="ssBoxesBody"></div>
+        </div>
+    </div>
+    <div id="ssPrint" aria-hidden="true"></div>
+
+    <script src="/assets/vendor/jsdelivr/jsbarcode@3.11.5/JsBarcode.all.min.js"></script>
     <script src="/assets/app.min.js?v=1583"></script>
     <script>
         const STORE_KEY = 'JMS_SCAN_STATION';
@@ -127,7 +173,7 @@
             $('ssPin').addEventListener('keydown', e => { if (e.key === 'Enter') unlock(); });
             /* keyboard-wedge scanners type into the page: keep the scan box focused */
             document.addEventListener('click', e => {
-                if (!e.target.closest('input, select, textarea, button, a') && $('ssScan') && $('ssLock').hidden) $('ssScan').focus();
+                if (!e.target.closest('input, select, textarea, button, a, .ss-modal') && $('ssScan') && $('ssLock').hidden) $('ssScan').focus();
             });
         });
 
@@ -187,6 +233,7 @@
             }
             render();
             attachPageScanner();
+            if (S.data.auto_print && S.data.pending_labels > 0) printPending();
         }
 
         function reloadSoon() {
@@ -220,8 +267,7 @@
             else if (c.rate_now > 0) { const t = new Date(Date.now() + left / c.rate_now * 3600e3); eta = hhmm(t); etaNote = `${fmt(left)} pcs left`; }
             else if (c.end_local) { eta = String(c.end_local).slice(11, 16); etaNote = 'as planned'; }
             const rateCls = c.std_pcs_hr ? (c.rate_now >= c.std_pcs_hr * 0.9 ? 'good' : (c.rate_now > 0 ? 'slow' : '')) : '';
-            const box = Number(c.pcs_per_box) || 0;
-            const boxes = box > 0 ? `${fmt(Math.floor(packed / box))}${packed % box ? ' + ' + (packed % box) : ''}` : '–';
+            const bx = d.box;
             const scans = d.scans.map(s => `<div class="${s.is_match ? 'ok' : 'bad'}">${esc(s.at ? new Date(s.at).toLocaleTimeString('en-IN', { hour12: false }) : '')} ${s.is_match ? '✓' : '✗'} ${esc(s.scanned_ean)}</div>`).join('');
             const local = S.log.map(l => `<div class="${l.cls}">${esc(l.t)} ${esc(l.msg)}</div>`).join('');
             $('ssBody').innerHTML = `
@@ -231,11 +277,12 @@
                         <div class="ss-meta">${esc(c.client_name || '')}${c.job_card_no ? ' · <b>' + esc(c.job_card_no) + '</b>' : ''} · EAN <b>${esc(c.ean_number || 'not set')}</b></div>
                         <div class="ss-count"><span class="big" id="ssPacked">${fmt(packed)}</span><span class="of">/ ${fmt(qty)}</span></div>
                         <div class="ss-progress" role="progressbar" aria-label="Packed" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(pct)}"><i style="width:${pct}%"></i></div>
-                        <div class="ss-tiles">
+                        <div class="ss-tiles${bx && bx.boxes_per_carton ? ' four' : ''}">
                             <div class="ss-tile ${rateCls}"><small>Rate now</small><b>${fmt(c.rate_now)}/hr</b><span>${c.std_pcs_hr ? 'standard ' + fmt(c.std_pcs_hr) + '/hr' : 'no standard set'}</span></div>
-                            <div class="ss-tile"><small>Boxes</small><b>${boxes}</b><span>${box > 0 ? box + ' pcs per box' : 'pcs/box not in master'}</span></div>
+                            ${boxTiles(bx)}
                             <div class="ss-tile"><small>Ends at</small><b>${eta}</b><span>${etaNote}</span></div>
                         </div>
+                        ${labelStrip()}
                         ${qty > 0 && packed >= qty ? `<div class="ss-reached"><i class="bi bi-flag"></i> Plan qty reached (${fmt(qty)}). Finish the job, or keep packing — extra pieces still count.</div>` : ''}
                         ${!c.ean_number ? `<div class="ss-reached"><i class="bi bi-exclamation-triangle"></i> This plan has no EAN, so every scan will be wrong. Add the EAN on the packing plan.</div>` : ''}
                         <div class="ss-scanbox">
@@ -253,6 +300,10 @@
                             ${c.status !== 'RUNNING' ? `<button class="btn btn-primary" onclick="startPlan(${Number(c.id)})"><i class="bi bi-play-fill"></i> Start this job</button>` : ''}
                             <button class="btn btn-outline" onclick="finishPlan(${Number(c.id)})"><i class="bi bi-check2-circle"></i> Finish job</button>
                         </div>
+                        ${bx ? `<div class="ss-actions">
+                            ${bx.in_box > 0 || bx.in_carton > 0 ? `<button class="btn btn-outline" onclick="closeBox(${Number(c.id)})"><i class="bi bi-box-seam"></i> Close last box</button>` : ''}
+                            <button class="btn btn-outline" onclick="openBoxes()"><i class="bi bi-list-ul"></i> Box list</button>
+                        </div>` : ''}
                         ${finishedHtml()}
                     </div>
                 </div>`;
@@ -262,6 +313,142 @@
             });
             if ($('ssLock').hidden && !document.activeElement.closest('.ss-lock')) input.focus();
         }
+
+        /* ---------- boxes, cartons and labels ---------- */
+        function boxTiles(bx) {
+            if (!bx) return `<div class="ss-tile"><small>Boxes</small><b>–</b><span>pcs per box not in Packing Masters</span></div>`;
+            const boxPct = Math.min(100, bx.in_box * 100 / bx.pcs_per_box);
+            let html = `<div class="ss-tile"><small>Box ${fmt(bx.box_no)}${bx.boxes_planned ? ' of ' + fmt(bx.boxes_planned) : ''}</small><b>${fmt(bx.in_box)} <span>/ ${fmt(bx.pcs_per_box)} pcs</span></b><div class="ss-mini"><i style="width:${boxPct}%"></i></div></div>`;
+            if (bx.boxes_per_carton) {
+                const cPct = Math.min(100, bx.in_carton * 100 / bx.boxes_per_carton);
+                html += `<div class="ss-tile"><small>Carton ${fmt(bx.carton_no)}</small><b>${fmt(bx.in_carton)} <span>/ ${fmt(bx.boxes_per_carton)} boxes</span></b><div class="ss-mini"><i style="width:${cPct}%"></i></div></div>`;
+            }
+            return html;
+        }
+
+        function labelStrip() {
+            const d = S.data;
+            if (!d.auto_print && d.pending_labels > 0) {
+                return `<div class="ss-label todo"><i class="bi bi-printer"></i><span>${fmt(d.pending_labels)} label${d.pending_labels > 1 ? 's' : ''} to print</span><button class="btn btn-primary" onclick="printPending(true)">Print now</button></div>`;
+            }
+            const last = (d.labels || []).find(l => !l.voided);
+            if (!last) return '';
+            const what = last.kind === 'CARTON' ? `Carton ${last.seq_no}` : `Box ${last.seq_no}`;
+            const state = last.printed ? 'label printed' : (d.auto_print ? 'printing…' : 'not printed');
+            return `<div class="ss-label"><i class="bi bi-printer"></i><span>${what} full, ${state} · <code>${esc(last.code)}</code></span><button class="btn btn-outline" onclick="reprint(${Number(last.id)})">Reprint</button></div>`;
+        }
+
+        let printing = false;
+        async function printPending(manual) {
+            if (printing || !S.station) return;
+            printing = true;
+            try {
+                const res = await JPSMS.api.request('/packing/boxes/claim', { method: 'POST', body: JSON.stringify({ station: S.station }), skipLoader: true });
+                if (res.data && res.data.length) {
+                    printLabels(res.data);
+                    addLog(`Printed ${res.data.map(l => l.code).join(', ')}`, 'info');
+                } else if (manual) JPSMS.toast('Nothing left to print', 'info');
+            } catch (e) { if (manual) JPSMS.toast(e.message, 'error'); }
+            finally { printing = false; reloadSoon(); }
+        }
+
+        function labelHtml(l) {
+            const carton = l.kind === 'CARTON';
+            const head = `${esc(l.client_name)}${l.item_code ? ' · Code ' + esc(l.item_code) : ''}`;
+            const lines = carton
+                ? [head, `${esc(l.job_card_no || '-')} · ${fmt(l.box_count)} boxes · ${fmt(l.qty)} pcs${l.is_part ? ' (part)' : ''}`,
+                   `Boxes ${esc(l.box_range || '')}`, `${esc(l.made_at)} · ${esc(l.table_id)}`]
+                : [head, `${esc(l.job_card_no || '-')} · Qty ${fmt(l.qty)} pcs${l.is_part ? ' (part box)' : ''}`,
+                   `${esc(l.made_at)} · ${esc(l.table_id)}${l.carton_code ? ' · in ' + esc(l.carton_code) : ''}`];
+            return `<div class="lbl"><div class="r"><div class="t">${esc(l.item_name)}</div><div class="k">${carton ? 'CARTON' : 'BOX'} ${fmt(l.seq_no)}</div></div>
+                ${lines.map(x => `<div class="m">${x}</div>`).join('')}
+                <svg data-code="${esc(l.code)}"></svg><div class="code">${esc(l.code)}</div></div>`;
+        }
+
+        function printLabels(labels) {
+            const area = $('ssPrint');
+            area.innerHTML = labels.map(labelHtml).join('');
+            area.querySelectorAll('svg[data-code]').forEach(svg => {
+                try { JsBarcode(svg, svg.dataset.code, { format: 'CODE128', displayValue: false, margin: 0, height: 50, width: 2 }); } catch (_) { /* the code text still prints */ }
+            });
+            window.print();
+            if ($('ssScan') && $('ssLock').hidden) $('ssScan').focus();
+        }
+
+        function askReason(what) {
+            const r = prompt(`Reason to ${what}? (for example: label torn, wrong count)`);
+            if (r === null) return null;
+            if (r.trim().length < 3) { JPSMS.toast('Give a reason of a few words.', 'error'); return null; }
+            return r.trim();
+        }
+
+        async function reprint(id) {
+            const reason = askReason('reprint this label');
+            if (!reason) return;
+            try {
+                const res = await JPSMS.api.request(`/packing/boxes/${id}/reprint`, { method: 'POST', body: JSON.stringify({ reason }), skipLoader: true });
+                printLabels([res.data]);
+                addLog(`Reprinted ${res.data.code}`, 'info');
+                if (!$('ssBoxes').hidden) openBoxes();
+            } catch (e) { JPSMS.toast(e.message, 'error'); }
+        }
+
+        async function printOne(id) {
+            try {
+                const res = await JPSMS.api.request(`/packing/boxes/${id}/print`, { method: 'POST', body: '{}', skipLoader: true });
+                printLabels([res.data]);
+                openBoxes(); reloadSoon();
+            } catch (e) { JPSMS.toast(e.message, 'error'); }
+        }
+
+        async function voidBox(id, code) {
+            const reason = askReason(`void ${code}`);
+            if (!reason) return;
+            try {
+                await JPSMS.api.request(`/packing/boxes/${id}/void`, { method: 'POST', body: JSON.stringify({ reason }), skipLoader: true });
+                JPSMS.toast(`${code} voided`, 'success');
+                openBoxes(); reloadSoon();
+            } catch (e) { JPSMS.toast(e.message, 'error'); }
+        }
+
+        async function closeBox(id) {
+            const bx = S.data.box;
+            const parts = [];
+            if (bx.in_box > 0) parts.push(`a part box of ${fmt(bx.in_box)} pcs`);
+            if (bx.boxes_per_carton && (bx.in_carton > 0 || bx.in_box > 0)) parts.push('a part carton');
+            if (!confirm(`Close ${parts.join(' and ')} now? Use this for the last pieces of a job.`)) return;
+            try {
+                const res = await JPSMS.api.request(`/packing/plans/${id}/close-box`, { method: 'POST', body: '{}', skipLoader: true });
+                JPSMS.toast(res.data.length ? `${res.data.length} label${res.data.length > 1 ? 's' : ''} made` : 'Nothing to close', 'success');
+                reload();
+            } catch (e) { JPSMS.toast(e.message, 'error'); }
+        }
+
+        async function openBoxes() {
+            const c = S.data && S.data.current;
+            $('ssBoxes').hidden = false;
+            $('ssBoxesTitle').textContent = c ? `Boxes and cartons · ${c.item_name || 'Plan ' + c.id}` : 'Boxes and cartons';
+            $('ssBoxesBody').innerHTML = '<p style="color:#64748b">Loading…</p>';
+            try {
+                const q = c ? 'plan_id=' + Number(c.id) : 'station=' + encodeURIComponent(S.station);
+                const res = await JPSMS.api.request('/packing/boxes?' + q, { skipLoader: true });
+                const rows = res.data || [];
+                $('ssBoxesBody').innerHTML = rows.length ? `<table class="ss-boxes"><thead><tr><th>Label</th><th>Code</th><th>Pcs</th><th>In carton</th><th>Made</th><th>Printed</th><th></th></tr></thead><tbody>
+                    ${rows.map(b => `<tr class="${b.voided ? 'void' : ''}">
+                        <td><span class="ss-tag ${b.kind === 'CARTON' ? 'c' : ''}">${b.kind === 'CARTON' ? 'Carton' : 'Box'} ${fmt(b.seq_no)}</span>${b.is_part ? ' <small>part</small>' : ''}</td>
+                        <td><code>${esc(b.code)}</code></td>
+                        <td class="n">${fmt(b.qty)}${b.kind === 'CARTON' ? ` <small>(${fmt(b.box_count)} boxes)</small>` : ''}</td>
+                        <td>${esc(b.carton_code || '')}</td>
+                        <td>${esc(b.made_at)}</td>
+                        <td>${b.voided ? 'voided: ' + esc(b.void_reason || '') : (b.printed ? 'yes' + (b.reprint_count ? ` · ${b.reprint_count} reprint${b.reprint_count > 1 ? 's' : ''}` : '') : 'no')}</td>
+                        <td style="white-space:nowrap">${b.voided ? '' : `${b.printed ? `<button class="btn btn-outline" onclick="reprint(${Number(b.id)})">Reprint</button>` : `<button class="btn btn-outline" onclick="printOne(${Number(b.id)})">Print</button>`}
+                            ${b.kind === 'CARTON' || !b.carton_code ? `<button class="btn btn-outline" onclick="voidBox(${Number(b.id)}, '${esc(b.code)}')">Void</button>` : ''}`}</td>
+                    </tr>`).join('')}</tbody></table>
+                    <p style="color:#64748b;font-size:.82rem;margin-top:10px">Voiding a box puts its pieces back to loose, and the next scans fill a new box with a new number. To void a box that is in a carton, void the carton first.</p>`
+                    : '<p style="color:#64748b">No boxes yet for this job.</p>';
+            } catch (e) { $('ssBoxesBody').innerHTML = `<p style="color:#b91c1c">${esc(e.message)}</p>`; }
+        }
+        function closeBoxes() { $('ssBoxes').hidden = true; if ($('ssScan')) $('ssScan').focus(); }
 
         function finishedHtml() {
             const f = (S.data && S.data.finished_today) || [];
@@ -323,7 +510,9 @@
         async function finishPlan(id) {
             const c = S.data.current;
             const short = c && Number(c.plan_qty) > 0 && Number(c.scanned_qty) < Number(c.plan_qty);
-            if (!confirm(short ? `Only ${fmt(c.scanned_qty)} of ${fmt(c.plan_qty)} packed. Finish this job anyway?` : 'Finish this job?')) return;
+            const bx = S.data.box;
+            const loose = bx && (bx.in_box > 0 || bx.in_carton > 0) ? ' The last part box and carton will be closed and labelled.' : '';
+            if (!confirm((short ? `Only ${fmt(c.scanned_qty)} of ${fmt(c.plan_qty)} packed. Finish this job anyway?` : 'Finish this job?') + loose)) return;
             try {
                 await JPSMS.api.post(`/packing/plans/${id}/finish`, {});
                 JPSMS.toast('Job finished', 'success');
@@ -369,7 +558,7 @@
                     let msg; try { msg = JSON.parse(e.data); } catch (_) { return; }
                     const d = msg.data || {};
                     if (!S.station || String(d.table_id || '').toLowerCase() !== S.station.toLowerCase()) return;
-                    if (msg.type === 'scan' || msg.type === 'alert') reloadSoon();
+                    if (msg.type === 'scan' || msg.type === 'alert' || msg.type === 'box') reloadSoon();
                 };
             } catch (_) { /* polling covers it */ }
         }

@@ -175,7 +175,12 @@ const PLANS_IN_PERIOD = `
      AND ((p.start_time >= $1::date AND p.start_time < $2::date + 1)
           OR EXISTS (SELECT 1 FROM assembly_scans sc WHERE sc.plan_id = p.id AND ${SCAN_RANGE}))`;
 
-async function jobsReport(pool, f, hasJr) {
+async function jobsReport(pool, f, hasJr, hasBoxes) {
+  const bxSel = hasBoxes ? `, bx.boxes, bx.cartons, bx.boxed` : ', NULL::int AS boxes, NULL::int AS cartons, NULL::int AS boxed';
+  const bxJoin = hasBoxes ? `LEFT JOIN LATERAL (
+        SELECT COUNT(*) FILTER (WHERE b.kind = 'BOX')::int AS boxes, COUNT(*) FILTER (WHERE b.kind = 'CARTON')::int AS cartons,
+               COALESCE(SUM(b.qty) FILTER (WHERE b.kind IN ('BOX', 'OPENING')), 0)::int AS boxed
+          FROM packing_boxes b WHERE b.plan_id = pl.id AND b.voided_at IS NULL) bx ON TRUE` : '';
   const r = await pool.query(`
     WITH pl AS (${PLANS_IN_PERIOD}
     ), st AS (
@@ -197,8 +202,8 @@ async function jobsReport(pool, f, hasJr) {
            COALESCE(pl.scanned_qty, 0)::int AS packed, UPPER(COALESCE(NULLIF(TRIM(pl.status), ''), 'PLANNED')) AS status,
            to_char(pl.start_time, 'YYYY-MM-DD HH24:MI') AS start_local, pl.duration_min,
            (pl.end_time < LOCALTIMESTAMP) AS ended, to_char(pl.finished_at, 'DD-Mon HH24:MI') AS finished,
-           agg.first_t, agg.last_t, agg.work_s, agg.good, ps.cycle
-      FROM pl LEFT JOIN agg ON agg.plan_id = pl.id LEFT JOIN ps ON ps.id = pl.id
+           agg.first_t, agg.last_t, agg.work_s, agg.good, ps.cycle ${bxSel}
+      FROM pl LEFT JOIN agg ON agg.plan_id = pl.id LEFT JOIN ps ON ps.id = pl.id ${bxJoin}
      ORDER BY pl.start_time DESC NULLS LAST
      LIMIT ${ROW_LIMIT}`, filterParams(f));
 
@@ -219,6 +224,7 @@ async function jobsReport(pool, f, hasJr) {
       plan_qty: qty, packed: x.packed, pct: round(pct), diff: x.packed - qty,
       plan_min: x.duration_min, std_min: round(stdMin), actual_min: work ? round(work / 60) : null,
       eff: work > 0 && x.cycle ? round(((Math.min(x.good, x.packed) * x.cycle) / work) * 100) : null,
+      boxes: x.boxes, cartons: x.cartons, loose: x.boxes === null ? null : Math.max(0, x.packed - (x.boxed || 0)),
       first: x.first_t, last: x.last_t, finished: x.finished, status: flag
     };
   });
@@ -229,6 +235,7 @@ async function jobsReport(pool, f, hasJr) {
       { key: 'packed', label: 'Packed', type: 'int' }, { key: 'pct', label: '%', type: 'pct' }, { key: 'diff', label: '+ / −', type: 'int' },
       { key: 'plan_min', label: 'Planned time', type: 'min' }, { key: 'std_min', label: 'Std time', type: 'min' },
       { key: 'actual_min', label: 'Actual working', type: 'min' }, { key: 'eff', label: 'Efficiency', type: 'pct' },
+      ...(hasBoxes ? [{ key: 'boxes', label: 'Boxes', type: 'int' }, { key: 'cartons', label: 'Cartons', type: 'int' }, { key: 'loose', label: 'Not in a box', type: 'int' }] : []),
       { key: 'first', label: 'First scan' }, { key: 'last', label: 'Last scan' }, { key: 'finished', label: 'Finished' },
       { key: 'status', label: 'Status', type: 'status' }
     ],
@@ -396,12 +403,58 @@ async function wrongReport(pool, f, hasLocks, factoryId) {
   };
 }
 
+/* Every box and carton made in the period, with its reprints. */
+async function boxesReport(pool, f, hasBoxes) {
+  const empty = { columns: [], rows: [], summary: [{ label: 'Boxes', value: 0, type: 'int' }] };
+  if (!hasBoxes) return empty;
+  const r = await pool.query(`
+    SELECT to_char(b.created_at AT TIME ZONE '${TZ}', 'YYYY-MM-DD HH24:MI') AS made, b.table_id, b.kind, b.seq_no, b.code, b.item_name,
+           b.client_name, b.job_card_no, b.qty, b.box_count, b.is_part, b.carton_code, b.printed_at IS NOT NULL AS printed,
+           b.reprint_count, b.voided_at IS NOT NULL AS voided, b.void_reason, b.voided_by,
+           (SELECT string_agg(rp.reason || ' (' || COALESCE(rp.reprinted_by, '') || ')', '; ' ORDER BY rp.reprinted_at)
+              FROM packing_label_reprints rp WHERE rp.box_sync_id = b.sync_id) AS reprint_reasons
+      FROM packing_boxes b
+     WHERE b.created_at >= ($1::date)::timestamp AT TIME ZONE '${TZ}' AND b.created_at < ($2::date + 1)::timestamp AT TIME ZONE '${TZ}'
+       AND ($3::text IS NULL OR LOWER(b.table_id) = LOWER($3))
+       AND ($4::text IS NULL OR LOWER(b.client_name) LIKE $4)
+       AND b.kind IN ('BOX', 'CARTON')
+     ORDER BY b.created_at DESC, b.id DESC
+     LIMIT ${ROW_LIMIT}`, filterParams(f));
+  const live = r.rows.filter(x => !x.voided);
+  const rows = r.rows.map(x => ({
+    made: x.made, station: x.table_id, label: `${x.kind === 'CARTON' ? 'Carton' : 'Box'} ${x.seq_no}${x.is_part ? ' (part)' : ''}`,
+    code: x.code, item: x.item_name, party: x.client_name, job_card: x.job_card_no, qty: x.qty,
+    boxes: x.kind === 'CARTON' ? x.box_count : null, carton: x.carton_code || '',
+    printed: x.voided ? '' : (x.printed ? 'yes' : 'not yet'), reprints: x.reprint_count || 0, reprint_reasons: x.reprint_reasons || '',
+    status: x.voided ? 'voided' : (x.kind === 'BOX' && !x.carton_code ? 'loose box' : 'ok'), void_reason: x.voided ? `${x.void_reason || ''} (${x.voided_by || ''})` : ''
+  }));
+  return {
+    columns: [
+      { key: 'made', label: 'Made' }, { key: 'station', label: 'Station' }, { key: 'label', label: 'Label' }, { key: 'code', label: 'Code' },
+      { key: 'item', label: 'Item' }, { key: 'party', label: 'Party' }, { key: 'job_card', label: 'Job card' },
+      { key: 'qty', label: 'Pcs', type: 'int' }, { key: 'boxes', label: 'Boxes', type: 'int' }, { key: 'carton', label: 'In carton' },
+      { key: 'printed', label: 'Printed' }, { key: 'reprints', label: 'Reprints', type: 'int' }, { key: 'reprint_reasons', label: 'Reprint reasons' },
+      { key: 'status', label: 'Status', type: 'status' }, { key: 'void_reason', label: 'Void reason' }
+    ],
+    rows,
+    note: 'Every box and carton label made in the period. Reprints show the reason and who reprinted.',
+    summary: [
+      { label: 'Boxes', value: live.filter(x => x.kind === 'BOX').length, type: 'int' },
+      { label: 'Cartons', value: live.filter(x => x.kind === 'CARTON').length, type: 'int' },
+      { label: 'Pcs in boxes', value: live.filter(x => x.kind === 'BOX').reduce((t, x) => t + x.qty, 0), type: 'int' },
+      { label: 'Reprints', value: r.rows.reduce((t, x) => t + (x.reprint_count || 0), 0), type: 'int' },
+      { label: 'Voided', value: r.rows.length - live.length, type: 'int' }
+    ]
+  };
+}
+
 const REPORTS = {
   daily: { title: 'Daily summary', run: (pool, f, t) => dailyReport(pool, f, t.jr) },
-  jobs: { title: 'Jobs', run: (pool, f, t) => jobsReport(pool, f, t.jr) },
+  jobs: { title: 'Jobs', run: (pool, f, t) => jobsReport(pool, f, t.jr, t.boxes) },
   jobcards: { title: 'Job cards', run: (pool, f, t) => jobcardsReport(pool, f, t.jr) },
   hourly: { title: 'Hourly output', run: (pool, f, t) => hourlyReport(pool, f, t.jr) },
-  wrong: { title: 'Wrong scans', run: (pool, f, t) => wrongReport(pool, f, t.locks, t.factoryId) }
+  wrong: { title: 'Wrong scans', run: (pool, f, t) => wrongReport(pool, f, t.locks, t.factoryId) },
+  boxes: { title: 'Boxes and labels', run: (pool, f, t) => boxesReport(pool, f, t.boxes) }
 };
 
 function minText(v) {
@@ -423,10 +476,10 @@ function toSheetRows(report) {
 
 function registerPackingReportRoutes(app, pool) {
   async function tables() {
-    const r = await pool.query(`SELECT to_regclass('public.or_jr_report') AS jr, to_regclass('public.packing_lock_events') AS locks,
+    const r = await pool.query(`SELECT to_regclass('public.or_jr_report') AS jr, to_regclass('public.packing_lock_events') AS locks, to_regclass('public.packing_boxes') AS boxes,
                                        to_regclass('public.assembly_scans') AS scans, to_regclass('public.packing_item_standards') AS std`);
     const t = r.rows[0] || {};
-    return { jr: Boolean(t.jr), locks: Boolean(t.locks), ready: Boolean(t.scans) && Boolean(t.std) };
+    return { jr: Boolean(t.jr), locks: Boolean(t.locks), boxes: Boolean(t.boxes), ready: Boolean(t.scans) && Boolean(t.std) };
   }
 
   async function build(req) {

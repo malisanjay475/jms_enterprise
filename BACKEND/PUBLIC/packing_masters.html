@@ -189,6 +189,7 @@
                 <div class="pm-field"><label for="sScanner">Scanner</label><input class="form-control" id="sScanner" maxlength="120" placeholder="IP:192.168.1.50:9000 or BRIDGE:COM1"><div id="sOldScan" class="pm-oldscan"></div></div>
                 <div class="pm-field"><label for="sSort">Order</label><input class="form-control" id="sSort" type="number" step="1"></div>
                 <div class="pm-field full"><label><input type="checkbox" id="sActive" checked> Active</label></div>
+                <div class="pm-field full"><label><input type="checkbox" id="sAutoPrint" checked> Print box and carton labels by themselves on the station screen</label></div>
             </div>
             <div class="pm-err" id="sErr"></div>
             <div class="pm-foot"><button class="btn btn-outline" data-close>Cancel</button><button class="btn btn-primary" id="sSave">Save</button></div>
@@ -310,11 +311,12 @@
                 S.copiedLine = null;
                 $('sSort').value = s.sort_order ?? '';
                 $('sActive').checked = s.id ? s.is_active : true;
+                $('sAutoPrint').checked = s.id ? s.auto_print_labels !== false : true;
                 $('sErr').textContent = '';
                 open('mStation');
             }
             $('sSave').onclick = async () => {
-                const body = { name: $('sName').value, code: $('sCode').value, persons: $('sPersons').value, scanner_config: $('sScanner').value, sort_order: $('sSort').value, is_active: $('sActive').checked, replace_line: S.copiedLine || undefined };
+                const body = { name: $('sName').value, code: $('sCode').value, persons: $('sPersons').value, scanner_config: $('sScanner').value, sort_order: $('sSort').value, is_active: $('sActive').checked, auto_print_labels: $('sAutoPrint').checked, replace_line: S.copiedLine || undefined };
                 if (!body.name.trim()) { $('sErr').textContent = 'Enter a station name.'; return; }
                 try {
                     await api(S.stEditId ? `/packing/stations/${S.stEditId}` : '/packing/stations', { method: S.stEditId ? 'PUT' : 'POST', body: JSON.stringify(body) });
