@@ -14,6 +14,34 @@
   "latest": "1.177.0",
   "versions": [
     {
+      "version": "1.188.1",
+      "date": "2026-11-19",
+      "title": "Packing tables safety fix",
+      "modules": [
+        {
+          "app": "packing",
+          "changes": [
+            { "type": "security", "text": "Saving a station's table list reads at most 60 tables, however long the list sent." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.188.0",
+      "date": "2026-11-19",
+      "title": "Order Tracker: packing to dispatch",
+      "modules": [
+        {
+          "app": "planning",
+          "changes": [
+            { "type": "feat", "text": "Order Tracker shows each order's journey after moulding: packed, reached the store, and dispatched, with the dates, packing plans, handover slips and dispatch slips (vehicle and invoice)." },
+            { "type": "feat", "text": "When an order is tracked by packing scans, it counts as complete only once the full quantity is dispatched. Moulded but not yet dispatched orders stay in the open list." },
+            { "type": "feat", "text": "Order Tracker flags stuck goods: moulded but not packed for more than 2 shift days, packed but not handed to the store after 24 hours, and in store too long without dispatch." }
+          ]
+        }
+      ]
+    },
+    {
       "version": "1.187.1",
       "date": "2026-11-19",
       "title": "Dispatch rules and slip fixes",
