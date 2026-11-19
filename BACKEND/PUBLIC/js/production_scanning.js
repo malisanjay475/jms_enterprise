@@ -76,7 +76,7 @@ async function refreshPorts(renderCallback) {
 async function loadActivePlans(renderCallback) {
     try {
         const res = await JPSMS.api.get('/assembly/active');
-        const rawPlans = res.data || [];
+        const rawPlans = (res.data || []).filter(p => !p.is_table_alias);
 
         TABLE_PLANS = rawPlans.reduce((acc, p) => {
             if (!acc[p.table_id]) acc[p.table_id] = [];

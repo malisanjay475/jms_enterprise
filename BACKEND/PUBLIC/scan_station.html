@@ -576,7 +576,7 @@
                 let msg; try { msg = JSON.parse(event.data); } catch (_) { return; }
                 const mine = S.station && String(msg.table_id || '').toLowerCase() === S.station.toLowerCase();
                 if (msg.type === 'scanner-status' && mine) { S.bridgeScanner = msg.connected ? (msg.path || 'connected') : null; renderScannerChip(); }
-                else if (msg.type === 'scan-result' && mine) {
+                else if (msg.type === 'scan-result' && (mine || (S.station && String(msg.table_id || '').toLowerCase().startsWith(S.station.toLowerCase() + '/')))) {
                     /* the bridge already posted this scan for its IP scanner: only show it */
                     afterScan({ ok: msg.ok, match: msg.match, new_qty: msg.new_qty, error: msg.error, locked: /LOCKED/i.test(msg.error || '') }, msg.ean);
                 } else if (msg.type === 'data' && S.pagePort && msg.path === S.pagePort) {

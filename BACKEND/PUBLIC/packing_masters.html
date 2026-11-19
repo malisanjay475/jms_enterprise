@@ -49,6 +49,9 @@
         .pm-pager { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 10px 2px; color: var(--text-muted); font-size: .85rem; flex-wrap: wrap; }
         .pm-pager button { min-width: 36px; }
         .pm-empty { padding: 36px 16px; text-align: center; color: var(--text-muted); }
+        .pm-st-tables { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; font-size: .78rem; }
+        .pm-st-tables span { background: var(--bg-body, #f1f5f9); border: 1px solid var(--border); border-radius: 6px; padding: 1px 6px; font-weight: 700; }
+        .pm-st-tables small { color: var(--text-muted); }
         .pm-setting { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; background: var(--bg-card); border: 1px solid var(--border); border-radius: 14px; padding: 12px 16px; margin-bottom: 14px; font-size: .9rem; }
         .pm-setting input { width: 90px; }
         .pm-setting .hint { color: var(--text-muted); font-size: .8rem; flex-basis: 100%; }
@@ -271,6 +274,14 @@
                     S.stations = res.data || [];
                     S.oldScanners = res.old_scanners || [];
                 } catch (e) { S.stations = []; }
+                S.tables = {};
+                try {
+                    const t = await api('/packing/tables');
+                    (t.data || []).filter(x => x.is_active).forEach(x => {
+                        const k = String(x.station_name).toLowerCase();
+                        (S.tables[k] = S.tables[k] || []).push(x.code);
+                    });
+                } catch (e) { }
                 renderStationOptions();
                 renderStations();
             }
@@ -298,13 +309,38 @@
                             <div><small>Avg cycle</small><b>${s.avg_cycle ? fmt(s.avg_cycle, 1) + ' s' : '–'}</b></div>
                             <div><small>Persons</small><b>${s.min_persons != null ? (s.min_persons === s.max_persons ? s.min_persons : s.min_persons + '–' + s.max_persons) : (s.persons ?? '–')}</b></div>
                         </div>
+                        <div class="pm-st-tables">${(S.tables[String(s.name).toLowerCase()] || []).length
+                            ? `<small>${fmt((S.tables[String(s.name).toLowerCase()] || []).length)} tables</small> ` + (S.tables[String(s.name).toLowerCase()] || []).map(c => `<span>${esc(c)}</span>`).join('')
+                            : '<small>No tables</small>'}
+                            ${S.canEdit ? `<button class="pm-iconbtn" data-tables="${esc(s.name)}" aria-label="Edit tables of ${esc(s.name)}" title="Edit tables"><i class="bi bi-grid-3x3-gap"></i></button>` : ''}</div>
                         <div class="pm-st-foot">
                             <span><i class="bi bi-upc-scan"></i> ${s.scanner_config ? esc(s.scanner_config) : 'No scanner set'}</span>
                             ${S.canEdit ? `<button class="pm-iconbtn" data-st="${s.id}" aria-label="Edit ${esc(s.name)}"><i class="bi bi-pencil"></i></button>` : ''}
                         </div>
                     </div>`).join('');
                 box.querySelectorAll('[data-st]').forEach(b => b.onclick = () => editStation(Number(b.dataset.st)));
+                box.querySelectorAll('[data-tables]').forEach(b => b.onclick = () => editTables(b.dataset.tables));
             }
+            /* Tables of a station: one list, e.g. A1-A13 or A1, A2, A3. */
+            async function editTables(name) {
+                const cur = (S.tables[String(name).toLowerCase()] || []).join(', ');
+                const typed = prompt(`Tables of ${name}\nType them separated by commas, or a range like A1-A13.`, cur);
+                if (typed === null) return;
+                const codes = [];
+                typed.split(/[\s,;]+/).filter(Boolean).forEach(part => {
+                    const m = part.match(/^([A-Za-z]+)(\d+)-(?:[A-Za-z]*)(\d+)$/);
+                    if (m && Number(m[3]) >= Number(m[2]) && Number(m[3]) - Number(m[2]) < 60) {
+                        for (let i = Number(m[2]); i <= Number(m[3]); i++) codes.push(m[1].toUpperCase() + i);
+                    } else codes.push(part.toUpperCase());
+                });
+                if (!codes.length && !confirm(`Remove all tables from ${name}?`)) return;
+                try {
+                    await api('/packing/tables', { method: 'PUT', body: JSON.stringify({ station_name: name, codes }) });
+                    JPSMS.toast(`${name}: ${codes.length} tables saved`, 'success');
+                    loadStations();
+                } catch (e) { JPSMS.toast(e.message, 'error'); }
+            }
+
             function editStation(id) {
                 const s = S.stations.find(x => x.id === id) || {};
                 S.stEditId = s.id || null;
