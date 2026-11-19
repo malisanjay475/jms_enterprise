@@ -100,6 +100,7 @@
             </div>
             <div class="pm-actions">
                 <button class="btn btn-outline" id="btnExport"><i class="bi bi-download"></i> Export Excel</button>
+                <button class="btn btn-outline pm-edit" id="btnFillEan"><i class="bi bi-upc"></i> Fill EAN from ERP</button>
                 <button class="btn btn-outline pm-edit" id="btnImport"><i class="bi bi-upload"></i> Import Excel</button>
                 <button class="btn btn-primary pm-edit" id="btnAdd"><i class="bi bi-plus-lg"></i> <span id="btnAddLabel">Add item</span></button>
             </div>
@@ -244,6 +245,7 @@
                 $('tabStations').hidden = tab !== 'stations';
                 $('btnAddLabel').textContent = tab === 'items' ? 'Add item' : 'Add station';
                 $('btnImport').style.display = tab === 'items' && S.canEdit ? '' : 'none';
+                $('btnFillEan').style.display = tab === 'items' && S.canEdit ? '' : 'none';
                 $('btnExport').style.display = tab === 'items' ? '' : 'none';
                 if (tab === 'stations') loadStations();
             }
@@ -458,6 +460,18 @@
                     a.href = URL.createObjectURL(blob); a.download = 'packing_item_standards.xlsx'; a.click();
                     setTimeout(() => URL.revokeObjectURL(a.href), 2000);
                 } catch (e) { JPSMS.toast(e.message, 'error'); }
+            };
+
+            /* ---------- EAN from the ERP Variant Master ---------- */
+            $('btnFillEan').onclick = async () => {
+                try {
+                    const pre = await api('/packing/standards/fill-ean', { method: 'POST', body: '{}' });
+                    if (!pre.fillable) { JPSMS.toast('No empty EAN has a barcode in the ERP Variant Master', 'info'); return; }
+                    if (!confirm(`Fill ${pre.fillable.toLocaleString('en-IN')} empty EAN(s) from the ERP Variant Master (same item code and party group)? EANs already filled are not changed.`)) return;
+                    const res = await api('/packing/standards/fill-ean?commit=1', { method: 'POST', body: '{}' });
+                    JPSMS.toast(`${res.filled.toLocaleString('en-IN')} EAN(s) filled from ERP`, 'success');
+                    loadRows();
+                } catch (e) { }
             };
 
             /* ---------- import ---------- */
