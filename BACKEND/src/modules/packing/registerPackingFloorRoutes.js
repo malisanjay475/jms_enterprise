@@ -313,6 +313,8 @@ function registerPackingFloorRoutes(app, pool) {
           AND ((p.start_time < ($1::date + 1) AND COALESCE(p.end_time, p.start_time) >= $1::date)
                OR (UPPER(COALESCE(p.status, '')) = 'RUNNING' AND p.start_time >= $1::date - ${OPEN_PLAN_DAYS} AND p.start_time < ($1::date + 1)))`, [day]);
       const scans = await live.scanFigures(pool, startMs);
+      const crewNow = await require('./registerPackingCrewRoutes').crewNow(pool, serverFactoryId() || fid, now);
+      const crewInUse = crewNow.size > 0;
 
       const known = new Set(stations.map(s => s.name.toLowerCase()));
       const oldTables = [...new Set(plans.map(p => p.table_id).filter(t => t && !known.has(String(t).toLowerCase())))].sort();
@@ -325,7 +327,7 @@ function registerPackingFloorRoutes(app, pool) {
         const key = row.name.toLowerCase();
         const own = plans.filter(p => String(p.table_id || '').toLowerCase() === key);
         const lock = await openLockFor(pool, row.name);
-        tiles.push(live.stationTile(row, own, scans.get(key), lock, now));
+        tiles.push(live.stationTile(row, own, scans.get(key), lock, now, crewInUse ? (crewNow.get(key) || { n: 0, names: [] }) : null));
       }
 
       let store = null;
@@ -393,6 +395,8 @@ function registerPackingFloorRoutes(app, pool) {
             AND p.finished_at >= CURRENT_DATE
           ORDER BY p.finished_at DESC LIMIT 5`, [name]);
       const lock = await openLockFor(pool, name);
+      const crewMap = await require('./registerPackingCrewRoutes').crewNow(pool, serverFactoryId() || fid);
+      const crew = crewMap.get(name.toLowerCase()) || { n: 0, names: [] };
       let box = null, labels = [], pendingLabels = 0, waitingStore = 0;
       try {
         await packingBoxes.ensurePackingBoxSchema(pool);
@@ -419,7 +423,9 @@ function registerPackingFloorRoutes(app, pool) {
           labels,
           pending_labels: pendingLabels,
           waiting_store: waitingStore,
-          auto_print: station ? station.auto_print_labels !== false : true
+          auto_print: station ? station.auto_print_labels !== false : true,
+          crew,
+          crew_in_use: crewMap.size > 0
         }
       });
     } catch (err) { sendServerError(res, err); }

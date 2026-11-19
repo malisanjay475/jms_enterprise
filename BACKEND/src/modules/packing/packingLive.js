@@ -20,6 +20,7 @@
 
 const { shiftMinutesBetween } = require('../orderTracker/packingProgress');
 const { UNIT_SQL } = require('./registerPackingHandoverRoutes');
+const { crewStdRate } = require('./packingCrew');
 
 const IDLE_MIN = 10;
 const NOT_HANDED_HOURS = 24;
@@ -58,8 +59,10 @@ function istMs(local) {
  * One station's tile.
  * plans: the station's plans on today's board (planDetails rows).
  * scan:  { good_today, wrong_today, last_good_at } for the station.
+ * crew:  { n, names } packers on the station now (step 10), or null when the factory
+ *        does not record its crew; then the standard persons and speed are used as is.
  */
-function stationTile(row, plans, scan, lock, nowMs) {
+function stationTile(row, plans, scan, lock, nowMs, crew = null) {
   const open = plans.filter(p => p.status !== 'DONE');
   const running = plans.filter(p => p.status === 'RUNNING');
   const current = running[running.length - 1] || open[0] || null;
@@ -76,7 +79,11 @@ function stationTile(row, plans, scan, lock, nowMs) {
   else if (running.length) status = 'RUNNING';
   else if (open.length) status = 'NOT_STARTED';
 
-  const std = current ? num(current.std_pcs_hr) : 0;
+  const fullStd = current ? num(current.std_pcs_hr) : 0;
+  const stdPersons = num((current && current.std_persons) || row.persons) || null;
+  const crewN = crew ? num(crew.n) : null;
+  /* standard speed for the people actually there (std x crew / std persons) */
+  const std = crewN ? crewStdRate(fullStd, stdPersons, crewN) : fullStd;
   const rateNow = current ? num(current.rate_now) : 0;
   const rateUsed = status === 'RUNNING' ? (rateNow > 0 ? rateNow : std) : 0;
   const addBy17 = rateUsed > 0 ? Math.min(remaining, Math.floor(rateUsed * minutesLeftToday(nowMs) / 60)) : 0;
@@ -85,6 +92,10 @@ function stationTile(row, plans, scan, lock, nowMs) {
     name: row.name,
     is_station: row.is_station !== false,
     persons: row.persons ?? null,
+    std_persons: stdPersons,
+    crew: crew ? { n: crewN, names: crew.names || [] } : null,
+    crew_short: Boolean(crew && stdPersons && crewN < stdPersons && ['RUNNING', 'IDLE'].includes(status)),
+    std_pcs_hr_full: fullStd,
     status,
     idle_min: idleMin,
     current: current ? {
@@ -199,6 +210,9 @@ function alertsOf(tiles, store) {
   }
   for (const s of tiles) {
     if (s.status === 'IDLE') a.push({ level: 'warning', kind: 'idle', station: s.name, text: `${s.name} idle ${s.idle_min} min (no good scan).` });
+  }
+  for (const s of tiles) {
+    if (s.crew_short) a.push({ level: 'warning', kind: 'crew', station: s.name, text: `${s.name} has ${s.crew.n} of ${s.std_persons} packers.` });
   }
   if (store.waiting_old > 0) a.push({ level: 'warning', kind: 'handover', text: `${store.waiting_old} carton${store.waiting_old === 1 ? '' : 's'} labelled more than ${store.not_handed_hours} h ago, not handed to the store.` });
   if (store.old_stock_units > 0) a.push({ level: 'neutral', kind: 'old_stock', text: `${store.old_stock_units} carton${store.old_stock_units === 1 ? '' : 's'} in the store for more than ${store.alert_days} days.` });

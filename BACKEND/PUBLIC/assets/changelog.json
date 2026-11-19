@@ -14,6 +14,22 @@
   "latest": "1.177.0",
   "versions": [
     {
+      "version": "1.190.0",
+      "date": "2026-11-19",
+      "title": "Packing crew and output per packer",
+      "modules": [
+        {
+          "app": "packing",
+          "changes": [
+            { "type": "feat", "text": "Packing Masters has a Packers list (name, badge no, contractor), with Excel import." },
+            { "type": "feat", "text": "Put packers on stations each day with the new Crew button on the Packing Plan or on a station screen. Move or take them off during the day; each move keeps its time. Same as yesterday copies the last day's crew." },
+            { "type": "feat", "text": "The live screen and station screen show how many packers are on each station against the standard, and the standard speed is worked out for the people actually there." },
+            { "type": "feat", "text": "New Packers report: each packer's hours on station, their share of the station's pieces and their output against the standard, with Excel export." }
+          ]
+        }
+      ]
+    },
+    {
       "version": "1.189.0",
       "date": "2026-11-19",
       "title": "Packing live screen",

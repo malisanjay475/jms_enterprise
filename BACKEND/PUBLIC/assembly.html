@@ -118,6 +118,7 @@
                 <button class="btn btn-sm btn-outline" onclick="goToday()">Today</button>
                 <button class="btn btn-sm btn-outline" onclick="loadBoard()"><i class="bi bi-arrow-clockwise"></i> Refresh</button>
                 <a class="btn btn-sm btn-outline" href="scan_station.html"><i class="bi bi-upc-scan"></i> Station screen</a>
+                <button class="btn btn-sm btn-outline" onclick="PackCrew.open()"><i class="bi bi-people"></i> Crew</button>
                 <button class="btn btn-sm btn-primary" onclick="openPlanModal()"><i class="bi bi-plus-lg"></i> Plan job</button>
             </div>
         </div>
@@ -191,6 +192,7 @@
 
     <script src="/assets/app.min.js?v=1583"></script>
     <script src="/assets/packing-shift.js?v=1"></script>
+    <script src="/assets/packing-crew.js?v=1"></script>
     <script>
         const PX_PER_MIN = 3; // 180 px per hour
         /* Old fixed tables, used only when no packing station is set up yet. */
