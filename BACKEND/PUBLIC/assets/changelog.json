@@ -14,6 +14,20 @@
   "latest": "1.177.0",
   "versions": [
     {
+      "version": "1.182.1",
+      "date": "2026-11-19",
+      "title": "Packing reports fixes",
+      "modules": [
+        {
+          "app": "packing",
+          "changes": [
+            { "type": "fix", "text": "Packing Reports: a job's working time now counts pauses for the whole station, so switching between two jobs no longer shows as idle time." },
+            { "type": "fix", "text": "Packing Reports: switching tabs quickly always shows the tab you picked; hours with only a few pieces no longer drop out of the Hourly view; lock totals follow the party filter." }
+          ]
+        }
+      ]
+    },
+    {
       "version": "1.182.0",
       "date": "2026-11-19",
       "title": "Packing reports",

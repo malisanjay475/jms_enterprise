@@ -19,7 +19,7 @@
  */
 
 const XLSX = require('xlsx');
-const { getRequestUsername } = require('../../app/requestContext');
+const { getRequestUsername, getFactoryId } = require('../../app/requestContext');
 const { sendServerError } = require('../../app/httpErrors');
 
 const IDLE_MIN = 10;
@@ -178,14 +178,18 @@ const PLANS_IN_PERIOD = `
 async function jobsReport(pool, f, hasJr) {
   const r = await pool.query(`
     WITH pl AS (${PLANS_IN_PERIOD}
+    ), st AS (
+      /* gaps are taken per station (any job on it), then each gap is given to the job of the later scan */
+      SELECT sc.plan_id, sc."timestamp" AS ts,
+             sc."timestamp" - LAG(sc."timestamp") OVER (PARTITION BY LOWER(p.table_id) ORDER BY sc."timestamp") AS gap
+        FROM assembly_scans sc JOIN assembly_plans p ON p.id = sc.plan_id
+       WHERE sc.is_match AND LOWER(p.table_id) IN (SELECT LOWER(table_id) FROM pl)
+         AND sc."timestamp" >= (SELECT MIN(s2."timestamp") FROM assembly_scans s2 WHERE s2.plan_id IN (SELECT id FROM pl))
     ), m AS (
-      SELECT sc.plan_id, (sc."timestamp" AT TIME ZONE '${TZ}') AS t,
-             sc."timestamp" - LAG(sc."timestamp") OVER (PARTITION BY sc.plan_id ORDER BY sc."timestamp") AS gap
-        FROM assembly_scans sc WHERE sc.is_match AND sc.plan_id IN (SELECT id FROM pl)
+      SELECT plan_id, (ts AT TIME ZONE '${TZ}') AS t, gap FROM st WHERE plan_id IN (SELECT id FROM pl)
     ), agg AS (
       SELECT plan_id, to_char(MIN(t), 'DD-Mon HH24:MI') AS first_t, to_char(MAX(t), 'DD-Mon HH24:MI') AS last_t,
-             EXTRACT(EPOCH FROM MAX(t) - MIN(t))::float AS span_s,
-             COALESCE(SUM(EXTRACT(EPOCH FROM gap)) FILTER (WHERE gap > INTERVAL '${IDLE_MIN} minutes'), 0)::float AS idle_s,
+             COALESCE(SUM(EXTRACT(EPOCH FROM gap)) FILTER (WHERE gap <= INTERVAL '${IDLE_MIN} minutes'), 0)::float AS work_s,
              COUNT(*)::int AS good
         FROM m GROUP BY 1
     ), ps AS (${planStdSql(hasJr, 'SELECT id FROM pl')})
@@ -193,7 +197,7 @@ async function jobsReport(pool, f, hasJr) {
            COALESCE(pl.scanned_qty, 0)::int AS packed, UPPER(COALESCE(NULLIF(TRIM(pl.status), ''), 'PLANNED')) AS status,
            to_char(pl.start_time, 'YYYY-MM-DD HH24:MI') AS start_local, pl.duration_min,
            (pl.end_time < LOCALTIMESTAMP) AS ended, to_char(pl.finished_at, 'DD-Mon HH24:MI') AS finished,
-           agg.first_t, agg.last_t, agg.span_s, agg.idle_s, agg.good, ps.cycle
+           agg.first_t, agg.last_t, agg.work_s, agg.good, ps.cycle
       FROM pl LEFT JOIN agg ON agg.plan_id = pl.id LEFT JOIN ps ON ps.id = pl.id
      ORDER BY pl.start_time DESC NULLS LAST
      LIMIT ${ROW_LIMIT}`, filterParams(f));
@@ -202,7 +206,7 @@ async function jobsReport(pool, f, hasJr) {
   const rows = r.rows.map(x => {
     const qty = Number(x.plan_qty) || 0;
     const pct = qty > 0 ? (x.packed * 100) / qty : null;
-    const work = x.good > 1 ? Math.max(0, num(x.span_s) - num(x.idle_s)) : 0;
+    const work = num(x.work_s) || 0;
     const stdMin = x.cycle && qty ? (qty * x.cycle) / 60 : null;
     let flag = { RUNNING: 'running', DONE: 'done' }[x.status] || (x.packed ? 'started' : 'not started');
     if (pct !== null && pct > OVER_PCT) flag = 'over-packed';
@@ -315,11 +319,11 @@ async function hourlyReport(pool, f, hasJr) {
       byStation.set(x.table_id, { station: x.table_id, days: x.days, std_rate: x.avg_cycle ? round(3600 / x.avg_cycle) : null, total: 0, cells: Array(24).fill(null) });
     }
     const s = byStation.get(x.table_id);
-    s.cells[x.h] = round(x.n / Math.max(1, x.days));
+    s.cells[x.h] = Math.max(1, round(x.n / Math.max(1, x.days)));
     s.total += x.n;
   }
   const used = new Set();
-  byStation.forEach(s => s.cells.forEach((v, h) => { if (v) used.add(h); }));
+  byStation.forEach(s => s.cells.forEach((v, h) => { if (v !== null) used.add(h); }));
   const hours = used.size ? Array.from({ length: Math.max(...used) - Math.min(...used) + 1 }, (_, i) => Math.min(...used) + i) : [];
   const rows = [...byStation.values()].map(s => {
     const o = { station: s.station, days: s.days, total: s.total, std_rate: s.std_rate };
@@ -343,7 +347,7 @@ async function hourlyReport(pool, f, hasJr) {
   };
 }
 
-async function wrongReport(pool, f, hasLocks) {
+async function wrongReport(pool, f, hasLocks, factoryId) {
   const r = await pool.query(`
     SELECT to_char(sc."timestamp" AT TIME ZONE '${TZ}', 'YYYY-MM-DD HH24:MI:SS') AS at, p.table_id, p.item_name, p.client_name,
            p.job_card_no, sc.scanned_ean, p.ean_number
@@ -358,9 +362,12 @@ async function wrongReport(pool, f, hasLocks) {
              e.unlocked_by, EXTRACT(EPOCH FROM COALESCE(e.unlocked_at, NOW()) - e.locked_at)::float AS locked_s,
              (e.unlocked_at IS NULL) AS still_locked
         FROM packing_lock_events e
+        LEFT JOIN assembly_plans p ON p.id = e.plan_id
        WHERE e.locked_at >= ($1::date)::timestamp AT TIME ZONE '${TZ}' AND e.locked_at < ($2::date + 1)::timestamp AT TIME ZONE '${TZ}'
          AND ($3::text IS NULL OR LOWER(e.table_id) = LOWER($3))
-       ORDER BY e.locked_at DESC LIMIT ${ROW_LIMIT}`, filterParams(f).slice(0, 3));
+         AND ($4::text IS NULL OR LOWER(COALESCE(p.client_name, '')) LIKE $4)
+         AND ($5::int IS NULL OR e.factory_id IS NULL OR e.factory_id = $5)
+       ORDER BY e.locked_at DESC LIMIT ${ROW_LIMIT}`, [...filterParams(f), factoryId]);
     locks = l.rows;
   }
   /* each wrong scan, with the lock it caused (same station, within a few seconds) */
@@ -394,7 +401,7 @@ const REPORTS = {
   jobs: { title: 'Jobs', run: (pool, f, t) => jobsReport(pool, f, t.jr) },
   jobcards: { title: 'Job cards', run: (pool, f, t) => jobcardsReport(pool, f, t.jr) },
   hourly: { title: 'Hourly output', run: (pool, f, t) => hourlyReport(pool, f, t.jr) },
-  wrong: { title: 'Wrong scans', run: (pool, f, t) => wrongReport(pool, f, t.locks) }
+  wrong: { title: 'Wrong scans', run: (pool, f, t) => wrongReport(pool, f, t.locks, t.factoryId) }
 };
 
 function minText(v) {
@@ -427,6 +434,8 @@ function registerPackingReportRoutes(app, pool) {
     if (!def) { const e = new Error('Unknown report.'); e.status = 404; throw e; }
     const f = readFilters(req.query);
     const t = await tables();
+    const fid = req.headers ? getFactoryId(req) : null;
+    t.factoryId = Number.isInteger(fid) && fid > 0 ? fid : null;
     if (!t.ready) { const e = new Error('Packing tables are not set up on this server yet.'); e.status = 400; throw e; }
     const report = await def.run(pool, f, t);
     return { def, f, report };
