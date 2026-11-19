@@ -667,7 +667,8 @@
       { title: 'Production', icon: 'bi-gear-wide-connected', items: [
         { type: 'mould-wise-qty', name: 'Mould Wise Item QTY', icon: 'bi-box-seam', desc: 'Day / night quantity per mould, with optional OR, JC, cycle and reject columns.' },
         { type: 'machine-date-history', name: 'Machine Date-Wise History', icon: 'bi-clock-history', desc: 'What one machine produced, date by date (default last 2 months).' },
-        { type: 'tonnage', name: 'Tonnage Report', icon: 'bi-speedometer2', desc: 'Good, reject and overall tonnage by day, week, month or year.' }
+        { type: 'tonnage', name: 'Tonnage Report', icon: 'bi-speedometer2', desc: 'Good, reject and overall tonnage by day, week, month or year.' },
+        { type: 'packing', name: 'Packing Reports', icon: 'bi-box2', desc: 'Packed vs plan per station, efficiency, idle time, job cards, hourly output and wrong scans.', href: 'packing_reports.html' }
       ] },
       { title: 'Planning', icon: 'bi-calendar3', items: [
         { type: 'jms-plan', name: 'JMS Plan', icon: 'bi-clipboard-data', desc: 'Every plan created in the period with JR, mould, machine and batch details.' },
@@ -692,7 +693,11 @@
         <div>
           <div class="rt-group-title"><i class="bi ${g.icon}"></i> ${esc(g.title)}</div>
           <div class="rt-list">
-            ${g.items.map(it => `
+            ${g.items.map(it => it.href ? `
+              <a class="rt-card" href="${esc(it.href)}" style="text-decoration:none">
+                <i class="bi ${it.icon}"></i>
+                <span><div class="rt-name">${esc(it.name)} ›</div><div class="rt-desc">${esc(it.desc)}</div></span>
+              </a>` : `
               <button type="button" class="rt-card" data-type="${it.type}" onclick="selectReportType('${it.type}')">
                 <i class="bi ${it.icon}"></i>
                 <span><div class="rt-name">${esc(it.name)}</div><div class="rt-desc">${esc(it.desc)}</div></span>
