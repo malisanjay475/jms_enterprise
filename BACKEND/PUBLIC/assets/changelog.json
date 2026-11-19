@@ -14,6 +14,22 @@
   "latest": "1.177.0",
   "versions": [
     {
+      "version": "1.185.0",
+      "date": "2026-11-19",
+      "title": "Packing day shift",
+      "modules": [
+        {
+          "app": "packing",
+          "changes": [
+            { "type": "improvement", "text": "Packing works one day shift, 09:00 to 17:00. The Packing Plan board shows those hours, and a job that does not fit today carries on at 09:00 the next day." },
+            { "type": "improvement", "text": "A plan's end time counts only shift hours. A start before 09:00 or after 17:00 moves to the next shift start, and the form says so." },
+            { "type": "fix", "text": "Plan end times are saved in factory time. Before, they were saved 5.5 hours early." },
+            { "type": "improvement", "text": "Station Scanning and the board show the expected finish within shift hours, for example 'tomorrow 10:30'. Hours outside the shift appear on the board, greyed as OT, only when a plan runs in them." }
+          ]
+        }
+      ]
+    },
+    {
       "version": "1.184.0",
       "date": "2026-11-19",
       "title": "Store handover",

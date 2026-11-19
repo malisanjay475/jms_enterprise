@@ -149,6 +149,7 @@
 
     <script src="/assets/vendor/jsdelivr/jsbarcode@3.11.5/JsBarcode.all.min.js"></script>
     <script src="/assets/app.min.js?v=1583"></script>
+    <script src="/assets/packing-shift.js?v=1"></script>
     <script>
         const STORE_KEY = 'JMS_SCAN_STATION';
         const $ = (id) => document.getElementById(id);
@@ -264,8 +265,8 @@
             const left = Math.max(0, qty - packed);
             let eta = '–', etaNote = '';
             if (left === 0) { eta = 'Now'; etaNote = 'qty reached'; }
-            else if (c.rate_now > 0) { const t = new Date(Date.now() + left / c.rate_now * 3600e3); eta = hhmm(t); etaNote = `${fmt(left)} pcs left`; }
-            else if (c.end_local) { eta = String(c.end_local).slice(11, 16); etaNote = 'as planned'; }
+            else if (c.rate_now > 0) { eta = PackShift.whenText(PackShift.addWork(new Date(), left / c.rate_now * 60)); etaNote = `${fmt(left)} pcs left · day shift ${PackShift.label}`; }
+            else if (c.end_local && new Date(c.end_local) > new Date(c.start_local)) { eta = PackShift.whenText(new Date(c.end_local)); etaNote = 'as planned'; }
             const rateCls = c.std_pcs_hr ? (c.rate_now >= c.std_pcs_hr * 0.9 ? 'good' : (c.rate_now > 0 ? 'slow' : '')) : '';
             const bx = d.box;
             const scans = d.scans.map(s => `<div class="${s.is_match ? 'ok' : 'bad'}">${esc(s.at ? new Date(s.at).toLocaleTimeString('en-IN', { hour12: false }) : '')} ${s.is_match ? '✓' : '✗'} ${esc(s.scanned_ean)}</div>`).join('');
