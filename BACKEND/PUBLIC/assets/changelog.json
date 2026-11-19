@@ -14,6 +14,26 @@
   "latest": "1.177.0",
   "versions": [
     {
+      "version": "1.181.0",
+      "date": "2026-11-19",
+      "title": "New packing board and station scanning screen",
+      "modules": [
+        {
+          "app": "packing",
+          "changes": [
+            { "type": "feat", "text": "Packing Plan board: one row per station with its persons and scanner, each job showing packed / plan, live rate against the standard, finish time and a progress strip. Colours show Running, Planned, Behind plan and Done, with totals for the day on top." },
+            { "type": "feat", "text": "Job cards waiting to pack are listed under the board. Click one to plan it, or drag it onto a station at the time it should start." },
+            { "type": "feat", "text": "New Station Scanning screen: each PC or tablet remembers its station and shows a big counter, rate now against the standard, boxes done, finish time, last scans and the next jobs, with Start and Finish job buttons." },
+            { "type": "feat", "text": "When the plan qty is reached the screen says so and keeps counting extra pieces." },
+            { "type": "feat", "text": "Wrong barcode: once a supervisor PIN is set in Packing Settings, the station locks and only a supervisor PIN unlocks it. Without a PIN the operator presses Resume as before." },
+            { "type": "improvement", "text": "Starting a job finishes the station's old running job if its qty is packed, otherwise puts it back to Planned. Plans older than 14 days no longer count as active for scanners." },
+            { "type": "improvement", "text": "A packing plan can no longer start more than 7 days back or more than a year ahead." },
+            { "type": "improvement", "text": "Packing Masters: a station can take over an old table's scanner with one click." }
+          ]
+        }
+      ]
+    },
+    {
       "version": "1.180.0",
       "date": "2026-11-18",
       "title": "Packing plan fills itself from the job card",

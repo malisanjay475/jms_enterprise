@@ -293,6 +293,30 @@ function registerPackingMasterRoutes(app, pool) {
 
   const readFactory = (req) => normalizeFactoryId(getFactoryId(req));
 
+  /*
+   * The scanner bridge (CLIENT_BRIDGE) reads IP scanners from assembly_lines by
+   * line name, so a station's scanner is mirrored there under the station name.
+   * assembly_lines syncs to the factory servers, where the bridge runs.
+   */
+  async function mirrorScanner(db, name, config, oldName, replaceLine) {
+    const exists = await db.query(`SELECT to_regclass('public.assembly_lines') AS t`);
+    if (!exists.rows[0] || !exists.rows[0].t) return;
+    /* scanner copied from an old table line: clear it there so the bridge opens it once */
+    const from = clean(replaceLine, 80);
+    if (from && from !== name && config) {
+      await db.query(`UPDATE assembly_lines SET scanner_config = '', updated_at = NOW() WHERE line_id = $1 AND scanner_config = $2`, [from, config]);
+    }
+    if (oldName && oldName !== name) {
+      await db.query(`UPDATE assembly_lines SET scanner_config = '', updated_at = NOW() WHERE line_id = $1 AND COALESCE(scanner_config, '') <> ''`, [oldName]);
+    }
+    const cur = await db.query('SELECT scanner_config FROM assembly_lines WHERE line_id = $1', [name]);
+    if (!config && (!cur.rows.length || !cur.rows[0].scanner_config)) return;
+    if (cur.rows.length && String(cur.rows[0].scanner_config || '') === config) return;
+    await db.query(
+      `INSERT INTO assembly_lines (line_id, line_name, scanner_config, updated_at) VALUES ($1, $1, $2, NOW())
+       ON CONFLICT (line_id) DO UPDATE SET scanner_config = EXCLUDED.scanner_config, updated_at = NOW()`, [name, config]);
+  }
+
   app.get('/api/packing/meta', async (req, res) => {
     if (!requireReader(req, res)) return;
     res.json({
@@ -327,7 +351,18 @@ function registerPackingMasterRoutes(app, pool) {
           ) c ON c.fid = COALESCE(st.factory_id, 0) AND c.sn = LOWER(st.name)
          WHERE ($1::int IS NULL OR st.factory_id = $1)
          ORDER BY st.is_active DESC, st.sort_order, st.name`, [fid]);
-      res.json({ ok: true, data: r.rows });
+      /* scanners still set on the old "Table B1..." lines, offered when editing a station */
+      let oldScanners = [];
+      const al = await pool.query(`SELECT to_regclass('public.assembly_lines') AS t`);
+      if (al.rows[0] && al.rows[0].t) {
+        const names = r.rows.map(x => x.name);
+        const o = await pool.query(
+          `SELECT line_id, scanner_config FROM assembly_lines
+            WHERE COALESCE(scanner_config, '') <> '' AND NOT (line_id = ANY($1::text[]))
+            ORDER BY line_id`, [names]);
+        oldScanners = o.rows;
+      }
+      res.json({ ok: true, data: r.rows, old_scanners: oldScanners });
     } catch (err) { sendServerError(res, err); }
   });
 
@@ -363,6 +398,7 @@ function registerPackingMasterRoutes(app, pool) {
         `INSERT INTO packing_stations (factory_id, name, code, scanner_config, persons, sort_order, is_active, created_by, updated_by)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8) RETURNING *`,
         [w.factoryId, s.name, s.code, s.scanner_config, s.persons, sort, s.is_active !== false, w.user]);
+      await mirrorScanner(pool, s.name, s.scanner_config, null, req.body && req.body.replace_line);
       res.json({ ok: true, data: r.rows[0] });
     } catch (err) { sendServerError(res, err); }
   });
@@ -403,6 +439,7 @@ function registerPackingMasterRoutes(app, pool) {
               WHERE factory_id = $3 AND LOWER(station_name) = LOWER($4)`,
             [s.name, w.user, w.factoryId, old.name]);
         }
+        await mirrorScanner(client, s.name, s.scanner_config, old.name, req.body && req.body.replace_line);
         await client.query('COMMIT');
         res.json({ ok: true, data: r.rows[0] });
       } catch (e) {

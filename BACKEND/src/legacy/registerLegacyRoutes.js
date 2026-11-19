@@ -35005,6 +35005,21 @@ app.post('/api/assembly/plan', async (req, res) => {
     console.log('[Assembly Plan] Body:', req.body);
     const { id, table_id, item_name, plan_qty, machine, start_time, duration_min, delay_min, end_time, created_by, client_name, job_card_no } = req.body;
 
+    // Packing plans may not start more than 7 days back (typed years like 2014
+    // or 1984 hid plans and confused the scanner). An edit that keeps the saved
+    // start time is still allowed.
+    if (start_time) {
+      const chk = await q(
+        `SELECT ($1::timestamp < LOCALTIMESTAMP - INTERVAL '7 days') AS too_old,
+                ($1::timestamp > LOCALTIMESTAMP + INTERVAL '400 days') AS too_far,
+                (SELECT start_time FROM assembly_plans WHERE id = $2) = $1::timestamp AS unchanged`,
+        [start_time, id || null]);
+      const c = chk[0] || {};
+      if ((c.too_old || c.too_far) && !c.unchanged) {
+        return res.status(400).json({ ok: false, error: 'Check the start date: a packing plan can start at most 7 days back and within the next year.' });
+      }
+    }
+
     if (id) {
       // Update
       await q(`
@@ -35114,6 +35129,10 @@ SELECT *,
   EXTRACT(EPOCH FROM(NOW() - COALESCE(updated_at, created_at))) as idle_seconds
           FROM assembly_plans
 WHERE(UPPER(status) IN('PLANNED', 'RUNNING') OR start_time:: date >= CURRENT_DATE)
+            AND UPPER(COALESCE(status, '')) NOT IN ('DONE', 'ARCHIVED', 'CANCELLED')
+            -- Plans older than 14 days (stale 'Running' rows, mistyped years) no
+            -- longer count as active, so the scanner bridge never posts to them.
+            AND start_time >= CURRENT_DATE - INTERVAL '14 days'
           ORDER BY table_id, start_time ASC
   `;
 
@@ -35210,6 +35229,14 @@ async function recordAssemblyScan(plan_id, ean) {
 
   const plan = plans[0];
 
+  // 2b. Station locked after a wrong product (only when the factory has a
+  // supervisor PIN): refuse every scan until a supervisor unlocks it.
+  const packingFloor = require('../modules/packing/registerPackingFloorRoutes');
+  const openLock = await packingFloor.openLockFor(pool, plan.table_id);
+  if (openLock) {
+    return { ok: false, locked: true, error: 'STATION LOCKED: wrong product was scanned. A supervisor must unlock it with a PIN.', table_id: plan.table_id };
+  }
+
   // 3. Validate Match
   const targetEAN = String(plan.ean_number || '').trim();
   const isMatch = (targetEAN === cleanEAN);
@@ -35228,6 +35255,7 @@ async function recordAssemblyScan(plan_id, ean) {
     await q(`UPDATE assembly_plans SET scanned_qty = $1, updated_at = NOW() WHERE id = $2`, [newQty, plan_id]);
   } else {
     // WRONG BARCODE TRIGGER
+    await packingFloor.lockStationForWrongScan(pool, plan, cleanEAN, targetEAN).catch(e => console.warn('[Packing] lock failed:', e.message));
     const alertObj = {
       id: Date.now(),
       table_id: plan.table_id,
@@ -35260,7 +35288,7 @@ async function recordAssemblyScan(plan_id, ean) {
     ts: Date.now()
   });
 
-  return { ok: true, match: isMatch, new_qty: newQty, wrong_barcode: !isMatch, table_id: plan.table_id };
+  return { ok: true, match: isMatch, new_qty: newQty, plan_qty: plan.plan_qty, wrong_barcode: !isMatch, table_id: plan.table_id };
 }
 
 // Resolve which plan on a table a scanned barcode belongs to, by matching the
