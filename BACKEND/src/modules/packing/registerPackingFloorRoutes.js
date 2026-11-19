@@ -332,12 +332,13 @@ function registerPackingFloorRoutes(app, pool) {
             AND p.finished_at >= CURRENT_DATE
           ORDER BY p.finished_at DESC LIMIT 5`, [name]);
       const lock = await openLockFor(pool, name);
-      let box = null, labels = [], pendingLabels = 0;
+      let box = null, labels = [], pendingLabels = 0, waitingStore = 0;
       try {
         await packingBoxes.ensurePackingBoxSchema(pool);
         if (current) box = await packingBoxes.boxState(pool, current);
         labels = await packingBoxes.recentLabels(pool, name);
         pendingLabels = await packingBoxes.pendingCount(pool, name);
+        waitingStore = await require('./registerPackingHandoverRoutes').waitingCount(pool, name);
       } catch (e) { console.warn('[Packing] box state failed:', e.message); }
 
       res.json({
@@ -356,6 +357,7 @@ function registerPackingFloorRoutes(app, pool) {
           box,
           labels,
           pending_labels: pendingLabels,
+          waiting_store: waitingStore,
           auto_print: station ? station.auto_print_labels !== false : true
         }
       });

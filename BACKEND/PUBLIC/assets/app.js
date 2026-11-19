@@ -157,7 +157,8 @@ function escHtml(value) {
         'assembly.html': 'packing',
         'scanning.html': 'packing',
         'scan_station.html': 'packing',
-        'packing_reports.html': 'packing',
+        'packing_reports.html': 'packing', 'packing_handover.html': 'packing',
+        'packing_handover.html': 'packing',
         'scanning_list.html': 'packing',
         'scanning_dashboard.html': 'packing',
         'barcode_printer.html': 'packing',
@@ -1662,6 +1663,7 @@ function escHtml(value) {
                 { id: 'pack_scan', label: 'Production Scanning (old)', icon: 'bi-upc', href: 'scanning.html' },
                 { id: 'pack_scan', label: 'Scanning List (old)', icon: 'bi-list-ul', href: 'scanning_list.html' },
                 { id: 'pack_scan', label: 'Dashboard', icon: 'bi-speedometer2', href: 'scanning_dashboard.html' },
+                { id: 'pack_scan', label: 'Store Handover', icon: 'bi-box-arrow-right', href: 'packing_handover.html' },
                 { id: 'pack_scan', label: 'Packing Reports', icon: 'bi-file-earmark-bar-graph', href: 'packing_reports.html' },
                 { id: 'pack_barcode', label: 'Barcode Print', icon: 'bi-printer', href: 'barcode_printer.html' },
                 { id: 'pack_settings', label: 'Settings', icon: 'bi-gear', href: 'packing_settings.html' }
