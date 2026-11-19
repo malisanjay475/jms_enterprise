@@ -29,6 +29,23 @@
       ]
     },
     {
+      "version": "1.187.1",
+      "date": "2026-11-19",
+      "title": "Dispatch rules and slip fixes",
+      "modules": [
+        {
+          "app": "packing",
+          "changes": [
+            { "type": "improvement", "text": "A dispatch slip can only be closed once its invoice / DC number is entered." },
+            { "type": "improvement", "text": "Another party's carton is still refused on a dispatch slip, but a supervisor PIN and a reason let it go once. The printed slip shows who allowed it and why." },
+            { "type": "improvement", "text": "Handover and dispatch: click another person's open slip to work on it, and a reopened slip opens straight away." },
+            { "type": "fix", "text": "Two people scanning on the same slip, undoing or voiding a label at the same time can no longer leave counts or label states wrong." },
+            { "type": "fix", "text": "Packed Stock and Dispatch reports on a factory server use that factory, and opening stock rows quickly no longer shows the wrong row's details." }
+          ]
+        }
+      ]
+    },
+    {
       "version": "1.187.0",
       "date": "2026-11-19",
       "title": "Packing station tables",

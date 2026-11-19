@@ -89,7 +89,7 @@
         const fmt = (n) => Number(n || 0).toLocaleString('en-IN');
         const api = (url, opts = {}) => JPSMS.api.request(url, { skipLoader: true, ...opts });
         const send = (method, url, body, extra) => api(url, { method, body: JSON.stringify(body || {}), ...(extra || {}) });
-        const S = { data: null, msg: null, cardFor: null };
+        const S = { data: null, msg: null, cardFor: null, pick: null };
         // a line's units can include loose boxes (items with no carton size)
         const unitText = (units, loose) => {
             const ctn = Number(units || 0) - Number(loose || 0);
@@ -109,9 +109,17 @@
             });
         });
 
+        /* S.pick: an open slip of another person (or a reopened one) chosen on this page */
+        function pickSlip(id) { S.pick = id || null; S.cardFor = null; S.msg = null; load(); }
+        function otherSlips(d) {
+            return d.other_open.length ? `<p class="ds-note">Open slips of other people: ${d.other_open.map(o => `<button class="btn btn-link p-0" style="font-size:inherit" onclick="pickSlip(${Number(o.id)})" title="Work on this slip">${esc(o.slip_no)}</button> (${esc(o.party)}, ${esc(o.opened_by)}, ${fmt(o.cartons)} cartons)`).join(', ')}${S.pick ? ` · <button class="btn btn-link p-0" style="font-size:inherit" onclick="pickSlip(null)">back to my slip</button>` : ''}</p>` : '';
+        }
         async function load(quiet) {
             try {
-                const res = await api('/packing/dispatch/summary');
+                const want = S.pick;
+                const res = await api('/packing/dispatch/summary' + (want ? `?slip=${Number(want)}` : ''));
+                if (want !== S.pick) return; // a newer pick is loading
+                if (want && (!res.data.slip || Number(res.data.slip.id) !== Number(want))) S.pick = null; // closed meanwhile
                 S.data = res.data;
                 render();
             } catch (e) {
@@ -135,7 +143,7 @@
                         <div><label for="dsInvoice">Invoice / DC no (optional)</label><input id="dsInvoice" class="form-control" autocomplete="off"></div>
                     </div>
                     <div class="ds-err" id="dsErr"></div>
-                    ${d.other_open.length ? `<p class="ds-note">Open slips of other people: ${d.other_open.map(o => `${esc(o.slip_no)} (${esc(o.party)}, ${esc(o.opened_by)}, ${fmt(o.cartons)} cartons)`).join(', ')}</p>` : ''}
+                    ${otherSlips(d)}
                     <div class="ds-actions"><button class="btn btn-primary" onclick="startSlip()"><i class="bi bi-truck"></i> Start dispatch slip</button></div>${msg}`;
                 $('dsParty').value = keep.party; $('dsVehicle').value = keep.vehicle; $('dsInvoice').value = keep.invoice;
                 $('dsParty').addEventListener('input', () => { $('dsErr').textContent = ''; renderStock(); });
@@ -159,7 +167,7 @@
                             <small>Vehicle ${esc(s.vehicle_no || '–')} · Invoice ${esc(s.invoice_no || '–')} · <button class="btn btn-link p-0" style="font-size:.82rem" onclick="editSlip()">Change</button></small>
                             <small>Open · ${esc(s.opened_by || '')} · ${esc(s.opened_local)}${s.reopen_count ? ` · reopened (${esc(s.last_reopen_reason || '')})` : ''}</small></div>
                         <div class="ds-total">${fmt(s.cartons)} <span>cartons · ${fmt(s.pcs)} pcs</span></div>
-                    </div>`;
+                    </div>${otherSlips(d)}`;
                 $('dsBody').innerHTML = `
                     ${msg}
                     ${s.lines.length ? `<div class="ds-tbl"><table class="ds-lines"><thead><tr><th>Item</th><th>Job card</th><th class="n">Cartons</th><th class="n">Pcs</th></tr></thead><tbody>
@@ -233,15 +241,23 @@
             } catch (_) { /* no sound */ }
         }
 
-        async function scan(id, code) {
+        async function scan(id, code, extra) {
             try {
-                const res = await send('POST', `/packing/dispatch/slips/${id}/scan`, { code }, { silentError: true });
+                const res = await send('POST', `/packing/dispatch/slips/${id}/scan`, { code, ...(extra || {}) }, { silentError: true });
                 const r = res.data;
                 S.msg = { ok: true, text: `${r.code} · ${r.item_name} · ${fmt(r.qty)} pcs` };
                 beep(true);
             } catch (e) {
                 S.msg = { ok: false, text: `${code.toUpperCase()}: ${e.message}` };
                 beep(false);
+                const body = e.data || e.body || {};
+                if (body.need_pin || /not .+\.$/.test(e.message) && /This carton is for/.test(e.message)) {
+                    const reason = prompt(`${e.message}\nTo send it anyway, give a reason:`);
+                    if (reason && reason.trim().length >= 3) {
+                        const pin = prompt('Supervisor PIN');
+                        if (pin) return scan(id, code, { reason: reason.trim(), pin: pin.trim() });
+                    }
+                }
             }
             load(true);
         }
@@ -257,11 +273,13 @@
         async function closeSlip(id) {
             const s = S.data.slip;
             if (!s.cartons) { JPSMS.toast('Scan at least one carton first.', 'error'); return; }
+            if (!s.invoice_no) { JPSMS.toast('Enter the invoice / DC number first (Change, next to Vehicle).', 'error'); return; }
             if (!s.vehicle_no && !confirm('No vehicle number on this slip. Close it anyway?')) return;
             if (!confirm(`Close dispatch slip ${s.slip_no} for ${s.party}: ${fmt(s.cartons)} cartons (${fmt(s.pcs)} pcs), and print it?`)) return;
             try {
                 await send('POST', `/packing/dispatch/slips/${id}/close`);
                 S.msg = null;
+                S.pick = null;
                 await printSlip(id);
                 load();
             } catch (e) { JPSMS.toast(e.message, 'error'); }
@@ -284,6 +302,7 @@
                         <tr><th colspan="3">Total</th><th class="n">${fmt(s.cartons)}</th><th class="n">${fmt(s.pcs)}</th></tr>
                     </tbody></table>
                     <div class="codes"><b>Labels:</b> ${s.codes.map(c => esc(c.code)).join(', ')}</div>
+                    ${s.codes.filter(c => c.dispatch_override_by).map(c => `<div>${esc(c.code)} is for ${esc(c.client_name)}; allowed by ${esc(c.dispatch_override_by)}: ${esc(c.dispatch_override_reason)}</div>`).join('')}
                     <div class="sign"><div>Dispatched by (store)</div><div>Received by (driver)</div></div>`;
                 window.print();
             } catch (e) { JPSMS.toast(e.message, 'error'); }
@@ -298,7 +317,7 @@
             try {
                 const res = await send('POST', `/packing/dispatch/slips/${id}/reopen`, { reason: reason.trim(), pin: pin.trim() });
                 JPSMS.toast(`${no} reopened by ${res.data ? res.data.reopened_by : 'supervisor'}`, 'success');
-                load();
+                pickSlip(id);
             } catch (e) { JPSMS.toast(e.message, 'error'); }
         }
     </script>
