@@ -211,6 +211,7 @@ async function ensurePackingSchema(pool) {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       sync_id UUID DEFAULT gen_random_uuid()
     );
+    ALTER TABLE packing_stations ADD COLUMN IF NOT EXISTS auto_print_labels BOOLEAN NOT NULL DEFAULT TRUE;
     CREATE UNIQUE INDEX IF NOT EXISTS uq_packing_stations_name ON packing_stations (COALESCE(factory_id, 0), LOWER(name));
     CREATE UNIQUE INDEX IF NOT EXISTS uq_sync_id_packing_stations ON packing_stations (sync_id);
     CREATE TABLE IF NOT EXISTS packing_item_standards (
@@ -376,7 +377,8 @@ function registerPackingMasterRoutes(app, pool) {
       scanner_config: clean(body?.scanner_config, 120),
       persons,
       sort_order: sort,
-      is_active: body?.is_active === undefined ? undefined : body.is_active !== false && body.is_active !== 'false'
+      is_active: body?.is_active === undefined ? undefined : body.is_active !== false && body.is_active !== 'false',
+      auto_print_labels: body?.auto_print_labels === undefined ? undefined : body.auto_print_labels !== false && body.auto_print_labels !== 'false'
     };
   }
 
@@ -395,9 +397,9 @@ function registerPackingMasterRoutes(app, pool) {
         sort = Number(m.rows[0].m || 0) + 10;
       }
       const r = await pool.query(
-        `INSERT INTO packing_stations (factory_id, name, code, scanner_config, persons, sort_order, is_active, created_by, updated_by)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8) RETURNING *`,
-        [w.factoryId, s.name, s.code, s.scanner_config, s.persons, sort, s.is_active !== false, w.user]);
+        `INSERT INTO packing_stations (factory_id, name, code, scanner_config, persons, sort_order, is_active, created_by, updated_by, auto_print_labels)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8, $9) RETURNING *`,
+        [w.factoryId, s.name, s.code, s.scanner_config, s.persons, sort, s.is_active !== false, w.user, s.auto_print_labels !== false]);
       await mirrorScanner(pool, s.name, s.scanner_config, null, req.body && req.body.replace_line);
       res.json({ ok: true, data: r.rows[0] });
     } catch (err) { sendServerError(res, err); }
@@ -428,10 +430,11 @@ function registerPackingMasterRoutes(app, pool) {
         const r = await client.query(
           `UPDATE packing_stations SET name = $1, code = $2, scanner_config = $3, persons = $4,
                   sort_order = COALESCE($5, sort_order), is_active = COALESCE($6, is_active),
+                  auto_print_labels = COALESCE($9, auto_print_labels),
                   updated_by = $7, updated_at = NOW()
             WHERE id = $8 RETURNING *`,
           [s.name, s.code, s.scanner_config, s.persons, Number.isNaN(s.sort_order) ? null : s.sort_order,
-            s.is_active === undefined ? null : s.is_active, w.user, id]);
+            s.is_active === undefined ? null : s.is_active, w.user, id, s.auto_print_labels === undefined ? null : s.auto_print_labels]);
         /* a rename carries the item standards along */
         if (s.name !== old.name) {
           await client.query(
