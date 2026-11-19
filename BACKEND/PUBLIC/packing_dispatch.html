@@ -233,15 +233,23 @@
             } catch (_) { /* no sound */ }
         }
 
-        async function scan(id, code) {
+        async function scan(id, code, extra) {
             try {
-                const res = await send('POST', `/packing/dispatch/slips/${id}/scan`, { code }, { silentError: true });
+                const res = await send('POST', `/packing/dispatch/slips/${id}/scan`, { code, ...(extra || {}) }, { silentError: true });
                 const r = res.data;
                 S.msg = { ok: true, text: `${r.code} · ${r.item_name} · ${fmt(r.qty)} pcs` };
                 beep(true);
             } catch (e) {
                 S.msg = { ok: false, text: `${code.toUpperCase()}: ${e.message}` };
                 beep(false);
+                const body = e.data || e.body || {};
+                if (body.need_pin || /not .+\.$/.test(e.message) && /This carton is for/.test(e.message)) {
+                    const reason = prompt(`${e.message}\nTo send it anyway, give a reason:`);
+                    if (reason && reason.trim().length >= 3) {
+                        const pin = prompt('Supervisor PIN');
+                        if (pin) return scan(id, code, { reason: reason.trim(), pin: pin.trim() });
+                    }
+                }
             }
             load(true);
         }
@@ -257,6 +265,7 @@
         async function closeSlip(id) {
             const s = S.data.slip;
             if (!s.cartons) { JPSMS.toast('Scan at least one carton first.', 'error'); return; }
+            if (!s.invoice_no) { JPSMS.toast('Enter the invoice / DC number first (Change, next to Vehicle).', 'error'); return; }
             if (!s.vehicle_no && !confirm('No vehicle number on this slip. Close it anyway?')) return;
             if (!confirm(`Close dispatch slip ${s.slip_no} for ${s.party}: ${fmt(s.cartons)} cartons (${fmt(s.pcs)} pcs), and print it?`)) return;
             try {
@@ -284,6 +293,7 @@
                         <tr><th colspan="3">Total</th><th class="n">${fmt(s.cartons)}</th><th class="n">${fmt(s.pcs)}</th></tr>
                     </tbody></table>
                     <div class="codes"><b>Labels:</b> ${s.codes.map(c => esc(c.code)).join(', ')}</div>
+                    ${s.codes.filter(c => c.dispatch_override_by).map(c => `<div>${esc(c.code)} is for ${esc(c.client_name)}; allowed by ${esc(c.dispatch_override_by)}: ${esc(c.dispatch_override_reason)}</div>`).join('')}
                     <div class="sign"><div>Dispatched by (store)</div><div>Received by (driver)</div></div>`;
                 window.print();
             } catch (e) { JPSMS.toast(e.message, 'error'); }
