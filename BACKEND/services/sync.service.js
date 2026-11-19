@@ -189,6 +189,7 @@ const SYNC_ALL = [
     'or_jr_report',
     'orders',
     'packing_boxes',
+    'packing_handovers',
     'packing_item_standards',
     'packing_label_reprints',
     'packing_lock_events',
@@ -415,6 +416,7 @@ const CONFLICT_KEYS = {
     // up for the packing reports. New table, sync_id minted at insert.
     packing_lock_events: 'sync_id',
     packing_boxes: 'sync_id',
+    packing_handovers: 'sync_id',
     packing_label_reprints: 'sync_id',
     // Surrogate UUID key (full-replication batch 5): LOCAL floor grinding/rejection log,
     // serial id collides across factories. Deterministic seed in SYNC_ID_SEED_COLUMNS.
@@ -602,7 +604,7 @@ const GLOBAL_MASTER_TABLES = new Set([
     'erp_mould_item'
 ]);
 
-const SYNC_ID_REQUIRED_TABLES = ['notifications', 'dpr_reasons', 'assembly_plans', 'assembly_scans', 'maintenance_tickets', 'maintenance_worklogs', 'org_units', 'org_departments', 'org_grades', 'org_designations', 'org_people', 'mould_verify_notes', 'qc_online_reports', 'qc_issue_memos', 'qc_training_sheets', 'qc_deviations', 'qc_job_checks', 'plan_audit_logs', 'mould_audit_logs', 'machine_status_logs', 'operator_history', 'plan_job_card_approval_history', 'jobs_queue', 'planning_drops', 'shifting_records', 'wip_inventory', 'wip_outward_logs', 'grinding_logs', 'qc_shift_team', 'qc_holds', 'qc_material_issues', 'qc_verifications', 'npd_products', 'npd_files', 'packing_lock_events', 'packing_boxes', 'packing_label_reprints'];
+const SYNC_ID_REQUIRED_TABLES = ['notifications', 'dpr_reasons', 'assembly_plans', 'assembly_scans', 'maintenance_tickets', 'maintenance_worklogs', 'org_units', 'org_departments', 'org_grades', 'org_designations', 'org_people', 'mould_verify_notes', 'qc_online_reports', 'qc_issue_memos', 'qc_training_sheets', 'qc_deviations', 'qc_job_checks', 'plan_audit_logs', 'mould_audit_logs', 'machine_status_logs', 'operator_history', 'plan_job_card_approval_history', 'jobs_queue', 'planning_drops', 'shifting_records', 'wip_inventory', 'wip_outward_logs', 'grinding_logs', 'qc_shift_team', 'qc_holds', 'qc_material_issues', 'qc_verifications', 'npd_products', 'npd_files', 'packing_lock_events', 'packing_boxes', 'packing_label_reprints', 'packing_handovers'];
 
 // Deterministic sync_id backfill seeds for tables converted to a surrogate UUID key.
 // The same physical row already exists on MAIN AND on its factory's LOCAL (LOCAL pushed
@@ -673,7 +675,8 @@ const SYNC_SCHEMA_READY_KEY = 'SYNC_SCHEMA_READY_VERSION';
 // 2026-11-18: packing_stations / packing_item_standards masters (MAIN-only writer, id key).
 // 2026-11-19: packing_supervisor_pins (MAIN-only, id) + packing_lock_events (sync_id); assembly_plans.finished_at.
 // 2026-11-20: packing_boxes + packing_label_reprints (sync_id, LOCAL -> MAIN); packing_stations.auto_print_labels.
-const SYNC_SCHEMA_READY_VERSION = '2026-11-20-packing-boxes-v16';
+// 2026-11-20: packing_handovers (sync_id, LOCAL -> MAIN); packing_boxes received / rejected / handover columns.
+const SYNC_SCHEMA_READY_VERSION = '2026-11-20-packing-handover-v17';
 
 // "Sync token" columns: app-schema UNIQUE columns that carry a per-row identity
 // token (a UUID) MAIN considers authoritative, but which a LOCAL row may have been
@@ -1420,6 +1423,7 @@ async function ensureSyncRuntimeSchema(config = {}) {
     try {
         await require('../src/modules/packing/registerPackingFloorRoutes').ensurePackingFloorSchema(pool);
         await require('../src/modules/packing/registerPackingBoxRoutes').ensurePackingBoxSchema(pool);
+        await require('../src/modules/packing/registerPackingHandoverRoutes').ensureHandoverSchema(pool);
     } catch (e) {
         console.warn('[Sync] Packing masters schema ensure failed:', e.message);
     }

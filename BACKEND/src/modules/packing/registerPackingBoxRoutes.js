@@ -67,6 +67,15 @@ async function ensurePackingBoxSchema(pool) {
       sync_id UUID NOT NULL DEFAULT gen_random_uuid()
     );
     CREATE UNIQUE INDEX IF NOT EXISTS uq_sync_id_packing_boxes ON packing_boxes (sync_id);
+    ALTER TABLE packing_boxes ADD COLUMN IF NOT EXISTS boxes_per_carton INTEGER;
+    ALTER TABLE packing_boxes ADD COLUMN IF NOT EXISTS handover_sync_id UUID;
+    ALTER TABLE packing_boxes ADD COLUMN IF NOT EXISTS received_at TIMESTAMPTZ;
+    ALTER TABLE packing_boxes ADD COLUMN IF NOT EXISTS received_by TEXT;
+    ALTER TABLE packing_boxes ADD COLUMN IF NOT EXISTS rejected_at TIMESTAMPTZ;
+    ALTER TABLE packing_boxes ADD COLUMN IF NOT EXISTS rejected_by TEXT;
+    ALTER TABLE packing_boxes ADD COLUMN IF NOT EXISTS reject_reason TEXT;
+    CREATE INDEX IF NOT EXISTS ix_packing_boxes_handover ON packing_boxes (handover_sync_id);
+    CREATE INDEX IF NOT EXISTS ix_packing_boxes_waiting ON packing_boxes (factory_id, created_at) WHERE received_at IS NULL AND voided_at IS NULL;
     CREATE INDEX IF NOT EXISTS ix_packing_boxes_plan ON packing_boxes (plan_id, kind, seq_no);
     CREATE INDEX IF NOT EXISTS ix_packing_boxes_unprinted ON packing_boxes (LOWER(table_id)) WHERE printed_at IS NULL AND voided_at IS NULL;
     CREATE INDEX IF NOT EXISTS ix_packing_boxes_code ON packing_boxes (code);
@@ -135,11 +144,11 @@ async function planBoxTotals(db, planId) {
 async function insertRow(db, plan, std, fid, kind, seq, qty, extra = {}) {
   const r = await db.query(`
     INSERT INTO packing_boxes (factory_id, kind, code, seq_no, qty, box_count, is_part, plan_id, plan_sync_id, table_id,
-                               item_name, item_code, client_name, job_card_no, created_by)
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15) RETURNING *`,
+                               item_name, item_code, client_name, job_card_no, created_by, boxes_per_carton)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16) RETURNING *`,
     [fid, kind, codeFor(fid, plan.id, kind, seq), seq, qty, extra.box_count || null, Boolean(extra.is_part), plan.id, plan.sync_id || null,
       clean(plan.table_id, 80), clean(plan.item_name, 200), clean(std.item_code, 40), clean(plan.client_name, 120),
-      clean(plan.job_card_no, 80), extra.user || null]);
+      clean(plan.job_card_no, 80), extra.user || null, std.boxes_per_carton || 0]);
   return r.rows[0];
 }
 

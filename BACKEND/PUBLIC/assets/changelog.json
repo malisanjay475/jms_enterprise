@@ -14,6 +14,22 @@
   "latest": "1.177.0",
   "versions": [
     {
+      "version": "1.184.0",
+      "date": "2026-11-19",
+      "title": "Store handover",
+      "modules": [
+        {
+          "app": "packing",
+          "changes": [
+            { "type": "feat", "text": "New Store Handover page: the store opens a slip, scans each carton label as it takes it from packing, then closes the slip and prints it with signature lines for packing and store." },
+            { "type": "feat", "text": "A scan is refused when the label is unknown, voided, already on a slip, or is a box that belongs in a carton. Items without a carton size are received as loose boxes." },
+            { "type": "feat", "text": "The store can reject a carton with a reason. It stays on packing's waiting list until it is fixed and scanned again. A closed slip can only be reopened with a supervisor PIN and a reason." },
+            { "type": "feat", "text": "The page lists what is waiting at packing by station, marking anything older than 24 hours. Station Scanning shows the cartons waiting for the store, and Packing Reports has a Store handover tab." }
+          ]
+        }
+      ]
+    },
+    {
       "version": "1.183.0",
       "date": "2026-11-19",
       "title": "Box and carton labels",

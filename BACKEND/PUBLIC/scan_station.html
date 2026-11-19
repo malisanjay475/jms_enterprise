@@ -290,6 +290,7 @@
                         </div>
                     </div>
                     <div class="ss-card">
+                        ${d.waiting_store ? `<div class="ss-label todo" style="margin:0 0 12px"><i class="bi bi-box-arrow-right"></i><span>Cartons waiting for store: ${fmt(d.waiting_store)}</span></div>` : ''}
                         <h2 class="ss-h">Last scans · packed today on this station ${fmt(d.packed_today)}</h2>
                         <div class="ss-log">${local}${scans || '<div class="info">No scans yet for this job.</div>'}</div>
                         <h2 class="ss-h" style="margin-top:16px">Next on this station</h2>
