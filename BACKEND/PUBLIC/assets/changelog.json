@@ -14,6 +14,23 @@
   "latest": "1.177.0",
   "versions": [
     {
+      "version": "1.180.0",
+      "date": "2026-11-18",
+      "title": "Packing plan fills itself from the job card",
+      "modules": [
+        {
+          "app": "packing",
+          "changes": [
+            { "type": "feat", "text": "New packing plan: type the job card number and press Fetch. Item, party, qty (job card balance), EAN, station, cycle time, persons and duration fill in, each marked with where it came from." },
+            { "type": "feat", "text": "Duration is qty x cycle seconds per piece and updates as you change qty, station or cycle time. The end time and pieces per hour show below." },
+            { "type": "feat", "text": "EAN comes from Packing Masters, else the ERP Variant Master barcode, else the EAN used last time for the same item and party." },
+            { "type": "improvement", "text": "The planning board now shows your packing stations from Packing Masters. Old tables that still have plans stay on the board." },
+            { "type": "feat", "text": "Packing Masters has a Fill EAN from ERP button that copies ERP barcodes into empty EANs (main server)." }
+          ]
+        }
+      ]
+    },
+    {
       "version": "1.179.0",
       "date": "2026-11-18",
       "title": "Packing Masters: stations and item packing standard",

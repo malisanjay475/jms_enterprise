@@ -572,6 +572,163 @@ function registerPackingMasterRoutes(app, pool) {
     } catch (err) { sendServerError(res, err); }
   });
 
+  /* ---------------- Packing plan auto-fill ---------------- */
+
+  async function tableExists(name) {
+    const r = await pool.query('SELECT to_regclass($1) AS t', [`public.${name}`]);
+    return Boolean(r.rows[0] && r.rows[0].t);
+  }
+
+  /* Barcode for item + party from the ERP Variant Master (copied from Smart Ops on MAIN). */
+  async function erpBarcode(key, party) {
+    if (!key || !party || !await tableExists('jo_erp_variant_master')) return null;
+    const r = await pool.query(
+      `SELECT TRIM(party_item_barcode) AS ean, party_packing_size, inner_carton_qty
+         FROM jo_erp_variant_master
+        WHERE UPPER(REGEXP_REPLACE(TRIM(COALESCE(our_code, '')), '^0+(?=.)', '')) = $1
+          AND LOWER(TRIM(COALESCE(party_group, ''))) = LOWER(TRIM($2))
+          AND NULLIF(TRIM(COALESCE(party_item_barcode, '')), '') IS NOT NULL
+        ORDER BY local_updated_at DESC NULLS LAST
+        LIMIT 1`, [key, party]);
+    return r.rows[0] || null;
+  }
+
+  /**
+   * GET /api/packing/jobcard?jc=JC/...&exclude_plan=<id>
+   * Everything the packing plan form fills from a job card number (or JR number):
+   * item, party, JR qty, qty already in other packing plans, the item's packing
+   * standards (party's own first) and the EAN with where it came from.
+   */
+  app.get('/api/packing/jobcard', async (req, res) => {
+    try {
+      if (!requireReader(req, res)) return;
+      await ensureTables();
+      const jc = clean(req.query.jc, 60);
+      if (!jc) return res.status(400).json({ ok: false, error: 'Enter a job card number.' });
+      const fid = readFactory(req);
+      const excludeId = toInt(req.query.exclude_plan);
+      const findSql = `
+        SELECT or_jr_no, job_card_no, item_code, product_name, client_name, jr_qty, std_pack, or_jr_date, factory_id
+          FROM or_jr_report
+         WHERE (UPPER(TRIM(job_card_no)) = UPPER($1) OR UPPER(TRIM(or_jr_no)) = UPPER($1))
+           AND COALESCE(is_deleted, FALSE) = FALSE
+           AND ($2::int IS NULL OR factory_id = $2)
+         ORDER BY (UPPER(TRIM(job_card_no)) = UPPER($1)) DESC, or_jr_date DESC NULLS LAST
+         LIMIT 1`;
+      let found = await pool.query(findSql, [jc, fid]);
+      if (!found.rows.length && fid) found = await pool.query(findSql, [jc, null]);
+      if (!found.rows.length) return res.status(404).json({ ok: false, error: `Job card ${jc} is not in the OR-JR report.` });
+      const job = found.rows[0];
+      const jobCard = clean(job.job_card_no, 60) || jc;
+      const key = itemKey(job.item_code);
+      const party = clean(job.client_name, 120);
+
+      const [planned, standards, lastEan, erp] = await Promise.all([
+        pool.query(
+          `SELECT COALESCE(SUM(plan_qty), 0)::int AS qty, COUNT(*)::int AS plans
+             FROM assembly_plans
+            WHERE UPPER(TRIM(COALESCE(job_card_no, ''))) = UPPER($1)
+              AND UPPER(COALESCE(status, '')) NOT IN ('ARCHIVED', 'CANCELLED')
+              AND ($2::int IS NULL OR id <> $2)`, [jobCard, Number.isNaN(excludeId) ? null : excludeId]),
+        pool.query(
+          `SELECT id, item_code, item_name, party_group, station_name, cycle_time_sec, persons, ean,
+                  pcs_per_box, boxes_per_carton, carton_type, check_note
+             FROM packing_item_standards
+            WHERE item_key = $1 AND is_active AND ($2::int IS NULL OR factory_id = $2)
+            ORDER BY (LOWER(party_group) = LOWER($3)) DESC, (station_name = ''), cycle_time_sec NULLS LAST`,
+          [key, fid, party]),
+        pool.query(
+          `SELECT TRIM(ean_number) AS ean, created_at
+             FROM assembly_plans
+            WHERE NULLIF(TRIM(COALESCE(ean_number, '')), '') IS NOT NULL
+              AND LOWER(TRIM(COALESCE(client_name, ''))) = LOWER($2)
+              AND (LOWER(TRIM(COALESCE(item_name, ''))) = LOWER(TRIM($1))
+                   OR UPPER(TRIM(COALESCE(job_card_no, ''))) IN (
+                        SELECT UPPER(TRIM(job_card_no)) FROM or_jr_report
+                         WHERE UPPER(REGEXP_REPLACE(TRIM(COALESCE(item_code, '')), '^0+(?=.)', '')) = $3
+                           AND NULLIF(TRIM(COALESCE(job_card_no, '')), '') IS NOT NULL))
+            ORDER BY created_at DESC NULLS LAST
+            LIMIT 1`, [job.product_name || '', party, key]),
+        erpBarcode(key, party)
+      ]);
+
+      const own = standards.rows.filter(s => s.party_group.toLowerCase() === party.toLowerCase());
+      const stationed = own.filter(s => s.station_name && Number(s.cycle_time_sec) > 0);
+      /* no standard for this party: offer the item's stations from other parties as hints */
+      const others = own.length ? [] : standards.rows.filter(s => s.station_name && Number(s.cycle_time_sec) > 0);
+      const ownEan = own.find(s => s.ean);
+      let ean = null;
+      if (ownEan) ean = { value: ownEan.ean, source: 'packing_master' };
+      else if (erp) ean = { value: erp.ean, source: 'erp_variant' };
+      else if (lastEan.rows[0]) ean = { value: lastEan.rows[0].ean, source: 'last_plan' };
+
+      const jrQty = Number(job.jr_qty) || 0;
+      const plannedQty = planned.rows[0].qty;
+      res.json({
+        ok: true,
+        data: {
+          job_card_no: jobCard,
+          or_jr_no: job.or_jr_no,
+          item_code: job.item_code,
+          item_key: key,
+          item_name: job.product_name,
+          party_group: party,
+          jr_qty: jrQty,
+          std_pack: job.std_pack,
+          planned_qty: plannedQty,
+          planned_plans: planned.rows[0].plans,
+          balance_qty: Math.max(0, jrQty - plannedQty),
+          stations: stationed.map(s => ({ ...s, pcs_per_hour: pcsPerHour(s.cycle_time_sec) })),
+          other_party_stations: others.map(s => ({ ...s, pcs_per_hour: pcsPerHour(s.cycle_time_sec) })),
+          has_standard: own.length > 0,
+          ean,
+          packing: ownEan || own[0] ? {
+            pcs_per_box: (ownEan || own[0]).pcs_per_box,
+            boxes_per_carton: (ownEan || own[0]).boxes_per_carton,
+            carton_type: (ownEan || own[0]).carton_type
+          } : null
+        }
+      });
+    } catch (err) { sendServerError(res, err); }
+  });
+
+  /**
+   * POST /api/packing/standards/fill-ean[?commit=1]
+   * Copies the ERP Variant Master barcode into item standards that have no EAN yet
+   * (same item code and party group). Never replaces an EAN already set. Without
+   * commit it only counts. MAIN only, like every packing master write.
+   */
+  app.post('/api/packing/standards/fill-ean', async (req, res) => {
+    try {
+      const w = requireWriter(req, res); if (!w) return;
+      await ensureTables();
+      if (!await tableExists('jo_erp_variant_master')) {
+        return res.status(400).json({ ok: false, error: 'The ERP Variant Master is not on this server yet.' });
+      }
+      const commit = String(req.query.commit || req.body?.commit || '') === '1';
+      const source = `
+        SELECT DISTINCT ON (k, pg) k, pg, ean FROM (
+          SELECT UPPER(REGEXP_REPLACE(TRIM(COALESCE(our_code, '')), '^0+(?=.)', '')) AS k,
+                 LOWER(TRIM(COALESCE(party_group, ''))) AS pg,
+                 TRIM(party_item_barcode) AS ean, local_updated_at
+            FROM jo_erp_variant_master
+           WHERE NULLIF(TRIM(COALESCE(party_item_barcode, '')), '') IS NOT NULL
+        ) x ORDER BY k, pg, local_updated_at DESC NULLS LAST`;
+      const stats = await pool.query(
+        `SELECT COUNT(*)::int AS fillable
+           FROM packing_item_standards s JOIN (${source}) v ON v.k = s.item_key AND v.pg = LOWER(s.party_group)
+          WHERE s.factory_id = $1 AND s.is_active AND s.ean = ''`, [w.factoryId]);
+      const fillable = stats.rows[0].fillable;
+      if (!commit) return res.json({ ok: true, committed: false, fillable });
+      const r = await pool.query(
+        `UPDATE packing_item_standards s SET ean = v.ean, updated_by = $2, updated_at = NOW()
+           FROM (${source}) v
+          WHERE v.k = s.item_key AND v.pg = LOWER(s.party_group)
+            AND s.factory_id = $1 AND s.is_active AND s.ean = ''`, [w.factoryId, w.user]);
+      res.json({ ok: true, committed: true, filled: r.rowCount || 0 });
+    } catch (err) { sendServerError(res, err); }
+  });
+
   app.get('/api/packing/standards/export.xlsx', async (req, res) => {
     try {
       if (!requireReader(req, res)) return;
