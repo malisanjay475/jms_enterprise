@@ -14,6 +14,21 @@
   "latest": "1.177.0",
   "versions": [
     {
+      "version": "1.189.0",
+      "date": "2026-11-19",
+      "title": "Packing live screen",
+      "modules": [
+        {
+          "app": "packing",
+          "changes": [
+            { "type": "feat", "text": "New Packing Live screen for the floor TV: packed today, what you will reach by 17:00 at the current speed, stations running, cartons waiting for the store and today's dispatch. It refreshes every 30 seconds." },
+            { "type": "feat", "text": "One tile per station shows Running, Idle (no good scan for over 10 minutes), Locked, Not started or No plan, with the job, packed against plan, finish time in shift hours, speed against standard and the persons it needs." },
+            { "type": "feat", "text": "A Needs action list shows locked and idle stations, cartons not handed to the store after 24 hours and stock in the store too long. TV mode hides the menu and makes the text bigger." }
+          ]
+        }
+      ]
+    },
+    {
       "version": "1.188.1",
       "date": "2026-11-19",
       "title": "Packing tables safety fix",

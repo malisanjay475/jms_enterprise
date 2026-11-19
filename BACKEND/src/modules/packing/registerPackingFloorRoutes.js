@@ -8,6 +8,8 @@
  *                                               packed qty, live rate, standard rate and
  *                                               boxes; totals; job cards waiting to pack.
  *  - GET  /api/packing/station-screen?station=  everything one station's screen shows.
+ *  - GET  /api/packing/live                    the live packing screen: station tiles, totals,
+ *                                               store and dispatch figures, alerts (packingLive.js).
  *  - POST /api/packing/plans/:id/start          make this the station's running job.
  *  - POST /api/packing/plans/:id/finish         mark the job Done.
  *  - POST /api/packing/unlock                   supervisor PIN clears a wrong-barcode lock.
@@ -29,6 +31,7 @@ const { getFactoryId, getRequestUsername, normalizeFactoryId } = require('../../
 const { sendServerError } = require('../../app/httpErrors');
 const { itemKey, canEditMasters, pcsPerHour, ensurePackingSchema } = require('./registerPackingMasterRoutes');
 const packingBoxes = require('./registerPackingBoxRoutes');
+const live = require('./packingLive');
 
 const isLocalServer = () => String(process.env.SERVER_TYPE || '').toUpperCase() === 'LOCAL';
 /* The factory this server stands in: a LOCAL box's own factory, null on MAIN. */
@@ -291,6 +294,63 @@ function registerPackingFloorRoutes(app, pool) {
       }, { planned: 0, packed: 0, running: 0, plans: plans.length });
 
       res.json({ ok: true, data: { date: day, rows, plans, totals, waiting } });
+    } catch (err) { sendServerError(res, err); }
+  });
+
+  /* ---------------- Live screen (packing_live.html) ---------------- */
+
+  app.get('/api/packing/live', async (req, res) => {
+    try {
+      if (!requireUser(req, res)) return;
+      await ensureTables();
+      const now = Date.now();
+      const { day, startMs } = live.istDay(now);
+      const fid = readFactory(req);
+      const boxFid = serverFactoryId() || fid;
+      const stations = await stationRows(fid);
+      const plans = await planDetails(`
+        WHERE UPPER(COALESCE(p.status, '')) NOT IN ('ARCHIVED', 'CANCELLED')
+          AND ((p.start_time < ($1::date + 1) AND COALESCE(p.end_time, p.start_time) >= $1::date)
+               OR (UPPER(COALESCE(p.status, '')) = 'RUNNING' AND p.start_time >= $1::date - ${OPEN_PLAN_DAYS} AND p.start_time < ($1::date + 1)))`, [day]);
+      const scans = await live.scanFigures(pool, startMs);
+
+      const known = new Set(stations.map(s => s.name.toLowerCase()));
+      const oldTables = [...new Set(plans.map(p => p.table_id).filter(t => t && !known.has(String(t).toLowerCase())))].sort();
+      const rows = [
+        ...stations.map(s => ({ name: s.name, persons: s.persons, is_station: true })),
+        ...oldTables.map(t => ({ name: t, persons: null, is_station: false }))
+      ];
+      const tiles = [];
+      for (const row of rows) {
+        const key = row.name.toLowerCase();
+        const own = plans.filter(p => String(p.table_id || '').toLowerCase() === key);
+        const lock = await openLockFor(pool, row.name);
+        tiles.push(live.stationTile(row, own, scans.get(key), lock, now));
+      }
+
+      let store = null;
+      try {
+        await packingBoxes.ensurePackingBoxSchema(pool);
+        const { alertDays } = require('./registerPackingDispatchRoutes');
+        store = await live.storeFigures(pool, boxFid, startMs, await alertDays(pool, boxFid));
+        for (const t of tiles) t.waiting_store = store.waiting_by_station[t.name.toLowerCase()] || 0;
+        delete store.waiting_by_station;
+      } catch (e) { console.warn('[Packing live] store figures failed:', e.message); }
+
+      res.json({
+        ok: true,
+        data: {
+          date: day,
+          now: new Date(now).toISOString(),
+          in_shift: live.inShift(now),
+          minutes_left: Math.round(live.minutesLeftToday(now)),
+          idle_min: live.IDLE_MIN,
+          stations: tiles,
+          totals: live.totalsOf(tiles),
+          store,
+          alerts: live.alertsOf(tiles, store || { waiting_old: 0, old_stock_units: 0 })
+        }
+      });
     } catch (err) { sendServerError(res, err); }
   });
 

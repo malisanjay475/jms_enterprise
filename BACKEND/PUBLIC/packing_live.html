@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JMS OCEAN - Packing Live</title>
+    <link href="/assets/vendor/fonts/g-e34670640e.css" rel="stylesheet">
+    <link rel="stylesheet" href="/assets/bootstrap-icons.min.css">
+    <link rel="stylesheet" href="/assets/app.css?v=12">
+    <style>
+        [hidden] { display: none !important; }
+        .pl-top { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+        .pl-clock { color: #475569; font-size: .9rem; font-variant-numeric: tabular-nums; }
+        .pl-clock b { color: #0f172a; }
+        .pl-tools { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+        .pl-upd { font-size: .78rem; color: #64748b; }
+        .pl-upd.off { color: #b91c1c; font-weight: 700; }
+        .pl-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-bottom: 14px; }
+        .pl-kpi { background: #fff; border: 1px solid #e2e8f0; border-radius: 14px; padding: 10px 14px; min-width: 0; }
+        .pl-kpi small { display: block; font-size: .76rem; color: #64748b; font-weight: 600; }
+        .pl-kpi b { display: block; font-size: 1.7rem; color: #0f172a; font-variant-numeric: tabular-nums; line-height: 1.2; }
+        .pl-kpi span { font-size: .78rem; color: #64748b; }
+        .pl-kpi.warn b { color: #b45309; }
+        .pl-kpi.good b { color: #15803d; }
+        .pl-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px; margin-bottom: 14px; }
+        .pl-tile { background: #fff; border: 1px solid #e2e8f0; border-left: 5px solid #cbd5e1; border-radius: 12px; padding: 10px 12px; font-size: .84rem; min-width: 0; color: inherit; text-decoration: none; display: block; }
+        a.pl-tile:hover { border-color: #94a3b8; }
+        .pl-tile.RUNNING { border-left-color: #16a34a; }
+        .pl-tile.IDLE, .pl-tile.OFF_SHIFT { border-left-color: #d97706; }
+        .pl-tile.LOCKED { border-left-color: #dc2626; }
+        .pl-tile.NOT_STARTED { border-left-color: #2563eb; }
+        .pl-head { display: flex; justify-content: space-between; align-items: center; gap: 6px; }
+        .pl-name { font-weight: 700; color: #0f172a; font-size: .95rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .pl-pill { font-size: .72rem; font-weight: 700; padding: 2px 8px; border-radius: 999px; white-space: nowrap; }
+        .pl-pill.RUNNING { background: #dcfce7; color: #166534; }
+        .pl-pill.IDLE, .pl-pill.OFF_SHIFT { background: #fef3c7; color: #92400e; }
+        .pl-pill.LOCKED { background: #fee2e2; color: #991b1b; }
+        .pl-pill.NOT_STARTED { background: #dbeafe; color: #1e40af; }
+        .pl-pill.NO_PLAN { background: #f1f5f9; color: #475569; }
+        .pl-job { color: #475569; margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .pl-bar { height: 7px; background: #f1f5f9; border-radius: 4px; margin: 7px 0 5px; overflow: hidden; }
+        .pl-bar i { display: block; height: 100%; background: #16a34a; border-radius: 4px; }
+        .pl-tile.IDLE .pl-bar i, .pl-tile.OFF_SHIFT .pl-bar i { background: #d97706; }
+        .pl-tile.LOCKED .pl-bar i { background: #dc2626; }
+        .pl-tile.NOT_STARTED .pl-bar i { background: #2563eb; }
+        .pl-row { display: flex; justify-content: space-between; gap: 6px; font-variant-numeric: tabular-nums; }
+        .pl-row + .pl-row { margin-top: 2px; }
+        .pl-mute { color: #64748b; }
+        .pl-late { color: #b45309; font-weight: 700; }
+        .pl-alerts { background: #fff; border: 1px solid #e2e8f0; border-radius: 14px; padding: 10px 14px; }
+        .pl-alerts h3 { font-size: .9rem; margin: 0 0 6px; color: #0f172a; }
+        .pl-alert { display: flex; justify-content: space-between; gap: 10px; padding: 5px 0; border-top: 1px solid #f1f5f9; font-size: .86rem; }
+        .pl-alert:first-of-type { border-top: 0; }
+        .pl-tag { font-size: .72rem; font-weight: 700; padding: 1px 8px; border-radius: 999px; white-space: nowrap; align-self: center; }
+        .pl-tag.danger { background: #fee2e2; color: #991b1b; }
+        .pl-tag.warning { background: #fef3c7; color: #92400e; }
+        .pl-tag.neutral { background: #f1f5f9; color: #475569; }
+        .pl-empty { color: #64748b; font-size: .9rem; padding: 14px 2px; }
+        .pl-note { color: #64748b; font-size: .78rem; margin-top: 10px; }
+        /* TV mode: no menu, bigger text, fills the screen */
+        body.pl-tv { background: #f8fafc; }
+        body.pl-tv .main-content { padding: 18px 22px; max-width: none; width: 100%; margin: 0; }
+        body.pl-tv .pl-kpi b { font-size: 2.4rem; }
+        body.pl-tv .pl-kpi small, body.pl-tv .pl-kpi span { font-size: .95rem; }
+        body.pl-tv .pl-grid { grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); }
+        body.pl-tv .pl-tile { font-size: 1rem; }
+        body.pl-tv .pl-name { font-size: 1.15rem; }
+        body.pl-tv .pl-alert { font-size: 1rem; }
+        body.pl-tv .pl-note { display: none; }
+        @media (max-width: 560px) { .pl-kpi b { font-size: 1.4rem; } }
+    </style>
+</head>
+
+<body>
+    <div class="main-content">
+        <div class="header pl-top">
+            <div>
+                <div class="page-title" id="plTitle">Packing Live</div>
+                <div class="pl-clock" id="plClock"></div>
+            </div>
+            <div class="pl-tools">
+                <span class="pl-upd" id="plUpd" role="status" aria-live="polite"></span>
+                <button class="btn btn-outline" id="plTvBtn" type="button"><i class="bi bi-tv"></i> <span>TV mode</span></button>
+            </div>
+        </div>
+        <div class="pl-kpis" id="plKpis"></div>
+        <div class="pl-grid" id="plGrid"><div class="pl-empty">Loading…</div></div>
+        <div class="pl-alerts" id="plAlerts" hidden></div>
+        <p class="pl-note">Refreshes every 30 seconds. Idle = a running job with no good scan for more than 10 working minutes. "On track" = packed today plus what each running station packs by 17:00 at its last 15 minutes' speed. Click a station to open its scanning screen.</p>
+    </div>
+
+    <script src="/assets/app.min.js?v=1583"></script>
+    <script src="/assets/packing-shift.js?v=1"></script>
+    <script>
+        const $ = (id) => document.getElementById(id);
+        const esc = (v) => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+        const fmt = (n) => Math.round(Number(n) || 0).toLocaleString('en-IN');
+        const TV = new URLSearchParams(location.search).get('tv') === '1';
+        const REFRESH_MS = 30000;
+        const S = { data: null, busy: false, lastOk: 0, failed: false };
+        const STATUS = {
+            RUNNING: 'Running', IDLE: 'Idle', OFF_SHIFT: 'Shift over', LOCKED: 'Locked', NOT_STARTED: 'Not started', NO_PLAN: 'No plan'
+        };
+        const hm = (d) => new Date(d).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: false });
+
+        document.addEventListener('DOMContentLoaded', () => {
+            JPSMS.auth.requireAuth();
+            if (TV) {
+                document.body.classList.add('pl-tv');
+                $('plTvBtn').querySelector('span').textContent = 'Exit TV mode';
+            } else {
+                JPSMS.renderShell('packing');
+            }
+            $('plTvBtn').addEventListener('click', toggleTv);
+            tickClock();
+            setInterval(tickClock, 15000);
+            load();
+            setInterval(load, REFRESH_MS);
+            document.addEventListener('visibilitychange', () => { if (!document.hidden) load(); });
+        });
+
+        function toggleTv() {
+            const url = new URL(location.href);
+            if (TV) {
+                url.searchParams.delete('tv');
+                if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+            } else {
+                url.searchParams.set('tv', '1');
+                if (document.documentElement.requestFullscreen) document.documentElement.requestFullscreen().catch(() => {});
+            }
+            location.href = url.toString();
+        }
+
+        function tickClock() {
+            const now = new Date();
+            const left = PackShift.inShift(now) ? PackShift.workBetween(now, (() => { const e = new Date(now); e.setHours(PackShift.END_H, 0, 0, 0); return e; })()) : 0;
+            const leftText = left > 0 ? `${Math.floor(left / 60)} h ${Math.round(left % 60)} m left` : (now.getHours() < PackShift.START_H ? 'shift starts 09:00' : 'shift over');
+            $('plClock').innerHTML = `<i class="bi bi-clock"></i> <b>${hm(now)}</b> · shift ${esc(PackShift.label)} · ${esc(leftText)}`;
+            if (S.lastOk) updatedText();
+        }
+
+        function updatedText() {
+            const el = $('plUpd');
+            if (S.failed) {
+                el.className = 'pl-upd off';
+                el.textContent = S.lastOk ? `Can't reach the server. Showing ${hm(S.lastOk)} figures, retrying.` : `Can't reach the server. Retrying.`;
+            } else {
+                el.className = 'pl-upd';
+                el.textContent = `Updated ${hm(S.lastOk)}`;
+            }
+        }
+
+        async function load() {
+            if (S.busy) return;
+            S.busy = true;
+            try {
+                const res = await JPSMS.api.request('/packing/live', { skipLoader: true, silentError: true });
+                if (!res || res.ok === false || !res.data) throw new Error((res && res.error) || 'No data');
+                S.data = res.data;
+                S.lastOk = Date.now();
+                S.failed = false;
+                render();
+            } catch (e) {
+                S.failed = true;
+                if (!S.data) $('plGrid').innerHTML = `<div class="pl-empty">Couldn't load the live figures. Retrying every 30 seconds.</div>`;
+            } finally {
+                S.busy = false;
+                updatedText();
+            }
+        }
+
+        function render() {
+            const d = S.data;
+            const t = d.totals || {};
+            const st = d.store || {};
+            const kpi = (label, value, sub, cls = '') => `<div class="pl-kpi ${cls}"><small>${esc(label)}</small><b>${value}</b><span>${sub}</span></div>`;
+            const projCls = t.target > 0 ? (t.short > 0 ? 'warn' : 'good') : '';
+            const projSub = t.target > 0 ? (t.short > 0 ? `${fmt(t.short)} short of today's plans` : 'covers today\'s plans') : 'nothing left on today\'s plans';
+            const stationsSub = [t.idle ? `${t.idle} idle` : '', t.locked ? `${t.locked} locked` : '', t.not_started ? `${t.not_started} not started` : ''].filter(Boolean).join(' · ') || 'all quiet';
+            $('plKpis').innerHTML = [
+                kpi('Packed today', fmt(t.packed_today), t.target > 0 ? `of ${fmt(t.target)} on today's plans` : 'good scans today'),
+                kpi('On track for 17:00', d.in_shift ? fmt(t.projected) : '—', d.in_shift ? projSub : 'outside the shift', d.in_shift ? projCls : ''),
+                kpi('Stations running', `${fmt(t.running)} / ${fmt(t.stations)}`, esc(stationsSub)),
+                kpi('Waiting for store', fmt(st.waiting_units), st.waiting_old ? `${fmt(st.waiting_old)} over ${fmt(st.not_handed_hours)} h` : `${fmt(st.waiting_pcs)} pcs`, st.waiting_old ? 'warn' : ''),
+                kpi('Dispatched today', fmt(st.dispatched_pcs), `${fmt(st.dispatched_slips)} slip${st.dispatched_slips === 1 ? '' : 's'}${st.open_slips ? ` · ${fmt(st.open_slips)} loading` : ''}`)
+            ].join('');
+
+            const tiles = d.stations || [];
+            $('plGrid').innerHTML = tiles.length ? tiles.map(tileHtml).join('') : `<div class="pl-empty">No packing stations yet. Add them in Packing Masters.</div>`;
+
+            const alerts = d.alerts || [];
+            const box = $('plAlerts');
+            box.hidden = !alerts.length;
+            box.innerHTML = alerts.length ? `<h3><i class="bi bi-exclamation-triangle"></i> Needs action</h3>` + alerts.map(a =>
+                `<div class="pl-alert"><span>${esc(a.text)}</span><span class="pl-tag ${esc(a.level)}">${esc({ locked: 'Supervisor', idle: 'Idle', handover: 'Handover', old_stock: 'Old stock' }[a.kind] || a.kind)}</span></div>`).join('') : '';
+        }
+
+        function tileHtml(s) {
+            const c = s.current;
+            const pill = s.status === 'IDLE' ? `Idle ${fmt(s.idle_min)} m` : STATUS[s.status] || s.status;
+            const lines = [];
+            if (c) {
+                const pct = c.plan_qty > 0 ? Math.min(100, Math.round(c.scanned_qty / c.plan_qty * 100)) : 0;
+                lines.push(`<div class="pl-job" title="${esc(c.item_name)}">${esc(c.item_name || 'Item')}${c.job_card_no ? ` · ${esc(c.job_card_no)}` : ''}</div>`);
+                lines.push(`<div class="pl-bar"><i style="width:${pct}%"></i></div>`);
+                let eta = '';
+                if (s.status === 'LOCKED') eta = '<span class="pl-late">PIN needed</span>';
+                else if (s.remaining <= 0) eta = 'plans done';
+                else if (s.rate_used > 0) {
+                    const at = PackShift.addWork(new Date(), s.remaining / s.rate_used * 60);
+                    const end = new Date(); end.setHours(PackShift.END_H, 0, 0, 0);
+                    eta = at > end ? `<span class="pl-late">ETA ${esc(PackShift.whenText(at))}</span>` : `ETA ${esc(PackShift.whenText(at))}`;
+                } else eta = `<span class="pl-mute">${fmt(s.remaining)} left</span>`;
+                lines.push(`<div class="pl-row"><span>${fmt(c.scanned_qty)} / ${fmt(c.plan_qty)}${c.scanned_qty > c.plan_qty ? ' <span class="pl-late">over plan</span>' : ''}</span><span>${eta}</span></div>`);
+                const speed = s.rate_now > 0 ? `${fmt(s.rate_now)} pcs/hr` : 'no scans in 15 min';
+                const std = s.std_pcs_hr > 0 ? ` · std ${fmt(s.std_pcs_hr)}` : '';
+                if (s.status === 'NOT_STARTED') lines.push(`<div class="pl-row pl-mute"><span>Not started yet${std}</span></div>`);
+                else lines.push(`<div class="pl-row pl-mute"><span>${speed}${std}</span><span>${s.efficiency != null ? `${s.efficiency}%` : ''}</span></div>`);
+            } else {
+                lines.push(`<div class="pl-job">${s.last_good_at ? `Last scan ${esc(PackShift.whenText(new Date(s.last_good_at)))}` : 'Nothing planned today'}</div>`);
+            }
+            const persons = (c && c.std_persons) || s.persons;
+            const foot = [
+                persons ? `${fmt(persons)} person${Number(persons) === 1 ? '' : 's'} (std)` : '',
+                s.packed_today ? `${fmt(s.packed_today)} today` : '',
+                s.waiting_store ? `${fmt(s.waiting_store)} ctn for store` : '',
+                s.wrong_today ? `<span class="pl-late">${fmt(s.wrong_today)} wrong</span>` : ''
+            ].filter(Boolean).join(' · ');
+            if (foot) lines.push(`<div class="pl-row pl-mute" style="margin-top:4px"><span>${foot}</span></div>`);
+            const inner = `<div class="pl-head"><span class="pl-name" title="${esc(s.name)}">${esc(s.name)}${s.is_station ? '' : ' <span class="pl-mute">(old table)</span>'}</span><span class="pl-pill ${esc(s.status)}">${esc(pill)}</span></div>${lines.join('')}`;
+            return TV
+                ? `<div class="pl-tile ${esc(s.status)}">${inner}</div>`
+                : `<a class="pl-tile ${esc(s.status)}" href="scan_station.html?station=${encodeURIComponent(s.name)}">${inner}</a>`;
+        }
+    </script>
+</body>
+
+</html>
