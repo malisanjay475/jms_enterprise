@@ -500,7 +500,8 @@ async function handoverReport(pool, f, t) {
 async function stockReport(pool, f, t) {
   if (!t.dispatches) return { columns: [], rows: [], summary: [{ label: 'Cartons in store', value: 0, type: 'int' }] };
   const dispatch = require('./registerPackingDispatchRoutes');
-  const days = await dispatch.alertDays(pool, t.factoryId);
+  const fid = dispatch.serverFactoryId() || t.factoryId; // a LOCAL server is always its own factory, like /api/packing/stock
+  const days = await dispatch.alertDays(pool, fid);
   const r = await pool.query(`
     SELECT b.item_name, MAX(b.item_code) AS item_code, b.client_name, COUNT(*)::int AS units,
            COUNT(*) FILTER (WHERE b.kind = 'BOX')::int AS loose_boxes, COALESCE(SUM(b.qty), 0)::int AS pcs,
@@ -512,7 +513,7 @@ async function stockReport(pool, f, t) {
        AND ($1::int IS NULL OR b.factory_id = $1)
        AND ($2::text IS NULL OR LOWER(COALESCE(b.client_name, '')) = LOWER($2))
      GROUP BY b.item_name, b.client_name
-     ORDER BY MIN(b.received_at) LIMIT ${ROW_LIMIT}`, [t.factoryId, f.party, days]);
+     ORDER BY MIN(b.received_at) LIMIT ${ROW_LIMIT}`, [fid, f.party, days]);
   const rows = r.rows.map(x => ({
     item: x.item_name, code: x.item_code || '', party: x.client_name || '', jobs: x.jobs,
     cartons: x.units - x.loose_boxes, boxes: x.loose_boxes, pcs: x.pcs, oldest_days: x.oldest_days,
@@ -548,7 +549,7 @@ async function dispatchReport(pool, f, t) {
      WHERE d.opened_at >= ($1::date)::timestamp AT TIME ZONE '${TZ}' AND d.opened_at < ($2::date + 1)::timestamp AT TIME ZONE '${TZ}'
        AND ($3::int IS NULL OR d.factory_id = $3)
        AND ($4::text IS NULL OR LOWER(d.party) = LOWER($4))
-     ORDER BY d.opened_at DESC LIMIT ${ROW_LIMIT}`, [f.from, f.to, t.factoryId, f.party]);
+     ORDER BY d.opened_at DESC LIMIT ${ROW_LIMIT}`, [f.from, f.to, require('./registerPackingDispatchRoutes').serverFactoryId() || t.factoryId, f.party]);
   const rows = r.rows.map(x => ({
     slip: x.slip_no, opened: x.opened, closed: x.closed || '', party: x.party, vehicle: x.vehicle_no || '', invoice: x.invoice_no || '',
     opened_by: x.opened_by || '', jobs: x.jobs, cartons: x.cartons, pcs: x.pcs,

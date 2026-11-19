@@ -179,6 +179,15 @@ function registerPackingHandoverRoutes(app, pool) {
     return r.rows[0] || null;
   }
 
+  /* Every change to a slip's labels runs under one lock per slip, with the slip re-read inside it. */
+  async function withSlip(id, fid, fn) {
+    return inTx(async (db) => {
+      await db.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`packing_handover_slip_${id}`]);
+      const r = await db.query(`${SLIP_SQL} WHERE h.id = $1 AND h.factory_id IS NOT DISTINCT FROM $2`, [id, fid]);
+      return fn(db, r.rows[0] || null);
+    });
+  }
+
   async function inTx(fn) {
     const client = await pool.connect();
     try {
@@ -200,7 +209,8 @@ function registerPackingHandoverRoutes(app, pool) {
       const user = userOf(req);
       const open = await pool.query(
         `${SLIP_SQL} WHERE h.status = 'OPEN' AND h.factory_id IS NOT DISTINCT FROM $1 ORDER BY (h.opened_by = $2) DESC, h.id DESC`, [fid, user]);
-      const mine = open.rows.find(s => s.opened_by === user) || null;
+      const pick = parseInt(req.query.slip, 10);
+      const mine = (pick && open.rows.find(s => s.id === pick)) || open.rows.find(s => s.opened_by === user) || null;
       const recent = await pool.query(
         `${SLIP_SQL} WHERE h.status = 'CLOSED' AND h.factory_id IS NOT DISTINCT FROM $1 ORDER BY h.closed_at DESC LIMIT 15`, [fid]);
       res.json({
@@ -255,10 +265,9 @@ function registerPackingHandoverRoutes(app, pool) {
       const fid = factoryOf(req);
       const code = clean(req.body && req.body.code, 60).toUpperCase();
       if (!code) return bad(res, 400, 'Scan a label.');
-      const slip = await loadSlip(parseInt(req.params.id, 10), fid);
-      if (!slip) return bad(res, 404, 'Slip not found.');
-      if (slip.status !== 'OPEN') return bad(res, 400, `Slip ${slip.slip_no} is closed. Start a new slip.`);
-      const result = await inTx(async (db) => {
+      const result = await withSlip(parseInt(req.params.id, 10), fid, async (db, slip) => {
+        if (!slip) return { status: 404, error: 'Slip not found.' };
+        if (slip.status !== 'OPEN') return { status: 400, error: `Slip ${slip.slip_no} is closed. Start a new slip.` };
         await db.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`packing_label_${code}`]);
         const box = await findLabel(db, code, fid);
         const why = refusal(box, box && box.received_slip);
@@ -270,6 +279,7 @@ function registerPackingHandoverRoutes(app, pool) {
         const totals = await slipTotals(db, slip);
         return { box, totals };
       });
+      if (result.error) return bad(res, result.status, result.error);
       if (result.refused) {
         return res.status(409).json({ ok: false, error: result.refused, code, label: result.box ? { item_name: result.box.item_name, kind: result.box.kind } : null });
       }
@@ -282,23 +292,26 @@ function registerPackingHandoverRoutes(app, pool) {
     try {
       if (!requireUser(req, res)) return;
       await ensureTables();
-      const fid = factoryOf(req);
-      const slip = await loadSlip(parseInt(req.params.id, 10), fid);
-      if (!slip) return bad(res, 404, 'Slip not found.');
-      if (slip.status !== 'OPEN') return bad(res, 400, 'This slip is closed.');
-      const out = await inTx(async (db) => {
+      const out = await withSlip(parseInt(req.params.id, 10), factoryOf(req), async (db, slip) => {
+        if (!slip) return { status: 404, error: 'Slip not found.' };
+        if (slip.status !== 'OPEN') return { status: 400, error: 'This slip is closed.' };
         const last = await db.query(
-          `SELECT id, code, dispatch_sync_id FROM packing_boxes WHERE handover_sync_id = $1 ORDER BY received_at DESC, id DESC LIMIT 1`, [slip.sync_id]);
-        if (!last.rows.length) return null;
-        if (last.rows[0].dispatch_sync_id) return { blocked: last.rows[0].code };
+          `SELECT code FROM packing_boxes WHERE handover_sync_id = $1 ORDER BY received_at DESC, id DESC LIMIT 1`, [slip.sync_id]);
+        if (!last.rows.length) return { status: 400, error: 'Nothing scanned on this slip yet.' };
+        // same label lock as a dispatch scan, then re-read: a carton dispatched meanwhile stays received
+        await db.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`packing_label_${String(last.rows[0].code).toUpperCase()}`]);
+        const row = await db.query(
+          `SELECT id, code, dispatch_sync_id FROM packing_boxes WHERE handover_sync_id = $1 ORDER BY received_at DESC, id DESC LIMIT 1 FOR UPDATE`, [slip.sync_id]);
+        if (!row.rows.length) return { status: 400, error: 'Nothing scanned on this slip yet.' };
+        if (row.rows[0].dispatch_sync_id) return { status: 409, error: `${row.rows[0].code} is already dispatched. Undo it on the dispatch slip first.` };
         await db.query(
-          `UPDATE packing_boxes SET received_at = NULL, received_by = NULL, handover_sync_id = NULL, updated_at = NOW() WHERE id = $1`, [last.rows[0].id]);
+          `UPDATE packing_boxes SET received_at = NULL, received_by = NULL, handover_sync_id = NULL, updated_at = NOW()
+            WHERE id = $1 AND dispatch_sync_id IS NULL`, [row.rows[0].id]);
         await slipTotals(db, slip);
-        return last.rows[0].code;
+        return { code: row.rows[0].code };
       });
-      if (!out) return bad(res, 400, 'Nothing scanned on this slip yet.');
-      if (out.blocked) return bad(res, 409, `${out.blocked} is already dispatched. Undo it on the dispatch slip first.`);
-      res.json({ ok: true, data: { code: out } });
+      if (out.error) return bad(res, out.status, out.error);
+      res.json({ ok: true, data: { code: out.code } });
     } catch (err) { sendServerError(res, err); }
   });
 
@@ -306,15 +319,17 @@ function registerPackingHandoverRoutes(app, pool) {
     try {
       if (!requireUser(req, res)) return;
       await ensureTables();
-      const fid = factoryOf(req);
-      const slip = await loadSlip(parseInt(req.params.id, 10), fid);
-      if (!slip) return bad(res, 404, 'Slip not found.');
-      if (slip.status !== 'OPEN') return res.json({ ok: true, already: true });
-      const totals = await slipTotals(pool, slip);
-      if (!totals.cartons) return bad(res, 400, 'Scan at least one carton before closing the slip.');
-      await pool.query(
-        `UPDATE packing_handovers SET status = 'CLOSED', closed_by = $2, closed_at = NOW(), updated_at = NOW() WHERE id = $1`, [slip.id, userOf(req)]);
-      res.json({ ok: true });
+      const out = await withSlip(parseInt(req.params.id, 10), factoryOf(req), async (db, slip) => {
+        if (!slip) return { status: 404, error: 'Slip not found.' };
+        if (slip.status !== 'OPEN') return { already: true };
+        const totals = await slipTotals(db, slip);
+        if (!totals.cartons) return { status: 400, error: 'Scan at least one carton before closing the slip.' };
+        await db.query(
+          `UPDATE packing_handovers SET status = 'CLOSED', closed_by = $2, closed_at = NOW(), updated_at = NOW() WHERE id = $1`, [slip.id, userOf(req)]);
+        return {};
+      });
+      if (out.error) return bad(res, out.status, out.error);
+      res.json(out.already ? { ok: true, already: true } : { ok: true });
     } catch (err) { sendServerError(res, err); }
   });
 
