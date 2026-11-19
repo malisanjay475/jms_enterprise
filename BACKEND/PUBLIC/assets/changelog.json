@@ -29,6 +29,19 @@
       ]
     },
     {
+      "version": "1.188.1",
+      "date": "2026-11-19",
+      "title": "Packing tables safety fix",
+      "modules": [
+        {
+          "app": "packing",
+          "changes": [
+            { "type": "security", "text": "Saving a station's table list reads at most 60 tables, however long the list sent." }
+          ]
+        }
+      ]
+    },
+    {
       "version": "1.188.0",
       "date": "2026-11-19",
       "title": "Order Tracker: packing to dispatch",

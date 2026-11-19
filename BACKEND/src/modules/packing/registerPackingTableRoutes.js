@@ -89,14 +89,18 @@ function defaultTablesFor(station) {
 }
 
 /* "a1, A2 a2;A3" -> ['A1', 'A2', 'A3'] (upper case, unique, in order). */
+const MAX_TABLES = 60;
 function parseCodes(v) {
-  const list = Array.isArray(v) ? v : String(v || '').split(/[\s,;]+/);
+  // only the first few hundred entries are read, whatever the request sends
+  const list = Array.isArray(v) ? v.slice(0, MAX_TABLES * 4)
+    : (typeof v === 'string' ? v.slice(0, 2000).split(/[\s,;]+/) : []);
   const out = [];
-  for (const c of list) {
-    const code = clean(c, 20).toUpperCase();
+  for (let i = 0; i < list.length && out.length < MAX_TABLES; i++) {
+    const c = list[i];
+    const code = typeof c === 'string' || typeof c === 'number' ? clean(c, 20).toUpperCase() : '';
     if (code && !out.includes(code)) out.push(code);
   }
-  return out.slice(0, 60);
+  return out;
 }
 
 async function ensureTableSchema(pool) {
