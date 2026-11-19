@@ -6,7 +6,7 @@
  *   GET /api/packing/reports/:type?from=YYYY-MM-DD&to=YYYY-MM-DD&station=&party=
  *   GET /api/packing/reports/:type/export.xlsx?...same filters
  *
- * Types: daily, jobs, jobcards, hourly, wrong, boxes, handover, stock, dispatch, packers (step 10). Read-only over assembly_plans,
+ * Types: daily, jobs, jobcards, hourly, wrong, boxes, handover, stock, dispatch, packers (step 10), losttime (step 11). Read-only over assembly_plans,
  * assembly_scans, packing_item_standards, or_jr_report and packing_lock_events.
  *
  * Rules agreed with the owner (19-Nov-2026):
@@ -614,6 +614,72 @@ async function packersReport(pool, f, t) {
   };
 }
 
+/* Step 11: closed days - plan vs packed, time lost and why, per station and day. */
+async function lostTimeReport(pool, f, t) {
+  const has = await pool.query(`SELECT to_regclass('public.packing_day_closes') AS t`);
+  const cols = [
+    { key: 'day', label: 'Date', type: 'date' }, { key: 'station', label: 'Station' },
+    { key: 'plan_qty', label: 'Plan', type: 'int' }, { key: 'packed', label: 'Packed', type: 'int' },
+    { key: 'done_pct', label: 'Done %', type: 'pct' }, { key: 'short', label: 'Short', type: 'int' },
+    { key: 'lost_min', label: 'Time lost', type: 'min' }, { key: 'stoppages', label: 'Stoppages', type: 'int' },
+    { key: 'main_reason', label: 'Main reason' }, { key: 'time_reasons', label: 'Time lost by reason' },
+    { key: 'short_reasons', label: 'Short by reason' }, { key: 'closed_by', label: 'Closed by' }, { key: 'reopened', label: 'Reopened', type: 'int' },
+    { key: 'status', label: 'Status', type: 'status' }
+  ];
+  if (!has.rows[0].t) return { columns: cols, rows: [], summary: [{ label: 'Days closed', value: 0, type: 'int' }] };
+  const fid = require('./registerPackingDispatchRoutes').serverFactoryId() || t.factoryId;
+  const r = await pool.query(`
+    SELECT DISTINCT ON (c.day, LOWER(c.station_name)) to_char(c.day, 'YYYY-MM-DD') AS day, c.station_name, c.status,
+           c.plan_qty, c.packed_qty, c.short_qty, c.lost_min, c.lines, c.stoppages, c.closed_by, c.reopen_count
+      FROM packing_day_closes c
+     WHERE c.day BETWEEN $1::date AND $2::date
+       AND ($3::text IS NULL OR LOWER(c.station_name) = LOWER($3))
+       AND ($4::int IS NULL OR c.factory_id = $4)
+     ORDER BY c.day DESC, LOWER(c.station_name), c.updated_at DESC
+     LIMIT ${ROW_LIMIT}`, [f.from, f.to, f.station, fid]);
+  const byReason = new Map();
+  const rows = r.rows.map(x => {
+    const time = new Map(), short = new Map();
+    for (const g of Array.isArray(x.stoppages) ? x.stoppages : []) {
+      const k = g.reason || 'No reason';
+      time.set(k, (time.get(k) || 0) + (Number(g.minutes) || 0));
+    }
+    for (const l of Array.isArray(x.lines) ? x.lines : []) {
+      if (!(Number(l.short) > 0)) continue;
+      const k = l.reason || 'No reason';
+      short.set(k, (short.get(k) || 0) + Number(l.short));
+    }
+    if (x.status === 'CLOSED') for (const [k, v] of time) byReason.set(k, (byReason.get(k) || 0) + v);
+    const sorted = [...time].sort((a, b) => b[1] - a[1]);
+    return {
+      day: x.day, station: x.station_name, plan_qty: x.plan_qty, packed: x.packed_qty,
+      done_pct: x.plan_qty > 0 ? Math.round(x.packed_qty * 100 / x.plan_qty) : null,
+      short: x.short_qty, lost_min: x.lost_min, stoppages: Array.isArray(x.stoppages) ? x.stoppages.length : 0,
+      main_reason: sorted.length ? sorted[0][0] : '',
+      time_reasons: sorted.map(([k, v]) => `${k} ${minText(v)}`).join(' · '),
+      short_reasons: [...short].sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} ${v.toLocaleString('en-IN')} pcs`).join(' · '),
+      closed_by: x.closed_by || '',
+      reopened: x.reopen_count || 0,
+      status: x.status === 'CLOSED' ? 'closed' : 'open'
+    };
+  });
+  const closed = rows.filter(x => x.status === 'closed');
+  const top = [...byReason].sort((a, b) => b[1] - a[1]).slice(0, 4);
+  return {
+    columns: cols,
+    rows,
+    note: `Days closed on the Packing Plan board. A stoppage is a gap of more than ${IDLE_MIN} minutes with no good scan, 09:00-17:00. A reopened day (status open) counts again once it is closed.`,
+    summary: [
+      { label: 'Days closed', value: closed.length, type: 'int' },
+      { label: 'Plan', value: closed.reduce((a, x) => a + x.plan_qty, 0), type: 'int' },
+      { label: 'Packed', value: closed.reduce((a, x) => a + x.packed, 0), type: 'int' },
+      { label: 'Short', value: closed.reduce((a, x) => a + x.short, 0), type: 'int' },
+      { label: 'Time lost', value: closed.reduce((a, x) => a + x.lost_min, 0), type: 'min' },
+      ...top.map(([k, v]) => ({ label: k, value: v, type: 'min' }))
+    ]
+  };
+}
+
 const PACKER_COLUMNS = [
   { key: 'day', label: 'Day' }, { key: 'worker_name', label: 'Packer' }, { key: 'badge_no', label: 'Badge' },
   { key: 'contractor', label: 'Contractor' }, { key: 'stations', label: 'Stations' },
@@ -631,7 +697,8 @@ const REPORTS = {
   handover: { title: 'Store handover', run: (pool, f, t) => handoverReport(pool, f, t) },
   stock: { title: 'Packed stock', run: (pool, f, t) => stockReport(pool, f, t) },
   dispatch: { title: 'Dispatch', run: (pool, f, t) => dispatchReport(pool, f, t) },
-  packers: { title: 'Packers', run: (pool, f, t) => packersReport(pool, f, t) }
+  packers: { title: 'Packers', run: (pool, f, t) => packersReport(pool, f, t) },
+  losttime: { title: 'Lost time', run: (pool, f, t) => lostTimeReport(pool, f, t) }
 };
 
 function minText(v) {

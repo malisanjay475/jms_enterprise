@@ -193,7 +193,7 @@
             const box = $('plAlerts');
             box.hidden = !alerts.length;
             box.innerHTML = alerts.length ? `<h3><i class="bi bi-exclamation-triangle"></i> Needs action</h3>` + alerts.map(a =>
-                `<div class="pl-alert"><span>${esc(a.text)}</span><span class="pl-tag ${esc(a.level)}">${esc({ locked: 'Supervisor', idle: 'Idle', crew: 'Crew', handover: 'Handover', old_stock: 'Old stock' }[a.kind] || a.kind)}</span></div>`).join('') : '';
+                `<div class="pl-alert"><span>${esc(a.text)}</span><span class="pl-tag ${esc(a.level)}">${esc({ locked: 'Supervisor', idle: 'Idle', crew: 'Crew', handover: 'Handover', old_stock: 'Old stock', day_not_closed: 'Day close' }[a.kind] || a.kind)}</span></div>`).join('') : '';
         }
 
         function tileHtml(s) {

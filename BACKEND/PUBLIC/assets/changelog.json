@@ -14,6 +14,22 @@
   "latest": "1.177.0",
   "versions": [
     {
+      "version": "1.191.0",
+      "date": "2026-11-19",
+      "title": "Packing day close and lost time",
+      "modules": [
+        {
+          "app": "packing",
+          "changes": [
+            { "type": "feat", "text": "Close each station's day from the Packing Plan (Close day button, or the tag under the station name). It shows each plan's day quantity against what was packed, and every stop of more than 10 minutes with no good scan." },
+            { "type": "feat", "text": "Every short plan and every stoppage needs a reason (No moulded stock, No packing material, Short crew, Scanner / power, Quality hold, Plan too high, or Other with a note). What is left stays on the station's jobs list; nothing is carried forward." },
+            { "type": "feat", "text": "A closed day can be reopened only with a supervisor PIN and a reason. The live screen lists earlier days that were not closed." },
+            { "type": "feat", "text": "New Lost time report: plan vs packed per station and day, minutes lost and pieces short by reason, with Excel export. The reasons list is edited in Packing Masters." }
+          ]
+        }
+      ]
+    },
+    {
       "version": "1.190.0",
       "date": "2026-11-19",
       "title": "Packing crew and output per packer",
