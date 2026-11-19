@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JMS OCEAN - Packed Stock</title>
+    <link href="/assets/vendor/fonts/g-e34670640e.css" rel="stylesheet">
+    <link rel="stylesheet" href="/assets/bootstrap-icons.min.css">
+    <link rel="stylesheet" href="/assets/app.css?v=12">
+    <style>
+        [hidden] { display: none !important; }
+        .ps-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 16px; }
+        .ps-kpi { background: #fff; border: 1px solid #e2e8f0; border-radius: 14px; padding: 12px 16px; }
+        .ps-kpi small { display: block; font-size: .78rem; color: #64748b; font-weight: 600; }
+        .ps-kpi b { font-size: 1.6rem; color: #0f172a; font-variant-numeric: tabular-nums; }
+        .ps-kpi.warn b { color: #b45309; }
+        .ps-card { background: #fff; border: 1px solid #e2e8f0; border-radius: 14px; padding: 14px 16px; }
+        .ps-bar { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+        .ps-bar input, .ps-bar select { flex: 1 1 200px; }
+        .ps-bar .btn { min-height: 40px; }
+        .ps-tbl { overflow-x: auto; }
+        .ps-t { width: 100%; border-collapse: collapse; font-size: .88rem; }
+        .ps-t th { text-align: left; font-size: .74rem; color: #475569; padding: 8px 6px; border-bottom: 1px solid #e2e8f0; white-space: nowrap; }
+        .ps-t td { padding: 8px 6px; border-bottom: 1px solid #f1f5f9; }
+        .ps-t .n { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+        .ps-t tr.row { cursor: pointer; }
+        .ps-t tr.row:hover td { background: #f8fafc; }
+        .ps-t tr.open td { background: #f1f5f9; }
+        .ps-old { background: #fef3c7; color: #92400e; border-radius: 6px; padding: 1px 7px; font-weight: 700; font-size: .8rem; }
+        .ps-detail td { background: #f8fafc; padding: 10px 12px; }
+        .ps-detail table { width: 100%; border-collapse: collapse; font-size: .84rem; }
+        .ps-detail th { text-align: left; color: #475569; font-size: .72rem; padding: 4px 6px; }
+        .ps-detail td td { background: none; padding: 4px 6px; border-bottom: 1px solid #e2e8f0; }
+        .ps-codes { font-family: ui-monospace, monospace; font-size: .76rem; color: #334155; word-break: break-all; }
+        .ps-empty { color: #64748b; font-size: .9rem; padding: 18px 4px; }
+        .ps-note { color: #64748b; font-size: .8rem; margin-top: 10px; }
+    </style>
+</head>
+
+<body>
+    <div class="main-content">
+        <div class="header">
+            <div class="page-title">Packed Stock</div>
+        </div>
+        <div class="ps-kpis" id="psKpis"></div>
+        <div class="ps-card">
+            <div class="ps-bar">
+                <input id="psQ" class="form-control" placeholder="Search item, code, party or job card" aria-label="Search">
+                <select id="psParty" class="form-control" aria-label="Party"><option value="">All parties</option></select>
+                <button class="btn btn-outline" onclick="exportXlsx()"><i class="bi bi-file-earmark-excel"></i> Excel</button>
+                <a class="btn btn-outline" href="packing_dispatch.html"><i class="bi bi-truck"></i> Dispatch</a>
+            </div>
+            <div class="ps-tbl"><table class="ps-t" id="psTable"></table></div>
+            <p class="ps-note" id="psNote">Stock = cartons the store received on a handover slip and has not dispatched. Click a row for its job cards and labels.</p>
+        </div>
+    </div>
+
+    <script src="/assets/app.min.js?v=1583"></script>
+    <script>
+        const $ = (id) => document.getElementById(id);
+        const esc = (v) => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+        const fmt = (n) => Number(n || 0).toLocaleString('en-IN');
+        const api = (url, opts = {}) => JPSMS.api.request(url, { skipLoader: true, ...opts });
+        const S = { data: null, open: null, seq: 0, parties: [] };
+        const unitText = (units, loose) => {
+            const ctn = Number(units || 0) - Number(loose || 0);
+            const parts = [];
+            if (ctn) parts.push(`${fmt(ctn)} ctn`);
+            if (loose) parts.push(`${fmt(loose)} box${Number(loose) === 1 ? '' : 'es'}`);
+            return parts.join(' + ') || '0';
+        };
+
+        document.addEventListener('DOMContentLoaded', () => {
+            JPSMS.auth.requireAuth();
+            JPSMS.renderShell('packing');
+            let t = null;
+            $('psQ').addEventListener('input', () => { clearTimeout(t); t = setTimeout(load, 300); });
+            $('psParty').addEventListener('change', load);
+            load();
+        });
+
+        async function load() {
+            const seq = ++S.seq;
+            const qs = new URLSearchParams();
+            if ($('psQ').value.trim()) qs.set('q', $('psQ').value.trim());
+            if ($('psParty').value) qs.set('party', $('psParty').value);
+            try {
+                const res = await api(`/packing/stock?${qs}`);
+                if (seq !== S.seq) return;
+                S.data = res.data;
+                S.open = null;
+                if (!qs.toString()) {
+                    S.parties = [...new Set(res.data.rows.map(r => r.client_name).filter(Boolean))].sort();
+                    const cur = $('psParty').value;
+                    $('psParty').innerHTML = '<option value="">All parties</option>' + S.parties.map(p => `<option>${esc(p)}</option>`).join('');
+                    $('psParty').value = cur;
+                }
+                render();
+            } catch (e) {
+                if (seq === S.seq) $('psTable').innerHTML = `<tr><td class="ps-empty">${esc(e.message)}</td></tr>`;
+            }
+        }
+
+        function render() {
+            const d = S.data, t = d.totals, days = d.alert_days;
+            $('psKpis').innerHTML = `
+                <div class="ps-kpi"><small>In store</small><b>${unitText(t.units, t.loose_boxes)}</b></div>
+                <div class="ps-kpi"><small>Pcs in store</small><b>${fmt(t.pcs)}</b></div>
+                <div class="ps-kpi ${t.old ? 'warn' : ''}"><small>Older than ${fmt(days)} days</small><b>${fmt(t.old)}</b></div>
+                <div class="ps-kpi"><small>Dispatched today</small><b>${fmt(t.dispatched_today)}</b></div>`;
+            const rows = d.rows;
+            if (!rows.length) {
+                $('psTable').innerHTML = `<tr><td class="ps-empty">${$('psQ').value || $('psParty').value ? 'Nothing in store matches.' : 'No packed stock in store yet. Cartons appear here once the store scans them on a handover slip.'}</td></tr>`;
+                return;
+            }
+            $('psTable').innerHTML = `<thead><tr><th>Item</th><th>Code</th><th>Party</th><th class="n">Job cards</th><th class="n">Stock</th><th class="n">Pcs</th><th>Oldest</th></tr></thead><tbody>
+                ${rows.map((r, i) => `<tr class="row ${S.open === i ? 'open' : ''}" data-i="${i}" tabindex="0" aria-expanded="${S.open === i}">
+                    <td>${esc(r.item_name)}</td><td>${esc(r.item_code || '')}</td><td>${esc(r.client_name || '')}</td>
+                    <td class="n">${fmt(r.jobs)}</td><td class="n">${unitText(r.units, r.loose_boxes)}</td><td class="n">${fmt(r.pcs)}</td>
+                    <td>${r.oldest_days >= days ? `<span class="ps-old">${fmt(r.oldest_days)} d</span>` : `${fmt(r.oldest_days)} d`}</td></tr>
+                    ${S.open === i ? `<tr class="ps-detail"><td colspan="7" id="psDetail">Loading…</td></tr>` : ''}`).join('')}
+                </tbody>`;
+            $('psTable').querySelectorAll('tr.row').forEach(tr => {
+                const go = () => toggle(Number(tr.dataset.i));
+                tr.onclick = go;
+                tr.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); } };
+            });
+            if (S.open !== null) loadDetail(rows[S.open]);
+        }
+
+        function toggle(i) { S.open = S.open === i ? null : i; render(); }
+
+        let detailSeq = 0;
+        async function loadDetail(r) {
+            const seq = ++detailSeq;
+            try {
+                const res = await api(`/packing/stock/detail?${new URLSearchParams({ item: r.item_name, party: r.client_name || '' })}`);
+                if (seq !== detailSeq || !$('psDetail')) return; // another row was opened meanwhile
+                const days = S.data.alert_days;
+                $('psDetail').innerHTML = `<table><thead><tr><th>Job card</th><th>Station</th><th>Stock</th><th>Pcs</th><th>First in</th><th>Labels</th></tr></thead><tbody>
+                    ${res.data.map(j => `<tr><td>${esc(j.job_card_no || '–')}</td><td>${esc(j.table_id || '')}</td><td>${unitText(j.units, j.loose_boxes)}</td><td>${fmt(j.pcs)}</td>
+                        <td>${esc(j.first_in)}${j.oldest_days >= days ? ` <span class="ps-old">${fmt(j.oldest_days)} d</span>` : ''}</td>
+                        <td class="ps-codes">${(j.codes || []).map(esc).join(', ')}</td></tr>`).join('')}
+                    </tbody></table>`;
+            } catch (e) { if (seq === detailSeq && $('psDetail')) $('psDetail').textContent = e.message; }
+        }
+
+        async function exportXlsx() {
+            try {
+                const qs = new URLSearchParams();
+                if ($('psParty').value) qs.set('party', $('psParty').value);
+                const token = localStorage.getItem('token');
+                const user = JSON.parse(localStorage.getItem('user') || '{}');
+                const headers = {};
+                if (token) headers.Authorization = `Bearer ${token}`;
+                if (user.username) headers['X-User-Name'] = user.username;
+                const fid = localStorage.getItem('jpsms_factory_id'); if (fid) headers['X-Factory-ID'] = fid;
+                const r = await fetch(`/api/packing/reports/stock/export.xlsx?${qs}`, { headers });
+                if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || 'Export failed.');
+                const blob = await r.blob();
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(blob);
+                a.download = `packed-stock-${new Date().toISOString().slice(0, 10)}.xlsx`;
+                a.click();
+                setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+            } catch (e) { JPSMS.toast(e.message, 'error'); }
+        }
+    </script>
+</body>
+
+</html>

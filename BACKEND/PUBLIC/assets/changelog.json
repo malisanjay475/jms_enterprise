@@ -14,6 +14,57 @@
   "latest": "1.177.0",
   "versions": [
     {
+      "version": "1.187.1",
+      "date": "2026-11-19",
+      "title": "Dispatch rules and slip fixes",
+      "modules": [
+        {
+          "app": "packing",
+          "changes": [
+            { "type": "improvement", "text": "A dispatch slip can only be closed once its invoice / DC number is entered." },
+            { "type": "improvement", "text": "Another party's carton is still refused on a dispatch slip, but a supervisor PIN and a reason let it go once. The printed slip shows who allowed it and why." },
+            { "type": "improvement", "text": "Handover and dispatch: click another person's open slip to work on it, and a reopened slip opens straight away." },
+            { "type": "fix", "text": "Two people scanning on the same slip, undoing or voiding a label at the same time can no longer leave counts or label states wrong." },
+            { "type": "fix", "text": "Packed Stock and Dispatch reports on a factory server use that factory, and opening stock rows quickly no longer shows the wrong row's details." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.187.0",
+      "date": "2026-11-19",
+      "title": "Packing station tables",
+      "modules": [
+        {
+          "app": "packing",
+          "changes": [
+            { "type": "feat", "text": "Every packing station now has its tables (A1-A13, B1-B14, C1-C13, D1-D13, DC1-DC7, E1-E3, F1, SF1-SF15). A plan stays on its station and can run on one or more tables." },
+            { "type": "feat", "text": "Planning a job: pick a station to see all its open job cards with total, already planned and balance. Pick the tables and the day qty fills itself: what those tables can pack until 17:00, up to the balance. More tables pack faster." },
+            { "type": "feat", "text": "A table already busy at that time is shown, and you are asked before using it." },
+            { "type": "feat", "text": "Packing Settings lists every table station-wise. Give a table its own scanner, name, persons and a note; its scans count on the plan of that station running on the table. One scanner can be on one table only." },
+            { "type": "improvement", "text": "Packing Masters shows each station's tables and lets you change the list (for example A1-A13)." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.186.0",
+      "date": "2026-11-19",
+      "title": "Packed stock and dispatch",
+      "modules": [
+        {
+          "app": "packing",
+          "changes": [
+            { "type": "feat", "text": "New Packed Stock page: everything the store has received and not yet dispatched, by item and party, with job cards and carton labels inside each row. Stock older than 30 days is flagged (change the days in Packing Masters > Stations)." },
+            { "type": "feat", "text": "New Dispatch page: pick the party and vehicle, scan cartons out, then close and print the dispatch slip with signature lines for store and driver." },
+            { "type": "feat", "text": "A dispatch scan is refused when the carton is not yet received by the store, already dispatched, voided, or belongs to another party." },
+            { "type": "improvement", "text": "Packing can no longer void a label the store has received or dispatched, and a handover scan cannot be undone once that carton is dispatched." },
+            { "type": "feat", "text": "Packing Reports has Packed stock and Dispatch tabs, with Excel export." }
+          ]
+        }
+      ]
+    },
+    {
       "version": "1.185.0",
       "date": "2026-11-19",
       "title": "Packing day shift",

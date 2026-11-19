@@ -35000,6 +35000,18 @@ app.get('/api/dpr/labour/summary', async (req, res) => {
 // 1. GET Assembly Plans (Grid)
 
 // 2. Create/Update Assembly Plan
+// Packing tables a plan runs on ("A1,A2"), or null when the form sent none (keeps the saved list on edit).
+function planTables(v) {
+  if (v === undefined || v === null) return null;
+  const list = Array.isArray(v) ? v : String(v).split(/[\s,;]+/);
+  const out = [];
+  for (const c of list) {
+    const code = String(c || '').trim().toUpperCase().slice(0, 20);
+    if (code && !out.includes(code)) out.push(code);
+  }
+  return out.slice(0, 60).join(',');
+}
+
 app.post('/api/assembly/plan', async (req, res) => {
   try {
     console.log('[Assembly Plan] Body:', req.body);
@@ -35027,18 +35039,19 @@ app.post('/api/assembly/plan', async (req, res) => {
 table_id = $1, item_name = $2, plan_qty = $3, machine = $4,
   start_time = $5, duration_min = $6, delay_min = $7, end_time = $8,
   ean_number = $9, client_name = $10, job_card_no = $11,
+  tables = COALESCE($13, tables),
   updated_at = NOW()
             WHERE id = $12
-  `, [table_id, item_name, plan_qty, machine, start_time, duration_min, delay_min, end_time, req.body.ean_number, client_name, job_card_no, id]);
+  `, [table_id, item_name, plan_qty, machine, start_time, duration_min, delay_min, end_time, req.body.ean_number, client_name, job_card_no, id, planTables(req.body.tables)]);
     } else {
       // Create
       await q(`
             INSERT INTO assembly_plans(
     table_id, item_name, plan_qty, machine,
     start_time, duration_min, delay_min, end_time, ean_number,
-    client_name, job_card_no, status, created_by, created_at, updated_at
-  ) VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'PLANNED', $12, NOW(), NOW())
-    `, [table_id, item_name, plan_qty, machine, start_time, duration_min, delay_min, end_time, req.body.ean_number, client_name, job_card_no, created_by]);
+    client_name, job_card_no, status, created_by, created_at, updated_at, tables
+  ) VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'PLANNED', $12, NOW(), NOW(), $13)
+    `, [table_id, item_name, plan_qty, machine, start_time, duration_min, delay_min, end_time, req.body.ean_number, client_name, job_card_no, created_by, planTables(req.body.tables)]);
     }
 
     res.json({ ok: true });
@@ -35137,8 +35150,9 @@ WHERE(UPPER(status) IN('PLANNED', 'RUNNING') OR start_time:: date >= CURRENT_DAT
   `;
 
     const rows = await q(sql);
-    // console.log(`[DEBUG] / api / assembly / active found ${ rows.length } plans.`);
-    res.json({ ok: true, data: rows });
+    // Packing table scanners: each plan again per table it runs on, as line "<station>/<code>".
+    const { tableAliasRows } = require('../modules/packing/registerPackingTableRoutes');
+    res.json({ ok: true, data: rows.concat(tableAliasRows(rows)) });
   } catch (e) {
     sendServerError(res, e);
   }
@@ -35302,6 +35316,20 @@ async function recordAssemblyScan(plan_id, ean) {
 // scanned product itself selects the plan. Prefer a RUNNING plan (case-
 // insensitive), else the newest by start_time.
 async function resolvePlanForTableByEan(table_id, cleanEAN) {
+  // A packing table line ("Station A/A1"): the station's plan that runs on that table.
+  const { splitTableLine } = require('../modules/packing/registerPackingTableRoutes');
+  const tl = splitTableLine(table_id);
+  if (tl) {
+    const onTable = await q(`
+      SELECT * FROM assembly_plans
+      WHERE LOWER(table_id) = LOWER($1) AND TRIM(ean_number) = $2
+        AND $3 = ANY(string_to_array(UPPER(COALESCE(tables, '')), ','))
+        AND UPPER(COALESCE(status, '')) NOT IN ('DONE', 'ARCHIVED', 'CANCELLED')
+      ORDER BY (UPPER(COALESCE(status, '')) = 'RUNNING') DESC, start_time DESC
+      LIMIT 1
+    `, [tl.station, String(cleanEAN || '').trim(), tl.code]);
+    if (onTable.length) return onTable[0];
+  }
   const plans = await q(`
     SELECT * FROM assembly_plans
     WHERE table_id = $1 AND TRIM(ean_number) = $2

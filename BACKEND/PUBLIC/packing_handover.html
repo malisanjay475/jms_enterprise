@@ -92,7 +92,7 @@
         const fmt = (n) => Number(n || 0).toLocaleString('en-IN');
         const api = (url, opts = {}) => JPSMS.api.request(url, { skipLoader: true, ...opts });
         const post = (url, body) => api(url, { method: 'POST', body: JSON.stringify(body || {}) });
-        const S = { data: null, msg: null };
+        const S = { data: null, msg: null, cardFor: null, pick: null };
         // cartons on a line can include loose boxes (items with no carton size)
         const unitText = (units, loose) => {
             const ctn = Number(units || 0) - Number(loose || 0);
@@ -112,9 +112,17 @@
             });
         });
 
+        /* S.pick: an open slip of another person (or a reopened one) chosen on this page */
+        function pickSlip(id) { S.pick = id || null; S.cardFor = null; S.msg = null; load(); }
+        function otherSlips(d) {
+            return d.other_open.length ? `<p class="ho-note">Open slips of other people: ${d.other_open.map(o => `<button class="btn btn-link p-0" style="font-size:inherit" onclick="pickSlip(${Number(o.id)})" title="Work on this slip">${esc(o.slip_no)}</button> (${esc(o.opened_by)}, ${fmt(o.cartons)} cartons)`).join(', ')}${S.pick ? ` · <button class="btn btn-link p-0" style="font-size:inherit" onclick="pickSlip(null)">back to my slip</button>` : ''}</p>` : '';
+        }
         async function load(quiet) {
             try {
-                const res = await api('/packing/handover/summary');
+                const want = S.pick;
+                const res = await api('/packing/handover/summary' + (want ? `?slip=${Number(want)}` : ''));
+                if (want !== S.pick) return; // a newer pick is loading
+                if (want && (!res.data.slip || Number(res.data.slip.id) !== Number(want))) S.pick = null; // closed meanwhile
                 S.data = res.data;
                 render();
             } catch (e) {
@@ -130,7 +138,7 @@
                 $('hoSlipCard').innerHTML = `
                     <h2 class="ho-h">Handover slip</h2>
                     <p class="ho-empty">Start a slip, then scan each carton label as you take it from packing.</p>
-                    ${d.other_open.length ? `<p class="ho-note">Open slips of other people: ${d.other_open.map(o => `${esc(o.slip_no)} (${esc(o.opened_by)}, ${fmt(o.cartons)} cartons)`).join(', ')}</p>` : ''}
+                    ${otherSlips(d)}
                     <div class="ho-actions"><button class="btn btn-primary" onclick="startSlip()"><i class="bi bi-plus-lg"></i> Start slip</button></div>${msg}`;
             } else {
                 // The scan box is built once per slip and never replaced, so a fast scanner
@@ -150,7 +158,7 @@
                     <div class="ho-slip">
                         <div><b>Slip ${esc(s.slip_no)}</b><small>Open · ${esc(s.opened_by || '')} · ${esc(s.opened_local)}${s.reopen_count ? ` · reopened (${esc(s.last_reopen_reason || '')})` : ''}</small></div>
                         <div class="ho-total">${fmt(s.cartons)} <span>cartons · ${fmt(s.pcs)} pcs</span></div>
-                    </div>`;
+                    </div>${otherSlips(d)}`;
                 $('hoBody').innerHTML = `
                     ${msg}
                     ${s.lines.length ? `<div class="ho-tbl"><table class="ho-lines"><thead><tr><th>Item</th><th>Party</th><th>Job card</th><th class="n">Cartons</th><th class="n">Pcs</th></tr></thead><tbody>
@@ -232,6 +240,7 @@
             try {
                 await post(`/packing/handover/slips/${id}/close`);
                 S.msg = null;
+                S.pick = null;
                 await printSlip(id);
                 load();
             } catch (e) { JPSMS.toast(e.message, 'error'); }
@@ -263,7 +272,7 @@
             try {
                 const res = await post(`/packing/handover/slips/${id}/reopen`, { reason: reason.trim(), pin: pin.trim() });
                 JPSMS.toast(`${no} reopened by ${res.data ? res.data.reopened_by : 'supervisor'}`, 'success');
-                load();
+                pickSlip(id);
             } catch (e) { JPSMS.toast(e.message, 'error'); }
         }
 

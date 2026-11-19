@@ -71,6 +71,26 @@
         .pp-msg.ok { color: #047857; } .pp-msg.bad { color: #b91c1c; }
         .pp-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
         .pp-full { grid-column: 1 / -1; }
+        .pb-tables { font-size: .68rem; font-weight: 800; background: rgba(15, 23, 42, .08); border-radius: 4px; padding: 0 4px; }
+        .pp-jobs { max-height: 210px; overflow: auto; border: 1px solid #e2e8f0; border-radius: 10px; }
+        .pp-jobs table { width: 100%; border-collapse: collapse; font-size: .82rem; }
+        .pp-jobs th { position: sticky; top: 0; background: #f8fafc; text-align: left; font-size: .7rem; color: #475569; padding: 6px 8px; }
+        .pp-jobs td { padding: 6px 8px; border-top: 1px solid #f1f5f9; }
+        .pp-jobs td.n, .pp-jobs th.n { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+        .pp-jobs tr.job { cursor: pointer; }
+        .pp-jobs tr.job:hover td { background: #f8fafc; }
+        .pp-jobs tr.job.on td { background: #eff6ff; }
+        .pp-jobs .pp-empty { padding: 12px; color: #64748b; font-size: .84rem; }
+        .pp-tables { display: flex; flex-wrap: wrap; gap: 6px; }
+        .pp-tbl { min-width: 46px; min-height: 36px; padding: 4px 10px; border: 1px solid #cbd5e1; border-radius: 8px; background: #fff; font-weight: 700; font-size: .82rem; color: #334155; cursor: pointer; }
+        .pp-tbl.on { background: #1d4ed8; border-color: #1d4ed8; color: #fff; }
+        .pp-tbl.busy { border-style: dashed; color: #94a3b8; text-decoration: line-through; }
+        .pp-tbl.busy.on { background: #b45309; border-color: #b45309; color: #fff; text-decoration: none; }
+        .pp-qtys { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; }
+        .pp-qtys div { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 8px 10px; }
+        .pp-qtys small { display: block; font-size: .7rem; color: #64748b; font-weight: 600; }
+        .pp-qtys b { font-size: 1.15rem; color: #0f172a; font-variant-numeric: tabular-nums; }
+        .pp-qtys .day b { color: #1d4ed8; }
         .pp-src { font-size: .68rem; font-weight: 600; padding: 2px 8px; border-radius: 999px; margin-left: 4px; text-transform: none; }
         .pp-src:empty { display: none; }
         .pp-src.jc { background: #eff6ff; color: #1d4ed8; }
@@ -145,11 +165,14 @@
                 <div><label class="pp-label" for="p_item">Item <span class="pp-src" id="src_item"></span></label><input id="p_item" class="form-control"></div>
                 <div><label class="pp-label" for="p_client">Party <span class="pp-src" id="src_client"></span></label><input id="p_client" class="form-control"></div>
                 <div><label class="pp-label" for="p_ean">EAN <span class="pp-src" id="src_ean"></span></label><input id="p_ean" class="form-control" inputmode="numeric"></div>
-                <div><label class="pp-label" for="p_qty">Qty (pcs) <span class="pp-src" id="src_qty"></span></label><input id="p_qty" type="number" min="1" class="form-control" oninput="calcDuration()"></div>
+                <div><label class="pp-label" for="p_qty">Qty (pcs) <span class="pp-src" id="src_qty"></span></label><input id="p_qty" type="number" min="1" class="form-control" oninput="qtyTyped()"></div>
                 <div><label class="pp-label" for="p_table_id">Station <span class="pp-src" id="src_station"></span></label><select id="p_table_id" class="form-control" onchange="stationChanged()"></select></div>
+                <div class="pp-full"><span class="pp-label">Jobs for this station <span class="pp-src" id="src_jobs"></span></span><div id="p_jobs" class="pp-jobs"></div></div>
+                <div class="pp-full" id="p_tables_wrap"><span class="pp-label">Tables <span class="pp-src" id="src_tables"></span></span><div id="p_tables" class="pp-tables" role="group" aria-label="Tables"></div></div>
+                <div class="pp-full"><div id="p_qtys" class="pp-qtys"></div></div>
                 <div><label class="pp-label" for="p_persons">Persons <span class="pp-src" id="src_persons"></span></label><input id="p_persons" type="number" min="1" class="form-control" oninput="calcDuration()"></div>
                 <div><label class="pp-label" for="p_cycle">Cycle (sec / pc) <span class="pp-src" id="src_cycle"></span></label><input id="p_cycle" type="number" min="0.01" step="0.01" class="form-control" oninput="calcDuration()"></div>
-                <div><label class="pp-label" for="p_start">Start</label><input id="p_start" type="datetime-local" class="form-control" onchange="calcEndTime()"></div>
+                <div><label class="pp-label" for="p_start">Start</label><input id="p_start" type="datetime-local" class="form-control" onchange="calcDuration()"></div>
                 <div><label class="pp-label" for="p_duration">Duration (min)</label><input id="p_duration" type="number" min="1" class="form-control" oninput="durationTyped()"></div>
                 <div><label class="pp-label" for="p_delay">Delay (min)</label><input id="p_delay" type="number" min="0" class="form-control" value="0" oninput="calcEndTime()"></div>
                 <div class="pp-full"><label class="pp-label" for="p_machine">Note / resource (optional)</label><input id="p_machine" class="form-control" placeholder="Packer A"></div>
@@ -175,6 +198,11 @@
         let STATIONS = [];          // active packing stations from Packing Masters
         let ROWS = [];              // [{ id: table_id, label, sub }]
         let BOARD = null;           // last /packing/board answer
+        let TABLES = null;          // { 'station name (lower)': ['A1', ...] } active tables
+        const SEL = new Set();      // tables picked on the plan form
+        let qtyByHand = false;      // qty typed: stop filling the day qty
+        let jobsFor = null;         // station whose jobs list is shown
+        let jobsSeq = 0;
         let JOB = null;             // last fetched job card
         let durationByHand = false; // the user typed a duration: stop recalculating it
         let firstScroll = true;
@@ -318,7 +346,7 @@
                     const rate = p.status === 'RUNNING' ? ` · ${fmt(p.rate_now)}/hr${p.std_pcs_hr ? ` (std ${fmt(p.std_pcs_hr)})` : ''}` : '';
                     const tip = `${p.item_name || ''}\n${p.client_name || ''}${p.job_card_no ? '\nJC ' + p.job_card_no : ''}\nPacked ${fmt(s.packed)} / ${fmt(s.qty)} (${s.pct}%)\n${PackShift.whenText(start, now)} – ${PackShift.whenText(end, now)}${s.note ? '\n' + s.note : ''}`;
                     html += `<div class="pb-job ${s.cls}" data-plan="${esc(p.id)}" style="left:${left}px;width:${width}px" title="${esc(tip)}">
-                        <b>${esc(p.item_name || 'Plan ' + p.id)}</b>
+                        <b>${p.tables ? `<span class="pb-tables">${esc(p.tables.split(',').join(' '))}</span> ` : ''}${esc(p.item_name || 'Plan ' + p.id)}</b>
                         <span>${fmt(s.packed)} / ${fmt(s.qty)}${rate}</span>
                         <span>${esc(s.note || hhmm(start) + ' – ' + hhmm(end))}</span>
                         <div class="pb-fill" style="width:${s.pct}%"></div></div>`;
@@ -399,7 +427,7 @@
         }
 
         function resetForm() {
-            JOB = null; durationByHand = false;
+            JOB = null; durationByHand = false; qtyByHand = false; SEL.clear(); jobsFor = null;
             ['p_id', 'p_item', 'p_client', 'p_jobcard', 'p_qty', 'p_ean', 'p_machine', 'p_duration', 'p_persons', 'p_cycle'].forEach(id => $(id).value = '');
             $('p_delay').value = 0;
             ['src_item', 'src_client', 'src_ean', 'src_qty', 'src_station', 'src_persons', 'src_cycle'].forEach(id => setSrc(id, ''));
@@ -437,6 +465,8 @@
             $('p_client').value = p.client_name || '';
             $('p_jobcard').value = p.job_card_no || '';
             $('p_qty').value = p.plan_qty || '';
+            qtyByHand = true; // keep the saved qty unless the user changes tables or start
+            String(p.tables || '').split(',').map(x => x.trim()).filter(Boolean).forEach(c => SEL.add(c));
             $('p_ean').value = p.ean_number || '';
             $('p_machine').value = p.machine || '';
             $('p_duration').value = p.duration_min || '';
@@ -451,6 +481,7 @@
             }
             $('p_start').value = localIso;
             if (p.job_card_no) fetchJobCard(true);
+            loadTables().then(() => { renderTables(); loadStationJobs(); calcEndTime(); });
             calcEndTime();
             showPlanStatus(p);
         }
@@ -510,6 +541,7 @@
             $('p_item').value = JOB.item_name || ''; setSrc('src_item', 'job card', 'jc');
             $('p_client').value = JOB.party_group || ''; setSrc('src_client', 'job card', 'jc');
             $('p_qty').value = JOB.balance_qty || '';
+            qtyByHand = false;
             setSrc('src_qty', JOB.planned_qty ? `${fmt(JOB.jr_qty)} − ${fmt(JOB.planned_qty)}` : 'JR qty', 'jc');
             if (JOB.ean) {
                 $('p_ean').value = JOB.ean.value;
@@ -549,17 +581,160 @@
                 const s = stationOf(st);
                 if (s && s.persons && !$('p_persons').value) $('p_persons').value = s.persons;
             }
+            loadTables().then(() => { renderTables(); calcDuration(); });
+            loadStationJobs();
             if (silent) calcEndTime(); else calcDuration();
+        }
+
+        /* ---------- station tables ---------- */
+        async function loadTables() {
+            if (TABLES) return;
+            try {
+                const res = await JPSMS.api.request('/packing/tables', { skipLoader: true });
+                const map = {};
+                (res.data || []).filter(t => t.is_active).forEach(t => {
+                    const k = String(t.station_name).toLowerCase();
+                    (map[k] = map[k] || []).push(t.code);
+                });
+                TABLES = map;
+            } catch (e) { TABLES = {}; }
+        }
+        const stationTables = () => (TABLES && TABLES[String($('p_table_id').value).toLowerCase()]) || [];
+
+        /* Plan window on the form: start (snapped into the shift) to end. */
+        function formWindow() {
+            const startStr = $('p_start').value;
+            if (!startStr) return null;
+            const begin = PackShift.snap(new Date(startStr));
+            const dur = (parseInt($('p_duration').value) || 0) + (parseInt($('p_delay').value) || 0);
+            return { from: begin, to: PackShift.addWork(begin, Math.max(dur, 1)) };
+        }
+
+        /* Tables used by other plans of this station that overlap the form's time. */
+        function busyTables() {
+            const busy = new Map();
+            const w = formWindow();
+            if (!w || !BOARD) return busy;
+            const st = String($('p_table_id').value).toLowerCase();
+            const myId = String($('p_id').value || '');
+            (BOARD.plans || []).forEach(p => {
+                if (String(p.table_id).toLowerCase() !== st || String(p.id) === myId || !p.tables || p.status === 'DONE') return;
+                const from = new Date(p.start_local || p.start_time), to = new Date(p.end_local || p.end_time);
+                if (!(from < w.to && to > w.from)) return;
+                String(p.tables).split(',').forEach(c => { c = c.trim(); if (c) busy.set(c, p.item_name || ('plan ' + p.id)); });
+            });
+            return busy;
+        }
+
+        function renderTables() {
+            const list = stationTables();
+            $('p_tables_wrap').hidden = !list.length && !SEL.size;
+            // a table no longer in the master (edited plan) still shows so it can be taken off
+            const all = [...list, ...[...SEL].filter(c => !list.includes(c))];
+            const busy = busyTables();
+            $('p_tables').innerHTML = all.map(c => {
+                const b = busy.get(c);
+                return `<button type="button" class="pp-tbl ${SEL.has(c) ? 'on' : ''} ${b ? 'busy' : ''}" data-t="${esc(c)}" aria-pressed="${SEL.has(c)}" title="${b ? esc('In use: ' + b) : ''}">${esc(c)}</button>`;
+            }).join('');
+            $('p_tables').querySelectorAll('[data-t]').forEach(btn => btn.onclick = () => {
+                const c = btn.dataset.t;
+                if (SEL.has(c)) SEL.delete(c); else SEL.add(c);
+                qtyByHand = false;
+                renderTables();
+                calcDuration();
+            });
+            const nb = [...SEL].filter(c => busy.has(c)).length;
+            setSrc('src_tables', SEL.size ? `${SEL.size} picked${nb ? ` · ${nb} in use then` : ''}` : (list.length ? 'pick one or more' : ''), nb ? 'erp' : (SEL.size ? 'pm' : ''));
+        }
+
+        /* ---------- jobs of the station ---------- */
+        async function loadStationJobs(force) {
+            const st = $('p_table_id').value;
+            if (!st) { $('p_jobs').innerHTML = ''; return; }
+            if (!force && jobsFor === st) return paintJobs();
+            jobsFor = st;
+            const seq = ++jobsSeq;
+            $('p_jobs').innerHTML = '<div class="pp-empty">Loading jobs…</div>';
+            try {
+                const q = new URLSearchParams({ station: st });
+                if ($('p_id').value) q.set('exclude_plan', $('p_id').value);
+                const res = await JPSMS.api.request('/packing/station-jobs?' + q.toString(), { skipLoader: true });
+                if (seq !== jobsSeq) return;
+                S_JOBS = res.data || [];
+            } catch (e) {
+                if (seq !== jobsSeq) return;
+                S_JOBS = [];
+                $('p_jobs').innerHTML = `<div class="pp-empty">${esc(e.message)}</div>`;
+                return;
+            }
+            paintJobs();
+        }
+        let S_JOBS = [];
+        function paintJobs() {
+            const cur = $('p_jobcard').value.trim().toUpperCase();
+            setSrc('src_jobs', S_JOBS.length ? `${S_JOBS.length} open` : '', 'jc');
+            if (!S_JOBS.length) {
+                $('p_jobs').innerHTML = '<div class="pp-empty">No open job cards for this station. Items get a station in Packing Masters; you can still type a job card above.</div>';
+                return;
+            }
+            $('p_jobs').innerHTML = `<table><thead><tr><th>Job card</th><th>Item</th><th>Party</th><th class="n">Total</th><th class="n">Planned</th><th class="n">Balance</th></tr></thead><tbody>
+                ${S_JOBS.map(j => `<tr class="job ${String(j.job_card_no).toUpperCase() === cur ? 'on' : ''}" data-jc="${esc(j.job_card_no)}" tabindex="0">
+                    <td>${esc(j.job_card_no)}${j.jr_date ? `<br><small style="color:#64748b">${esc(j.jr_date)}</small>` : ''}</td><td>${esc(j.item_name)}</td><td>${esc(j.client_name)}</td>
+                    <td class="n">${fmt(j.jr_qty)}</td><td class="n">${fmt(j.planned_qty)}</td><td class="n"><b>${fmt(j.balance_qty)}</b></td></tr>`).join('')}
+                </tbody></table>`;
+            $('p_jobs').querySelectorAll('tr.job').forEach(tr => {
+                const go = () => pickJob(tr.dataset.jc);
+                tr.onclick = go;
+                tr.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); } };
+            });
+        }
+
+        /* A job picked from the station list: fill the form, keep this station. */
+        async function pickJob(jc) {
+            const st = $('p_table_id').value;
+            $('p_jobcard').value = jc;
+            await fetchJobCard();
+            if (JOB) { fillStationOptions(st, JOB.stations); stationChanged(); }
+            paintJobs();
+        }
+
+        function qtyTyped() { qtyByHand = true; calcDuration(); }
+
+        /* Day qty: what the picked tables pack from the start to the end of that day's shift, capped at the balance. */
+        function dayQty() {
+            const startStr = $('p_start').value, cycle = Number($('p_cycle').value);
+            if (!startStr || !(cycle > 0)) return null;
+            const begin = PackShift.snap(new Date(startStr));
+            const dayEnd = new Date(begin); dayEnd.setHours(PackShift.END_H, 0, 0, 0);
+            const mins = PackShift.workBetween(begin, dayEnd);
+            const n = Math.max(1, SEL.size);
+            let q = Math.floor(mins * 60 / cycle * n);
+            if (JOB && JOB.jr_qty > 0) q = Math.min(q, JOB.balance_qty);
+            return Math.max(0, q);
+        }
+
+        function renderQtys() {
+            const box = $('p_qtys');
+            if (!JOB) { box.innerHTML = ''; return; }
+            const qty = Number($('p_qty').value) || 0;
+            const day = dayQty();
+            box.innerHTML = `
+                <div><small>Total (job card)</small><b>${fmt(JOB.jr_qty)}</b></div>
+                <div><small>Already planned</small><b>${fmt(JOB.planned_qty)}</b></div>
+                <div class="day"><small>This plan${qtyByHand ? ' (typed)' : ' = day qty'}</small><b>${fmt(qty)}</b>${qtyByHand && day !== null ? `<small>day qty ${fmt(day)}</small>` : ''}</div>
+                <div><small>Balance after this plan</small><b>${fmt(Math.max(0, JOB.balance_qty - qty))}</b></div>`;
         }
 
         function durationTyped() { durationByHand = true; calcEndTime(); }
 
-        /* duration = qty × cycle seconds per piece (whole station) */
+        /* qty = day qty unless typed; duration = qty × cycle seconds per piece ÷ tables (cycle is per table) */
         function calcDuration() {
+            if (!qtyByHand) { const d = dayQty(); if (d !== null && JOB) $('p_qty').value = d || ''; }
             const qty = Number($('p_qty').value), cycle = Number($('p_cycle').value);
+            const n = Math.max(1, SEL.size);
             const typingQtyOrCycle = document.activeElement === $('p_qty') || document.activeElement === $('p_cycle');
-            if (qty > 0 && cycle > 0 && (!durationByHand || typingQtyOrCycle)) {
-                $('p_duration').value = Math.ceil(qty * cycle / 60);
+            if (qty > 0 && cycle > 0 && (!durationByHand || typingQtyOrCycle || !qtyByHand)) {
+                $('p_duration').value = Math.ceil(qty * cycle / 60 / n);
                 durationByHand = false;
             }
             calcEndTime();
@@ -571,6 +746,8 @@
             const delay = parseInt($('p_delay').value) || 0;
             const qty = Number($('p_qty').value), cycle = Number($('p_cycle').value);
             const calc = $('p_calc');
+            renderQtys();
+            if ($('p_tables') && stationTables().length) renderTables();
             if (!startStr) { calc.textContent = ''; return; }
             const begin = new Date(startStr);
             const d = PackShift.addWork(begin, dur + delay);
@@ -579,9 +756,9 @@
             const moved = PackShift.inShift(begin) ? '' : ` · packing works ${PackShift.label}, so it starts ${PackShift.whenText(PackShift.snap(begin), begin)}`;
             const days = dur + delay > PackShift.MIN_PER_DAY ? ` · ${(Math.ceil((dur + delay) / PackShift.MIN_PER_DAY * 10) / 10)} shift days` : '';
             calc.innerHTML = `<i class="bi bi-clock"></i> ` +
-                (qty > 0 && cycle > 0 ? `${fmt(qty)} × ${fmt(cycle, 2)} s = ` : '') +
+                (qty > 0 && cycle > 0 ? `${fmt(qty)} × ${fmt(cycle, 2)} s${SEL.size > 1 ? ` ÷ ${SEL.size} tables` : ''} = ` : '') +
                 `${fmt(dur)} min${dur >= 60 ? ` (${h} h ${m} m)` : ''}${delay ? ` + ${delay} min delay` : ''} · ends <b>${ends}</b>` +
-                (cycle > 0 ? ` · ${fmt(Math.round(3600 / cycle))} pcs/hr` : '') + days + moved;
+                (cycle > 0 ? ` · ${fmt(Math.round(3600 / cycle * Math.max(1, SEL.size)))} pcs/hr` : '') + days + moved;
         }
 
         async function savePlan() {
@@ -601,9 +778,14 @@
                 duration_min: dur,
                 delay_min: delay,
                 end_time: PackShift.localIso(PackShift.addWork(new Date(start), (dur || 0) + delay)),
-                created_by: JPSMS.auth.getUser().username
+                created_by: JPSMS.auth.getUser().username,
+                tables: [...SEL]
             };
             if (!plan.table_id) return JPSMS.toast('Pick a station', 'error');
+            if (stationTables().length && !SEL.size) return JPSMS.toast('Pick at least one table', 'error');
+            const busy = busyTables();
+            const clash = [...SEL].filter(c => busy.has(c));
+            if (clash.length && !confirm(`Table ${clash.join(', ')} is already in use then (${[...new Set(clash.map(c => busy.get(c)))].join(', ')}). Save anyway?`)) return;
             if (!plan.item_name || !plan.plan_qty || !start) return JPSMS.toast('Item, qty and start are needed', 'error');
             if (!(dur > 0)) return JPSMS.toast('Enter the duration, or the cycle time to calculate it', 'error');
             if (JOB && JOB.jr_qty > 0 && plan.plan_qty > JOB.balance_qty &&

@@ -74,6 +74,9 @@ async function ensurePackingBoxSchema(pool) {
     ALTER TABLE packing_boxes ADD COLUMN IF NOT EXISTS rejected_at TIMESTAMPTZ;
     ALTER TABLE packing_boxes ADD COLUMN IF NOT EXISTS rejected_by TEXT;
     ALTER TABLE packing_boxes ADD COLUMN IF NOT EXISTS reject_reason TEXT;
+    ALTER TABLE packing_boxes ADD COLUMN IF NOT EXISTS dispatch_sync_id UUID;
+    ALTER TABLE packing_boxes ADD COLUMN IF NOT EXISTS dispatched_at TIMESTAMPTZ;
+    ALTER TABLE packing_boxes ADD COLUMN IF NOT EXISTS dispatched_by TEXT;
     CREATE INDEX IF NOT EXISTS ix_packing_boxes_handover ON packing_boxes (handover_sync_id);
     CREATE INDEX IF NOT EXISTS ix_packing_boxes_waiting ON packing_boxes (factory_id, created_at) WHERE received_at IS NULL AND voided_at IS NULL;
     CREATE INDEX IF NOT EXISTS ix_packing_boxes_plan ON packing_boxes (plan_id, kind, seq_no);
@@ -394,19 +397,27 @@ function registerPackingBoxRoutes(app, pool) {
       const box = await loadBox(idOf(req));
       if (!box || box.kind === 'OPENING') return res.status(404).json({ ok: false, error: 'Label not found.' });
       if (box.voided_at) return res.json({ ok: true, already: true });
+      if (box.dispatched_at) return res.status(400).json({ ok: false, error: 'This label is already dispatched. It cannot be voided.' });
+      if (box.received_at) return res.status(400).json({ ok: false, error: 'The store has received this label. Take it off the handover slip first.' });
       if (box.kind === 'BOX' && box.carton_code) {
         return res.status(400).json({ ok: false, error: `This box is in carton ${box.carton_code}. Void the carton first.` });
       }
-      await withPlanLock(pool, box.plan_id || 0, async (db) => {
-        await db.query(
-          `UPDATE packing_boxes SET voided_at = NOW(), voided_by = $2, void_reason = $3, updated_at = NOW() WHERE id = $1`,
+      const voided = await withPlanLock(pool, box.plan_id || 0, async (db) => {
+        // same label lock as store receive / dispatch scans; the state is checked again in the UPDATE
+        await db.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`packing_label_${String(box.code).toUpperCase()}`]);
+        const u = await db.query(
+          `UPDATE packing_boxes SET voided_at = NOW(), voided_by = $2, void_reason = $3, updated_at = NOW()
+            WHERE id = $1 AND voided_at IS NULL AND received_at IS NULL AND dispatched_at IS NULL`,
           [box.id, userOf(req), reason]);
+        if (!u.rowCount) return false;
         if (box.kind === 'CARTON') {
           await db.query(
             `UPDATE packing_boxes SET carton_code = NULL, updated_at = NOW()
               WHERE carton_code = $1 AND plan_id IS NOT DISTINCT FROM $2 AND kind = 'BOX'`, [box.code, box.plan_id]);
         }
+        return true;
       });
+      if (!voided) return res.status(409).json({ ok: false, error: 'The store has just received or dispatched this label. It cannot be voided.' });
       res.json({ ok: true });
     } catch (err) { sendServerError(res, err); }
   });
