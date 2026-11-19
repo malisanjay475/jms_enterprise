@@ -427,7 +427,8 @@ function escHtml(value) {
             clearTimeout(timeoutId);
             console.error('API Error:', err);
             // Ignore abort errors (usually manual navigation or timeout)
-            if (err.name !== 'AbortError') {
+            // silentError: the page shows the error itself (e.g. a refused scan).
+            if (err.name !== 'AbortError' && !options.silentError) {
                 toast(err.message === 'The user aborted a request.' ? 'Request Timed Out' : err.message, 'error');
             }
             throw err;
