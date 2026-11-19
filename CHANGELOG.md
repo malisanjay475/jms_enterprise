@@ -14,6 +14,7 @@ part of your PR. On release, the `[Unreleased]` items move under the new version
 ## [Unreleased]
 
 ### Fixed
+- Packing tables (v1.188.1, CodeQL loop-bound injection): parseCodes reads at most 240 array entries / 2000 characters and stops at 60 tables.
 - Packing dispatch / handover (v1.187.1, CodeRabbit on #2123): dispatch close needs invoice_no; another party's carton needs supervisor PIN + reason (packing_boxes.dispatch_override_by / _reason, printed on the slip, cleared on undo). Scan, undo, close and slip edit re-read the slip under a per-slip xact lock (withSlip); handover undo and box void take the label lock and re-check state (409 when received / dispatched / voided meanwhile); stock and dispatch reports scope to LOCAL_FACTORY_ID on a factory server; summary takes ?slip=<id> and both pages let you pick another person's open slip (reopen opens it); Packed Stock detail ignores stale responses.
 - Packing plan end_time (v1.185.0): assembly.html sent end_time as a UTC ISO string into a naive TIMESTAMP, so it was stored 5.5 h early; start and end are now sent as IST wall-clock. Board and late check fall back to start + working minutes for older plans whose end is not after the start.
 - Packing reports (v1.182.1): job working time takes gaps per station (any job) and gives each to the later scan's job; page ignores responses of superseded requests; hourly keeps hours whose average rounds to 0; wrong-scan lock totals follow the party filter and the request factory (X-Factory-ID) where the lock has one.
