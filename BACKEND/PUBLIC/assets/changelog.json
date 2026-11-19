@@ -14,6 +14,22 @@
   "latest": "1.177.0",
   "versions": [
     {
+      "version": "1.183.0",
+      "date": "2026-11-19",
+      "title": "Box and carton labels",
+      "modules": [
+        {
+          "app": "packing",
+          "changes": [
+            { "type": "feat", "text": "Station Scanning shows the box and carton being filled. When a box fills (pcs per box from Packing Masters) its label prints, and when a carton's boxes are done the carton label prints. Each label has its own barcode." },
+            { "type": "feat", "text": "Reprint any label with a reason, void a wrong box or carton, and close the last part box and carton at the end of a job (Finish job does this too). The Box list shows every box of the job." },
+            { "type": "feat", "text": "Packing Masters: each station can print labels by itself or wait for a Print button. Packing Reports: new Boxes and labels tab, and boxes, cartons and pieces not in a box on the Jobs tab." },
+            { "type": "improvement", "text": "A job already packed before labels began starts its boxes from the next piece, so no old labels are printed for it." }
+          ]
+        }
+      ]
+    },
+    {
       "version": "1.182.1",
       "date": "2026-11-19",
       "title": "Packing reports fixes",

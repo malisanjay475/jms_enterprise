@@ -35250,9 +35250,15 @@ async function recordAssemblyScan(plan_id, ean) {
 
   // 5. Update Qty IF Match
   let newQty = plan.scanned_qty || 0;
+  let newBoxes = [];
   if (isMatch) {
     newQty += 1;
     await q(`UPDATE assembly_plans SET scanned_qty = $1, updated_at = NOW() WHERE id = $2`, [newQty, plan_id]);
+    // Box / carton full -> saved here, labelled by the station screen. Never blocks the scan.
+    try {
+      newBoxes = await require('../modules/packing/registerPackingBoxRoutes').afterGoodScan(pool, plan, newQty);
+      if (newBoxes.length) broadcastEvent('box', { plan_id, table_id: plan.table_id, codes: newBoxes.map(b => b.code), ts: Date.now() });
+    } catch (e) { console.warn('[Packing] box save failed:', e.message); }
   } else {
     // WRONG BARCODE TRIGGER
     await packingFloor.lockStationForWrongScan(pool, plan, cleanEAN, targetEAN).catch(e => console.warn('[Packing] lock failed:', e.message));
@@ -35288,7 +35294,7 @@ async function recordAssemblyScan(plan_id, ean) {
     ts: Date.now()
   });
 
-  return { ok: true, match: isMatch, new_qty: newQty, plan_qty: plan.plan_qty, wrong_barcode: !isMatch, table_id: plan.table_id };
+  return { ok: true, match: isMatch, new_qty: newQty, plan_qty: plan.plan_qty, wrong_barcode: !isMatch, table_id: plan.table_id, boxes_made: newBoxes.length };
 }
 
 // Resolve which plan on a table a scanned barcode belongs to, by matching the

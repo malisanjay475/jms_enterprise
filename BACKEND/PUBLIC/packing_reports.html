@@ -67,6 +67,7 @@
             <button class="pr-tab" role="tab" data-type="jobcards">Job cards</button>
             <button class="pr-tab" role="tab" data-type="hourly">Hourly output</button>
             <button class="pr-tab" role="tab" data-type="wrong">Wrong scans</button>
+            <button class="pr-tab" role="tab" data-type="boxes">Boxes and labels</button>
         </div>
 
         <form class="pr-filters" id="filters" onsubmit="event.preventDefault(); load();">
@@ -139,11 +140,11 @@
                 }
                 case 'status': {
                     const k = String(v || '').replace(/\s+/g, '-');
-                    const cls = k === 'over-packed' ? 'over' : k;
+                    const cls = k === 'over-packed' || k === 'voided' ? 'over' : k === 'loose-box' ? 'short' : k === 'ok' ? 'done' : k;
                     return `<td><span class="chip ${esc(cls)}">${esc(v)}</span></td>`;
                 }
                 default: {
-                    const wide = ['item', 'party', 'note'].includes(c.key);
+                    const wide = ['item', 'party', 'note', 'reprint_reasons', 'void_reason'].includes(c.key);
                     return `<td class="${wide ? 'wide' : ''}">${esc(v)}</td>`;
                 }
             }
@@ -276,7 +277,7 @@
             } catch (_) { /* stations list is optional */ }
             if (q.get('station')) { addStations([q.get('station')]); $('f_station').value = q.get('station'); }
 
-            selectTab(['daily', 'jobs', 'jobcards', 'hourly', 'wrong'].includes(q.get('type')) ? q.get('type') : 'daily');
+            selectTab(['daily', 'jobs', 'jobcards', 'hourly', 'wrong', 'boxes'].includes(q.get('type')) ? q.get('type') : 'daily');
         });
     </script>
 </body>
