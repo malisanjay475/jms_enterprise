@@ -13,6 +13,9 @@ part of your PR. On release, the `[Unreleased]` items move under the new version
 
 ## [Unreleased]
 
+### Added
+- Table scanners on the scanning page (v1.192.0): /api/assembly/device-scan now tags its live events with the packing table code and source 'device' (recordAssemblyScan takes opts {table, source}; the scan event and WRONG_BARCODE alert carry them; the UNKNOWN_BARCODE alert also carries station). scanning.html / scanning_list.html (js/production_scanning.js) listen on /api/assembly/events and log device scans in the station card ("Table B9 · <ean> · OK n/plan" or "WRONG (reason)"), update Done and flash the card. Station cards show the plan's tables. Live log only on the server the scanner posts to (the factory LOCAL server); MAIN gets the synced count.
+
 ### Fixed
 - Packing tables (v1.188.1, CodeQL loop-bound injection): parseCodes reads at most 240 array entries / 2000 characters and stops at 60 tables.
 - Packing dispatch / handover (v1.187.1, CodeRabbit on #2123): dispatch close needs invoice_no; another party's carton needs supervisor PIN + reason (packing_boxes.dispatch_override_by / _reason, printed on the slip, cleared on undo). Scan, undo, close and slip edit re-read the slip under a per-slip xact lock (withSlip); handover undo and box void take the label lock and re-check state (409 when received / dispatched / voided meanwhile); stock and dispatch reports scope to LOCAL_FACTORY_ID on a factory server; summary takes ?slip=<id> and both pages let you pick another person's open slip (reopen opens it); Packed Stock detail ignores stale responses.

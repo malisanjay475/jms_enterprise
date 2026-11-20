@@ -64,6 +64,41 @@ async function initScanning(renderCallback) {
     }
 
     await loadActivePlans(renderCallback);
+    listenDeviceScans();
+}
+
+// --- DEVICE (ESP32) SCANS ---
+// Headless table scanners post straight to the server, not through the bridge,
+// so this page hears them on the server's live event stream (/api/assembly/events)
+// and writes them into the station card's log with the table code.
+let DEVICE_ES = null;
+function listenDeviceScans() {
+    if (typeof EventSource === 'undefined' || DEVICE_ES) return;
+    DEVICE_ES = new EventSource('/api/assembly/events');
+    DEVICE_ES.onmessage = (ev) => {
+        let msg;
+        try { msg = JSON.parse(ev.data); } catch (_) { return; }
+        const d = (msg && msg.data) || {};
+        if (d.source !== 'device') return;          // bridge / page scans are logged by their own path
+        const where = d.table ? `Table ${d.table}` : 'Device';
+        if (msg.type === 'scan') {
+            const tid = d.table_id;
+            const p = (TABLE_PLANS[tid] || []).find(x => x.id == d.plan_id);
+            if (d.match) {
+                if (p && d.new_qty != null) p.scanned_qty = d.new_qty;
+                const q = document.getElementById(`scan-qty-${tid}`);
+                if (q && d.new_qty != null) q.textContent = d.new_qty;
+                log(tid, `${where} · ${d.scanned_ean} · OK ${d.new_qty}/${d.plan_qty}`, 'success');
+                flashCard(tid, '#dcfce7');
+            }
+        } else if (msg.type === 'alert') {
+            const tid = d.station || d.table_id;
+            const why = d.type === 'UNKNOWN_BARCODE' ? 'not planned on this table' : `expected ${d.expected || '?'}`;
+            log(tid, `${where} · ${d.ean} · WRONG (${why})`, 'error');
+            flashCard(tid, '#fee2e2');
+        }
+    };
+    // EventSource reconnects by itself after a network drop.
 }
 
 // --- DATA LOADING ---
@@ -385,6 +420,7 @@ function getDetailsHtml(p) {
                 <label class="form-label" style="font-size:0.7rem; color:#94a3b8">Item</label>
             <div style="font-weight:600; font-size:0.9rem">${scanEsc(p.item_name)}</div>
         </div>
+        ${p.tables ? `<div style="font-size:0.75rem; color:#475569; margin:2px 0 6px">Tables: <b>${scanEsc(String(p.tables).split(',').filter(Boolean).join(', '))}</b></div>` : ''}
         <div class="ean-display">${scanEsc(p.ean_number || 'NO EAN')}</div>
         <div class="scan-metrics">
             <div class="metric-box"><div class="metric-label">Plan</div><div class="metric-val" id="plan-qty-${scanEsc(p.table_id)}">${scanEsc(p.plan_qty)}</div></div>
