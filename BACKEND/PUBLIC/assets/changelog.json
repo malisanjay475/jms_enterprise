@@ -14,6 +14,20 @@
   "latest": "1.177.0",
   "versions": [
     {
+      "version": "1.192.0",
+      "date": "2026-11-20",
+      "title": "Table scanners on the scanning page",
+      "modules": [
+        {
+          "app": "packing",
+          "changes": [
+            { "type": "feat", "text": "Production Line Scanning now shows scans from the table scanners (ESP32) live in the station's log, with the table number, OK with the new count, or WRONG with the reason." },
+            { "type": "improvement", "text": "Each station card shows which tables its plan runs on." }
+          ]
+        }
+      ]
+    },
+    {
       "version": "1.191.0",
       "date": "2026-11-19",
       "title": "Packing day close and lost time",
