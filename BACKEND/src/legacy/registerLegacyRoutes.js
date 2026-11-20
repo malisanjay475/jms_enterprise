@@ -35224,7 +35224,10 @@ function parseScanEan(ean) {
   return { fullString, cleanEAN, uniqueId };
 }
 
-async function recordAssemblyScan(plan_id, ean) {
+async function recordAssemblyScan(plan_id, ean, opts = {}) {
+  // opts.table / opts.source: the packing table code ("B9") and 'device' for a
+  // headless ESP32 scanner, so live screens can say where the scan came from.
+  const scanFrom = { table: opts.table || null, source: opts.source || null };
   // --- UNIQUE BARCODE / QR LOGIC ---
   const { fullString, cleanEAN, uniqueId } = parseScanEan(ean);
 
@@ -35283,6 +35286,7 @@ async function recordAssemblyScan(plan_id, ean) {
       ean: cleanEAN,
       expected: targetEAN,
       type: 'WRONG_BARCODE',
+      ...scanFrom,
       timestamp: Date.now()
     };
     ASSEMBLY_ALERTS.push(alertObj);
@@ -35305,6 +35309,7 @@ async function recordAssemblyScan(plan_id, ean) {
     plan_qty: plan.plan_qty,
     scanned_ean: cleanEAN,
     expected_ean: targetEAN,
+    ...scanFrom,
     ts: Date.now()
   });
 
@@ -35370,6 +35375,10 @@ app.post('/api/assembly/device-scan', async (req, res) => {
     // The scanned product picks the plan (headless: no operator selection).
     const { cleanEAN } = parseScanEan(ean);
     const plan = await resolvePlanForTableByEan(table_id, cleanEAN);
+    // "Station/B9" -> station + table code, for the live scan log.
+    const { splitTableLine } = require('../modules/packing/registerPackingTableRoutes');
+    const tl = splitTableLine(table_id);
+    const scanFrom = { table: tl ? tl.code : null, source: 'device' };
 
     if (!plan) {
       // Unknown/unexpected product for this table — no plan expects this EAN.
@@ -35382,6 +35391,8 @@ app.post('/api/assembly/device-scan', async (req, res) => {
         ean: cleanEAN,
         expected: null,
         type: 'UNKNOWN_BARCODE',
+        station: tl ? tl.station : table_id,
+        ...scanFrom,
         timestamp: Date.now()
       };
       ASSEMBLY_ALERTS.push(alertObj);
@@ -35390,7 +35401,7 @@ app.post('/api/assembly/device-scan', async (req, res) => {
       return res.json({ ok: false, match: false, error: `No plan on ${table_id} expects barcode ${cleanEAN}`, table_id });
     }
 
-    const result = await recordAssemblyScan(plan.id, ean);
+    const result = await recordAssemblyScan(plan.id, ean, scanFrom);
     // Include plan_id so the device/log can show which plan it hit.
     res.json({ ...result, plan_id: plan.id, table_id });
   } catch (e) {
