@@ -107,6 +107,7 @@
                 <input type="search" id="f-search" class="form-input" placeholder="Search machine, job card, item, mould, person, remark…" autocomplete="off">
             </div>
             <span id="f-count" style="font-size:12px;color:var(--text-muted);"></span>
+            <button type="button" id="rh-export" class="btn btn-outline small" style="display:none;margin-left:auto;" onclick="exportRejects()"><i class="bi bi-file-earmark-excel"></i> Export Excel</button>
         </div>
 
         <div class="fpa-tabs">
@@ -251,6 +252,7 @@
             TAB = tab;
             document.querySelectorAll('.fpa-tab').forEach(b => b.classList.toggle('active', b.getAttribute('data-tab') === tab));
             el('fpa-stats').style.display = tab === 'list' ? '' : 'none';
+            el('rh-export').style.display = tab === 'rejects' ? '' : 'none';
             if (tab === 'rejects') loadRejects(); else renderList();
         }
         function reload() { REJ_KEY = null; if (TAB === 'rejects') loadRejects(); else loadFpa(); }
@@ -373,11 +375,70 @@
                 list.innerHTML = '<div class="empty">Failed to load reject history.</div>';
             }
         }
+        // Rejects after the search box filter (used by the table and the Excel export).
+        function filteredRejects() {
+            const terms = searchTerms();
+            const hay = r => [r.machine, r.line && 'Line ' + r.line, r.job_card_no, r.order_no, r.item_name, r.mould_name, r.reason, r.rejected_by, r.submitted_by, r.fpa_done_by, r.shift, r.current_status].join(' ');
+            return terms.length ? REJ_ROWS.filter(r => matches(hay(r), terms)) : REJ_ROWS;
+        }
+
+        // Export Excel: exactly the rows on screen (dates, shift, machine and search applied).
+        // SheetJS is ~900 KB, so it is loaded only on the first export.
+        let _xlsxLoading = null;
+        function loadXlsx() {
+            if (window.XLSX) return Promise.resolve();
+            return _xlsxLoading || (_xlsxLoading = new Promise((ok, fail) => {
+                const s = document.createElement('script');
+                s.src = '/assets/vendor/jsdelivr/xlsx@0.18.5/xlsx.full.min.js';
+                s.onload = ok;
+                s.onerror = () => { _xlsxLoading = null; fail(new Error('load')); };
+                document.head.appendChild(s);
+            }));
+        }
+        async function exportRejects() {
+            const rows = filteredRejects();
+            if (!rows.length) return JPSMS.toast('Nothing to export', 'error');
+            const btn = el('rh-export');
+            btn.disabled = true;
+            try {
+                await loadXlsx();
+                const ist = v => { try { return v ? new Date(v).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }) : ''; } catch (_) { return ''; } };
+                const nowTxt = s => s === 'Pending' ? 'Re-uploaded - Pending' : (s || '');
+                const data = rows.map((r, i) => ({
+                    'Sr No': i + 1,
+                    'Rejected On': ist(r.rejected_at),
+                    'FPA Date': fmtDay(r.fpa_date || r.date),
+                    'Shift': r.shift || '',
+                    'Line': r.line || '',
+                    'Machine': r.machine || '',
+                    'Job Card': r.job_card_no || '',
+                    'Order No': r.order_no || '',
+                    'Item': r.item_name || '',
+                    'Mould': r.mould_name || '',
+                    'Reject Reason': r.reason || '',
+                    'Rejected By': r.rejected_by || '',
+                    'Submitted By': r.submitted_by || r.fpa_done_by || '',
+                    'Status Now': nowTxt(r.current_status)
+                }));
+                const ws = XLSX.utils.json_to_sheet(data);
+                ws['!cols'] = [6, 17, 13, 7, 6, 10, 14, 14, 26, 18, 45, 16, 16, 20].map(w => ({ wch: w }));
+                ws['!autofilter'] = { ref: ws['!ref'] };
+                const wb = XLSX.utils.book_new();
+                XLSX.utils.book_append_sheet(wb, ws, 'FPA Reject History');
+                const from = el('f-from').value, to = el('f-to').value;
+                XLSX.writeFile(wb, `FPA_Reject_History_${from}${to && to !== from ? '_to_' + to : ''}.xlsx`);
+                JPSMS.toast(`Exported ${rows.length} reject${rows.length === 1 ? '' : 's'}`);
+            } catch (e) {
+                JPSMS.toast('Excel export failed', 'error');
+            } finally {
+                btn.disabled = false;
+            }
+        }
+
         function renderRejects() {
             const list = el('fpa-list');
             const terms = searchTerms();
-            const hay = r => [r.machine, r.line && 'Line ' + r.line, r.job_card_no, r.order_no, r.item_name, r.mould_name, r.reason, r.rejected_by, r.submitted_by, r.fpa_done_by, r.shift, r.current_status].join(' ');
-            const rows = terms.length ? REJ_ROWS.filter(r => matches(hay(r), terms)) : REJ_ROWS;
+            const rows = filteredRejects();
             const fpas = new Set(rows.map(r => r.id)).size;
             el('f-count').textContent = `${rows.length} reject${rows.length === 1 ? '' : 's'} on ${fpas} FPA${fpas === 1 ? '' : 's'}${terms.length ? ` (of ${REJ_ROWS.length})` : ''}`;
             if (!rows.length) {
