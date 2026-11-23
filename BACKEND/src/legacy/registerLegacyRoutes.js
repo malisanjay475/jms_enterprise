@@ -6459,6 +6459,23 @@ async function initializeLegacyRuntime() {
     // FPA copied to a new machine when its plan was moved (needs approval again there).
     await q(`ALTER TABLE qc_job_checks ADD COLUMN IF NOT EXISTS fpa_transferred_from TEXT`);
     await q(`ALTER TABLE qc_job_checks ADD COLUMN IF NOT EXISTS fpa_transferred_from_id INTEGER`);
+    // Every FPA step (Submitted / Re-submitted / Rejected / Approved / Moved) with who, when and
+    // the remark, oldest first. Before this column a re-upload wiped the old reject reason, so
+    // older FPAs are seeded once from what the row still holds (earlier rejects are lost).
+    await q(`ALTER TABLE qc_job_checks ADD COLUMN IF NOT EXISTS fpa_history JSONB`);
+    await q(`
+      UPDATE qc_job_checks SET fpa_history =
+        jsonb_build_array(jsonb_build_object(
+          'action', CASE WHEN COALESCE(fpa_resubmit_count, 0) > 0 THEN 'Re-submitted' ELSE 'Submitted' END,
+          'by', fpa_done_by, 'at', fpa_done_at, 'remark', NULLIF(remarks, '')))
+        || CASE
+             WHEN fpa_approval_status = 'Rejected' THEN jsonb_build_array(jsonb_build_object(
+               'action', 'Rejected', 'by', fpa_reviewed_by, 'at', fpa_reviewed_at, 'remark', fpa_reject_reason))
+             WHEN fpa_approval_status = 'Approved' AND fpa_reviewed_by IS NOT NULL THEN jsonb_build_array(jsonb_build_object(
+               'action', 'Approved', 'by', fpa_reviewed_by, 'at', fpa_reviewed_at, 'remark', fpa_approve_remark))
+             ELSE '[]'::jsonb
+           END
+      WHERE fpa_history IS NULL AND fpa_status = 'Done'`);
 
     await q(`ALTER TABLE shifting_records ADD COLUMN IF NOT EXISTS shift_date DATE;`);
     await q(`ALTER TABLE shifting_records ADD COLUMN IF NOT EXISTS shift_type TEXT;`);
@@ -17808,6 +17825,12 @@ app.get('/api/planning/mould-machines', async (req, res) => {
 // "transferred from" set, so QC must approve it again on the new machine. If the job
 // already has an FPA row on the new machine (moved back), that row is reset the same way.
 // The old machine's FPA stays as history. Returns { id, from } or null when there is none.
+// One FPA history step as a 1-element JSON array, ready to append with
+// `fpa_history = COALESCE(fpa_history, '[]'::jsonb) || $n::jsonb`.
+function fpaHistoryEvent(action, by, remark, at) {
+  return JSON.stringify([{ action, by: by || null, at: (at || new Date()).toISOString(), remark: remark || null }]);
+}
+
 async function transferFpaToMachine(plan, fromMachine, toMachine) {
   const refs = [plan.plan_id, plan.id].map(v => String(v ?? '').trim()).filter(Boolean);
   const src = (await q(
@@ -17833,6 +17856,11 @@ async function transferFpaToMachine(plan, fromMachine, toMachine) {
         AND ($3::int IS NULL OR factory_id = $3 OR factory_id IS NULL)
       ORDER BY id DESC LIMIT 1`, [jc, toMachine, src.factory_id ?? null]))[0] : null;
 
+  // History step for the move (plus the auto-approve when that window is on).
+  const movedHistory = JSON.stringify([
+    ...JSON.parse(fpaHistoryEvent('Moved', 'Planning', `Job moved from ${fromMachine} to ${toMachine} — needs approval again`)),
+    ...(autoUntil ? JSON.parse(fpaHistoryEvent('Approved', reviewer, remark)) : [])
+  ]);
   let id;
   if (existing) {
     id = existing.id;
@@ -17841,11 +17869,12 @@ async function transferFpaToMachine(plan, fromMachine, toMachine) {
          fpa_status = 'Done', fpa_form_image = $2, fpa_form_url = $3, product_images = $4::jsonb,
          fpa_done_at = $5, fpa_done_by = $6, plan_id = $7, order_no = $8, item_name = $9, mould_name = $10,
          fpa_approval_status = $11, fpa_reviewed_by = $12, fpa_reviewed_at = $13, fpa_approve_remark = $14,
-         fpa_reject_reason = NULL, fpa_transferred_from = $15, fpa_transferred_from_id = $16, updated_at = NOW()
+         fpa_reject_reason = NULL, fpa_transferred_from = $15, fpa_transferred_from_id = $16,
+         fpa_history = COALESCE(fpa_history, '[]'::jsonb) || $17::jsonb, updated_at = NOW()
        WHERE id = $1`,
       [id, src.fpa_form_image, src.fpa_form_url, JSON.stringify(src.product_images || []),
        src.fpa_done_at, src.fpa_done_by, src.plan_id, src.order_no, src.item_name, src.mould_name,
-       status, reviewer, autoUntil ? new Date() : null, remark, fromMachine, src.id]);
+       status, reviewer, autoUntil ? new Date() : null, remark, fromMachine, src.id, movedHistory]);
   } else {
     const line = (await q(`SELECT line FROM machines WHERE machine = $1 LIMIT 1`, [toMachine]))[0];
     const ins = await q(
@@ -17854,14 +17883,15 @@ async function transferFpaToMachine(plan, fromMachine, toMachine) {
          fpa_status, fpa_form_image, fpa_form_url, product_images, remarks, supervisor,
          fpa_done_at, fpa_done_by, factory_id, fpa_approval_status,
          fpa_reviewed_by, fpa_reviewed_at, fpa_approve_remark,
-         fpa_transferred_from, fpa_transferred_from_id, updated_at
-       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'Done',$11,$12,$13::jsonb,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,NOW())
+         fpa_transferred_from, fpa_transferred_from_id, fpa_history, updated_at
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'Done',$11,$12,$13::jsonb,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25::jsonb,NOW())
        RETURNING id`,
       [src.date, src.shift, src.hour_slot, src.plan_id, src.job_card_no, src.order_no,
        (line && line.line) || src.line, toMachine, src.item_name, src.mould_name,
        src.fpa_form_image, src.fpa_form_url, JSON.stringify(src.product_images || []), src.remarks, src.supervisor,
        src.fpa_done_at, src.fpa_done_by, src.factory_id, status,
-       reviewer, autoUntil ? new Date() : null, remark, fromMachine, src.id]);
+       reviewer, autoUntil ? new Date() : null, remark, fromMachine, src.id,
+       JSON.stringify([...(Array.isArray(src.fpa_history) ? src.fpa_history : []), ...JSON.parse(movedHistory)])]);
     id = ins[0] && ins[0].id;
   }
 
@@ -32024,6 +32054,11 @@ app.post('/api/qc/fpa', (req, res, next) => {
         )
       : [];
 
+    // History: the (re-)upload, plus the auto-approve when that window is on.
+    const submitHistory = action => JSON.stringify([
+      ...JSON.parse(fpaHistoryEvent(action, supervisor, remarks || '', now)),
+      ...(autoUntil ? JSON.parse(fpaHistoryEvent('Approved', autoReviewer, autoRemark, now)) : [])
+    ]);
     let fpaId;
     if (existing.length) {
       fpaId = existing[0].id;
@@ -32036,6 +32071,7 @@ app.post('/api/qc/fpa', (req, res, next) => {
           fpa_approval_status=$17, fpa_reject_reason=NULL,
           fpa_reviewed_by=$18, fpa_reviewed_at=$19, fpa_approve_remark=$20,
           fpa_resubmit_count=COALESCE(fpa_resubmit_count,0)+1,
+          fpa_history=COALESCE(fpa_history,'[]'::jsonb) || $21::jsonb,
           updated_at=NOW()
         WHERE id=$16
       `, [
@@ -32043,7 +32079,7 @@ app.post('/api/qc/fpa', (req, res, next) => {
         item_name || '', mould_name || '',
         formUrl, formUrl, JSON.stringify(productUrls),
         remarks || '', supervisor, now, supervisor, fpaId,
-        approvalStatus, autoReviewer, autoReviewedAt, autoRemark
+        approvalStatus, autoReviewer, autoReviewedAt, autoRemark, submitHistory('Re-submitted')
       ]);
     } else {
       const ins = await q(`
@@ -32051,8 +32087,8 @@ app.post('/api/qc/fpa', (req, res, next) => {
           date, shift, hour_slot, plan_id, job_card_no, order_no, line, machine, item_name, mould_name,
           fpa_status, fpa_form_image, fpa_form_url, product_images, remarks, supervisor,
           fpa_done_at, fpa_done_by, factory_id, fpa_approval_status,
-          fpa_reviewed_by, fpa_reviewed_at, fpa_approve_remark, updated_at
-        ) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'Done',$11,$12,$13::jsonb,$14,$15,$16,$17,$18,$19,$20,$21,$22,NOW())
+          fpa_reviewed_by, fpa_reviewed_at, fpa_approve_remark, fpa_history, updated_at
+        ) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'Done',$11,$12,$13::jsonb,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23::jsonb,NOW())
         RETURNING id
       `, [
         entryDate, shift || '', hour_slot || '',
@@ -32060,7 +32096,7 @@ app.post('/api/qc/fpa', (req, res, next) => {
         line || '', machine || '', item_name || '', mould_name || '',
         formUrl, formUrl, JSON.stringify(productUrls),
         remarks || '', supervisor, now, supervisor, factoryId,
-        approvalStatus, autoReviewer, autoReviewedAt, autoRemark
+        approvalStatus, autoReviewer, autoReviewedAt, autoRemark, submitHistory('Submitted')
       ]);
       fpaId = ins && ins[0] && ins[0].id;
     }
@@ -32235,7 +32271,12 @@ app.get('/api/qc/fpa/list', async (req, res) => {
   try {
     const { date, shift, machine } = req.query;
     const factoryId = resolveReportFactoryId ? resolveReportFactoryId(req) : getFactoryId(req);
-    const d = date || new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date());
+    // Date range: ?from=&to= (inclusive). The old ?date= still works as a one-day range.
+    const isDay = v => /^\d{4}-\d{2}-\d{2}$/.test(String(v || ''));
+    const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date());
+    let from = isDay(req.query.from) ? req.query.from : (isDay(date) ? date : today);
+    let to = isDay(req.query.to) ? req.query.to : (isDay(date) ? date : from);
+    if (to < from) [from, to] = [to, from];
     const mFilter = (machine && machine !== 'All' && machine !== 'All Machines') ? machine : null;
     const rows = await q(
       `SELECT
@@ -32246,25 +32287,71 @@ app.get('/api/qc/fpa/list', async (req, res) => {
          COALESCE(jc.fpa_approval_status, 'Pending') AS fpa_approval_status,
          jc.fpa_reviewed_by, jc.fpa_reviewed_at, jc.fpa_reject_reason, jc.fpa_approve_remark,
          COALESCE(jc.fpa_resubmit_count, 0) AS fpa_resubmit_count,
-         jc.fpa_transferred_from
+         jc.fpa_transferred_from,
+         COALESCE(jc.fpa_history, '[]'::jsonb) AS fpa_history,
+         to_char(jc.date, 'YYYY-MM-DD') AS fpa_date
        FROM qc_job_checks jc
        WHERE jc.fpa_status = 'Done'
-         -- Always surface PENDING FPAs regardless of the selected date so an
+         -- Always surface PENDING FPAs regardless of the selected dates so an
          -- approver never misses one stuck on an earlier day (this makes the
          -- page's Pending count match the sidebar badge). Approved/Rejected
-         -- stay scoped to the chosen date.
-         AND (COALESCE(jc.fpa_approval_status,'Pending') = 'Pending' OR jc.date = $1::date)
+         -- stay scoped to the chosen From..To range.
+         AND (COALESCE(jc.fpa_approval_status,'Pending') = 'Pending' OR jc.date BETWEEN $1::date AND $5::date)
          AND ($2::text IS NULL OR jc.shift = $2::text)
          AND ($3::text IS NULL OR jc.machine = $3::text)
          AND ($4::int IS NULL OR jc.factory_id = $4 OR jc.factory_id IS NULL)
        ORDER BY
          CASE COALESCE(jc.fpa_approval_status,'Pending')
            WHEN 'Pending' THEN 0 WHEN 'Rejected' THEN 1 ELSE 2 END,
-         jc.machine ASC, jc.fpa_done_at DESC
-       LIMIT 300`,
-      [d, shift || null, mFilter, factoryId]
+         jc.date DESC, jc.machine ASC, jc.fpa_done_at DESC
+       LIMIT 1000`,
+      [from, shift || null, mFilter, factoryId, to]
     );
-    res.json({ ok: true, data: rows || [] });
+    res.json({ ok: true, from, to, data: rows || [] });
+  } catch (e) {
+    sendServerError(res, e);
+  }
+});
+
+// GET /api/qc/fpa/reject-history?from=&to=&shift=&machine= — every FPA reject (one row per
+// reject, from fpa_history) whose reject time falls in the IST date range, newest first, with
+// the reason, who rejected, who had submitted it and where the FPA stands now.
+app.get('/api/qc/fpa/reject-history', async (req, res) => {
+  try {
+    const { shift, machine } = req.query;
+    const factoryId = resolveReportFactoryId ? resolveReportFactoryId(req) : getFactoryId(req);
+    const isDay = v => /^\d{4}-\d{2}-\d{2}$/.test(String(v || ''));
+    const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date());
+    let from = isDay(req.query.from) ? req.query.from : today;
+    let to = isDay(req.query.to) ? req.query.to : from;
+    if (to < from) [from, to] = [to, from];
+    const mFilter = (machine && machine !== 'All' && machine !== 'All Machines') ? machine : null;
+    const rows = await q(
+      `SELECT jc.id, jc.date, jc.shift, jc.machine, jc.line, jc.job_card_no, jc.order_no,
+              jc.item_name, jc.mould_name, jc.fpa_done_by,
+              to_char(jc.date, 'YYYY-MM-DD') AS fpa_date,
+              COALESCE(jc.fpa_approval_status, 'Pending') AS current_status,
+              ev.ord AS step_no,
+              ev.e->>'by' AS rejected_by,
+              ev.e->>'remark' AS reason,
+              (ev.e->>'at')::timestamptz AS rejected_at,
+              (SELECT p.e->>'by' FROM jsonb_array_elements(jc.fpa_history) WITH ORDINALITY AS p(e, ord)
+                WHERE p.ord < ev.ord AND p.e->>'action' IN ('Submitted', 'Re-submitted')
+                ORDER BY p.ord DESC LIMIT 1) AS submitted_by
+         FROM qc_job_checks jc
+         CROSS JOIN LATERAL jsonb_array_elements(COALESCE(jc.fpa_history, '[]'::jsonb)) WITH ORDINALITY AS ev(e, ord)
+        WHERE jc.fpa_status = 'Done'
+          AND ev.e->>'action' = 'Rejected'
+          AND ev.e->>'at' IS NOT NULL
+          AND ((ev.e->>'at')::timestamptz AT TIME ZONE 'Asia/Kolkata')::date BETWEEN $1::date AND $2::date
+          AND ($3::text IS NULL OR jc.shift = $3::text)
+          AND ($4::text IS NULL OR jc.machine = $4::text)
+          AND ($5::int IS NULL OR jc.factory_id = $5 OR jc.factory_id IS NULL)
+        ORDER BY rejected_at DESC
+        LIMIT 2000`,
+      [from, to, shift || null, mFilter, factoryId]
+    );
+    res.json({ ok: true, from, to, data: rows || [] });
   } catch (e) {
     sendServerError(res, e);
   }
@@ -32372,11 +32459,12 @@ app.post('/api/qc/fpa/:id/approve', async (req, res) => {
     const upd = await q(
       `UPDATE qc_job_checks
           SET fpa_approval_status='Approved', fpa_reviewed_by=$1, fpa_reviewed_at=NOW(),
-              fpa_reject_reason=NULL, fpa_approve_remark=$2, updated_at=NOW()
+              fpa_reject_reason=NULL, fpa_approve_remark=$2,
+              fpa_history=COALESCE(fpa_history,'[]'::jsonb) || $5::jsonb, updated_at=NOW()
         WHERE id=$3 AND fpa_status='Done'
           AND ($4::int IS NULL OR factory_id=$4 OR factory_id IS NULL)
         RETURNING id, machine, job_card_no, fpa_done_by`,
-      [reviewer, remark, id, factoryId]
+      [reviewer, remark, id, factoryId, fpaHistoryEvent('Approved', reviewer, remark)]
     );
     if (!upd.length) return res.status(404).json({ ok: false, error: 'FPA not found' });
     // Notify the submitting QC that their FPA was approved.
@@ -32412,11 +32500,12 @@ app.post('/api/qc/fpa/:id/reject', async (req, res) => {
     const upd = await q(
       `UPDATE qc_job_checks
           SET fpa_approval_status='Rejected', fpa_reject_reason=$1,
-              fpa_reviewed_by=$2, fpa_reviewed_at=NOW(), fpa_approve_remark=NULL, updated_at=NOW()
+              fpa_reviewed_by=$2, fpa_reviewed_at=NOW(), fpa_approve_remark=NULL,
+              fpa_history=COALESCE(fpa_history,'[]'::jsonb) || $5::jsonb, updated_at=NOW()
         WHERE id=$3 AND fpa_status='Done'
           AND ($4::int IS NULL OR factory_id=$4 OR factory_id IS NULL)
         RETURNING id, machine, job_card_no, fpa_done_by`,
-      [reason, reviewer, id, factoryId]
+      [reason, reviewer, id, factoryId, fpaHistoryEvent('Rejected', reviewer, reason)]
     );
     if (!upd.length) return res.status(404).json({ ok: false, error: 'FPA not found' });
     // Notify the submitting QC that their FPA was rejected (with reason).
