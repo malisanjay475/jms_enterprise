@@ -165,6 +165,8 @@ const isNpdHo = u => isNpdAdmin(u) || (!!u && userKeys(u).some(k => HO_ROLE.test
 const isNpdSuperadmin = u => !!u && norm(u.role_code) === 'superadmin';
 const canEditSheet = u => isNpdAdmin(u) || (!!u && userKeys(u).some(k => SHEET_ROLES.has(k)));
 const canAddItems = u => canEditSheet(u) || (!!u && userKeys(u).some(k => ADD_ONLY_ROLE.test(k)));
+/* trial reports and product images after trial are uploaded (and removed) by QC; admin too */
+const canManageFiles = u => isNpdAdmin(u) || roleDepts(u).includes('QC');
 const editableStageKeys = u => {
   if (!u) return [];
   if (isNpdAdmin(u)) return STAGES.map(s => s.key);
@@ -439,6 +441,12 @@ function registerNpdRoutes(app, pool) {
     if (!canEdit(u)) { res.status(403).json({ ok: false, error: 'Only admin and PPC managers can do this in NPD' }); return null; }
     return u;
   }
+  async function requireFileManager(req, res) {
+    const u = await sessionUser(req);
+    if (!u) { res.status(401).json({ ok: false, error: 'Unauthorized' }); return null; }
+    if (!canManageFiles(u)) { res.status(403).json({ ok: false, error: 'Only admin and QC can upload trial reports and images in NPD' }); return null; }
+    return u;
+  }
   async function requireAdder(req, res) {
     const u = await sessionUser(req);
     if (!u) { res.status(401).json({ ok: false, error: 'Unauthorized' }); return null; }
@@ -466,6 +474,7 @@ function registerNpdRoutes(app, pool) {
         can_edit: canEdit(u),
         can_add: canAddItems(u),
         can_delete: isAdmin(u),
+        can_files: canManageFiles(u),
         can_colours: isNpdHo(u),
         editable_stages: editableStages(u),
         departments: u ? (isAdmin(u) ? ['All'] : roleDepts(u)) : [],
@@ -788,7 +797,7 @@ function registerNpdRoutes(app, pool) {
     try {
       await ensureTables();
       if (!['report', 'image'].includes(req.params.kind)) return res.status(400).json({ ok: false, error: 'Unknown file kind' });
-      const u = await requireEditor(req, res);
+      const u = await requireFileManager(req, res);
       if (!u) return;
       req.npdUser = u;
       next();
@@ -828,7 +837,7 @@ function registerNpdRoutes(app, pool) {
   app.delete('/api/npd/files/:fileId', async (req, res) => {
     try {
       await ensureTables();
-      const u = await requireEditor(req, res);
+      const u = await requireFileManager(req, res);
       if (!u) return;
       const r = await pool.query('DELETE FROM npd_files WHERE id = $1 RETURNING file_path', [parseInt(req.params.fileId, 10)]);
       if (!r.rows.length) return res.status(404).json({ ok: false, error: 'File not found' });
@@ -860,6 +869,7 @@ module.exports = {
   norm,
   editableStageKeys,
   canEditSheet,
+  canManageFiles,
   canAddItems,
   isNpdAdmin,
   isNpdSuperadmin

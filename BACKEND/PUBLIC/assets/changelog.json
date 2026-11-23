@@ -14,6 +14,19 @@
   "latest": "1.177.0",
   "versions": [
     {
+      "version": "1.193.2",
+      "date": "2026-11-23",
+      "title": "NPD Tracker: QC uploads trial reports and images",
+      "modules": [
+        {
+          "app": "npd",
+          "changes": [
+            { "type": "improvement", "text": "Trial reports and product images after trial are now uploaded (and removed) by QC instead of PPC." }
+          ]
+        }
+      ]
+    },
+    {
       "version": "1.193.1",
       "date": "2026-11-23",
       "title": "NPD Tracker: post card stages move to W/H & Dispatch",

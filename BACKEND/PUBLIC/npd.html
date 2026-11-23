@@ -267,11 +267,11 @@
                 <button class="btn sm" data-close="fileModal"><i class="bi bi-x-lg"></i></button>
             </div>
             <div class="sec">
-                <h4>Trial Report <span class="ed"><input type="file" id="repFile" multiple hidden accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.jpg,.jpeg,.png,.webp"><button class="btn sm" onclick="document.getElementById('repFile').click()"><i class="bi bi-upload"></i> Upload Trial Report</button></span></h4>
+                <h4><span>Trial Report <span class="none">(QC)</span></span> <span class="ed"><input type="file" id="repFile" multiple hidden accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.jpg,.jpeg,.png,.webp"><button class="btn sm" onclick="document.getElementById('repFile').click()"><i class="bi bi-upload"></i> Upload Trial Report</button></span></h4>
                 <div class="flist" id="repList"></div>
             </div>
             <div class="sec">
-                <h4>Product Images After Trial <span class="ed"><input type="file" id="imgFile" multiple hidden accept="image/*"><button class="btn sm" onclick="document.getElementById('imgFile').click()"><i class="bi bi-camera"></i> Upload Images</button></span></h4>
+                <h4><span>Product Images After Trial <span class="none">(QC)</span></span> <span class="ed"><input type="file" id="imgFile" multiple hidden accept="image/*"><button class="btn sm" onclick="document.getElementById('imgFile').click()"><i class="bi bi-camera"></i> Upload Images</button></span></h4>
                 <div class="gal" id="imgList"></div>
             </div>
         </div>
@@ -380,6 +380,7 @@
                     const res = await api('/npd/products');
                     S.rows = res.data || [];
                     S.canEdit = !!res.can_edit;
+                    S.canFiles = !!res.can_files;
                     S.canAdd = !!res.can_add;
                     S.canDelete = !!res.can_delete;
                     S.canColours = !!res.can_colours;
@@ -743,13 +744,13 @@
                 const p = S.rows.find(r => r.id === S.open);
                 if (!p) return;
                 $('fTitle').textContent = p.product_name;
-                document.querySelectorAll('#fileModal .ed').forEach(el => el.style.display = S.canEdit ? '' : 'none');
+                document.querySelectorAll('#fileModal .ed').forEach(el => el.style.display = S.canFiles ? '' : 'none');
                 const by = f => `<span class="none">${esc(f.uploaded_by || '')} · ${new Date(f.uploaded_at).toLocaleDateString('en-GB')}</span>`;
-                const del = f => S.canEdit ? `<button class="btn sm danger" data-fdel="${f.id}" title="Delete"><i class="bi bi-trash"></i></button>` : '';
+                const del = f => S.canFiles ? `<button class="btn sm danger" data-fdel="${f.id}" title="Delete"><i class="bi bi-trash"></i></button>` : '';
                 const reps = p.files.filter(f => f.kind === 'report');
                 $('repList').innerHTML = reps.length ? reps.map(f => `<div class="fitem"><i class="bi bi-file-earmark-text"></i><a href="${esc(f.url)}" data-view="report" data-fid="${f.id}">${esc(f.original_name || 'report')}</a>${by(f)}${del(f)}</div>`).join('') : '<div class="none">No trial report uploaded.</div>';
                 const imgs = p.files.filter(f => f.kind === 'image');
-                $('imgList').innerHTML = imgs.length ? imgs.map(f => `<div class="im"><a href="${esc(f.url)}" data-view="image" data-fid="${f.id}"><img src="${esc(f.url)}" alt="${esc(f.original_name || '')}" loading="lazy"></a>${S.canEdit ? `<button data-fdel="${f.id}" title="Delete"><i class="bi bi-trash"></i></button>` : ''}</div>`).join('') : '<div class="none">No product images uploaded.</div>';
+                $('imgList').innerHTML = imgs.length ? imgs.map(f => `<div class="im"><a href="${esc(f.url)}" data-view="image" data-fid="${f.id}"><img src="${esc(f.url)}" alt="${esc(f.original_name || '')}" loading="lazy"></a>${S.canFiles ? `<button data-fdel="${f.id}" title="Delete"><i class="bi bi-trash"></i></button>` : ''}</div>`).join('') : '<div class="none">No product images uploaded.</div>';
             }
             async function uploadFiles(input, kind) {
                 const files = [...input.files];
