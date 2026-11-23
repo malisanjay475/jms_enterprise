@@ -10,8 +10,10 @@
  * status (Hold / Launched / Delayed / On Schedule / Cancelled), remarks, the
  * trial reports and the product photos taken after the trial.
  *
- * Everyone who can open the page can view. Admin / superadmin edit every
- * stage; only superadmin deletes products and child moulds. PPC managers add
+ * Everyone who can open the page can view the products of their own factories
+ * (user_factories; superadmin and unmapped global / admin users see every
+ * factory). Admin / superadmin edit every stage and delete products and child
+ * moulds. PPC managers add
  * products and child moulds, set name / status / remarks and upload files.
  * Sales Co-ordinator only adds products and child moulds.
  * Department roles (DEPT_ROLES) edit only their department's stages
@@ -34,7 +36,7 @@ const multer = require('multer');
 const { getRequestUsername } = require('../../app/requestContext');
 const { sendServerError } = require('../../app/httpErrors');
 
-/* Admin / superadmin edit everything. Only superadmin deletes products / moulds.
+/* Admin / superadmin edit everything and delete products / moulds.
    PPC managers also run the sheet itself (add products and moulds, name,
    status, remarks, files). */
 const ADMIN_ROLES = new Set(['admin', 'superadmin']);
@@ -56,7 +58,8 @@ const DEPT_ROLES = {
   'Tool Room': ['toolroommanager'],
   Moulding: ['mouldingmanager'],
   Planning: ['srppcmanager', 'ppcmanager', 'ppcassmanager'],
-  QC: ['quality', 'qchod', 'qualityassmanager', 'qualityasstmanager', 'qcassmanager'],
+  /* 'quality' is the QC HOD role; Quality Ass. Manager is 'quality_ass__manager' */
+  QC: ['quality', 'qchod', 'qualityhod', 'qualityassmanager', 'qualityasstmanager', 'qcassmanager'],
   Packing: ['packingmanager'],
   Purchase: [/purchase/],
   Production: ['mouldingmanager'],
@@ -79,7 +82,7 @@ const STAGES = [
   { key: 'rm_colour', level: 'mould', type: 'status', group: 'Mould & Trial', label: 'RM & colour finalization (Planning / Moulding)', depts: ['Planning', 'Moulding'] },
   { key: 'samples_ho', level: 'product', type: 'status', group: 'Mould & Trial', label: 'Final samples sent to HO for approval & photo shoot (QC)', depts: ['QC'] },
   { key: 'sample_approval_ho', level: 'product', type: 'status', group: 'Mould & Trial', label: 'Final sample approval from HO (HO)', depts: ['HO'] },
-  { key: 'pilot_drop_test', level: 'mould', type: 'status', group: 'Mould & Trial', label: 'Pilot run & drop test @ factory (Moulding / QC)', depts: ['Moulding', 'QC'] },
+  { key: 'pilot_drop_test', level: 'product', type: 'status', group: 'Mould & Trial', label: 'Pilot run & drop test @ factory (Moulding / QC)', depts: ['Moulding', 'QC'] },
   { key: 'qc_approval_ho', level: 'mould', type: 'status', group: 'Mould & Trial', label: 'Final QC approved after testing (QC)', depts: ['QC'] },
   { key: 'packing_material', level: 'product', type: 'status', group: 'Packing, BOM & ERP', label: 'Packing material finalization (Packing)', depts: ['Packing'] },
   { key: 'bom_approval', level: 'product', type: 'status', group: 'Packing, BOM & ERP', label: 'Product BOM finalization / approval (Planning)', depts: ['Planning'] },
@@ -340,10 +343,74 @@ async function migrateNpdLevels(pool) {
   }
 }
 
+/* One-time data move (MAIN only, syncs out): Pilot run & drop test moved from
+   the child moulds to the product row (QC HOD / Quality Ass. Manager set it
+   product wise). A product with no value of its own gets its moulds' roll-up
+   and the latest mould remark. */
+async function migrateNpdPilotToProduct(pool) {
+  if (String(process.env.SERVER_TYPE || '').toUpperCase() === 'LOCAL') return;
+  await pool.query('CREATE TABLE IF NOT EXISTS server_config (key TEXT PRIMARY KEY, value TEXT)');
+  const flag = await pool.query(
+    `INSERT INTO server_config (key, value) VALUES ('NPD_PILOT_PRODUCT_V1', NOW()::text)
+     ON CONFLICT (key) DO NOTHING RETURNING key`);
+  if (!flag.rowCount) return;
+  const key = 'pilot_drop_test';
+  const all = (await pool.query('SELECT id, sync_id, parent_sync_id, stages, stage_info FROM npd_products')).rows;
+  for (const p of all.filter(r => !r.parent_sync_id)) {
+    if ((p.stages || {})[key] !== undefined) continue;
+    const kids = all.filter(c => String(c.parent_sync_id) === String(p.sync_id));
+    if (!kids.some(c => (c.stages || {})[key] !== undefined)) continue;
+    const info = kids.map(c => (c.stage_info || {})[key]).filter(Boolean)
+      .sort((a, b) => String(b.at || '').localeCompare(String(a.at || '')))[0];
+    await pool.query(
+      'UPDATE npd_products SET stages = stages || $1::jsonb, stage_info = stage_info || $2::jsonb, updated_at = NOW() WHERE id = $3',
+      [JSON.stringify({ [key]: rollupStage(key, kids) }), JSON.stringify(info ? { [key]: info } : {}), p.id]);
+  }
+}
+
+/* Factories a user may see in NPD, by name. Superadmin, and a global or admin
+   user with no factory ticked, see every factory (all = true). */
+async function npdFactoryScope(pool, u) {
+  if (!u) return { all: false, names: [] };
+  const active = async () => (await pool.query('SELECT name FROM factories WHERE COALESCE(is_active, TRUE) ORDER BY id')).rows.map(r => r.name);
+  if (isNpdSuperadmin(u)) return { all: true, names: await active() };
+  const mine = (await pool.query(
+    `SELECT f.name FROM factories f JOIN user_factories uf ON uf.factory_id = f.id
+      WHERE uf.user_id = $1 AND COALESCE(f.is_active, TRUE) ORDER BY f.id`, [u.id])).rows.map(r => r.name);
+  if (!mine.length && (u.global_access === true || isNpdAdmin(u))) return { all: true, names: await active() };
+  return { all: false, names: mine };
+}
+const facKey = v => String(v || '').trim().toLowerCase();
+/* Product blocks (product + its child moulds) a user may see. A block belongs
+   to every factory set on the product or one of its moulds. A block with no
+   factory yet is seen by all-factory users, H.O (who sets the factory) and
+   whoever added it. `only` narrows to one factory name. */
+function scopeProducts(rows, scope, u, only) {
+  const allowed = new Set((scope.names || []).map(facKey));
+  const want = only ? facKey(only) : '';
+  const kids = new Map();
+  rows.forEach(r => {
+    if (!r.parent_sync_id) return;
+    const k = String(r.parent_sync_id);
+    if (!kids.has(k)) kids.set(k, []);
+    kids.get(k).push(r);
+  });
+  const out = [];
+  rows.filter(r => !r.parent_sync_id).forEach(p => {
+    const block = [p, ...(kids.get(String(p.sync_id)) || [])];
+    const facs = [...new Set(block.map(r => facKey(r.factory)).filter(Boolean))];
+    const ok = facs.length
+      ? facs.some(f => (scope.all || allowed.has(f)) && (!want || f === want))
+      : !want && (scope.all || isNpdHo(u) || (!!u && p.created_by === u.username));
+    if (ok) out.push(...block);
+  });
+  return out;
+}
+
 function registerNpdRoutes(app, pool) {
   let ready = null;
   function ensureTables() {
-    if (!ready) ready = ensureNpdSchema(pool).then(() => migrateNpdLevels(pool)).catch(err => { ready = null; throw err; });
+    if (!ready) ready = ensureNpdSchema(pool).then(() => migrateNpdLevels(pool)).then(() => migrateNpdPilotToProduct(pool)).catch(err => { ready = null; throw err; });
     return ready;
   }
   /* LOCAL: send the change to MAIN now instead of waiting for the next cycle */
@@ -356,13 +423,12 @@ function registerNpdRoutes(app, pool) {
     const username = getRequestUsername(req);
     if (!username) return null;
     const r = await pool.query(
-      `SELECT u.username, u.role_code, r.label AS role_label
+      `SELECT u.id, u.username, u.role_code, u.global_access, r.label AS role_label
          FROM users u LEFT JOIN roles r ON r.code = u.role_code
         WHERE u.username = $1 LIMIT 1`, [username]);
     return r.rows[0] || null;
   }
   const isAdmin = isNpdAdmin;
-  const isSuperadmin = isNpdSuperadmin;
   const canEdit = canEditSheet;
   /* stage keys this user may change */
   const editableStages = editableStageKeys;
@@ -384,9 +450,10 @@ function registerNpdRoutes(app, pool) {
     try {
       await ensureTables();
       const u = await sessionUser(req);
-      const [products, files] = await Promise.all([
+      const [products, files, scope] = await Promise.all([
         pool.query('SELECT * FROM npd_products ORDER BY id'),
-        pool.query('SELECT id, product_sync_id, kind, file_path, original_name, uploaded_by, uploaded_at FROM npd_files ORDER BY uploaded_at, id')
+        pool.query('SELECT id, product_sync_id, kind, file_path, original_name, uploaded_by, uploaded_at FROM npd_files ORDER BY uploaded_at, id'),
+        npdFactoryScope(pool, u)
       ]);
       const byProduct = new Map();
       files.rows.forEach(f => {
@@ -398,11 +465,14 @@ function registerNpdRoutes(app, pool) {
         ok: true,
         can_edit: canEdit(u),
         can_add: canAddItems(u),
-        can_delete: isSuperadmin(u),
+        can_delete: isAdmin(u),
         can_colours: isNpdHo(u),
         editable_stages: editableStages(u),
         departments: u ? (isAdmin(u) ? ['All'] : roleDepts(u)) : [],
-        data: products.rows.map(p => ({ ...p, files: byProduct.get(String(p.sync_id)) || [] }))
+        /* factories this user may switch between; all = every factory */
+        factories: scope.names,
+        all_factories: scope.all,
+        data: scopeProducts(products.rows, scope, u).map(p => ({ ...p, files: byProduct.get(String(p.sync_id)) || [] }))
       });
     } catch (err) { sendServerError(res, err); }
   });
@@ -412,13 +482,17 @@ function registerNpdRoutes(app, pool) {
   app.get('/api/npd/export.xlsx', async (req, res) => {
     try {
       await ensureTables();
-      if (!await sessionUser(req)) return res.status(401).json({ ok: false, error: 'Unauthorized' });
+      const u = await sessionUser(req);
+      if (!u) return res.status(401).json({ ok: false, error: 'Unauthorized' });
       const status = clean(req.query.status, 40);
+      const factory = clean(req.query.factory, 120);
       const q = clean(req.query.q, 100).toLowerCase();
-      const [products, files] = await Promise.all([
+      const [all, files, scope] = await Promise.all([
         pool.query('SELECT * FROM npd_products ORDER BY id'),
-        pool.query('SELECT product_sync_id, kind, COUNT(*)::int AS n FROM npd_files GROUP BY product_sync_id, kind')
+        pool.query('SELECT product_sync_id, kind, COUNT(*)::int AS n FROM npd_files GROUP BY product_sync_id, kind'),
+        npdFactoryScope(pool, u)
       ]);
+      const products = { rows: scopeProducts(all.rows, scope, u, factory) };
       const count = new Map(files.rows.map(f => [`${f.product_sync_id}:${f.kind}`, f.n]));
       const parents = products.rows.filter(p => !p.parent_sync_id).filter(p =>
         (!status || (p.status || 'No status') === status) &&
@@ -440,7 +514,7 @@ function registerNpdRoutes(app, pool) {
       ws.mergeCells(1, 1, 1, last);
       const title = ws.getCell(1, 1);
       title.value = `NPD Tracker - exported ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}` +
-        (status ? ` - status: ${status}` : '') + (q ? ` - search: ${q}` : '');
+        (factory ? ` - factory: ${factory}` : '') + (status ? ` - status: ${status === 'No status' ? 'Pending' : status}` : '') + (q ? ` - search: ${q}` : '');
       title.font = { bold: true, size: 14 };
 
       /* row 2: stage group bands over their columns */
@@ -551,6 +625,12 @@ function registerNpdRoutes(app, pool) {
       if (!name) return res.status(400).json({ ok: false, error: 'Product name is required' });
       const status = clean(req.body?.status, 40);
       const code = clean(req.body?.product_code, 60);
+      /* factory picked in the page's factory switch: kept for H.O, or when it is one of the user's factories */
+      let factory = clean(req.body?.factory, 120);
+      if (factory && !isNpdHo(u)) {
+        const scope = await npdFactoryScope(pool, u);
+        if (!scope.all && !scope.names.some(n => facKey(n) === facKey(factory))) factory = '';
+      }
       /* child mould of an existing product: no Sr No of its own */
       const parentId = parseInt(req.body?.parent_id, 10);
       if (parentId) {
@@ -569,12 +649,12 @@ function registerNpdRoutes(app, pool) {
       if (!moulds.length) return res.status(400).json({ ok: false, error: 'Add at least one child mould - a product cannot be created without a mould' });
       /* Sr No is automatic: one more than the highest number used so far. */
       const r = await pool.query(
-        `INSERT INTO npd_products (sr_no, product_name, product_code, trial_colours, stages, status, remarks, created_by, updated_by)
+        `INSERT INTO npd_products (sr_no, product_name, product_code, trial_colours, stages, status, remarks, created_by, updated_by, factory)
          VALUES ((SELECT (COALESCE(MAX(NULLIF(regexp_replace(sr_no, '[^0-9]', '', 'g'), '')::bigint), 0) + 1)::text
                     FROM npd_products),
-                 $1, $2, $3, $4, $5, $6, $7, $7) RETURNING *`,
+                 $1, $2, $3, $4, $5, $6, $7, $7, $8) RETURNING *`,
         [name, code, isNpdHo(u) ? cleanColours(req.body?.trial_colours) : '', JSON.stringify(cleanStages(req.body?.stages)),
-          PRODUCT_STATUSES.has(status) ? status : '', clean(req.body?.remarks, 2000), u.username]
+          PRODUCT_STATUSES.has(status) ? status : '', clean(req.body?.remarks, 2000), u.username, factory]
       );
       const out = [{ ...r.rows[0], files: [] }];
       for (const m of moulds) {
@@ -687,7 +767,7 @@ function registerNpdRoutes(app, pool) {
       await ensureTables();
       const u = await sessionUser(req);
       if (!u) return res.status(401).json({ ok: false, error: 'Unauthorized' });
-      if (!isSuperadmin(u)) return res.status(403).json({ ok: false, error: 'Only superadmin can delete NPD products and child moulds' });
+      if (!isAdmin(u)) return res.status(403).json({ ok: false, error: 'Only admin can delete NPD products and child moulds' });
       const id = parseInt(req.params.id, 10);
       const r = await pool.query('DELETE FROM npd_products WHERE id = $1 RETURNING sync_id', [id]);
       if (!r.rowCount) return res.status(404).json({ ok: false, error: 'Product not found' });
@@ -767,6 +847,8 @@ module.exports = {
   rollupStage,
   remarkLine,
   migrateNpdLevels,
+  migrateNpdPilotToProduct,
+  scopeProducts,
   DEPT_ROLES,
   ADMIN_ROLES,
   SHEET_ROLES,

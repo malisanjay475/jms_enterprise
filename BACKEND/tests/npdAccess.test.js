@@ -76,7 +76,7 @@ describe('NPD role access', () => {
     expect(norm('sr__ppc_manager')).toBe('srppcmanager');
   });
 
-  test('admin / superadmin edit the whole sheet; only superadmin deletes', () => {
+  test('admin / superadmin edit the whole sheet (and delete)', () => {
     expect(isNpdAdmin(user('admin'))).toBe(true);
     expect(isNpdAdmin(user('superadmin'))).toBe(true);
     expect(isNpdSuperadmin(user('admin'))).toBe(false);
@@ -107,6 +107,7 @@ describe('NPD role access', () => {
 
     const mouldKeys = editableStageKeys(user('mouldingmanager'));
     expect(mouldKeys).toEqual(expect.arrayContaining(['mould_trials', 'mass_moulding', 'rm_colour', 'pilot_drop_test']));
+    expect(editableStageKeys(user('quality_ass__manager'))).toContain('pilot_drop_test');
     expect(mouldKeys).not.toContain('mould_received');
 
     const adminKeys = editableStageKeys(user('admin'));
@@ -194,5 +195,46 @@ describe('NPD remarks line', () => {
     const s = STAGES.find((x) => x.key === 'launch_date_ho');
     expect(s.label).toBe('Launch Date (HO)');
     expect(s.depts).toEqual(['HO']);
+  });
+});
+
+describe('NPD pilot run is set product wise by QC', () => {
+  const { STAGE_LEVEL } = require('../src/modules/npd/registerNpdRoutes');
+  const user = (role_code, role_label = '') => ({ username: 'u', role_code, role_label });
+
+  test('pilot run & drop test is a product stage', () => {
+    expect(STAGE_LEVEL.get('pilot_drop_test')).toBe('product');
+  });
+
+  test('QC HOD and Quality Ass. Manager can edit it', () => {
+    expect(editableStageKeys(user('quality', 'QC HOD'))).toContain('pilot_drop_test');
+    expect(editableStageKeys(user('quality_ass__manager', 'Quality Ass. Manager'))).toContain('pilot_drop_test');
+    expect(editableStageKeys(user('toolroommanager'))).not.toContain('pilot_drop_test');
+  });
+});
+
+describe('NPD factory scope', () => {
+  const { scopeProducts } = require('../src/modules/npd/registerNpdRoutes');
+  const rows = [
+    { sync_id: 'a', factory: 'Dungra Unit 1', created_by: 'x' },
+    { sync_id: 'a1', parent_sync_id: 'a', factory: '' },
+    { sync_id: 'b', factory: 'JOYO PLASTICS', created_by: 'x' },
+    { sync_id: 'b1', parent_sync_id: 'b', factory: 'dungra unit 1 ' },
+    { sync_id: 'c', factory: '', created_by: 'pc' },
+    { sync_id: 'c1', parent_sync_id: 'c', factory: '' }
+  ];
+  const ids = (r) => r.map((x) => x.sync_id);
+  const plain = { username: 'pc', role_code: 'ppcmanager' };
+
+  test('single factory user sees blocks of that factory (product or any mould) and their own unassigned ones', () => {
+    expect(ids(scopeProducts(rows, { all: false, names: ['Dungra Unit 1'] }, plain))).toEqual(['a', 'a1', 'b', 'b1', 'c', 'c1']);
+    expect(ids(scopeProducts(rows, { all: false, names: ['Dungra Unit 1'] }, { username: 'zz', role_code: 'quality' }))).toEqual(['a', 'a1', 'b', 'b1']);
+    expect(ids(scopeProducts(rows, { all: false, names: ['Other'] }, { username: 'zz', role_code: 'quality' }))).toEqual([]);
+  });
+
+  test('all factory user sees everything; one factory narrows', () => {
+    const all = { all: true, names: ['Dungra Unit 1', 'JOYO PLASTICS'] };
+    expect(ids(scopeProducts(rows, all, { username: 'sa', role_code: 'superadmin' }))).toHaveLength(6);
+    expect(ids(scopeProducts(rows, all, { username: 'sa', role_code: 'superadmin' }, 'JOYO PLASTICS'))).toEqual(['b', 'b1']);
   });
 });

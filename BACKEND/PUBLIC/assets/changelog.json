@@ -14,6 +14,22 @@
   "latest": "1.177.0",
   "versions": [
     {
+      "version": "1.193.0",
+      "date": "2026-11-23",
+      "title": "NPD Tracker: factory switch and Pending",
+      "modules": [
+        {
+          "app": "npd",
+          "changes": [
+            { "type": "feat", "text": "NPD Tracker shows only the products of your factory. If you have more than one factory, a factory switch next to the filters picks one factory or All, and All lists the products factory wise." },
+            { "type": "feat", "text": "New Pending button lists the products that have no status yet." },
+            { "type": "improvement", "text": "Pilot run & drop test is now set once per product, and QC HOD and Quality Ass. Manager can change it." },
+            { "type": "improvement", "text": "Admin can now delete NPD products and child moulds." }
+          ]
+        }
+      ]
+    },
+    {
       "version": "1.192.0",
       "date": "2026-11-20",
       "title": "Table scanners on the scanning page",
