@@ -17,6 +17,7 @@ const {
   norm,
   editableStageKeys,
   canEditSheet,
+  canManageFiles,
   canAddItems,
   isNpdAdmin,
   isNpdSuperadmin
@@ -121,6 +122,15 @@ describe('NPD role access', () => {
     expect(qc.has('mass_printing')).toBe(false);
     expect(qc.has('fg_receiving')).toBe(false);
     expect(qc.has('samples_ho')).toBe(true);
+  });
+});
+
+describe('NPD trial report / images upload (QC)', () => {
+  const user = (role_code) => ({ role_code });
+  test('QC roles and admin upload; PPC and other departments do not', () => {
+    for (const r of ['quality', 'quality_ass__manager', 'qc_hod', 'admin', 'superadmin']) expect(canManageFiles(user(r))).toBe(true);
+    for (const r of ['ppc_manager', 'sr_ppc_manager', 'dispatch_manager', 'moulding_manager', 'sales_coordinator']) expect(canManageFiles(user(r))).toBe(false);
+    expect(canManageFiles(null)).toBe(false);
   });
 });
 
