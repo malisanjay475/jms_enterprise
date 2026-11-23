@@ -14,6 +14,21 @@
   "latest": "1.177.0",
   "versions": [
     {
+      "version": "1.194.0",
+      "date": "2026-11-23",
+      "title": "FPA: reject history, search and date range",
+      "modules": [
+        {
+          "app": "quality",
+          "changes": [
+            { "type": "feat", "text": "Each FPA now keeps its full history: every upload, re-upload, reject and approval with the person, time and remark. Old reject reasons stay visible after QC re-uploads." },
+            { "type": "feat", "text": "New Reject History tab on the FPA page lists every FPA reject with its reason, who rejected it, who submitted it and its status now." },
+            { "type": "feat", "text": "FPA page has a search box (machine, job card, item, mould, person or remark) and From / To dates with Today, Last 7 days and This month buttons." }
+          ]
+        }
+      ]
+    },
+    {
       "version": "1.193.2",
       "date": "2026-11-23",
       "title": "NPD Tracker: QC uploads trial reports and images",
