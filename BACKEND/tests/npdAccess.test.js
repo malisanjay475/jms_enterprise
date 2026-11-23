@@ -124,6 +124,18 @@ describe('NPD role access', () => {
   });
 });
 
+describe('NPD post card stages (W/H & Dispatch)', () => {
+  const user = (role_code) => ({ role_code });
+  test('Dispatch Manager edits both post card stages; Planning no longer does', () => {
+    const wh = editableStageKeys(user('dispatch_manager'));
+    expect(wh).toEqual(expect.arrayContaining(['post_card_receiving', 'post_card_posting', 'dispatch_date', 'fg_receiving']));
+    expect(wh).not.toContain('post_card_making_ho');
+    const ppc = editableStageKeys(user('ppc_manager'));
+    expect(ppc).not.toContain('post_card_receiving');
+    expect(ppc).not.toContain('post_card_posting');
+  });
+});
+
 describe('NPD Sales Co-ordinator (add only)', () => {
   const u = (role_code, role_label) => ({ role_code, role_label });
 
