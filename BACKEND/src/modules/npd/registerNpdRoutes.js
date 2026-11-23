@@ -101,9 +101,9 @@ const STAGES = [
   { key: 'fg_receiving', level: 'product', type: 'status', group: 'Mass Production', label: 'Finish goods receiving (W/H)', depts: ['W/H'] },
   { key: 'ex_factory_cost', level: 'product', type: 'status', group: 'Costing & Launch', label: 'Ex factory cost finalization (Planning)', depts: ['Planning'] },
   { key: 'price_final', level: 'product', type: 'status', group: 'Costing & Launch', label: 'Price finalization (HO)', depts: ['HO'] },
-  { key: 'post_card_receiving', level: 'product', type: 'status', group: 'Costing & Launch', label: 'Final post card follow up & receiving by Planning (Planning)', depts: ['Planning'] },
+  { key: 'post_card_receiving', level: 'product', type: 'status', group: 'Costing & Launch', label: 'Final post card follow up & receiving by Planning (W/H & Dispatch)', depts: ['W/H'] },
   { key: 'post_card_making_ho', level: 'product', type: 'status', group: 'Costing & Launch', label: 'Post card making by H.O (HO)', depts: ['HO'] },
-  { key: 'post_card_posting', level: 'product', type: 'status', group: 'Costing & Launch', label: 'Posting post card in new product launch group (Planning)', depts: ['Planning'] },
+  { key: 'post_card_posting', level: 'product', type: 'status', group: 'Costing & Launch', label: 'Posting post card in new product launch group (W/H & Dispatch)', depts: ['W/H'] },
   { key: 'dispatch_date', level: 'product', type: 'date', group: 'Costing & Launch', label: 'Actual dispatch date (W/H & Dispatch)', depts: ['W/H'] }
 ];
 /* Excel export: same words and colours as the page (Blue pending, Yellow in
