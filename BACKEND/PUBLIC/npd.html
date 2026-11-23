@@ -41,6 +41,19 @@
         .tile { background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 6px 12px; cursor: pointer; font-weight: 600; }
         .tile b { font-size: 15px; margin-left: 4px; }
         .tile.on { border-color: #0f172a; box-shadow: 0 0 0 1px #0f172a inset; }
+        /* factory switch: one pill per factory the user can see, All first */
+        .fsw { display: inline-flex; gap: 2px; padding: 3px; border: 1px solid var(--line); border-radius: 12px; background: #fff; flex-wrap: wrap; }
+        .fsw button { border: 0; background: none; border-radius: 9px; padding: 5px 12px; font-weight: 700; font-size: 12.5px; color: #334155; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+        .fsw button:hover { background: #f1f5f9; }
+        .fsw button.on { background: #0f172a; color: #fff; }
+        .fsw button b { font-size: 11px; font-weight: 800; opacity: .7; }
+        .fsw .one { padding: 5px 12px; font-weight: 700; font-size: 12.5px; display: inline-flex; align-items: center; gap: 6px; }
+        .tile.pend { color: var(--p-ink); }
+        .tile.pend.on { border-color: var(--p-ink); box-shadow: 0 0 0 1px var(--p-ink) inset; }
+        .g tr.fgrp td { background: #0f172a; color: #fff; padding: 0; border-right: 0; }
+        .g tr.fgrp td div { position: sticky; left: 0; display: inline-flex; align-items: center; gap: 8px; padding: 7px 14px; font-weight: 800; font-size: 12.5px; letter-spacing: .3px; }
+        .g tr.fgrp td small { font-weight: 600; opacity: .7; }
+        .g tr.fgrp + tr.main td { border-top: 0; }
         .wrap { max-width: 100%; background: #fff; border: 1px solid var(--line); border-radius: 14px; overflow: auto; max-height: calc(100vh - 210px); }
         table.g { border-collapse: separate; border-spacing: 0; min-width: 100%; }
         .g th, .g td { border-bottom: 1px solid var(--line); border-right: 1px solid var(--line); padding: 4px; vertical-align: middle; }
@@ -192,6 +205,7 @@
                 <span class="chip st-complete">Complete</span>
                 <span class="chip st-na">Not Applicable</span>
             </div>
+            <div class="fsw" id="facSwitch" style="display:none" role="group" aria-label="Factory"></div>
             <div class="tiles" id="tiles"></div>
         </div>
 
@@ -327,7 +341,7 @@
             /* stages worked on each child mould; the product row shows their roll-up.
                Every other stage is worked once on the product row. Keep in sync with
                STAGES[].level in registerNpdRoutes.js */
-            const MOULD_KEYS = new Set(['mould_received', 'mould_trials', 'rm_colour', 'pilot_drop_test', 'qc_approval_ho', 'jc_start_date', 'jc_end_date', 'mass_moulding']);
+            const MOULD_KEYS = new Set(['mould_received', 'mould_trials', 'rm_colour', 'qc_approval_ho', 'jc_start_date', 'jc_end_date', 'mass_moulding']);
             /* same rule as rollupStage() on the server */
             function rollup(key, type, kids) {
                 const vals = kids.map(k => (k.stages || {})[key]);
@@ -354,7 +368,7 @@
             /* colours for trials (picked by H.O): this list plus any colour already used */
             const COLOURS = ['White', 'Black', 'Red', 'Blue', 'Navy Blue', 'Sky Blue', 'Green', 'Parrot Green', 'Yellow', 'Orange', 'Pink', 'Purple', 'Grey', 'Brown', 'Beige', 'Ivory', 'Maroon', 'Transparent', 'Natural'];
             const colourList = v => String(v || '').split(',').map(c => c.trim()).filter(Boolean);
-            const S = { rows: [], canEdit: false, canDelete: false, editable: new Set(), depts: [], q: '', fstat: '', factories: [], open: null, pending: null };
+            const S = { rows: [], canEdit: false, canDelete: false, editable: new Set(), depts: [], q: '', fstat: '', factories: [], facs: [], allFacs: false, fac: '', open: null, pending: null };
             const $ = id => document.getElementById(id);
             const esc = v => String(v == null ? '' : v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
             const psClass = s => 'ps-' + String(s || '').replace(/\s+/g, '');
@@ -373,6 +387,16 @@
                         const fr = await api('/factories').catch(() => null);
                         S.factories = ((fr && fr.data) || []).map(f => f.name).filter(Boolean);
                     }
+                    /* factories this user can see: the server already sends only their products */
+                    S.facs = res.factories || [];
+                    S.allFacs = !!res.all_factories;
+                    if (!S.facsReady) {
+                        S.facsReady = true;
+                        let pick = '';
+                        try { pick = localStorage.getItem('npd_factory') || ''; } catch (_) { }
+                        if (!pick) pick = (JPSMS.factories && JPSMS.factories.getCurrentScope().name) || '';
+                        S.fac = S.facs.includes(pick) ? pick : '';
+                    } else if (S.fac && !S.facs.includes(S.fac)) S.fac = '';
                     S.editable = new Set(res.editable_stages || []);
                     S.depts = res.departments || [];
                     $('addBtn').style.display = S.canAdd ? '' : 'none';
@@ -450,15 +474,31 @@
 
             function render() {
                 const q = S.q.toLowerCase();
-                const parents = S.rows.filter(p => !p.parent_sync_id);
                 const kidsOf = p => S.rows.filter(c => c.parent_sync_id && String(c.parent_sync_id) === String(p.sync_id));
+                /* a product block belongs to every factory set on it or one of its moulds;
+                   it is listed (grouped) under the product's factory, else its first mould's */
+                const facKey = v => String(v || '').trim().toLowerCase();
+                const facsOf = p => [p, ...kidsOf(p)].map(x => facKey(x.factory)).filter(Boolean);
+                const homeFac = p => p.factory || (kidsOf(p).find(k => k.factory) || {}).factory || '';
+                const allParents = S.rows.filter(p => !p.parent_sync_id);
+                renderFacSwitch(allParents, facsOf);
+                const parents = allParents.filter(p => !S.fac || facsOf(p).includes(facKey(S.fac)));
                 /* a product matches the search by its own name or a child mould's name */
-                const rows = parents.filter(p => (!q || [p, ...kidsOf(p)].some(x => (x.product_name + ' ' + (x.sr_no || '')).toLowerCase().includes(q))) && (!S.fstat || (p.status || 'No status') === S.fstat))
-                    .flatMap(p => [p, ...kidsOf(p)]);
+                let list = parents.filter(p => (!q || [p, ...kidsOf(p)].some(x => (x.product_name + ' ' + (x.sr_no || '')).toLowerCase().includes(q))) && (!S.fstat || (p.status || 'No status') === S.fstat));
+                /* All factories: products grouped factory wise, in factory master order */
+                const grouped = !S.fac && S.facs.length > 1;
+                if (grouped) {
+                    const order = f => { const i = S.facs.findIndex(n => facKey(n) === facKey(f)); return i < 0 ? (f ? S.facs.length : S.facs.length + 1) : i; };
+                    list = list.map((p, i) => ({ p, i, o: order(homeFac(p)) })).sort((a, b) => a.o - b.o || a.i - b.i).map(x => x.p);
+                }
+                const rows = list.flatMap(p => [p, ...kidsOf(p)]);
                 const counts = {};
                 parents.forEach(p => { const k = p.status || 'No status'; counts[k] = (counts[k] || 0) + 1; });
-                $('tiles').innerHTML = [['', 'All', parents.length], ...PSTAT.map(s => [s, s, counts[s] || 0])]
-                    .map(([k, l, n]) => `<span class="tile${S.fstat === k ? ' on' : ''}" data-f="${esc(k)}">${esc(l)}<b>${n}</b></span>`).join('');
+                /* Pending = products with no status chosen yet */
+                $('tiles').innerHTML = [['', 'All', parents.length], ['No status', 'Pending', counts['No status'] || 0], ...PSTAT.map(s => [s, s, counts[s] || 0])]
+                    .map(([k, l, n]) => `<span class="tile${k === 'No status' ? ' pend' : ''}${S.fstat === k ? ' on' : ''}" data-f="${esc(k)}"${k === 'No status' ? ' title="Products with no status chosen yet"' : ''}>${esc(l)}<b>${n}</b></span>`).join('');
+                const ncol = 5 + COLS.length + 2 + (S.canDelete ? 1 : 0);
+                let lastFac = null;
 
                 let h = `<thead><tr class="grp"><th class="fix c0" rowspan="2" style="top:0">Sr</th><th class="fix cc" rowspan="2" style="top:0">Product Code / Mould Code</th><th class="fix c1" rowspan="2" style="top:0;text-align:left;padding-left:14px">Product Name</th><th rowspan="2" style="top:0;min-width:150px">Factory<small style="display:block;color:var(--mute)">H.O</small></th><th rowspan="2" style="top:0;min-width:180px">Colour details for trials<small style="display:block;color:var(--mute)">H.O</small></th>`;
                 GROUPS.forEach(g => { h += `<th colspan="${g.cols.length}">${esc(g.label)}</th>`; });
@@ -467,6 +507,11 @@
                 h += `</tr></thead><tbody>`;
                 rows.forEach(p => {
                     const child = !!p.parent_sync_id;
+                    if (grouped && !child && facKey(homeFac(p)) !== lastFac) {
+                        lastFac = facKey(homeFac(p));
+                        const n = list.filter(x => facKey(homeFac(x)) === lastFac).length;
+                        h += `<tr class="fgrp"><td colspan="${ncol}"><div><i class="bi bi-buildings"></i>${esc(homeFac(p) || 'No factory yet')}<small>${n} product${n === 1 ? '' : 's'}</small></div></td></tr>`;
+                    }
                     const reps = p.files.filter(f => f.kind === 'report').length, imgs = p.files.filter(f => f.kind === 'image').length;
                     /* latest product photo after trial, else a placeholder; click opens the files */
                     const img = p.files.filter(f => f.kind === 'image').pop();
@@ -513,8 +558,29 @@
                 });
                 $('grid').innerHTML = h + '</tbody>';
                 $('empty').style.display = rows.length ? 'none' : '';
-                $('empty').textContent = parents.length ? 'No product matches the filter.' : (S.canAdd ? 'No NPD products yet. Click "Add Product" to start.' : 'No NPD products yet.');
+                $('empty').textContent = parents.length ? 'No product matches the filter.' : S.fac && allParents.length ? `No NPD products for ${S.fac} yet.` : (S.canAdd ? 'No NPD products yet. Click "Add Product" to start.' : 'No NPD products yet.');
             }
+
+            /* factory switch: All + each factory the user can see; one factory = just its name */
+            function renderFacSwitch(parents, facsOf) {
+                const el = $('facSwitch');
+                if (!S.facs.length) { el.style.display = 'none'; return; }
+                el.style.display = '';
+                if (S.facs.length === 1 && !S.allFacs) {
+                    el.innerHTML = `<span class="one"><i class="bi bi-buildings"></i>${esc(S.facs[0])}</span>`;
+                    return;
+                }
+                const n = f => parents.filter(p => facsOf(p).includes(String(f).trim().toLowerCase())).length;
+                el.innerHTML = [['', 'All', parents.length], ...S.facs.map(f => [f, f, n(f)])]
+                    .map(([k, l, c]) => `<button type="button" class="${S.fac === k ? 'on' : ''}" data-fac="${esc(k)}" aria-pressed="${S.fac === k}">${k ? '' : '<i class="bi bi-buildings"></i>'}${esc(l)}<b>${c}</b></button>`).join('');
+            }
+            $('facSwitch').addEventListener('click', e => {
+                const b = e.target.closest('[data-fac]');
+                if (!b) return;
+                S.fac = b.dataset.fac;
+                try { localStorage.setItem('npd_factory', S.fac); } catch (_) { }
+                render();
+            });
 
             async function save(id, body) {
                 try {
@@ -626,7 +692,7 @@
                     if (token) headers.Authorization = `Bearer ${token}`;
                     const u = JSON.parse(localStorage.getItem('user') || '{}');
                     if (u.username) headers['X-User-Name'] = u.username;
-                    const qs = new URLSearchParams({ status: S.fstat, q: S.q });
+                    const qs = new URLSearchParams({ status: S.fstat, q: S.q, factory: S.fac });
                     const res = await fetch(`/api/npd/export.xlsx?${qs}`, { headers });
                     if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Export failed');
                     const blob = await res.blob();
@@ -655,7 +721,7 @@
                     .filter(m => m.name);
                 if (!moulds.length) return toast('Add at least one child mould - a product cannot be created without a mould', 'error');
                 try {
-                    const res = await api('/npd/products', { method: 'POST', body: JSON.stringify({ product_name: name, product_code: $('aCode').value.trim(), moulds }) });
+                    const res = await api('/npd/products', { method: 'POST', body: JSON.stringify({ product_name: name, product_code: $('aCode').value.trim(), moulds, factory: S.fac || (S.facs.length === 1 ? S.facs[0] : '') }) });
                     S.rows.push(res.data, ...(res.children || [])); $('addModal').classList.remove('on'); render();
                 } catch (e) { }
             };
