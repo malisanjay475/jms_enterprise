@@ -2,16 +2,13 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <title>JMS Ocean</title>
   <style>
     :root {
       --ocean-night: #071b2a;
       --ocean-deep: #072450;
       --ocean-bright: #01a8dd;
-      --panel: #ffffff;
-      --text: #0f172a;
-      --muted: #64748b;
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -19,16 +16,17 @@
       background: radial-gradient(circle at top, #0d3868 0%, var(--ocean-deep) 100%);
       color: #ffffff;
       min-height: 100vh;
+      min-height: 100dvh;
       display: flex;
       flex-direction: column;
       align-items: center;
       justify-content: center;
       padding: 24px;
+      padding-top: calc(24px + env(safe-area-inset-top));
+      padding-bottom: calc(24px + env(safe-area-inset-bottom));
       text-align: center;
     }
-    .brand-container {
-      margin-bottom: 28px;
-    }
+    .brand-container { margin-bottom: 28px; }
     .logo-badge {
       width: 88px;
       height: 88px;
@@ -77,9 +75,7 @@
       animation: spin 0.9s linear infinite;
       margin: 0 auto 16px;
     }
-    @keyframes spin {
-      to { transform: rotate(360deg); }
-    }
+    @keyframes spin { to { transform: rotate(360deg); } }
     .btn {
       display: block;
       width: 100%;
@@ -125,6 +121,12 @@
       outline: none;
       margin-bottom: 8px;
     }
+    .hint {
+      margin-top: 12px;
+      font-size: 0.75rem;
+      color: #8eb4d4;
+      line-height: 1.4;
+    }
   </style>
 </head>
 <body>
@@ -133,7 +135,7 @@
       <span>JMS</span>
     </div>
     <h1>JMS OCEAN</h1>
-    <p class="subtitle">Enterprise Production & Planning Portal</p>
+    <p class="subtitle">Enterprise Production &amp; Planning Portal</p>
   </div>
 
   <div class="status-card">
@@ -145,13 +147,15 @@
     <div id="serverConfigArea" style="display:none; margin-top:14px;">
       <div class="server-select-box">
         <label>Server Environment</label>
-        <input type="text" id="targetServerUrl" value="https://jmsocean.cloud/">
+        <input type="text" id="targetServerUrl" value="https://jmsocean.cloud/" autocomplete="off" autocapitalize="off" spellcheck="false">
       </div>
-      <button class="btn btn-primary" onclick="connectToServer()">Connect Now</button>
-      <button class="btn btn-outline" onclick="setLocalFactory()">Use Local Factory IP (192.168.1.173)</button>
+      <button type="button" class="btn btn-primary" onclick="connectToServer()">Connect Now</button>
+      <button type="button" class="btn btn-outline" onclick="setLocalFactory()">Use Local Factory IP (192.168.1.173)</button>
+      <button type="button" class="btn btn-outline" onclick="useMainCloud()">Use MAIN Cloud</button>
+      <p class="hint">Release builds load the cloud ERP directly (Capacitor bridge). Use this screen when <code>server.url</code> is unset, or call <code>JMS_NATIVE.setServerUrl(...)</code> from the signed-in app to switch LOCAL/MAIN.</p>
     </div>
 
-    <button id="switchBtn" class="btn btn-outline" style="margin-top:16px; font-size:0.8rem; opacity:0.8;" onclick="toggleConfig()">
+    <button type="button" id="switchBtn" class="btn btn-outline" style="margin-top:16px; font-size:0.8rem; opacity:0.8;" onclick="toggleConfig()">
       Configure Server
     </button>
   </div>
@@ -191,6 +195,11 @@
       connectToServer();
     }
 
+    function useMainCloud() {
+      document.getElementById('targetServerUrl').value = DEFAULT_SERVER;
+      connectToServer();
+    }
+
     function connectToServer() {
       let url = document.getElementById('targetServerUrl').value.trim();
       if (!url) url = DEFAULT_SERVER;
@@ -201,16 +210,34 @@
       }
       if (!url.endsWith('/')) url += '/';
       saveServer(url);
+
+      // Prefer the native SharedPreferences override so Capacitor reinjects the bridge
+      // on the chosen host (window.location alone leaves the Capacitor origin).
+      try {
+        if (window.JmsOceanNative && typeof window.JmsOceanNative.setServerUrl === 'function') {
+          document.getElementById('statusMsg').textContent = 'Switching native shell to ' + url + '…';
+          window.JmsOceanNative.setServerUrl(url);
+          return;
+        }
+      } catch (e) {}
+
       document.getElementById('statusMsg').textContent = 'Connecting to ' + url + '…';
       window.location.href = url;
     }
 
-    // Auto-connect after 1 second if not cancelled
     const serverUrl = getSavedServer();
     document.getElementById('targetServerUrl').value = serverUrl;
 
+    // When Capacitor loads with server.url, this page is not shown. It remains the
+    // offline / no-server.url launcher and dual-server entry point for local builds.
     setTimeout(() => {
       if (document.getElementById('serverConfigArea').style.display === 'none' && /^https?:\/\//i.test(serverUrl)) {
+        try {
+          if (window.JmsOceanNative && typeof window.JmsOceanNative.setServerUrl === 'function') {
+            window.JmsOceanNative.setServerUrl(serverUrl);
+            return;
+          }
+        } catch (e) {}
         window.location.href = serverUrl;
       }
     }, 1200);

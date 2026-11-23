@@ -1,6 +1,6 @@
 {
   "name": "jms-ocean-mobile",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "description": "JMS Ocean Enterprise Mobile App - Complete Android App for ERP, Production, DPR, Planning, QC, Shifting and Management",
   "scripts": {
