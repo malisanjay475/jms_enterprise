@@ -39,6 +39,7 @@ const serverFactoryId = () => (isLocalServer() ? normalizeFactoryId(process.env.
 
 const RATE_WINDOW_MIN = 15;
 const OPEN_PLAN_DAYS = 7;
+const WAITING_MAX = 300; // job cards sent to the board's waiting list; waiting_total is the full count
 const PIN_RE = /^\d{4,6}$/;
 
 function clean(value, max = 200) {
@@ -251,39 +252,59 @@ function registerPackingFloorRoutes(app, pool) {
         ...oldTables.sort().map(t => ({ name: t, persons: null, scanner: lineScanner[t] || '', is_station: false }))
       ];
 
-      let waiting = [];
+      /* Job cards that still have something to plan: new ones and part-planned ones, with the
+         stations that pack the item (this party's standard first) and the ERP pack date. */
+      let waiting = [], waitingTotal = 0;
       if (await tableExists('or_jr_report')) {
         const w = await pool.query(`
           WITH ready AS (
             SELECT DISTINCT item_key FROM packing_item_standards
              WHERE is_active AND station_name <> '' AND ($1::int IS NULL OR factory_id = $1)
           ), jc AS (
-            SELECT DISTINCT ON (UPPER(TRIM(job_card_no))) job_card_no, or_jr_no, item_code, product_name, client_name,
-                   jr_qty, or_jr_date
-              FROM or_jr_report
-             WHERE COALESCE(is_deleted, FALSE) = FALSE
-               AND NULLIF(TRIM(COALESCE(job_card_no, '')), '') IS NOT NULL
-               AND or_jr_date >= CURRENT_DATE - 45
-               AND ($1::int IS NULL OR factory_id = $1)
-             ORDER BY UPPER(TRIM(job_card_no)), or_jr_date DESC NULLS LAST
+            SELECT DISTINCT ON (UPPER(TRIM(j.job_card_no))) j.job_card_no, j.or_jr_no, j.item_code, j.product_name, j.client_name,
+                   j.jr_qty, j.or_jr_date, ${KEY_SQL('j.item_code')} AS item_key,
+                   COALESCE(NULLIF(to_jsonb(j)->>'rev_pak_end_date', ''), NULLIF(to_jsonb(j)->>'pack_end_date', '')) AS due_date
+              FROM or_jr_report j
+             WHERE COALESCE(j.is_deleted, FALSE) = FALSE
+               AND NULLIF(TRIM(COALESCE(j.job_card_no, '')), '') IS NOT NULL
+               AND j.or_jr_date >= CURRENT_DATE - 45
+               AND ($1::int IS NULL OR j.factory_id = $1)
+             ORDER BY UPPER(TRIM(j.job_card_no)), j.or_jr_date DESC NULLS LAST
           ), planned AS (
             SELECT UPPER(TRIM(job_card_no)) AS jc, SUM(plan_qty)::int AS qty FROM assembly_plans
              WHERE NULLIF(TRIM(COALESCE(job_card_no, '')), '') IS NOT NULL
                AND UPPER(COALESCE(status, '')) NOT IN ('ARCHIVED', 'CANCELLED')
              GROUP BY 1
+          ), open_jc AS (
+            SELECT jc.*, COALESCE(pl.qty, 0)::int AS planned_qty, COUNT(*) OVER ()::int AS total
+              FROM jc
+              JOIN ready ON ready.item_key = jc.item_key
+              LEFT JOIN planned pl ON pl.jc = UPPER(TRIM(jc.job_card_no))
+             WHERE COALESCE(jc.jr_qty, 0) > COALESCE(pl.qty, 0)
+             ORDER BY jc.or_jr_date DESC NULLS LAST, jc.job_card_no
+             LIMIT ${WAITING_MAX}
           )
-          SELECT jc.job_card_no, jc.or_jr_no, jc.item_code, jc.product_name AS item_name, jc.client_name,
-                 COALESCE(jc.jr_qty, 0)::int AS jr_qty, COALESCE(pl.qty, 0)::int AS planned_qty,
-                 (COALESCE(jc.jr_qty, 0) - COALESCE(pl.qty, 0))::int AS balance_qty,
-                 to_char(jc.or_jr_date, 'YYYY-MM-DD') AS jr_date
-            FROM jc
-            JOIN ready ON ready.item_key = ${KEY_SQL('jc.item_code')}
-            LEFT JOIN planned pl ON pl.jc = UPPER(TRIM(jc.job_card_no))
-           WHERE COALESCE(jc.jr_qty, 0) > COALESCE(pl.qty, 0)
-             AND COALESCE(pl.qty, 0) = 0
-           ORDER BY jc.or_jr_date DESC NULLS LAST, jc.job_card_no
-           LIMIT 40`, [fid]);
-        waiting = w.rows;
+          SELECT o.job_card_no, o.or_jr_no, o.item_code, o.product_name AS item_name, o.client_name,
+                 COALESCE(o.jr_qty, 0)::int AS jr_qty, o.planned_qty,
+                 (COALESCE(o.jr_qty, 0) - o.planned_qty)::int AS balance_qty,
+                 to_char(o.or_jr_date, 'YYYY-MM-DD') AS jr_date, LEFT(o.due_date, 10) AS due_date,
+                 COALESCE(st.stations, '[]'::jsonb) AS stations, o.total
+            FROM open_jc o
+            LEFT JOIN LATERAL (
+              SELECT jsonb_agg(jsonb_build_object('station', x.station_name, 'cycle', x.cycle_time_sec, 'persons', x.persons, 'own', x.own)
+                               ORDER BY x.own DESC, x.cycle_time_sec NULLS LAST, x.station_name) AS stations
+                FROM (
+                  SELECT DISTINCT ON (LOWER(s.station_name)) s.station_name, s.cycle_time_sec, s.persons,
+                         (LOWER(TRIM(s.party_group)) = LOWER(TRIM(COALESCE(o.client_name, '')))) AS own
+                    FROM packing_item_standards s
+                   WHERE s.is_active AND s.station_name <> '' AND s.item_key = o.item_key
+                     AND ($1::int IS NULL OR s.factory_id = $1)
+                   ORDER BY LOWER(s.station_name), own DESC, s.cycle_time_sec NULLS LAST
+                ) x
+            ) st ON TRUE
+           ORDER BY o.or_jr_date DESC NULLS LAST, o.job_card_no`, [fid]);
+        waitingTotal = w.rows.length ? w.rows[0].total : 0;
+        waiting = w.rows.map(({ total, ...j }) => j);
       }
 
       const totals = plans.reduce((t, p) => {
@@ -293,7 +314,7 @@ function registerPackingFloorRoutes(app, pool) {
         return t;
       }, { planned: 0, packed: 0, running: 0, plans: plans.length });
 
-      res.json({ ok: true, data: { date: day, rows, plans, totals, waiting } });
+      res.json({ ok: true, data: { date: day, rows, plans, totals, waiting, waiting_total: waitingTotal } });
     } catch (err) { sendServerError(res, err); }
   });
 
