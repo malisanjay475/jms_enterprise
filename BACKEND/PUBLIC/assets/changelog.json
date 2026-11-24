@@ -11,8 +11,19 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.197.10",
+  "latest": "1.197.11",
   "versions": [
+    {
+      "version": "1.197.11",
+      "date": "2026-11-24",
+      "changes": [
+        {
+          "app": "planning",
+          "type": "fix",
+          "text": "Order Tracker Tonnage Load puts hours on the machine whose plan still has pieces to make, and no longer counts a closed order's plan that has no machine."
+        }
+      ]
+    },
     {
       "version": "1.197.10",
       "date": "2026-11-24",

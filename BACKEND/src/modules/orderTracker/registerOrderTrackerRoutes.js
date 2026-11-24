@@ -761,6 +761,8 @@ function buildTonnageLoad(orders, board, { untilMs, eff, basis, colourByPlan }) 
   const rows = new Map(classes.map(c => [c, {
     tonnage: c, machines: board.filter(m => num(m.tonnage) === c).map(m => m.machine), items: []
   }]));
+  const queueOf = new Map(board.flatMap(b => (b.queue || []).map(j =>
+    [String(j.plan_id), { machine: b.machine, position: j.queue_pos, plan_id: j.plan_id, start_eta: j.start_eta }])));
   const unknown = { tonnage: null, machines: [], items: [] };
   const noMould = [];
 
@@ -815,17 +817,28 @@ function buildTonnageLoad(orders, board, { untilMs, eff, basis, colourByPlan }) 
       const rate = num(m.rate_pph);
       const done = m.status === 'COMPLETE' || m.balance <= 0;
       const activePlans = (m.plans || []).filter(p => ACTIVE_PLAN.includes(p.status));
-      const planBalance = activePlans.reduce((s, p) => s + Math.max(0, num(p.plan_qty) - num(p.produced)), 0);
+      /* the plans that still hold work: on a machine, with pieces left to make */
+      const left = p => Math.max(0, num(p.plan_qty) - num(p.produced));
+      const workPlans = activePlans.filter(p => String(p.machine || '').trim() && left(p) > 0);
+      const planBalance = workPlans.reduce((s, p) => s + left(p), 0);
+      /* they decide the machine; a finished plan still marked running does not,
+         unless it is all there is */
+      const runPlans = workPlans.filter(p => p.status === 'RUNNING');
+      const machines = workPlans.length ? [...new Set(runPlans.map(p => p.machine))] : (m.machines || []);
+      const queue = workPlans.length
+        ? workPlans.filter(p => p.status !== 'RUNNING').map(p => queueOf.get(String(p.plan_id))).filter(Boolean)
+          .sort((a, b) => String(a.start_eta || '9').localeCompare(String(b.start_eta || '9')))[0] || null
+        : m.queue;
       /* closed or complete on paper, but its plan is still on a machine */
       const planBasis = (done || o.erp_closed) && planBalance > 0;
       const counted = planBasis || (!done && !o.erp_closed);
       const balance = planBasis ? planBalance : m.balance;
-      const live = (m.machines || []).length ? 'RUNNING' : planBasis ? 'PLANNED'
+      const live = machines.length ? 'RUNNING' : planBasis || workPlans.length ? 'PLANNED'
         : m.status === 'PLANNED' && !activePlans.length ? 'STOPPED' : m.status;
       /* work running or queued on a machine loads that machine's tonnage (a 60 T mould on an
          80 T machine fills the 80 T machine); only work not on any machine goes by mould tonnage */
-      const onTon = counted ? Math.max(0, ...(live === 'RUNNING' ? m.machines || [] : []).map(n => tonOf.get(key(n)) || 0),
-        m.queue && live !== 'RUNNING' ? tonOf.get(key(m.queue.machine)) || 0 : 0) : 0;
+      const onTon = counted ? Math.max(0, ...(live === 'RUNNING' ? machines : []).map(n => tonOf.get(key(n)) || 0),
+        queue && live !== 'RUNNING' ? tonOf.get(key(queue.machine)) || 0 : 0) : 0;
       const cls = onTon && rows.has(onTon) ? onTon : ton ? fit(ton) : null;
       const item = {
         order_no: o.order_no, order_date: o.order_date, client_name: o.client_name, product_name: o.product_name, target_date: o.target_date,
@@ -836,8 +849,8 @@ function buildTonnageLoad(orders, board, { untilMs, eff, basis, colourByPlan }) 
         required: m.required, produced: m.produced, balance, plan_basis: planBasis, rate_pph: rate,
         hours: counted ? (rate > 0 ? +(balance / rate).toFixed(1) : null) : 0,
         counted, status: counted ? live : done ? 'COMPLETE' : 'ERP_CLOSED', erp_state: o.erp_state,
-        lanes: Math.max(m.lanes || 1, m.copies || 1),
-        machines: m.machines, queue: m.queue, start_state: m.start_state, slack_hours: m.slack_hours, must_start_by: m.must_start_by,
+        lanes: Math.max(workPlans.length ? machines.length : m.lanes || 1, 1, m.copies || 1),
+        machines, queue, start_state: m.start_state, slack_hours: m.slack_hours, must_start_by: m.must_start_by,
         lines: linesOf(o, m)
       };
       (cls ? rows.get(cls) : unknown).items.push(item);
