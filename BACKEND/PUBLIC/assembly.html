@@ -9,188 +9,412 @@
     <link rel="stylesheet" href="/assets/bootstrap-icons.min.css">
     <style>
         [hidden] { display: none !important; }
-        /* ---------- packing plan board ---------- */
-        .pb-top { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
-        .pb-top .form-control { width: auto; padding: 6px 10px; min-height: 36px; }
-        .pb-sum { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin-bottom: 12px; }
-        .pb-sum > div { background: #fff; border: 1px solid #e2e8f0; border-radius: 10px; padding: 10px 14px; }
-        .pb-sum > div > small { display: block; font-size: .74rem; color: #64748b; font-weight: 600; }
-        .pb-sum b { font-size: 1.25rem; color: #0f172a; }
-        .pb-sum .pb-bar { height: 6px; border-radius: 4px; background: #e2e8f0; margin-top: 6px; overflow: hidden; }
-        .pb-sum .pb-bar i { display: block; height: 100%; background: #059669; }
-        .pb-wrap { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; }
-        .pb-scroll { overflow: auto; max-height: calc(100vh - 330px); min-height: 220px; position: relative; }
-        .pb-grid { display: grid; grid-template-columns: 180px 1440px; position: relative; width: max-content; }
-        .pb-corner, .pb-hours { position: sticky; top: 0; z-index: 6; background: #f8fafc; border-bottom: 1px solid #e2e8f0; height: 38px; }
-        .pb-corner { left: 0; z-index: 8; border-right: 1px solid #e2e8f0; display: flex; align-items: center; padding-left: 14px; font-size: .78rem; font-weight: 700; color: #475569; }
-        .pb-hours { display: flex; }
-        .pb-hours span { width: 180px; flex-shrink: 0; border-left: 1px solid #e2e8f0; font-size: .74rem; color: #64748b; font-weight: 600; padding: 11px 0 0 6px; }
-        .pb-hours span.shift { color: #0f172a; background: #eef2ff; }
-        .pb-hours span.off { color: #94a3b8; background: #f1f5f9; }
-        .pb-label { position: sticky; left: 0; z-index: 4; background: #fff; border-right: 1px solid #e2e8f0; border-bottom: 1px solid #f1f5f9; padding: 8px 10px 8px 14px; height: 72px; cursor: pointer; }
-        .pb-label:hover { background: #f8fafc; }
-        .pb-label b { display: block; font-size: .88rem; color: #1e293b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        .pb-label small { display: block; font-size: .72rem; color: #64748b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        .pb-label small .on { color: #047857; font-weight: 600; }
-        .pb-dc { display: inline-block; margin-top: 3px; border: 1px solid #cbd5e1; background: #fff; border-radius: 999px; padding: 1px 8px; font-size: .7rem; font-weight: 600; color: #334155; cursor: pointer; min-height: 22px; }
-        .pb-dc:hover { border-color: #2563eb; color: #1d4ed8; }
-        .pb-dc.closed { background: #dcfce7; border-color: #bbf7d0; color: #166534; }
-        .pb-dc.open { background: #fef3c7; border-color: #fde68a; color: #92400e; }
-        .pb-lane { position: relative; height: 72px; border-bottom: 1px solid #f1f5f9;
-            background: repeating-linear-gradient(90deg, transparent, transparent 119px, #f1f5f9 119px, #f1f5f9 120px); }
-        .pb-lane.drop { background-color: #eff6ff; }
-        .pb-free { position: absolute; left: 12px; top: 26px; font-size: .74rem; color: #94a3b8; pointer-events: none; }
-        .pb-now { position: absolute; top: 38px; bottom: 0; width: 2px; background: #dc2626; z-index: 3; pointer-events: none; }
-        .pb-job { position: absolute; top: 6px; height: 60px; border-radius: 8px; border: 1px solid; padding: 4px 8px 7px; font-size: .74rem; line-height: 1.35;
-            overflow: hidden; cursor: pointer; white-space: nowrap; min-width: 26px; }
-        .pb-job:hover { z-index: 2; box-shadow: 0 2px 8px rgba(15, 23, 42, .15); }
-        .pb-job b { font-weight: 600; display: block; overflow: hidden; text-overflow: ellipsis; }
-        .pb-job span { display: block; overflow: hidden; text-overflow: ellipsis; }
-        .pb-job .pb-fill { position: absolute; left: 0; bottom: 0; height: 4px; background: currentColor; opacity: .5; }
-        .pb-job.planned { background: #f8fafc; border-color: #94a3b8; color: #1e293b; }
-        .pb-job.running { background: #ecfdf5; border-color: #059669; color: #065f46; border-width: 2px; }
-        .pb-job.late { background: #fffbeb; border-color: #d97706; color: #92400e; border-width: 2px; }
-        .pb-job.done { background: #eff6ff; border-color: #93c5fd; color: #1e40af; }
-        .pb-legend { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; padding: 8px 14px; border-top: 1px solid #e2e8f0; font-size: .74rem; color: #64748b; }
-        .pb-legend i { display: inline-block; width: 12px; height: 12px; border-radius: 3px; border: 1px solid; vertical-align: -2px; margin-right: 4px; }
-        .pb-wait { margin-top: 12px; background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 12px 14px; }
-        .pb-wait h2 { font-size: .92rem; margin: 0 0 4px; color: #1e293b; }
-        .pb-wait p { font-size: .78rem; color: #64748b; margin: 0 0 10px; }
-        .pb-cards { display: flex; flex-wrap: wrap; gap: 8px; }
-        .pb-card { border: 1px solid #cbd5e1; border-radius: 8px; padding: 6px 10px; font-size: .78rem; background: #fff; cursor: grab; text-align: left; color: #1e293b; max-width: 260px; }
-        .pb-card:hover { border-color: #2563eb; background: #f8fafc; }
-        .pb-card b { display: block; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        .pb-card small { color: #64748b; }
-        .pb-empty { font-size: .8rem; color: #64748b; }
+        .pk-page { --lbl: 232px; --line: #dbe7ee; --line2: #edf3f6; --ink: var(--text-main); --mute: #55707f; --ok: #0b7a53; --warn: #a35a00; --bad: #b42318;
+            display: flex; flex-direction: column; gap: 10px; min-height: 100%; font-variant-numeric: tabular-nums; }
+        .pk-page button, .pk-page input, .pk-page select { font-family: inherit; }
+        .pk-page :focus-visible, .pp-modal :focus-visible { outline: 2px solid var(--accent-cyan); outline-offset: 2px; }
 
-        .modal-body { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-        .pp-modal { width: min(96vw, 680px); max-height: calc(100vh - 32px); overflow: auto; padding: 22px; }
-        .pp-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
-        .pp-head h2 { margin: 0; font-size: 1.15rem; color: var(--primary-dark); }
-        .pp-x { border: 0; background: none; font-size: 1.5rem; cursor: pointer; color: var(--text-muted); }
-        .pp-label { display: block; font-size: .78rem; font-weight: 600; color: var(--text-muted); margin-bottom: 4px; }
+        /* ---------- top: day and actions ---------- */
+        .pk-head.header { flex-wrap: wrap; gap: 10px 14px; align-items: center; justify-content: flex-start; margin-bottom: 0; padding-bottom: 10px; }
+        .pk-headl { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
+        .pk-day { position: relative; display: inline-flex; align-items: center; background: #fff; border: 1px solid var(--line); border-radius: 10px; height: 38px; }
+        .pk-day > button { border: 0; background: none; height: 100%; min-width: 36px; cursor: pointer; color: var(--ink); font-weight: 600; font-size: .88rem; border-radius: 9px; }
+        .pk-day > button:hover { background: #eef6fa; }
+        .pk-day #pkDay { padding: 0 8px; min-width: 148px; }
+        .pk-day input { position: absolute; left: 36px; bottom: 0; width: 100px; height: 1px; opacity: 0; pointer-events: none; border: 0; padding: 0; }
+        .pk-acts { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-left: auto; }
+        .pk-acts .btn, .pk-today { min-height: 38px; padding: 0 13px; font-size: .86rem; text-decoration: none; white-space: nowrap; }
+        .pk-upd { font-size: .78rem; color: var(--mute); }
+        .pk-upd.bad { color: var(--bad); font-weight: 600; }
+        .pk-acts .pk-ic { width: 38px; padding: 0; }
+
+        /* ---------- figures ---------- */
+        .pk-strip { display: flex; flex-wrap: wrap; background: #fff; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+        .pk-prog { flex: 1 1 280px; padding: 10px 16px 8px; min-width: 0; }
+        .pk-prog-t { display: flex; justify-content: space-between; gap: 10px; font-size: .88rem; color: var(--mute); }
+        .pk-prog-t b { color: var(--ink); font-weight: 700; }
+        .pk-prog-b { position: relative; height: 8px; border-radius: 4px; background: #e4eef3; margin: 6px 0 4px; }
+        .pk-prog-b i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 4px; background: var(--ok); }
+        .pk-prog-b em { position: absolute; top: -3px; bottom: -3px; width: 2px; background: var(--ink); }
+        .pk-prog small { font-size: .76rem; color: var(--mute); }
+        .pk-fig { flex: 1 0 92px; border: 0; border-left: 1px solid var(--line2); background: none; padding: 10px 12px; text-align: left; color: var(--mute); font-size: .78rem; line-height: 1.25; }
+        .pk-fig b { display: block; font-size: 1.2rem; font-weight: 700; color: var(--ink); line-height: 1.3; }
+        .pk-fig-btn { cursor: pointer; }
+        .pk-fig-btn:hover { background: #f3f9fc; }
+        .pk-fig-btn:disabled { cursor: default; background: none; }
+        .pk-fig.warn, .pk-fig.warn b { color: var(--warn); }
+        .pk-fig[aria-pressed="true"] { background: #fff3de; }
+        .pk-notice { display: flex; gap: 10px; background: #fff7e8; border: 1px solid #f3d9a6; border-radius: 12px; padding: 9px 14px; font-size: .85rem; color: #6d3f00; line-height: 1.5; }
+        .pk-notice b { font-weight: 700; }
+        .pk-notice p { margin: 2px 0 0; display: flex; flex-wrap: wrap; gap: 2px 18px; }
+        .pk-link { border: 0; background: none; padding: 0; color: inherit; font: inherit; font-weight: 600; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; text-align: left; }
+
+        /* ---------- view and assembly selection ---------- */
+        .pk-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
+        .pk-seg { display: inline-flex; background: #e1edf3; border-radius: 10px; padding: 3px; }
+        .pk-seg button { border: 0; background: none; border-radius: 8px; min-height: 32px; padding: 0 14px; font-size: .86rem; font-weight: 600; color: var(--mute); cursor: pointer; }
+        .pk-seg button[aria-pressed="true"] { background: #fff; color: var(--primary); box-shadow: 0 1px 3px rgba(8, 38, 58, .16); }
+        .pk-asm { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
+        .pk-asm-l { font-size: .82rem; font-weight: 600; color: var(--mute); }
+        .pk-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+        .pk-chip { border: 1px solid #c8dae4; background: #fff; border-radius: 999px; min-height: 32px; padding: 0 12px; font-size: .84rem; font-weight: 600; color: var(--ink); cursor: pointer; white-space: nowrap; }
+        .pk-chip small { font-weight: 600; color: var(--mute); margin-left: 3px; }
+        .pk-chip:hover { border-color: var(--primary); }
+        .pk-chip[aria-pressed="true"] { background: var(--primary); border-color: var(--primary); color: #fff; }
+        .pk-chip[aria-pressed="true"] small { color: #cfe6f2; }
+        .pk-bar .pk-busy { margin-left: auto; }
+
+        /* ---------- board ---------- */
+        .pk-body { display: grid; grid-template-columns: minmax(0, 1fr) 326px; gap: 12px; flex: 1; min-height: 0; align-items: stretch; }
+        .pk-main { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: #fff; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+        .pk-board { flex: 1; min-height: 260px; overflow: auto; overscroll-behavior: contain; }
+        .pk-grid { position: relative; min-width: calc(var(--lbl) + 560px); }
+        .pk-row { display: grid; grid-template-columns: var(--lbl) minmax(0, 1fr); border-bottom: 1px solid var(--line2); }
+        .pk-row.head { position: sticky; top: 0; z-index: 7; background: #f2f8fb; border-bottom: 1px solid var(--line); height: 37px; }
+        .pk-corner { position: sticky; left: 0; z-index: 2; background: #f2f8fb; border-right: 1px solid var(--line); padding: 9px 12px; font-size: .78rem; font-weight: 600; color: var(--mute); }
+        .pk-hours { position: relative; display: grid; grid-template-columns: repeat(8, 1fr); }
+        .pk-hours span { border-left: 1px solid var(--line); padding: 9px 0 9px 6px; font-size: .78rem; font-weight: 600; color: var(--mute); }
+        .pk-hours span:first-child { border-left-color: transparent; }
+        .pk-label { position: sticky; left: 0; z-index: 5; background: #fff; border-right: 1px solid var(--line); padding: 8px 10px 8px 12px; min-width: 0; display: flex; flex-direction: column; justify-content: center; gap: 5px; }
+        .pk-label.tbl { padding-top: 4px; padding-bottom: 4px; gap: 1px; }
+        .pk-l1, .pk-l2 { display: flex; align-items: center; gap: 7px; min-width: 0; }
+        .pk-l2 { font-size: .74rem; color: var(--mute); white-space: nowrap; }
+        .pk-l2 > span:not(.pk-load) { overflow: hidden; text-overflow: ellipsis; }
+        .pk-name { border: 0; background: none; padding: 0; font-size: .95rem; font-weight: 700; color: var(--ink); cursor: pointer; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        button.pk-name:hover { color: var(--primary); text-decoration: underline; text-underline-offset: 3px; }
+        .pk-name.plain { cursor: default; color: var(--mute); font-weight: 600; font-size: .84rem; }
+        .pk-on { color: var(--ok); font-size: .85rem; }
+        .pk-crew { border: 1px solid transparent; background: #eef5f9; border-radius: 999px; padding: 2px 8px; font-size: .74rem; font-weight: 600; color: var(--ink); white-space: nowrap; display: inline-flex; gap: 4px; align-items: center; }
+        button.pk-crew { cursor: pointer; }
+        button.pk-crew:hover { border-color: var(--primary); }
+        .pk-crew.short { background: #fff1d9; color: var(--warn); }
+        .pk-add { margin-left: auto; flex: none; border: 1px solid #c8dae4; background: #fff; width: 26px; height: 26px; border-radius: 8px; color: var(--primary); cursor: pointer; font-size: .8rem; display: grid; place-items: center; }
+        .pk-add:hover { background: var(--primary); border-color: var(--primary); color: #fff; }
+        .pk-load { flex: none; width: 46px; height: 5px; border-radius: 3px; background: #e1ebf1; overflow: hidden; }
+        .pk-load i { display: block; height: 100%; background: var(--accent-teal); }
+        .pk-tnote { font-size: .74rem; color: var(--mute); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+        .pk-tnote.free { color: var(--ok); }
+        .pk-tag { flex: none; margin-left: auto; border: 1px solid #c8dae4; background: #fff; border-radius: 999px; padding: 1px 8px; font-size: .72rem; font-weight: 600; color: var(--ink); cursor: pointer; min-height: 22px; white-space: nowrap; }
+        .pk-tag:hover { border-color: var(--primary); color: var(--primary); }
+        .pk-tag.ok { background: #e5f5ed; border-color: #b9e2cd; color: #075c3d; }
+        .pk-tag.warn { background: #fff1d9; border-color: #f0d29a; color: #7c4400; }
+        .pk-group { position: sticky; top: 37px; z-index: 6; display: flex; justify-content: space-between; align-items: center; gap: 12px; background: #e8f2f7; border-bottom: 1px solid var(--line); padding: 5px 12px; font-size: .78rem; color: var(--mute); min-height: 34px; }
+        .pk-group > div { display: flex; align-items: center; gap: 10px; min-width: 0; }
+        .pk-lane { position: relative; cursor: copy; background: repeating-linear-gradient(90deg, transparent 0, transparent calc(12.5% - 1px), var(--line2) calc(12.5% - 1px), var(--line2) 12.5%); }
+        .pk-row:hover > .pk-lane { background-color: #fafdfe; }
+        .pk-dragging .pk-lane.fits { background-color: #e9f7f0; }
+        .pk-page .pk-lane.drop { background-color: #d8effa; }
+        .pk-job { position: absolute; z-index: 2; border: 1px solid; border-radius: 8px; padding: 0; text-align: left; cursor: pointer; min-width: 6px; background: #fff; transition: box-shadow 150ms ease-out; }
+        .pk-job:hover, .pk-job:focus-visible { z-index: 4; box-shadow: 0 4px 12px rgba(8, 38, 58, .18); }
+        .pk-job.planned { border-color: #8fabbc; color: #17384c; }
+        .pk-job.running { border-color: #149468; background: #f0faf5; color: #06402b; }
+        .pk-job.late { border-color: #cf7f0a; background: #fffaf0; color: #5f3500; }
+        .pk-job.done { border-color: #b9cad6; background: #f4f8fa; color: #48606f; }
+        .pk-job.off { border-style: dashed; }
+        .pk-job.cutl { border-top-left-radius: 0; border-bottom-left-radius: 0; border-left-style: dashed; }
+        .pk-job.cutr { border-top-right-radius: 0; border-bottom-right-radius: 0; border-right-style: dashed; }
+        .pk-fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 7px; }
+        .pk-job.running .pk-fill { background: #c5ead9; }
+        .pk-job.late .pk-fill { background: #fbe1b4; }
+        .pk-job.done .pk-fill { background: #e4ecf1; }
+        .pk-job.planned .pk-fill { background: #dcebf3; }
+        .pk-txt { position: absolute; inset: 0; padding: 0 9px; display: flex; flex-direction: column; justify-content: center; gap: 1px; overflow: hidden; line-height: 1.25; }
+        .pk-txt b, .pk-txt small { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .pk-txt b { font-size: .8rem; font-weight: 600; }
+        .pk-txt b i { margin-right: 4px; font-size: .78rem; }
+        .pk-txt small { font-size: .74rem; }
+        .pk-grid.tables .pk-txt b { font-size: .77rem; }
+        .pk-grid.tables .pk-txt small { font-size: .71rem; }
+        .pk-job.out .pk-txt { top: 4px; bottom: 4px; margin-left: 3px; border-radius: 6px; background: rgba(255, 255, 255, .88); left: 100%; right: auto; width: var(--room); padding: 0 4px; }
+        .pk-over { position: absolute; left: var(--lbl); right: 0; top: 37px; bottom: 0; pointer-events: none; z-index: 1; }
+        .pk-now { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: #d92d20; }
+        .pk-hours em { position: absolute; bottom: 1px; transform: translateX(-50%); font-style: normal; background: #d92d20; color: #fff; font-size: .72rem; font-weight: 600; padding: 1px 6px; border-radius: 6px; }
+        .pk-ghost span { position: sticky; top: 38px; display: block; width: max-content; transform: translateX(-50%); color: #fff; font-size: .72rem; font-weight: 600; padding: 1px 6px; border-radius: 6px; }
+        .pk-ghost { position: absolute; top: 0; bottom: 0; border-left: 1px dashed var(--primary); }
+        .pk-ghost span { background: var(--primary); }
+        .pk-legend { display: flex; flex-wrap: wrap; gap: 4px 16px; padding: 8px 12px; border-top: 1px solid var(--line); font-size: .76rem; color: var(--mute); }
+        .pk-legend span { display: inline-flex; align-items: center; gap: 6px; }
+        .pk-dot { display: inline-block; width: 11px; height: 11px; border-radius: 3px; border: 1px solid; }
+        .pk-dot.running { background: #c5ead9; border-color: #149468; } .pk-dot.planned { background: #fff; border-color: #8fabbc; }
+        .pk-dot.late { background: #fbe1b4; border-color: #cf7f0a; } .pk-dot.done { background: #e4ecf1; border-color: #b9cad6; }
+        .pk-blank { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; padding: 28px 20px; font-size: .86rem; color: var(--mute); }
+        .pk-blank.in { padding: 12px 14px; }
+        .pk-blank b { color: var(--ink); font-weight: 600; }
+        .pk-blank a { color: var(--primary); }
+        .pk-skel { padding: 14px; display: grid; gap: 10px; }
+        .pk-skel i { height: 46px; border-radius: 8px; background: #eef4f7; }
+
+        /* ---------- waiting job cards ---------- */
+        .pk-side { display: flex; flex-direction: column; min-height: 0; min-width: 0; background: #fff; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+        .pk-sideh { padding: 11px 12px 10px; border-bottom: 1px solid var(--line); display: grid; gap: 8px; }
+        .pk-sideh h2 { margin: 0; font-size: .95rem !important; font-weight: 700; color: var(--ink); display: flex; justify-content: space-between; gap: 8px; }
+        .pk-sideh h2 span { font-weight: 600; color: var(--mute); font-size: .85rem; }
+        .pk-find { display: grid; grid-template-columns: minmax(0, 1fr) 118px; gap: 6px; }
+        .pk-find .form-control { min-height: 36px; padding: 6px 10px; font-size: .85rem; }
+        .pk-find .form-control::placeholder { color: #5d7482; }
+        .pk-queue { flex: 1; overflow: auto; overscroll-behavior: contain; min-height: 160px; padding-bottom: 74px; }
+        .pk-card { display: grid; grid-template-columns: minmax(0, 1fr); gap: 3px; padding: 9px 12px; border-bottom: 1px solid var(--line2); cursor: grab; color: var(--ink); font-size: .8rem; min-width: 0; }
+        .pk-card:hover { background: #f1f8fb; }
+        .pk-card:active { cursor: grabbing; }
+        .pk-card:focus-visible { outline-offset: -2px; }
+        .pk-c1 { display: flex; gap: 10px; align-items: baseline; justify-content: space-between; }
+        .pk-c1 b { font-weight: 600; font-size: .84rem; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .pk-c1 em { font-style: normal; font-weight: 700; white-space: nowrap; }
+        .pk-c1 em small { font-weight: 400; color: var(--mute); }
+        .pk-c2 { display: flex; justify-content: space-between; gap: 10px; color: var(--mute); font-size: .76rem; }
+        .pk-c2 > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+        .pk-c3 { display: flex; flex-wrap: wrap; gap: 3px 9px; align-items: center; font-size: .75rem; color: var(--mute); }
+        .pk-st { font-style: normal; font-weight: 700; color: var(--primary); background: #e4f1f8; border-radius: 6px; padding: 1px 7px; }
+        .pk-part { color: var(--warn); }
+        .pk-due { color: var(--mute); white-space: nowrap; }
+        .pk-due.bad { color: var(--bad); font-weight: 600; }
+        .pk-qnote { margin: 0; padding: 12px; font-size: .78rem; color: var(--mute); }
+
+        .pk-tip { position: fixed; z-index: 2500; width: min(320px, calc(100vw - 16px)); background: #fff; border: 1px solid #c8dae4; border-radius: 10px; box-shadow: 0 10px 28px rgba(8, 38, 58, .18); padding: 10px 12px; font-size: .8rem; color: #17384c; pointer-events: none; font-variant-numeric: tabular-nums; }
+        .pk-tip > b { display: block; font-size: .86rem; margin-bottom: 5px; }
+        .pk-tip dl { margin: 0; display: grid; gap: 2px; }
+        .pk-tip dl div { display: grid; grid-template-columns: 66px 1fr; gap: 8px; }
+        .pk-tip dt { color: #55707f; } .pk-tip dd { margin: 0; overflow-wrap: anywhere; }
+        .pk-tip .pk-dot { margin-right: 5px; }
+        .pk-tip .pk-due { color: #b42318; margin: 0; }
+
+        /* ---------- plan form ---------- */
+        .modal-content.pp-modal { width: min(96vw, 1080px); max-width: none; max-height: calc(100dvh - 32px); padding: 0 !important; scrollbar-gutter: auto; overflow: hidden; display: flex; flex-direction: column; font-variant-numeric: tabular-nums; }
+        .modal-content.pp-modal::after { display: none; }
+        #planModal { z-index: 3000; }
+        body.pp-open :is(.mobile-nav, .jc-fab, .jc-sharefab) { display: none !important; }
+        .pp-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 14px 20px; border-bottom: 1px solid #dbe7ee; }
+        .pp-head h2 { margin: 0; font-size: 1.1rem !important; color: var(--text-main); }
+        .pp-x { border: 0; background: none; width: 36px; height: 36px; border-radius: 8px; font-size: 1rem; cursor: pointer; color: #55707f; }
+        .pp-x:hover { background: #eef5f9; color: var(--text-main); }
+        .pp-scroll { overflow: auto; overscroll-behavior: contain; flex: 1; min-height: 0; }
+        .pp-cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+        .pp-col { padding: 16px 20px 20px; min-width: 0; }
+        .pp-col + .pp-col { border-left: 1px solid #edf3f6; background: #fafcfd; }
+        .pp-col h3 { margin: 0 0 12px; font-size: .95rem !important; color: var(--text-main); }
+        .pp-label { display: block; font-size: .8rem; font-weight: 600; color: #3f5a6a; margin-bottom: 4px; }
         .pp-fetch { display: flex; gap: 8px; }
         .pp-fetch .form-control { flex: 1; }
-        .pp-msg { min-height: 1.3em; font-size: .84rem; margin: 6px 0 12px; }
-        .pp-msg.ok { color: #047857; } .pp-msg.bad { color: #b91c1c; }
+        .pp-msg { min-height: 1.3em; font-size: .84rem; margin: 6px 0 10px; color: #55707f; }
+        .pp-msg.ok { color: #0b7a53; } .pp-msg.bad { color: #b42318; }
         .pp-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
-        .pp-full { grid-column: 1 / -1; }
-        .pb-tables { font-size: .68rem; font-weight: 800; background: rgba(15, 23, 42, .08); border-radius: 4px; padding: 0 4px; }
-        .pp-jobs { max-height: 210px; overflow: auto; border: 1px solid #e2e8f0; border-radius: 10px; }
-        .pp-jobs table { width: 100%; border-collapse: collapse; font-size: .82rem; }
-        .pp-jobs th { position: sticky; top: 0; background: #f8fafc; text-align: left; font-size: .7rem; color: #475569; padding: 6px 8px; }
-        .pp-jobs td { padding: 6px 8px; border-top: 1px solid #f1f5f9; }
-        .pp-jobs td.n, .pp-jobs th.n { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+        .pp-full { grid-column: 1 / -1; min-width: 0; }
+        .pp-jobs { max-height: 232px; overflow: auto; border: 1px solid #dbe7ee; border-radius: 10px; background: #fff; }
+        .pp-jobs table { width: 100%; border-collapse: collapse; font-size: .8rem; }
+        .pp-jobs th { position: sticky; top: 0; z-index: 1; background: #f2f8fb; text-align: left; font-size: .74rem; color: #3f5a6a; padding: 7px 8px; text-transform: none; letter-spacing: 0; }
+        .pp-jobs td:first-child { white-space: nowrap; }
+        .pp-jobs th, .pp-jobs td { padding: 6px 8px !important; }
+        .pp-jobs td { border-top: 1px solid #edf3f6; border-bottom: 0; }
+        .pp-jobs td small { color: #55707f; display: block; }
+        .pp-jobs td.n, .pp-jobs th.n { text-align: right; white-space: nowrap; }
         .pp-jobs tr.job { cursor: pointer; }
-        .pp-jobs tr.job:hover td { background: #f8fafc; }
-        .pp-jobs tr.job.on td { background: #eff6ff; }
-        .pp-jobs .pp-empty { padding: 12px; color: #64748b; font-size: .84rem; }
+        .pp-jobs tr.job:hover td { background: #f1f8fb; }
+        .pp-jobs tr.job.on td { background: #e4f1f8; }
+        .pp-jobs tr.job:focus-visible { outline-offset: -2px; }
+        .pp-jobs .pp-empty { padding: 12px; color: #55707f; font-size: .84rem; }
         .pp-tables { display: flex; flex-wrap: wrap; gap: 6px; }
-        .pp-tbl { min-width: 46px; min-height: 36px; padding: 4px 10px; border: 1px solid #cbd5e1; border-radius: 8px; background: #fff; font-weight: 700; font-size: .82rem; color: #334155; cursor: pointer; }
-        .pp-tbl.on { background: #1d4ed8; border-color: #1d4ed8; color: #fff; }
-        .pp-tbl.busy { border-style: dashed; color: #94a3b8; text-decoration: line-through; }
-        .pp-tbl.busy.on { background: #b45309; border-color: #b45309; color: #fff; text-decoration: none; }
-        .pp-qtys { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; }
-        .pp-qtys div { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 8px 10px; }
-        .pp-qtys small { display: block; font-size: .7rem; color: #64748b; font-weight: 600; }
-        .pp-qtys b { font-size: 1.15rem; color: #0f172a; font-variant-numeric: tabular-nums; }
-        .pp-qtys .day b { color: #1d4ed8; }
-        .pp-src { font-size: .68rem; font-weight: 600; padding: 2px 8px; border-radius: 999px; margin-left: 4px; text-transform: none; }
+        .pp-tbl { min-width: 46px; min-height: 38px; padding: 4px 10px; border: 1px solid #c8dae4; border-radius: 8px; background: #fff; font-weight: 700; font-size: .82rem; color: #17384c; cursor: pointer; }
+        .pp-tbl:hover { border-color: var(--primary); }
+        .pp-tbl.on { background: var(--primary); border-color: var(--primary); color: #fff; }
+        .pp-tbl.busy { border-style: dashed; color: #55707f; background: #f3f6f8; }
+        .pp-tbl small { display: block; font-size: .68rem; font-weight: 600; line-height: 1.1; }
+        .pp-tbl.busy.on { background: #a35a00; border-color: #a35a00; color: #fff; }
+        .pp-tabhead { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+        .pp-tabhead button { border: 0; background: none; color: var(--primary); font-size: .78rem; font-weight: 600; cursor: pointer; padding: 0; text-decoration: underline; text-underline-offset: 2px; }
+        .pp-qtys { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border: 1px solid #dbe7ee; border-radius: 10px; background: #fff; overflow: hidden; }
+        .pp-qtys:empty { display: none; }
+        .pp-qtys div { padding: 8px 10px; }
+        .pp-qtys div + div { border-left: 1px solid #edf3f6; }
+        .pp-qtys small { display: block; font-size: .73rem; color: #55707f; }
+        .pp-qtys b { font-size: 1.08rem; color: var(--text-main); }
+        .pp-qtys .day b { color: var(--primary); }
+        .pp-src { font-size: .72rem; font-weight: 600; padding: 1px 7px; border-radius: 999px; margin-left: 4px; }
         .pp-src:empty { display: none; }
-        .pp-src.jc { background: #eff6ff; color: #1d4ed8; }
-        .pp-src.pm { background: #ecfdf5; color: #047857; }
-        .pp-src.erp { background: #f1f5f9; color: #334155; }
-        .pp-src.last { background: #fffbeb; color: #92400e; }
-        .pp-calc { margin-top: 14px; padding: 10px 12px; border-radius: 10px; background: #eff6ff; color: #1e40af; font-size: .88rem; }
-        .pp-warn { margin-top: 10px; padding: 10px 12px; border-radius: 10px; background: #fffbeb; color: #92400e; font-size: .86rem; }
+        .pp-src.jc { background: #e4f1f8; color: #024c81; }
+        .pp-src.pm { background: #e5f5ed; color: #075c3d; }
+        .pp-src.erp { background: #edf2f5; color: #334e5d; }
+        .pp-src.last { background: #fff1d9; color: #7c4400; }
+        .pp-warn { margin-top: 12px; padding: 10px 12px; border-radius: 10px; background: #fff7e8; color: #6d3f00; font-size: .85rem; line-height: 1.5; }
         .pp-warn a { color: inherit; font-weight: 600; }
-        .pp-status { margin: -4px 0 12px; padding: 8px 12px; border-radius: 10px; background: #f8fafc; border: 1px solid #e2e8f0; font-size: .84rem; color: #334155; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-        .pp-status .btn { padding: 4px 10px; min-height: 30px; font-size: .8rem; }
-        .pp-foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
-        .pp-del { margin-right: auto; color: #b91c1c; }
-        @media (max-width: 768px) { .pp-modal { margin-top: 56px; max-height: calc(100vh - 72px); } .pb-grid { grid-template-columns: 120px 1440px; } .pb-scroll { max-height: none; } }
-        @media (max-width: 640px) { .pp-grid { grid-template-columns: 1fr; } }
+        .pp-status { margin-bottom: 14px; padding: 8px 12px; border-radius: 10px; background: #f2f8fb; border: 1px solid #dbe7ee; font-size: .85rem; color: #17384c; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+        .pp-status > span { flex: 1 1 200px; }
+        .pp-status .btn { padding: 4px 11px; min-height: 34px; font-size: .82rem; }
+        .pp-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 12px 20px; border-top: 1px solid #dbe7ee; background: #fff; }
+        .pp-foot .btn { min-height: 40px; }
+        .pp-calc { flex: 1 1 320px; font-size: .86rem; color: #3f5a6a; line-height: 1.45; min-height: 1.45em; }
+        .pp-calc b { color: var(--text-main); }
+        .pp-del { color: #b42318; }
+
+        /* the board and the waiting list fill the window side by side */
+        @media (min-width: 1100px) {
+            .main-content.pk-fit { overflow: hidden; display: flex; flex-direction: column; }
+            .main-content.pk-fit .pk-page { flex: 1; min-height: 0; }
+        }
+        @media (min-width: 1100px) and (max-height: 640px) {
+            .main-content.pk-fit { overflow: auto; display: block; }
+            .pk-body { height: 520px; }
+        }
+        @media (max-width: 1099px) {
+            .pk-body { grid-template-columns: minmax(0, 1fr); }
+            .pk-headl { flex: 1; min-width: 0; }
+            .pk-acts { order: 5; flex-basis: 100%; margin-left: 0; }
+            .pk-board { max-height: 68vh; }
+            .pk-queue { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); max-height: 60vh; align-content: start; }
+            .pk-qnote, .pk-queue .pk-blank { grid-column: 1 / -1; }
+        }
+        @media (max-width: 860px) { .pp-cols { grid-template-columns: minmax(0, 1fr); } .pp-col + .pp-col { border-left: 0; border-top: 1px solid #edf3f6; } }
+        @media (max-width: 768px) {
+            .pk-page { --lbl: 118px; }
+            .pk-label { padding: 7px 8px; }
+            .pk-l1 { flex-wrap: wrap; gap: 4px 6px; }
+            .pk-label .pk-add { width: 30px; height: 30px; }
+            .pk-label.tbl .pk-l1 { flex-wrap: nowrap; }
+            .pk-label.tbl .pk-tnote { display: none; }
+            .pk-l2 { flex-wrap: wrap; white-space: normal; }
+            .pk-load { display: none; }
+            .pk-tag { margin-left: 0; }
+            .pk-fig { flex: 1 0 30%; border-top: 1px solid var(--line2); }
+            .pk-prog { flex-basis: 100%; }
+            .pk-bar .pk-busy { margin-left: 0; }
+            .pk-chip, .pk-seg button { min-height: 38px; }
+            .pk-asm { flex-wrap: nowrap; overflow-x: auto; max-width: 100%; padding-bottom: 2px; }
+            .pk-asm .pk-chips { flex-wrap: nowrap; }
+            .pk-group { flex-wrap: wrap; width: calc(100vw - 32px); left: 0; }
+            .modal-content.pp-modal { width: 100vw; max-height: 100dvh; height: 100dvh; border-radius: 0; }
+            .pp-col { padding: 14px 16px 18px; }
+            .pk-headl .page-title { flex-basis: 100%; }
+            .pp-foot { padding: 10px 16px calc(10px + env(safe-area-inset-bottom)); }
+            .pp-foot .btn { flex: 1; }
+            .pp-calc { flex-basis: 100%; }
+            .pp-qtys { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+            .pp-qtys div:nth-child(3) { border-left: 0; }
+            .pp-qtys div:nth-child(n+3) { border-top: 1px solid #edf3f6; }
+            body.pp-open .mobile-sidebar-fab { visibility: hidden; }
+        }
+        @media (max-width: 480px) { .pp-grid { grid-template-columns: 1fr; } .pk-find { grid-template-columns: 1fr; } }
+        @media (prefers-reduced-motion: reduce) { .pk-job { transition: none; } }
     </style>
 </head>
 
 <body>
-    <div class="main-content">
-        <div class="header">
-            <div class="page-title">Packing plan</div>
-            <div class="pb-top">
-                <input type="date" id="viewDate" class="form-control" aria-label="Plan date" onchange="loadBoard()">
-                <button class="btn btn-sm btn-outline" onclick="goToday()">Today</button>
-                <button class="btn btn-sm btn-outline" onclick="loadBoard()"><i class="bi bi-arrow-clockwise"></i> Refresh</button>
-                <a class="btn btn-sm btn-outline" href="scan_station.html"><i class="bi bi-upc-scan"></i> Station screen</a>
-                <button class="btn btn-sm btn-outline" onclick="PackCrew.open()"><i class="bi bi-people"></i> Crew</button>
-                <button class="btn btn-sm btn-outline" onclick="openDayClose()"><i class="bi bi-moon-stars"></i> Close day</button>
-                <button class="btn btn-sm btn-primary" onclick="openPlanModal()"><i class="bi bi-plus-lg"></i> Plan job</button>
+    <div class="main-content pk-fit">
+        <div class="pk-page">
+            <div class="header pk-head">
+                <div class="pk-headl">
+                    <div class="page-title">Packing plan</div>
+                    <div class="pk-day">
+                        <button type="button" id="pkPrev" aria-label="Previous day"><i class="bi bi-chevron-left"></i></button>
+                        <button type="button" id="pkDay" title="Pick a day"><span id="pkDayText"></span></button>
+                        <input type="date" id="viewDate" tabindex="-1" aria-label="Plan date">
+                        <button type="button" id="pkNext" aria-label="Next day"><i class="bi bi-chevron-right"></i></button>
+                    </div>
+                    <button type="button" class="btn btn-outline pk-today" id="pkToday" hidden>Today</button>
+                    <span class="pk-upd" id="pkUpdated" role="status"></span>
+                </div>
+                <div class="pk-acts">
+                    <button type="button" class="btn btn-outline pk-ic" id="pkRefresh" aria-label="Refresh" title="Refresh"><i class="bi bi-arrow-clockwise"></i></button>
+                    <a class="btn btn-outline" href="scan_station.html"><i class="bi bi-upc-scan"></i>Station screen</a>
+                    <button type="button" class="btn btn-outline" id="pkCrew"><i class="bi bi-people"></i>Crew</button>
+                    <button type="button" class="btn btn-outline" id="pkClose"><i class="bi bi-moon-stars"></i>Close day</button>
+                    <button type="button" class="btn btn-primary" id="pkNew"><i class="bi bi-plus-lg"></i>Plan job</button>
+                </div>
+            </div>
+
+            <div class="pk-strip" id="pkStrip"><div class="pk-prog">&nbsp;</div></div>
+            <div class="pk-notice" id="pkNotice" hidden></div>
+
+            <div class="pk-bar">
+                <div class="pk-seg" role="group" aria-label="View">
+                    <button type="button" data-view="stations" aria-pressed="true">Stations</button>
+                    <button type="button" data-view="tables" aria-pressed="false">Tables</button>
+                </div>
+                <div class="pk-asm" role="group" aria-label="Assembly station">
+                    <span class="pk-asm-l">Assembly</span>
+                    <div class="pk-chips" id="pkAssembly"></div>
+                </div>
+                <button type="button" class="pk-chip pk-busy" id="pkBusy" aria-pressed="false"><span id="pkBusyText">With jobs only</span></button>
+            </div>
+
+            <div class="pk-body">
+                <section class="pk-main" aria-label="Packing plan of the day">
+                    <div class="pk-board" id="pkBoard"><div class="pk-skel" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div></div>
+                    <div class="pk-legend">
+                        <span><i class="pk-dot running"></i>Running</span><span><i class="pk-dot late"></i>Behind plan</span>
+                        <span><i class="pk-dot planned"></i>Planned</span><span><i class="pk-dot done"></i>Done</span>
+                        <span>The filled part of a job is the packed quantity. Click an empty time to plan there.</span>
+                    </div>
+                </section>
+                <section class="pk-side" id="pkSide" aria-labelledby="pkWaitTitle">
+                    <div class="pk-sideh">
+                        <h2 id="pkWaitTitle">Job cards waiting <span id="pkQueueN"></span></h2>
+                        <div class="pk-find">
+                            <input type="search" class="form-control" id="pkQ" placeholder="Find a job card" aria-label="Search waiting job cards">
+                            <select class="form-control" id="pkSort" aria-label="Sort waiting job cards">
+                                <option value="due">Pack date</option><option value="oldest">Oldest</option><option value="newest">Newest</option><option value="qty">Largest</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="pk-queue" id="pkQueue"><div class="pk-skel" aria-hidden="true"><i></i><i></i><i></i></div></div>
+                </section>
             </div>
         </div>
-
-        <div class="pb-sum" id="pbSum"></div>
-
-        <div class="pb-wrap">
-            <div class="pb-scroll" id="pbScroll">
-                <div class="pb-grid" id="pbGrid"></div>
-            </div>
-            <div class="pb-legend">
-                <span><i style="background:#ecfdf5;border-color:#059669"></i>Running</span>
-                <span><i style="background:#f8fafc;border-color:#94a3b8"></i>Planned</span>
-                <span><i style="background:#fffbeb;border-color:#d97706"></i>Behind plan</span>
-                <span><i style="background:#eff6ff;border-color:#93c5fd"></i>Done</span>
-                <span>Red line = now · strip at the bottom of a job = packed % · click a station name to plan on it</span>
-            </div>
-        </div>
-
-        <section class="pb-wait" aria-labelledby="pbWaitTitle">
-            <h2 id="pbWaitTitle">Job cards waiting to pack</h2>
-            <p>Job cards of the last 45 days with a packing standard and nothing planned yet. Click one to plan it, or drag it onto a station at the time it should start.</p>
-            <div class="pb-cards" id="pbWait"><span class="pb-empty">Loading…</span></div>
-        </section>
     </div>
+
+    <div class="pk-tip" id="pkTip" role="tooltip" hidden></div>
 
     <!-- Add / edit packing plan -->
     <div class="modal-overlay" id="planModal">
-        <div class="modal-content pp-modal">
+        <div class="modal-content pp-modal" role="dialog" aria-modal="true" aria-labelledby="planTitle">
             <div class="pp-head">
                 <h2 id="planTitle">New packing plan</h2>
-                <button class="pp-x" onclick="closePlanModal()" aria-label="Close">&times;</button>
+                <button type="button" class="pp-x" onclick="closePlanModal()" aria-label="Close"><i class="bi bi-x-lg"></i></button>
             </div>
             <input type="hidden" id="p_id">
-            <div class="pp-status" id="p_status" hidden></div>
-
-            <label class="pp-label" for="p_jobcard">Job card no.</label>
-            <div class="pp-fetch">
-                <input id="p_jobcard" class="form-control" placeholder="JC/JGUI/2627/4252" autocomplete="off">
-                <button class="btn btn-outline" id="p_fetch" onclick="fetchJobCard()"><i class="bi bi-search"></i> Fetch</button>
+            <div class="pp-scroll">
+                <div class="pp-cols">
+                    <div class="pp-col">
+                        <div class="pp-status" id="p_status" hidden></div>
+                        <h3>Job</h3>
+                        <label class="pp-label" for="p_jobcard">Job card no.</label>
+                        <div class="pp-fetch">
+                            <input id="p_jobcard" class="form-control" placeholder="JC/JGUI/2627/4252" autocomplete="off">
+                            <button type="button" class="btn btn-outline" id="p_fetch" onclick="fetchJobCard()"><i class="bi bi-search"></i> Fetch</button>
+                        </div>
+                        <div class="pp-msg" id="p_jcinfo" role="status"></div>
+                        <div class="pp-grid">
+                            <div class="pp-full"><label class="pp-label" for="p_item">Item <span class="pp-src" id="src_item"></span></label><input id="p_item" class="form-control"></div>
+                            <div><label class="pp-label" for="p_client">Party <span class="pp-src" id="src_client"></span></label><input id="p_client" class="form-control"></div>
+                            <div><label class="pp-label" for="p_ean">EAN <span class="pp-src" id="src_ean"></span></label><input id="p_ean" class="form-control" inputmode="numeric"></div>
+                            <div class="pp-full"><span class="pp-label">Open job cards for this station <span class="pp-src" id="src_jobs"></span></span><div id="p_jobs" class="pp-jobs"></div></div>
+                        </div>
+                        <div class="pp-warn" id="p_warn" hidden></div>
+                    </div>
+                    <div class="pp-col">
+                        <h3>Where and when</h3>
+                        <div class="pp-grid">
+                            <div class="pp-full"><label class="pp-label" for="p_table_id">Assembly station <span class="pp-src" id="src_station"></span></label><select id="p_table_id" class="form-control" onchange="stationChanged()"></select></div>
+                            <div class="pp-full" id="p_tables_wrap">
+                                <div class="pp-tabhead"><span class="pp-label">Tables <span class="pp-src" id="src_tables"></span></span><button type="button" id="p_tables_free" onclick="pickFreeTables()">Pick all free</button></div>
+                                <div id="p_tables" class="pp-tables" role="group" aria-label="Tables"></div>
+                            </div>
+                            <div><label class="pp-label" for="p_start">Start</label><input id="p_start" type="datetime-local" class="form-control" onchange="calcDuration()"></div>
+                            <div><label class="pp-label" for="p_qty">Qty (pcs) <span class="pp-src" id="src_qty"></span></label><input id="p_qty" type="number" min="1" class="form-control" oninput="qtyTyped()"></div>
+                            <div class="pp-full"><div id="p_qtys" class="pp-qtys"></div></div>
+                            <div><label class="pp-label" for="p_cycle">Cycle (sec / pc) <span class="pp-src" id="src_cycle"></span></label><input id="p_cycle" type="number" min="0.01" step="0.01" class="form-control" oninput="calcDuration()"></div>
+                            <div><label class="pp-label" for="p_persons">Persons <span class="pp-src" id="src_persons"></span></label><input id="p_persons" type="number" min="1" class="form-control" oninput="calcDuration()"></div>
+                            <div><label class="pp-label" for="p_duration">Duration (min)</label><input id="p_duration" type="number" min="1" class="form-control" oninput="durationTyped()"></div>
+                            <div><label class="pp-label" for="p_delay">Delay (min)</label><input id="p_delay" type="number" min="0" class="form-control" value="0" oninput="calcEndTime()"></div>
+                            <div class="pp-full"><label class="pp-label" for="p_machine">Note (optional)</label><input id="p_machine" class="form-control" placeholder="Packer A"></div>
+                        </div>
+                    </div>
+                </div>
             </div>
-            <div class="pp-msg" id="p_jcinfo"></div>
-
-            <div class="pp-grid">
-                <div><label class="pp-label" for="p_item">Item <span class="pp-src" id="src_item"></span></label><input id="p_item" class="form-control"></div>
-                <div><label class="pp-label" for="p_client">Party <span class="pp-src" id="src_client"></span></label><input id="p_client" class="form-control"></div>
-                <div><label class="pp-label" for="p_ean">EAN <span class="pp-src" id="src_ean"></span></label><input id="p_ean" class="form-control" inputmode="numeric"></div>
-                <div><label class="pp-label" for="p_qty">Qty (pcs) <span class="pp-src" id="src_qty"></span></label><input id="p_qty" type="number" min="1" class="form-control" oninput="qtyTyped()"></div>
-                <div><label class="pp-label" for="p_table_id">Station <span class="pp-src" id="src_station"></span></label><select id="p_table_id" class="form-control" onchange="stationChanged()"></select></div>
-                <div class="pp-full"><span class="pp-label">Jobs for this station <span class="pp-src" id="src_jobs"></span></span><div id="p_jobs" class="pp-jobs"></div></div>
-                <div class="pp-full" id="p_tables_wrap"><span class="pp-label">Tables <span class="pp-src" id="src_tables"></span></span><div id="p_tables" class="pp-tables" role="group" aria-label="Tables"></div></div>
-                <div class="pp-full"><div id="p_qtys" class="pp-qtys"></div></div>
-                <div><label class="pp-label" for="p_persons">Persons <span class="pp-src" id="src_persons"></span></label><input id="p_persons" type="number" min="1" class="form-control" oninput="calcDuration()"></div>
-                <div><label class="pp-label" for="p_cycle">Cycle (sec / pc) <span class="pp-src" id="src_cycle"></span></label><input id="p_cycle" type="number" min="0.01" step="0.01" class="form-control" oninput="calcDuration()"></div>
-                <div><label class="pp-label" for="p_start">Start</label><input id="p_start" type="datetime-local" class="form-control" onchange="calcDuration()"></div>
-                <div><label class="pp-label" for="p_duration">Duration (min)</label><input id="p_duration" type="number" min="1" class="form-control" oninput="durationTyped()"></div>
-                <div><label class="pp-label" for="p_delay">Delay (min)</label><input id="p_delay" type="number" min="0" class="form-control" value="0" oninput="calcEndTime()"></div>
-                <div class="pp-full"><label class="pp-label" for="p_machine">Note / resource (optional)</label><input id="p_machine" class="form-control" placeholder="Packer A"></div>
-            </div>
-            <div class="pp-calc" id="p_calc"></div>
-            <div class="pp-warn" id="p_warn" hidden></div>
             <input type="hidden" id="p_end">
-
             <div class="pp-foot">
-                <button class="btn btn-outline pp-del" id="deletePlanBtn" onclick="deletePlan()" style="display:none"><i class="bi bi-trash"></i> Delete</button>
-                <button class="btn btn-outline" onclick="closePlanModal()">Cancel</button>
-                <button class="btn btn-primary" onclick="savePlan()">Save plan</button>
+                <div class="pp-calc" id="p_calc" role="status"></div>
+                <button type="button" class="btn btn-outline pp-del" id="deletePlanBtn" onclick="deletePlan()" style="display:none"><i class="bi bi-trash"></i> Delete</button>
+                <button type="button" class="btn btn-outline" onclick="closePlanModal()">Cancel</button>
+                <button type="button" class="btn btn-primary" id="p_save" onclick="savePlan()">Save plan</button>
             </div>
         </div>
     </div>
@@ -199,235 +423,49 @@
     <script src="/assets/packing-shift.js?v=1"></script>
     <script src="/assets/packing-crew.js?v=1"></script>
     <script src="/assets/packing-dayclose.js?v=3"></script>
+    <script src="/assets/packing-board.js?v=1"></script>
     <script>
-        const PX_PER_MIN = 3; // 180 px per hour
-        /* Old fixed tables, used only when no packing station is set up yet. */
-        const LEGACY_TABLES = Array.from({ length: 14 }, (_, i) => `Table B${i + 1}`);
-        let STATIONS = [];          // active packing stations from Packing Masters
-        let ROWS = [];              // [{ id: table_id, label, sub }]
-        let BOARD = null;           // last /packing/board answer
-        let TABLES = null;          // { 'station name (lower)': ['A1', ...] } active tables
+        /* The board (stations, tables, waiting job cards) is assets/packing-board.js; this is the plan form. */
         const SEL = new Set();      // tables picked on the plan form
         let qtyByHand = false;      // qty typed: stop filling the day qty
         let jobsFor = null;         // station whose jobs list is shown
         let jobsSeq = 0;
+        let fetchSeq = 0;
         let JOB = null;             // last fetched job card
         let durationByHand = false; // the user typed a duration: stop recalculating it
-        let firstScroll = true;
-        let DAYST = {};             // day close per station (lower-case name) for the day shown
-        let dayStTick = 0;
-        let VIEW = { fromH: 9, toH: 17 }; // hours shown on the board for the day
-        /* Plan end. Plans saved before v1.185.0 stored the end in UTC, so if it is not after the
-           start, work it out from the start and the working minutes. */
-        function planEnd(p) {
-            const s = new Date(p.start_local), e = new Date(p.end_local);
-            if (!isNaN(e) && e > s) return e;
-            return PackShift.addWork(s, (Number(p.duration_min) || 60) + (Number(p.delay_min) || 0));
-        }
+        let backTo = null;          // what to focus when the form closes
         const $ = (id) => document.getElementById(id);
         const esc = (v) => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
         const fmt = (n, d = 0) => Number(n || 0).toLocaleString('en-IN', { maximumFractionDigits: d });
-        const todayStr = () => { const d = new Date(); return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10); };
         const hhmm = (d) => d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: false });
+        const stationOf = (name) => PackBoard.station(name);
+        const formOpen = () => $('planModal').style.display === 'flex';
 
-        document.addEventListener('DOMContentLoaded', async () => {
+        document.addEventListener('DOMContentLoaded', () => {
             JPSMS.auth.requireAuth();
             JPSMS.renderShell('packing');
-            $('viewDate').value = todayStr();
-            await loadStations();
-            loadBoard();
-            setInterval(() => { if ($('planModal').style.display !== 'flex') loadBoard(true); }, 30000);
-
             $('p_jobcard').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); fetchJobCard(); } });
-            $('planModal').addEventListener('click', e => { if (e.target === $('planModal')) closePlanModal(); });
-            document.addEventListener('keydown', e => { if (e.key === 'Escape' && $('planModal').style.display === 'flex') closePlanModal(); });
+            $('planModal').addEventListener('mousedown', e => { if (e.target === $('planModal')) closePlanModal(); });
+            document.addEventListener('keydown', e => {
+                if (!formOpen()) return;
+                if (e.key === 'Escape') return closePlanModal();
+                if (e.key !== 'Tab') return;
+                /* keep the keyboard inside the form */
+                const f = [...$('planModal').querySelectorAll('button, input, select, a[href], [tabindex="0"]')].filter(x => x.offsetParent && !x.disabled);
+                const first = f[0], last = f[f.length - 1];
+                if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+                else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+            });
+            PackBoard.start();
         });
 
-        function goToday() { $('viewDate').value = todayStr(); firstScroll = true; loadBoard(); }
-
-        async function loadStations() {
-            try {
-                const res = await JPSMS.api.request('/packing/stations', { skipLoader: true });
-                STATIONS = (res.data || []).filter(s => s.is_active);
-            } catch (e) { STATIONS = []; }
+        function showForm(title) {
+            backTo = document.activeElement;
+            $('planTitle').textContent = title;
+            $('planModal').style.display = 'flex';
+            document.body.classList.add('pp-open');
+            $('planModal').querySelector('.pp-scroll').scrollTop = 0;
         }
-
-        function stationOf(tableId) {
-            return STATIONS.find(s => String(s.name).toLowerCase() === String(tableId || '').toLowerCase()) || null;
-        }
-
-        /* Where a plan stands: done / running / late (behind its own schedule) / planned. */
-        function planState(p, now) {
-            const qty = Number(p.plan_qty) || 0, packed = Number(p.scanned_qty) || 0;
-            const start = new Date(p.start_local), end = planEnd(p);
-            const st = { packed, qty, pct: qty > 0 ? Math.min(100, Math.round(packed * 100 / qty)) : 0, cls: 'planned', note: '' };
-            if (p.status === 'DONE' || (qty > 0 && packed >= qty)) { st.cls = 'done'; st.note = p.status === 'DONE' ? 'done' : 'qty reached'; return st; }
-            const valid = !isNaN(start) && !isNaN(end) && end > start;
-            let behindMin = 0;
-            if (valid && now > start && qty > 0) {
-                const planMin = PackShift.workBetween(start, end) || (end - start) / 60000;
-                const expected = qty * Math.min(1, PackShift.workBetween(start, now) / planMin);
-                const perMin = qty / planMin;
-                if (packed < expected * 0.9 && perMin > 0) behindMin = Math.round((expected - packed) / perMin);
-            }
-            if (p.status === 'RUNNING') {
-                st.cls = behindMin >= 10 ? 'late' : 'running';
-                const left = qty - packed;
-                if (p.rate_now > 0) st.eta = PackShift.addWork(now, left / p.rate_now * 60);
-                else if (valid) st.eta = end;
-                st.note = behindMin >= 10 ? `behind ${behindMin} min` : (st.eta ? `ends ${PackShift.whenText(st.eta, now)}` : 'running');
-            } else if (behindMin >= 10 && packed === 0 && valid && now > start) {
-                st.cls = 'late'; st.note = `not started (${hhmm(start)})`;
-            } else if (behindMin >= 10) {
-                st.cls = 'late'; st.note = `behind ${behindMin} min`;
-            }
-            return st;
-        }
-
-        async function loadBoard(quiet) {
-            const dateStr = $('viewDate').value || todayStr();
-            try {
-                const res = await JPSMS.api.request(`/packing/board?date=${encodeURIComponent(dateStr)}`, { skipLoader: !!quiet });
-                BOARD = res.data;
-            } catch (e) {
-                if (!quiet) JPSMS.toast(e.message || 'Could not load the packing plan', 'error');
-                return;
-            }
-            if (!quiet || ++dayStTick % 4 === 0) DAYST = await PackDayClose.dayStatus(BOARD.date || dateStr);
-            renderSummary();
-            renderBoard();
-            renderWaiting();
-        }
-
-        function openDayClose(station) {
-            PackDayClose.open({ day: (BOARD && BOARD.date) || $('viewDate').value || todayStr(), station, onChange: () => loadBoard(true).then(async () => { DAYST = await PackDayClose.dayStatus(BOARD.date); renderBoard(); }) });
-        }
-
-        /* the station's day-close tag: closed / not closed (after 17:00 or an earlier day) / close day */
-        function dayCloseTag(name) {
-            const s = DAYST[String(name).toLowerCase()];
-            if (!s || BOARD.date > todayStr()) return '';
-            if (s.status === 'CLOSED') return `<button type="button" class="pb-dc closed" data-dc="${esc(name)}" title="Closed by ${esc(s.closed_by || '')}"><i class="bi bi-check2"></i> Day closed</button>`;
-            if (!s.has_work && s.status !== 'REOPENED') return '';
-            const late = BOARD.date < todayStr() || new Date().getHours() >= PackShift.END_H;
-            return `<button type="button" class="pb-dc${late ? ' open' : ''}" data-dc="${esc(name)}">${late ? 'Not closed · ' : ''}Close day</button>`;
-        }
-
-        function renderSummary() {
-            const t = BOARD.totals;
-            const pct = t.planned > 0 ? Math.round(t.packed * 100 / t.planned) : 0;
-            $('pbSum').innerHTML = `
-                <div><small>Planned today</small><b>${fmt(t.planned)}</b> pcs</div>
-                <div><small>Packed</small><b>${fmt(t.packed)}</b> pcs<div class="pb-bar"><i style="width:${pct}%"></i></div></div>
-                <div><small>Done</small><b>${pct}%</b></div>
-                <div><small>Jobs running</small><b>${fmt(t.running)}</b> of ${fmt(t.plans)}</div>
-                <div><small>Waiting to plan</small><b>${fmt(BOARD.waiting.length)}</b> job cards</div>`;
-        }
-
-        function renderBoard() {
-            const rows = BOARD.rows.length ? BOARD.rows : LEGACY_TABLES.map(t => ({ name: t, persons: null, scanner: '', is_station: true }));
-            ROWS = rows.map(r => {
-                const st = stationOf(r.name);
-                const label = (st && st.code) || r.name;
-                return { id: r.name, label, sub: r.is_station ? (st && st.code && st.code !== r.name ? r.name : '') : 'Old table', raw: r };
-            });
-            const now = new Date();
-            const day = BOARD.date;
-            const midnight = new Date(day + 'T00:00:00');
-            let fromH = PackShift.START_H, toH = PackShift.END_H;
-            BOARD.plans.forEach(p => {
-                const s = new Date(p.start_local), e = planEnd(p);
-                if (isNaN(s)) return;
-                if (s >= midnight && s - midnight < 864e5) fromH = Math.min(fromH, s.getHours());
-                if (e > midnight && e - midnight < 864e5) toH = Math.max(toH, Math.ceil((e - midnight) / 36e5));
-            });
-            toH = Math.min(24, toH);
-            VIEW = { fromH, toH };
-            const dayStart = new Date(midnight.getTime() + fromH * 36e5), dayEnd = new Date(midnight.getTime() + toH * 36e5);
-            const lbl = window.matchMedia('(max-width: 768px)').matches ? 120 : 180;
-            let html = '<div class="pb-corner">Station</div><div class="pb-hours">';
-            for (let h = fromH; h < toH; h++) {
-                const off = h < PackShift.START_H || h >= PackShift.END_H;
-                html += `<span class="${off ? 'off' : 'shift'}">${String(h).padStart(2, '0')}:00${h === PackShift.START_H ? ' · Day shift' : off ? ' · OT' : ''}</span>`;
-            }
-            html += '</div>';
-            ROWS.forEach((r, i) => {
-                const raw = r.raw;
-                const scanner = raw.scanner ? '<span class="on">scanner on</span>' : 'no scanner';
-                const persons = raw.persons ? `${raw.persons} persons · ` : '';
-                const plans = BOARD.plans.filter(p => String(p.table_id).toLowerCase() === r.id.toLowerCase());
-                html += `<div class="pb-label" data-row="${i}" title="Plan a job on ${esc(r.id)}"><b>${esc(r.label)}</b><small>${r.sub ? esc(r.sub) + ' · ' : ''}${persons}${scanner}</small>${raw.is_station ? dayCloseTag(r.id) : ''}</div>`;
-                html += `<div class="pb-lane" data-lane="${i}">${plans.length ? '' : '<span class="pb-free">Free — click the station name or drag a job card here</span>'}`;
-                plans.forEach(p => {
-                    const start = new Date(p.start_local), end = planEnd(p);
-                    if (isNaN(start)) return;
-                    /* a running job from an earlier day shows from the start of this day */
-                    const from = start < dayStart ? dayStart : start;
-                    const to = end > dayEnd ? dayEnd : (end < from ? new Date(from.getTime() + 30 * 60000) : end);
-                    if (from >= dayEnd) return;
-                    const left = (from - dayStart) / 60000 * PX_PER_MIN;
-                    const width = Math.max(26, (to - from) / 60000 * PX_PER_MIN);
-                    const s = planState(p, now);
-                    const rate = p.status === 'RUNNING' ? ` · ${fmt(p.rate_now)}/hr${p.std_pcs_hr ? ` (std ${fmt(p.std_pcs_hr)})` : ''}` : '';
-                    const tip = `${p.item_name || ''}\n${p.client_name || ''}${p.job_card_no ? '\nJC ' + p.job_card_no : ''}\nPacked ${fmt(s.packed)} / ${fmt(s.qty)} (${s.pct}%)\n${PackShift.whenText(start, now)} – ${PackShift.whenText(end, now)}${s.note ? '\n' + s.note : ''}`;
-                    html += `<div class="pb-job ${s.cls}" data-plan="${esc(p.id)}" style="left:${left}px;width:${width}px" title="${esc(tip)}">
-                        <b>${p.tables ? `<span class="pb-tables">${esc(p.tables.split(',').join(' '))}</span> ` : ''}${esc(p.item_name || 'Plan ' + p.id)}</b>
-                        <span>${fmt(s.packed)} / ${fmt(s.qty)}${rate}</span>
-                        <span>${esc(s.note || hhmm(start) + ' – ' + hhmm(end))}</span>
-                        <div class="pb-fill" style="width:${s.pct}%"></div></div>`;
-                });
-                html += '</div>';
-            });
-            const nowMin = (now - dayStart) / 60000;
-            if (day === todayStr() && now >= dayStart && now < dayEnd) html += `<div class="pb-now" style="left:${lbl + nowMin * PX_PER_MIN}px"></div>`;
-            const grid = $('pbGrid');
-            const keepLeft = $('pbScroll').scrollLeft;
-            grid.style.gridTemplateColumns = `${lbl}px ${(toH - fromH) * 60 * PX_PER_MIN}px`;
-            grid.innerHTML = html;
-            grid.querySelectorAll('[data-row]').forEach(el => el.onclick = () => openPlanModal(ROWS[Number(el.dataset.row)].id));
-            grid.querySelectorAll('[data-dc]').forEach(el => el.onclick = (e) => { e.stopPropagation(); openDayClose(el.dataset.dc); });
-            grid.querySelectorAll('[data-plan]').forEach(el => el.onclick = (e) => {
-                e.stopPropagation();
-                const p = BOARD.plans.find(x => String(x.id) === el.dataset.plan);
-                if (p) editPlan(p);
-            });
-            grid.querySelectorAll('[data-lane]').forEach(lane => {
-                lane.addEventListener('dragover', e => { e.preventDefault(); lane.classList.add('drop'); });
-                lane.addEventListener('dragleave', () => lane.classList.remove('drop'));
-                lane.addEventListener('drop', e => {
-                    e.preventDefault(); lane.classList.remove('drop');
-                    const jc = e.dataTransfer.getData('text/plain');
-                    if (!jc) return;
-                    const x = e.clientX - lane.getBoundingClientRect().left;
-                    const mins = VIEW.fromH * 60 + Math.max(0, Math.min((VIEW.toH - VIEW.fromH) * 60 - 5, Math.round(x / PX_PER_MIN / 5) * 5));
-                    const time = `${String(Math.floor(mins / 60)).padStart(2, '0')}:${String(mins % 60).padStart(2, '0')}`;
-                    openPlanModal(ROWS[Number(lane.dataset.lane)].id, { jc, time });
-                });
-            });
-            if (firstScroll) {
-                firstScroll = false;
-                const h = day === todayStr() ? Math.max(0, now.getHours() - 2 - fromH) : 0;
-                $('pbScroll').scrollLeft = h * 60 * PX_PER_MIN;
-            } else $('pbScroll').scrollLeft = keepLeft;
-        }
-
-        function renderWaiting() {
-            const box = $('pbWait');
-            const list = BOARD.waiting || [];
-            if (!list.length) { box.innerHTML = '<span class="pb-empty">No job card is waiting. Every recent job card with a packing standard already has a plan.</span>'; return; }
-            box.innerHTML = list.map((j, i) => `
-                <button type="button" class="pb-card" draggable="true" data-wait="${i}" title="${esc(j.item_name)} · ${esc(j.client_name)}">
-                    <b>${esc(j.item_name || j.item_code)}</b>
-                    <small>${esc(j.job_card_no)} · ${fmt(j.balance_qty)} pcs · ${esc(j.client_name || '')}</small>
-                </button>`).join('');
-            box.querySelectorAll('[data-wait]').forEach(el => {
-                const j = list[Number(el.dataset.wait)];
-                el.onclick = () => openPlanModal(null, { jc: j.job_card_no });
-                el.addEventListener('dragstart', e => { e.dataTransfer.setData('text/plain', j.job_card_no); e.dataTransfer.effectAllowed = 'copy'; });
-            });
-        }
-
-        function loadPlans() { return loadBoard(); }
 
         /* ---------- plan form ---------- */
 
@@ -446,7 +484,7 @@
                 opts.push(`<option value="${esc(id)}">${esc(label)}</option>`);
             };
             (suggested || []).forEach(s => add(s.station_name, `${(stationOf(s.station_name) || {}).code || s.station_name} — ${fmt(s.cycle_time_sec, 2)} s/pc, ${s.persons} persons`));
-            ROWS.forEach(r => add(r.id, r.sub && r.sub !== 'Old table' ? `${r.label} — ${r.sub}` : r.label));
+            PackBoard.rows().forEach(r => add(r.id, r.sub && r.sub !== 'Old table' ? `${r.label} — ${r.sub}` : r.label));
             if (selected) add(selected, selected);
             $('p_table_id').innerHTML = opts.join('');
             if (selected) $('p_table_id').value = selected;
@@ -464,26 +502,31 @@
 
         function openPlanModal(tableId, opts = {}) {
             resetForm();
-            $('planModal').style.display = 'flex';
-            $('planTitle').textContent = 'New packing plan';
+            showForm('New packing plan');
             $('deletePlanBtn').style.display = 'none';
             fillStationOptions(tableId);
-            const dateStr = $('viewDate').value;
+            if (opts.table) SEL.add(opts.table);
+            const dateStr = PackBoard.date();
             let defaultTime = `${String(PackShift.START_H).padStart(2, '0')}:00`;
-            if (dateStr === todayStr() && PackShift.inShift(new Date())) defaultTime = hhmm(new Date());
+            if (dateStr === PackBoard.today() && PackShift.inShift(new Date())) defaultTime = hhmm(new Date());
             $('p_start').value = `${dateStr}T${opts.time || defaultTime}`;
             stationChanged(true);
             if (opts.jc) {
                 $('p_jobcard').value = opts.jc;
-                /* dropped on a station: keep that station even if the standard suggests another */
-                fetchJobCard().then(() => { if (tableId) { fillStationOptions(tableId, JOB ? JOB.stations : []); stationChanged(); } });
+                /* dropped on a station or table: keep it even if the standard suggests another;
+                   picked from the list of one assembly: use it when the item is packed there */
+                fetchJobCard().then(() => {
+                    if (!JOB) return;
+                    const want = tableId || (opts.station && JOB.stations.some(x => x.station_name.toLowerCase() === opts.station.toLowerCase()) ? opts.station : null);
+                    if (want) { fillStationOptions(want, JOB.stations); if (opts.table) SEL.add(opts.table); stationChanged(); }
+                });
+                $('planModal').querySelector('.pp-x').focus();
             } else setTimeout(() => $('p_jobcard').focus(), 30);
         }
 
         function editPlan(p) {
             resetForm();
-            $('planModal').style.display = 'flex';
-            $('planTitle').textContent = 'Edit packing plan';
+            showForm('Edit packing plan');
             $('p_id').value = p.id;
             $('deletePlanBtn').style.display = 'inline-block';
             fillStationOptions(p.table_id);
@@ -498,25 +541,22 @@
             $('p_duration').value = p.duration_min || '';
             $('p_delay').value = p.delay_min || 0;
             durationByHand = true; // keep the saved duration unless the user changes qty or cycle
-            // datetime-local wants YYYY-MM-DDTHH:MM; prefer the wall-clock start_local.
-            let localIso;
-            if (p.start_local) localIso = String(p.start_local).slice(0, 16);
-            else {
-                const d = new Date(p.start_time);
-                localIso = new Date(d.getTime() - (d.getTimezoneOffset() * 60000)).toISOString().slice(0, 16);
-            }
-            $('p_start').value = localIso;
+            /* a start saved outside the shift opens on the first working minute, so saving corrects it */
+            const t = PackBoard.times(p);
+            if (t.start) $('p_start').value = PackShift.localIso(t.start).slice(0, 16);
             if (p.job_card_no) fetchJobCard(true);
-            loadTables().then(() => { renderTables(); loadStationJobs(); calcEndTime(); });
+            renderTables();
+            loadStationJobs();
             calcEndTime();
             showPlanStatus(p);
+            $('planModal').querySelector('.pp-x').focus();
         }
 
         /* Status line in the edit form, with Start / Finish for the station. */
         function showPlanStatus(p) {
             const box = $('p_status');
             if (!p || !p.status) { box.hidden = true; return; }
-            const s = planState(p, new Date());
+            const s = PackBoard.state(p);
             const label = { RUNNING: 'Running', PLANNED: 'Planned', DONE: 'Done' }[p.status] || p.status;
             box.hidden = false;
             box.innerHTML = `<span><b>${esc(label)}</b> · packed ${fmt(s.packed)} / ${fmt(s.qty)} (${s.pct}%)${p.status === 'RUNNING' ? ` · ${fmt(p.rate_now)} pcs/hr now` : ''}${p.finished_local ? ` · finished ${esc(String(p.finished_local).slice(11, 16))}` : ''}</span>` +
@@ -530,11 +570,17 @@
                 await JPSMS.api.post(`/packing/plans/${id}/${action}`, {});
                 JPSMS.toast(action === 'start' ? 'Job started on the station' : 'Job marked Done', 'success');
                 closePlanModal();
-                loadBoard();
+                PackBoard.load();
             } catch (e) { JPSMS.toast(e.message, 'error'); }
         }
 
-        function closePlanModal() { $('planModal').style.display = 'none'; }
+        function closePlanModal() {
+            $('planModal').style.display = 'none';
+            document.body.classList.remove('pp-open');
+            fetchSeq++;
+            if (backTo && document.contains(backTo)) backTo.focus({ preventScroll: true });
+            backTo = null;
+        }
 
         async function fetchJobCard(keepValues) {
             const jc = $('p_jobcard').value.trim();
@@ -542,14 +588,17 @@
             if (!jc) { info.textContent = 'Enter the job card number first.'; info.className = 'pp-msg bad'; return; }
             info.textContent = 'Looking up…'; info.className = 'pp-msg';
             let res;
+            const seq = ++fetchSeq;
             try {
                 const q = new URLSearchParams({ jc });
                 if ($('p_id').value) q.set('exclude_plan', $('p_id').value);
                 res = await JPSMS.api.request('/packing/jobcard?' + q.toString(), { skipLoader: true });
             } catch (e) {
+                if (seq !== fetchSeq) return;
                 info.textContent = e.message || 'Job card not found.'; info.className = 'pp-msg bad';
-                JOB = null; return;
+                JOB = null; renderQtys(); return;
             }
+            if (seq !== fetchSeq) return; // the form was closed or another job card was asked for
             JOB = res.data;
             $('p_jobcard').value = JOB.job_card_no;
             info.className = 'pp-msg ok';
@@ -607,25 +656,16 @@
                 const s = stationOf(st);
                 if (s && s.persons && !$('p_persons').value) $('p_persons').value = s.persons;
             }
-            loadTables().then(() => { renderTables(); calcDuration(); });
+            /* tables of another station do not carry over */
+            const own = stationTables().map(c => c.toUpperCase());
+            [...SEL].forEach(c => { if (!own.includes(c.toUpperCase()) && PackBoard.allTables().some(t => t.code.toUpperCase() === c.toUpperCase())) SEL.delete(c); });
+            renderTables();
             loadStationJobs();
             if (silent) calcEndTime(); else calcDuration();
         }
 
         /* ---------- station tables ---------- */
-        async function loadTables() {
-            if (TABLES) return;
-            try {
-                const res = await JPSMS.api.request('/packing/tables', { skipLoader: true });
-                const map = {};
-                (res.data || []).filter(t => t.is_active).forEach(t => {
-                    const k = String(t.station_name).toLowerCase();
-                    (map[k] = map[k] || []).push(t.code);
-                });
-                TABLES = map;
-            } catch (e) { TABLES = {}; }
-        }
-        const stationTables = () => (TABLES && TABLES[String($('p_table_id').value).toLowerCase()]) || [];
+        const stationTables = () => PackBoard.tables($('p_table_id').value);
 
         /* Plan window on the form: start (snapped into the shift) to end. */
         function formWindow() {
@@ -640,13 +680,13 @@
         function busyTables() {
             const busy = new Map();
             const w = formWindow();
-            if (!w || !BOARD) return busy;
+            if (!w || !PackBoard.data()) return busy;
             const st = String($('p_table_id').value).toLowerCase();
             const myId = String($('p_id').value || '');
-            (BOARD.plans || []).forEach(p => {
+            (PackBoard.data().plans || []).forEach(p => {
                 if (String(p.table_id).toLowerCase() !== st || String(p.id) === myId || !p.tables || p.status === 'DONE') return;
-                const from = new Date(p.start_local || p.start_time), to = new Date(p.end_local || p.end_time);
-                if (!(from < w.to && to > w.from)) return;
+                const t = PackBoard.times(p);
+                if (!t.start || !(t.start < w.to && t.end > w.from)) return;
                 String(p.tables).split(',').forEach(c => { c = c.trim(); if (c) busy.set(c, p.item_name || ('plan ' + p.id)); });
             });
             return busy;
@@ -655,12 +695,13 @@
         function renderTables() {
             const list = stationTables();
             $('p_tables_wrap').hidden = !list.length && !SEL.size;
+            $('p_tables_free').hidden = !list.length;
             // a table no longer in the master (edited plan) still shows so it can be taken off
             const all = [...list, ...[...SEL].filter(c => !list.includes(c))];
             const busy = busyTables();
             $('p_tables').innerHTML = all.map(c => {
                 const b = busy.get(c);
-                return `<button type="button" class="pp-tbl ${SEL.has(c) ? 'on' : ''} ${b ? 'busy' : ''}" data-t="${esc(c)}" aria-pressed="${SEL.has(c)}" title="${b ? esc('In use: ' + b) : ''}">${esc(c)}</button>`;
+                return `<button type="button" class="pp-tbl ${SEL.has(c) ? 'on' : ''} ${b ? 'busy' : ''}" data-t="${esc(c)}" aria-pressed="${SEL.has(c)}" title="${b ? esc('In use: ' + b) : 'Free at this time'}">${esc(c)}${b ? '<small>in use</small>' : ''}</button>`;
             }).join('');
             $('p_tables').querySelectorAll('[data-t]').forEach(btn => btn.onclick = () => {
                 const c = btn.dataset.t;
@@ -671,6 +712,15 @@
             });
             const nb = [...SEL].filter(c => busy.has(c)).length;
             setSrc('src_tables', SEL.size ? `${SEL.size} picked${nb ? ` · ${nb} in use then` : ''}` : (list.length ? 'pick one or more' : ''), nb ? 'erp' : (SEL.size ? 'pm' : ''));
+        }
+
+        function pickFreeTables() {
+            const busy = busyTables();
+            SEL.clear();
+            stationTables().forEach(c => { if (!busy.has(c)) SEL.add(c); });
+            qtyByHand = false;
+            renderTables();
+            calcDuration();
         }
 
         /* ---------- jobs of the station ---------- */
@@ -703,9 +753,9 @@
                 $('p_jobs').innerHTML = '<div class="pp-empty">No open job cards for this station. Items get a station in Packing Masters; you can still type a job card above.</div>';
                 return;
             }
-            $('p_jobs').innerHTML = `<table><thead><tr><th>Job card</th><th>Item</th><th>Party</th><th class="n">Total</th><th class="n">Planned</th><th class="n">Balance</th></tr></thead><tbody>
+            $('p_jobs').innerHTML = `<table><thead><tr><th>Job card</th><th>Item</th><th class="n">Total</th><th class="n">Planned</th><th class="n">Balance</th></tr></thead><tbody>
                 ${S_JOBS.map(j => `<tr class="job ${String(j.job_card_no).toUpperCase() === cur ? 'on' : ''}" data-jc="${esc(j.job_card_no)}" tabindex="0">
-                    <td>${esc(j.job_card_no)}${j.jr_date ? `<br><small style="color:#64748b">${esc(j.jr_date)}</small>` : ''}</td><td>${esc(j.item_name)}</td><td>${esc(j.client_name)}</td>
+                    <td>${esc(j.job_card_no)}${j.jr_date ? `<small>${esc(j.jr_date)}</small>` : ''}</td><td>${esc(j.item_name)}<small>${esc(j.client_name)}</small></td>
                     <td class="n">${fmt(j.jr_qty)}</td><td class="n">${fmt(j.planned_qty)}</td><td class="n"><b>${fmt(j.balance_qty)}</b></td></tr>`).join('')}
                 </tbody></table>`;
             $('p_jobs').querySelectorAll('tr.job').forEach(tr => {
@@ -724,7 +774,7 @@
             paintJobs();
         }
 
-        function qtyTyped() { qtyByHand = true; calcDuration(); }
+        function qtyTyped() { qtyByHand = true; setSrc('src_qty', ''); calcDuration(); }
 
         /* Day qty: what the picked tables pack from the start to the end of that day's shift, capped at the balance. */
         function dayQty() {
@@ -746,16 +796,16 @@
             const day = dayQty();
             box.innerHTML = `
                 <div><small>Total (job card)</small><b>${fmt(JOB.jr_qty)}</b></div>
-                <div><small>Already planned</small><b>${fmt(JOB.planned_qty)}</b></div>
-                <div class="day"><small>This plan${qtyByHand ? ' (typed)' : ' = day qty'}</small><b>${fmt(qty)}</b>${qtyByHand && day !== null ? `<small>day qty ${fmt(day)}</small>` : ''}</div>
-                <div><small>Balance after this plan</small><b>${fmt(Math.max(0, JOB.balance_qty - qty))}</b></div>`;
+                <div><small>Planned before</small><b>${fmt(JOB.planned_qty)}</b></div>
+                <div class="day"><small>This plan${qtyByHand ? '' : ' (day qty)'}</small><b>${fmt(qty)}</b>${qtyByHand && day !== null ? `<small>day qty ${fmt(day)}</small>` : ''}</div>
+                <div><small>Left after this</small><b>${fmt(Math.max(0, JOB.balance_qty - qty))}</b></div>`;
         }
 
         function durationTyped() { durationByHand = true; calcEndTime(); }
 
         /* qty = day qty unless typed; duration = qty × cycle seconds per piece ÷ tables (cycle is per table) */
         function calcDuration() {
-            if (!qtyByHand) { const d = dayQty(); if (d !== null && JOB) $('p_qty').value = d || ''; }
+            if (!qtyByHand) { const d = dayQty(); if (d !== null && JOB) { $('p_qty').value = d || ''; setSrc('src_qty', d < JOB.balance_qty ? 'day qty' : 'balance', 'jc'); } }
             const qty = Number($('p_qty').value), cycle = Number($('p_cycle').value);
             const n = Math.max(1, SEL.size);
             const typingQtyOrCycle = document.activeElement === $('p_qty') || document.activeElement === $('p_cycle');
@@ -817,24 +867,27 @@
             if (JOB && JOB.jr_qty > 0 && plan.plan_qty > JOB.balance_qty &&
                 !confirm(`Qty ${fmt(plan.plan_qty)} is more than the job card balance ${fmt(JOB.balance_qty)}. Save anyway?`)) return;
             try {
+                $('p_save').disabled = true; // one click, one plan
                 await JPSMS.api.post('/assembly/plan', plan);
                 JPSMS.toast('Plan saved', 'success');
                 closePlanModal();
-                loadPlans();
+                PackBoard.load();
             } catch (e) {
                 JPSMS.toast(e.message, 'error');
-            }
+            } finally { $('p_save').disabled = false; }
         }
 
         async function deletePlan() {
             const id = $('p_id').value;
             if (!id) return;
-            if (!confirm('Delete this packing plan? This cannot be undone.')) return;
+            const cur = ((PackBoard.data() || {}).plans || []).find(p => String(p.id) === String(id));
+            const packed = Number(cur && cur.scanned_qty) || 0;
+            if (!confirm(packed ? `Delete this packing plan? Its ${fmt(packed)} packed pcs (scans) are deleted too. This cannot be undone.` : 'Delete this packing plan? This cannot be undone.')) return;
             try {
                 await JPSMS.api.delete(`/assembly/plan/${id}`);
                 JPSMS.toast('Plan deleted');
                 closePlanModal();
-                loadPlans();
+                PackBoard.load();
             } catch (e) {
                 JPSMS.toast(e.message, 'error');
             }

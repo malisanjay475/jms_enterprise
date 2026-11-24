@@ -14,6 +14,36 @@
   "latest": "1.177.0",
   "versions": [
     {
+      "version": "1.196.0",
+      "date": "2026-11-24",
+      "title": "Packing plan redesigned, with a table-wise view",
+      "modules": [
+        {
+          "app": "packing",
+          "changes": [
+            { "type": "feat", "text": "Packing Plan has a Tables view: every table of an assembly station gets its own row, with what is on it and when it is free. Pick one assembly or all with the buttons above the board." },
+            { "type": "improvement", "text": "The board fits the 09:00 to 17:00 day on the screen, jobs at the same time no longer cover each other, and the waiting job cards sit beside the board with search, sort, pack date and hours needed." },
+            { "type": "feat", "text": "Drag a waiting job card onto a table, or click an empty time, to plan it there. Part-planned job cards stay on the waiting list with the quantity left." },
+            { "type": "improvement", "text": "The plan form shows the job and the tables side by side, can pick all free tables at once, and warns how many packed pieces go when a plan is deleted." },
+            { "type": "fix", "text": "The waiting count is now the real number of job cards (it stopped at 40), and jobs saved with a start outside the shift are listed so they can be corrected." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.195.1",
+      "date": "2026-11-24",
+      "title": "Packing plan times stay right between servers",
+      "modules": [
+        {
+          "app": "packing",
+          "changes": [
+            { "type": "fix", "text": "A packing job planned for 09:00 no longer shows as 03:30 on the other server. Plan start, end and finish times now sync exactly as they were entered." }
+          ]
+        }
+      ]
+    },
+    {
       "version": "1.195.0",
       "date": "2026-11-23",
       "title": "FPA Reject History: Export to Excel",
