@@ -198,6 +198,7 @@ body.db-tv > *:not(.main-content):not(.db-alert):not(dialog):not(script):not([cl
 body.db-tv .main-content { margin: 0 !important; width: 100% !important; max-width: none !important; min-height: 100vh; padding: 18px 22px !important; background: #0b1c28; }
 body.db-tv .sc-page.db { --panel: #122a3a; --line: #24435a; --line2: #1d3a4f; --ink: #f2f8fb; --mute: #a9c2d0; --ok: #4fd39c; --warn: #f5bd5c; --bad: #ff8a7d; --track: #24435a; --sparkc: #4ab4e0;
     --stopbg: #3a1a1a; --stopln: #8f3a33; --slowbg: #33290f; --slowln: #7a5d1d; --tabbg: #1f4258; --tabink: #cfe9f6; }
+body.db-nologin .main-content { margin: 0; width: 100%; max-width: none; }
 body.db-tv .page-title { color: #f2f8fb; }
 body.db-tv .db-card { font-size: .95rem; }
 body.db-tv .db-st { font-size: 2rem; }

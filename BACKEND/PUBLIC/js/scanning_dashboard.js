@@ -27,8 +27,11 @@
     const minute = () => Math.floor(Date.now() / 60000);
 
     document.addEventListener('DOMContentLoaded', () => {
-        JPSMS.auth.requireAuth();
-        JPSMS.renderShell('packing');
+        /* a wall TV may have no login: the dashboard still opens there, without the menu */
+        let user = {};
+        try { user = JSON.parse(localStorage.getItem('user') || '{}') || {}; } catch (_) { /* no login */ }
+        if (user.username) { JPSMS.auth.requireAuth(); JPSMS.renderShell('packing'); }
+        else document.body.classList.add('db-nologin');
         wire();
         clock();
         setInterval(() => { clock(); D.plans.forEach(paintLive); paintKpis(); }, 1000);
@@ -117,6 +120,7 @@
                 c.last = s.last_sec === null ? null : Date.now() - s.last_sec * 1000;
                 c.mins = new Map(Object.entries(s.per_min).map(([m, n]) => [minute() - Number(m), n]));
             }
+            else if (c.last === null && p.scanned_qty > 0 && p.idle_seconds != null) c.last = Date.now() - Number(p.idle_seconds) * 1000; // no figures: time of the last change
             if (!c.el) build(c);
             /* move a card only when its place changed: moving it drops the keyboard focus */
             const next = prev ? prev.nextElementSibling : $('dbGrid').firstElementChild;
@@ -400,10 +404,11 @@
         text($('kStop'), n('stopped'));
         $('kStop').parentNode.classList.toggle('bad', n('stopped') > 0);
         $('kSlow').parentNode.classList.toggle('warn', n('slow') > 0);
-        text($('kToday'), num(one ? sum('today') : D.totals.today));
-        text($('kHour'), `${num(one ? sum('hour') : D.totals.hour)} in the last hour${D.trend > 0 ? ', rising' : D.trend < 0 ? ', falling' : ''}`);
+        const none = D.loadedAt > 0 && D.lastHour === undefined; // not logged in: no figures
+        text($('kToday'), none ? 'No figure' : num(one ? sum('today') : D.totals.today));
+        text($('kHour'), none ? 'Log in to see it' : `${num(one ? sum('hour') : D.totals.hour)} in the last hour${D.trend > 0 ? ', rising' : D.trend < 0 ? ', falling' : ''}`);
         const wrong = one ? sum('wrong_hour') : D.totals.wrong_hour;
-        text($('kWrong'), num(wrong));
+        text($('kWrong'), none ? 'No figure' : num(wrong));
         $('kWrong').parentNode.classList.toggle('bad', wrong > 0);
         const old = D.loadedAt && Date.now() - D.loadedAt > STALE_MS;
         const b = $('dbStale');
