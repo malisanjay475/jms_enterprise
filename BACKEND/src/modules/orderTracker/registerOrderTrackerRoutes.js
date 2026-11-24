@@ -1054,6 +1054,14 @@ function machineMaster(rows, board) {
   };
 }
 
+/* another plant's order mis-filed under this factory (JR/JP/... is Kachigam's):
+   the plant code in the order no wins, as in Order Master ($1 = factory) */
+const OWN_PLANT = col => `($1::int IS NULL OR NOT EXISTS (
+     SELECT 1 FROM factories pf
+      WHERE pf.id <> $1
+        AND UPPER(SPLIT_PART(TRIM(${col}), '/', 2))
+            = ANY(string_to_array(UPPER(REPLACE(COALESCE(pf.plant_codes, ''), ' ', '')), ','))))`;
+
 /* open orders for the tonnage load: order master not completed / cancelled,
    JR rows the ERP still has open (jr_close is 'Open' / 'Close'), and anything
    on the plan board now */
@@ -1080,13 +1088,7 @@ const OPEN_ORDERS_SQL = `
     LEFT JOIN LATERAL (
       SELECT created_at::date::text AS order_date, client_name, item_code, item_name, qty
         FROM orders WHERE TRIM(order_no) = o.order_no ORDER BY id DESC LIMIT 1) m ON TRUE
-   /* another plant's order mis-filed under this factory (JR/JP/... is Kachigam's):
-      the plant code in the order no wins, as in Order Master */
-   WHERE $1::int IS NULL OR NOT EXISTS (
-     SELECT 1 FROM factories pf
-      WHERE pf.id <> $1
-        AND UPPER(SPLIT_PART(o.order_no, '/', 2))
-            = ANY(string_to_array(UPPER(REPLACE(COALESCE(pf.plant_codes, ''), ' ', '')), ',')))`;
+   WHERE ${OWN_PLANT('o.order_no')}`;
 
 /* good pieces per plan and colour (latest edit of each hourly entry) */
 const COLOUR_SQL = `
@@ -1144,11 +1146,13 @@ function registerOrderTrackerRoutes(app, pool) {
       if (scope === 'running') {
         sql = `SELECT DISTINCT TRIM(order_no) AS order_no FROM plan_board
                 WHERE UPPER(COALESCE(status, '')) = 'RUNNING' AND COALESCE(TRIM(order_no), '') <> ''
-                  AND ($1::int IS NULL OR factory_id = $1 OR factory_id IS NULL) AND $2::int > 0`;
+                  AND ($1::int IS NULL OR factory_id = $1 OR factory_id IS NULL) AND $2::int > 0
+                  AND ${OWN_PLANT('order_no')}`;
       } else {
         sql = `SELECT TRIM(or_jr_no) AS order_no, MAX(or_jr_date) AS d FROM or_jr_report
                 WHERE COALESCE(TRIM(or_jr_no), '') <> ''
                   AND ($1::int IS NULL OR factory_id = $1 OR factory_id IS NULL)
+                  AND ${OWN_PLANT('or_jr_no')}
                   AND or_jr_date >= CURRENT_DATE - $2::int
                   ${scope === 'open' ? `AND COALESCE(TRIM(jr_close), '') <> 'Yes' AND is_closed IS NOT TRUE` : ''}
                   ${search ? `AND (or_jr_no ILIKE $3 OR job_card_no ILIKE $3 OR product_name ILIKE $3 OR client_name ILIKE $3)` : ''}
