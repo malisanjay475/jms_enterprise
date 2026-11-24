@@ -30317,9 +30317,9 @@ app.get('/api/extra-qty', async (req, res) => {
       `SELECT id, colour, extra_qty, remarks, allowed_by, allowed_role, allowed_at
          FROM extra_qty_allowances
         WHERE plan_id = $1 AND is_deleted = FALSE
-          -- plan_id repeats per factory: never show another factory's grants.
-          AND ($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL)
-          AND ($3::int IS NULL OR factory_id = $3 OR factory_id IS NULL)
+          -- plan_id repeats per factory: never show another factory's grants. factory_id is TEXT here.
+          AND ($2::int IS NULL OR factory_id = $2::int::text OR factory_id IS NULL)
+          AND ($3::int IS NULL OR factory_id = $3::int::text OR factory_id IS NULL)
         ORDER BY allowed_at DESC`,
       [String(plan_id), getFactoryId(req) || null, toNum(req.query.factory_id) || null]
     );
