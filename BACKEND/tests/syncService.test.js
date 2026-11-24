@@ -418,7 +418,7 @@ describe('Sync service plan_board resurrection guard', () => {
     syncService.__test.setRuntimeForTests({ pool });
 
     const stats = await syncService.__test.upsertData('plan_board', [
-      { plan_id: 'PLN-2627-0989', updated_at: '2026-07-11T09:00:00.000Z', status: 'Planned' }
+      { plan_id: 'PLN-2627-0989', factory_id: 1, updated_at: '2026-07-11T09:00:00.000Z', status: 'Planned' }
     ]);
 
     expect(stats.skipped).toBe(0);
