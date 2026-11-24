@@ -25,7 +25,7 @@ async function buildTonnageWorkbook(T, { until, basis, factoryName }) {
   /* sheet 1: the factory's monthly machine planning summary, laid out as it always was */
   {
   const ws = wb.addWorksheet('Machine planning summary', { views: [{ state: 'frozen', ySplit: 4 }] });
-  ws.columns = [14, 14, 12, 13, 12, 14, 12, 13, 13, 12, 13, 13, 12, 12, 13, 9, 9, 13].map(width => ({ width }));
+  ws.columns = [14, 14, 12, 13, 12, 14, 12, 13, 13, 12, 13, 13, 12, 12, 13, 9, 9, 13, 14].map(width => ({ width }));
   const today = new Date(Date.now() + 330 * 60000).toISOString().slice(0, 10);
   const monthName = new Date(until + 'T00:00:00Z').toLocaleString('en-GB', { month: 'long', year: 'numeric', timeZone: 'UTC' }).toUpperCase();
 
@@ -47,17 +47,17 @@ async function buildTonnageWorkbook(T, { until, basis, factoryName }) {
   /* row 4: headers */
   const heads = ['M/c Tonnage', 'Hrs Required', 'Days Required', 'Available Hrs', 'Available Days', 'Machines With Us',
     'Total Machine Plan', 'Machine Shortage Numbers', 'Machine Shortage Days', 'Capacity Booked', 'Machine Excess Numbers',
-    'Machine Excess Days', 'Running Hrs', 'Queued Hrs', 'Not Planned Hrs', 'Orders', 'Moulds', 'Mould Limited Hrs'];
+    'Machine Excess Days', 'Running Hrs', 'Queued Hrs', 'Not Planned Hrs', 'Orders', 'Moulds', 'Mould Limited Hrs', 'Booked Without Mould Limit'];
   const hr = ws.getRow(4);
   hr.values = heads; hr.height = 44;
   hr.eachCell(c => { c.font = { bold: true }; c.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true }; c.fill = fill(HEAD); c.border = box; });
 
-  const nums = ['#,##0.00', '#,##0.00', '#,##0', '#,##0.00', '0', '#,##0.00', '#,##0.00', '#,##0.00', '0%', '#,##0.00', '#,##0.00', '#,##0.0', '#,##0.0', '#,##0.0', '0', '0', '#,##0.0'];
+  const nums = ['#,##0.00', '#,##0.00', '#,##0', '#,##0.00', '0', '#,##0.00', '#,##0.00', '#,##0.00', '0%', '#,##0.00', '#,##0.00', '#,##0.0', '#,##0.0', '#,##0.0', '0', '0', '#,##0.0', '0%'];
   const put = (r, name, bold) => {
     const row = ws.addRow([name, r.load_hours, r.load_days, r.avail_hours, r.avail_days, r.machine_count, r.machines_needed,
       r.shortage_machines || null, r.shortage_days || null, r.booked_pct == null ? null : r.booked_pct / 100,
       r.excess_machines || null, r.excess_days || null, r.running_hours, r.queued_hours, r.unplanned_hours, r.orders, r.moulds,
-      r.mould_limited_hours || null]);
+      r.mould_limited_hours || null, r.machine_booked_pct == null ? null : r.machine_booked_pct / 100]);
     row.eachCell({ includeEmpty: true }, (c, i) => {
       c.border = box;
       if (i > 1) { c.numFmt = nums[i - 2]; c.alignment = { horizontal: 'right' }; }
@@ -81,14 +81,14 @@ async function buildTonnageWorkbook(T, { until, basis, factoryName }) {
   }
   ws.addRow([]);
   [`Hrs Required = balance pieces of open orders ÷ pieces per hour (live DPR rate, else mould standard). Available Hrs = machines × 24 h × days × efficiency.`,
-    `Orders: ${T.total.all_orders || 0} open in the order master, ERP or plan board; ${T.total.closed_orders || 0} of them are complete or closed in the ERP: listed in Order detail, not counted.`,
+    `Orders: ${T.total.all_orders || 0} open in the order master, ERP or plan board; ${T.total.closed_orders || 0} of them are complete or closed in the ERP: listed in Order detail, not counted. ${T.total.plan_basis || 0} moulds of closed / complete orders still have a plan on a machine: the balance of those plans is counted.`,
     'Mould Limited Hrs = hours of moulds that cannot finish by the date even on a machine of their own (one mould runs on one machine at a time). Machines needed and shortage leave these hours out, since more machines would not help. See the "Mould limits" sheet.']
     .forEach(x => { ws.addRow([x]).getCell(1).font = { italic: true, color: { argb: 'FF595959' } }; });
   }
 
   /* sheet 2: the same rows laid out like the table on screen */
   const ws = wb.addWorksheet('Tonnage load', { views: [{ state: 'frozen', xSplit: 1, ySplit: 4 }] });
-  ws.columns = [24, 17, 11, 12, 11, 15, 11, 12, 12, 16, 12, 12, 11, 11, 12].map(width => ({ width }));
+  ws.columns = [24, 17, 11, 12, 11, 15, 11, 12, 12, 16, 12, 12, 11, 11, 12, 14].map(width => ({ width }));
   const today = new Date(Date.now() + 330 * 60000).toISOString().slice(0, 10);
   const monthName = new Date(until + 'T00:00:00Z').toLocaleString('en-GB', { month: 'long', year: 'numeric', timeZone: 'UTC' }).toUpperCase();
 
@@ -110,7 +110,7 @@ async function buildTonnageWorkbook(T, { until, basis, factoryName }) {
   /* row 4: headers - the columns of the screen, then the load split the screen shows as a bar */
   const heads = ['M/C TONNAGE', 'HRS REQUIRED\nopen load', 'DAYS REQUIRED\nhrs ÷ 24', `AVAILABLE HRS\nuntil ${dmy(until + 'T00:00:00Z')}`, 'AVAILABLE DAYS',
     'MACHINES WITH US', 'MACHINES NEEDED', 'MACHINE SHORTAGE\nnumbers', 'MACHINE SHORTAGE\ndays', 'CAPACITY BOOKED',
-    'MACHINE EXCESS\nnumbers', 'MACHINE EXCESS\ndays', 'RUNNING HRS', 'QUEUED HRS', 'NOT PLANNED HRS'];
+    'MACHINE EXCESS\nnumbers', 'MACHINE EXCESS\ndays', 'RUNNING HRS', 'QUEUED HRS', 'NOT PLANNED HRS', 'BOOKED WITHOUT\nMOULD LIMIT'];
   const hr = ws.getRow(4);
   hr.values = heads; hr.height = 40;
   hr.eachCell((c, i) => {
@@ -133,12 +133,13 @@ async function buildTonnageWorkbook(T, { until, basis, factoryName }) {
   };
   const small = (text, argb, bold) => ({ text, font: { size: 8, bold: !!bold, color: { argb } } });
 
-  const nums = ['#,##0.00', '#,##0.00', '#,##0', '#,##0.00', '0', '#,##0.00', '#,##0.00', '#,##0.00', '0%', '#,##0.00', '#,##0.00', '#,##0.0', '#,##0.0', '#,##0.0'];
+  const nums = ['#,##0.00', '#,##0.00', '#,##0', '#,##0.00', '0', '#,##0.00', '#,##0.00', '#,##0.00', '0%', '#,##0.00', '#,##0.00', '#,##0.0', '#,##0.0', '#,##0.0', '0%'];
   const put = (r, total) => {
     const short = r.shortage_machines > 0, spare = r.excess_machines > 0;
     const row = ws.addRow([null, r.load_hours, r.load_days, r.avail_hours, r.avail_days, r.machine_count, r.machines_needed,
       short ? r.shortage_machines : null, short ? r.shortage_days : null, r.booked_pct == null ? null : r.booked_pct / 100,
-      spare ? r.excess_machines : null, spare ? r.excess_days : null, r.running_hours, r.queued_hours, r.unplanned_hours]);
+      spare ? r.excess_machines : null, spare ? r.excess_days : null, r.running_hours, r.queued_hours, r.unplanned_hours,
+      r.machine_booked_pct == null ? null : r.machine_booked_pct / 100]);
     row.eachCell({ includeEmpty: true }, (c, i) => {
       c.border = box; c.alignment = { horizontal: i === 1 ? 'left' : 'right', vertical: 'middle', wrapText: true };
       if (i > 1) { c.numFmt = nums[i - 2]; c.font = { size: 10, color: { argb: i > 12 ? MUTED : INK } }; }
@@ -179,14 +180,14 @@ async function buildTonnageWorkbook(T, { until, basis, factoryName }) {
   ws.addRow([]);
   [`Hrs Required = balance pieces of open orders ÷ pieces per hour (live DPR rate, else mould standard). Available Hrs = machines × 24 h × days × efficiency.`,
     'Capacity Booked = Hrs Required ÷ Available Hrs: red over 100%, amber 85-100%, green under 85%. Red shortage = more machines needed than we have; green excess = spare machines.',
-    `Orders: ${T.total.all_orders || 0} open in the order master, ERP or plan board; ${T.total.closed_orders || 0} of them are complete or closed in the ERP: listed in Order detail, not counted.`,
+    `Orders: ${T.total.all_orders || 0} open in the order master, ERP or plan board; ${T.total.closed_orders || 0} of them are complete or closed in the ERP: listed in Order detail, not counted. ${T.total.plan_basis || 0} moulds of closed / complete orders still have a plan on a machine: the balance of those plans is counted.`,
     'Mould limit = hours of moulds that cannot finish by the date even on a machine of their own (one mould runs on one machine at a time). Machines needed and shortage leave these hours out, since more machines would not help. See the "Mould limits" sheet.']
     .forEach(x => { ws.addRow([x]).getCell(1).font = { italic: true, color: { argb: 'FF595959' } }; });
 
   const head = sh => sh.getRow(1).eachCell(c => { c.font = { bold: true }; c.fill = fill(HEAD); c.border = box; c.alignment = { vertical: 'middle', wrapText: true }; });
   const day = v => (v ? String(v instanceof Date ? v.toISOString() : v).slice(0, 10) : '');
   const IST = v => (v ? new Date(new Date(v).getTime() + 330 * 60000).toISOString().slice(0, 16).replace('T', ' ') : '');
-  const STATUS = { COMPLETE: 'Complete', COMPLETED: 'Complete', ERP_CLOSED: 'Closed in ERP', RUNNING: 'Running', PLANNED: 'Planned', PAUSED: 'Paused', NOT_PLANNED: 'Not planned yet' };
+  const STATUS = { COMPLETE: 'Complete', COMPLETED: 'Complete', ERP_CLOSED: 'Closed in ERP', RUNNING: 'Running', PLANNED: 'Planned', PAUSED: 'Paused', STOPPED: 'Stopped', NOT_PLANNED: 'Not planned yet' };
 
   /* sheet 3: the screen's drill-down, one section per tonnage - its machines, the moulds that cannot finish
      by the date and every order and mould with its job card / plan / colour lines. Each section folds up
@@ -282,6 +283,7 @@ async function buildTonnageWorkbook(T, { until, basis, factoryName }) {
       const status = !i.counted ? (STATUS[i.status] || i.status)
         : i.status === 'RUNNING' ? `On ${(i.machines || []).join(', ')}`
           : i.status === 'PAUSED' ? 'Paused'
+          : i.status === 'STOPPED' ? 'Stopped - plan again'
             : i.queue ? `Queued #${i.queue.position} on ${i.queue.machine}` : 'Not planned yet';
       const row = body([i.order_no, day(i.order_date), i.client_name, i.product_name,
         i.mould_name + (i.mould_limited ? ' - mould limit' : ''), i.mould_no,
@@ -341,7 +343,7 @@ async function buildTonnageWorkbook(T, { until, basis, factoryName }) {
       lst: l.plan_id && l.status ? (STATUS[l.status] || l.status) : '', st: STATUS[i.status] || i.status, cnt: i.counted ? 'Yes' : 'No',
       /* mould figures once per mould, so a column total is not doubled */
       mbal: n ? null : i.balance, rate: n ? null : (i.rate_pph || null), hrs: n || !i.counted ? null : i.hours,
-      note: n ? '' : [i.erp_state, i.mould_source === 'item code' ? 'mould found by item code' : '', i.mould_limited ? 'mould cannot finish by the date alone' : '']
+      note: n ? '' : [i.erp_state, i.plan_basis ? 'still on a machine: plan balance counted' : '', i.mould_source === 'item code' ? 'mould found by item code' : '', i.mould_limited ? 'mould cannot finish by the date alone' : '']
         .filter(Boolean).join('; ')
     });
     if (!i.counted) row.font = { color: { argb: 'FF808080' } };

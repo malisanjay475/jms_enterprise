@@ -11,8 +11,19 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.197.8",
+  "latest": "1.197.9",
   "versions": [
+    {
+      "version": "1.197.9",
+      "date": "2026-11-24",
+      "changes": [
+        {
+          "app": "planning",
+          "type": "fix",
+          "text": "Order Tracker Tonnage Load now counts plans still running or queued on a machine even when the ERP has closed the JR, shows stopped plans as Stopped, and adds Booked Without Mould Limit to the Excel."
+        }
+      ]
+    },
     {
       "version": "1.197.8",
       "date": "2026-11-24",
