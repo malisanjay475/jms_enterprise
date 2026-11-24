@@ -4,6 +4,12 @@ const os = require('os');
 const express = require('express');
 const { stripMachinePrefix, dedupePlansById } = require('../utils/machineName');
 const { countChanges } = require('../modules/dpr/changeCounts');
+const {
+  assertPlanCreator,
+  assertMachinesInFactory,
+  planVisibleToFactorySql,
+  healPlansWithoutFactory
+} = require('../modules/planning/planFactory');
 const multer = require('multer');
 const upload = multer({
   dest: 'uploads/',
@@ -5687,12 +5693,10 @@ async function initializeLegacyRuntime() {
       )
     `).catch(err => console.warn('[DB] plan_audit_logs sequence reset skipped:', err.message));
 
-    // Backfill plan_board.factory_id for legacy plans created before factory_id was
-    // persisted. Such rows had factory_id = NULL and never appeared on the board
-    // (Master Plan / Machine Timeline), which scopes by factory_id. plant is NOT a
+    // Backfill plan_board.factory_id for plans saved without one. plant is NOT a
     // reliable proxy for factory (e.g. Shivani is factory 4; plant strings are
-    // inconsistent), so we derive factory_id from the linked order, which is
-    // authoritative. Idempotent + error-guarded so it never blocks startup.
+    // inconsistent), so it is taken from the machine master, then from the plan's
+    // order, and only when that points to exactly one factory (planFactory.js).
     // 1) Heal any factory_id pointing to a non-existent factory (e.g. a previous
     //    bad guess). Guarded so it never runs when the factories table is empty.
     await q(`
@@ -5702,16 +5706,8 @@ async function initializeLegacyRuntime() {
         AND (SELECT COUNT(*) FROM factories) > 0
         AND NOT EXISTS (SELECT 1 FROM factories f WHERE f.id = pb.factory_id)
     `).catch(err => console.warn('[DB] plan_board factory_id heal skipped:', err.message));
-    // 2) Fill NULL factory_id from the plan's order (authoritative relationship).
-    await q(`
-      UPDATE plan_board pb
-      SET factory_id = o.factory_id
-      FROM orders o
-      WHERE pb.factory_id IS NULL
-        AND TRIM(COALESCE(pb.order_no, '')) <> ''
-        AND TRIM(COALESCE(pb.order_no, '')) = TRIM(COALESCE(o.order_no, ''))
-        AND o.factory_id IS NOT NULL
-    `).catch(err => console.warn('[DB] plan_board factory_id backfill skipped:', err.message));
+    // 2) Fill NULL factory_id.
+    await healPlansWithoutFactory(q);
 
     // MISSING TABLE: std_actual
     await q(`
@@ -5880,7 +5876,9 @@ async function initializeLegacyRuntime() {
       // 2. Heal Data (Fill Nulls) — one-time per version, gated to avoid full scans every boot
       if (needsSyncHeal) {
         await q(`UPDATE ${table} SET sync_id = gen_random_uuid() WHERE sync_id IS NULL`);
-        await q(`UPDATE ${table} SET factory_id = $1 WHERE factory_id IS NULL`, [FID]);
+        // A plan's factory comes from its machine or order (planFactory.js), never from
+        // the server it happens to be on.
+        if (table !== 'plan_board') await q(`UPDATE ${table} SET factory_id = $1 WHERE factory_id IS NULL`, [FID]);
       }
 
       // 3. Unique index on sync_id (required for ON CONFLICT upsert). Skipped when an
@@ -12516,10 +12514,8 @@ app.get('/api/planning/board', async (req, res) => {
 
     if (factoryId) {
       params.push(factoryId);
-      // NULL factory_id means "unassigned / legacy / global" — keep it visible, matching
-      // the sibling queries (machine join below, bulk-approve). A strict equality here
-      // silently hides plans created before factory_id existed or imported without one.
-      where += ` AND (pb.factory_id = $${params.length} OR pb.factory_id IS NULL)`;
+      // A plan without a factory shows only where its machine belongs to this factory.
+      where += ` AND ${planVisibleToFactorySql(`$${params.length}`)}`;
     }
 
     if (date) {
@@ -12748,7 +12744,7 @@ async function fetchMachineWisePlans({ factoryId, machine, orNos }) {
   let where = `pb.status NOT IN ('COMPLETED', 'REJECTED') AND UPPER(COALESCE(pb.jc_approval_status, '')) != 'REJECTED'`;
   if (factoryId) {
     params.push(factoryId);
-    where += ` AND (pb.factory_id = $${params.length} OR pb.factory_id IS NULL)`;
+    where += ` AND ${planVisibleToFactorySql(`$${params.length}`)}`;
   }
   if (Array.isArray(orNos)) {
     // Sibling-OR expansion: any plan on ANY machine for these OR numbers.
@@ -14936,9 +14932,11 @@ app.post('/api/planning/create', async (req, res) => {
       return (aSqn ?? Number.MAX_SAFE_INTEGER) - (bSqn ?? Number.MAX_SAFE_INTEGER);
     });
     if (!plans.length) return res.json({ ok: false, error: 'No plans provided' });
-    const requestFactoryId = getFactoryId(req);
+    // Never save a plan without a user and a factory: it would show on every unit.
+    const requestUsername = getRequestUsername(req);
+    const requestFactoryId = assertPlanCreator({ username: requestUsername, factoryId: getFactoryId(req) });
+    await assertMachinesInFactory(client.query.bind(client), plans, requestFactoryId);
     const stagedOrderCodes = new Map();
-    const requestUsername = getRequestUsername(req) || 'System';
     const batchMetaByOrder = new Map();
 
     await client.query('BEGIN');
@@ -15103,6 +15101,7 @@ app.post('/api/planning/create', async (req, res) => {
 
   } catch (e) {
     await client.query('ROLLBACK');
+    if (e?.code === 'AUTH_REQUIRED') return res.status(401).json({ ok: false, code: e.code, error: e.message });
     console.error('planning/create', e);
     res.json({ ok: false, error: String(e.message || e) }); // Return 200 with error for frontend handling
   } finally {
@@ -18338,7 +18337,7 @@ app.get('/api/planning/print-jc-plans', async (req, res) => {
     const conditions = ['COALESCE(pb.order_no, \'\') <> \'\''];
     if (factoryId) {
       params.push(factoryId);
-      conditions.push(`(pb.factory_id = $${params.length} OR pb.factory_id IS NULL)`);
+      conditions.push(planVisibleToFactorySql(`$${params.length}`));
     }
     if (from) {
       params.push(from);
@@ -18437,7 +18436,7 @@ app.get('/api/planning/job-card-approvals', async (req, res) => {
     conditions.push(`UPPER(COALESCE(pb.status, 'PLANNED')) NOT IN ('REJECTED', 'COMPLETED', 'DONE', 'CANCELLED')`);
     if (factoryId) {
       params.push(factoryId);
-      conditions.push(`(pb.factory_id = $${params.length} OR pb.factory_id IS NULL)`);
+      conditions.push(planVisibleToFactorySql(`$${params.length}`));
     }
     if (search) {
       params.push(`%${search}%`);
@@ -26736,7 +26735,9 @@ app.get('/api/admin/fix-sync-schema', async (req, res) => {
 
         // 2. Heal Data
         await q(`UPDATE ${table} SET sync_id = gen_random_uuid() WHERE sync_id IS NULL`);
-        await q(`UPDATE ${table} SET factory_id = $1 WHERE factory_id IS NULL`, [FID]);
+        // A plan's factory comes from its machine or order (planFactory.js), never from
+        // the server it happens to be on.
+        if (table !== 'plan_board') await q(`UPDATE ${table} SET factory_id = $1 WHERE factory_id IS NULL`, [FID]);
 
         // 3. Unique index on sync_id (skipped when an equivalent one already exists)
         await ensureUniqueIndex(q, { table, columns: 'sync_id', name: `idx_${table}_sync_id` });
