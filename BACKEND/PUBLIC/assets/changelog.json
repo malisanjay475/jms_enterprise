@@ -14,6 +14,19 @@
   "latest": "1.177.0",
   "versions": [
     {
+      "version": "1.195.1",
+      "date": "2026-11-24",
+      "title": "Packing plan times stay right between servers",
+      "modules": [
+        {
+          "app": "packing",
+          "changes": [
+            { "type": "fix", "text": "A packing job planned for 09:00 no longer shows as 03:30 on the other server. Plan start, end and finish times now sync exactly as they were entered." }
+          ]
+        }
+      ]
+    },
+    {
       "version": "1.195.0",
       "date": "2026-11-23",
       "title": "FPA Reject History: Export to Excel",

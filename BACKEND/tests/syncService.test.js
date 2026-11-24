@@ -309,6 +309,39 @@ describe('Sync service JSONB array coercion', () => {
   });
 });
 
+describe('Sync service packing plan times', () => {
+  beforeEach(() => { jest.resetModules(); });
+
+  async function wire(table, rows) {
+    const syncService = require('../services/sync.service');
+    syncService.__test.setRuntimeForTests({ pool: { query: jest.fn().mockResolvedValue({ rows: [] }) } });
+    return syncService.__test.coerceDateColumnsForWire(table, rows);
+  }
+
+  test('a planned start crosses the wire as its wall-clock time, not the UTC instant', async () => {
+    const rows = [{ id: 1, start_time: new Date(2026, 10, 24, 9, 0, 0), end_time: new Date(2026, 10, 24, 16, 5, 30), finished_at: null, updated_at: new Date(2026, 10, 24, 8, 0, 0) }];
+    const [out] = JSON.parse(JSON.stringify(await wire('assembly_plans', rows)));
+    expect(out.start_time).toBe('2026-11-24 09:00:00.000');
+    expect(out.end_time).toBe('2026-11-24 16:05:30.000');
+    expect(out.finished_at).toBeNull();
+    // the sync watermark column keeps its form, and the source row is not changed
+    expect(out.updated_at).toBe(new Date(2026, 10, 24, 8, 0, 0).toISOString());
+    expect(rows[0].start_time).toBeInstanceOf(Date);
+  });
+
+  test('a queued outbox row (ISO text) is corrected and an already bare time is kept', async () => {
+    const iso = new Date(2026, 10, 24, 9, 0, 0).toISOString();
+    const out = await wire('assembly_plans', [{ id: 1, start_time: iso }, { id: 2, start_time: '2026-11-24 09:00:00.000' }, { id: 3, start_time: '2026-11-24T09:00:00' }]);
+    expect(out.map(r => r.start_time)).toEqual(['2026-11-24 09:00:00.000', '2026-11-24 09:00:00.000', '2026-11-24T09:00:00']);
+  });
+
+  test('other tables are not touched', async () => {
+    const at = new Date();
+    const [out] = await wire('packing_boxes', [{ id: 1, start_time: at }]);
+    expect(out.start_time).toBe(at);
+  });
+});
+
 describe('Sync service plan_board resurrection guard', () => {
   beforeEach(() => {
     jest.resetModules();
