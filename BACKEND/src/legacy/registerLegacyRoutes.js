@@ -9,7 +9,9 @@ const {
   assertMachinesInFactory,
   planVisibleToFactorySql,
   healPlansWithoutFactory,
-  ensurePlanFactoryGuard
+  ensurePlanFactoryGuard,
+  planFactoryScope,
+  findPlanByCode
 } = require('../modules/planning/planFactory');
 const multer = require('multer');
 const upload = multer({
@@ -12045,8 +12047,19 @@ app.post('/api/job/complete', async (req, res) => {
       const planId = req.body.planId || req.body.PlanID || req.body.plan_id || req.body.id;
       if (!planId) return res.status(400).json({ ok: false, error: 'Missing PlanID (AutoStart Route)' });
 
+      // Plan IDs and machine names repeat across factories: work on the one plan row.
+      const found = await findPlanByCode(pool.query.bind(pool), planId, getFactoryId(req));
+      if (found.ambiguous) return res.status(409).json({ ok: false, error: 'This Plan ID exists in more than one factory. Select your factory and try again.' });
+      if (!found.plan) return res.status(404).json({ ok: false, error: 'Job not found' });
+      const plan = found.plan;
+      const scope = await planFactoryScope(pool.query.bind(pool), plan);
+
       // 1. Check if the job actually had any production entries
-      const dprCheck = await q(`SELECT COUNT(*) as c FROM dpr_hourly WHERE plan_id = $1`, [planId]);
+      const dprCheck = await q(
+        `SELECT COUNT(*) as c FROM dpr_hourly
+          WHERE plan_id = $1 AND ($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL)`,
+        [plan.plan_id, plan.factory_id]
+      );
       const hasProduction = dprCheck.length > 0 && parseInt(dprCheck[0].c, 10) > 0;
 
       // If production was logged = it's genuinely 'Stopped'. 
@@ -12058,15 +12071,15 @@ app.post('/api/job/complete', async (req, res) => {
         WITH max_seq AS (
           SELECT COALESCE(MAX(seq), 0) as max_s 
           FROM plan_board 
-          WHERE machine = (SELECT machine FROM plan_board WHERE plan_id = $1)
+          WHERE machine = $3 AND ${scope.sql('$4', '$5')}
         )
         UPDATE plan_board 
         SET status = $2, 
             seq = (SELECT max_s FROM max_seq) + 10,
             updated_at = NOW()
-        WHERE plan_id = $1
+        WHERE id = $1
         RETURNING *
-      `, [planId, newStatus]);
+      `, [plan.id, newStatus, plan.machine, ...scope.params]);
 
       if (!r.length) return res.status(404).json({ ok: false, error: 'Job not found' });
       const currentJob = r[0];
@@ -12083,19 +12096,20 @@ app.post('/api/job/complete', async (req, res) => {
         FROM plan_board pb
         WHERE pb.machine = $1 
           AND UPPER(pb.status) NOT IN ('RUNNING', 'COMPLETED', 'COMPLETED_PENDING', 'CANCELLED', 'ARCHIVED')
+          AND ${scope.sql('$2', '$3', 'pb')}
         ORDER BY 
           pb.seq ASC, 
           pb.id ASC
         LIMIT 1
       `;
-      const nextJobs = await q(nextJobQuery, [machine]);
+      const nextJobs = await q(nextJobQuery, [machine, ...scope.params]);
 
       if (nextJobs.length > 0) {
         const nextJob = nextJobs[0];
 
         // Stop any other running plans on this machine first to prevent overlaps.
         // Use UPPER() so 'Running', 'RUNNING', etc. are all matched.
-        await q(`UPDATE plan_board SET status = 'Stopped', updated_at = NOW() WHERE TRIM(UPPER(machine)) = TRIM(UPPER($1)) AND UPPER(status) = 'RUNNING'`, [machine]);
+        await q(`UPDATE plan_board SET status = 'Stopped', updated_at = NOW() WHERE TRIM(UPPER(machine)) = TRIM(UPPER($1)) AND UPPER(status) = 'RUNNING' AND ${scope.sql('$2', '$3')}`, [machine, ...scope.params]);
 
         await q(`
           UPDATE plan_board 
@@ -12473,13 +12487,13 @@ app.get('/api/planning/board', async (req, res) => {
     // even when plans already had valid machine assignments, causing data corruption.
     // Plans keep whatever machine they were saved with; only explicit user edits change it.
 
-    // Self-heal 2: if any machine has >1 RUNNING plan, keep only the most-recently-updated one
+    // Self-heal 2: if any machine of a factory has >1 RUNNING plan, keep only the most-recently-updated one
     await q(`
       UPDATE plan_board SET status = 'Stopped', updated_at = NOW()
       WHERE id IN (
         SELECT id FROM (
           SELECT id,
-                 ROW_NUMBER() OVER (PARTITION BY TRIM(UPPER(machine)) ORDER BY updated_at DESC, id DESC) AS rn
+                 ROW_NUMBER() OVER (PARTITION BY TRIM(UPPER(machine)), COALESCE(factory_id, 0) ORDER BY updated_at DESC, id DESC) AS rn
           FROM plan_board
           WHERE UPPER(status) = 'RUNNING'
         ) ranked
@@ -13126,15 +13140,19 @@ async function getPriorityContiguityError(machine, planId, priority, fClause) {
 
 // Renumber a machine's P1..P4 so they stay contiguous and gap-free after a plan
 // leaves the queue (completed / priority cleared). COMPLETED/REJECTED plans are excluded.
-async function compactMachinePriorities(machine) {
+// Own factory only: the same machine name in another factory has its own P1..P4.
+async function compactMachinePriorities(plan) {
+  const machine = plan && plan.machine;
   if (!machine) return;
+  const scope = await planFactoryScope(pool.query.bind(pool), plan);
   const labelled = await q(
     `SELECT id, machine_priority FROM plan_board
        WHERE TRIM(UPPER(machine)) = TRIM(UPPER($1))
          AND machine_priority IS NOT NULL
          AND UPPER(COALESCE(status, '')) <> 'COMPLETED'
          AND UPPER(COALESCE(jc_approval_status, '')) <> 'REJECTED'
-       ORDER BY machine_priority ASC`, [machine]
+         AND ${scope.sql('$2', '$3')}
+       ORDER BY machine_priority ASC`, [machine, ...scope.params]
   );
   const labels = ['P1', 'P2', 'P3', 'P4'];
   for (let i = 0; i < labelled.length; i++) {
@@ -13206,7 +13224,8 @@ app.post('/api/planning/machine-priority', async (req, res) => {
 
       // 4. Compact: renumber remaining labels on this machine so P1..P4 stay contiguous
       //    (gap-free) and exclude any completed/rejected holders.
-      await compactMachinePriorities(machine);
+      const compactPlan = await q('SELECT factory_id, order_no FROM plan_board WHERE id = $1', [planId]);
+      if (compactPlan.length) await compactMachinePriorities({ ...compactPlan[0], machine });
       await q('COMMIT');
     } catch (txErr) {
       await q('ROLLBACK');
@@ -13367,7 +13386,7 @@ app.post('/api/planning/complete', async (req, res) => {
           updated_at = NOW(),
           last_updated_at = NOW()
       WHERE id = $1
-      RETURNING id, plan_id, order_no, machine
+      RETURNING id, plan_id, order_no, machine, factory_id
     `, [id, remarks || '', user || 'System']);
 
     // A completed plan leaves the priority queue: clear its P1–P4 label and renumber the
@@ -13376,7 +13395,7 @@ app.post('/api/planning/complete', async (req, res) => {
     if (upd && upd.length && upd[0].machine) {
       await q(`UPDATE plan_board SET machine_priority = NULL, updated_at = NOW()
                  WHERE id = $1 AND machine_priority IS NOT NULL`, [id]);
-      await compactMachinePriorities(upd[0].machine);
+      await compactMachinePriorities(upd[0]);
     }
 
     // Audit trail so "who completed it / when" is answerable later (previously
@@ -15428,13 +15447,15 @@ app.post('/api/planning/update', async (req, res) => {
 
     // If updating to RUNNING, auto-stop any other RUNNING plan on the same machine first
     if (status && status.toUpperCase() === 'RUNNING') {
-      const planRow = await q('SELECT machine FROM plan_board WHERE id = $1', [rowId]);
+      const planRow = await q('SELECT machine, factory_id, order_no FROM plan_board WHERE id = $1', [rowId]);
       if (planRow.length && planRow[0].machine) {
+        const scope = await planFactoryScope(pool.query.bind(pool), planRow[0]);
         const stopped = await q(
           `UPDATE plan_board SET status = 'Stopped', updated_at = NOW()
            WHERE TRIM(UPPER(machine)) = TRIM(UPPER($1)) AND UPPER(status) = 'RUNNING' AND id != $2
+             AND ${scope.sql('$3', '$4')}
            RETURNING id, order_no`,
-          [planRow[0].machine, rowId]
+          [planRow[0].machine, rowId, ...scope.params]
         );
         for (const s of stopped) {
           await q(
@@ -15896,14 +15917,17 @@ app.post('/api/planning/run', async (req, res) => {
     // 2. Check for EXISTING Running Plan on this machine
     // 2. AUTO-STOP ALL other Running Plans (Robust Fix)
     // Use UPDATE with RETURNING to catch and stop multiple existing plans if any
+    // Own factory only: machine names repeat across factories.
+    const scope = await planFactoryScope(pool.query.bind(pool), plan);
     const stopped = await q(
       `UPDATE plan_board 
           SET status = 'Stopped', updated_at = NOW() 
         WHERE TRIM(UPPER(machine)) = TRIM(UPPER($1)) 
           AND UPPER(status) = 'RUNNING' 
           AND id != $2
+          AND ${scope.sql('$3', '$4')}
         RETURNING id, order_no`,
-      [machine, rowId]
+      [machine, rowId, ...scope.params]
     );
 
     // Log Stops
@@ -17293,14 +17317,17 @@ app.post('/api/planning/start', async (req, res) => {
 
     // 2. Auto-stop any other Running plans on this machine first.
     //    Using UPPER() so 'Running', 'RUNNING' etc. are all caught.
+    //    Own factory only: machine names repeat across factories.
+    const scope = await planFactoryScope(pool.query.bind(pool), plan);
     const stopped = await q(
       `UPDATE plan_board
           SET status = 'Stopped', updated_at = NOW()
         WHERE TRIM(UPPER(machine)) = TRIM(UPPER($1))
           AND UPPER(status) = 'RUNNING'
           AND id != $2
+          AND ${scope.sql('$3', '$4')}
         RETURNING id, order_no`,
-      [plan.machine, rowId]
+      [plan.machine, rowId, ...scope.params]
     );
     for (const s of stopped) {
       await q(
@@ -17958,14 +17985,15 @@ app.post('/api/planning/move', async (req, res) => {
       );
     }
 
-    // 4. Handle Resequencing
+    // 4. Handle Resequencing (own factory only: machine names repeat across factories)
+    const scope = await planFactoryScope(pool.query.bind(pool), { ...plan, machine: targetMachine });
     const { dropBeforeId } = req.body;
 
     // A. Get all plans for this machine (excluding the moved one, to re-insert)
     // We fetch everything sorted by seq, then re-build the list.
     let allPlans = await q(
-      `SELECT id, seq FROM plan_board WHERE machine = $1 AND id != $2 ORDER BY seq ASC, id ASC`,
-      [targetMachine, rowId]
+      `SELECT id, seq FROM plan_board WHERE machine = $1 AND id != $2 AND ${scope.sql('$3', '$4')} ORDER BY seq ASC, id ASC`,
+      [targetMachine, rowId, ...scope.params]
     );
 
     // B. Determine Insert Index - honor dropBeforeId when provided, else append to end
@@ -17988,9 +18016,10 @@ app.post('/api/planning/move', async (req, res) => {
 
     // E. Also compact the old machine when a plan was moved away.
     if (plan.machine && String(plan.machine).trim() !== String(targetMachine).trim()) {
+      const oldScope = await planFactoryScope(pool.query.bind(pool), plan);
       const oldMachinePlans = await q(
-        `SELECT id FROM plan_board WHERE machine = $1 ORDER BY COALESCE(seq, 999999) ASC, start_date ASC, id ASC`,
-        [plan.machine]
+        `SELECT id FROM plan_board WHERE machine = $1 AND ${oldScope.sql('$2', '$3')} ORDER BY COALESCE(seq, 999999) ASC, start_date ASC, id ASC`,
+        [plan.machine, ...oldScope.params]
       );
       for (let i = 0; i < oldMachinePlans.length; i++) {
         await q('UPDATE plan_board SET seq = $1 WHERE id = $2', [(i + 1) * 10, oldMachinePlans[i].id]);
@@ -18048,9 +18077,21 @@ app.post('/api/planning/reseq', async (req, res) => {
 
       // Only reseq ids that actually belong to this machine.
       // ORDER BY keeps a deterministic order when appending "missing" ids below.
+      // The factory is that of the first plan in the list: the same machine name in
+      // another factory is a different queue.
+      const firstPlan = await client.query(
+        'SELECT machine, factory_id, order_no FROM plan_board WHERE machine = $1 AND id::text = ANY($2::text[]) ORDER BY array_position($2::text[], id::text) LIMIT 1',
+        [machine, orderedIds.map(String)]
+      );
+      if (!firstPlan.rows.length) {
+        await client.query('ROLLBACK');
+        client.release();
+        return res.json({ ok: false, error: 'These plans are not on this machine any more. Refresh and try again.' });
+      }
+      const scope = await planFactoryScope(client.query.bind(client), firstPlan.rows[0]);
       const existing = await client.query(
-        'SELECT id FROM plan_board WHERE machine = $1 ORDER BY COALESCE(seq, 999999) ASC, id ASC',
-        [machine]
+        `SELECT id FROM plan_board WHERE machine = $1 AND ${scope.sql('$2', '$3')} ORDER BY COALESCE(seq, 999999) ASC, id ASC`,
+        [machine, ...scope.params]
       );
       const valid = new Set(existing.rows.map(r => String(r.id)));
       const finalOrder = orderedIds.map(String).filter(id => valid.has(id));
@@ -36536,13 +36577,20 @@ app.post(/^\/api\/job\/supervisor-complete\/?$/, async (req, res) => {
       return res.status(400).json({ ok: false, error: 'Missing PlanID' });
     }
 
+    // Plan IDs and machine names repeat across factories: work on the one plan row.
+    const found = await findPlanByCode(pool.query.bind(pool), planId, getFactoryId(req));
+    if (found.ambiguous) return res.status(409).json({ ok: false, error: 'This Plan ID exists in more than one factory. Select your factory and try again.' });
+    if (!found.plan) return res.status(404).json({ ok: false, error: 'Job not found' });
+    const plan = found.plan;
+    const scope = await planFactoryScope(pool.query.bind(pool), plan);
+
     // 1. Mark current job as 'Stopped' (User override: NOT COMPLETED_PENDING)
     const r = await q(`
       UPDATE plan_board 
       SET status = 'Stopped', updated_at = NOW()
-      WHERE plan_id = $1
+      WHERE id = $1
 RETURNING *
-  `, [planId]);
+  `, [plan.id]);
 
     if (!r.length) return res.status(404).json({ ok: false, error: 'Job not found' });
 
@@ -36563,7 +36611,7 @@ RETURNING *
         FROM plan_board pb
         LEFT JOIN moulds m ON m.mould_name = pb.mould_name 
         LEFT JOIN mould_planning_summary mps ON (mps.or_jr_no = pb.order_no AND mps.mould_name = pb.mould_name)
-        WHERE pb.plan_id = $2
+        WHERE pb.id = $2
         LIMIT 1
       )
       SELECT pb.id, pb.plan_id, pb.machine, pb.status 
@@ -36572,7 +36620,8 @@ RETURNING *
       LEFT JOIN mould_planning_summary mps ON (mps.or_jr_no = pb.order_no AND mps.mould_name = pb.mould_name)
       WHERE pb.machine = $1 
         AND pb.status NOT IN ('Running', 'COMPLETED', 'COMPLETED_PENDING', 'CANCELLED', 'ARCHIVED')
-        AND pb.plan_id != $2
+        AND pb.id != $2
+        AND ${scope.sql('$3', '$4', 'pb')}
       ORDER BY 
         CASE 
           WHEN COALESCE(mps.mould_no, m.mould_number, '-') = (SELECT mould_no FROM current_mould) 
@@ -36585,17 +36634,17 @@ RETURNING *
       LIMIT 1
     `;
 
-    const nextJobRes = await q(nextJobQuery, [machine, planId]);
+    const nextJobRes = await q(nextJobQuery, [machine, currentJobId, ...scope.params]);
 
     let autoStartMessage = 'Job stopped successfully.';
     if (nextJobRes.length > 0) {
       const nextJob = nextJobRes[0];
 
       // Auto-Start next prioritized job
-      await q("UPDATE plan_board SET status = 'Running', start_date = NOW(), updated_at = NOW() WHERE plan_id = $1", [nextJob.plan_id]);
+      await q("UPDATE plan_board SET status = 'Running', start_date = NOW(), updated_at = NOW() WHERE id = $1", [nextJob.id]);
 
       // Stop any other accidentally overlapping active jobs on same machine
-      await q("UPDATE plan_board SET status = 'Stopped', updated_at = NOW() WHERE TRIM(UPPER(machine)) = TRIM(UPPER($1)) AND plan_id != $2 AND UPPER(status) = 'RUNNING'", [machine, nextJob.plan_id]);
+      await q(`UPDATE plan_board SET status = 'Stopped', updated_at = NOW() WHERE TRIM(UPPER(machine)) = TRIM(UPPER($1)) AND id != $2 AND UPPER(status) = 'RUNNING' AND ${scope.sql('$3', '$4')}`, [machine, nextJob.id, ...scope.params]);
 
       // Log auto-start
       await q(

@@ -134,6 +134,51 @@ async function resolvePlanFactory(query, { machine, orderNo }) {
   return null;
 }
 
+/**
+ * The plans that share a machine with `plan` in the SAME factory. Machine names repeat
+ * across factories, so a machine name alone must never decide which plans to change.
+ *
+ * A plan without a factory (old row) takes the factory its machine or order certainly
+ * belongs to. Other plans without a factory are included only when the machine exists in
+ * that one factory alone; with nothing certain, only plans without a factory match.
+ *
+ * Use: `... AND ${scope.sql('$3', '$4')}` with [...params, ...scope.params].
+ */
+async function planFactoryScope(query, plan) {
+  let factoryId = plan.factory_id == null ? null : Number(plan.factory_id);
+  if (factoryId == null) factoryId = await resolvePlanFactory(query, { machine: plan.machine, orderNo: plan.order_no });
+  const includeNoFactory = factoryId == null
+    || (await resolvePlanFactory(query, { machine: plan.machine })) === factoryId;
+  return {
+    params: [factoryId, includeNoFactory],
+    sql(idParam, noFactoryParam, alias) {
+      const col = alias ? `${alias}.factory_id` : 'factory_id';
+      return `(${col} = ${idParam}::int OR (${noFactoryParam}::boolean AND ${col} IS NULL))`;
+    }
+  };
+}
+
+/**
+ * The one plan row with this plan_id for a user of `factoryId` (null = no factory selected).
+ * plan_id repeats across factories: another factory's plan is never returned, and without
+ * a selected factory a repeated plan_id is ambiguous.
+ */
+async function findPlanByCode(query, planCode, factoryId) {
+  const { rows } = await query('SELECT * FROM plan_board WHERE plan_id = $1', [String(planCode)]);
+  if (!Number.isInteger(factoryId)) {
+    return rows.length > 1 ? { plan: null, ambiguous: true } : { plan: rows[0] || null, ambiguous: false };
+  }
+  let plan = rows.find((r) => r.factory_id != null && Number(r.factory_id) === Number(factoryId)) || null;
+  if (!plan) {
+    const orphan = rows.find((r) => r.factory_id == null);
+    if (orphan) {
+      const owner = await resolvePlanFactory(query, { machine: orphan.machine, orderNo: orphan.order_no });
+      if (owner == null || owner === Number(factoryId)) plan = orphan;
+    }
+  }
+  return { plan, ambiguous: false };
+}
+
 // Last line of defence: whatever code writes the row (a route, ERP, sync, a script), the
 // database itself refuses a plan with no factory. Old rows without one can still be edited,
 // so nothing on the floor stops; only a NEW one, or removing a factory, is refused.
@@ -177,5 +222,7 @@ module.exports = {
   planVisibleToFactorySql,
   healPlansWithoutFactory,
   resolvePlanFactory,
-  ensurePlanFactoryGuard
+  ensurePlanFactoryGuard,
+  planFactoryScope,
+  findPlanByCode
 };
