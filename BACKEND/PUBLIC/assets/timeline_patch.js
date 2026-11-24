@@ -796,7 +796,8 @@
         if (!planId) return {};
         try {
             const api = (window.JPSMS && window.JPSMS.api) ? window.JPSMS.api : window.api;
-            const res = await api.get('/extra-qty?plan_id=' + encodeURIComponent(planId));
+            const fid = window._ddState.data?.factoryId; // the plan's own factory (plan IDs repeat per factory)
+            const res = await api.get('/extra-qty?plan_id=' + encodeURIComponent(planId) + (fid ? '&factory_id=' + encodeURIComponent(fid) : ''));
             const map = {};
             (res && res.ok ? res.data : []).forEach(g => {
                 const k = String(g.colour || '').trim().toUpperCase();
@@ -882,7 +883,7 @@
             try {
                 const api = (window.JPSMS && window.JPSMS.api) ? window.JPSMS.api : window.api;
                 const res = await api.post('/extra-qty/allow', {
-                    plan_id: planId, colour, extra_qty: qty, remarks,
+                    plan_id: planId, order_no: window._ddState.data?.orderNo, colour, extra_qty: qty, remarks,
                     session: { username: _eqaUser().username }
                 });
                 if (!res || !res.ok) throw new Error(res?.error || 'Failed');

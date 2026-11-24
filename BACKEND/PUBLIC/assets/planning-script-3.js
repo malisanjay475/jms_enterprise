@@ -7332,6 +7332,15 @@
             return toast(getCpBatchBlockMessage(payloads), 'error');
           }
 
+          // Job Qty is in sets, Plan Qty is in pieces (handle x2 = 2 pcs per set).
+          const shortRows = payloads.flatMap((p) => (p.colourDetails || []).filter((c) =>
+            Number(c.consumptionRatioQty) > 1 && Number(c.planQty) < Number(c.batchQty) * Number(c.consumptionRatioQty)));
+          if (shortRows.length) {
+            const lines = shortRows.map((c) =>
+              `${c.colourName}: Plan Qty ${c.planQty}, needed ${c.batchQty} x ${c.consumptionRatioQty} = ${c.batchQty * c.consumptionRatioQty}`);
+            if (!confirm(`Plan Qty is less than Job Qty x Consumption Ratio:\n\n${lines.join('\n')}\n\nAdd to queue anyway?`)) return;
+          }
+
           let added = 0;
           payloads.forEach((payload) => {
             const exists = cpDraftQueue.find((x) => x.mouldCode === payload.mouldCode && x.orderNo === payload.orderNo && x.machine === payload.machine);
