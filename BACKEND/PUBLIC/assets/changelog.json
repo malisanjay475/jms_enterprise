@@ -14,6 +14,19 @@
   "latest": "1.177.0",
   "versions": [
     {
+      "version": "1.197.2",
+      "date": "2026-11-24",
+      "title": "Order Tracker shows only your factory's orders",
+      "modules": [
+        {
+          "app": "planning",
+          "changes": [
+            { "type": "fix", "text": "Order Tracker: the Order wise list no longer shows another plant's orders that were saved under your factory." }
+          ]
+        }
+      ]
+    },
+    {
       "version": "1.197.1",
       "date": "2026-11-24",
       "title": "Plans stay in their own unit",
