@@ -1393,6 +1393,9 @@
                     if (token) headers.Authorization = `Bearer ${token}`;
                     const u = JSON.parse(localStorage.getItem('user') || '{}');
                     if (u.username) headers['X-User-Name'] = u.username;
+                    /* plain fetch: JPSMS.api adds this itself, here it must be sent or the sheet covers every factory */
+                    const factoryId = localStorage.getItem('jpsms_factory_id');
+                    if (factoryId) headers['X-Factory-ID'] = factoryId;
                     const qs = new URLSearchParams({ until: $('tuntil').value, eff: Number($('teff').value) || 100, basis: $('tbasis').value, factory: $('fac').textContent || '' });
                     const res = await fetch(`/api/order-tracker/tonnage.xlsx?${qs}`, { headers });
                     if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Download failed');

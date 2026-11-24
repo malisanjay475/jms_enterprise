@@ -14,6 +14,22 @@
   "latest": "1.177.0",
   "versions": [
     {
+      "version": "1.196.1",
+      "date": "2026-11-24",
+      "title": "Tonnage load Excel shows only your factory",
+      "modules": [
+        {
+          "app": "planning",
+          "changes": [
+            {
+              "type": "fix",
+              "text": "Order Tracker: the Tonnage load Excel download now has only the orders and machines of the factory you are logged in to, same as the screen."
+            }
+          ]
+        }
+      ]
+    },
+    {
       "version": "1.196.0",
       "date": "2026-11-24",
       "title": "Packing plan redesigned, with a table-wise view",
