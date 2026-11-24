@@ -51,7 +51,7 @@ dbDescribe('same machine name in two factories', () => {
       CREATE TABLE moulds (mould_name TEXT, mould_number TEXT);
       CREATE TABLE mould_planning_summary (or_jr_no TEXT, mould_name TEXT, mould_no TEXT);
       CREATE TABLE or_jr_report (or_jr_no TEXT, job_card_no TEXT, is_closed BOOLEAN, created_date TIMESTAMPTZ);
-      CREATE TABLE plan_audit_logs (plan_id TEXT, action TEXT, details JSONB, user_name TEXT);`);
+      CREATE TABLE plan_audit_logs (plan_id INT, action TEXT, details JSONB, user_name TEXT, factory_id INT);`);
     app = express();
     app.use(express.json());
     registerLegacyRoutes({

@@ -41,9 +41,11 @@ async function mirrorTableScanner(db, station, code, config) {
   if (!cur.rows.length && !cfg) return;
   if (cur.rows.length && String(cur.rows[0].scanner_config || '') === cfg) return;
   await db.query(
-    `INSERT INTO assembly_lines (line_id, line_name, scanner_config, updated_at) VALUES ($1, $2, $3, NOW())
-     ON CONFLICT (line_id) DO UPDATE SET scanner_config = EXCLUDED.scanner_config, updated_at = NOW()`,
-    [lineId, `${clean(station, 120)} · ${clean(code, 20).toUpperCase()}`, cfg]);
+    `INSERT INTO assembly_lines (line_id, line_name, scanner_config, updated_at, factory_id) VALUES ($1, $2, $3, NOW(),
+       (SELECT MIN(factory_id) FROM packing_stations WHERE LOWER(name) = LOWER($4) HAVING COUNT(DISTINCT factory_id) = 1))
+     ON CONFLICT (line_id) DO UPDATE SET scanner_config = EXCLUDED.scanner_config, updated_at = NOW(),
+       factory_id = COALESCE(assembly_lines.factory_id, EXCLUDED.factory_id)`,
+    [lineId, `${clean(station, 120)} · ${clean(code, 20).toUpperCase()}`, cfg, clean(station, 120)]);
 }
 
 /* Active plans once more per table they run on, under the table's scanner line id. */
