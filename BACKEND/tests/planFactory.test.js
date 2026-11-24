@@ -141,12 +141,15 @@ describe('code check', () => {
     let seen = 0;
     for (const file of files) {
       const text = fs.readFileSync(file, 'utf8');
-      for (const m of text.matchAll(/INSERT\s+INTO\s+plan_board\s*\(((?:\$\{[^}]*\}|[^)])*)\)/gi)) {
+      for (const m of text.matchAll(/INSERT\s+INTO\s+plan_board\s*\(/gi)) {
+        const start = m.index + m[0].length;
+        const end = text.indexOf('VALUES', start);
+        const columns = text.slice(start, end === -1 ? start : end);
         seen += 1;
         // recover-deleted-plan builds its columns from the snapshot, after setting factory_id.
-        const ok = m[1].includes('${')
+        const ok = columns.includes('${')
           ? text.slice(0, m.index).includes('planSnap.factory_id = Number(snapFactoryId)')
-          : /\bfactory_id\b/.test(m[1]);
+          : /\bfactory_id\b/.test(columns);
         if (!ok) bad.push(path.relative(root, file));
       }
     }
