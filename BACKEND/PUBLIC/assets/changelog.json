@@ -11,8 +11,32 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.197.5",
+  "latest": "1.197.7",
   "versions": [
+    {
+      "version": "1.197.7",
+      "date": "2026-11-24",
+      "changes": [
+        {
+          "app": "all",
+          "type": "security",
+          "text": "Internal code check made simpler after a security scan; nothing changes on screen."
+        }
+      ]
+    },
+    {
+      "version": "1.197.6",
+      "date": "2026-11-24",
+      "title": "Plans stay inside their own factory",
+      "modules": [
+        {
+          "app": "planning",
+          "changes": [
+            { "type": "fix", "text": "Starting, stopping, completing, moving or re-ordering a plan no longer affects another factory's plans on a machine with the same name." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.197.5",
       "date": "2026-11-24",
