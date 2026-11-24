@@ -3524,12 +3524,46 @@ function toWireDateString(value) {
     return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
 }
 
+// Plain TIMESTAMP columns that hold a wall-clock time a person planned (no time zone).
+// The pg driver reads them as a JS Date in the process zone and JSON sends the UTC
+// instant; the receiver's TIMESTAMP column then drops the "Z" and keeps the UTC clock,
+// so a packing job planned for 09:00 lands as 03:30 on the other server. Sent as a bare
+// 'YYYY-MM-DD HH:MM:SS.mmm' string they keep the planned time on any server.
+// created_at / updated_at are left alone on purpose: watermarks and the newer-row-wins
+// guard compare them in the form every deployed server already stores.
+const WALL_CLOCK_COLUMNS = {
+    assembly_plans: ['start_time', 'end_time', 'finished_at']
+};
+
+function toWireTimestampString(value) {
+    if (value == null) return value;
+    // already a zone-less time (a row sent by a fixed server, or a drained outbox row)
+    if (typeof value === 'string' && !/(Z|[+-]\d{2}:?\d{2})$/i.test(value.trim())) return value;
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) return value;
+    return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} `
+        + `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}.${String(d.getMilliseconds()).padStart(3, '0')}`;
+}
+
+function coerceWallClockColumnsForWire(table, rows) {
+    const cols = WALL_CLOCK_COLUMNS[table];
+    if (!cols || !Array.isArray(rows)) return rows;
+    return rows.map((row) => {
+        const clone = { ...row };
+        for (const col of cols) {
+            if (clone[col] != null) clone[col] = toWireTimestampString(clone[col]);
+        }
+        return clone;
+    });
+}
+
 // Rewrite DATE columns to bare 'YYYY-MM-DD' strings before a row crosses the sync
 // wire, so timezone differences between LOCAL and MAIN cannot shift the calendar day.
 // Only touches columns whose Postgres type is exactly `date` — timestamp/timestamptz
 // (e.g. updated_at) are left intact so watermark comparisons stay precise.
-async function coerceDateColumnsForWire(table, rows) {
-    if (!Array.isArray(rows) || rows.length === 0) return rows;
+async function coerceDateColumnsForWire(table, sourceRows) {
+    if (!Array.isArray(sourceRows) || sourceRows.length === 0) return sourceRows;
+    const rows = coerceWallClockColumnsForWire(table, sourceRows);
     const dateCols = await getDateColumns(table);
     if (dateCols.size === 0) return rows;
 
@@ -3705,6 +3739,7 @@ module.exports = {
         rowRecordPk,
         pushRowsToMain,
         coerceJsonColumnsForWire,
+        coerceDateColumnsForWire,
         upsertData,
         adoptDprHourlyTwinGlobalId,
         setRuntimeForTests,
