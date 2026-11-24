@@ -13,6 +13,7 @@ const {
   planFactoryScope,
   findPlanByCode
 } = require('../modules/planning/planFactory');
+const { withTransactionDeadlockRetry } = require('../utils/deadlockRetry');
 const { deriveSummaryRowsFromDetails } = require('../modules/planning/summaryFromDetails');
 const multer = require('multer');
 const upload = multer({
@@ -4193,6 +4194,9 @@ async function syncOrderCompletionConfirmations(db = pool, { factoryId = null, a
           ]
         );
       } else {
+        // Write only on a real change. Rewriting every cancelled order on each run
+        // re-synced them to the factory servers, whose push of the same rows then
+        // deadlocked with the next run.
         await db.query(
           `UPDATE orders
               SET item_code = COALESCE($2, item_code),
@@ -4210,7 +4214,23 @@ async function syncOrderCompletionConfirmations(db = pool, { factoryId = null, a
                   completion_confirmed_at = NULL,
                   completion_confirmed_by = NULL,
                   updated_at = NOW()
-            WHERE id = $1`,
+            WHERE id = $1
+              AND (
+                item_code IS DISTINCT FROM COALESCE($2, item_code)
+                OR item_name IS DISTINCT FROM COALESCE($3, item_name)
+                OR client_name IS DISTINCT FROM COALESCE($4, client_name)
+                OR qty IS DISTINCT FROM COALESCE($5, qty)
+                OR factory_id IS DISTINCT FROM COALESCE($6, factory_id)
+                OR status IS DISTINCT FROM 'Cancelled'
+                OR completion_confirmation_required IS DISTINCT FROM FALSE
+                OR completion_change_field IS NOT NULL
+                OR completion_change_to IS NOT NULL
+                OR completion_change_summary IS NOT NULL
+                OR completion_detected_at IS NOT NULL
+                OR completion_source_snapshot IS DISTINCT FROM '{}'::jsonb
+                OR completion_confirmed_at IS NOT NULL
+                OR completion_confirmed_by IS NOT NULL
+              )`,
           [
             existing.id,
             normalizeOptionalText(group.item_code),
@@ -22330,20 +22350,11 @@ async function runErpAutoSyncCycle(trigger = 'auto') {
         fs.imported = saved.upsertCount;
 
         // Build Order Master + completion history in its own transaction.
-        const client = await pool.connect();
-        try {
-          await client.query('BEGIN');
-          const ord = await runOrdersFetchFromOrJr(client, { factoryId: f.id, actorName: 'ERP-AutoSync' });
-          await client.query('COMMIT');
-          fs.orders_added = ord.count;
-          fs.orders_updated = ord.updated;
-          fs.completion_flagged = ord.flagged;
-        } catch (e) {
-          await client.query('ROLLBACK').catch(() => {});
-          throw e;
-        } finally {
-          client.release();
-        }
+        const ord = await withTransactionDeadlockRetry(pool, (client) =>
+          runOrdersFetchFromOrJr(client, { factoryId: f.id, actorName: 'ERP-AutoSync' }));
+        fs.orders_added = ord.count;
+        fs.orders_updated = ord.updated;
+        fs.completion_flagged = ord.flagged;
 
         // Also import OR-JR Wise Summary + Details from the fetched ERP snapshot
         // into the planning tables, per factory, so LOCAL servers receive the new
@@ -24653,28 +24664,19 @@ app.post('/api/orders/fetch-from-orjr', async (req, res) => {
       return res.status(writeContext.status || 403).json({ ok: false, error: writeContext.error });
     }
     const requestFactoryId = writeContext.factoryId;
-    const client = await pool.connect();
-    try {
-      await client.query('BEGIN');
-      const r = await runOrdersFetchFromOrJr(client, {
+    const r = await withTransactionDeadlockRetry(pool, (client) =>
+      runOrdersFetchFromOrJr(client, {
         factoryId: requestFactoryId,
         actorName: getRequestUsername(req) || 'System'
-      });
-      await client.query('COMMIT');
-      res.json({
-        ok: true,
-        message: r.noCandidates
-          ? (r.flagged > 0
-            ? `No open OR-JR rows to fetch. ${r.flagged} orders moved to confirmation.`
-            : 'No matching active records found in OR-JR Report.')
-          : `Synced successfully. Added: ${r.count}, Updated: ${r.updated}, Pending confirmation: ${r.flagged}, Cleared: ${r.cleared}`
-      });
-    } catch (e) {
-      await client.query('ROLLBACK');
-      throw e;
-    } finally {
-      client.release();
-    }
+      }));
+    res.json({
+      ok: true,
+      message: r.noCandidates
+        ? (r.flagged > 0
+          ? `No open OR-JR rows to fetch. ${r.flagged} orders moved to confirmation.`
+          : 'No matching active records found in OR-JR Report.')
+        : `Synced successfully. Added: ${r.count}, Updated: ${r.updated}, Pending confirmation: ${r.flagged}, Cleared: ${r.cleared}`
+    });
   } catch (e) {
     console.error(e);
     sendServerError(res, e);
