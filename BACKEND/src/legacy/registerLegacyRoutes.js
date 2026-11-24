@@ -13,6 +13,7 @@ const {
   planFactoryScope,
   findPlanByCode
 } = require('../modules/planning/planFactory');
+const { deriveSummaryRowsFromDetails } = require('../modules/planning/summaryFromDetails');
 const multer = require('multer');
 const upload = multer({
   dest: 'uploads/',
@@ -22834,6 +22835,28 @@ async function buildErpPlanningRows(cfgKey, requestFactoryId) {
       seen.set(key, row);
     }
     rows = Array.from(seen.values());
+
+    // Orders whose ERP summary came with a blank mould: use the moulds in ERP Details.
+    // Planning rows are looked up across all factories because (or_jr_no, mould_no)
+    // is unique globally.
+    const blankOrderDetails = await q(`
+      SELECT d.* FROM erp_jr_details d
+       WHERE TRIM(COALESCE(d.mould_no, '')) <> '' AND TRIM(COALESCE(d.c_item_code, '')) <> ''
+         AND LOWER(TRIM(d.or_jr_no)) NOT IN (
+           SELECT LOWER(TRIM(s.or_jr_no)) FROM erp_jr_summary s
+            WHERE s.or_jr_no IS NOT NULL AND TRIM(COALESCE(s.mould_no, '')) <> '')
+       ORDER BY d.id
+    `);
+    const details = blankOrderDetails
+      .filter((r) => !['other', 'unresolved'].includes(classifyErpRowFactory(r, requestFactoryId, factoryMap)))
+      .map((r) => erpPlanningRowFromSnapshot(r, 'detail', requestFactoryId));
+    if (details.length) {
+      const planned = await q(
+        `SELECT DISTINCT or_jr_no FROM mould_planning_summary WHERE LOWER(TRIM(or_jr_no)) = ANY($1::text[])`,
+        [[...new Set(details.map((r) => r.or_jr_no.toLowerCase()))]]
+      );
+      rows.push(...deriveSummaryRowsFromDetails(rows, details, planned.map((r) => r.or_jr_no)));
+    }
   }
 
   return { rows, snapshotRows: snapshot.length, otherFactory, unresolved, missingMould, collapsed };
