@@ -7,6 +7,8 @@ const {
 
 // Uses the app's shared connection pool (see src/db/sharedPool.js).
 
+const { resolvePlanFactory } = require('../src/modules/planning/planFactory');
+
 const SERVICE_NAME = 'ERP_SERVICE';
 
 /**
@@ -46,13 +48,6 @@ async function upsertMouldPlan(payload) {
 
             const erpRef = item.or_jr_no + '_' + item.mould_code + '_' + item.plan_date;
 
-            const sql = `
-                INSERT INTO plan_board 
-                (machine, mould_name, item_code, plan_qty, start_date, status, erp_ref_id, order_no)
-                VALUES ($1, $2, $3, $4, $5, 'PLANNED', $6, $7)
-                ON CONFLICT (plan_id) DO NOTHING -- Plan ID is not known here, so we rely on finding it first?
-            `;
-
             // BETTER: Check if exists via erp_ref_id
             const check = await client.query('SELECT id FROM plan_board WHERE erp_ref_id = $1', [erpRef]);
 
@@ -65,7 +60,14 @@ async function upsertMouldPlan(payload) {
                     WHERE erp_ref_id = $2
                 `, [item.plan_qty, erpRef]);
             } else {
-                // Insert
+                // Insert. ERP sends no factory; without one the plan would show on every unit.
+                const factoryId = await resolvePlanFactory(client.query.bind(client), {
+                    machine: item.machine_name,
+                    orderNo: item.or_jr_no
+                });
+                if (factoryId == null) {
+                    throw new Error(`Cannot tell the factory of machine ${item.machine_name} / order ${item.or_jr_no}. Plan not saved.`);
+                }
                 const planId = await generateFinancialYearSequenceId(client.query.bind(client), {
                     prefix: 'PLN',
                     table: 'plan_board',
@@ -75,8 +77,8 @@ async function upsertMouldPlan(payload) {
 
                 await client.query(`
                     INSERT INTO plan_board 
-                    (plan_id, machine, mould_name, item_code, plan_qty, start_date, status, erp_ref_id, order_no)
-                    VALUES ($1, $2, $3, $4, $5, $6, 'PLANNED', $7, $8)
+                    (plan_id, machine, mould_name, item_code, plan_qty, start_date, status, erp_ref_id, order_no, factory_id, created_by)
+                    VALUES ($1, $2, $3, $4, $5, $6, 'PLANNED', $7, $8, $9, 'ERP')
                  `, [
                     planId,
                     item.machine_name,
@@ -85,7 +87,8 @@ async function upsertMouldPlan(payload) {
                     item.plan_qty,
                     item.plan_date,
                     erpRef,
-                    item.or_jr_no
+                    item.or_jr_no,
+                    factoryId
                 ]);
             }
         }

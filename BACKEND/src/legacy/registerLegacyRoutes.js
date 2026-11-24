@@ -8,7 +8,8 @@ const {
   assertPlanCreator,
   assertMachinesInFactory,
   planVisibleToFactorySql,
-  healPlansWithoutFactory
+  healPlansWithoutFactory,
+  ensurePlanFactoryGuard
 } = require('../modules/planning/planFactory');
 const multer = require('multer');
 const upload = multer({
@@ -5697,17 +5698,10 @@ async function initializeLegacyRuntime() {
     // reliable proxy for factory (e.g. Shivani is factory 4; plant strings are
     // inconsistent), so it is taken from the machine master, then from the plan's
     // order, and only when that points to exactly one factory (planFactory.js).
-    // 1) Heal any factory_id pointing to a non-existent factory (e.g. a previous
-    //    bad guess). Guarded so it never runs when the factories table is empty.
-    await q(`
-      UPDATE plan_board pb
-      SET factory_id = NULL
-      WHERE pb.factory_id IS NOT NULL
-        AND (SELECT COUNT(*) FROM factories) > 0
-        AND NOT EXISTS (SELECT 1 FROM factories f WHERE f.id = pb.factory_id)
-    `).catch(err => console.warn('[DB] plan_board factory_id heal skipped:', err.message));
-    // 2) Fill NULL factory_id.
+    // A factory_id that does not exist (an earlier bad guess) is corrected too.
     await healPlansWithoutFactory(q);
+    // From here on the database refuses a plan without a factory.
+    await ensurePlanFactoryGuard(q);
 
     // MISSING TABLE: std_actual
     await q(`
@@ -16182,6 +16176,17 @@ app.post('/api/admin/recover-deleted-plan', async (req, res) => {
       return res.status(403).json({ ok: false, error: 'You can only recover plans from your own factory.' });
     }
 
+    // An old snapshot may have no factory, or another unit's machine: never bring that back.
+    if (snapFactoryId == null || !Number.isInteger(Number(snapFactoryId))) {
+      return res.status(400).json({ ok: false, error: 'This plan has no factory. Select the factory and recover it again.' });
+    }
+    await assertMachinesInFactory(
+      pool.query.bind(pool),
+      [{ machine: planSnap.machine, planType: planSnap.plan_type }],
+      Number(snapFactoryId)
+    );
+    planSnap.factory_id = Number(snapFactoryId);
+
     // Guard: never create a duplicate if a live row already exists.
     const existing = await q(
       `SELECT id FROM plan_board
@@ -16253,6 +16258,7 @@ app.post('/api/admin/recover-deleted-plan', async (req, res) => {
 
     res.json({ ok: true, message: `Plan ${snapPlanId} recovered for ${snapOrderNo}.`, id: newId, planId: snapPlanId });
   } catch (e) {
+    if (e?.code === 'PLAN_FACTORY') return res.status(400).json({ ok: false, error: e.message });
     console.error('admin/recover-deleted-plan', e);
     sendServerError(res, e);
   }
@@ -17934,6 +17940,11 @@ app.post('/api/planning/move', async (req, res) => {
     if (!planRes.length) return res.json({ ok: false, error: 'Plan not found' });
     const plan = planRes[0];
 
+    // A plan may only move to a machine of its own factory.
+    if (plan.factory_id != null) {
+      await assertMachinesInFactory(pool.query.bind(pool), [{ machine: targetMachine, planType: plan.plan_type }], Number(plan.factory_id));
+    }
+
     // 2. Update Machine & Status (Always Stop on Move/Drag)
     const isRunning = (plan.status || '').toUpperCase() === 'RUNNING' || (plan.status || '').toUpperCase() === 'Running';
 
@@ -18004,6 +18015,7 @@ app.post('/api/planning/move', async (req, res) => {
 
     res.json({ ok: true, fpa_transferred: fpaTransferred });
   } catch (e) {
+    if (e?.code === 'PLAN_FACTORY') return res.status(400).json({ ok: false, error: e.message });
     console.error('planning/move', e);
     sendServerError(res, e);
   }

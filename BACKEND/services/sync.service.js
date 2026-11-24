@@ -2311,16 +2311,13 @@ async function loadPlansWithoutFactory(client) {
 // A plan_board row saved without a factory may later get one on one server only. The
 // conflict key is (plan_id, factory_id), so the two copies no longer match and the upsert
 // would add a second row, taking the global_id away from the first. Returns false when the
-// incoming row is an old no-factory copy of a plan that has its factory here: skip it.
+// incoming row has no factory: it is never saved.
 async function reconcilePlanFactory(client, row, plansWithoutFactory) {
-    if (!row.global_id) return true;
     if (row.factory_id == null) {
-        const healed = await client.query(
-            'SELECT 1 FROM plan_board WHERE global_id = $1 AND plan_id = $2 AND factory_id IS NOT NULL LIMIT 1',
-            [row.global_id, row.plan_id]
-        );
-        return healed.rowCount === 0;
+        console.warn(`[Sync] Refused plan ${row.plan_id}: it has no factory`);
+        return false;
     }
+    if (!row.global_id) return true;
     if (plansWithoutFactory.has(String(row.global_id))) {
         // Keep updated_at as it is, so the upsert that follows still compares real edits.
         await markSyncApply(client);

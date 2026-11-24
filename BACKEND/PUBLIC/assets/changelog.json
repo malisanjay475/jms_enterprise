@@ -11,8 +11,19 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.197.3",
+  "latest": "1.197.4",
   "versions": [
+    {
+      "version": "1.197.4",
+      "date": "2026-11-24",
+      "changes": [
+        {
+          "app": "planning",
+          "type": "fix",
+          "text": "A plan can no longer be saved without a factory, and can only be moved or recovered onto a machine of its own factory."
+        }
+      ]
+    },
     {
       "version": "1.197.3",
       "date": "2026-11-24",
