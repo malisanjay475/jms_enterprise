@@ -11,8 +11,19 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.197.7",
+  "latest": "1.197.8",
   "versions": [
+    {
+      "version": "1.197.8",
+      "date": "2026-11-24",
+      "changes": [
+        {
+          "app": "planning",
+          "type": "fix",
+          "text": "ORJR Wise Summary now shows an order whose ERP summary came without a mould, using the mould from ERP Details."
+        }
+      ]
+    },
     {
       "version": "1.197.7",
       "date": "2026-11-24",
