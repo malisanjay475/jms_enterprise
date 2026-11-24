@@ -11,8 +11,19 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.197.12",
+  "latest": "1.197.13",
   "versions": [
+    {
+      "version": "1.197.13",
+      "date": "2026-11-24",
+      "changes": [
+        {
+          "app": "planning",
+          "type": "fix",
+          "text": "Order Tracker Tonnage Load and Machine wise now count only the login factory's production for booked hours, queue times and colour quantities."
+        }
+      ]
+    },
     {
       "version": "1.197.12",
       "date": "2026-11-24",
