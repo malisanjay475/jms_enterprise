@@ -75,6 +75,9 @@ const NO_CLASH_SQL = `NOT EXISTS (
         SELECT 1 FROM plan_board other
          WHERE other.plan_id = pb.plan_id AND other.factory_id = owner.factory_id)`;
 
+// No factory, or one that does not exist (an old wrong guess).
+const NEEDS_FACTORY_SQL = `(pb.factory_id IS NULL OR (EXISTS (SELECT 1 FROM factories) AND NOT EXISTS (SELECT 1 FROM factories f WHERE f.id = pb.factory_id)))`;
+
 // A machine registered in exactly one factory decides the plan's factory.
 const HEAL_BY_MACHINE_SQL = `
   UPDATE plan_board pb
@@ -83,7 +86,7 @@ const HEAL_BY_MACHINE_SQL = `
             FROM machines
            GROUP BY 1
           HAVING COUNT(*) = COUNT(factory_id) AND COUNT(DISTINCT factory_id) = 1) owner
-   WHERE pb.factory_id IS NULL
+   WHERE ${NEEDS_FACTORY_SQL}
      AND owner.name <> ''
      AND owner.name IN (LOWER(TRIM(pb.machine)), LOWER(TRIM(SPLIT_PART(pb.machine, '>', 2))))
      AND ${NO_CLASH_SQL}`;
@@ -97,7 +100,7 @@ const HEAL_BY_ORDER_SQL = `
            WHERE factory_id IS NOT NULL AND TRIM(COALESCE(order_no, '')) <> ''
            GROUP BY 1
           HAVING COUNT(DISTINCT factory_id) = 1) owner
-   WHERE pb.factory_id IS NULL
+   WHERE ${NEEDS_FACTORY_SQL}
      AND TRIM(COALESCE(pb.order_no, '')) = owner.order_no
      AND ${NO_CLASH_SQL}`;
 
@@ -112,10 +115,67 @@ async function healPlansWithoutFactory(query) {
   }
 }
 
+/**
+ * The one factory a machine belongs to, else the one its order belongs to, else null.
+ * For plans that come from outside (ERP upload), where nobody is logged in.
+ */
+async function resolvePlanFactory(query, { machine, orderNo }) {
+  const name = stripMachinePrefix(machine).toLowerCase();
+  if (name) {
+    const res = await query('SELECT machine, factory_id FROM machines');
+    const own = res.rows.filter((r) => stripMachinePrefix(r.machine).toLowerCase() === name).map((r) => r.factory_id);
+    if (own.length && own.every((id) => id != null) && new Set(own.map(Number)).size === 1) return Number(own[0]);
+  }
+  const order = String(orderNo || '').trim();
+  if (order) {
+    const res = await query('SELECT DISTINCT factory_id FROM orders WHERE TRIM(order_no) = $1 AND factory_id IS NOT NULL', [order]);
+    if (res.rows.length === 1) return Number(res.rows[0].factory_id);
+  }
+  return null;
+}
+
+// Last line of defence: whatever code writes the row (a route, ERP, sync, a script), the
+// database itself refuses a plan with no factory. Old rows without one can still be edited,
+// so nothing on the floor stops; only a NEW one, or removing a factory, is refused.
+// Rollback: DROP TRIGGER trg_plan_board_needs_factory ON plan_board;
+const GUARD_FUNCTION_SQL = `
+  CREATE OR REPLACE FUNCTION plan_board_needs_factory() RETURNS trigger AS $fn$
+  BEGIN
+    IF TG_OP = 'INSERT' THEN
+      IF NEW.factory_id IS NULL THEN
+        RAISE EXCEPTION 'Plan % has no factory. Select one factory and save again.', NEW.plan_id
+          USING ERRCODE = '23514', CONSTRAINT = 'plan_board_needs_factory';
+      END IF;
+    ELSIF NEW.factory_id IS NULL AND OLD.factory_id IS NOT NULL THEN
+      RAISE EXCEPTION 'The factory of plan % cannot be removed.', NEW.plan_id
+        USING ERRCODE = '23514', CONSTRAINT = 'plan_board_needs_factory';
+    END IF;
+    RETURN NEW;
+  END;
+  $fn$ LANGUAGE plpgsql`;
+
+async function ensurePlanFactoryGuard(query) {
+  try {
+    await query(GUARD_FUNCTION_SQL);
+    await query(`
+      DO $do$ BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid = 'plan_board'::regclass AND tgname = 'trg_plan_board_needs_factory') THEN
+          CREATE TRIGGER trg_plan_board_needs_factory BEFORE INSERT OR UPDATE ON plan_board
+            FOR EACH ROW EXECUTE FUNCTION plan_board_needs_factory();
+        END IF;
+      END $do$`);
+  } catch (err) {
+    // Several workers boot together; the one that wins the race is enough.
+    console.warn('[DB] plan_board factory guard skipped:', err.message);
+  }
+}
+
 module.exports = {
   PlanFactoryError,
   assertPlanCreator,
   assertMachinesInFactory,
   planVisibleToFactorySql,
-  healPlansWithoutFactory
+  healPlansWithoutFactory,
+  resolvePlanFactory,
+  ensurePlanFactoryGuard
 };

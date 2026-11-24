@@ -4,8 +4,12 @@ const {
   assertPlanCreator,
   assertMachinesInFactory,
   planVisibleToFactorySql,
-  healPlansWithoutFactory
+  healPlansWithoutFactory,
+  resolvePlanFactory,
+  ensurePlanFactoryGuard
 } = require('../src/modules/planning/planFactory');
+const fs = require('fs');
+const path = require('path');
 const syncService = require('../services/sync.service');
 
 const { reconcilePlanFactory, getChanges, setRuntimeForTests } = syncService.__test;
@@ -77,9 +81,11 @@ describe('reconcilePlanFactory', () => {
   const client = (rowCount = 0) => ({ query: jest.fn(async () => ({ rows: [], rowCount })) });
   const row = { plan_id: 'PLN-2627-8818', global_id: 'g1' };
 
-  it('skips an old no-factory copy of a plan that has its factory here', async () => {
-    expect(await reconcilePlanFactory(client(1), { ...row, factory_id: null }, new Set())).toBe(false);
-    expect(await reconcilePlanFactory(client(0), { ...row, factory_id: null }, new Set())).toBe(true);
+  it('never saves a plan without a factory', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    expect(await reconcilePlanFactory(client(), { ...row, factory_id: null }, new Set())).toBe(false);
+    expect(await reconcilePlanFactory(client(), { plan_id: 'P1' }, new Set())).toBe(false);
+    warn.mockRestore();
   });
 
   it('gives the factory to the no-factory copy here instead of adding a second row', async () => {
@@ -93,5 +99,64 @@ describe('reconcilePlanFactory', () => {
     const c = client();
     expect(await reconcilePlanFactory(c, { ...row, factory_id: 1 }, new Set())).toBe(true);
     expect(c.query).not.toHaveBeenCalled();
+  });
+});
+
+describe('a plan from ERP', () => {
+  const db = (machines, orders = []) => jest.fn(async (sql) => ({ rows: /FROM machines/.test(sql) ? machines : orders }));
+
+  it('takes the factory of its machine', async () => {
+    expect(await resolvePlanFactory(db([{ machine: 'B -L1>OM-1', factory_id: 2 }]), { machine: 'OM-1' })).toBe(2);
+  });
+
+  it('falls back to its order when the machine name is in two factories', async () => {
+    const two = [{ machine: 'OM-1', factory_id: 1 }, { machine: 'OM-1', factory_id: 2 }];
+    expect(await resolvePlanFactory(db(two, [{ factory_id: 1 }]), { machine: 'OM-1', orderNo: 'JR/1' })).toBe(1);
+    expect(await resolvePlanFactory(db(two, [{ factory_id: 1 }, { factory_id: 2 }]), { machine: 'OM-1', orderNo: 'JR/1' })).toBeNull();
+  });
+});
+
+describe('database guard', () => {
+  it('a failing install never blocks startup', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    await ensurePlanFactoryGuard(jest.fn().mockRejectedValue(new Error('boom')));
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
+  });
+});
+
+// Stops the mistake at review time: every place that writes a plan must name the factory.
+describe('code check', () => {
+  const root = path.join(__dirname, '..');
+  const files = [];
+  const walk = (dir) => fs.readdirSync(dir, { withFileTypes: true }).forEach((e) => {
+    const full = path.join(dir, e.name);
+    if (e.isDirectory()) walk(full);
+    else if (e.name.endsWith('.js')) files.push(full);
+  });
+  ['src', 'services', 'routes', 'scripts', 'utils'].forEach((d) => walk(path.join(root, d)));
+
+  it('every INSERT INTO plan_board includes factory_id', () => {
+    const bad = [];
+    let seen = 0;
+    for (const file of files) {
+      const text = fs.readFileSync(file, 'utf8');
+      for (const m of text.matchAll(/INSERT\s+INTO\s+plan_board\s*\(((?:\$\{[^}]*\}|[^)])*)\)/gi)) {
+        seen += 1;
+        // recover-deleted-plan builds its columns from the snapshot, after setting factory_id.
+        const ok = m[1].includes('${')
+          ? text.slice(0, m.index).includes('planSnap.factory_id = Number(snapFactoryId)')
+          : /\bfactory_id\b/.test(m[1]);
+        if (!ok) bad.push(path.relative(root, file));
+      }
+    }
+    expect(seen).toBeGreaterThanOrEqual(3);
+    expect(bad).toEqual([]);
+  });
+
+  it('the planning board never shares a plan without a factory again', () => {
+    const text = fs.readFileSync(path.join(root, 'src/legacy/registerLegacyRoutes.js'), 'utf8');
+    // board, machine-wise, print-jc-plans and job-card-approvals
+    expect(text.match(/planVisibleToFactorySql\(/g).length).toBeGreaterThanOrEqual(4);
   });
 });
