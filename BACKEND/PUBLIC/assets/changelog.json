@@ -11,8 +11,21 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.197.4",
+  "latest": "1.197.5",
   "versions": [
+    {
+      "version": "1.197.5",
+      "date": "2026-11-24",
+      "title": "Extra Qty shows again in the job card popup",
+      "modules": [
+        {
+          "app": "planning",
+          "changes": [
+            { "type": "fix", "text": "Machine Timeline: Extra Allowed quantities show again in the job card popup." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.197.4",
       "date": "2026-11-24",
