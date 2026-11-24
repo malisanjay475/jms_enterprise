@@ -14,6 +14,20 @@
   "latest": "1.177.0",
   "versions": [
     {
+      "version": "1.197.1",
+      "date": "2026-11-24",
+      "title": "Plans stay in their own unit",
+      "modules": [
+        {
+          "app": "planning",
+          "changes": [
+            { "type": "fix", "text": "A plan of another unit no longer shows on your Machine Timeline, Print JobCard or Pending Plan Approval" },
+            { "type": "fix", "text": "A plan can be created only when you are logged in, one factory is selected, and the machine belongs to that factory" }
+          ]
+        }
+      ]
+    },
+    {
       "version": "1.197.0",
       "date": "2026-11-24",
       "title": "Scanning pages redesigned",

@@ -2303,6 +2303,39 @@ async function adoptDprHourlyTwinGlobalId(client, row, tableColumns, seenGlobalI
     }
 }
 
+async function loadPlansWithoutFactory(client) {
+    const res = await client.query('SELECT global_id FROM plan_board WHERE factory_id IS NULL AND global_id IS NOT NULL');
+    return new Set((res?.rows || []).map((r) => String(r.global_id)));
+}
+
+// A plan_board row saved without a factory may later get one on one server only. The
+// conflict key is (plan_id, factory_id), so the two copies no longer match and the upsert
+// would add a second row, taking the global_id away from the first. Returns false when the
+// incoming row is an old no-factory copy of a plan that has its factory here: skip it.
+async function reconcilePlanFactory(client, row, plansWithoutFactory) {
+    if (!row.global_id) return true;
+    if (row.factory_id == null) {
+        const healed = await client.query(
+            'SELECT 1 FROM plan_board WHERE global_id = $1 AND plan_id = $2 AND factory_id IS NOT NULL LIMIT 1',
+            [row.global_id, row.plan_id]
+        );
+        return healed.rowCount === 0;
+    }
+    if (plansWithoutFactory.has(String(row.global_id))) {
+        // Keep updated_at as it is, so the upsert that follows still compares real edits.
+        await markSyncApply(client);
+        await client.query(
+            `UPDATE plan_board SET factory_id = $1::int
+              WHERE global_id = $2 AND plan_id = $3::text AND factory_id IS NULL
+                AND NOT EXISTS (SELECT 1 FROM plan_board o WHERE o.plan_id = $3::text AND o.factory_id = $1::int)`,
+            [row.factory_id, row.global_id, row.plan_id]
+        );
+        if (SERVER_TYPE !== 'LOCAL') await client.query(`SELECT set_config('${SYNC_APPLY_FLAG}', 'off', true)`);
+        plansWithoutFactory.delete(String(row.global_id));
+    }
+    return true;
+}
+
 async function upsertData(table, data) {
     if (!data.length) return { created: 0, updated: 0, failed: 0 };
 
@@ -2332,6 +2365,8 @@ async function upsertData(table, data) {
             const seenGlobalIds = new Set(
                 table === 'dpr_hourly' ? data.map((r) => r && r.global_id).filter(Boolean).map(String) : []
             );
+
+            const plansWithoutFactory = table === 'plan_board' ? await loadPlansWithoutFactory(client) : null;
 
             for (let row of data) {
                 if (table === 'plan_board' && (row.plan_id == null || String(row.plan_id).trim() === '')) {
@@ -2409,16 +2444,18 @@ async function upsertData(table, data) {
                     // conflict key: NEW tombstones are JSON ({"plan_id":..,"factory_id":..}),
                     // while tombstones written before the change are the bare plan_id string.
                     // Match BOTH, and scope by factory so a delete on one factory's plan never
-                    // suppresses a different factory's same-numbered plan.
+                    // suppresses a different factory's same-numbered plan. A JSON tombstone with
+                    // no factory is the delete of a plan copy that had none; it must not block
+                    // the real plan of any factory.
                     const tomb = await client.query(
                         `SELECT 1 FROM sync_deletions
                           WHERE table_name = 'plan_board'
                             AND deleted_at >= COALESCE($2::timestamptz, deleted_at)
                             AND (
-                                  record_pk = $1
-                               OR (left(record_pk, 1) = '{' AND (record_pk::jsonb->>'plan_id') = $1)
+                                  (record_pk = $1 AND (factory_id IS NULL OR $3::int IS NULL OR factory_id = $3::int))
+                               OR (left(record_pk, 1) = '{' AND (record_pk::jsonb->>'plan_id') = $1
+                                   AND ($3::int IS NULL OR factory_id = $3::int))
                             )
-                            AND (factory_id IS NULL OR $3::int IS NULL OR factory_id = $3::int)
                           LIMIT 1`,
                         [String(row.plan_id), row.updated_at ?? null, row.factory_id ?? null]
                     );
@@ -2426,6 +2463,11 @@ async function upsertData(table, data) {
                         stats.skipped += 1;
                         continue;
                     }
+                }
+
+                if (table === 'plan_board' && !(await reconcilePlanFactory(client, row, plansWithoutFactory))) {
+                    stats.skipped += 1;
+                    continue;
                 }
 
                 if (table === 'dpr_hourly') {
@@ -2714,7 +2756,11 @@ async function getChanges(table, since, targetFactoryId, afterId) {
     const hasFactoryId = await tableHasColumn(table, 'factory_id');
     if (targetFactoryId && hasFactoryId && !GLOBAL_MASTER_TABLES.has(table)) {
         params.push(targetFactoryId);
-        where.push(`(factory_id = $${params.length} OR factory_id IS NULL)`);
+        // A plan without a factory is one unit's plan that lost its factory, never a
+        // shared row: sending it out puts it on every unit's timeline.
+        where.push(table === 'plan_board'
+            ? `factory_id = $${params.length}`
+            : `(factory_id = $${params.length} OR factory_id IS NULL)`);
     }
 
     if (where.length) {
@@ -3742,6 +3788,7 @@ module.exports = {
         coerceDateColumnsForWire,
         upsertData,
         adoptDprHourlyTwinGlobalId,
+        reconcilePlanFactory,
         setRuntimeForTests,
         resyncSerialSequence,
         findFullReplicationKeyOffenders,
