@@ -11,8 +11,22 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.177.0",
+  "latest": "1.197.3",
   "versions": [
+    {
+      "version": "1.197.3",
+      "date": "2026-11-24",
+      "title": "Job card popup shows the right unit's plan",
+      "modules": [
+        {
+          "app": "planning",
+          "changes": [
+            { "type": "fix", "text": "Machine Timeline: with All Factories selected, the job card popup no longer mixes colours and production of another unit's plan that has the same Plan ID." },
+            { "type": "improvement", "text": "Create Plan warns when Plan Qty is less than Job Qty x Consumption Ratio, for example a handle that needs 2 pieces per set." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.197.2",
       "date": "2026-11-24",

@@ -3937,7 +3937,7 @@
 
       try {
         if (!_recentDrilldown || _recentDrilldown._pid !== job.plan_id) {
-          const res = await (await apiFetch(`/api/dpr/plan-drilldown?planId=${encodeURIComponent(job.plan_id)}`)).json();
+          const res = await (await apiFetch(`/api/dpr/plan-drilldown?planId=${encodeURIComponent(job.plan_id)}&orderNo=${encodeURIComponent(job.order_no || '')}`)).json();
           if (!res.ok) throw new Error(res.error || 'Failed');
           _recentDrilldown = { ...res.data, _pid: job.plan_id };
         }

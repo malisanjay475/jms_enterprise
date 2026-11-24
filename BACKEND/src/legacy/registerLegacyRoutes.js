@@ -8623,8 +8623,11 @@ app.get('/api/dpr/plan-drilldown', async (req, res) => {
         `SELECT id, plan_id, order_no, plan_qty, bal_qty, colour_details, mould_name, factory_id
          FROM plan_board
          WHERE plan_id = $1 AND ($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL)
-         ORDER BY (factory_id IS NOT DISTINCT FROM $2::int) DESC, id DESC
-         LIMIT 1`, [planId, factoryId || null]
+         -- "All factories" view has no factory to scope by, so the clicked plan's
+         -- order number decides which factory's PLN-xxxx this is.
+         ORDER BY (TRIM(order_no) IS NOT DISTINCT FROM TRIM($3::text)) DESC,
+                  (factory_id IS NOT DISTINCT FROM $2::int) DESC, id DESC
+         LIMIT 1`, [planId, factoryId || null, orderNo || null]
       );
       planRow = rows[0] || null;
     }
@@ -8678,8 +8681,10 @@ app.get('/api/dpr/plan-drilldown', async (req, res) => {
       whereClauses.push(`h.order_no = $${params.length}`);
     }
 
-    if (factoryId) {
-      params.push(factoryId);
+    // Production comes from the plan's own factory, also in "All factories" view.
+    const entryFactoryId = planRow?.factory_id || factoryId;
+    if (entryFactoryId) {
+      params.push(entryFactoryId);
       whereClauses.push(`(h.factory_id = $${params.length} OR h.factory_id IS NULL)`);
     }
 
@@ -8785,6 +8790,7 @@ app.get('/api/dpr/plan-drilldown', async (req, res) => {
       data: {
         planId: effectivePlanId,
         planDbId: planRow?.id || null,         // integer PK for reference
+        factoryId: entryFactoryId || null,     // the plan's own factory
         orderNo: effectiveOrderNo,
         orderQty,                              // total order quantity from orders table
         planQty,
@@ -30191,7 +30197,7 @@ AND
 // POST /api/extra-qty/allow — grant extra qty for a plan+colour (role-gated)
 app.post('/api/extra-qty/allow', async (req, res) => {
   try {
-    const { plan_id, colour, extra_qty, remarks, session } = req.body || {};
+    const { plan_id, order_no, colour, extra_qty, remarks, session } = req.body || {};
     if (!session || !session.username) return res.status(401).json({ ok: false, error: 'Unauthorized' });
     if (!plan_id || !String(plan_id).trim()) return res.json({ ok: false, error: 'plan_id required' });
     const colourName = String(colour || '').trim();
@@ -30250,9 +30256,10 @@ app.post('/api/extra-qty/allow', async (req, res) => {
       `SELECT order_no, machine, mould_name, factory_id
          FROM plan_board
         WHERE plan_id = $1 AND ($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL)
-        ORDER BY (factory_id IS NOT DISTINCT FROM $2::int) DESC, id DESC
+        ORDER BY (TRIM(order_no) IS NOT DISTINCT FROM TRIM($3::text)) DESC,
+                 (factory_id IS NOT DISTINCT FROM $2::int) DESC, id DESC
         LIMIT 1`,
-      [String(plan_id), getFactoryId(req) || null]
+      [String(plan_id), getFactoryId(req) || null, order_no || null]
     );
     if (!pRows.length) return res.json({ ok: false, error: 'Plan not found: ' + plan_id });
     const p = pRows[0];
@@ -30298,8 +30305,11 @@ app.get('/api/extra-qty', async (req, res) => {
       `SELECT id, colour, extra_qty, remarks, allowed_by, allowed_role, allowed_at
          FROM extra_qty_allowances
         WHERE plan_id = $1 AND is_deleted = FALSE
+          -- plan_id repeats per factory: never show another factory's grants.
+          AND ($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL)
+          AND ($3::int IS NULL OR factory_id = $3 OR factory_id IS NULL)
         ORDER BY allowed_at DESC`,
-      [String(plan_id)]
+      [String(plan_id), getFactoryId(req) || null, toNum(req.query.factory_id) || null]
     );
     res.json({ ok: true, data: rows });
   } catch (e) {
