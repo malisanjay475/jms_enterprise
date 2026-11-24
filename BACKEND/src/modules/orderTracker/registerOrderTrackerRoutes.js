@@ -969,6 +969,7 @@ async function buildMachineBoard(pool, factoryId) {
          AND COALESCE(TRIM(pb.machine), '') <> ''
          AND ($1::int IS NULL OR pb.factory_id = $1 OR pb.factory_id IS NULL)`, [factoryId])
   ]);
+  /* plan ids repeat in every factory: count only this factory's production */
   const planCodes = plans.rows.map(p => String(p.plan_id || '')).filter(Boolean);
   const [made, recent] = planCodes.length ? await Promise.all([
     pool.query(`SELECT plan_id, SUM(good_qty) AS good, MAX(dpr_date)::text AS last_date,
@@ -977,14 +978,16 @@ async function buildMachineBoard(pool, factoryId) {
                                plan_id, dpr_date, COALESCE(good_qty, 0) AS good_qty
                           FROM dpr_hourly
                          WHERE is_deleted IS NOT TRUE AND plan_id = ANY($1::text[])
+                           AND ($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL)
                          ORDER BY machine, hour_slot, plan_id, dpr_date, shift, COALESCE(colour, ''), id DESC) x
-                 GROUP BY plan_id`, [planCodes]),
+                 GROUP BY plan_id`, [planCodes, factoryId]),
     pool.query(`SELECT plan_id, SUM(good_qty) AS good, COUNT(*) FILTER (WHERE good_qty > 0) AS hrs,
                        SUM(good_qty) FILTER (WHERE dpr_date = CURRENT_DATE) AS today
                   FROM dpr_hourly
                  WHERE is_deleted IS NOT TRUE AND plan_id = ANY($1::text[])
-                   AND dpr_date >= CURRENT_DATE - ${RATE_DAYS}
-                 GROUP BY plan_id`, [planCodes])
+                   AND ($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL)
+                  AND dpr_date >= CURRENT_DATE - ${RATE_DAYS}
+                 GROUP BY plan_id`, [planCodes, factoryId])
   ]) : [{ rows: [] }, { rows: [] }];
   const madeBy = new Map(made.rows.map(r => [String(r.plan_id), r]));
   const rateBy = new Map(recent.rows.map(r => [String(r.plan_id), r]));
@@ -1126,6 +1129,7 @@ const COLOUR_SQL = `
                  plan_id, colour, COALESCE(good_qty, 0) AS good_qty
             FROM dpr_hourly
            WHERE is_deleted IS NOT TRUE AND plan_id::text = ANY($1::text[])
+            AND ($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL)
            ORDER BY machine, hour_slot, plan_id, dpr_date, shift, COALESCE(colour, ''), id DESC) x
    GROUP BY 1, 2`;
 
@@ -1150,7 +1154,7 @@ async function tonnageFor(pool, req) {
   const planIds = [...new Set(orders.flatMap(o => o.moulds.flatMap(m => (m.plans || []).map(p => String(p.plan_id)))).filter(Boolean))];
   const colourByPlan = new Map();
   if (planIds.length) {
-    (await pool.query(COLOUR_SQL, [planIds])).rows.forEach(r => {
+    (await pool.query(COLOUR_SQL, [planIds, factoryId])).rows.forEach(r => {
       const m = colourByPlan.get(r.plan_id) || colourByPlan.set(r.plan_id, new Map()).get(r.plan_id);
       m.set(key(r.colour), (m.get(key(r.colour)) || 0) + num(r.good));
     });
