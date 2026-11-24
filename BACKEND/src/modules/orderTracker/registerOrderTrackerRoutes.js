@@ -1209,6 +1209,11 @@ function registerOrderTrackerRoutes(app, pool) {
   /* GET /api/order-tracker/tonnage.xlsx - same figures as an Excel sheet */
   app.get('/api/order-tracker/tonnage.xlsx', async (req, res) => {
     try {
+      /* no factory sent (an old page still open) must not mean every factory; an
+         All Factories login says so with 'all' */
+      if (!String(req.headers['x-factory-id'] || '').trim() && !process.env.LOCAL_FACTORY_ID) {
+        return res.status(400).json({ ok: false, error: 'No factory selected. Refresh the page (or log in again) and download once more.' });
+      }
       const { until, basis, data } = await tonnageFor(pool, req);
       const factoryName = String(req.query.factory || '').replace(/[^\w .&()-]/g, '').slice(0, 40);
       const buf = await buildTonnageWorkbook(data, { until, basis, factoryName });
