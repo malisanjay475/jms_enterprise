@@ -1197,7 +1197,7 @@
                     <table class="gtab"><tbody>${TCOLS.map((c, i) => `<tr><td>${c[0]}</td><td>${c[2]}</td><td class="f">${c[3]}</td><td class="ex">${r ? 'e.g. ' + esc(tonName(r.tonnage)) + ': ' + esc(ex[i]) : ''}</td></tr>`).join('')}
                     <tr><td>Not planned yet</td><td colspan="3">Moulds of open orders that are <b>not on any machine</b> on the plan board — no running plan and no queued plan. Their hours still count as load; Planning has to put them on a machine.</td></tr>
                     <tr><td>Mould limit</td><td colspan="3">One mould runs on one machine at a time (more only when it is running on more machines now, i.e. there are copies). When the hours one mould still needs are more than the hours left until the date, the extra hours are a <b>mould limit</b>: the mould cannot finish in time however many machines we have. Open a row to see these moulds.</td></tr>
-                    <tr><td>Which orders</td><td colspan="3">Every open order: pending in the order master, a JR row the ERP has not closed, or a plan on the plan board. No date window and no limit. Moulds already complete and orders the ERP has closed are listed in the row (grey, "Show complete") but not counted. An order with no ERP mould BOM and no plan takes its moulds from the mould master by item code.</td></tr>
+                    <tr><td>Which orders</td><td colspan="3">Every open order: pending in the order master, a JR row the ERP has not closed, or a plan on the plan board. No date window and no limit. Moulds already complete and orders the ERP has closed are listed in the row (grey, "Show complete") but not counted, unless a running or queued plan of theirs still has pieces to make: then the balance of that plan counts. An order with no ERP mould BOM and no plan takes its moulds from the mould master by item code.</td></tr>
                     <tr><td>No tonnage</td><td colspan="3">Moulds with no tonnage in the mould master or ERP that never ran on a machine. They cannot be placed in a row, so they are shown apart and not in the total. Fill the tonnage in Masters → Moulds.</td></tr>
                     </tbody></table>`;
             }
@@ -1264,7 +1264,7 @@
                     ${cell(excessN, 'excess', r.excess_machines)}${cell(excessN, 'excess', r.excess_days)}
                 </tr>${open ? `<tr class="det"><td colspan="12">${tonDetail(r)}</td></tr>` : ''}`;
             }
-            const ISTAT = { COMPLETE: ['COMPLETE', 'Complete'], ERP_CLOSED: ['COMPLETE', 'Closed in ERP'], RUNNING: ['RUNNING', 'Running'], PLANNED: ['QUEUED', 'Planned'], PAUSED: ['PAUSED', 'Paused'], NOT_PLANNED: ['NOT_PLANNED', 'Not planned yet'] };
+            const ISTAT = { COMPLETE: ['COMPLETE', 'Complete'], ERP_CLOSED: ['COMPLETE', 'Closed in ERP'], RUNNING: ['RUNNING', 'Running'], PLANNED: ['QUEUED', 'Planned'], PAUSED: ['PAUSED', 'Paused'], STOPPED: ['PAUSED', 'Stopped'], NOT_PLANNED: ['NOT_PLANNED', 'Not planned yet'] };
             const iStat = i => { const s = ISTAT[i.status] || [i.status, i.status]; return `<span class="pill s-${esc(s[0])}" ${i.erp_state ? `title="${esc(i.erp_state)}"` : ''}>${esc(s[1])}</span>`; };
             /* each machine of the tonnage: what it runs, its queue, booked and free hours till the date */
             function machinesHtml(r) {
@@ -1315,7 +1315,7 @@
                         <td class="r">${n0(i.balance)}</td>
                         <td class="r">${i.rate_pph ? n0(i.rate_pph) : '<span style="color:var(--red)">no rate</span>'}</td>
                         <td class="r b">${!i.counted ? '<span class="muted" title="Not counted in the load">0</span>' : i.hours == null ? '—' : f2(i.hours)}</td>
-                        <td>${i.counted && i.status !== 'PAUSED' ? where(i) : iStat(i)}</td>
+                        <td>${i.counted && i.status !== 'PAUSED' && i.status !== 'STOPPED' ? where(i) : iStat(i)}</td>
                         <td>${i.counted ? stHtml(i) : ''}</td></tr>${linesHtml(i)}`;
                 return `<div class="tl-det">
                     ${machinesHtml(r)}

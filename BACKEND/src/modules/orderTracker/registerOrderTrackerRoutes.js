@@ -744,10 +744,14 @@ const slim = o => {
    goes to the tonnage of the machine it is running or queued on, else to the
    smallest machine class that fits its tonnage (mould master, ERP BOM, else the
    machine it ran on). Days are 24 machine hours.
-   Complete moulds and orders the ERP has closed are listed but not counted.
+   Complete moulds and orders the ERP has closed are listed but not counted,
+   except while they still have a running / queued plan with pieces to make:
+   then the machine is in use, and the balance of those plans is the load.
    A mould runs on one machine at a time (more only when it is running on more
    machines now, i.e. there are copies), so hours of one mould beyond the hours
    left are a mould limit, not a machine shortage. */
+const ACTIVE_PLAN = ['RUNNING', 'PLANNED', 'PENDING', 'ON HOLD', 'HOLD'];
+
 function buildTonnageLoad(orders, board, { untilMs, eff, basis, colourByPlan }) {
   const days = Math.max(0, (untilMs - Date.now()) / 86400000);
   const perMachine = 24 * days * eff;
@@ -810,11 +814,18 @@ function buildTonnageLoad(orders, board, { untilMs, eff, basis, colourByPlan }) 
       }
       const rate = num(m.rate_pph);
       const done = m.status === 'COMPLETE' || m.balance <= 0;
-      const counted = !done && !o.erp_closed;
+      const activePlans = (m.plans || []).filter(p => ACTIVE_PLAN.includes(p.status));
+      const planBalance = activePlans.reduce((s, p) => s + Math.max(0, num(p.plan_qty) - num(p.produced)), 0);
+      /* closed or complete on paper, but its plan is still on a machine */
+      const planBasis = (done || o.erp_closed) && planBalance > 0;
+      const counted = planBasis || (!done && !o.erp_closed);
+      const balance = planBasis ? planBalance : m.balance;
+      const live = (m.machines || []).length ? 'RUNNING' : planBasis ? 'PLANNED'
+        : m.status === 'PLANNED' && !activePlans.length ? 'STOPPED' : m.status;
       /* work running or queued on a machine loads that machine's tonnage (a 60 T mould on an
          80 T machine fills the 80 T machine); only work not on any machine goes by mould tonnage */
-      const onTon = counted ? Math.max(0, ...(m.status === 'RUNNING' ? m.machines || [] : []).map(n => tonOf.get(key(n)) || 0),
-        m.queue && m.status !== 'RUNNING' ? tonOf.get(key(m.queue.machine)) || 0 : 0) : 0;
+      const onTon = counted ? Math.max(0, ...(live === 'RUNNING' ? m.machines || [] : []).map(n => tonOf.get(key(n)) || 0),
+        m.queue && live !== 'RUNNING' ? tonOf.get(key(m.queue.machine)) || 0 : 0) : 0;
       const cls = onTon && rows.has(onTon) ? onTon : ton ? fit(ton) : null;
       const item = {
         order_no: o.order_no, order_date: o.order_date, client_name: o.client_name, product_name: o.product_name, target_date: o.target_date,
@@ -822,9 +833,9 @@ function buildTonnageLoad(orders, board, { untilMs, eff, basis, colourByPlan }) 
         mould_source: m.mould_source,
         oversize: !!(ton && cls && !onTon && ton > cls * 1.05),
         on_machine_tonnage: onTon && cls === onTon && (!ton || fit(ton) !== onTon) ? onTon : null,
-        required: m.required, produced: m.produced, balance: m.balance, rate_pph: rate,
-        hours: counted ? (rate > 0 ? +(m.balance / rate).toFixed(1) : null) : 0,
-        counted, status: done ? 'COMPLETE' : (o.erp_closed ? 'ERP_CLOSED' : m.status), erp_state: o.erp_state,
+        required: m.required, produced: m.produced, balance, plan_basis: planBasis, rate_pph: rate,
+        hours: counted ? (rate > 0 ? +(balance / rate).toFixed(1) : null) : 0,
+        counted, status: counted ? live : done ? 'COMPLETE' : 'ERP_CLOSED', erp_state: o.erp_state,
         lanes: Math.max(m.lanes || 1, m.copies || 1),
         machines: m.machines, queue: m.queue, start_state: m.start_state, slack_hours: m.slack_hours, must_start_by: m.must_start_by,
         lines: linesOf(o, m)
@@ -895,6 +906,8 @@ function buildTonnageLoad(orders, board, { untilMs, eff, basis, colourByPlan }) 
       excess_machines: needed != null && needed < count ? +(count - needed).toFixed(2) : 0,
       excess_days: availDays > loadDays ? +(availDays - loadDays).toFixed(2) : 0,
       booked_pct: availH > 0 ? Math.round(load / availH * 100) : (load > 0 ? null : 0),
+      /* booked by the hours the machines can really take: agrees with machines needed */
+      machine_booked_pct: availH > 0 ? Math.round(machLoad / availH * 100) : null,
       orders: new Set(live.map(i => i.order_no)).size,
       moulds: live.length, no_rate: live.filter(i => i.hours == null).length,
       done_moulds: r.items.length - live.length,
@@ -909,9 +922,12 @@ function buildTonnageLoad(orders, board, { untilMs, eff, basis, colourByPlan }) 
     return t;
   }, {});
   tot.booked_pct = tot.avail_hours > 0 ? Math.round(tot.load_hours / tot.avail_hours * 100) : null;
+  tot.machine_booked_pct = tot.avail_hours > 0 ? Math.round((tot.load_hours - tot.mould_limited_hours) / tot.avail_hours * 100) : null;
   tot.orders = new Set(data.flatMap(r => r.items.filter(i => i.counted).map(i => i.order_no))).size;
   tot.all_orders = orders.length;
-  tot.closed_orders = orders.filter(o => o.erp_closed || o.status === 'COMPLETE').length;
+  const inLoad = new Set([...data, unknown].flatMap(r => r.items.filter(i => i.counted).map(i => i.order_no)));
+  tot.closed_orders = orders.filter(o => (o.erp_closed || o.status === 'COMPLETE') && !inLoad.has(o.order_no)).length;
+  tot.plan_basis = data.reduce((s, r) => s + r.items.filter(i => i.plan_basis).length, 0);
   /* no tonnage = no machines to compare with; show only its load */
   const unk = Object.assign(summarise(unknown), { machines_needed: null, shortage_machines: 0, shortage_days: 0, booked_pct: null, machine_rows: [] });
   return { days: +days.toFixed(2), eff, classes: data, total: tot, unknown: unk, no_mould: noMould };
