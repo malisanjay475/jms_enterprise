@@ -314,8 +314,10 @@ function registerPackingMasterRoutes(app, pool) {
     if (!config && (!cur.rows.length || !cur.rows[0].scanner_config)) return;
     if (cur.rows.length && String(cur.rows[0].scanner_config || '') === config) return;
     await db.query(
-      `INSERT INTO assembly_lines (line_id, line_name, scanner_config, updated_at) VALUES ($1, $1, $2, NOW())
-       ON CONFLICT (line_id) DO UPDATE SET scanner_config = EXCLUDED.scanner_config, updated_at = NOW()`, [name, config]);
+      `INSERT INTO assembly_lines (line_id, line_name, scanner_config, updated_at, factory_id) VALUES ($1, $1, $2, NOW(),
+         (SELECT MIN(factory_id) FROM packing_stations WHERE LOWER(name) = LOWER($1) HAVING COUNT(DISTINCT factory_id) = 1))
+       ON CONFLICT (line_id) DO UPDATE SET scanner_config = EXCLUDED.scanner_config, updated_at = NOW(),
+         factory_id = COALESCE(assembly_lines.factory_id, EXCLUDED.factory_id)`, [name, config]);
   }
 
   app.get('/api/packing/meta', async (req, res) => {

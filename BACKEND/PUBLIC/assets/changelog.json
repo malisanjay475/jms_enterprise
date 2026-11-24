@@ -11,8 +11,50 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.197.11",
+  "latest": "1.197.13",
   "versions": [
+    {
+      "version": "1.197.13",
+      "date": "2026-11-24",
+      "changes": [
+        {
+          "app": "planning",
+          "type": "fix",
+          "text": "Order Tracker Tonnage Load and Machine wise now count only the login factory's production for booked hours, queue times and colour quantities."
+        }
+      ]
+    },
+    {
+      "version": "1.197.12",
+      "date": "2026-11-24",
+      "changes": [
+        {
+          "app": "all",
+          "type": "security",
+          "text": "Settings, operator, role, assembly line and plan stop/restore changes now need a valid login; if asked, log in again once."
+        },
+        {
+          "app": "dpr",
+          "type": "fix",
+          "text": "Saving the same DPR entry twice at the same moment, or two auto-fills running together, no longer creates duplicate rows."
+        },
+        {
+          "app": "quality",
+          "type": "fix",
+          "text": "The @mention list in the QC app memo shows Moulding people again instead of an error."
+        },
+        {
+          "app": "all",
+          "type": "fix",
+          "text": "Factory servers finish stuck updates, which restores barcode printing and the chart labels on the DPR Daily Report."
+        },
+        {
+          "app": "planning",
+          "type": "fix",
+          "text": "New plan history, packing plan, packing scan and packing line records are saved with their own factory."
+        }
+      ]
+    },
     {
       "version": "1.197.11",
       "date": "2026-11-24",

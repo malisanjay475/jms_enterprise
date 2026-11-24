@@ -79,7 +79,29 @@ const GUARDED_ROUTES = [
   { method: 'GET', path: /^\/api\/users\/?$/, need: 'session' },
   { method: 'GET', path: /^\/api\/activity\/monitor\/?$/, need: 'session' },
   { method: 'GET', path: /^\/api\/hr\/(operators|history|download-operators)\/?$/, need: 'session' },
-  { method: 'GET', path: /^\/api\/admin\/fix-sync-schema\/?$/, need: 'admin' }
+  { method: 'GET', path: /^\/api\/admin\/fix-sync-schema\/?$/, need: 'admin' },
+  // Found open in the Nov-2026 audit: writes whose handlers had no check at all. Only
+  // routes that no sessionless client used in 14 days (factory-1 legacy_auth_usage) are
+  // listed; the DPR / setup / shift-team / heartbeat routes still used by old tablet
+  // logins wait for AUTH_REQUIRE_SESSION.
+  { method: 'POST', path: /^\/api\/admin\/(restore-closed-orders|sync\/reset-pull)\/?$/, need: 'admin' },
+  { method: 'POST', path: /^\/api\/admin\/close-plant\/?$/, need: 'session' },
+  { method: 'DELETE', path: /^\/api\/admin\/close-plant\/[^/]+\/?$/, need: 'session' },
+  { method: 'POST', path: /^\/api\/sync\/(force-full-push|push-uploads)\/?$/, need: 'session' },
+  { method: 'POST', path: /^\/api\/roles\/create\/?$/, need: 'manageUsers' },
+  { method: 'POST', path: /^\/api\/settings\/?$/, need: 'session' },
+  { method: 'POST', path: /^\/api\/notifications\/send\/?$/, need: 'session' },
+  { method: 'POST', path: /^\/api\/hr\/(operators|upload-operators|operators\/delete)\/?$/, need: 'session' },
+  { method: 'POST', path: /^\/api\/dpr\/reasons\/?$/, need: 'session' },
+  { method: 'DELETE', path: /^\/api\/dpr\/reasons\/[^/]+\/?$/, need: 'session' },
+  { method: 'POST', path: /^\/api\/labour-parties\/?$/, need: 'session' },
+  { method: 'PUT', path: /^\/api\/labour-parties\/[^/]+\/?$/, need: 'session' },
+  { method: 'DELETE', path: /^\/api\/labour-parties\/[^/]+\/?$/, need: 'session' },
+  { method: 'POST', path: /^\/api\/upload\/excel\/?$/, need: 'session' },
+  { method: 'POST', path: /^\/api\/assembly\/(lines|plan)\/?$/, need: 'session' },
+  { method: 'DELETE', path: /^\/api\/assembly\/(lines|plan)\/[^/]+\/?$/, need: 'session' },
+  { method: 'POST', path: /^\/api\/planning\/(stop|restore|restore-plan|reseq|balance|auto-assign-p1)\/?$/, need: 'session' },
+  { method: 'DELETE', path: /^\/api\/planning\/priority\/[^/]+\/?$/, need: 'session' }
 ];
 
 // Express routes case-insensitively by default and answers HEAD with the GET handler,
