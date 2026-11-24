@@ -14,6 +14,24 @@
   "latest": "1.177.0",
   "versions": [
     {
+      "version": "1.197.0",
+      "date": "2026-11-24",
+      "title": "Scanning pages redesigned",
+      "modules": [
+        {
+          "app": "packing",
+          "changes": [
+            { "type": "improvement", "text": "Production Scanning, Scanning List and Scanning Dashboard have a new look with one shared header, an assembly filter and tables on every card" },
+            { "type": "feat", "text": "Scanning Dashboard: TV mode, sound on or off, one card per running job, real counts for today and the last hour" },
+            { "type": "feat", "text": "Scanning pages: a station locked by the supervisor PIN can be unlocked there" },
+            { "type": "fix", "text": "Scanning pages: a refresh no longer clears the scan log, a half typed barcode or the STOP screen" },
+            { "type": "fix", "text": "Scanning List: scans go to the job you picked, also after a refresh" },
+            { "type": "fix", "text": "Scanners show as connected only after the bridge confirms it" }
+          ]
+        }
+      ]
+    },
+    {
       "version": "1.196.0",
       "date": "2026-11-24",
       "title": "Packing plan redesigned, with a table-wise view",

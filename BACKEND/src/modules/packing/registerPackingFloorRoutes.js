@@ -388,6 +388,53 @@ function registerPackingFloorRoutes(app, pool) {
     } catch (err) { sendServerError(res, err); }
   });
 
+  /* ---------------- Scan figures (scanning pages and scanning dashboard) ---------------- */
+
+  /* Per open plan: wall-clock times (the raw TIMESTAMPs shift with the server's time zone),
+     good scans today and in the last hour, wrong scans in the last hour, seconds since the
+     last good scan today, and good scans per minute over the last 15 minutes (0 = now). */
+  app.get('/api/packing/scan-stats', async (req, res) => {
+    try {
+      if (!requireUser(req, res)) return;
+      await ensureTables();
+      const { startMs } = live.istDay(Date.now());
+      const dayStart = new Date(startMs).toISOString();
+      const plans = (await pool.query(`
+        SELECT id, to_char(start_time, 'YYYY-MM-DD"T"HH24:MI:SS') AS start_local,
+               to_char(end_time, 'YYYY-MM-DD"T"HH24:MI:SS') AS end_local
+          FROM assembly_plans
+         WHERE (UPPER(status) IN ('PLANNED', 'RUNNING') OR start_time::date >= CURRENT_DATE)
+           AND UPPER(COALESCE(status, '')) NOT IN ('DONE', 'ARCHIVED', 'CANCELLED')
+           AND start_time >= CURRENT_DATE - INTERVAL '14 days'`)).rows;
+      const ids = plans.map(p => p.id);
+      const out = {};
+      for (const p of plans) out[p.id] = { start_local: p.start_local, end_local: p.end_local, today: 0, hour: 0, wrong_hour: 0, last_sec: null, per_min: {} };
+      const counts = await pool.query(`
+        SELECT plan_id,
+               COUNT(*) FILTER (WHERE is_match AND "timestamp" >= $2::timestamptz)::int AS today,
+               COUNT(*) FILTER (WHERE is_match AND "timestamp" > NOW() - INTERVAL '1 hour')::int AS hour,
+               COUNT(*) FILTER (WHERE NOT is_match AND "timestamp" > NOW() - INTERVAL '1 hour')::int AS wrong_hour,
+               EXTRACT(EPOCH FROM NOW() - MAX("timestamp") FILTER (WHERE is_match AND "timestamp" >= $2::timestamptz))::int AS last_sec
+          FROM assembly_scans
+         WHERE plan_id = ANY($1::int[]) AND "timestamp" >= LEAST($2::timestamptz, NOW() - INTERVAL '1 hour')
+         GROUP BY plan_id`, [ids, dayStart]);
+      for (const c of counts.rows) Object.assign(out[c.plan_id], { today: c.today, hour: c.hour, wrong_hour: c.wrong_hour, last_sec: c.last_sec === null ? null : Math.max(0, c.last_sec) });
+      const mins = await pool.query(`
+        SELECT plan_id, GREATEST(0, FLOOR(EXTRACT(EPOCH FROM NOW() - "timestamp") / 60))::int AS m, COUNT(*)::int AS n
+          FROM assembly_scans
+         WHERE plan_id = ANY($1::int[]) AND is_match AND "timestamp" > NOW() - INTERVAL '15 minutes'
+         GROUP BY 1, 2`, [ids]);
+      for (const r of mins.rows) out[r.plan_id].per_min[r.m] = r.n;
+      /* the day's total counts finished jobs too */
+      const all = (await pool.query(`
+        SELECT COUNT(*) FILTER (WHERE is_match)::int AS today,
+               COUNT(*) FILTER (WHERE is_match AND "timestamp" > NOW() - INTERVAL '1 hour')::int AS hour,
+               COUNT(*) FILTER (WHERE NOT is_match AND "timestamp" > NOW() - INTERVAL '1 hour')::int AS wrong_hour
+          FROM assembly_scans WHERE "timestamp" >= $1::timestamptz`, [dayStart])).rows[0];
+      res.json({ ok: true, data: { plans: out, totals: all } });
+    } catch (err) { sendServerError(res, err); }
+  });
+
   /* ---------------- Station screen ---------------- */
 
   app.get('/api/packing/station-screen', async (req, res) => {

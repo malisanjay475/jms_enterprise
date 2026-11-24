@@ -7,238 +7,30 @@
     <title>JMS OCEAN - Production Scanning</title>
     <link rel="stylesheet" href="/assets/app.css?v=12">
     <link rel="stylesheet" href="/assets/bootstrap-icons.min.css">
-    <style>
-        .scanning-container {
-            display: flex;
-            gap: 20px;
-            overflow-x: auto;
-            padding-bottom: 20px;
-            height: calc(100vh - 120px);
-        }
-
-        /* Card Style */
-        .scan-card {
-            min-width: 350px;
-            max-width: 350px;
-            background: #fff;
-            border: 1px solid #e2e8f0;
-            border-radius: 12px;
-            box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);
-            display: flex;
-            flex-direction: column;
-            overflow: hidden;
-            flex-shrink: 0;
-        }
-
-        .scan-card-header {
-            padding: 16px;
-            background: #f8fafc;
-            border-bottom: 1px solid #e2e8f0;
-            font-weight: 700;
-            color: #475569;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-
-        .scan-card-body {
-            padding: 16px;
-            flex: 1;
-            display: flex;
-            flex-direction: column;
-            gap: 12px;
-            overflow-y: auto;
-        }
-
-        .info-row {
-            display: flex;
-            justify-content: space-between;
-            font-size: 0.9rem;
-            color: #64748b;
-        }
-
-        .info-value {
-            font-weight: 600;
-            color: #334155;
-        }
-
-        .ean-display {
-            background: #f1f5f9;
-            padding: 10px;
-            border-radius: 6px;
-            font-family: monospace;
-            font-size: 1.1rem;
-            text-align: center;
-            border: 1px dashed #cbd5e1;
-            margin: 10px 0;
-        }
-
-        .scan-metrics {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 10px;
-            background: #f8fafc;
-            padding: 10px;
-            border-radius: 8px;
-        }
-
-        .metric-box {
-            text-align: center;
-        }
-
-        .metric-label {
-            font-size: 0.75rem;
-            color: #64748b;
-        }
-
-        .metric-val {
-            font-size: 1.2rem;
-            font-weight: 700;
-            color: #0f172a;
-        }
-
-        .log-area {
-            height: 120px;
-            background: #1e293b;
-            color: #10b981;
-            font-family: monospace;
-            font-size: 0.8rem;
-            padding: 10px;
-            border-radius: 6px;
-            overflow-y: auto;
-            margin-top: auto;
-        }
-
-        .log-error {
-            color: #ef4444;
-        }
-
-        .log-warn {
-            color: #f59e0b;
-        }
-
-        .status-badge {
-            padding: 2px 8px;
-            border-radius: 12px;
-            font-size: 0.75rem;
-            font-weight: 600;
-        }
-
-        /* Scanner Status */
-        .scanner-status {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            font-size: 0.85rem;
-            margin-bottom: 10px;
-        }
-
-        .dot {
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-            background: #cbd5e1;
-        }
-
-        .dot.connected {
-            background: #10b981;
-            box-shadow: 0 0 4px #10b981;
-        }
-    </style>
+    <link rel="stylesheet" href="/assets/packing-scan.css?v=1">
 </head>
 
 <body>
     <div class="main-content">
-        <div class="header">
-            <div class="page-title">Production Line Scanning</div>
-            <div>
-                <button class="btn btn-sm btn-outline" onclick="loadActivePlans()"><i class="bi bi-arrow-clockwise"></i>
-                    Refresh</button>
+        <div class="sc-page">
+            <div class="header sc-head">
+                <div class="page-title">Production Scanning</div>
+                <span class="sc-upd" id="scUpdated" role="status"></span>
+                <div class="sc-acts">
+                    <nav class="sc-views" aria-label="Scanning views"><a href="scanning.html" aria-current="page">Cards</a><a href="scanning_list.html">List</a><a href="scanning_dashboard.html">Dashboard</a></nav>
+                    <button type="button" class="btn btn-outline" id="scRefresh"><i class="bi bi-arrow-clockwise"></i>Refresh</button>
+                </div>
             </div>
-        </div>
-
-        <div class="scanning-container" id="cardsContainer">
-            <!-- Cards Injected Here -->
-            <div style="margin:auto; text-align:center; color:#94a3b8">
-                <i class="bi bi-box-seam" style="font-size:3rem"></i>
-                <p>Loading Active Lines...</p>
-            </div>
+            <div class="sc-figs" id="scFigures"></div>
+            <div class="sc-bar1"><span>Assembly</span><div class="sc-chips" id="scAssembly" role="group" aria-label="Assembly station"></div></div>
+            <div class="sc-stations" id="scStations"><div class="sc-skel"></div><div class="sc-skel"></div><div class="sc-skel"></div></div>
         </div>
     </div>
 
     <script src="/assets/app.min.js?v=1583"></script>
-    <script src="/js/production_scanning.js"></script>
+    <script src="/js/production_scanning.js?v=2"></script>
     <script>
-        const cardsContainer = document.getElementById('cardsContainer');
-
-        document.addEventListener('DOMContentLoaded', () => {
-            initScanning(renderCards);
-        });
-
-        function renderCards() {
-            // Update global render hook so shared JS can call it
-            window.renderCards = renderCards;
-
-            const tables = Object.keys(TABLE_PLANS);
-
-            if (!tables.length) {
-                cardsContainer.innerHTML = `
-                    <div style="margin:auto; text-align:center; color:#94a3b8">
-                        <i class="bi bi-clipboard-check" style="font-size:3rem"></i>
-                        <p>No Active Plans Found</p>
-                    </div>`;
-                return;
-            }
-
-            cardsContainer.innerHTML = tables.map(tid => {
-                const plans = TABLE_PLANS[tid];
-                const t = scanEsc(tid), tj = scanJsArg(tid);
-                // Prefer the persisted active (RUNNING) plan so this matches the
-                // Dashboard; fall back to the first plan if none is marked active.
-                const activePlan = plans.find(p => String(p.status || '').toUpperCase() === 'RUNNING') || plans[0];
-
-                let jobSelectHtml = '';
-                if (plans.length > 1) {
-                    jobSelectHtml = `
-                        <div class="form-group mb-2">
-                            <label class="form-label text-xs">Select Job</label>
-                            <select class="form-select form-select-sm" onchange="switchPlan(${tj}, this.value)">
-                                ${plans.map(p => `
-                                    <option value="${scanEsc(p.id)}" ${p.id === activePlan.id ? 'selected' : ''}>
-                                        ${scanEsc(p.id)}: ${scanEsc(String(p.item_name || '').substring(0, 15))}...
-                                    </option>
-                                `).join('')}
-                            </select>
-                        </div>
-                    `;
-                }
-
-                return `
-                <div class="scan-card" id="card-${t}" data-plan-id="${scanEsc(activePlan.id)}">
-                    <div class="scan-card-header">
-                        <span>${scanEsc(tid)}</span>
-                        <span id="badge-${t}" class="status-badge" style="background:${activePlan.status === 'RUNNING' ? '#dcfce7' : '#f1f5f9'}; color:${activePlan.status === 'RUNNING' ? '#166534' : '#475569'}">
-                            ${scanEsc(activePlan.status)}
-                        </span>
-                    </div>
-                    <div class="scan-card-body">
-                        
-                        ${jobSelectHtml}
-                        <div id="details-${t}">${getDetailsHtml(activePlan)}</div>
-
-                        <!-- Scanner Control -->
-                        ${getScannerControlHtml(tid)}
-
-                        <!-- Manual Shim -->
-                        <input class="form-control mt-2" placeholder="Manual Input" onkeydown="handleManualScan(event, ${tj})" style="font-size:0.8rem">
-                        
-                        <!-- Log -->
-                        <div class="log-area mt-2" id="log-${t}"><div>Ready.</div></div>
-                    </div>
-                </div>
-                `;
-            }).join('');
-        }
+        document.addEventListener('DOMContentLoaded', () => PackScan.start('cards'));
     </script>
 </body>
 
