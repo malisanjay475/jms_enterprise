@@ -1,752 +1,600 @@
-// Production Scanning Shared Logic
-// Handles: Port Enumeration (Web Serial + Bridge + IP), State Management, API Calls
-
-// Escape text before it goes into innerHTML. Barcodes, item names and plan
-// fields come from scanners and the DB, so they must never be parsed as HTML.
-function scanEsc(value) {
-    return String(value == null ? '' : value).replace(/[&<>"']/g, ch => ({
-        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
-    }[ch]));
-}
-
-// Value for a JS string argument inside an HTML attribute, e.g.
-// onclick="fn(${scanJsArg(id)})". JSON-quoting keeps it a string literal and
-// scanEsc keeps the quotes from ending the attribute.
-function scanJsArg(value) {
-    return scanEsc(JSON.stringify(String(value == null ? '' : value)));
-}
-
-// Global State
-let ALL_LINES = []; // Master Data from Settings
-let TABLE_PLANS = {};
-let TABLE_SCANNERS = {}; // { 'Table1': { type: 'serial'|'bridge'|'tcp', port: '...', ... } }
-let KNOWN_PORTS = [];
-let BRIDGE_PORTS = [];
-let BRIDGE_WS = null;
-let USING_BRIDGE = false;
-
-// UI State
-let TABLE_MODES = {}; // { 'Table1': 'COM' | 'IP' }
-let SAVED_IPS = JSON.parse(localStorage.getItem('JPSMS_SAVED_IPS') || '[]');
-let CURRENT_FILTER = localStorage.getItem('JPSMS_SCAN_FILTER') || '';
-
-/**
- * Initialize Scanning Module
- * @param {Function} renderCallback - Function to call when state changes (e.g. renderCards)
+/*
+ * Production Scanning (scanning.html, cards) and Scanning List (scanning_list.html, rows).
+ * One station = one card. Every way to scan stays: COM port or IP scanner through the
+ * bridge on this PC, Web Serial, a USB scanner that types, manual input, and the ESP32
+ * table scanners that post to the server by themselves.
+ *
+ * A card is built once and then only patched, so the scan log, a half-typed barcode and
+ * the STOP screen survive a refresh or a scanner connecting.
  */
-async function initScanning(renderCallback) {
-    JPSMS.auth.requireAuth();
-    JPSMS.renderShell('packing');
+(function (g) {
+    const $ = (id) => document.getElementById(id);
+    const esc = (v) => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    const num = (n) => Number(n || 0).toLocaleString('en-IN');
+    const shortName = (n) => String(n || '').replace(/^Assembly Station\s*-\s*/i, '');
+    const isRunning = (p) => String(p.status || '').toUpperCase() === 'RUNNING';
+    const codesOf = (p) => String(p.tables || '').split(',').map(x => x.trim()).filter(Boolean);
+    const api = (path, body) => JPSMS.api.request(path, body ? { method: 'POST', body: JSON.stringify(body), skipLoader: true } : { skipLoader: true });
 
-    // 0. Fetch Lines (Configs)
-    try {
-        const res = await JPSMS.api.get('/assembly/lines');
-        ALL_LINES = res.data || [];
-        renderFilter();
-    } catch (e) { console.error('Lines Error:', e); }
-
-    // 1. Try Bridge Connection
-    connectToBridge(() => {
-        // On Bridge Ready:
-        checkAutoConnect(renderCallback);
-        if (renderCallback) renderCallback();
-    });
-
-    // 2. Check Web Serial Support
-    if ('serial' in navigator) {
-        try {
-            KNOWN_PORTS = await navigator.serial.getPorts();
-            navigator.serial.addEventListener('connect', () => refreshPorts(renderCallback));
-            navigator.serial.addEventListener('disconnect', () => refreshPorts(renderCallback));
-        } catch (e) { console.error('Error listing ports:', e); }
-    } else {
-        console.log('Web Serial not supported. Waiting for Bridge...');
-    }
-
-    await loadActivePlans(renderCallback);
-    listenDeviceScans();
-}
-
-// --- DEVICE (ESP32) SCANS ---
-// Headless table scanners post straight to the server, not through the bridge,
-// so this page hears them on the server's live event stream (/api/assembly/events)
-// and writes them into the station card's log with the table code.
-let DEVICE_ES = null;
-function listenDeviceScans() {
-    if (typeof EventSource === 'undefined' || DEVICE_ES) return;
-    DEVICE_ES = new EventSource('/api/assembly/events');
-    DEVICE_ES.onmessage = (ev) => {
-        let msg;
-        try { msg = JSON.parse(ev.data); } catch (_) { return; }
-        const d = (msg && msg.data) || {};
-        if (d.source !== 'device') return;          // bridge / page scans are logged by their own path
-        const where = d.table ? `Table ${d.table}` : 'Device';
-        if (msg.type === 'scan') {
-            const tid = d.table_id;
-            const p = (TABLE_PLANS[tid] || []).find(x => x.id == d.plan_id);
-            if (d.match) {
-                if (p && d.new_qty != null) p.scanned_qty = d.new_qty;
-                const q = document.getElementById(`scan-qty-${tid}`);
-                if (q && d.new_qty != null) q.textContent = d.new_qty;
-                log(tid, `${where} · ${d.scanned_ean} · OK ${d.new_qty}/${d.plan_qty}`, 'success');
-                flashCard(tid, '#dcfce7');
-            }
-        } else if (msg.type === 'alert') {
-            const tid = d.station || d.table_id;
-            const why = d.type === 'UNKNOWN_BARCODE' ? 'not planned on this table' : `expected ${d.expected || '?'}`;
-            log(tid, `${where} · ${d.ean} · WRONG (${why})`, 'error');
-            flashCard(tid, '#fee2e2');
-        }
+    const LOG_MAX = 40, REFRESH_MS = 30000;
+    const S = {
+        layout: 'cards', lines: [], stations: new Map(), filter: '', known: [], comPorts: [],
+        bridge: null, bridgeOn: false, loaded: false, ips: [], stats: null
     };
-    // EventSource reconnects by itself after a network drop.
-}
+    const store = {
+        get: (k, d) => { try { return localStorage.getItem(k) ?? d; } catch (_) { return d; } },
+        set: (k, v) => { try { localStorage.setItem(k, v); } catch (_) { /* private window */ } }
+    };
+    try { S.ips = JSON.parse(store.get('JPSMS_SAVED_IPS', '[]')) || []; } catch (_) { S.ips = []; }
+    S.filter = store.get('JPSMS_SCAN_FILTER', '');
 
-// --- DATA LOADING ---
+    /* ---------- start ---------- */
 
-async function refreshPorts(renderCallback) {
-    if ('serial' in navigator) KNOWN_PORTS = await navigator.serial.getPorts();
-    if (renderCallback) renderCallback();
-}
-
-async function loadActivePlans(renderCallback) {
-    try {
-        const res = await JPSMS.api.get('/assembly/active');
-        const rawPlans = (res.data || []).filter(p => !p.is_table_alias);
-
-        TABLE_PLANS = rawPlans.reduce((acc, p) => {
-            if (!acc[p.table_id]) acc[p.table_id] = [];
-            acc[p.table_id].push(p);
-            return acc;
-        }, {});
-
-        // Init Modes
-        Object.keys(TABLE_PLANS).forEach(tid => {
-            if (!TABLE_MODES[tid]) TABLE_MODES[tid] = 'COM';
+    async function start(layout) {
+        S.layout = layout;
+        JPSMS.auth.requireAuth();
+        JPSMS.renderShell('packing');
+        $('scRefresh').addEventListener('click', () => load(true));
+        $('scStations').addEventListener('click', onClick);
+        $('scStations').addEventListener('change', onChange);
+        $('scStations').addEventListener('keydown', onKey);
+        $('scAssembly').addEventListener('click', e => {
+            const b = e.target.closest('[data-st]');
+            if (!b) return;
+            S.filter = b.dataset.st;
+            store.set('JPSMS_SCAN_FILTER', S.filter);
+            paint();
         });
+        try { S.lines = (await api('/assembly/lines')).data || []; } catch (e) { console.error('Lines:', e); }
+        if ('serial' in navigator) {
+            const ports = async () => { try { S.known = await navigator.serial.getPorts(); } catch (_) { S.known = []; } S.stations.forEach(paintScanner); };
+            navigator.serial.addEventListener('connect', ports);
+            navigator.serial.addEventListener('disconnect', ports);
+            await ports();
+        }
+        await load(false);
+        connectBridge();
+        listenServer();
+        setInterval(() => { if (!document.hidden) load(false); }, REFRESH_MS);
+        setInterval(() => S.stations.forEach(paintStatus), 5000);
+        document.addEventListener('visibilitychange', () => { if (!document.hidden) load(false); });
+    }
 
-        // Apply Config Modes if present in ALL_LINES
-        ALL_LINES.forEach(l => {
-            if (l.scanner_config && l.scanner_config.startsWith('IP:')) {
-                if (TABLE_PLANS[l.line_id]) TABLE_MODES[l.line_id] = 'IP';
+    async function load(byHand) {
+        try {
+            const res = await api('/assembly/active');
+            const plans = (res.data || []).filter(p => !p.is_table_alias);
+            const by = new Map();
+            plans.forEach(p => { if (!by.has(p.table_id)) by.set(p.table_id, []); by.get(p.table_id).push(p); });
+            for (const id of [...S.stations.keys()]) {
+                /* keep a station whose scanner is on or that shows STOP, even with no plan left */
+                const st = S.stations.get(id);
+                if (!by.has(id) && !st.conn && !st.lock) { if (st.el) st.el.remove(); S.stations.delete(id); }
+                else if (!by.has(id)) { st.plans = []; st.sel = null; }
             }
-        });
-
-        if (renderCallback) renderCallback();
-    } catch (e) {
-        JPSMS.toast(e.message, 'error');
-    }
-}
-
-// --- BRIDGE LOGIC ---
-
-function connectToBridge(renderCallback) {
-    console.log('Attempting to connect to Local Bridge...');
-    try {
-        const ws = new WebSocket('ws://localhost:8999');
-
-        ws.onopen = () => {
-            console.log('Bridge Connected!');
-            USING_BRIDGE = true;
-            BRIDGE_WS = ws;
-            JPSMS.toast('Connected to Local Scanner Bridge', 'success');
-            // Check Auto Connect immediately if plans are already loaded?
-            // Or the caller handles it.
-            // Caller (initScanning) passed a callback that calls checkAutoConnect.
-            if (renderCallback) renderCallback();
-        };
-
-        ws.onmessage = (event) => {
-            const msg = JSON.parse(event.data);
-            handleBridgeMessage(msg, renderCallback); // pass callback if re-render needed
-            // If main callback was passed to connectToBridge, we assume handled by wrapper
-        };
-
-        ws.onclose = () => {
-            console.log('Bridge Disconnected.');
-            USING_BRIDGE = false;
-            BRIDGE_WS = null;
-            // Update UI
-            if (window.renderCards) window.renderCards();
-        };
-
-        ws.onerror = (e) => { /* quiet */ };
-
-    } catch (e) {
-        console.error('Bridge Error:', e);
-    }
-}
-
-function handleBridgeMessage(msg, renderCallback) {
-    if (msg.type === 'ports') {
-        BRIDGE_PORTS = msg.ports || [];
-        // Force re-render if we can
-        if (window.renderCards) window.renderCards();
-    }
-    else if (msg.type === 'data') {
-        const sourcePath = msg.path;
-        const tid = Object.keys(TABLE_SCANNERS).find(t => TABLE_SCANNERS[t].port === sourcePath);
-        if (tid) {
-            processScan(tid, msg.data);
+            by.forEach((list, id) => {
+                let st = S.stations.get(id);
+                if (!st) {
+                    const line = S.lines.find(l => l.line_id === id);
+                    const cfg = String((line && line.scanner_config) || '');
+                    st = { id, plans: [], sel: null, log: [], lock: null, conn: null, tableConn: {}, devices: {}, mode: /^IP:/i.test(cfg) ? 'IP' : 'COM', el: null };
+                    S.stations.set(id, st);
+                }
+                st.plans = list;
+                if (!list.some(p => String(p.id) === String(st.sel))) st.sel = (list.find(isRunning) || list[0]).id;
+            });
+            S.loaded = true;
+            $('scUpdated').textContent = 'Updated ' + new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: false });
+            $('scUpdated').className = 'sc-upd';
+            paint();
+            loadStats();
+            if (byHand) JPSMS.toast('Refreshed', 'success');
+        } catch (e) {
+            $('scUpdated').textContent = 'Not updated: ' + (e.message || 'no connection');
+            $('scUpdated').className = 'sc-upd bad';
+            if (!S.loaded) $('scStations').innerHTML = '<div class="sc-empty"><b>Could not load the plans.</b><span>Check the connection and press Refresh.</span></div>';
         }
     }
-    else if (msg.type === 'raw') {
-        const sourcePath = msg.path;
-        const tid = Object.keys(TABLE_SCANNERS).find(t => TABLE_SCANNERS[t].port === sourcePath);
-        if (tid) {
-            log(tid, `Raw Activity: ${msg.data.substring(0, 20)}...`, 'warn');
-            // Flash dot briefly to show activity
-            const dot = document.getElementById(`dot-${tid}`);
-            if (dot) {
-                dot.style.background = '#f59e0b'; // Amber
-                setTimeout(() => {
-                    if (TABLE_SCANNERS[tid]) dot.style.background = '#10b981';
-                    else dot.style.background = '#cbd5e1';
-                }, 100);
-            }
-        }
+
+    async function loadStats() {
+        try { S.stats = (await api('/packing/scan-stats')).data; S.stations.forEach(paintStatus); paintFigures(); } catch (_) { /* figures only */ }
     }
-    else if (msg.type === 'scanner-status') {
-        // Live status of a persistent (bridge-owned) scanner. Reflect it in the
-        // UI so the table shows Connected even though this tab didn't open it.
-        const tid = msg.table_id;
-        if (tid) {
-            if (msg.connected) {
-                TABLE_SCANNERS[tid] = { type: 'tcp', port: msg.path || '(persistent)', persistent: true };
-            } else if (TABLE_SCANNERS[tid] && TABLE_SCANNERS[tid].persistent) {
-                delete TABLE_SCANNERS[tid];
-            }
-            if (window.renderCards) window.renderCards();
+
+    const planOf = (st) => st.plans.find(p => String(p.id) === String(st.sel)) || null;
+    const statOf = (p) => (p && S.stats && S.stats.plans[p.id]) || null;
+
+    /* "Assembly Station - B1/B9" is table B9 of station B1 */
+    function stationOfLine(line) {
+        const id = String(line || '');
+        if (S.stations.has(id)) return { st: S.stations.get(id), table: null };
+        const i = id.lastIndexOf('/');
+        if (i > 0) {
+            const name = id.slice(0, i).toLowerCase();
+            for (const st of S.stations.values()) if (st.id.toLowerCase() === name) return { st, table: id.slice(i + 1).toUpperCase() };
         }
+        for (const st of S.stations.values()) if (st.id.toLowerCase() === id.toLowerCase()) return { st, table: null };
+        return { st: null, table: null };
     }
-    else if (msg.type === 'scan-result') {
-        // The bridge already posted this scan. Just reflect it — never re-POST.
-        const tid = msg.table_id;
-        if (!tid) return;
-        if (!msg.ok) {
-            log(tid, `Scan rejected: ${msg.error || 'unknown'} (${msg.ean})`, 'error');
+
+    /* ---------- page ---------- */
+
+    function paint() {
+        const all = [...S.stations.values()].sort((a, b) => a.id.localeCompare(b.id, undefined, { numeric: true }));
+        if (S.filter && !S.stations.has(S.filter)) S.filter = '';
+        $('scAssembly').innerHTML = `<button type="button" class="sc-chip" data-st="" aria-pressed="${!S.filter}">All <small>${all.length}</small></button>` +
+            all.map(st => `<button type="button" class="sc-chip" data-st="${esc(st.id)}" aria-pressed="${S.filter === st.id}">${esc(shortName(st.id))}</button>`).join('');
+        const box = $('scStations');
+        if (!all.length) {
+            box.innerHTML = '<div class="sc-empty"><i class="bi bi-clipboard-check"></i><b>No packing job is planned.</b><span>Plan one on the <a href="assembly.html">Packing Plan</a>.</span></div>';
+            paintFigures();
             return;
         }
-        if (msg.match) {
-            log(tid, `MATCH: ${msg.ean}`, 'success');
-            const qtyEl = document.getElementById(`scan-qty-${tid}`);
-            if (qtyEl && msg.new_qty != null) qtyEl.textContent = msg.new_qty;
-            const planList = TABLE_PLANS[tid] || [];
-            const p = planList.find(x => x.id == msg.plan_id);
-            if (p && msg.new_qty != null) p.scanned_qty = msg.new_qty;
-            flashCard(tid, '#dcfce7');
-            unlockTable(tid);
+        box.querySelectorAll('.sc-empty, .sc-skel').forEach(x => x.remove());
+        let prev = null;
+        all.forEach(st => {
+            if (!st.el) build(st);
+            if (st.el.parentNode !== box || st.el.previousElementSibling !== prev) box.insertBefore(st.el, prev ? prev.nextSibling : box.firstChild);
+            prev = st.el;
+            st.el.hidden = Boolean(S.filter && S.filter !== st.id);
+            paintJob(st); paintScanner(st); paintStatus(st); paintLock(st);
+        });
+        paintFigures();
+    }
+
+    function paintFigures() {
+        const all = [...S.stations.values()];
+        const on = all.filter(s => s.conn && s.conn.on).length;
+        const t = S.stats && S.stats.totals;
+        $('scFigures').innerHTML =
+            `<span><b>${all.filter(s => s.plans.some(isRunning)).length}</b> of ${all.length} running</span>` +
+            (t ? `<span><b>${num(t.today)}</b> packed today</span><span class="${t.wrong_hour ? 'bad' : ''}"><b>${num(t.wrong_hour)}</b> wrong in the last hour</span>` : '') +
+            `<span><b>${on}</b> scanner${on === 1 ? '' : 's'} connected here</span>` +
+            `<span class="sc-bridge ${S.bridgeOn ? 'on' : ''}"><i class="sc-dot ${S.bridgeOn ? 'on' : ''}"></i>${S.bridgeOn ? 'Bridge running on this PC' : 'No bridge on this PC'}</span>`;
+    }
+
+    function build(st) {
+        const el = document.createElement('article');
+        el.className = 'sc-card';
+        el.dataset.station = st.id;
+        el.setAttribute('aria-label', st.id);
+        el.innerHTML = `
+            <header class="sc-top"><div><h2>${esc(shortName(st.id))}</h2><small>${esc(st.id)}</small></div><span class="sc-pill" data-x="pill"></span></header>
+            <div class="sc-job" data-x="job"></div>
+            <div class="sc-work">
+                <label class="sc-input"><span class="sr-only">Scan or type a barcode for ${esc(st.id)}</span><i class="bi bi-upc-scan"></i><input type="text" data-x="scan" placeholder="Scan or type the barcode, then Enter" autocomplete="off" inputmode="numeric"></label>
+                <details class="sc-setup" data-x="setup"><summary><i class="sc-dot" data-x="dot"></i><span data-x="scanner"></span><em>Scanner</em></summary><div data-x="controls"></div></details>
+                <div class="sc-dev" data-x="dev" hidden></div>
+            </div>
+            <div class="sc-log" data-x="log" role="log" aria-label="Scans"><p class="info">No scan yet on this screen.</p></div>
+            <div class="sc-lock" data-x="lock" role="alertdialog" aria-label="Wrong barcode" hidden></div>`;
+        st.el = el;
+        st.x = {};
+        el.querySelectorAll('[data-x]').forEach(n => { st.x[n.dataset.x] = n; });
+    }
+
+    function paintJob(st) {
+        const p = planOf(st);
+        const box = st.x.job;
+        if (!p) { box.innerHTML = '<p class="sc-none">No job is planned now.</p>'; st.jobKey = ''; return; }
+        const key = JSON.stringify([st.sel, p.plan_qty, st.plans.map(x => [x.id, x.item_name, x.status, x.tables])]);
+        if (st.jobKey !== key) {
+            if (box.contains(document.activeElement)) return; // the job list is open: leave it until the next refresh
+            st.jobKey = key;
+            const tables = codesOf(p);
+            box.innerHTML = `
+                ${st.plans.length > 1 ? `<label class="sc-pick"><span>Job on this screen</span><select data-x="pick">${st.plans.map(x => `<option value="${esc(x.id)}" ${String(x.id) === String(st.sel) ? 'selected' : ''}>${esc(x.item_name)}${codesOf(x).length ? ` (${esc(codesOf(x).join(' '))})` : ''}${isRunning(x) ? ', running' : ''}</option>`).join('')}</select></label>` : ''}
+                <div class="sc-item">${esc(p.item_name || 'No item name')}</div>
+                <div class="sc-sub">${esc([p.client_name, p.job_card_no].filter(Boolean).join(' · '))}</div>
+                ${tables.length ? `<div class="sc-tables" aria-label="Tables">${tables.map(c => `<b>${esc(c)}</b>`).join('')}</div>` : ''}
+                <div class="sc-count"><b data-q="done"></b><span data-q="of"></span><em data-q="pct"></em></div>
+                <div class="sc-bar"><i data-q="bar"></i></div>
+                <div class="sc-ean ${p.ean_number ? '' : 'bad'}">${p.ean_number ? `EAN <b>${esc(p.ean_number)}</b>` : 'No EAN on this plan, so every scan will be wrong'}</div>`;
+        }
+        paintQty(st);
+    }
+
+    function paintQty(st) {
+        const p = planOf(st), q = (k) => st.x.job.querySelector(`[data-q="${k}"]`);
+        if (!p || !q('done')) return;
+        const done = Number(p.scanned_qty) || 0, plan = Number(p.plan_qty) || 0;
+        const pct = plan ? Math.round(done / plan * 100) : 0;
+        q('done').textContent = num(done);
+        q('of').textContent = `of ${num(plan)}${plan > done ? `, ${num(plan - done)} left` : ''}`;
+        q('pct').textContent = pct + '%';
+        q('bar').style.width = Math.min(100, pct) + '%';
+        st.x.job.classList.toggle('full', plan > 0 && done >= plan);
+    }
+
+    const ago = (s) => s < 60 ? `${Math.max(0, Math.round(s))} s ago` : s < 3600 ? `${Math.floor(s / 60)} min ago` : `${Math.floor(s / 3600)} h ago`;
+
+    function paintStatus(st) {
+        if (!st.x) return;
+        const p = planOf(st), stat = statOf(p);
+        let cls = 'plan', txt = 'Planned';
+        if (!p) { cls = 'none'; txt = 'No job'; }
+        else if (p.plan_qty > 0 && p.scanned_qty >= p.plan_qty) { cls = 'done'; txt = 'Complete'; }
+        else {
+            const last = st.lastGood ? (Date.now() - st.lastGood) / 1000 : (stat && stat.last_sec !== null ? stat.last_sec : null);
+            if (isRunning(p) && last !== null && last > 600) { cls = 'slow'; txt = 'No scan for ' + ago(last).replace(' ago', ''); }
+            else if (isRunning(p) || (last !== null && last <= 600)) { cls = 'run'; txt = 'Running'; }
+        }
+        st.x.pill.className = 'sc-pill ' + cls;
+        st.x.pill.textContent = txt;
+        const dev = [
+            ...Object.entries(st.tableConn).map(([c, on]) => `<span><i class="sc-dot ${on ? 'on' : 'bad'}"></i>Table ${esc(c)} scanner ${on ? 'on' : 'off'}</span>`),
+            ...Object.entries(st.devices).map(([c, at]) => `<span><i class="sc-dot on"></i>Table ${esc(c)} device, ${ago((Date.now() - at) / 1000)}</span>`)
+        ];
+        st.x.dev.hidden = !dev.length;
+        st.x.dev.innerHTML = dev.join('');
+    }
+
+    /* ---------- scanner controls ---------- */
+
+    function scannerText(st) {
+        const c = st.conn;
+        if (c && c.on) return c.persistent ? `Scanner on, ${c.port}` : `Connected, ${c.label || c.port}`;
+        if (c) return `Connecting to ${c.label || c.port}`;
+        return st.connError || 'No scanner connected here';
+    }
+
+    function paintScanner(st) {
+        if (!st.x) return;
+        const c = st.conn;
+        st.x.dot.className = 'sc-dot' + (c && c.on ? ' on' : c ? ' wait' : st.connError ? ' bad' : '');
+        st.x.scanner.textContent = scannerText(st);
+        const key = JSON.stringify([c && [c.on, c.port, c.type, c.persistent], st.mode, S.comPorts, S.known.length, S.ips, S.bridgeOn]);
+        if (st.ctlKey === key) return;
+        const box = st.x.controls;
+        if (box.contains(document.activeElement) && /INPUT|SELECT/.test(document.activeElement.tagName) && !(c && !c.on) && st.ctlMode === st.mode) return;
+        st.ctlKey = key; st.ctlMode = st.mode;
+        const n = 'm' + [...S.stations.keys()].indexOf(st.id);
+        if (c) {
+            box.innerHTML = c.persistent
+                ? '<p class="sc-hint">The bridge keeps this scanner connected by itself. Change it in <a href="packing_settings.html">Packing Settings</a>.</p>'
+                : '<button type="button" class="btn btn-outline" data-act="disconnect">Disconnect</button>';
+            return;
+        }
+        const com = st.mode === 'COM';
+        box.innerHTML = `
+            <div class="sc-seg" role="group" aria-label="Connection type"><button type="button" data-act="mode" data-mode="COM" aria-pressed="${com}">COM port</button><button type="button" data-act="mode" data-mode="IP" aria-pressed="${!com}">Network IP</button></div>
+            ${com ? `
+            <div class="sc-two">
+                <label>Port<select data-c="port"><option value="">Pick a port</option>
+                    ${S.bridgeOn && S.comPorts.length ? `<optgroup label="Bridge on this PC">${S.comPorts.map(p => `<option value="BRIDGE:${esc(p.path)}">${esc(p.path)}</option>`).join('')}</optgroup>` : ''}
+                    ${S.known.length ? `<optgroup label="Web Serial">${S.known.map((p, i) => `<option value="SERIAL:${i}">Web Serial device ${i + 1}</option>`).join('')}</optgroup>` : ''}
+                    <option value="NEW_SERIAL">Pair a new Web Serial device</option></select></label>
+                <label>Speed<select data-c="baud"><option>9600</option><option>115200</option><option>19200</option><option>38400</option><option>57600</option></select></label>
+            </div>` : `
+            <label>Scanner IP and port<input type="text" data-c="ip" list="ips-${n}" placeholder="192.168.1.50:9000" autocomplete="off" value="${esc(S.ips[0] || '')}"><datalist id="ips-${n}">${S.ips.map(ip => `<option value="${esc(ip)}">`).join('')}</datalist></label>
+            ${S.ips.length ? `<button type="button" class="sc-link" data-act="clear-ips">Clear the ${S.ips.length} saved IP${S.ips.length > 1 ? 's' : ''}</button>` : ''}`}
+            ${!S.bridgeOn && !com ? '<p class="sc-hint bad">An IP scanner needs the scanner bridge running on this PC.</p>' : ''}
+            <button type="button" class="btn btn-primary" data-act="connect">Connect</button>`;
+    }
+
+    function setConn(st, conn, err) {
+        st.conn = conn;
+        st.connError = err || '';
+        paintScanner(st);
+        paintFigures();
+    }
+
+    function onClick(e) {
+        const card = e.target.closest('.sc-card');
+        const b = e.target.closest('[data-act]');
+        if (!card || !b) return;
+        const st = S.stations.get(card.dataset.station);
+        if (!st) return;
+        const act = b.dataset.act;
+        if (act === 'mode') { st.mode = b.dataset.mode; st.ctlKey = null; b.blur(); paintScanner(st); }
+        else if (act === 'connect') connect(st);
+        else if (act === 'disconnect') disconnect(st);
+        else if (act === 'clear-ips') { if (confirm('Clear all saved scanner IPs on this PC?')) { S.ips = []; store.set('JPSMS_SAVED_IPS', '[]'); b.blur(); S.stations.forEach(paintScanner); } }
+        else if (act === 'resume') unlock(st);
+        else if (act === 'unlock') unlockPin(st);
+    }
+
+    function onChange(e) {
+        const card = e.target.closest('.sc-card');
+        if (card && e.target.matches('[data-x="pick"]')) pickJob(S.stations.get(card.dataset.station), e.target.value, e.target);
+    }
+
+    function onKey(e) {
+        if (e.key !== 'Enter') return;
+        const card = e.target.closest('.sc-card');
+        const st = card && S.stations.get(card.dataset.station);
+        if (!st) return;
+        if (e.target.matches('[data-x="scan"]')) {
+            const v = e.target.value.trim();
+            e.target.value = '';
+            if (v) scan(st, v);
+        } else if (e.target.matches('[data-c="ip"]')) connect(st);
+        else if (e.target.matches('[data-c="pin"]')) unlockPin(st);
+    }
+
+    /* The job picked here becomes the running one, so the dashboard shows the same job. */
+    async function pickJob(st, id, sel) {
+        const p = st && st.plans.find(x => String(x.id) === String(id));
+        if (!p) return;
+        const before = st.sel;
+        st.sel = p.id;
+        st.lastGood = null;
+        if (sel) sel.blur();
+        try {
+            await api('/assembly/activate', { table_id: st.id, plan_id: p.id });
+            st.plans.forEach(x => { x.status = String(x.id) === String(p.id) ? 'RUNNING' : (isRunning(x) ? 'PLANNED' : x.status); });
+            log(st, `Job changed to ${p.item_name}`, 'info');
+        } catch (e) {
+            st.sel = before;
+            JPSMS.toast('Job not changed: ' + e.message, 'error');
+        }
+        st.jobKey = null;
+        paintJob(st); paintStatus(st);
+    }
+
+    /* ---------- connecting a scanner ---------- */
+
+    async function connect(st) {
+        const c = (k) => { const n = st.x.controls.querySelector(`[data-c="${k}"]`); return n ? n.value.trim() : ''; };
+        if (st.mode === 'IP') {
+            const ip = c('ip');
+            if (!/^[^:\s]+:\d{1,5}$/.test(ip)) return JPSMS.toast('Type the scanner as IP:PORT, for example 192.168.1.50:9000', 'error');
+            if (!S.ips.includes(ip)) { S.ips.push(ip); store.set('JPSMS_SAVED_IPS', JSON.stringify(S.ips)); }
+            return openTcp(st, ip);
+        }
+        const v = c('port'), baud = parseInt(c('baud'), 10) || 9600;
+        if (!v) return JPSMS.toast('Pick a port first', 'error');
+        if (v === 'NEW_SERIAL') {
+            if (!('serial' in navigator)) return JPSMS.toast('This browser has no Web Serial. Use Chrome or Edge, or the bridge.', 'error');
+            try {
+                const port = await navigator.serial.requestPort();
+                S.known = await navigator.serial.getPorts();
+                return openSerial(st, port, baud);
+            } catch (e) { return log(st, 'Not paired: ' + e.message, 'bad'); }
+        }
+        if (v.startsWith('SERIAL:')) { const port = S.known[Number(v.slice(7))]; return port && openSerial(st, port, baud); }
+        if (v.startsWith('BRIDGE:')) return openCom(st, v.slice(7), baud);
+    }
+
+    function openTcp(st, ip) {
+        if (!S.bridge) return JPSMS.toast('The scanner bridge is not running on this PC.', 'error');
+        const [host, port] = ip.split(':');
+        setConn(st, { type: 'tcp', port: ip, on: false });
+        S.bridge.send(JSON.stringify({ action: 'open-tcp', host, port: parseInt(port, 10) }));
+    }
+
+    function openCom(st, path, baudRate) {
+        if (!S.bridge) return JPSMS.toast('The scanner bridge is not running on this PC.', 'error');
+        setConn(st, { type: 'bridge', port: path, on: false });
+        S.bridge.send(JSON.stringify({ action: 'open', path, baudRate, dataBits: 8, stopBits: 1, parity: 'none' }));
+    }
+
+    async function openSerial(st, port, baudRate) {
+        try {
+            await port.open({ baudRate });
+            const dec = new TextDecoderStream();
+            const closed = port.readable.pipeTo(dec.writable).catch(() => {});
+            const reader = dec.readable.getReader();
+            const conn = { type: 'serial', port: 'Serial', label: 'Web Serial', portObj: port, reader, closed, keep: true, on: true };
+            setConn(st, conn);
+            let buf = '';
+            while (conn.keep) {
+                const { value, done } = await reader.read();
+                if (done) break;
+                buf += value || '';
+                const parts = buf.split(/[\r\n]+/);
+                buf = parts.pop();
+                parts.map(x => x.trim()).filter(Boolean).forEach(x => scan(st, x));
+            }
+        } catch (e) { log(st, 'Scanner: ' + e.message, 'bad'); }
+        if (st.conn && st.conn.portObj === port) { setConn(st, null); try { await port.close(); } catch (_) { /* unplugged */ } }
+    }
+
+    async function disconnect(st) {
+        const c = st.conn;
+        if (!c || c.persistent) return;
+        if (c.type === 'serial') {
+            c.keep = false;
+            setConn(st, null);
+            try { await c.reader.cancel(); await c.closed; await c.portObj.close(); } catch (_) { /* already closed */ }
         } else {
-            log(tid, `MISMATCH: ${msg.ean}`, 'error');
-            lockTable(tid, `WRONG BARCODE! <br> <span style="font-size:1.5rem; color:yellow">${scanEsc(msg.ean)}</span>`);
+            if (S.bridge) {
+                const [host, port] = String(c.port).split(':');
+                S.bridge.send(JSON.stringify(c.type === 'tcp' ? { action: 'close-tcp', host, port: parseInt(port, 10) } : { action: 'close', path: c.port }));
+            }
+            setConn(st, null);
         }
-    }
-    else if (msg.type === 'error') {
-        let errText = msg.message;
-        if (errText.includes('121')) {
-            errText = 'Port Busy/Timeout (Code 121). Unplug/replug scanner or close other apps using COM port.';
-        }
-        JPSMS.toast(`Bridge Error: ${errText}`, 'error');
-    }
-}
-
-// --- AUTO CONNECT & FILTER ---
-
-function renderFilter() {
-    let filter = document.getElementById('lineFilter');
-    if (!filter) {
-        const header = document.querySelector('.header div:last-child');
-        if (header) {
-            const wrap = document.createElement('div');
-            wrap.className = 'd-inline-block me-2';
-            wrap.innerHTML = `<select id="lineFilter" class="form-select form-select-sm" style="width:200px"></select>`;
-            header.prepend(wrap);
-            filter = wrap.querySelector('select');
-        }
+        log(st, 'Scanner disconnected', 'info');
     }
 
-    if (filter) {
-        filter.innerHTML = '<option value="">show all tables</option>' +
-            ALL_LINES.map(l => `<option value="${l.line_id}" ${CURRENT_FILTER === l.line_id ? 'selected' : ''}>${l.line_name}</option>`).join('');
+    /* Scanners set in Packing Settings connect by themselves once the bridge is there. */
+    function autoConnect() {
+        S.lines.forEach(line => {
+            const st = S.stations.get(line.line_id);
+            const cfg = String(line.scanner_config || '').trim();
+            if (!st || st.conn || !cfg) return;
+            const ip = cfg.match(/^(?:IP:)?([^:\s]+\.[^:\s]+:\d+)$/i), com = cfg.match(/^(?:BRIDGE:)?(COM\d+|\/dev\/\S+)$/i);
+            if (ip) { st.mode = 'IP'; openTcp(st, ip[1]); }
+            else if (com) { st.mode = 'COM'; openCom(st, com[1], 9600); }
+        });
+    }
 
-        filter.onchange = (e) => {
-            CURRENT_FILTER = e.target.value;
-            localStorage.setItem('JPSMS_SCAN_FILTER', CURRENT_FILTER);
-            if (window.renderCards) window.renderCards();
+    /* ---------- scanner bridge on this PC ---------- */
+
+    function connectBridge() {
+        let ws;
+        try { ws = new WebSocket('ws://localhost:8999'); } catch (_) { return; }
+        ws.onopen = () => { S.bridge = ws; S.bridgeOn = true; S.stations.forEach(paintScanner); paintFigures(); setTimeout(autoConnect, 400); };
+        ws.onerror = () => {};
+        ws.onclose = () => {
+            S.bridge = null; S.bridgeOn = false;
+            S.stations.forEach(st => {
+                st.tableConn = {};
+                if (st.conn && st.conn.type !== 'serial') setConn(st, null, 'Bridge stopped'); else paintScanner(st);
+                paintStatus(st);
+            });
+            paintFigures();
+            setTimeout(connectBridge, 10000);
+        };
+        ws.onmessage = (ev) => { let m; try { m = JSON.parse(ev.data); } catch (_) { return; } bridgeMessage(m); };
+    }
+
+    function bridgeMessage(m) {
+        const byPort = () => [...S.stations.values()].find(st => st.conn && !st.conn.persistent && st.conn.port === m.path);
+        if (m.type === 'ports') { S.comPorts = m.ports || []; S.stations.forEach(paintScanner); }
+        else if (m.type === 'status') {
+            const st = byPort();
+            if (st) { if (m.connected) { st.conn.on = true; setConn(st, st.conn); } else setConn(st, null, 'Scanner disconnected'); }
+        } else if (m.type === 'data') {
+            const st = byPort();
+            if (st) { if (!st.conn.on) { st.conn.on = true; setConn(st, st.conn); } scan(st, String(m.data || '').trim()); }
+        } else if (m.type === 'raw') {
+            const st = byPort();
+            if (st) { st.x.dot.classList.add('blink'); setTimeout(() => st.x.dot.classList.remove('blink'), 200); }
+        } else if (m.type === 'scanner-status') {
+            const { st, table } = stationOfLine(m.table_id);
+            if (!st) return;
+            if (table) { st.tableConn[table] = Boolean(m.connected); paintStatus(st); }
+            else if (m.connected) setConn(st, { type: 'tcp', port: m.path || 'bridge', persistent: true, on: true });
+            else if (st.conn && st.conn.persistent) setConn(st, null, 'Scanner off, the bridge keeps trying');
+        } else if (m.type === 'scan-result') {
+            /* the bridge already posted this scan: only show it, never post it again */
+            const { st, table } = stationOfLine(m.table_id);
+            if (st) shown(st, { ok: m.ok, match: m.match, new_qty: m.new_qty, error: m.error, locked: /LOCKED/i.test(m.error || ''), plan_id: m.plan_id }, m.ean, table);
+        } else if (m.type === 'error') {
+            const text = /121/.test(m.message || '') ? 'Port busy (code 121). Unplug the scanner and plug it in again, or close the other app that uses the port.' : (m.message || 'Scanner error');
+            const st = byPort();
+            if (st) { setConn(st, null, 'Not connected: ' + text); log(st, text, 'bad'); st.x.setup.open = true; }
+            else JPSMS.toast('Scanner bridge: ' + text, 'error');
+        }
+    }
+
+    /* ---------- live events from the server (ESP32 table scanners, other screens) ---------- */
+
+    function listenServer() {
+        if (typeof EventSource === 'undefined') return;
+        const es = new EventSource('/api/assembly/events'); // reconnects by itself
+        es.onmessage = (ev) => {
+            let msg; try { msg = JSON.parse(ev.data); } catch (_) { return; }
+            const d = (msg && msg.data) || {};
+            const { st } = stationOfLine(d.station || d.table_id);
+            if (!st) return;
+            const device = d.source === 'device';
+            if (device && d.table) st.devices[d.table] = Date.now();
+            if (msg.type === 'scan' && d.match) {
+                const p = st.plans.find(x => String(x.id) === String(d.plan_id));
+                if (p && d.new_qty != null) { p.scanned_qty = d.new_qty; paintQty(st); }
+                st.lastGood = Date.now();
+                if (device) { log(st, `${d.table ? 'Table ' + d.table + ' · ' : ''}${d.scanned_ean} · ${num(d.new_qty)} of ${num(d.plan_qty)}`, 'ok'); flash(st, 'ok'); }
+            } else if (msg.type === 'alert' && device) {
+                log(st, `${d.table ? 'Table ' + d.table + ' · ' : ''}${d.ean} · wrong (${d.type === 'UNKNOWN_BARCODE' ? 'not planned on this table' : 'expected ' + (d.expected || '?')})`, 'bad');
+                flash(st, 'bad');
+            }
+            paintStatus(st);
         };
     }
-}
 
-function checkAutoConnect(renderCallback) {
-    // Attempt connections for all lines with config
-    ALL_LINES.forEach(line => {
-        if (!line.scanner_config) return;
-        const tid = line.line_id;
-        let config = line.scanner_config.trim();
+    /* ---------- a scan ---------- */
 
-        // Don't reconnect if already connected
-        if (TABLE_SCANNERS[tid]) return;
-
-        console.log(`[AutoConnect] Checking ${tid} -> ${config}`);
-
-        // Normalize
-        let type = 'UNKNOWN';
-        let val = '';
-
-        if (config.startsWith('IP:')) { type = 'IP'; val = config.split('IP:')[1]; }
-        else if (config.startsWith('BRIDGE:')) { type = 'BRIDGE'; val = config.split('BRIDGE:')[1]; }
-        else if (config.toUpperCase().startsWith('COM')) { type = 'BRIDGE'; val = config; } // Implied COM
-        else if (config.includes('.') && config.includes(':')) { type = 'IP'; val = config; } // Implied IP
-
-        if (type === 'IP') {
-            if (USING_BRIDGE && BRIDGE_WS) {
-                TABLE_MODES[tid] = 'IP';
-                connectTcpPort(tid, val);
-                JPSMS.toast(`Auto-Connecting ${tid} to ${val}`, 'info');
-            }
-        }
-        else if (type === 'BRIDGE') {
-            if (USING_BRIDGE && BRIDGE_WS) {
-                TABLE_MODES[tid] = 'COM';
-                connectBridgePort(tid, val);
-                JPSMS.toast(`Auto-Connecting ${tid} to ${val}`, 'info');
-            }
-        }
-    });
-}
-
-function getVisibleTables() {
-    let tables = Object.keys(TABLE_PLANS);
-    if (CURRENT_FILTER) {
-        // Only show the filtered table
-        // But also, if it's not in TABLE_PLANS (active), we might not show it?
-        // User wants "Selection of Main Assembly".
-        tables = tables.filter(t => t === CURRENT_FILTER);
-    }
-    return tables;
-}
-window.getVisibleTables = getVisibleTables;
-
-// --- UI HELPERS ---
-
-function toggleMode(tid, mode) {
-    TABLE_MODES[tid] = mode;
-    if (window.renderCards) window.renderCards();
-}
-
-function getScannerControlHtml(tid) {
-    const isConnected = !!TABLE_SCANNERS[tid];
-    const mode = TABLE_MODES[tid] || 'COM';
-    const t = scanEsc(tid), tj = scanJsArg(tid);
-
-    // 1. Mode Toggles
-    const toggleHtml = `
-        <div class="btn-group w-100 mb-2" role="group">
-            <input type="radio" class="btn-check" name="mode-${t}" id="mode-com-${t}" autocomplete="off"
-                ${mode === 'COM' ? 'checked' : ''} onclick="toggleMode(${tj},'COM')" ${isConnected ? 'disabled' : ''}>
-            <label class="btn btn-outline-secondary btn-sm" for="mode-com-${t}">COM</label>
-
-            <input type="radio" class="btn-check" name="mode-${t}" id="mode-ip-${t}" autocomplete="off"
-                ${mode === 'IP' ? 'checked' : ''} onclick="toggleMode(${tj},'IP')" ${isConnected ? 'disabled' : ''}>
-            <label class="btn btn-outline-secondary btn-sm" for="mode-ip-${t}">Network IP</label>
-        </div>
-    `;
-
-    // 2. Select / Input Area
-    let inputHtml = '';
-
-    if (mode === 'COM') {
-        let opts = '<option value="-1">-- Select Port --</option>';
-        if (USING_BRIDGE && BRIDGE_PORTS.length) {
-            opts += `<optgroup label="Local COM (Bridge)">`;
-            opts += BRIDGE_PORTS.map(p => `<option value="BRIDGE:${scanEsc(p.path)}">${scanEsc(p.path)}</option>`).join('');
-            opts += `</optgroup>`;
-        }
-        if (KNOWN_PORTS.length) {
-            opts += `<optgroup label="Web Serial">`;
-            opts += KNOWN_PORTS.map((p, i) => `<option value="SERIAL:${i}">Web Serial Device ${i + 1}</option>`).join('');
-            opts += `</optgroup>`;
-        }
-        if (true) opts += `<option value="NEW_SERIAL">+ Pair New (Web Serial)...</option>`;
-
-        inputHtml = `<select id="port-select-${t}" class="form-select form-select-sm" ${isConnected ? 'disabled' : ''}>${opts}</select>`;
-    } else {
-        // IP Mode
-        let opts = '<option value="-1">-- Select Saved IP --</option>';
-        opts += SAVED_IPS.map(ip => `<option value="IP:${scanEsc(ip)}">${scanEsc(ip)}</option>`).join('');
-        opts += `<option value="NEW_IP">+ Add New IP...</option>`;
-        if (SAVED_IPS.length) opts += `<option value="CLEAR_IPS" style="color:red">-- Clear List --</option>`;
-
-        inputHtml = `<select id="port-select-${t}" class="form-select form-select-sm" ${isConnected ? 'disabled' : ''}>${opts}</select>`;
-    }
-
-    return `
-        <div class="mt-3 p-2 bg-slate-50 rounded border border-slate-200">
-             <label class="form-label text-xs">Scanner Connection</label>
-             ${toggleHtml}
-             <div class="d-flex gap-2 mb-2">
-                ${inputHtml}
-                <select id="baud-select-${t}" class="form-select form-select-sm" style="width:100px" ${isConnected ? 'disabled' : ''}>
-                    <option value="9600" selected>9600</option>
-                    <option value="115200">115200</option>
-                    <option value="19200">19200</option>
-                    <option value="38400">38400</option>
-                    <option value="57600">57600</option>
-                </select>
-             </div>
-
-             <div class="scanner-status justify-content-between">
-                <div class="d-flex align-items-center gap-2">
-                    <div class="dot ${isConnected ? 'connected' : ''}" id="dot-${t}"></div>
-                    <span id="label-${t}" class="text-xs font-mono">
-                        ${isConnected ? TABLE_SCANNERS[tid].port : 'Disconnected'}
-                    </span>
-                </div>
-                <div>
-                    ${isConnected ?
-            `<button class="btn btn-sm btn-outline-danger py-0 px-2" onclick="disconnectScanner(${tj})">Disconnect</button>` :
-            `<button class="btn btn-sm btn-primary py-0 px-2" onclick="connectScanner(${tj})">Connect</button>`
-        }
-                </div>
-             </div>
-             ${USING_BRIDGE && mode === 'COM' ? '<div class="text-xs text-green-600 mt-1"><i class="bi bi-diagram-3-fill"></i> Bridge Active</div>' : ''}
-             ${!USING_BRIDGE && mode === 'IP' ? '<div class="text-xs text-red-500 mt-1"><i class="bi bi-exclamation-triangle"></i> Bridge Required for IP</div>' : ''}
-        </div>
-    `;
-}
-
-function getDetailsHtml(p) {
-    return `
-        <div class="form-group">
-                <label class="form-label" style="font-size:0.7rem; color:#94a3b8">Item</label>
-            <div style="font-weight:600; font-size:0.9rem">${scanEsc(p.item_name)}</div>
-        </div>
-        ${p.tables ? `<div style="font-size:0.75rem; color:#475569; margin:2px 0 6px">Tables: <b>${scanEsc(String(p.tables).split(',').filter(Boolean).join(', '))}</b></div>` : ''}
-        <div class="ean-display">${scanEsc(p.ean_number || 'NO EAN')}</div>
-        <div class="scan-metrics">
-            <div class="metric-box"><div class="metric-label">Plan</div><div class="metric-val" id="plan-qty-${scanEsc(p.table_id)}">${scanEsc(p.plan_qty)}</div></div>
-            <div class="metric-box"><div class="metric-label">Done</div><div class="metric-val" id="scan-qty-${scanEsc(p.table_id)}" style="color:#2563eb">${scanEsc(p.scanned_qty || 0)}</div></div>
-        </div>
-    `;
-}
-
-function switchPlan(tid, planId) {
-    const plan = TABLE_PLANS[tid].find(p => p.id == planId);
-    if (!plan) return;
-
-    // Persist the selection so the Dashboard shows the SAME active job for this
-    // table (marks this plan RUNNING, siblings PLANNED). Fire-and-forget; also
-    // reflect it locally so a refresh keeps this plan selected.
-    TABLE_PLANS[tid].forEach(p => { p.status = (p.id == planId) ? 'RUNNING' : 'PLANNED'; });
-    JPSMS.api.post('/assembly/activate', { table_id: tid, plan_id: plan.id })
-        .catch(e => console.warn('activate failed', e));
-
-    // Update DOM directly if elements exist
-    const card = document.getElementById(`card-${tid}`);
-    if (card) card.dataset.planId = plan.id;
-
-    const detailsEl = document.getElementById(`details-${tid}`);
-    if (detailsEl) detailsEl.innerHTML = getDetailsHtml(plan);
-
-    const badge = document.getElementById(`badge-${tid}`);
-    if (badge) {
-        badge.style.background = plan.status === 'RUNNING' ? '#dcfce7' : '#f1f5f9';
-        badge.style.color = plan.status === 'RUNNING' ? '#166534' : '#475569';
-        badge.textContent = plan.status;
-    }
-}
-
-// --- CONNECTIVITY ACTIONS ---
-
-async function connectScanner(tid, renderCallback) {
-    const selectEl = document.getElementById(`port-select-${tid}`);
-    const val = selectEl.value;
-
-    if (val === '-1') return JPSMS.toast('Please select a port/IP first', 'warn');
-
-    // CLEAR
-    if (val === 'CLEAR_IPS') {
-        if (confirm('Clear all saved IPs?')) {
-            SAVED_IPS = [];
-            localStorage.removeItem('JPSMS_SAVED_IPS');
-            if (window.renderCards) window.renderCards();
-            JPSMS.toast('Saved IPs cleared', 'success');
-        }
-        return;
-    }
-
-    // NEW IP
-    if (val === 'NEW_IP') {
-        const ip = prompt("Enter Scanner IP:PORT (e.g., 192.168.1.50:9000)");
-        if (!ip) return;
-        if (!ip.includes(':')) return JPSMS.toast("Format must be IP:PORT", 'error');
-
-        // Save
-        if (!SAVED_IPS.includes(ip)) {
-            SAVED_IPS.push(ip);
-            localStorage.setItem('JPSMS_SAVED_IPS', JSON.stringify(SAVED_IPS));
-            if (window.renderCards) window.renderCards();
-        }
-        connectTcpPort(tid, ip);
-        return;
-    }
-
-    // SAVED IP
-    if (val.startsWith('IP:')) {
-        const ip = val.split('IP:')[1];
-        connectTcpPort(tid, ip);
-        return;
-    }
-
-    // NEW SERIAL
-    if (val === 'NEW_SERIAL') {
-        if (!('serial' in navigator)) return JPSMS.toast('Web Serial not supported.', 'error');
+    async function scan(st, ean) {
+        if (!ean) return;
+        const p = planOf(st);
+        if (!p) return log(st, 'No job is planned, scan not counted', 'bad');
         try {
-            const port = await navigator.serial.requestPort();
-            await openSerialPort(tid, port, renderCallback);
-            refreshPorts(renderCallback);
-        } catch (e) { log(tid, e.message, 'error'); }
-        return;
+            shown(st, { plan_id: p.id, ...await api('/assembly/scan', { plan_id: p.id, ean }) }, ean, null);
+        } catch (e) { log(st, `${ean} · not saved: ${e.message}`, 'bad'); flash(st, 'bad'); }
     }
 
-    // KNOWN SERIAL
-    if (val.startsWith('SERIAL:')) {
-        const idx = parseInt(val.split(':')[1]);
-        const port = KNOWN_PORTS[idx];
-        if (port) await openSerialPort(tid, port, renderCallback);
-        return;
+    function shown(st, r, ean, table) {
+        const where = table ? `Table ${table} · ` : '';
+        if (r.ok && r.match) {
+            const p = st.plans.find(x => String(x.id) === String(r.plan_id)) || planOf(st);
+            if (p && r.new_qty != null) { p.scanned_qty = r.new_qty; paintQty(st); }
+            st.lastGood = Date.now();
+            log(st, `${where}${ean} · ${num(r.new_qty)}`, 'ok');
+            flash(st, 'ok');
+            if (st.lock && !st.lock.pin) unlock(st);
+            paintStatus(st);
+        } else if (r.ok) {
+            log(st, `${where}${ean} · wrong barcode`, 'bad');
+            stop(st, { ean, expected: (planOf(st) || {}).ean_number, pin: false });
+            checkPin(st);
+        } else if (r.locked) {
+            log(st, `${where}${ean} · station locked, not counted`, 'bad');
+            stop(st, { ean: st.lock ? st.lock.ean : '', expected: (planOf(st) || {}).ean_number, pin: true });
+        } else {
+            log(st, `${where}${ean} · ${r.error || 'not counted'}`, 'bad');
+            flash(st, 'bad');
+        }
     }
 
-    // BRIDGE COM
-    if (val.startsWith('BRIDGE:')) {
-        const comPath = val.split('BRIDGE:')[1];
-        const baudRate = parseInt(document.getElementById(`baud-select-${tid}`).value) || 9600;
-        connectBridgePort(tid, comPath, baudRate);
-        return;
-    }
-}
-
-async function openSerialPort(tid, port) {
-    try {
-        await port.open({ baudRate: 9600 });
-        log(tid, 'Web Serial Connected!', 'success');
-
-        const textDecoder = new TextDecoderStream();
-        const readableStreamClosed = port.readable.pipeTo(textDecoder.writable);
-        const reader = textDecoder.readable.getReader();
-
-        TABLE_SCANNERS[tid] = { type: 'serial', port: 'Serial', reader, keepReading: true, buffer: '' };
-        if (window.renderCards) window.renderCards();
-        readSerialLoop(tid);
-    } catch (e) {
-        log(tid, 'Connect Fail: ' + e.message, 'error');
-    }
-}
-
-async function connectBridgePort(tid, comPath, baudRate = 9600) {
-    if (!BRIDGE_WS) return JPSMS.toast('Bridge not connected!', 'error');
-
-    BRIDGE_WS.send(JSON.stringify({
-        action: 'open',
-        path: comPath,
-        baudRate: baudRate,
-        dataBits: 8,
-        stopBits: 1,
-        parity: 'none'
-    }));
-    log(tid, `Requesting ${comPath}...`, 'info');
-    TABLE_SCANNERS[tid] = { type: 'bridge', port: comPath };
-    if (window.renderCards) window.renderCards();
-}
-
-function connectTcpPort(tid, ipStr) {
-    if (!BRIDGE_WS) return JPSMS.toast('Bridge not connected! Cannot use IP.', 'error');
-    const [host, port] = ipStr.split(':');
-    BRIDGE_WS.send(JSON.stringify({ action: 'open-tcp', host, port: parseInt(port) }));
-    log(tid, `Connecting to ${ipStr}...`, 'warn');
-    TABLE_SCANNERS[tid] = { type: 'tcp', port: ipStr };
-    if (window.renderCards) window.renderCards();
-}
-
-function disconnectScanner(tid) {
-    const scanner = TABLE_SCANNERS[tid];
-    if (!scanner) return;
-
-    if (scanner.type === 'serial') {
-        scanner.keepReading = false;
-        if (scanner.reader) scanner.reader.cancel();
-        if (scanner.port && scanner.port.close) scanner.port.close();
-    } else if (scanner.type === 'bridge') {
-        if (BRIDGE_WS) BRIDGE_WS.send(JSON.stringify({ action: 'close', path: scanner.port }));
-    } else if (scanner.type === 'tcp') {
-        const [host, port] = scanner.port.split(':');
-        if (BRIDGE_WS) BRIDGE_WS.send(JSON.stringify({ action: 'close-tcp', host, port: parseInt(port) }));
-    }
-
-    delete TABLE_SCANNERS[tid];
-    if (window.renderCards) window.renderCards();
-    log(tid, 'Disconnected.', 'warn');
-}
-
-// --- READ LOOPS ---
-
-async function readSerialLoop(tid) {
-    const scanner = TABLE_SCANNERS[tid];
-    if (!scanner || scanner.type !== 'serial') return;
-    while (scanner.port && scanner.keepReading) {
+    /* With a supervisor PIN set for the factory, the server has locked the station too. */
+    async function checkPin(st) {
         try {
-            const { value, done } = await scanner.reader.read();
-            if (done) break;
-            if (value) {
-                scanner.buffer += value;
-                if (scanner.buffer.includes('\r') || scanner.buffer.includes('\n')) {
-                    let scan = scanner.buffer.replace(/[\r\n]+/g, '').trim();
-                    if (scan) processScan(tid, scan);
-                    scanner.buffer = '';
-                }
-            }
-        } catch (e) { break; }
-    }
-}
-
-function handleManualScan(e, tid) {
-    if (e.key === 'Enter' && e.target.value) {
-        processScan(tid, e.target.value);
-        e.target.value = '';
-    }
-}
-
-// Duplicate Check State
-let LAST_SCANS = {}; // { tid: 'EAN123' }
-
-async function processScan(tid, ean) {
-    const card = document.getElementById(`card-${tid}`);
-    if (!card) return;
-
-    // 1. Check Duplication (User Request: "Scanning Same Product Twice")
-    /* 
-    if (LAST_SCANS[tid] === ean) {
-        log(tid, `Simulated Duplicate: ${ean}`, 'warn');
-        JPSMS.toast('You are scanning Same product twice!', 'error');
-        flashCard(tid, '#fef3c7'); // Warning Color
-        return; // BLOCK Duplicate
-    } 
-    */
-
-    const planId = card.dataset.planId;
-    if (!planId) {
-        log(tid, 'No Plan Selected', 'error');
-        return;
-    }
-    try {
-        const res = await JPSMS.api.post('/assembly/scan', { plan_id: planId, ean });
-        if (res.ok && res.match) {
-            LAST_SCANS[tid] = ean; // Store for duplicate check
-            log(tid, `MATCH: ${ean}`, 'success');
-            const qtyEl = document.getElementById(`scan-qty-${tid}`);
-            if (qtyEl) qtyEl.textContent = res.new_qty;
-            const p = TABLE_PLANS[tid].find(x => x.id == planId);
-            if (p) p.scanned_qty = res.new_qty;
-            flashCard(tid, '#dcfce7');
-            unlockTable(tid); // Ensure unlocked
-        } else if (res.ok && !res.match) {
-            log(tid, `MISMATCH: ${ean}`, 'error');
-            // flashCard(tid, '#fee2e2'); // Old Flash
-
-            // NEW: Lock Table
-            lockTable(tid, `WRONG BARCODE! <br> <span style="font-size:1.5rem; color:yellow">${scanEsc(ean)}</span>`);
-
-        } else { log(tid, `Error: ${res.error}`, 'error'); }
-    } catch (e) { log(tid, `API: ${e.message}`, 'error'); }
-}
-
-// --- LOCK / UNLOCK TABLE ---
-function lockTable(tid, msg) {
-    const card = document.getElementById(`card-${tid}`);
-    if (!card) return;
-
-    let overlay = document.getElementById(`lock-overlay-${tid}`);
-    const t = scanEsc(tid), tj = scanJsArg(tid);
-    if (!overlay) {
-        overlay = document.createElement('div');
-        overlay.id = `lock-overlay-${tid}`;
-        overlay.style.position = 'absolute';
-        overlay.style.top = '0';
-        overlay.style.left = '0';
-        overlay.style.width = '100%';
-        overlay.style.height = '100%';
-        overlay.style.backgroundColor = 'rgba(220, 38, 38, 0.95)'; // Red
-        overlay.style.zIndex = '100';
-        overlay.style.display = 'flex';
-        overlay.style.flexDirection = 'column';
-        overlay.style.alignItems = 'center';
-        overlay.style.justifyContent = 'center';
-        overlay.style.color = '#fff';
-        overlay.style.textAlign = 'center';
-        overlay.style.borderRadius = '12px';
-
-        overlay.innerHTML = `
-            <i class="bi bi-exclamation-triangle-fill" style="font-size:3rem; margin-bottom:10px"></i>
-            <h3 style="font-weight:800; margin:0">STOP!</h3>
-            <div id="lock-msg-${t}" style="font-size:1.2rem; margin:10px 0; font-weight:600"></div>
-            <button class="btn btn-light btn-lg mt-3" onclick="unlockTable(${tj})" style="color:#dc2626; font-weight:800">
-                <i class="bi bi-unlock-fill"></i> RESUME
-            </button>
-        `;
-        card.appendChild(overlay);
-        card.style.position = 'relative'; // Ensure overlay fits
+            const res = await api('/packing/station-screen?station=' + encodeURIComponent(st.id));
+            if (res.data && res.data.lock && st.lock) { st.lock.pin = true; st.lockKey = null; paintLock(st); }
+        } catch (_) { /* Resume stays; a locked station refuses the next scan anyway */ }
     }
 
-    document.getElementById(`lock-msg-${tid}`).innerHTML = msg;
-    overlay.style.display = 'flex';
+    function stop(st, lock) { st.lock = lock; st.lockKey = null; paintLock(st); }
 
-    // Disable inputs
-    const input = card.querySelector('input');
-    if (input) input.disabled = true;
-}
-
-function unlockTable(tid) {
-    const overlay = document.getElementById(`lock-overlay-${tid}`);
-    if (overlay) overlay.style.display = 'none';
-
-    const card = document.getElementById(`card-${tid}`);
-    if (card) {
-        const input = card.querySelector('input');
-        if (input) {
-            input.disabled = false;
-            input.focus();
-        }
+    function paintLock(st) {
+        const l = st.lock, box = st.x.lock;
+        const key = l ? JSON.stringify(l) : '';
+        if (st.lockKey === key) return;
+        st.lockKey = key;
+        box.hidden = !l;
+        st.x.scan.disabled = Boolean(l);
+        st.el.classList.toggle('stopped', Boolean(l));
+        if (!l) { box.innerHTML = ''; return; }
+        box.innerHTML = `
+            <h3>${esc(shortName(st.id))}</h3><strong><i class="bi bi-exclamation-octagon-fill"></i>Stop, wrong barcode</strong>
+            ${l.ean ? `<p>Scanned <b>${esc(l.ean)}</b></p>` : ''}${l.expected ? `<p>Expected <b>${esc(l.expected)}</b></p>` : ''}
+            ${l.pin ? `<label>Supervisor PIN<input type="password" data-c="pin" inputmode="numeric" maxlength="6" autocomplete="off"></label><em data-c="pinerr" role="alert"></em><button type="button" class="btn" data-act="unlock"><i class="bi bi-unlock-fill"></i>Unlock</button>`
+                : '<span>Take the wrong piece out.</span><button type="button" class="btn" data-act="resume"><i class="bi bi-unlock-fill"></i>Resume</button>'}`;
+        const f = box.querySelector('[data-c="pin"], [data-act="resume"]');
+        if (f && !st.el.hidden && (S.filter || S.stations.size === 1)) f.focus();
     }
-}
 
-// --- UI UPDATERS ---
-
-function log(tid, msg, type) {
-    const el = document.getElementById(`log-${tid}`);
-    if (!el) return;
-    const div = document.createElement('div');
-    div.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
-    if (type === 'error') div.className = 'log-error';
-    if (type === 'success') div.style.color = '#10b981';
-    el.prepend(div);
-}
-
-function flashCard(tid, color) {
-    const card = document.getElementById(`card-${tid}`);
-    if (card) {
-        card.style.background = color;
-        setTimeout(() => card.style.background = '#fff', 500);
+    function unlock(st) {
+        st.lock = null;
+        paintLock(st);
+        if (!st.el.hidden) st.x.scan.focus({ preventScroll: true });
     }
-}
 
-// Cleanup on Page Exit.
-// Only release Web Serial ports (they are owned by this tab and must be closed
-// here). Bridge/TCP scanners are owned by the always-on bridge and MUST stay
-// connected after the page closes, so we leave them running.
-window.addEventListener('beforeunload', () => {
-    Object.keys(TABLE_SCANNERS).forEach(tid => {
-        const scanner = TABLE_SCANNERS[tid];
-        if (scanner && scanner.type === 'serial') {
-            disconnectScanner(tid);
-        }
-    });
-});
+    async function unlockPin(st) {
+        const pin = st.x.lock.querySelector('[data-c="pin"]'), err = st.x.lock.querySelector('[data-c="pinerr"]');
+        if (!pin) return;
+        if (!/^\d{4,6}$/.test(pin.value.trim())) { err.textContent = 'Enter the 4 to 6 digit PIN.'; return; }
+        try {
+            const r = await api('/packing/unlock', { station: st.id, pin: pin.value.trim() });
+            log(st, 'Unlocked by ' + (r.unlocked_by || 'supervisor'), 'info');
+            unlock(st);
+        } catch (e) { err.textContent = e.message || 'Wrong PIN.'; pin.value = ''; pin.focus(); }
+    }
+
+    function log(st, text, cls) {
+        const box = st.x.log;
+        if (!st.logged) { box.innerHTML = ''; st.logged = true; }
+        const p = document.createElement('p');
+        p.className = cls || 'info';
+        const t = document.createElement('time');
+        t.textContent = new Date().toLocaleTimeString('en-IN', { hour12: false });
+        const b = document.createElement('span');
+        b.textContent = text;
+        p.append(t, b);
+        box.prepend(p);
+        while (box.children.length > LOG_MAX) box.lastChild.remove();
+    }
+
+    function flash(st, cls) {
+        st.el.classList.remove('flash-ok', 'flash-bad');
+        void st.el.offsetWidth;
+        st.el.classList.add('flash-' + cls);
+        setTimeout(() => st.el.classList.remove('flash-' + cls), 500);
+    }
+
+    /* Web Serial ports belong to this tab. Bridge scanners stay on after the page closes. */
+    g.addEventListener('beforeunload', () => S.stations.forEach(st => { if (st.conn && st.conn.type === 'serial') disconnect(st); }));
+
+    g.PackScan = { start };
+})(window);
