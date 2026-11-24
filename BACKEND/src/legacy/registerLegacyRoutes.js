@@ -1182,6 +1182,8 @@ const uploadsProxyCache = require('../app/uploadsProxyCache');
 const authSessions = require('../app/auth');
 const { ensureUniqueIndex } = require('../db/indexUtils');
 const { validateDprQuantities } = require('../app/dprValidation');
+const { dprSlotKey, withDprSlotLock } = require('../app/dprSlotLock');
+const { isMissingFileRequest } = require('../app/spaFallback');
 // Cache rules shared with express.static below (staticCachePolicy.js): our own JS/CSS
 // revalidate on every load (304 when unchanged); vendor libs are cached for a year.
 app.use(createPrecompressedStatic(PUBLIC_DIR, (req) => cacheControlForAsset(req.path)));
@@ -8182,26 +8184,28 @@ app.post('/api/dpr/submit', async (req, res) => {
               for (let i = lastIdx + 1; i < currIdx; i++) {
                 const gapSlot = SHIFT_SLOTS[i];
                 // Check if already filled
-                const exists = await q(
-                  'SELECT id FROM dpr_hourly WHERE machine=$1 AND dpr_date=$2 AND shift=$3 AND hour_slot=$4 AND is_deleted = false AND ($5::int IS NULL OR factory_id = $5 OR factory_id IS NULL)',
-                  [Machine, Date, Shift, gapSlot, factoryId]
-                );
-                if (exists.length === 0) {
-                  await q(
-                    `INSERT INTO dpr_hourly (
-                      dpr_date, shift, hour_slot, shots, good_qty, reject_qty, downtime_min, 
-                      remarks, line, machine, plan_id, order_no, mould_no, jobcard_no, 
-                      colour, reject_breakup, downtime_breakup, entry_type, created_by, supervisor, factory_id, created_at, updated_at
-                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, NOW(), NOW())`,
-                    [
-                      Date, Shift, gapSlot, 0, 0, 0, 60, 
-                      (last.remarks ? (last.remarks.includes('[Auto-Filled]') ? last.remarks : last.remarks + ' [Auto-Filled]') : '[Auto-Filled]'), 
-                      session?.line || null, Machine, last.plan_id, last.order_no, last.mould_no, last.jobcard_no,
-                      last.colour, last.reject_breakup, last.downtime_breakup, last.entry_type,
-                      'SYSTEM-AUTOFILL', last.supervisor, factoryId || 1
-                    ]
+                await withDprSlotLock(pool, dprSlotKey(factoryId, Machine, Date, Shift, gapSlot), async (lq) => {
+                  const exists = await lq(
+                    'SELECT id FROM dpr_hourly WHERE machine=$1 AND dpr_date=$2 AND shift=$3 AND hour_slot=$4 AND is_deleted = false AND ($5::int IS NULL OR factory_id = $5 OR factory_id IS NULL)',
+                    [Machine, Date, Shift, gapSlot, factoryId]
                   );
-                }
+                  if (exists.length === 0) {
+                    await lq(
+                      `INSERT INTO dpr_hourly (
+                        dpr_date, shift, hour_slot, shots, good_qty, reject_qty, downtime_min,
+                        remarks, line, machine, plan_id, order_no, mould_no, jobcard_no,
+                        colour, reject_breakup, downtime_breakup, entry_type, created_by, supervisor, factory_id, created_at, updated_at
+                      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, NOW(), NOW())`,
+                      [
+                        Date, Shift, gapSlot, 0, 0, 0, 60,
+                        (last.remarks ? (last.remarks.includes('[Auto-Filled]') ? last.remarks : last.remarks + ' [Auto-Filled]') : '[Auto-Filled]'),
+                        session?.line || null, Machine, last.plan_id, last.order_no, last.mould_no, last.jobcard_no,
+                        last.colour, last.reject_breakup, last.downtime_breakup, last.entry_type,
+                        'SYSTEM-AUTOFILL', last.supervisor, factoryId || 1
+                      ]
+                    );
+                  }
+                });
               }
             }
           }
@@ -8217,8 +8221,17 @@ app.post('/api/dpr/submit', async (req, res) => {
     // same machine/date/shift/hour-slot/plan/type/colour with the same quantities was saved
     // in the last 2 minutes, treat this request as the SAME submit: return the existing id
     // (ok:true) instead of inserting a second row, so the writer just sees "Saved."
-    try {
-      const dupRows = await q(
+    // No factory selected (All Factories on MAIN): use the machine's own factory when only
+    // one factory has a machine of that name, instead of always saving factory 1.
+    let saveFactoryId = factoryId;
+    if (!saveFactoryId && Machine) {
+      const own = await q('SELECT MIN(factory_id) AS f FROM machines WHERE machine = $1 HAVING COUNT(DISTINCT factory_id) = 1', [Machine]);
+      saveFactoryId = own[0]?.f ?? null;
+    }
+    // The check and the insert share one lock, so two copies arriving together (or while the
+    // first insert is still waiting) cannot both pass the check.
+    const saved = await withDprSlotLock(pool, dprSlotKey(factoryId, Machine, Date, Shift, HourSlot), async (lq) => {
+      const dupRows = await lq(
         `SELECT id FROM dpr_hourly
          WHERE machine = $1 AND dpr_date = $2 AND shift = $3 AND hour_slot = $4
            AND COALESCE(CAST(plan_id AS TEXT), '') = $5
@@ -8237,45 +8250,47 @@ app.post('/api/dpr/submit', async (req, res) => {
         ]
       );
       if (dupRows.length) {
-        return res.json({ ok: true, id: dupRows[0].id, duplicate: true });
+        return { duplicateId: dupRows[0].id };
       }
-    } catch (err) {
-      // Guard failure must never block the factory — log and fall through to normal insert.
-      console.error('dpr/submit duplicate-guard', err.message);
-    }
 
-    const rows = await q(
-      `
-      INSERT INTO dpr_hourly (
-        dpr_date, shift, hour_slot,
-        shots, good_qty, reject_qty, downtime_min, remarks,
-        line, machine, plan_id, order_no, mould_no, jobcard_no,
-        colour, reject_breakup, downtime_breakup, entry_type,
-        created_by, geo_lat, geo_lng, geo_acc, supervisor,
-        factory_id,
-        created_at, updated_at
-      )
-      VALUES (
-        $1,$2,$3,
-        $4,$5,$6,$7,$8,
-        $9,$10,$11,$12,$13,$14,
-        $15,$16,$17,$18,
-        $19,$20,$21,$22, $23,
-        $24,
-        NOW(), NOW()
-      )
-      RETURNING id
-      `,
-      [
-        Date, Shift, HourSlot,
-        toNum(Shots), toNum(GoodQty), toNum(RejectQty), toNum(DowntimeMin), Remarks || null,
-        session?.line || null, Machine, PlanID, OrderNo, MouldNo, JobCardNo,
-        Colour || null, RejectBreakup || null, DowntimeBreakup || null, EntryType || 'MAIN',
-        session?.username || null,
-        geo?.lat || null, geo?.lng || null, geo?.accuracy || null, Supervisor || null,
-        factoryId || 1 // Default to 1 if missing
-      ]
-    );
+      const inserted = await lq(
+        `
+        INSERT INTO dpr_hourly (
+          dpr_date, shift, hour_slot,
+          shots, good_qty, reject_qty, downtime_min, remarks,
+          line, machine, plan_id, order_no, mould_no, jobcard_no,
+          colour, reject_breakup, downtime_breakup, entry_type,
+          created_by, geo_lat, geo_lng, geo_acc, supervisor,
+          factory_id,
+          created_at, updated_at
+        )
+        VALUES (
+          $1,$2,$3,
+          $4,$5,$6,$7,$8,
+          $9,$10,$11,$12,$13,$14,
+          $15,$16,$17,$18,
+          $19,$20,$21,$22, $23,
+          $24,
+          NOW(), NOW()
+        )
+        RETURNING id
+        `,
+        [
+          Date, Shift, HourSlot,
+          toNum(Shots), toNum(GoodQty), toNum(RejectQty), toNum(DowntimeMin), Remarks || null,
+          session?.line || null, Machine, PlanID, OrderNo, MouldNo, JobCardNo,
+          Colour || null, RejectBreakup || null, DowntimeBreakup || null, EntryType || 'MAIN',
+          session?.username || null,
+          geo?.lat || null, geo?.lng || null, geo?.accuracy || null, Supervisor || null,
+          saveFactoryId || 1 // Default to 1 if missing
+        ]
+      );
+      return { rows: inserted };
+    });
+    if (saved.duplicateId) {
+      return res.json({ ok: true, id: saved.duplicateId, duplicate: true });
+    }
+    const rows = saved.rows;
 
     // New production entry → drop cached Compliance Summary so it shows at once.
     ttlCacheClear('dprSummaryMatrix');
@@ -12108,7 +12123,7 @@ app.post('/api/job/complete', async (req, res) => {
       const currentJobId = currentJob.id;
 
       await q(
-        "INSERT INTO plan_audit_logs (plan_id, action, details, user_name) VALUES ($1, 'COMPLETE_STOP', $2, 'System')",
+        "INSERT INTO plan_audit_logs (factory_id, plan_id, action, details, user_name) VALUES ((SELECT factory_id FROM plan_board WHERE id = $1), $1, 'COMPLETE_STOP', $2, 'System')",
         [currentJobId, JSON.stringify({ machine, msg: 'Job stopped from supervisor completion' })]
       );
 
@@ -12139,7 +12154,7 @@ app.post('/api/job/complete', async (req, res) => {
         `, [nextJob.id]);
 
         await q(
-          "INSERT INTO plan_audit_logs (plan_id, action, details, user_name) VALUES ($1, 'STATUS_CHANGE', $2, 'System')",
+          "INSERT INTO plan_audit_logs (factory_id, plan_id, action, details, user_name) VALUES ((SELECT factory_id FROM plan_board WHERE id = $1), $1, 'STATUS_CHANGE', $2, 'System')",
           [nextJob.id, JSON.stringify({ old: nextJob.status, new: 'Running', msg: 'Auto-started after previous job completion (Mould priority applied)' })]
         );
       }
@@ -13321,7 +13336,7 @@ app.post('/api/planning/switch-priority-job', async (req, res) => {
     );
     for (const s of stopped) {
       await q(
-        "INSERT INTO plan_audit_logs (plan_id, action, details, user_name) VALUES ($1, 'SWAP_STOP', $2, 'System')",
+        "INSERT INTO plan_audit_logs (factory_id, plan_id, action, details, user_name) VALUES ((SELECT factory_id FROM plan_board WHERE id = $1), $1, 'SWAP_STOP', $2, 'System')",
         [s.id, JSON.stringify({ reason: `Switch Job to ${nextPlan.machine_priority}`, machine })]
       );
     }
@@ -13333,7 +13348,7 @@ app.post('/api/planning/switch-priority-job', async (req, res) => {
       [nextPlan.id]
     );
     await q(
-      "INSERT INTO plan_audit_logs (plan_id, action, details, user_name) VALUES ($1, 'SWITCH_JOB', $2, 'System')",
+      "INSERT INTO plan_audit_logs (factory_id, plan_id, action, details, user_name) VALUES ((SELECT factory_id FROM plan_board WHERE id = $1), $1, 'SWITCH_JOB', $2, 'System')",
       [nextPlan.id, JSON.stringify({
         from: currentPlan ? currentPlan.machine_priority : null,
         to: nextPlan.machine_priority,
@@ -13424,7 +13439,7 @@ app.post('/api/planning/complete', async (req, res) => {
     // invisible in history).
     if (upd && upd.length) {
       await q(
-        "INSERT INTO plan_audit_logs (plan_id, action, details, user_name) VALUES ($1, 'COMPLETE', $2, $3)",
+        "INSERT INTO plan_audit_logs (factory_id, plan_id, action, details, user_name) VALUES ((SELECT factory_id FROM plan_board WHERE id = $1), $1, 'COMPLETE', $2, $3)",
         [upd[0].id, JSON.stringify({ completed_qty: completed_qty ?? null, remarks: remarks || '' }), user || 'System']
       ).catch(e => console.warn('[complete] audit log skipped:', e.message));
     }
@@ -13468,7 +13483,7 @@ app.post('/api/planning/restore-plan', async (req, res) => {
 
     const restoredId = upd[0].id;
     await q(
-      "INSERT INTO plan_audit_logs (plan_id, action, details, user_name) VALUES ($1, 'RESTORE_PLAN', $2, 'Admin')",
+      "INSERT INTO plan_audit_logs (factory_id, plan_id, action, details, user_name) VALUES ((SELECT factory_id FROM plan_board WHERE id = $1), $1, 'RESTORE_PLAN', $2, 'Admin')",
       [restoredId, JSON.stringify({ note: 'Restored from completed report' })]
     );
 
@@ -13555,8 +13570,8 @@ app.post('/api/grinding/entry', async (req, res) => {
 
     await q(`
        INSERT INTO grinding_logs 
-       (plan_id, order_no, job_card_no, rejection_weight, rejection_qty, reason, created_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       (plan_id, order_no, job_card_no, rejection_weight, rejection_qty, reason, created_by, factory_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
     `, [
       planId || null,
       orderNo,
@@ -13564,7 +13579,8 @@ app.post('/api/grinding/entry', async (req, res) => {
       weight || 0,
       qty || 0,
       reason || '',
-      user || 'System'
+      user || 'System',
+      getFactoryId(req)
     ]);
 
     res.json({ ok: true });
@@ -13597,7 +13613,7 @@ app.get('/api/notifications', async (req, res) => {
   try {
     const user = req.query.user;
     const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 100, 1), 100);
-    if (!user) throw new Error('User required');
+    if (!user) return res.status(400).json({ ok: false, error: 'User required' });
 
     // Fetch all unread + last 50 read
     const rows = await q(`
@@ -15480,7 +15496,7 @@ app.post('/api/planning/update', async (req, res) => {
         );
         for (const s of stopped) {
           await q(
-            "INSERT INTO plan_audit_logs (plan_id, action, details, user_name) VALUES ($1, 'SWAP_STOP', $2, 'System')",
+            "INSERT INTO plan_audit_logs (factory_id, plan_id, action, details, user_name) VALUES ((SELECT factory_id FROM plan_board WHERE id = $1), $1, 'SWAP_STOP', $2, 'System')",
             [s.id, JSON.stringify({ reason: `Auto-stopped by update of plan ${rowId}`, by_plan_id: rowId })]
           );
         }
@@ -15680,7 +15696,7 @@ app.post('/api/planning/superadmin-edit', async (req, res) => {
     );
 
     await q(
-      "INSERT INTO plan_audit_logs (plan_id, action, details, user_name) VALUES ($1, 'SUPERADMIN_EDIT', $2, $3)",
+      "INSERT INTO plan_audit_logs (factory_id, plan_id, action, details, user_name) VALUES ((SELECT factory_id FROM plan_board WHERE id = $1), $1, 'SUPERADMIN_EDIT', $2, $3)",
       [
         rowId,
         JSON.stringify({
@@ -15817,7 +15833,7 @@ app.post('/api/planning/superadmin-edit', async (req, res) => {
         }
 
         await client.query(
-          "INSERT INTO plan_audit_logs (plan_id, action, details, user_name) VALUES ($1, 'SUPERADMIN_EDIT_MOULD', $2, $3)",
+          "INSERT INTO plan_audit_logs (factory_id, plan_id, action, details, user_name) VALUES ((SELECT factory_id FROM plan_board WHERE id = $1), $1, 'SUPERADMIN_EDIT_MOULD', $2, $3)",
           [
             rowId,
             JSON.stringify({
@@ -15958,7 +15974,7 @@ app.post('/api/planning/run', async (req, res) => {
       console.log('[auto-stop] Plan %s stopped %d conflicting plan(s):', rowId, stopped.length, stopped.map((s) => s.id));
       for (const s of stopped) {
         await q(
-          "INSERT INTO plan_audit_logs (plan_id, action, details, user_name) VALUES ($1, $2, $3, $4)",
+          "INSERT INTO plan_audit_logs (factory_id, plan_id, action, details, user_name) VALUES ((SELECT factory_id FROM plan_board WHERE id = $1), $1, $2, $3, $4)",
           [s.id, 'SWAP_STOP', JSON.stringify({ reason: `Auto-stopped for Plan ${rowId}`, by_plan_id: rowId }), 'System']
         );
       }
@@ -15972,7 +15988,7 @@ app.post('/api/planning/run', async (req, res) => {
 
     // 5. Log ACTIVATE
     await q(
-      "INSERT INTO plan_audit_logs (plan_id, action, details, user_name) VALUES ($1, 'ACTIVATE', $2, 'System')",
+      "INSERT INTO plan_audit_logs (factory_id, plan_id, action, details, user_name) VALUES ((SELECT factory_id FROM plan_board WHERE id = $1), $1, 'ACTIVATE', $2, 'System')",
       [rowId, JSON.stringify({ machine: plan.machine, order: plan.order_no })]
     );
 
@@ -16043,7 +16059,7 @@ app.post('/api/planning/delete', async (req, res) => {
       const p = check[0];
       // Log DELETE
       await q(
-        "INSERT INTO plan_audit_logs (plan_id, action, details, user_name) VALUES ($1, 'DELETE', $2, $3)",
+        "INSERT INTO plan_audit_logs (factory_id, plan_id, action, details, user_name) VALUES ((SELECT factory_id FROM plan_board WHERE id = $1), $1, 'DELETE', $2, $3)",
         [rowId, JSON.stringify({ machine: p.machine, order: p.order_no }), actor]
       );
     }
@@ -16291,7 +16307,7 @@ app.post('/api/admin/recover-deleted-plan', async (req, res) => {
     const newId = inserted[0]?.id;
 
     await q(
-      "INSERT INTO plan_audit_logs (plan_id, action, details, user_name) VALUES ($1, 'RECOVER_DELETED', $2, $3)",
+      "INSERT INTO plan_audit_logs (factory_id, plan_id, action, details, user_name) VALUES ((SELECT factory_id FROM plan_board WHERE id = $1), $1, 'RECOVER_DELETED', $2, $3)",
       [newId, JSON.stringify({ recovered_plan_id: snapPlanId, order: snapOrderNo, factory_id: snapFactoryId, source: 'approval-history snapshot' }), actor.username]
     );
 
@@ -17187,6 +17203,9 @@ app.post('/api/planning/drop', async (req, res) => {
     const { orderNo, itemCode, mouldNo, mouldName, remarks } = req.body;
     if (!orderNo || !mouldName) return res.json({ ok: false, error: 'Missing Info' });
 
+    // The drop belongs to the order's own factory (the column default is factory 1).
+    const orderFactory = await q('SELECT MIN(factory_id) AS f FROM orders WHERE TRIM(order_no) = TRIM($1) HAVING COUNT(DISTINCT factory_id) = 1', [orderNo]);
+    const dropFactoryId = orderFactory[0]?.f ?? getFactoryId(req) ?? 1;
     const targetFamily = stripTrailingNumberAndSpace(mouldNo);
 
     if (targetFamily) {
@@ -17221,24 +17240,24 @@ app.post('/api/planning/drop', async (req, res) => {
 
           if (existing.length === 0) {
             await q(`
-              INSERT INTO planning_drops (order_no, item_code, mould_no, mould_name, remarks)
-              VALUES ($1, $2, $3, $4, $5)
-            `, [orderNo, variant.mould_no, variant.mould_no, variant.mould_name, remarks]);
+              INSERT INTO planning_drops (order_no, item_code, mould_no, mould_name, remarks, factory_id)
+              VALUES ($1, $2, $3, $4, $5, $6)
+            `, [orderNo, variant.mould_no, variant.mould_no, variant.mould_name, remarks, dropFactoryId]);
           }
         }
       } else {
         // Fallback to inserting just the target mould if no variants found in summary
         await q(`
-          INSERT INTO planning_drops (order_no, item_code, mould_no, mould_name, remarks)
-          VALUES ($1, $2, $3, $4, $5)
-        `, [orderNo, itemCode, mouldNo, mouldName, remarks]);
+          INSERT INTO planning_drops (order_no, item_code, mould_no, mould_name, remarks, factory_id)
+          VALUES ($1, $2, $3, $4, $5, $6)
+        `, [orderNo, itemCode, mouldNo, mouldName, remarks, dropFactoryId]);
       }
     } else {
       // No family name could be derived, just drop target mould
       await q(`
-        INSERT INTO planning_drops (order_no, item_code, mould_no, mould_name, remarks)
-        VALUES ($1, $2, $3, $4, $5)
-      `, [orderNo, itemCode, mouldNo, mouldName, remarks]);
+        INSERT INTO planning_drops (order_no, item_code, mould_no, mould_name, remarks, factory_id)
+        VALUES ($1, $2, $3, $4, $5, $6)
+      `, [orderNo, itemCode, mouldNo, mouldName, remarks, dropFactoryId]);
     }
 
     // 2. Check Completion
@@ -17352,7 +17371,7 @@ app.post('/api/planning/start', async (req, res) => {
     );
     for (const s of stopped) {
       await q(
-        "INSERT INTO plan_audit_logs (plan_id, action, details, user_name) VALUES ($1, 'SWAP_STOP', $2, 'System')",
+        "INSERT INTO plan_audit_logs (factory_id, plan_id, action, details, user_name) VALUES ((SELECT factory_id FROM plan_board WHERE id = $1), $1, 'SWAP_STOP', $2, 'System')",
         [s.id, JSON.stringify({ reason: `Auto-stopped for Plan ${rowId}`, by_plan_id: rowId })]
       );
     }
@@ -17362,7 +17381,7 @@ app.post('/api/planning/start', async (req, res) => {
 
     // 4. Log
     await q(
-      "INSERT INTO plan_audit_logs (plan_id, action, details, user_name) VALUES ($1, 'START', $2, 'System')",
+      "INSERT INTO plan_audit_logs (factory_id, plan_id, action, details, user_name) VALUES ((SELECT factory_id FROM plan_board WHERE id = $1), $1, 'START', $2, 'System')",
       [rowId, JSON.stringify({ machine: plan.machine, order: plan.order_no })]
     );
 
@@ -17393,7 +17412,7 @@ app.post('/api/planning/stop', async (req, res) => {
 
     // 3. Log
     await q(
-      "INSERT INTO plan_audit_logs (plan_id, action, details, user_name) VALUES ($1, 'STOP', $2, 'System')",
+      "INSERT INTO plan_audit_logs (factory_id, plan_id, action, details, user_name) VALUES ((SELECT factory_id FROM plan_board WHERE id = $1), $1, 'STOP', $2, 'System')",
       [rowId, JSON.stringify({ machine: plan.machine, order: plan.order_no })]
     );
 
@@ -17797,8 +17816,8 @@ app.post('/api/planning/restore', async (req, res) => {
     await q(`UPDATE orders SET status = 'Pending' WHERE order_no = $1`, [orderNo]);
 
     await q(
-      "INSERT INTO plan_audit_logs (action, details, user_name) VALUES ('RESTORE', $1, 'User')",
-      [JSON.stringify({ order: orderNo })]
+      "INSERT INTO plan_audit_logs (action, details, user_name, factory_id) VALUES ('RESTORE', $1, 'User', $2)",
+      [JSON.stringify({ order: orderNo }), getFactoryId(req)]
     );
 
     // [Real-Time Sync]
@@ -18001,7 +18020,7 @@ app.post('/api/planning/move', async (req, res) => {
     if (isRunning) {
       // Log the auto-stop
       await q(
-        "INSERT INTO plan_audit_logs (plan_id, action, details, user_name) VALUES ($1, 'AUTO_STOP_MOVE', $2, 'System')",
+        "INSERT INTO plan_audit_logs (factory_id, plan_id, action, details, user_name) VALUES ((SELECT factory_id FROM plan_board WHERE id = $1), $1, 'AUTO_STOP_MOVE', $2, 'System')",
         [rowId, JSON.stringify({ from: plan.machine, to: targetMachine, reason: 'Moved while running' })]
       );
     }
@@ -18049,7 +18068,7 @@ app.post('/api/planning/move', async (req, res) => {
 
     // 3. Log
     await q(
-      "INSERT INTO plan_audit_logs (plan_id, action, details, user_name) VALUES ($1, 'MOVE', $2, 'System')",
+      "INSERT INTO plan_audit_logs (factory_id, plan_id, action, details, user_name) VALUES ((SELECT factory_id FROM plan_board WHERE id = $1), $1, 'MOVE', $2, 'System')",
       [rowId, JSON.stringify({ from: plan.machine, to: targetMachine, index: insertIdx })]
     );
 
@@ -18134,7 +18153,7 @@ app.post('/api/planning/reseq', async (req, res) => {
       }
 
       await client.query(
-        "INSERT INTO plan_audit_logs (plan_id, action, details, user_name) VALUES ($1, 'RESEQ', $2, 'System')",
+        "INSERT INTO plan_audit_logs (factory_id, plan_id, action, details, user_name) VALUES ((SELECT factory_id FROM plan_board WHERE id = $1), $1, 'RESEQ', $2, 'System')",
         [finalOrder[0] || null, JSON.stringify({ machine, order: finalOrder })]
       );
 
@@ -26036,28 +26055,30 @@ app.post('/api/dpr/auto-fill-ongoing', async (req, res) => {
         // Skip current (incomplete) slot — only fill fully elapsed slots
         if (i >= currentSlotIdx) continue;
 
-        const exists = await q(
-          'SELECT id FROM dpr_hourly WHERE machine=$1 AND dpr_date=$2 AND shift=$3 AND hour_slot=$4 AND is_deleted=false AND ($5::int IS NULL OR factory_id=$5 OR factory_id IS NULL)',
-          [last.machine, dprDate, currentShift, gapSlot, rowFactory]
-        );
-        if (exists.length === 0) {
-          await q(
-            `INSERT INTO dpr_hourly (
-              dpr_date, shift, hour_slot, shots, good_qty, reject_qty, downtime_min,
-              remarks, machine, plan_id, order_no, mould_no, jobcard_no,
-              colour, reject_breakup, downtime_breakup, entry_type,
-              created_by, supervisor, factory_id, created_at, updated_at
-            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,NOW(),NOW())`,
-            [
-              dprDate, currentShift, gapSlot, 0, 0, 0, 60,
-              (last.remarks ? (last.remarks.includes('[Auto-Filled]') ? last.remarks : last.remarks + ' [Auto-Filled]') : '[Auto-Filled]'),
-              last.machine, last.plan_id, last.order_no, last.mould_no, last.jobcard_no,
-              last.colour, last.reject_breakup, last.downtime_breakup, last.entry_type,
-              'SYSTEM-AUTOFILL', last.supervisor, rowFactory
-            ]
+        await withDprSlotLock(pool, dprSlotKey(rowFactory, last.machine, dprDate, currentShift, gapSlot), async (lq) => {
+          const exists = await lq(
+            'SELECT id FROM dpr_hourly WHERE machine=$1 AND dpr_date=$2 AND shift=$3 AND hour_slot=$4 AND is_deleted=false AND ($5::int IS NULL OR factory_id=$5 OR factory_id IS NULL)',
+            [last.machine, dprDate, currentShift, gapSlot, rowFactory]
           );
-          filled++;
-        }
+          if (exists.length === 0) {
+            await lq(
+              `INSERT INTO dpr_hourly (
+                dpr_date, shift, hour_slot, shots, good_qty, reject_qty, downtime_min,
+                remarks, machine, plan_id, order_no, mould_no, jobcard_no,
+                colour, reject_breakup, downtime_breakup, entry_type,
+                created_by, supervisor, factory_id, created_at, updated_at
+              ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,NOW(),NOW())`,
+              [
+                dprDate, currentShift, gapSlot, 0, 0, 0, 60,
+                (last.remarks ? (last.remarks.includes('[Auto-Filled]') ? last.remarks : last.remarks + ' [Auto-Filled]') : '[Auto-Filled]'),
+                last.machine, last.plan_id, last.order_no, last.mould_no, last.jobcard_no,
+                last.colour, last.reject_breakup, last.downtime_breakup, last.entry_type,
+                'SYSTEM-AUTOFILL', last.supervisor, rowFactory
+              ]
+            );
+            filled++;
+          }
+        });
       }
     }
 
@@ -31518,7 +31539,7 @@ app.post('/api/hr/scan', async (req, res) => {
     const ops = await q('SELECT * FROM machine_operators WHERE operator_id=$1', [operator_id]);
     if (!ops.length) return res.status(404).json({ ok: false, error: 'Operator not found' });
     const operator = ops[0];
-    const historyCols = await q(`INSERT INTO operator_history(operator_id, machine_at_time, scanned_by) VALUES($1, $2, $3) RETURNING id, scanned_at`, [operator.operator_id, operator.assigned_machine, scanned_by || 'Engineer']);
+    const historyCols = await q(`INSERT INTO operator_history(operator_id, machine_at_time, scanned_by, factory_id) VALUES($1, $2, $3, $4) RETURNING id, scanned_at`, [operator.operator_id, operator.assigned_machine, scanned_by || 'Engineer', operator.factory_id ?? getFactoryId(req) ?? 1]);
     res.json({ ok: true, operator, history: historyCols[0] });
   } catch (e) { sendServerError(res, e); }
 });
@@ -34354,7 +34375,7 @@ app.get('/api/qc/factory-people', async (req, res) => {
   try {
     const factoryId = getFactoryId(req);
     const rows = await q(
-      `SELECT DISTINCT u.username, u.role_code, COALESCE(u.full_name, u.username) AS name
+      `SELECT DISTINCT u.username, u.role_code, u.username AS name
          FROM users u
          LEFT JOIN user_factories uf ON uf.user_id = u.id
         WHERE COALESCE(u.is_active, TRUE) = TRUE
@@ -34737,6 +34758,8 @@ app.get('/', (req, res) => {
 app.use((req, res, next) => {
   if (req.method !== 'GET') return next();
   if (req.path.startsWith('/api')) return next();
+  // A missing script, style, image or upload is a 404, not the home page with a 200.
+  if (isMissingFileRequest(req.path)) return res.status(404).type('text').send('Not found');
   res.sendFile(path.join(PUBLIC_DIR, 'index.html'));
 });
 
@@ -35227,9 +35250,9 @@ table_id = $1, item_name = $2, plan_qty = $3, machine = $4,
             INSERT INTO assembly_plans(
     table_id, item_name, plan_qty, machine,
     start_time, duration_min, delay_min, end_time, ean_number,
-    client_name, job_card_no, status, created_by, created_at, updated_at, tables
-  ) VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'PLANNED', $12, NOW(), NOW(), $13)
-    `, [table_id, item_name, plan_qty, machine, start_time, duration_min, delay_min, end_time, req.body.ean_number, client_name, job_card_no, created_by, planTables(req.body.tables)]);
+    client_name, job_card_no, status, created_by, created_at, updated_at, tables, factory_id
+  ) VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'PLANNED', $12, NOW(), NOW(), $13, $14)
+    `, [table_id, item_name, plan_qty, machine, start_time, duration_min, delay_min, end_time, req.body.ean_number, client_name, job_card_no, created_by, planTables(req.body.tables), getFactoryId(req) || 1]);
     }
 
     res.json({ ok: true });
@@ -35287,12 +35310,13 @@ app.post('/api/assembly/lines', async (req, res) => {
   try {
     // Upsert
     const result = await pool.query(`
-            INSERT INTO assembly_lines(line_id, line_name, scanner_config, updated_at)
-VALUES($1, $2, $3, NOW())
+            INSERT INTO assembly_lines(line_id, line_name, scanner_config, updated_at, factory_id)
+VALUES($1, $2, $3, NOW(), $4)
             ON CONFLICT(line_id) 
-            DO UPDATE SET line_name = EXCLUDED.line_name, scanner_config = EXCLUDED.scanner_config, updated_at = NOW()
+            DO UPDATE SET line_name = EXCLUDED.line_name, scanner_config = EXCLUDED.scanner_config, updated_at = NOW(),
+              factory_id = COALESCE(assembly_lines.factory_id, EXCLUDED.factory_id)
 RETURNING *
-  `, [line_id, line_name, scanner_config]);
+  `, [line_id, line_name, scanner_config, getFactoryId(req)]);
     res.json({ ok: true, data: result.rows[0] });
   } catch (err) {
     console.error(err);
@@ -35305,8 +35329,7 @@ app.delete('/api/assembly/lines/:id', async (req, res) => {
     await pool.query('DELETE FROM assembly_lines WHERE line_id = $1', [req.params.id]);
     res.json({ ok: true, success: true });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ ok: false, error: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -35439,8 +35462,8 @@ async function recordAssemblyScan(plan_id, ean, opts = {}) {
   // 4. Log Scan (Store FULL STRING to track uniqueness)
   // Store the plan's stable sync_id alongside the local plan_id so the scan's
   // link to its plan survives cross-server sync (serial plan_id diverges).
-  await q(`INSERT INTO assembly_scans(plan_id, plan_sync_id, scanned_ean, is_match)
-           VALUES($1, (SELECT sync_id FROM assembly_plans WHERE id = $1), $2, $3)`,
+  await q(`INSERT INTO assembly_scans(plan_id, plan_sync_id, scanned_ean, is_match, factory_id)
+           VALUES($1, (SELECT sync_id FROM assembly_plans WHERE id = $1), $2, $3, (SELECT factory_id FROM assembly_plans WHERE id = $1))`,
     [plan_id, fullString, isMatch]);
 
   // 5. Update Qty IF Match
@@ -36625,7 +36648,7 @@ RETURNING *
 
     // 2. Log action
     await q(
-      "INSERT INTO plan_audit_logs (plan_id, action, details, user_name) VALUES ($1, 'COMPLETE_STOP', $2, 'System')",
+      "INSERT INTO plan_audit_logs (factory_id, plan_id, action, details, user_name) VALUES ((SELECT factory_id FROM plan_board WHERE id = $1), $1, 'COMPLETE_STOP', $2, 'System')",
       [currentJobId, JSON.stringify({ machine, msg: 'Job stopped from supervisor completion' })]
     );
 
@@ -36673,7 +36696,7 @@ RETURNING *
 
       // Log auto-start
       await q(
-        "INSERT INTO plan_audit_logs (plan_id, action, details, user_name) VALUES ($1, 'AUTO_START', $2, 'System')",
+        "INSERT INTO plan_audit_logs (factory_id, plan_id, action, details, user_name) VALUES ((SELECT factory_id FROM plan_board WHERE id = $1), $1, 'AUTO_START', $2, 'System')",
         [nextJob.id, JSON.stringify({ machine, trigger: 'Previous job completed/stopped' })]
       );
 

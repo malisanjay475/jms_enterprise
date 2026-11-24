@@ -475,6 +475,21 @@ function needsRestart(filePath) {
   return !RELEASE_METADATA_FILES.has(name) && !DERIVED_STATIC_RE.test(name);
 }
 
+// A plain file where the release needs a folder made mkdir fail with EEXIST, so every
+// update stopped half way (factory-1, Oct-Nov 2026). Move that file aside, keep a copy.
+function moveBlockingFile(dir, rootResolved) {
+  for (let p = dir; p.startsWith(rootResolved + path.sep); p = path.dirname(p)) {
+    const st = fs.lstatSync(p, { throwIfNoEntry: false });
+    if (!st) continue;
+    if (st.isFile()) {
+      const aside = `${p}.replaced-${Date.now()}`;
+      fs.renameSync(p, aside);
+      console.warn(`[Updater] ${p} was a file but the release needs a folder; moved it to ${aside}`);
+    }
+    return;
+  }
+}
+
 // Writes the release zip into root, but only files whose content differs from what is
 // on disk. Returns how many files were written and how many of them were code (anything
 // but the release metadata). The factory also has a per-file updater ([AutoUpdate],
@@ -499,6 +514,7 @@ function applyReleaseZip(zip, root) {
       same = false;
     }
     if (same) continue;
+    moveBlockingFile(path.dirname(target), rootResolved);
     fs.mkdirSync(path.dirname(target), { recursive: true });
     fs.writeFileSync(target, data);
     written += 1;
