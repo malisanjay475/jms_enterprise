@@ -1702,3 +1702,24 @@ body.viewport-compact .sidebar:not(.collapsed) .user-profile > div:nth-child(2) 
     min-width: 0;
   }
 }
+
+/* Collapsed (icon-only) menu: only centred icons, nothing cut off */
+.sidebar.collapsed .sidebar-search-box,
+.sidebar.collapsed .sub-toggle-btn,
+.sidebar.collapsed .sidebar-user-actions,
+.sidebar.collapsed .sidebar-user-meta,
+.sidebar.collapsed .brand-logo,
+.sidebar.collapsed .sidebar-copyright,
+.sidebar.collapsed #jms-version-badge {
+  display: none !important;
+}
+
+.sidebar.collapsed .brand {
+  padding: 18px 0 !important;
+  justify-content: center;
+}
+
+.sidebar.collapsed .nav-link-main {
+  justify-content: center !important;
+  padding: 10px 0 !important;
+}

@@ -861,6 +861,12 @@ function escHtml(value) {
 
     };
 
+    // v2 key: the old one could be set by a click while the menu was auto-collapsed.
+    const SIDEBAR_COLLAPSED_KEY = 'sidebar_collapsed_v2';
+    function isSidebarCollapsedSaved() {
+        try { return localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === 'true'; } catch (_) { return false; }
+    }
+
     function applyViewportLayoutMode() {
         if (typeof window === 'undefined' || typeof document === 'undefined' || !document.body) return;
         const width = window.innerWidth || document.documentElement.clientWidth || 0;
@@ -880,6 +886,10 @@ function escHtml(value) {
         if (sb) {
             // The menu stays open at every window size; only the user collapses it.
             sb.classList.remove('auto-collapsed');
+            // The phone drawer always shows full names; the saved collapse is for the docked menu.
+            const collapsed = !mobile && isSidebarCollapsedSaved();
+            sb.classList.toggle('collapsed', collapsed);
+            body.classList.toggle('sidebar-collapsed', collapsed);
             if (!mobile) {
                 sb.classList.remove('mobile-open');
                 body.classList.remove('mobile-sidebar-open');
@@ -1024,8 +1034,6 @@ function escHtml(value) {
         refreshMobileSidebarControls();
     }
 
-    // v2 key: the old one could be set by a click while the menu was auto-collapsed.
-    const SIDEBAR_COLLAPSED_KEY = 'sidebar_collapsed_v2';
     function setSidebarCollapsed(sb, collapsed) {
         sb.classList.toggle('collapsed', collapsed);
         document.body.classList.toggle('sidebar-collapsed', collapsed);
@@ -1907,7 +1915,7 @@ function escHtml(value) {
       <div id="jms-version-badge" style="padding:10px 16px 6px;text-align:center;font-size:11px;color:rgba(255,255,255,0.35);letter-spacing:0.3px;user-select:none;">
         JMS &nbsp;·&nbsp; <span id="jms-version-text">…</span>
       </div>
-      <div style="padding:0 16px 14px;text-align:center;font-size:10px;color:rgba(255,255,255,0.22);user-select:none;line-height:1.5;">
+      <div class="sidebar-copyright" style="padding:0 16px 14px;text-align:center;font-size:10px;color:rgba(255,255,255,0.22);user-select:none;line-height:1.5;">
         &copy; 2026 Joyo Plastics. All rights reserved.
       </div>
     `;
@@ -1930,13 +1938,6 @@ function escHtml(value) {
                 const btn = document.getElementById('jms-factory-switch-btn');
                 if (btn && userCanSwitchFactory(user)) btn.style.display = 'inline-block';
             }).catch(() => {});
-        }
-
-        // Restore Collapsed State
-        const isCollapsed = localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === 'true';
-        if (isCollapsed) {
-            sidebar.classList.add('collapsed');
-            document.body.classList.add('sidebar-collapsed'); // Optional for main content adjustment
         }
 
         // Toggle Logic
