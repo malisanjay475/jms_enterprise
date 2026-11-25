@@ -11,8 +11,19 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.197.15",
+  "latest": "1.198.1",
   "versions": [
+    {
+      "version": "1.198.1",
+      "date": "2026-11-25",
+      "changes": [
+        {
+          "app": "all",
+          "type": "security",
+          "text": "Factory access is now decided only on the main site, so access removed there no longer comes back from a factory server."
+        }
+      ]
+    },
     {
       "version": "1.198.0",
       "date": "2026-11-25",
