@@ -11,8 +11,19 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.197.13",
+  "latest": "1.197.14",
   "versions": [
+    {
+      "version": "1.197.14",
+      "date": "2026-11-25",
+      "changes": [
+        {
+          "app": "all",
+          "type": "fix",
+          "text": "The daily backup of uploaded photos and files now gets enough time to finish copying to Google Drive."
+        }
+      ]
+    },
     {
       "version": "1.197.13",
       "date": "2026-11-24",
