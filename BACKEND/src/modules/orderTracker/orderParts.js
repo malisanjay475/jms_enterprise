@@ -291,4 +291,55 @@ function buildParts(order, { items = [], drops = [], colours = [], inactive = ne
   };
 }
 
-module.exports = { buildParts, groupMoulds, pickRatio, splitItemName };
+/* Splits each part's need over the moulds really making it, for the Order Tracker
+   page. moulds: [{ key, mould_no, mould_name, ratio, ratio_bom, ratio_source, produced, plans }].
+   Returns alloc (key -> { ratio, source, required, share, group }) for moulds that count,
+   and the spare moulds (another mould makes the part, dropped, or inactive). */
+function allocateParts(moulds, items, { drops = [], inactive = new Set(), jrQty, jcQty }) {
+  const byKey = new Map(moulds.map(m => [m.key, m]));
+  const alloc = new Map();
+  const spare = [];
+  const isDropped = m => drops.some(d => [d.mould_no, d.item_code].some(v => v && key(v) === m.key) || (d.mould_name && key(d.mould_name) === key(m.mould_name)));
+  const isOpen = p => !CLOSED.includes(key(p.status));
+  groupMoulds([...byKey.keys()], items).forEach((keys, group) => {
+    const list = keys.map(k => byKey.get(k));
+    /* a closed plan that made nothing leaves nothing to count */
+    let used = list.filter(m => m.produced > 0 || m.plans.some(isOpen));
+    if (!used.length) {
+      const free = list.find(m => m.plans.length) || list.find(m => !isDropped(m) && !inactive.has(m.key));
+      used = free ? [free] : [];
+    }
+    list.filter(m => !used.includes(m)).forEach(m => spare.push({
+      mould_no: m.mould_no, mould_name: m.mould_name,
+      role: m.plans.length ? 'CLOSED' : isDropped(m) ? 'DROPPED' : inactive.has(m.key) ? 'INACTIVE' : 'ALTERNATE',
+      used_instead: used.map(u => u.mould_no)
+    }));
+    if (!used.length) return;
+    const lead = list.find(m => m.produced > 0 || m.plans.length) || used[0];
+    const picked = pickRatio(lead, list.flatMap(m => m.plans), items.filter(it => keys.includes(key(it.mould_no))), { jrQty, jcQty });
+    const need = Math.round(jrQty * picked.ratio);
+    const made = used.reduce((t, m) => t + m.produced, 0);
+    const balance = Math.max(0, need - made);
+    /* what is left goes by open plan balance; with no open plan, to the mould that made most */
+    const open = used.map(m => m.plans.some(isOpen));
+    let weight = used.map(m => m.plans.filter(isOpen).reduce((t, p) => t + Math.max(0, num(p.plan_qty) - num(p.produced)), 0));
+    if (!weight.some(w => w > 0)) {
+      const most = used.reduce((best, m, i) => (m.produced > used[best].produced ? i : best), 0);
+      weight = used.map((m, i) => (open.some(Boolean) ? Number(open[i]) : Number(i === most)));
+    }
+    const total = weight.reduce((a, b) => a + b, 0);
+    const last = weight.reduce((at, w, i) => (w > 0 ? i : at), 0);
+    let left = balance;
+    used.forEach((m, i) => {
+      const extra = i === last ? left : Math.min(left, Math.round(balance * weight[i] / total));
+      left -= extra;
+      const required = used.length === 1 ? need
+        : balance === 0 && made > 0 ? Math.min(m.produced, Math.round(m.produced * need / made))
+          : m.produced + extra;
+      alloc.set(m.key, { ratio: picked.ratio, source: picked.source, required, share: need > 0 ? required / need : 1, group, partMoulds: used.length });
+    });
+  });
+  return { alloc, spare };
+}
+
+module.exports = { allocateParts, buildParts, groupMoulds, pickRatio, splitItemName };
