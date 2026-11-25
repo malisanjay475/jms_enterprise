@@ -16,9 +16,10 @@ android {
         // versionCode is set by CI (APP_VERSION_CODE = 1000 + run number) so it always
         // increases and phones auto-update. Local builds fall back to 1.
         versionCode = System.getenv("APP_VERSION_CODE")?.toIntOrNull() ?: 1
-        versionName = "1.7.0"
+        versionName = "1.8.0"
 
-        // Base URL of the JMS API. Shop-floor build: phones talk to the on-site LOCAL
+        // Placeholder API address: the real server is the factory picked on the login screen
+        // (data/FactoryServer.kt), which replaces this host. Shop-floor build: phones talk to the on-site LOCAL
         // server over the factory Wi-Fi (no GPS geofence there), same as the QC app.
         //  - LOCAL factory server:            http://192.168.1.173:3001/  ← active
         //  - Production (https, anywhere):    https://jmsocean.cloud/
