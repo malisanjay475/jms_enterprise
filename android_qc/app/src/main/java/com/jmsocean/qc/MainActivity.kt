@@ -139,7 +139,7 @@ fun QcApp_Root() {
         gesturesEnabled = current in topLevel && !gated,
         drawerContent = {
             ModalDrawerSheet {
-                DrawerHeader(app.session.username, app.session.line)
+                DrawerHeader(app.session.username, app.session.line, com.jmsocean.qc.data.FactoryServer.current.label)
                 HorizontalDivider()
                 Spacer(Modifier.height(8.dp))
                 NavigationDrawerItem(
@@ -278,7 +278,7 @@ fun QcApp_Root() {
 }
 
 @Composable
-private fun DrawerHeader(username: String, line: String) {
+private fun DrawerHeader(username: String, line: String, factory: String) {
     Column(Modifier.padding(24.dp)) {
         Text("JMS Ocean QC", fontWeight = FontWeight.Bold, fontSize = 20.sp,
             color = MaterialTheme.colorScheme.onSurface)
@@ -289,5 +289,6 @@ private fun DrawerHeader(username: String, line: String) {
             },
             fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant
         )
+        Text(factory, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
