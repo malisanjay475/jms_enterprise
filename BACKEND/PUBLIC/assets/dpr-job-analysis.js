@@ -111,6 +111,47 @@
         };
     }
 
+    /** A date or timestamp as a Date. Plain YYYY-MM-DD is local midnight, not UTC. */
+    function toDate(v) {
+        if (v === null || v === undefined || v === '') return null;
+        const s = String(v);
+        const d = typeof v === 'number' ? new Date(v) : /^\d{4}-\d{2}-\d{2}$/.test(s) ? new Date(s + 'T00:00:00') : new Date(s);
+        return Number.isNaN(d.getTime()) ? null : d;
+    }
+
+    /** Calendar days from a to b (both Dates), ignoring the time of day. */
+    function dayGap(a, b) {
+        if (!a || !b) return null;
+        const day = (d) => Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) / 86400000;
+        return day(b) - day(a);
+    }
+
+    /**
+     * The job's life in order: order, job card, planned, first and last production,
+     * then the finish (done, or expected). Each step has the days since the step before.
+     */
+    function timeline(x) {
+        const l = x.lifecycle || {}, hours = x.hours || [];
+        const first = hours.length ? hours[0].ts - HOUR : 0, last = hours.length ? hours[hours.length - 1].ts : 0;
+        const steps = [
+            { key: 'or', label: 'Order (OR)', at: toDate(l.or_date) },
+            { key: 'jc', label: 'Job card', at: toDate(l.jc_date) },
+            { key: 'plan', label: 'Planned', at: toDate(l.plan_created || l.plan_date) },
+            { key: 'start', label: 'First production', at: first ? new Date(first) : toDate(l.prod_start), time: !!first },
+            { key: 'last', label: x.done ? 'Finished' : 'Last production', at: last ? new Date(last) : toDate(l.prod_last), time: !!last }
+        ];
+        if (!x.done) steps.push({ key: 'finish', label: 'Expected finish', at: x.finishTs ? new Date(x.finishTs) : null, time: !!x.finishTs, future: true });
+        let prev = null;
+        steps.forEach((s) => { s.gap = prev && s.at ? dayGap(prev, s.at) : null; if (s.at) prev = s.at; });
+        const or = steps[0].at, start = steps[3].at, end = x.done ? steps[4].at : steps[5].at;
+        return {
+            steps,
+            orderToStart: dayGap(or, start),
+            runHours: first && last ? (last - first) / HOUR : null,
+            leadDays: dayGap(or, end)
+        };
+    }
+
     const top = (stats) => {
         const rows = Object.entries(stats || {}).map(([reason, v]) => ({ reason, v: num(v) })).filter((r) => r.v > 0).sort((a, b) => b.v - a.v);
         const total = rows.reduce((a, r) => a + r.v, 0);
@@ -175,5 +216,5 @@
         return out.sort((a, b) => rank[a.level] - rank[b.level]);
     }
 
-    return { SLOTS, slotEnd, hourly, byShift, balance, targetPerHour, timeUse, forecast, findings };
+    return { SLOTS, slotEnd, hourly, byShift, balance, targetPerHour, timeUse, forecast, toDate, dayGap, timeline, findings };
 });

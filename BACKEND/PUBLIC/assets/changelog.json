@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.205.0",
+  "latest": "1.206.0",
   "versions": [
+    {
+      "version": "1.206.0",
+      "date": "2026-11-25",
+      "title": "DPR job detail in a clearer order",
+      "modules": [
+        {
+          "app": "dpr",
+          "changes": [
+            { "type": "improvement", "text": "Job detail now starts with the dates on one timeline: order, job card, plan, first and last production and the expected finish, with the days between each step." },
+            { "type": "improvement", "text": "Setup, photos and first piece approval (FPA) come next, each in its own section; setup shows the DPR setup and the QC one-time setup together." },
+            { "type": "improvement", "text": "Every section opens and closes with one tap and shows a short summary when closed; What needs attention starts closed. Your choice is remembered." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.205.0",
       "date": "2026-11-25",

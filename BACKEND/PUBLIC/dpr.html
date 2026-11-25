@@ -12,7 +12,7 @@
     <meta name="theme-color" content="#1e293b">
     <link rel="stylesheet" href="/assets/app.css?v=12">
     <link rel="stylesheet" href="/assets/bootstrap-icons.min.css">
-    <link rel="stylesheet" href="/assets/dpr-job-detail.css?v=1">
+    <link rel="stylesheet" href="/assets/dpr-job-detail.css?v=2">
     <style>
         /* KAN-68: the global .card sets overflow:hidden, which traps position:sticky
            for its descendants — the DPR summary's sticky bars (filter, plant total,
@@ -717,9 +717,9 @@
 </body>
 
   <script src="/assets/job-shifting-panel.js?v=7"></script>
-  <script src="/assets/dpr-script-2.js?v=release114"></script>
-  <script src="/assets/dpr-job-analysis.js?v=1"></script>
-  <script src="/assets/dpr-job-detail.js?v=1"></script>
+  <script src="/assets/dpr-script-2.js?v=release115"></script>
+  <script src="/assets/dpr-job-analysis.js?v=2"></script>
+  <script src="/assets/dpr-job-detail.js?v=2"></script>
   <script src="/assets/dpr-machine-auto.js?v=release5"></script>
 
 <!-- JOB DETAIL MODAL (filled by assets/dpr-job-detail.js) -->
@@ -729,16 +729,17 @@
             <div class="jd-top-main">
                 <h3 id="jdTitle">-</h3>
                 <div id="jdMeta" class="jd-meta"></div>
+                <div id="jdBar" class="jd-bar"></div>
             </div>
             <div class="jd-top-side">
                 <span id="jdStatus" class="jd-status"></span>
+                <button type="button" id="jdAllBtn" class="jd-btn" onclick="jdToggleAll()"><i class="bi bi-arrows-collapse"></i> Close all</button>
                 <button type="button" id="btnDeleteSetup" class="jd-btn jd-btn-danger" style="display:none" onclick="deleteSetupFromModal()">Delete setup</button>
                 <button type="button" class="jd-btn" onclick="closeJobModal()" aria-label="Close job details"><i class="bi bi-x-lg"></i> Close</button>
             </div>
         </header>
         <div class="jd-body" id="jdBody">
             <div id="jdMain"></div>
-            <section class="jd-card" id="modalJobQCEvidence"></section>
         </div>
     </div>
     <div id="modalJobImageViewer" onclick="closeJobImage()" style="display:none; position:absolute; inset:0; background:rgba(15,23,42,0.82); align-items:center; justify-content:center; padding:24px; z-index:2">
