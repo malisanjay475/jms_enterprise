@@ -195,7 +195,7 @@ fun LoginScreen(
                     modifier = Modifier.fillMaxWidth()
                 )
                 Text(
-                    s.factory?.let { "Server: ${it.url}" } ?: "Server: select a factory",
+                    s.factory?.let { "Server: ${com.jmsocean.qc.data.FactoryServer.urlOf(it)}" } ?: "Server: select a factory",
                     fontSize = 10.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.fillMaxWidth()

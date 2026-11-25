@@ -11,8 +11,27 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.204.4",
+  "latest": "1.204.5",
   "versions": [
+    {
+      "version": "1.204.5",
+      "date": "2026-11-25",
+      "title": "QC and Shifting apps connect at Shivani",
+      "modules": [
+        {
+          "app": "quality",
+          "changes": [
+            { "type": "fix", "text": "QC Android app 1.11.1: connects to the Shivani server, and finds each factory server's port by itself at login." }
+          ]
+        },
+        {
+          "app": "shifting_module",
+          "changes": [
+            { "type": "fix", "text": "Shifting Android app 1.8.1: connects to the Shivani server, and finds each factory server's port by itself at login." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.204.4",
       "date": "2026-11-25",
@@ -139,7 +158,7 @@
         {
           "app": "shifting_module",
           "changes": [
-            { "type": "feature", "text": "Shifting Android app 1.8.0: choose your factory (Dungra Unit 1, Shivani or Premier) on the login screen." }
+            { "type": "feat", "text": "Shifting Android app 1.8.0: choose your factory (Dungra Unit 1, Shivani or Premier) on the login screen." }
           ]
         }
       ]
@@ -176,7 +195,7 @@
         {
           "app": "quality",
           "changes": [
-            { "type": "feature", "text": "QC Android app 1.11.0: choose your factory (Dungra Unit 1, Shivani or Premier) on the login screen." }
+            { "type": "feat", "text": "QC Android app 1.11.0: choose your factory (Dungra Unit 1, Shivani or Premier) on the login screen." }
           ]
         }
       ]

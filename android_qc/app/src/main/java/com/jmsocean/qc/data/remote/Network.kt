@@ -261,7 +261,7 @@ object Network {
         .build()
         .create(ApiService::class.java)
 
-    val baseUrl: String get() = FactoryServer.current.url
+    val baseUrl: String get() = FactoryServer.url
 
     /** Host of the API server, for [PersistentCookieJar.hasSession]. */
     val apiHost: String get() = FactoryServer.httpUrl.host
