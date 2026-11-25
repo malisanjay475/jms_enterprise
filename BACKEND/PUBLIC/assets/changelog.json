@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.204.6",
+  "latest": "1.204.7",
   "versions": [
+    {
+      "version": "1.204.7",
+      "date": "2026-11-25",
+      "title": "Extra made in the order popup, Tonnage load by part",
+      "modules": [
+        {
+          "app": "planning",
+          "changes": [
+            { "type": "feat", "text": "The plan popup shows Extra Made for the plan and for each colour, and the extra pieces under Balance." },
+            { "type": "fix", "text": "Plan balance adds up the colours, so extra pieces of one colour no longer hide what is left of another." },
+            { "type": "fix", "text": "Order Tracker Tonnage load counts a part once when several moulds can make it, so unused and dropped moulds no longer add machine hours." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.204.6",
       "date": "2026-11-25",

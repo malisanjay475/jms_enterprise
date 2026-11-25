@@ -940,10 +940,19 @@
         ]);
 
         const canAllow = _eqaCanAllow();
+        // Pieces made over plan. Counted colour by colour, so one colour's extra never hides
+        // another's balance; a plan without a full colour split is counted as a whole.
+        const extraOf = c => (c.planQty > 0 ? Math.max(0, c.producedQty - c.planQty) : 0);
+        const perColour = colours.length > 0
+            && colours.every(c => c.planQty > 0 || !c.producedQty)
+            && colours.reduce((s, c) => s + c.planQty, 0) === planQty;
+        const totalExtra = perColour ? colours.reduce((s, c) => s + extraOf(c), 0) : (planQty > 0 ? Math.max(0, producedQty - planQty) : 0);
+        const totalBal = perColour ? colours.reduce((s, c) => s + c.balQty, 0) : balQty;
+        const balHtml = (bal, extra) => `${_ddN(bal)}${extra > 0 ? `<div style="font-size:0.75rem;font-weight:800;color:#2563eb;white-space:nowrap">+${_ddN(extra)} extra</div>` : ''}`;
         const grants = window._ddState.grants || {};
         let colourRows = '';
         if (colours.length === 0) {
-            colourRows = `<tr><td colspan="${canAllow ? 7 : 6}" class="dd-empty">No colour plan or production entries found for this plan.</td></tr>`;
+            colourRows = `<tr><td colspan="${canAllow ? 8 : 7}" class="dd-empty">No colour plan or production entries found for this plan.</td></tr>`;
         } else {
             // Store colour names in a lookup so onclick uses an index — no string escaping needed
             window._ddColourLookup = colours.map(c => c.colour);
@@ -972,7 +981,8 @@
                     </td>
                     <td class="num">${_ddN(c.planQty)}</td>
                     <td class="num" style="color:#16a34a">${_ddN(c.producedQty)}${bar}</td>
-                    <td class="num" style="color:${c.balQty > 0 ? '#f59e0b' : '#10b981'}">${_ddN(c.balQty)}</td>
+                    <td class="num" style="color:${c.balQty > 0 ? '#f59e0b' : '#10b981'}">${balHtml(c.balQty, extraOf(c))}</td>
+                    <td class="num" style="color:#2563eb">${extraOf(c) > 0 ? '+' + _ddN(extraOf(c)) : '<span class="dim">–</span>'}</td>
                     <td class="num dim">${pct}%</td>
                     <td class="num">${extraCell}</td>
                     ${allowBtn}
@@ -989,7 +999,8 @@
             <div class="dd-summary-bar">
                 <div class="dd-stat"><div class="dd-stat-label">Plan Qty</div><div class="dd-stat-val" style="color:#1e293b">${_ddN(planQty)}</div></div>
                 <div class="dd-stat"><div class="dd-stat-label">Produced</div><div class="dd-stat-val" style="color:#16a34a">${_ddN(producedQty)}</div></div>
-                <div class="dd-stat"><div class="dd-stat-label">Balance</div><div class="dd-stat-val" style="color:${balQty > 0 ? '#f59e0b' : '#10b981'}">${_ddN(balQty)}</div></div>
+                <div class="dd-stat"><div class="dd-stat-label">Balance</div><div class="dd-stat-val" style="color:${totalBal > 0 ? '#f59e0b' : '#10b981'}">${balHtml(totalBal, totalExtra)}</div></div>
+                <div class="dd-stat"><div class="dd-stat-label">Extra Made</div><div class="dd-stat-val" style="color:${totalExtra > 0 ? '#2563eb' : '#94a3b8'}">${totalExtra > 0 ? '+' + _ddN(totalExtra) : '0'}</div></div>
                 <div class="dd-stat"><div class="dd-stat-label">Rejection</div><div class="dd-stat-val" style="color:#ef4444">${_ddN(totalReject)}</div></div>
             </div>
             <div style="padding:16px">
@@ -1001,7 +1012,7 @@
                     <table class="dd-table">
                         <thead><tr>
                             <th>Colour</th><th class="num">Plan Qty</th>
-                            <th class="num">Produced</th><th class="num">Balance</th><th class="num">%</th>
+                            <th class="num">Produced</th><th class="num">Balance</th><th class="num">Extra Made</th><th class="num">%</th>
                             <th class="num">Extra Allowed</th>${canAllow ? '<th class="num">PPC</th>' : ''}
                         </tr></thead>
                         <tbody>${colourRows}</tbody>
