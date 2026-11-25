@@ -12,6 +12,7 @@
     <meta name="theme-color" content="#1e293b">
     <link rel="stylesheet" href="/assets/app.css?v=12">
     <link rel="stylesheet" href="/assets/bootstrap-icons.min.css">
+    <link rel="stylesheet" href="/assets/dpr-job-detail.css?v=1">
     <style>
         /* KAN-68: the global .card sets overflow:hidden, which traps position:sticky
            for its descendants — the DPR summary's sticky bars (filter, plant total,
@@ -716,186 +717,28 @@
 </body>
 
   <script src="/assets/job-shifting-panel.js?v=7"></script>
-  <script src="/assets/dpr-script-2.js?v=release113"></script>
+  <script src="/assets/dpr-script-2.js?v=release114"></script>
+  <script src="/assets/dpr-job-analysis.js?v=1"></script>
+  <script src="/assets/dpr-job-detail.js?v=1"></script>
   <script src="/assets/dpr-machine-auto.js?v=release5"></script>
 
-<!-- JOB DETAIL MODAL -->
-<div id="jobDetailModal"
-    style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.6); z-index:1000; align-items:center; justify-content:center; backdrop-filter:blur(2px)">
-    <div
-        style="background:white; width:1040px; max-width:96%; border-radius:18px; box-shadow:0 24px 60px rgba(15,23,42,0.28); overflow:hidden; display:flex; flex-direction:column; max-height:92vh">
-
-        <!-- Header -->
-        <div
-            style="padding:18px 24px; background:linear-gradient(135deg,#f8fafc 0%,#eff6ff 100%); border-bottom:1px solid #dbeafe; display:flex; justify-content:space-between; align-items:flex-start; gap:20px">
-            <div style="min-width:0">
-                <div style="font-size:0.72rem; letter-spacing:0.12em; color:#0284c7; font-weight:900; text-transform:uppercase">DPR Job Detail</div>
-                <h3 class="text-lg font-bold text-slate-900" id="modalJobProduct" style="margin:4px 0 3px; line-height:1.15">Product Name</h3>
-                <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:center; font-size:0.85rem; color:#475569">
-                    <span>Mould: <b id="modalJobMould" style="color:#0f172a">Mould Name</b></span>
-                    <span>Client: <b id="modalJobClient" style="color:#0f172a">-</b></span>
-                    <span>OR: <b id="modalJobOrder" class="font-mono" style="color:#0369a1">Order No</b></span>
-                </div>
+<!-- JOB DETAIL MODAL (filled by assets/dpr-job-detail.js) -->
+<div id="jobDetailModal" class="jd-overlay" style="display:none" onclick="if (event.target === this) closeJobModal()">
+    <div class="jd-modal" role="dialog" aria-modal="true" aria-labelledby="jdTitle">
+        <header class="jd-top">
+            <div class="jd-top-main">
+                <h3 id="jdTitle">-</h3>
+                <div id="jdMeta" class="jd-meta"></div>
             </div>
-            <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; justify-content:flex-end">
-                <span id="modalJobStatusChip" style="display:none; align-items:center; gap:6px; padding:6px 14px; border-radius:999px; font-weight:900; font-size:0.78rem; text-transform:uppercase; letter-spacing:0.04em"></span>
-                <span style="display:inline-flex; align-items:center; gap:6px; background:#e0f2fe; border:1px solid #bae6fd; color:#0369a1; padding:6px 14px; border-radius:999px; font-weight:900; font-size:0.78rem; text-transform:uppercase; letter-spacing:0.04em"><i class="bi bi-clipboard-data"></i> Overall Job</span>
-                <button id="btnDeleteSetup" style="display:none; background:#fee2e2; border:1px solid #ef4444; color:#b91c1c; padding:4px 12px; border-radius:6px; font-weight:600; cursor:pointer" onclick="deleteSetupFromModal()">Delete Setup</button>
-                <button onclick="closeJobModal()" class="hover:bg-slate-50"
-                    style="background:white; border:1px solid #cbd5e1; padding:4px 12px; border-radius:6px; font-weight:600; color:#475569;">&times;
-                    Close</button>
+            <div class="jd-top-side">
+                <span id="jdStatus" class="jd-status"></span>
+                <button type="button" id="btnDeleteSetup" class="jd-btn jd-btn-danger" style="display:none" onclick="deleteSetupFromModal()">Delete setup</button>
+                <button type="button" class="jd-btn" onclick="closeJobModal()" aria-label="Close job details"><i class="bi bi-x-lg"></i> Close</button>
             </div>
-        </div>
-
-        <div style="overflow-y:auto; padding:24px">
-
-            <!-- Top Grid: Metadata -->
-            <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:20px; margin-bottom:24px">
-
-                <!-- Col 1: Job Info -->
-                <div style="display:flex; flex-direction:column; gap:8px">
-                    <div style="font-size:0.75rem; color:#94a3b8; font-weight:700; text-transform:uppercase">Job Info
-                    </div>
-                    <div class="text-sm">Machine: <span class="font-bold text-slate-700" id="modalJobMachine">-</span>
-                    </div>
-                    <div class="text-sm">Client: <span class="font-bold text-slate-700" id="modalJobClientInfo">-</span>
-                    </div>
-                    <div class="text-sm">JC No: <span class="font-bold text-blue-600" id="modalJobJC">-</span></div>
-                    <div class="text-sm">OR Qty: <span class="font-bold text-slate-700" id="modalJobORQty">-</span></div>
-                    <div class="text-sm">Batch/Plan Qty: <span class="font-bold text-slate-700" id="modalJobBatchQty">-</span></div>
-                </div>
-
-                <!-- Col 2: Dates -->
-                <div style="display:flex; flex-direction:column; gap:8px">
-                    <div style="font-size:0.75rem; color:#94a3b8; font-weight:700; text-transform:uppercase">Important
-                        Dates</div>
-                    <div class="text-sm">OR Date: <span class="font-mono text-slate-700" id="modalJobORDate">-</span>
-                    </div>
-                    <div class="text-sm">JC Date: <span class="font-mono text-slate-700" id="modalJobJCDate">-</span>
-                    </div>
-                    <div class="text-sm">Plan Date: <span class="font-mono text-slate-700"
-                            id="modalJobPlanDate">-</span></div>
-                </div>
-
-                <!-- Col 3: Standards -->
-                <div style="display:flex; flex-direction:column; gap:8px">
-                    <div style="font-size:0.75rem; color:#94a3b8; font-weight:700; text-transform:uppercase">STD vs Actual</div>
-                    <div style="display:grid; grid-template-columns:auto 1fr 1fr; gap:6px 12px; align-items:center; font-size:0.82rem">
-                        <span></span>
-                        <span style="color:#64748b; font-weight:800; text-transform:uppercase; font-size:0.62rem; text-align:right">Std</span>
-                        <span style="color:#0ea5e9; font-weight:800; text-transform:uppercase; font-size:0.62rem; text-align:right">Actual</span>
-
-                        <span style="color:#475569; font-weight:700">Cycle (s)</span>
-                        <b id="modalJobStdCycle" style="text-align:right; color:#0f172a">-</b>
-                        <b id="modalJobActCycle" style="text-align:right; color:#0ea5e9">-</b>
-
-                        <span style="color:#475569; font-weight:700">Weight (kg)</span>
-                        <b id="modalJobStdWeight" style="text-align:right; color:#0f172a">-</b>
-                        <b id="modalJobActWeight" style="text-align:right; color:#0ea5e9">-</b>
-
-                        <span style="color:#475569; font-weight:700">Cavity</span>
-                        <b id="modalJobStdCavity" style="text-align:right; color:#0f172a">-</b>
-                        <b id="modalJobActCavity" style="text-align:right; color:#0ea5e9">-</b>
-                    </div>
-                    <span style="display:none" id="modalJobCycle">0</span>
-                    <span style="display:none" id="modalJobWeight">0</span>
-                    <span style="display:none" id="modalJobStdCav">-</span>
-                    <span style="display:none" id="modalJobActCav">-</span>
-                </div>
-            </div>
-
-            <div style="height:1px; background:#e2e8f0; margin-bottom:24px"></div>
-
-            <!-- Summary Stats: Premium KPI strip -->
-            <div style="background:#ffffff; border:1px solid #e2e8f0; border-radius:14px; padding:16px 18px; margin-bottom:24px; box-shadow:0 2px 8px rgba(15,23,42,0.05)">
-                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px">
-                    <h4 style="font-size:1rem; font-weight:900; color:#0f172a; margin:0">Overall Progress</h4>
-                    <div id="modalJobScopeLabel" style="color:#0369a1; font-size:0.72rem; font-weight:900; text-transform:uppercase; letter-spacing:0.06em; background:#f0f9ff; border:1px solid #bae6fd; border-radius:999px; padding:3px 10px">Current shift</div>
-                </div>
-                <div style="display:grid; grid-template-columns:auto repeat(4, 1fr); gap:14px; align-items:stretch">
-                    <!-- Progress ring -->
-                    <div style="display:flex; align-items:center; justify-content:center; min-width:96px">
-                        <div style="position:relative; width:88px; height:88px">
-                            <svg id="modalJobProgressRing" viewBox="0 0 96 96" style="width:88px; height:88px; transform:rotate(-90deg)">
-                                <circle cx="48" cy="48" r="40" fill="none" stroke="#e2e8f0" stroke-width="10"></circle>
-                                <circle id="modalJobProgressArc" cx="48" cy="48" r="40" fill="none" stroke="url(#modalJobRingGrad)" stroke-width="10" stroke-linecap="round" stroke-dasharray="0 251.3"></circle>
-                                <defs>
-                                    <linearGradient id="modalJobRingGrad" x1="0" y1="0" x2="1" y2="1">
-                                        <stop offset="0%" stop-color="#0ea5e9"></stop>
-                                        <stop offset="100%" stop-color="#22c55e"></stop>
-                                    </linearGradient>
-                                </defs>
-                            </svg>
-                            <div style="position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center">
-                                <b id="modalJobEff" style="font-size:1rem; color:#0f172a; line-height:1">0%</b>
-                                <span style="font-size:0.58rem; color:#94a3b8; font-weight:800; text-transform:uppercase">Progress</span>
-                            </div>
-                        </div>
-                    </div>
-                    <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:12px; padding:10px 12px">
-                        <div style="font-size:0.66rem; color:#64748b; font-weight:900; text-transform:uppercase; letter-spacing:0.05em">Total Plan</div>
-                        <div class="font-bold" id="modalJobPlanQty" style="font-size:1.35rem; color:#0f172a; line-height:1.4">0</div>
-                    </div>
-                    <div style="background:#f0fdf4; border:1px solid #bbf7d0; border-radius:12px; padding:10px 12px">
-                        <div style="font-size:0.66rem; color:#047857; font-weight:900; text-transform:uppercase; letter-spacing:0.05em">Produced</div>
-                        <div class="font-bold" id="modalJobProduced" style="font-size:1.35rem; color:#15803d; line-height:1.4">0</div>
-                    </div>
-                    <div style="background:#fffbeb; border:1px solid #fde68a; border-radius:12px; padding:10px 12px">
-                        <div style="font-size:0.66rem; color:#b45309; font-weight:900; text-transform:uppercase; letter-spacing:0.05em" id="modalJobPendingLabel">Pending</div>
-                        <div class="font-bold" id="modalJobPending" style="font-size:1.35rem; color:#d97706; line-height:1.4">0</div>
-                    </div>
-                    <div style="background:#fef2f2; border:1px solid #fecaca; border-radius:12px; padding:10px 12px">
-                        <div style="font-size:0.66rem; color:#b91c1c; font-weight:900; text-transform:uppercase; letter-spacing:0.05em">Reject</div>
-                        <div style="display:flex; align-items:baseline; gap:6px">
-                            <b id="modalJobRejected" style="font-size:1.35rem; color:#dc2626; line-height:1.4">0</b>
-                            <b id="modalJobRejRate" style="font-size:0.82rem; color:#ef4444">0%</b>
-                        </div>
-                    </div>
-                </div>
-                <div style="height:8px; background:#f1f5f9; border-radius:999px; overflow:hidden; margin-top:14px">
-                    <div id="modalJobProgressFill" style="height:100%; width:0%; background:linear-gradient(90deg,#0ea5e9,#22c55e); border-radius:999px; transition:width 0.5s ease"></div>
-                </div>
-                <!-- Job flow: produced / QC / shifting (assets/job-shifting-panel.js) -->
-                <div id="modalJobFlow" style="margin-top:14px"></div>
-            </div>
-
-            <!-- Production Trend + Prediction -->
-            <div id="jobTrendContainer" style="background:#ffffff; border:1px solid #e2e8f0; border-radius:14px; padding:16px 18px; margin-bottom:24px; box-shadow:0 2px 8px rgba(15,23,42,0.05); display:none"></div>
-
-            <div id="modalJobQCEvidence" style="background:#ffffff; border:1px solid #e2e8f0; border-radius:12px; padding:16px; margin-bottom:24px">
-                <div style="color:#64748b; font-size:0.85rem">QC weights and FPA evidence will appear here.</div>
-            </div>
-
-            <!-- Production · QC · Shifting (shared panel, assets/job-shifting-panel.js) -->
-            <div id="modalJobShifting" style="margin-bottom:24px"></div>
-
-            <!-- Colour Table -->
-            <h4 style="font-size:1rem; font-weight:700; color:#334155; margin-bottom:12px">Colour-wise Breakdown</h4>
-            <div style="border:1px solid #e2e8f0; border-radius:8px; overflow:hidden">
-                <table style="width:100%; border-collapse:collapse">
-                    <thead style="background:#f8fafc; font-size:0.75rem; text-transform:uppercase; color:#64748b">
-                        <tr>
-                            <th style="padding:10px; text-align:left">Colour</th>
-                            <th style="padding:10px; text-align:center">Plan Qty</th>
-                            <th style="padding:10px; text-align:center">Produced</th>
-                            <th style="padding:10px; text-align:center">Reject</th>
-                            <th style="padding:10px; text-align:center">Balance</th>
-                        </tr>
-                    </thead>
-                    <tbody id="modalJobColours" style="font-size:0.85rem; color:#334155">
-                        <!-- Populated via JS -->
-                    </tbody>
-                    <tfoot id="modalJobColoursFooter">
-                        <!-- Total Row -->
-                    </tfoot>
-                </table>
-            </div>
-            <div id="modalJobHistoryPanel" style="display:none; margin-top:16px; background:#f8fafc; border:1px solid #cbd5e1; border-radius:14px; padding:14px"></div>
-            <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-top:18px">
-                <div id="dtChartContainer" style="background:#ffffff; border:1px solid #e2e8f0; border-radius:14px; padding:16px 18px; box-shadow:0 2px 8px rgba(15,23,42,0.05)"></div>
-                <div id="rejChartContainer" style="background:#ffffff; border:1px solid #e2e8f0; border-radius:14px; padding:16px 18px; box-shadow:0 2px 8px rgba(15,23,42,0.05)"></div>
-            </div>
-
+        </header>
+        <div class="jd-body" id="jdBody">
+            <div id="jdMain"></div>
+            <section class="jd-card" id="modalJobQCEvidence"></section>
         </div>
     </div>
     <div id="modalJobImageViewer" onclick="closeJobImage()" style="display:none; position:absolute; inset:0; background:rgba(15,23,42,0.82); align-items:center; justify-content:center; padding:24px; z-index:2">

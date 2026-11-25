@@ -2430,6 +2430,35 @@ async function reconcilePlanFactory(client, row, plansWithoutFactory) {
     return true;
 }
 
+// MAIN decides users. If MAIN's user arrives on a LOCAL and another id there still holds the
+// username (deleted and re-created on MAIN, or edited here), the local copy is renamed and
+// switched off, never deleted: deleting a user also removes its HR records. updated_at is not
+// changed, so if MAIN also sends that id, MAIN's row replaces it as usual.
+async function freeUsernameHeldByOtherId(client, table, row, err, sql, vals, stats) {
+    if (SERVER_TYPE !== 'LOCAL' || table !== 'users' || err.code !== '23505'
+        || err.constraint !== 'users_username_key' || row.id == null || !row.username) return false;
+    await client.query('SAVEPOINT sync_username');
+    try {
+        const moved = await client.query(
+            `UPDATE users SET username = username || ' (old ' || id || ')', is_active = FALSE
+              WHERE username = $1 AND id <> $2 RETURNING id`,
+            [row.username, row.id]
+        );
+        const result = await client.query(sql, vals);
+        await client.query('RELEASE SAVEPOINT sync_username');
+        if (result.rows.length && result.rows[0].inserted === true) stats.created += 1;
+        else if (result.rows.length) stats.updated += 1;
+        console.warn('[Sync] Username %s belongs to user %s on MAIN; local user %s renamed and switched off.',
+            row.username, row.id, moved.rows.map((r) => r.id).join(','));
+        return true;
+    } catch (e) {
+        await client.query('ROLLBACK TO SAVEPOINT sync_username');
+        await client.query('RELEASE SAVEPOINT sync_username');
+        console.error('[Sync] Username conflict not resolved:', e.message);
+        return false;
+    }
+}
+
 async function upsertData(table, data) {
     if (!data.length) return { created: 0, updated: 0, failed: 0 };
 
@@ -2650,6 +2679,8 @@ async function upsertData(table, data) {
                                 console.error('[Sync] Legacy notification conflict fallback failed:', legacyErr.message);
                             }
                         }
+
+                        if (await freeUsernameHeldByOtherId(client, table, row, innerErr, sql, vals, stats)) continue;
 
                         // --- external unique-token deconfliction ---
                         // Applies to ANY table that carries one or more UNIQUE indexes on
@@ -2897,7 +2928,8 @@ async function getDeletionChanges(since, targetFactoryId, afterId = null) {
         // so their deletions must reach every factory too, not only the owning factory.
         // A mould transfer is a delete of (mould_number, old factory) + insert under the new
         // factory, so without this every other LOCAL would keep the old-factory copy.
-        where.push(`(factory_id = $${params.length} OR factory_id IS NULL OR table_name IN ('moulds', 'mould_verify_notes'))`);
+        // Users are also sent to every factory, so their deletions are too.
+        where.push(`(factory_id = $${params.length} OR factory_id IS NULL OR table_name IN ('moulds', 'mould_verify_notes', 'users'))`);
     }
 
     let sql = `
