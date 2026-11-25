@@ -2306,7 +2306,7 @@
 
                             // Auto-Calc Manager
                             let mgr = '-';
-                            if (lineName.startsWith('B') || lineName.startsWith('F')) mgr = 'Rajesh Shrivastav';
+                            if (lineName.startsWith('B') || lineName.startsWith('F')) mgr = 'Ratnakar Behra';
                             else if (lineName.startsWith('C') || lineName.startsWith('E')) mgr = 'Ratnakar Behra';
 
                             if (team.prod_supervisor) dprLineSupervisor[lineName] = team.prod_supervisor;
