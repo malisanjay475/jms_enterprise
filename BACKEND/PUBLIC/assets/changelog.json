@@ -11,8 +11,19 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.200.0",
+  "latest": "1.200.1",
   "versions": [
+    {
+      "version": "1.200.1",
+      "date": "2026-11-25",
+      "changes": [
+        {
+          "app": "all",
+          "type": "fix",
+          "text": "Settings > Local Servers now shows which records a factory server could not receive and why, and the list of users with access only on that server."
+        }
+      ]
+    },
     {
       "version": "1.200.0",
       "date": "2026-11-25",
