@@ -16,7 +16,7 @@ android {
         // versionCode is set by CI (APP_VERSION_CODE = 1000 + run number) so it always
         // increases and phones auto-update. Local builds fall back to 1.
         versionCode = System.getenv("APP_VERSION_CODE")?.toIntOrNull() ?: 1
-        versionName = "1.8.0"
+        versionName = "1.8.1"
 
         // Placeholder API address: the real server is the factory picked on the login screen
         // (data/FactoryServer.kt), which replaces this host. Shop-floor build: phones talk to the on-site LOCAL
