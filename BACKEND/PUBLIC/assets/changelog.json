@@ -11,8 +11,21 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.204.2",
+  "latest": "1.204.3",
   "versions": [
+    {
+      "version": "1.204.3",
+      "date": "2026-11-25",
+      "title": "Order Tracker counts sets by part",
+      "modules": [
+        {
+          "app": "planning",
+          "changes": [
+            { "type": "fix", "text": "Order Tracker counts moulds that make the same part together, so sets made, balance and dates are no longer 0 or late because of an unused or dropped mould; those moulds are listed as Moulds not counted." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.204.2",
       "date": "2026-11-25",
