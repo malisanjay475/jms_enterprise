@@ -347,6 +347,15 @@
     @media (max-width:1280px) { .dpr-ov { grid-template-areas:"score hours"; } }
     @media (max-width:760px) { .dpr-ov { grid-template-areas:"score" "hours"; } .dpr-ins-grid { grid-template-columns:minmax(0,1fr); } }
     @media (prefers-reduced-motion:reduce) { .dpr-fold-btn > i { transition:none; } }
+    /* DPR compliance v3.7: hour grid scales to the window, line totals wrap instead of clipping */
+    #summary-container .dpr-grid { zoom:var(--dpr-zoom, 1); }
+    #summary-container .date-section-header > div { scrollbar-width:none; }
+    #summary-container.dpr-hscroll .dpr-line-card[data-line] { content-visibility:visible; }
+    #summary-container .dpr-grid td { overflow-wrap:break-word; }
+    #summary-container.dpr-narrow .dpr-std-cell { position:static !important; }
+    .dpr-lt { grid-template-columns:repeat(auto-fit,minmax(106px,1fr)) !important; }
+    .dpr-lt .dpr-pt-value, .dpr-pt-chg { overflow:visible; flex-wrap:wrap; }
+    @media (max-width:760px) { .dpr-lt { grid-template-columns:repeat(auto-fit,minmax(92px,1fr)) !important; } }
     </style>
 </head>
 
@@ -383,7 +392,7 @@
 
     <script src="/assets/app.min.js?v=1583"></script>
   <script src="/assets/machine-status-meta.js?v=1"></script>
-  <script src="/assets/dpr-script-1.js?v=release127"></script>
+  <script src="/assets/dpr-script-1.js?v=release128"></script>
 
     <!-- ADMIN EDIT MODAL -->
     <div id="dprEditModal" class="modal"

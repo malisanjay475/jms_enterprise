@@ -11,8 +11,27 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.199.2",
+  "latest": "1.199.3",
   "versions": [
+    {
+      "version": "1.199.3",
+      "date": "2026-11-25",
+      "title": "DPR Compliance Summary fits small screens",
+      "modules": [
+        {
+          "app": "all",
+          "changes": [
+            { "type": "fix", "text": "The phone menu links (Home, Plan, DPR, Stats, Menu) no longer show as plain text on computer screens." }
+          ]
+        },
+        {
+          "app": "dpr",
+          "changes": [
+            { "type": "fix", "text": "Compliance Summary fits small windows: the hour table shrinks so the Summary column is never cut off, text no longer overlaps, and on phones the table scrolls sideways with its header and machine names in view." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.199.2",
       "date": "2026-11-25",
