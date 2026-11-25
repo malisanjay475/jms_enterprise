@@ -256,12 +256,12 @@
         modal.className = 'om-backdrop';
         modal.innerHTML = `
             <div class="om-content">
-                <div class="om-header">
-                    <button class="om-close" onclick="window.closeOrderModal()">&times;</button>
-                    <div id="om-product" style="font-size:1.5rem; font-weight:800; margin-bottom:4px; color:#60a5fa">Product Name</div>
-                    <div id="om-client" style="font-size:1.1rem; font-weight:500; opacity:0.9; margin-bottom:8px">Client Name</div>
-                    <div style="display:inline-block; background:rgba(255,255,255,0.15); padding:4px 12px; border-radius:20px; font-size:0.9rem; font-family:monospace; font-weight:700;">
-                        <span style="opacity:0.6">ORDER:</span> <span id="om-orderno">#12345</span>
+                <div class="om-header opv">
+                    <button class="om-close" onclick="window.closeOrderModal()" aria-label="Close">&times;</button>
+                    <div id="om-head">
+                        <div id="om-product" class="opv-title">Product Name</div>
+                        <div id="om-client" class="opv-client">Client Name</div>
+                        <div class="opv-tags"><span class="opv-tag mono">Order <b id="om-orderno">#12345</b></span></div>
                     </div>
                 </div>
                 <!-- DRILL-DOWN AREA (replaces body when drilling in) -->
@@ -271,7 +271,8 @@
                 </div>
                 <!-- PLANS LIST (default view) -->
                 <div id="om-plans-area" class="om-body">
-                    <div class="om-table-card">
+                    <div id="om-parts" style="display:none"></div>
+                    <div class="om-table-card" id="om-plain-card">
                         <table class="om-table">
                             <thead>
                                 <tr>
@@ -444,6 +445,20 @@
 
         window.lastClickedPlanId = clickedPlanId; // Track clicked plan for highlighting
 
+        // Reset what a previous order left behind
+        const seq = window._omSeq = (window._omSeq || 0) + 1;
+        const isCurrent = () => seq === window._omSeq && modal.classList.contains('active');
+        document.getElementById('om-parts').style.display = 'none';
+        document.getElementById('om-plain-card').style.display = '';
+        document.getElementById('om-head').innerHTML =
+            '<div id="om-product" class="opv-title">Product Name</div><div id="om-client" class="opv-client">Client Name</div>' +
+            '<div class="opv-tags"><span class="opv-tag mono">Order <b id="om-orderno"></b></span></div>';
+        document.getElementById('om-orderno').textContent = orderNo;
+        const histBtn = document.getElementById('om-history-btn');
+        histBtn.style.display = '';
+        histBtn.textContent = '📋 Loading plan history…';
+        document.getElementById('om-history-body').style.display = 'none';
+
         modal.style.display = 'flex';
         void modal.offsetWidth;
         modal.classList.add('active');
@@ -484,32 +499,47 @@
         // History brings in completed + dropped plans so we can show proper status.
         try {
             const api = (window.JPSMS && window.JPSMS.api) ? window.JPSMS.api : window.api;
-            const fetchWithTimeout = (url, ms) => {
-                const ctrl = new AbortController();
-                const timer = setTimeout(() => ctrl.abort(), ms);
-                return fetch(url, { signal: ctrl.signal }).finally(() => clearTimeout(timer));
-            };
-            const baseUrl = api._base || window.location.origin;
+            // api.request sends the factory and the sign-in; a plain fetch() does not
+            const getJson = (url, ms) => Promise.race([
+                api.request(url, { skipLoader: true, silentError: true }),
+                new Promise((_, no) => setTimeout(() => no(new Error('timeout')), ms))
+            ]);
+            const partsCall = getJson(`/api/order-tracker/parts?order_no=${encodeURIComponent(orderNo)}`, 15000)
+                .then(r => {
+                    if (!isCurrent() || !r || !r.ok || !r.data || !r.data.parts.length || typeof window.renderOrderParts !== 'function') return false;
+                    const live = (window.allMasterPlans || []).filter(p => p.orderNo === orderNo);
+                    const box = document.getElementById('om-parts');
+                    window.renderOrderParts(document.getElementById('om-head'), box, r.data, {
+                        clicked: clickedPlanId,
+                        livePlan: id => live.find(p => String(p.planId || p.plan_id || '') === String(id)) || null
+                    });
+                    document.getElementById('om-plain-card').style.display = 'none';
+                    box.style.display = '';
+                    return true;
+                })
+                .catch(e => { console.warn('[OrderModal] part view not available:', e.message); return false; });
 
             // Fetch both in parallel
             const [detailsResult, historyResult] = await Promise.allSettled([
-                fetchWithTimeout(`${baseUrl}/api/planning/orders/${encodeURIComponent(orderNo)}/details`, 3000),
-                fetchWithTimeout(`${baseUrl}/api/planning/orders/${encodeURIComponent(orderNo)}/history`, 4000)
+                getJson(`/api/planning/orders/${encodeURIComponent(orderNo)}/details`, 8000),
+                getJson(`/api/planning/orders/${encodeURIComponent(orderNo)}/history`, 8000)
             ]);
+            const partsShown = await partsCall;
+            if (!isCurrent()) return;
 
             // Parse history first so we can merge into enriched rows
             let completedPlans = [];
             let droppedPlans   = [];
-            if (historyResult.status === 'fulfilled' && historyResult.value.ok) {
+            if (historyResult.status === 'fulfilled' && historyResult.value && historyResult.value.ok) {
                 try {
-                    const hj = await historyResult.value.json();
+                    const hj = historyResult.value;
                     if (hj.ok) { completedPlans = hj.completed || []; droppedPlans = hj.dropped || []; }
                 } catch (e) { /* ignore parse error */ }
             }
 
             // Parse details and build enriched list
-            if (detailsResult.status === 'fulfilled' && detailsResult.value.ok) {
-                const resJson = await detailsResult.value.json();
+            if (!partsShown && detailsResult.status === 'fulfilled' && detailsResult.value && detailsResult.value.ok) {
+                const resJson = detailsResult.value;
                 const summaryItems = (resJson && resJson.data) ? resJson.data : [];
 
                 if (summaryItems.length > 0) {

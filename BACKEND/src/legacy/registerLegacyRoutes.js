@@ -16494,7 +16494,7 @@ app.get('/api/planning/orders/:orderNo/history', async (req, res) => {
        ) ojr ON true
        WHERE TRIM(COALESCE(pb.order_no,'')) = TRIM($1)
          AND pb.status = 'COMPLETED'
-         AND pb.factory_id = $2
+         AND ($2::int IS NULL OR pb.factory_id = $2)
        ORDER BY pb.completed_at DESC NULLS LAST`,
       [orderNo, factoryId]
     );

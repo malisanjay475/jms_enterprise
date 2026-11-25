@@ -30,6 +30,7 @@ const { getFactoryId } = require('../../app/requestContext');
 const { sendServerError } = require('../../app/httpErrors');
 const { buildTonnageWorkbook } = require('./tonnageWorkbook');
 const packingProgress = require('./packingProgress');
+const { buildParts } = require('./orderParts');
 
 const RATE_DAYS = 3;
 /* a set needing more pieces of one mould than this is almost certainly a data error */
@@ -164,6 +165,55 @@ const MACHINES_SQL = `
    WHERE COALESCE(is_active, TRUE) = TRUE
      AND COALESCE(NULLIF(TRIM(machine_process), ''), 'Moulding') = 'Moulding'
      AND ($1::int IS NULL OR factory_id = $1 OR factory_id IS NULL)`;
+
+/* ERP part rows per mould: alternative moulds repeat the same part code */
+const PART_ITEM_SQL = `
+  SELECT TRIM(mould_no) AS mould_no, TRIM(mould_item_code) AS item_code, MAX(mould_item_name) AS item_name,
+         SUM(COALESCE(NULLIF(regexp_replace(COALESCE(mould_item_qty::text, ''), '[^0-9.]+', '', 'g'), '')::numeric, 0)) AS qty
+    FROM mould_planning_report
+   WHERE TRIM(or_jr_no) = ANY($1::text[])
+     AND COALESCE(TRIM(mould_no), '') <> ''
+     AND ($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL)
+   GROUP BY 1, 2`;
+
+const DROP_SQL = `
+  SELECT mould_no, item_code, mould_name, remarks, dropped_by, created_at
+    FROM planning_drops
+   WHERE TRIM(COALESCE(order_no, '')) = ANY($1::text[])
+     AND ($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL)
+   ORDER BY id DESC`;
+
+/* same entries as DPR_SQL, by colour */
+const PART_COLOUR_SQL = `
+  SELECT mould_no, colour, SUM(good_qty) AS good, SUM(reject_qty) AS reject
+    FROM (
+      SELECT DISTINCT ON (d.machine, d.hour_slot, d.plan_id, d.dpr_date, d.shift, COALESCE(d.colour, ''))
+             COALESCE(NULLIF(TRIM(d.mould_no), ''), (
+               SELECT TRIM(pb.mould_code) FROM plan_board pb
+                WHERE pb.plan_id = d.plan_id AND TRIM(pb.order_no) = TRIM(d.order_no) LIMIT 1)) AS mould_no,
+             TRIM(COALESCE(d.colour, '')) AS colour,
+             COALESCE(d.good_qty, 0) AS good_qty, COALESCE(d.reject_qty, 0) AS reject_qty
+        FROM dpr_hourly d
+       WHERE d.is_deleted IS NOT TRUE
+         AND TRIM(d.order_no) = ANY($1::text[])
+         AND ($2::int IS NULL OR d.factory_id = $2 OR d.factory_id IS NULL)
+       ORDER BY d.machine, d.hour_slot, d.plan_id, d.dpr_date, d.shift, COALESCE(d.colour, ''), d.id DESC
+    ) x
+   GROUP BY 1, 2`;
+
+const HEAD_SQL = `
+  SELECT or_qty, uom, std_pack, NULLIF(TRIM(or_remarks), '') AS or_remarks, NULLIF(TRIM(jr_remarks), '') AS jr_remarks
+    FROM or_jr_report
+   WHERE TRIM(or_jr_no) = ANY($1::text[])
+     AND ($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL)
+   ORDER BY job_card_date NULLS LAST, id LIMIT 1`;
+
+const INACTIVE_SQL = `
+  SELECT UPPER(TRIM(mould_number)) AS code
+    FROM moulds
+   WHERE UPPER(TRIM(mould_number)) = ANY($1::text[])
+     AND ($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL)
+   GROUP BY 1 HAVING bool_and(is_active IS FALSE)`;
 
 /* ------------------------------------------------------- order engine --- */
 
@@ -1216,6 +1266,54 @@ function registerOrderTrackerRoutes(app, pool) {
       res.json({ ok: true, server_time: new Date().toISOString(), data: order });
     } catch (e) {
       console.error('[order-tracker/order]', e);
+      sendServerError(res, e);
+    }
+  });
+
+  /* GET /api/order-tracker/parts?order_no= - one order part by part (alternative
+     moulds of the same part counted together), for the Machine Timeline popup */
+  app.get('/api/order-tracker/parts', async (req, res) => {
+    try {
+      const orderNo = String(req.query.order_no || '').trim();
+      if (!orderNo) return res.status(400).json({ ok: false, error: 'order_no is required' });
+      let factoryId = getFactoryId(req) || null;
+      if (!factoryId) {
+        /* All Factories: use the factory that holds the order, so nothing is counted twice */
+        const f = await pool.query(`
+          SELECT factory_id FROM (
+            SELECT factory_id, 1 AS pref FROM plan_board WHERE TRIM(order_no) = $1 AND factory_id IS NOT NULL
+            UNION ALL
+            SELECT factory_id, 2 FROM or_jr_report WHERE TRIM(or_jr_no) = $1 AND factory_id IS NOT NULL) x
+           GROUP BY factory_id, pref ORDER BY pref, COUNT(*) DESC, factory_id LIMIT 1`, [orderNo]);
+        factoryId = f.rows.length ? Number(f.rows[0].factory_id) : null;
+      }
+      const p = [[orderNo], factoryId];
+      const q = await queueSchedule(pool, factoryId);
+      const [[order], items, drops, colours, head] = await Promise.all([
+        loadOrders(pool, [orderNo], factoryId, q.map, q.board),
+        pool.query(PART_ITEM_SQL, p), pool.query(DROP_SQL, p), pool.query(PART_COLOUR_SQL, p), pool.query(HEAD_SQL, p)
+      ]);
+      if (!order) return res.status(404).json({ ok: false, error: 'Order not found' });
+      const codes = order.moulds.map(m => key(m.mould_no));
+      const off = codes.length ? (await pool.query(INACTIVE_SQL, [codes, factoryId])).rows : [];
+      const view = buildParts(order, { items: items.rows, drops: drops.rows, colours: colours.rows, inactive: new Set(off.map(r => r.code)) });
+      const h = head.rows[0] || {};
+      const orQty = num(h.or_qty);
+      const jrQty = num(order.order_qty);
+      const pk = packingProgress.slimPacking(order.packing);
+      res.json({ ok: true, server_time: new Date().toISOString(), data: {
+        order_no: order.order_no, order_date: order.order_date, client_name: order.client_name, product_name: order.product_name,
+        item_code: order.item_code, uom: h.uom || 'pcs', std_pack: num(h.std_pack) || null,
+        or_qty: orQty || null, jr_qty: jrQty, jc_qty: order.jc_qty, jc_count: order.jc_count,
+        or_left: Math.max(0, orQty - jrQty), jr_left: Math.max(0, jrQty - order.jc_qty),
+        start_date: order.start_date, last_date: order.last_date, target_date: order.target_date,
+        plan_start: order.plan_start, plan_end: order.plan_end, running_machines: order.running_machines,
+        or_remarks: h.or_remarks || null, jr_remarks: h.jr_remarks || null,
+        packing: pk && pk.tracked ? { packed: pk.packed, reached: pk.reached, in_store: pk.in_store, dispatched: pk.dispatched } : null,
+        ...view
+      } });
+    } catch (e) {
+      console.error('[order-tracker/parts]', e);
       sendServerError(res, e);
     }
   });
