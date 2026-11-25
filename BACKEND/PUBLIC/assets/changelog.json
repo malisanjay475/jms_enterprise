@@ -11,8 +11,21 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.200.1",
+  "latest": "1.201.0",
   "versions": [
+    {
+      "version": "1.201.0",
+      "date": "2026-11-25",
+      "title": "Side menu stays open",
+      "modules": [
+        {
+          "app": "all",
+          "changes": [
+            { "type": "improvement", "text": "The side menu stays open on every computer and tablet screen size until you collapse it, and it remembers your choice. On phones it still opens with the menu button." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.200.1",
       "date": "2026-11-25",
