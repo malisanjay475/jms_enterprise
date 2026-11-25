@@ -11,16 +11,29 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.202.1",
+  "latest": "1.202.2",
   "versions": [
     {
-      "version": "1.202.1",
+      "version": "1.202.2",
       "date": "2026-11-25",
       "changes": [
         {
           "app": "planning",
           "type": "fix",
           "text": "The Shivani factory server receives plans from the main site again (stopped since 24 November)."
+        }
+      ]
+    },
+    {
+      "version": "1.202.1",
+      "date": "2026-11-25",
+      "title": "Bottom bar removed",
+      "modules": [
+        {
+          "app": "all",
+          "changes": [
+            { "type": "improvement", "text": "The bottom bar (Home, Plan, DPR, Stats, Menu) is removed. Use the menu button at the top left on small screens." }
+          ]
         }
       ]
     },
