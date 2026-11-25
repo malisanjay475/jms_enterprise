@@ -11,10 +11,10 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.199.1",
+  "latest": "1.199.2",
   "versions": [
     {
-      "version": "1.199.1",
+      "version": "1.199.2",
       "date": "2026-11-25",
       "title": "DPR: Production Manager of B and F",
       "modules": [
@@ -23,6 +23,17 @@
           "changes": [
             { "type": "fix", "text": "DPR Compliance Summary shows Ratnakar Behra as Production Manager for B and F lines." }
           ]
+        }
+      ]
+    },
+    {
+      "version": "1.199.1",
+      "date": "2026-11-25",
+      "changes": [
+        {
+          "app": "all",
+          "type": "security",
+          "text": "Settings > Local Servers lists users who have factory access on a factory server but not on the main site."
         }
       ]
     },
