@@ -961,6 +961,14 @@
                     : o.job_cards.map(j => `<div class="pjc">${esc(j.job_card_no)} <span class="muted">· now: ${esc(j.process.current_name)}</span></div>${one(j)}`).join('');
                 return `<div class="sec"><div class="sech"><h3><i class="bi bi-diagram-2"></i> Process</h3><span class="muted small">Moulding → Shifting → Printing / TUF → Packing → Warehouse · ERP stage status and dates</span></div><div class="otc">${body}</div></div>`;
             }
+            /* moulds not counted: another mould makes the part, or Planning dropped it */
+            function spareHtml(o) {
+                const list = o.spare_moulds || [];
+                if (!list.length) return '';
+                const why = { ALTERNATE: 'not needed', DROPPED: 'dropped by Planning', INACTIVE: 'inactive', CLOSED: 'plan closed, nothing made' };
+                return `<details class="muted small" style="margin-top:10px"><summary style="cursor:pointer;font-weight:700">Moulds not counted (${list.length})</summary>${list.map(m =>
+                    `<div style="padding:3px 0 0 14px">${esc(m.mould_name)} (${esc(m.mould_no)}): ${why[m.role] || ''}${m.used_instead.length ? ', part made on ' + esc(m.used_instead.join(', ')) : ''}</div>`).join('')}</details>`;
+            }
             function sequenceHtml(o) {
                 const ms = o.moulds.slice().sort((a, b) => (a.status === 'COMPLETE') - (b.status === 'COMPLETE') || (a.start_seq || 99) - (b.start_seq || 99));
                 const cards = ms.map(m => {
@@ -993,7 +1001,7 @@
                     </div>`;
                 });
                 return `<div class="sec"><div class="sech"><h3><i class="bi bi-sort-numeric-down"></i> Mould sequence</h3><span class="muted small">In the order the moulds must start · all quantities in pieces</span></div>
-                    <div class="seqw">${cards.join('<div class="seqa"><i class="bi bi-chevron-right"></i></div>')}</div></div>`;
+                    <div class="seqw">${cards.join('<div class="seqa"><i class="bi bi-chevron-right"></i></div>')}</div>${spareHtml(o)}</div>`;
             }
 
             function qtyTiles(o) {
