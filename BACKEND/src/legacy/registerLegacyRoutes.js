@@ -7114,6 +7114,16 @@ app.get('/api/users', async (req, res) => {
   }
 });
 
+// Users are decided on MAIN: an edit made on a factory server never reaches MAIN and then
+// clashes with MAIN's users in sync. Password changes are not blocked.
+app.post([
+  '/api/users/save', '/api/users/delete',
+  '/api/admin/users/create', '/api/admin/users/update', '/api/admin/users/delete'
+], (req, res, next) => {
+  if (String(process.env.SERVER_TYPE || '').toUpperCase() !== 'LOCAL') return next();
+  return res.status(403).json({ ok: false, error: 'Add, edit or delete users on the main website (jmsocean.cloud). The change then reaches this factory server by itself.' });
+});
+
 // POST /api/users/save
 app.post('/api/users/save', async (req, res) => {
   try {

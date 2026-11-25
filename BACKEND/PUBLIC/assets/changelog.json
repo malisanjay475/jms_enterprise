@@ -11,8 +11,19 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.204.7",
+  "latest": "1.204.8",
   "versions": [
+    {
+      "version": "1.204.8",
+      "date": "2026-11-25",
+      "changes": [
+        {
+          "app": "all",
+          "type": "fix",
+          "text": "Deleting a user now reaches every factory server, and a user re-created on the main site no longer stops a factory server's sync. Users can be added, edited or deleted only on the main site."
+        }
+      ]
+    },
     {
       "version": "1.204.7",
       "date": "2026-11-25",
