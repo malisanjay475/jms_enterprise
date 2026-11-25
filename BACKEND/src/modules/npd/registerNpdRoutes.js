@@ -159,6 +159,9 @@ const STAGE_STATES = new Set(['pending', 'in_progress', 'complete', 'na']);
 /* stage whose completion also records who received it */
 const RECEIVED_BY_STAGE = 'mould_received';
 const PRODUCT_STATUSES = new Set(['', 'Hold', 'Launched', 'Delayed', 'On Schedule', 'Cancelled']);
+/* only the main product is launched: a child mould cannot be set to Launched, and
+   one saved earlier counts as no status (the stored value is left alone) */
+const rowStatus = r => (r.parent_sync_id && r.status === 'Launched' ? '' : r.status || '');
 
 const isNpdAdmin = u => !!u && ADMIN_ROLES.has(norm(u.role_code));
 const isNpdHo = u => isNpdAdmin(u) || (!!u && userKeys(u).some(k => HO_ROLE.test(k)));
@@ -574,7 +577,7 @@ function registerNpdRoutes(app, pool) {
             vals.push((STATE_STYLE[v] || STATE_STYLE.pending).text + (done ? ` (${done})` : '') + (rb ? ` - by ${rb}` : ''));
           }
         });
-        vals.push(p.status || '', [remarkLine(p.stage_info), p.remarks].filter(Boolean).join('\n'), count.get(`${p.sync_id}:report`) || 0, count.get(`${p.sync_id}:image`) || 0,
+        vals.push(rowStatus(p), [remarkLine(p.stage_info), p.remarks].filter(Boolean).join('\n'), count.get(`${p.sync_id}:report`) || 0, count.get(`${p.sync_id}:image`) || 0,
           p.updated_by || '', p.updated_at ? new Date(p.updated_at) : null);
         const r = ws.addRow(vals);
         r.eachCell({ includeEmpty: true }, (c, col) => {
@@ -599,7 +602,7 @@ function registerNpdRoutes(app, pool) {
           if (rm && rm.remarks) r.getCell(i + S0).note = `${rm.remarks}${rm.by ? ` - ${rm.by}` : ''}`;
         });
         r.getCell(3).font = { bold: !p.parent_sync_id, italic: !!p.parent_sync_id };
-        const ps = STATUS_STYLE[p.status];
+        const ps = STATUS_STYLE[rowStatus(p)];
         if (ps) {
           const c = r.getCell(STAGES.length + S0);
           c.fill = fill(ps.fill);
@@ -758,6 +761,10 @@ function registerNpdRoutes(app, pool) {
       if (b.factory !== undefined) add('factory = ?', clean(b.factory, 120));
       if (b.status !== undefined) {
         if (!PRODUCT_STATUSES.has(b.status)) return res.status(400).json({ ok: false, error: 'Invalid status' });
+        if (b.status === 'Launched') {
+          const row = await pool.query('SELECT parent_sync_id FROM npd_products WHERE id = $1', [id]);
+          if (row.rows[0] && row.rows[0].parent_sync_id) return res.status(400).json({ ok: false, error: 'Launched is set on the main product, not on a child mould' });
+        }
         add('status = ?', b.status);
       }
       if (b.remarks !== undefined) add('remarks = ?', clean(b.remarks, 2000));
@@ -868,6 +875,7 @@ module.exports = {
   SHEET_ROLES,
   STAGE_STATES,
   PRODUCT_STATUSES,
+  rowStatus,
   cleanStages,
   cleanColours,
   roleDepts,
