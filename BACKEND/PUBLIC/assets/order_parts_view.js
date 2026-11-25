@@ -65,7 +65,7 @@
     .opv-t { width:100%; border-collapse:collapse; min-width:980px; }
     .opv-t th { background:#f1f5f9; color:#334155; font-size:.78rem; font-weight:700; text-align:left; padding:9px 12px; border-bottom:1px solid #e2e8f0; white-space:nowrap; }
     .opv-t td { padding:10px 12px; font-size:.88rem; color:#1e293b; border-bottom:1px solid #eef2f7; vertical-align:middle; }
-    .opv-t .num { text-align:right; font-variant-numeric:tabular-nums; font-weight:700; white-space:nowrap; }
+    .opv-t .num, .opv-in .num { text-align:right; font-variant-numeric:tabular-nums; font-weight:700; white-space:nowrap; }
     .opv-t tr.part { cursor:pointer; } .opv-t tr.part:hover td { background:#f8fafc; }
     .opv-t tr.part.limit td { background:#fef2f2; }
     .opv-t tr.part.limit td:first-child { box-shadow:inset 4px 0 0 #dc2626; }
