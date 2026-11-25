@@ -1338,10 +1338,10 @@ module.exports = function registerHrPerformanceRoutes({ app, pool }) {
         }
         const hash = await bcrypt.hash(password, 8);
         const insertedUser = (await client.query(
-          `INSERT INTO users(username, password, line, role_code, permissions, is_active, global_access, updated_at)
-           VALUES($1, $2, $3, $4, '{}'::jsonb, TRUE, FALSE, NOW())
+          `INSERT INTO users(username, password, line, role_code, permissions, is_active, global_access, updated_at, factory_id)
+           VALUES($1, $2, $3, $4, '{}'::jsonb, TRUE, FALSE, NOW(), $5)
            RETURNING id`,
-          [username, hash, designation, roleCode]
+          [username, hash, designation, roleCode, factoryId]
         )).rows[0];
         userId = insertedUser.id;
         await client.query(

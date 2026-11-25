@@ -134,6 +134,7 @@ const {
   getWriteFactoryHeaderState,
   normalizeFactoryId
 } = require('../app/requestContext');
+const { NO_FACTORY_MESSAGE, resolveSaveFactory } = require('../app/saveFactory');
 const { createRealJcIndex, addRealJcRow, isSupersededBlankJc } = require('../utils/orJrBlankJc');
 const registerHrPerformanceRoutes = require('../modules/hrPerformance/registerHrPerformanceRoutes');
 const registerInterviewPanelRoutes = require('../modules/interviewPanel/registerInterviewPanelRoutes');
@@ -5864,7 +5865,8 @@ async function initializeLegacyRuntime() {
       'closed_plants'
     ];
 
-    const FID = process.env.LOCAL_FACTORY_ID || 1;
+    // MAIN holds every factory's rows, so it never fills a missing factory by itself.
+    const FID = normalizeFactoryId(process.env.LOCAL_FACTORY_ID);
 
     // One-time data-heal gate: the per-table "fill NULL sync_id / factory_id"
     // UPDATEs scan every row of every sync table. They only have work right after
@@ -5897,7 +5899,7 @@ async function initializeLegacyRuntime() {
         await q(`UPDATE ${table} SET sync_id = gen_random_uuid() WHERE sync_id IS NULL`);
         // A plan's factory comes from its machine or order (planFactory.js), never from
         // the server it happens to be on.
-        if (table !== 'plan_board') await q(`UPDATE ${table} SET factory_id = $1 WHERE factory_id IS NULL`, [FID]);
+        if (FID && table !== 'plan_board') await q(`UPDATE ${table} SET factory_id = $1 WHERE factory_id IS NULL`, [FID]);
       }
 
       // 3. Unique index on sync_id (required for ON CONFLICT upsert). Skipped when an
@@ -7226,10 +7228,11 @@ app.post('/api/users/save', async (req, res) => {
       const hash = await bcrypt.hash(password, 12);
 
       const resInsert = await pool.query( // Use pool.query to get RETURNING id
-        `INSERT INTO users (username, password, line, role_code, permissions, is_active, global_access)
-         VALUES ($1, $2, $3, $4, $5::jsonb, $7, $6)
+        `INSERT INTO users (username, password, line, role_code, permissions, is_active, global_access, factory_id)
+         VALUES ($1, $2, $3, $4, $5::jsonb, $7, $6, $8)
          RETURNING id`,
-        [username, hash, line || '', requestedRoleCode, permJson, payload.global_access || false, isActiveParam !== false]
+        [username, hash, line || '', requestedRoleCode, permJson, payload.global_access || false, isActiveParam !== false,
+          normalizeFactoryId(requestedFactoryIds?.[0]) ?? normalizeFactoryId(getFactoryId(req))]
       );
       userId = resInsert.rows[0].id;
     }
@@ -7694,7 +7697,10 @@ app.post('/api/std-actual/save', async (req, res) => {
       ArticleActual, RunnerActual, CavityActual, CycleActual,
       PcsHrActual, ManActual, EnteredBy, SfgQtyActual, OperatorActivities
     } = payload || {};
-    const factoryId = getFactoryId(req) || 1;
+    const factoryId = await resolveSaveFactory(q, {
+      factoryId: getFactoryId(req), planId: PlanID, orderNo: OrderNo, machine: Machine
+    });
+    if (!factoryId) return res.status(400).json({ ok: false, error: NO_FACTORY_MESSAGE });
 
     /* --- SERVER-SIDE GUARD: cavity <= STD ---
        The browser enforces this too, but a stale cached PWA bundle can miss it,
@@ -8154,6 +8160,13 @@ app.post('/api/dpr/submit', async (req, res) => {
       }
     }
 
+    // No factory selected (All Factories on MAIN): use the plan's, machine's or order's own
+    // factory. If that is not certain, ask, instead of saving the entry under factory 1.
+    const saveFactoryId = await resolveSaveFactory(q, {
+      factoryId, planId: PlanID, orderNo: OrderNo, machine: Machine
+    });
+    if (!saveFactoryId) return res.status(400).json({ ok: false, error: NO_FACTORY_MESSAGE });
+
     // --- [NEW] QUICK ACTION CONTINUITY LOGIC ---
     if (Machine && Date && Shift && HourSlot) {
       try {
@@ -8165,7 +8178,7 @@ app.post('/api/dpr/submit', async (req, res) => {
            AND is_deleted = false
            AND ($4::int IS NULL OR factory_id = $4 OR factory_id IS NULL)
            ORDER BY id DESC LIMIT 1`,
-          [Machine, Date, Shift, factoryId]
+          [Machine, Date, Shift, saveFactoryId]
         );
 
         if (lastEntries.length > 0) {
@@ -8184,10 +8197,10 @@ app.post('/api/dpr/submit', async (req, res) => {
               for (let i = lastIdx + 1; i < currIdx; i++) {
                 const gapSlot = SHIFT_SLOTS[i];
                 // Check if already filled
-                await withDprSlotLock(pool, dprSlotKey(factoryId, Machine, Date, Shift, gapSlot), async (lq) => {
+                await withDprSlotLock(pool, dprSlotKey(saveFactoryId, Machine, Date, Shift, gapSlot), async (lq) => {
                   const exists = await lq(
                     'SELECT id FROM dpr_hourly WHERE machine=$1 AND dpr_date=$2 AND shift=$3 AND hour_slot=$4 AND is_deleted = false AND ($5::int IS NULL OR factory_id = $5 OR factory_id IS NULL)',
-                    [Machine, Date, Shift, gapSlot, factoryId]
+                    [Machine, Date, Shift, gapSlot, saveFactoryId]
                   );
                   if (exists.length === 0) {
                     await lq(
@@ -8201,7 +8214,7 @@ app.post('/api/dpr/submit', async (req, res) => {
                         (last.remarks ? (last.remarks.includes('[Auto-Filled]') ? last.remarks : last.remarks + ' [Auto-Filled]') : '[Auto-Filled]'),
                         session?.line || null, Machine, last.plan_id, last.order_no, last.mould_no, last.jobcard_no,
                         last.colour, last.reject_breakup, last.downtime_breakup, last.entry_type,
-                        'SYSTEM-AUTOFILL', last.supervisor, factoryId || 1
+                        'SYSTEM-AUTOFILL', last.supervisor, saveFactoryId
                       ]
                     );
                   }
@@ -8221,16 +8234,9 @@ app.post('/api/dpr/submit', async (req, res) => {
     // same machine/date/shift/hour-slot/plan/type/colour with the same quantities was saved
     // in the last 2 minutes, treat this request as the SAME submit: return the existing id
     // (ok:true) instead of inserting a second row, so the writer just sees "Saved."
-    // No factory selected (All Factories on MAIN): use the machine's own factory when only
-    // one factory has a machine of that name, instead of always saving factory 1.
-    let saveFactoryId = factoryId;
-    if (!saveFactoryId && Machine) {
-      const own = await q('SELECT MIN(factory_id) AS f FROM machines WHERE machine = $1 HAVING COUNT(DISTINCT factory_id) = 1', [Machine]);
-      saveFactoryId = own[0]?.f ?? null;
-    }
     // The check and the insert share one lock, so two copies arriving together (or while the
     // first insert is still waiting) cannot both pass the check.
-    const saved = await withDprSlotLock(pool, dprSlotKey(factoryId, Machine, Date, Shift, HourSlot), async (lq) => {
+    const saved = await withDprSlotLock(pool, dprSlotKey(saveFactoryId, Machine, Date, Shift, HourSlot), async (lq) => {
       const dupRows = await lq(
         `SELECT id FROM dpr_hourly
          WHERE machine = $1 AND dpr_date = $2 AND shift = $3 AND hour_slot = $4
@@ -8246,7 +8252,7 @@ app.post('/api/dpr/submit', async (req, res) => {
           Machine, Date, Shift, HourSlot,
           String(PlanID || ''), EntryType || 'MAIN', String(Colour || ''),
           toNum(Shots), toNum(GoodQty), toNum(RejectQty), toNum(DowntimeMin),
-          factoryId
+          saveFactoryId
         ]
       );
       if (dupRows.length) {
@@ -8282,7 +8288,7 @@ app.post('/api/dpr/submit', async (req, res) => {
           Colour || null, RejectBreakup || null, DowntimeBreakup || null, EntryType || 'MAIN',
           session?.username || null,
           geo?.lat || null, geo?.lng || null, geo?.accuracy || null, Supervisor || null,
-          saveFactoryId || 1 // Default to 1 if missing
+          saveFactoryId
         ]
       );
       return { rows: inserted };
@@ -8309,7 +8315,7 @@ app.post('/api/dpr/submit', async (req, res) => {
            AND created_by = 'SYSTEM-AUTOFILL' AND is_deleted = false
            AND id <> $5
            AND ($6::int IS NULL OR factory_id = $6 OR factory_id IS NULL)`,
-        [Machine, Date, Shift, HourSlot, rows[0].id, factoryId]
+        [Machine, Date, Shift, HourSlot, rows[0].id, saveFactoryId]
       );
     } catch (err) {
       console.error('dpr/submit autofill-replace', err.message);
@@ -17203,9 +17209,10 @@ app.post('/api/planning/drop', async (req, res) => {
     const { orderNo, itemCode, mouldNo, mouldName, remarks } = req.body;
     if (!orderNo || !mouldName) return res.json({ ok: false, error: 'Missing Info' });
 
-    // The drop belongs to the order's own factory (the column default is factory 1).
+    // The drop belongs to the order's own factory.
     const orderFactory = await q('SELECT MIN(factory_id) AS f FROM orders WHERE TRIM(order_no) = TRIM($1) HAVING COUNT(DISTINCT factory_id) = 1', [orderNo]);
-    const dropFactoryId = orderFactory[0]?.f ?? getFactoryId(req) ?? 1;
+    const dropFactoryId = orderFactory[0]?.f ?? normalizeFactoryId(getFactoryId(req));
+    if (!dropFactoryId) return res.status(400).json({ ok: false, error: NO_FACTORY_MESSAGE });
     const targetFamily = stripTrailingNumberAndSpace(mouldNo);
 
     if (targetFamily) {
@@ -24451,14 +24458,14 @@ app.post('/api/admin/users/create', async (req, res) => {
     // Stored as a bcrypt hash like every other password path (this route stored plain text).
     const passwordHash = await bcrypt.hash(String(password), 12);
     await q(
-      `INSERT INTO users(username, password, line, role_code, permissions)
-VALUES($1, $2, $3, $4, $5)
+      `INSERT INTO users(username, password, line, role_code, permissions, factory_id)
+VALUES($1, $2, $3, $4, $5, $6)
        ON CONFLICT(username) DO UPDATE SET
 password = EXCLUDED.password,
   line = EXCLUDED.line,
   role_code = EXCLUDED.role_code,
   permissions = EXCLUDED.permissions`,
-      [username, passwordHash, line || null, requestedRole, permissions || '{}']
+      [username, passwordHash, line || null, requestedRole, permissions || '{}', normalizeFactoryId(getFactoryId(req))]
     );
     authSessions.invalidateUserCache(username);
 
@@ -26828,7 +26835,8 @@ app.get('/api/admin/fix-sync-schema', async (req, res) => {
       'operator_history'
     ];
 
-    const FID = process.env.LOCAL_FACTORY_ID || 1;
+    // MAIN holds every factory's rows, so it never fills a missing factory by itself.
+    const FID = normalizeFactoryId(process.env.LOCAL_FACTORY_ID);
     const logs = [];
 
     for (const table of SYNC_TABLES) {
@@ -26842,7 +26850,7 @@ app.get('/api/admin/fix-sync-schema', async (req, res) => {
         await q(`UPDATE ${table} SET sync_id = gen_random_uuid() WHERE sync_id IS NULL`);
         // A plan's factory comes from its machine or order (planFactory.js), never from
         // the server it happens to be on.
-        if (table !== 'plan_board') await q(`UPDATE ${table} SET factory_id = $1 WHERE factory_id IS NULL`, [FID]);
+        if (FID && table !== 'plan_board') await q(`UPDATE ${table} SET factory_id = $1 WHERE factory_id IS NULL`, [FID]);
 
         // 3. Unique index on sync_id (skipped when an equivalent one already exists)
         await ensureUniqueIndex(q, { table, columns: 'sync_id', name: `idx_${table}_sync_id` });
@@ -31539,7 +31547,11 @@ app.post('/api/hr/scan', async (req, res) => {
     const ops = await q('SELECT * FROM machine_operators WHERE operator_id=$1', [operator_id]);
     if (!ops.length) return res.status(404).json({ ok: false, error: 'Operator not found' });
     const operator = ops[0];
-    const historyCols = await q(`INSERT INTO operator_history(operator_id, machine_at_time, scanned_by, factory_id) VALUES($1, $2, $3, $4) RETURNING id, scanned_at`, [operator.operator_id, operator.assigned_machine, scanned_by || 'Engineer', operator.factory_id ?? getFactoryId(req) ?? 1]);
+    const scanFactoryId = await resolveSaveFactory(q, {
+      factoryId: operator.factory_id ?? getFactoryId(req), machine: operator.assigned_machine
+    });
+    if (!scanFactoryId) return res.status(400).json({ ok: false, error: NO_FACTORY_MESSAGE });
+    const historyCols = await q(`INSERT INTO operator_history(operator_id, machine_at_time, scanned_by, factory_id) VALUES($1, $2, $3, $4) RETURNING id, scanned_at`, [operator.operator_id, operator.assigned_machine, scanned_by || 'Engineer', scanFactoryId]);
     res.json({ ok: true, operator, history: historyCols[0] });
   } catch (e) { sendServerError(res, e); }
 });
@@ -35246,13 +35258,15 @@ table_id = $1, item_name = $2, plan_qty = $3, machine = $4,
   `, [table_id, item_name, plan_qty, machine, start_time, duration_min, delay_min, end_time, req.body.ean_number, client_name, job_card_no, id, planTables(req.body.tables)]);
     } else {
       // Create
+      const planFactoryId = await resolveSaveFactory(q, { factoryId: getFactoryId(req), machine });
+      if (!planFactoryId) return res.status(400).json({ ok: false, error: NO_FACTORY_MESSAGE });
       await q(`
             INSERT INTO assembly_plans(
     table_id, item_name, plan_qty, machine,
     start_time, duration_min, delay_min, end_time, ean_number,
     client_name, job_card_no, status, created_by, created_at, updated_at, tables, factory_id
   ) VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'PLANNED', $12, NOW(), NOW(), $13, $14)
-    `, [table_id, item_name, plan_qty, machine, start_time, duration_min, delay_min, end_time, req.body.ean_number, client_name, job_card_no, created_by, planTables(req.body.tables), getFactoryId(req) || 1]);
+    `, [table_id, item_name, plan_qty, machine, start_time, duration_min, delay_min, end_time, req.body.ean_number, client_name, job_card_no, created_by, planTables(req.body.tables), planFactoryId]);
     }
 
     res.json({ ok: true });

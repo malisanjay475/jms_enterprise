@@ -11,8 +11,19 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.197.13",
+  "latest": "1.197.14",
   "versions": [
+    {
+      "version": "1.197.14",
+      "date": "2026-11-25",
+      "changes": [
+        {
+          "app": "all",
+          "type": "fix",
+          "text": "Records are no longer saved under factory 1 by default. They go to the selected factory, or to the factory of their plan, machine or order, and JMS asks you to select a factory when it cannot tell."
+        }
+      ]
+    },
     {
       "version": "1.197.13",
       "date": "2026-11-24",

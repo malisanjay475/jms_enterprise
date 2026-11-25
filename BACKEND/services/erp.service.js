@@ -130,8 +130,10 @@ async function upsertJcDetails(payload) {
             } else {
                 // Insert
                 await client.query(`
-                    INSERT INTO jc_details (data) VALUES ($1)
-                `, [JSON.stringify(jc)]);
+                    INSERT INTO jc_details (data, factory_id) VALUES ($1,
+                        (SELECT MIN(factory_id) FROM or_jr_report WHERE TRIM(or_jr_no) = TRIM($2)
+                         HAVING COUNT(DISTINCT factory_id) = 1))
+                `, [JSON.stringify(jc), jc.or_jr_no]);
             }
         }
 
