@@ -18,6 +18,7 @@ const {
   editableStageKeys,
   canEditSheet,
   canManageFiles,
+  rowStatus,
   canAddItems,
   isNpdAdmin,
   isNpdSuperadmin
@@ -131,6 +132,14 @@ describe('NPD trial report / images upload (QC)', () => {
     for (const r of ['quality', 'quality_ass__manager', 'qc_hod', 'admin', 'superadmin']) expect(canManageFiles(user(r))).toBe(true);
     for (const r of ['ppc_manager', 'sr_ppc_manager', 'dispatch_manager', 'moulding_manager', 'sales_coordinator']) expect(canManageFiles(user(r))).toBe(false);
     expect(canManageFiles(null)).toBe(false);
+  });
+});
+
+describe('NPD mould status', () => {
+  test('Launched counts only on the main product', () => {
+    expect(rowStatus({ status: 'Launched' })).toBe('Launched');
+    expect(rowStatus({ status: 'Launched', parent_sync_id: 'a' })).toBe('');
+    expect(rowStatus({ status: 'Hold', parent_sync_id: 'a' })).toBe('Hold');
   });
 });
 
