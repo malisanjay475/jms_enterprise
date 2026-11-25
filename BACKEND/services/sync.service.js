@@ -2000,8 +2000,11 @@ async function pullChanges() {
     const res = await pool.query(`SELECT value FROM server_config WHERE key = 'LAST_PULL'`);
     const lastPull = res.rows.length ? res.rows[0].value : '1970-01-01';
     const cycleWatermark = await getDatabaseNowIso();
+    const failures = []; // one entry per failing table, shown on MAIN's Settings page
 
     for (const table of TABLES_TO_PULL) {
+        let tableFailed = 0;
+        let sampleError = null;
         try {
             if (!(await tableExistsPublic(table))) {
                 console.warn(`[Sync] Pull skipped ${table}: table does not exist locally`);
@@ -2015,13 +2018,22 @@ async function pullChanges() {
                 stats.created += pageStats.created;
                 stats.updated += pageStats.updated;
                 stats.failed += pageStats.failed;
+                tableFailed += pageStats.failed;
+                sampleError = sampleError || pageStats.error || null;
             });
             if (pulled > 0) console.log(`[Sync] Pulled ${pulled} rows for ${table}...`);
         } catch (e) {
             console.error(`[Sync] Pull Failed ${table}:`, e.message);
             stats.failed += 1;
+            tableFailed += 1;
+            sampleError = sampleError || e.message;
         }
+        if (tableFailed) failures.push({ table, count: tableFailed, error: String(sampleError || 'see the server log').slice(0, 300) });
     }
+    await setServerConfigValue('LAST_PULL_FAILURES', JSON.stringify({
+        at: new Date().toISOString(),
+        tables: failures.sort((a, b) => b.count - a.count).slice(0, 12)
+    })).catch((e) => console.warn('[Sync] Pull failure report skipped:', e.message));
 
     // Repair assembly_scans.plan_id to the LOCAL plan identified by the stable
     // plan_sync_id. A scan pulled from another server carries that server's serial
@@ -2684,6 +2696,7 @@ async function upsertData(table, data) {
                         console.error(`[Sync] Row Error in ${table}:`, innerErr.message);
                         console.error('Failed Row:', JSON.stringify(row));
                         stats.failed += 1;
+                        if (!stats.error) stats.error = innerErr.message; // one sample, for the pull report
                     }
             }
 
@@ -2755,7 +2768,7 @@ async function upsertData(table, data) {
                 // blocking ALL tables, not just the one that failed. Returning stats
                 // lets LAST_PUSH advance so all other tables keep flowing.
                 console.error(`[Sync] Upsert Batch Error ${table} (returning failed stats, not throwing):`, e.message);
-                return { created: stats.created, updated: stats.updated, failed: stats.failed + data.length };
+                return { created: stats.created, updated: stats.updated, failed: stats.failed + data.length, error: e.message };
             }
         } finally {
             client.release();
