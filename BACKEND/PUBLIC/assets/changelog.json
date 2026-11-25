@@ -19,6 +19,12 @@
       "title": "DPR Compliance Summary fits small screens",
       "modules": [
         {
+          "app": "all",
+          "changes": [
+            { "type": "fix", "text": "The phone menu links (Home, Plan, DPR, Stats, Menu) no longer show as plain text on computer screens." }
+          ]
+        },
+        {
           "app": "dpr",
           "changes": [
             { "type": "fix", "text": "Compliance Summary fits small windows: the hour table shrinks so the Summary column is never cut off, text no longer overlaps, and on phones the table scrolls sideways with its header and machine names in view." }

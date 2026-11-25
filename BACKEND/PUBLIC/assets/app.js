@@ -48,7 +48,7 @@ function escHtml(value) {
 
     // Dynamic Bottom Nav HTML with access checks and a direct 'Menu' drawer button
     const navHTML = `
-    <nav class="mobile-nav" role="navigation" aria-label="Mobile Navigation">
+    <nav class="mobile-nav" style="display:none" role="navigation" aria-label="Mobile Navigation">
         <a href="/index.html" class="nav-item ${window.location.pathname.includes('index') || window.location.pathname === '/' ? 'active' : ''}">
             <i class="bi bi-grid-1x2-fill"></i>
             <span>Home</span>
