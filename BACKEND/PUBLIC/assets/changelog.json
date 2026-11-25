@@ -11,8 +11,21 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.204.0",
+  "latest": "1.204.1",
   "versions": [
+    {
+      "version": "1.204.1",
+      "date": "2026-11-25",
+      "title": "DPR Compliance Summary loads faster",
+      "modules": [
+        {
+          "app": "dpr",
+          "changes": [
+            { "type": "perf", "text": "Compliance Summary opens faster, most of all for Day + Night and for several days; the figures are unchanged." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.204.0",
       "date": "2026-11-25",
