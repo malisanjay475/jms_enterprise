@@ -1,0 +1,63 @@
+'use strict';
+
+const A = require('../PUBLIC/assets/dpr-job-analysis');
+
+const log = (date, shift, hour_slot, good_qty, reject_qty, downtime_min, x) => ({ date, shift, hour_slot, good_qty, reject_qty, downtime_min, machine: 'M1', ...x });
+const info = { std_cycle: 45, std_cavity: 1, act_cycle: 33.48, act_cavity: 1, std_weight: 0.49, act_weight: 0.502 };
+
+describe('DPR job popup analysis', () => {
+  test('night slots after midnight fall on the next day, in order', () => {
+    const h = A.hourly([log('2026-11-24', 'Night', '01-02', 1, 0, 0), log('2026-11-24', 'Night', '11-12', 1, 0, 0), log('2026-11-24', 'Day', '06-07', 1, 0, 0)]);
+    expect(h.map(x => x.slot)).toEqual(['06-07', '11-12', '01-02']);
+    expect(new Date(h[2].ts).getDate()).toBe(25);
+    expect(new Date(A.slotEnd('2026-11-24', 'Night', '11-12')).getHours()).toBe(0);
+  });
+
+  test('two colours in one hour are one hour, and downtime never passes 60 min', () => {
+    const h = A.hourly([log('2026-11-24', 'Day', '07-08', 10, 1, 40, { colour: 'A' }), log('2026-11-24', 'Day', '07-08', 20, 2, 40, { colour: 'B' })]);
+    expect(h).toHaveLength(1);
+    expect(h[0]).toMatchObject({ good: 30, rej: 3, dt: 60 });
+  });
+
+  test('time parts add up to the logged hours, slower and faster than STD', () => {
+    for (const good of [40, 80, 120]) {
+      const p = A.timeUse(A.hourly([log('2026-11-24', 'Day', '07-08', good, 10, 0), log('2026-11-24', 'Day', '08-09', 10, 5, 30)]), 80).parts;
+      expect(p.good + p.reject + p.slow + p.down).toBeCloseTo(2);
+    }
+  });
+
+  test('OEE = availability x speed x quality', () => {
+    const u = A.timeUse(A.hourly([log('2026-11-24', 'Day', '07-08', 60, 10, 0), log('2026-11-24', 'Day', '08-09', 20, 5, 30)]), A.targetPerHour(info));
+    expect(u.availability * u.speed * u.quality).toBeCloseTo(u.oee);
+  });
+
+  test('finish estimate counts stopped hours in the pace', () => {
+    const now = A.slotEnd('2026-11-24', 'Day', '10-11');
+    const h = A.hourly([log('2026-11-24', 'Day', '07-08', 80, 0, 0), log('2026-11-24', 'Day', '08-09', 0, 0, 60), log('2026-11-24', 'Day', '09-10', 0, 0, 60), log('2026-11-24', 'Day', '10-11', 80, 0, 0)]);
+    const f = A.forecast(h, 400, 80, now);
+    expect(f.pace).toBe(40);
+    expect(f.hoursLeft).toBe(10);
+    expect(f.bestHours).toBe(5);
+    expect(A.forecast(h, 0, 80, now)).toBeNull();
+  });
+
+  test('findings name the top reject reason and the extra material', () => {
+    const hours = A.hourly(A.SLOTS.map(s => log('2026-11-24', 'Day', s, 60, 10, 0)));
+    const list = A.findings({ info, hours, target: 80, use: A.timeUse(hours, 80), rejStats: { Scratches: 100, Warpage: 20 }, dtStats: {} });
+    expect(list[0]).toMatchObject({ level: 'bad', title: 'Reject is 14.3%' });
+    expect(list[0].text).toContain('Scratches, 83%');
+    expect(list.some(f => f.title === 'Part is 2.4% heavier than STD' && f.text.includes('10 kg'))).toBe(true);
+  });
+
+  test('a weight saved in grams does not create a false finding', () => {
+    const hours = A.hourly([log('2026-11-24', 'Day', '07-08', 80, 0, 0)]);
+    const list = A.findings({ info: { std_weight: 0.49, act_weight: 502 }, hours, target: 0, use: A.timeUse(hours, 0) });
+    expect(list).toEqual([]);
+  });
+
+  test('no data gives no findings', () => {
+    const u = A.timeUse([], 0);
+    expect(u.oee).toBeNull();
+    expect(A.findings({ info: {}, hours: [], use: u, target: 0 })).toEqual([]);
+  });
+});
