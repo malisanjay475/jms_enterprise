@@ -25,61 +25,6 @@ function escHtml(value) {
     setLink('apple-touch-icon', '/apple-touch-icon.png', 'image/png');
 })();
 
-/**
- * Mobile App Shell Injection (PWA)
- * Automatically adds bottom navigation on small screens
- */
-(function initMobileApp() {
-    const path = window.location.pathname.toLowerCase();
-    if (window.innerWidth > 768 || path.endsWith('/login.html') || path.includes('/vendor/login.html')) return;
-    const mobileUser = (() => {
-        try {
-            return JSON.parse(localStorage.getItem('user') || '{}');
-        } catch (_err) {
-            return {};
-        }
-    })();
-    const perms = mobileUser.permissions || {};
-    const role = String(mobileUser.role_code || '').toLowerCase();
-    const isAdmin = role === 'admin' || role === 'superadmin';
-    const canPlan = isAdmin || ['planner', 'sr_ppc_manager', 'sr__ppc_manager', 'ppc_manager', 'ppc_ass_manager'].includes(role) || Boolean(perms.planning);
-    const canDpr = isAdmin || ['supervisor', 'planner'].includes(role) || Boolean(perms.dpr);
-    const canStats = isAdmin || role === 'management' || Boolean(perms.analyze);
-
-    // Dynamic Bottom Nav HTML with access checks and a direct 'Menu' drawer button
-    const navHTML = `
-    <nav class="mobile-nav" style="display:none" role="navigation" aria-label="Mobile Navigation">
-        <a href="/index.html" class="nav-item ${window.location.pathname.includes('index') || window.location.pathname === '/' ? 'active' : ''}">
-            <i class="bi bi-grid-1x2-fill"></i>
-            <span>Home</span>
-        </a>
-        ${canPlan ? `
-        <a href="/planning.html" class="nav-item ${window.location.pathname.includes('planning') ? 'active' : ''}">
-            <i class="bi bi-calendar-event"></i>
-            <span>Plan</span>
-        </a>` : ''}
-        ${canDpr ? `
-        <a href="/dpr.html?view=summary" class="nav-item ${window.location.pathname.includes('dpr') ? 'active' : ''}">
-             <i class="bi bi-pencil-square"></i>
-            <span>DPR</span>
-        </a>` : ''}
-        ${canStats ? `
-        <a href="/analyze.html" class="nav-item ${window.location.pathname.includes('analyze') ? 'active' : ''}">
-            <i class="bi bi-graph-up-arrow"></i>
-            <span>Stats</span>
-        </a>` : ''}
-        <a href="javascript:void(0)" onclick="if(window.JPSMS && window.JPSMS.toggleSidebar){window.JPSMS.toggleSidebar();}else{document.querySelector('.sidebar')?.classList.toggle('mobile-open');}" class="nav-item mobile-nav-menu-btn" aria-label="Toggle All Modules Menu">
-            <i class="bi bi-list"></i>
-            <span>Menu</span>
-        </a>
-    </nav>`;
-
-    // Inject if not present
-    if (!document.querySelector('.mobile-nav')) {
-        document.body.insertAdjacentHTML('beforeend', navHTML);
-    }
-})();
-
 (function (exports) {
     const API_BASE = '/api';
     const APP_ACCESS_CONFIG = [
@@ -1148,8 +1093,7 @@ function escHtml(value) {
         '.filters',
         '.filter-bar',
         '.hero',
-        '.hero-card',
-        '.mobile-nav .nav-item'
+        '.hero-card'
     ];
     let premiumMotionObserver = null;
     let premiumMotionMutationObserver = null;
