@@ -1562,6 +1562,7 @@ async function runSyncCycle() {
             if (TABLES_TO_PULL.length > 0) {
                 const pullStats = await pullChanges();
                 const deletePullStats = await pullDeletionChanges();
+                await checkLocalOnlyAccess();
                 cycleStats.created += pullStats.created;
                 cycleStats.updated += pullStats.updated;
                 cycleStats.failed += pullStats.failed + deletePullStats.failed;
@@ -2060,6 +2061,35 @@ async function reconcileAssemblyScanLinks() {
         }
     } catch (e) {
         console.warn('[Sync] reconcileAssemblyScanLinks skipped:', e.message);
+    }
+}
+
+// MAIN decides who may use which factory, but an access row made on this LOCAL (or removed on
+// MAIN while this server missed it) still works here. Report such rows to MAIN's Settings page.
+// Report only: nothing is deleted.
+const ACCESS_CHECK_INTERVAL_MS = 60 * 60 * 1000;
+let lastAccessCheckAt = 0;
+async function checkLocalOnlyAccess() {
+    if (SERVER_TYPE !== 'LOCAL' || Date.now() - lastAccessCheckAt < ACCESS_CHECK_INTERVAL_MS) return;
+    lastAccessCheckAt = Date.now();
+    try {
+        const onMain = await pullTableAllPages('user_factories', '1970-01-01');
+        if (!onMain.length) return; // MAIN always has access rows: an empty answer is not proof
+        const allowed = new Set(onMain.map((r) => `${r.user_id}|${r.factory_id}`));
+        const local = await pool.query(
+            `SELECT uf.user_id, uf.factory_id, u.username
+               FROM user_factories uf LEFT JOIN users u ON u.id = uf.user_id
+              WHERE uf.factory_id = $1 ORDER BY u.username`,
+            [LOCAL_FACTORY_ID]
+        );
+        const extra = local.rows.filter((r) => !allowed.has(`${r.user_id}|${r.factory_id}`));
+        await setServerConfigValue('LOCAL_ONLY_ACCESS', JSON.stringify({
+            count: extra.length,
+            users: extra.map((r) => r.username || `user ${r.user_id}`).slice(0, 30),
+            checkedAt: new Date().toISOString()
+        }));
+    } catch (e) {
+        console.warn('[Sync] Access check skipped:', e.message);
     }
 }
 
@@ -3765,6 +3795,7 @@ function setRuntimeForTests(patch = {}) {
     syncRerunRequested = false;
     lastPendingCountAt = 0;
     lastPendingCountValue = 0;
+    lastAccessCheckAt = 0;
     tableColumnCache.clear();
     tableExistsCache.clear();
     jsonColumnCache.clear();
@@ -3792,6 +3823,7 @@ module.exports = {
     __test: {
         fetchWithSyncRetry,
         pullChanges,
+        checkLocalOnlyAccess,
         pullTableAllPages,
         withPullOverlap,
         pushTableAllBatches,
