@@ -30388,8 +30388,9 @@ app.post('/api/extra-qty/allow', async (req, res) => {
     const ins = await q(
       `INSERT INTO extra_qty_allowances
          (plan_id, order_no, jc_no, machine, mould_name, colour, extra_qty, remarks,
-          allowed_by, allowed_role, factory_id)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+          allowed_by, allowed_role, factory_id, allowed_at)
+       -- allowed_at is part of the sync key and the sync wire carries only milliseconds
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11, date_trunc('milliseconds', NOW()))
        RETURNING id, allowed_at`,
       [String(plan_id), p.order_no || '', jcNo, p.machine || '', p.mould_name || '',
        colourName, qty, remarksText, session.username, role, p.factory_id || getFactoryId(req) || null]

@@ -11,8 +11,21 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.203.0",
+  "latest": "1.203.1",
   "versions": [
+    {
+      "version": "1.203.1",
+      "date": "2026-11-25",
+      "title": "Extra Qty no longer doubles",
+      "modules": [
+        {
+          "app": "planning",
+          "changes": [
+            { "type": "fix", "text": "Extra Qty allowed from the Machine Timeline is counted once; it was doubled when the factory server and the main server synced." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.203.0",
       "date": "2026-11-25",
