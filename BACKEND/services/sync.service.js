@@ -2363,6 +2363,40 @@ async function adoptDprHourlyTwinGlobalId(client, row, tableColumns, seenGlobalI
     }
 }
 
+// extra_qty_allowances syncs on allowed_at (part of its natural key), but Postgres keeps
+// microseconds while the JSON wire carries milliseconds. The row a server saved itself
+// (58.250967) therefore never matched its own copy coming back (58.250) and was inserted
+// again: every grant, and the production cap, doubled (25-Nov-2026). Before the upsert, give
+// this server's own row the incoming allowed_at, so the upsert finds it. Only when the
+// millisecond key is free and exactly one such row exists. updated_at stays as it is, so the
+// newer-row-wins check (including a delete) still decides.
+async function adoptExtraQtyTwinAllowedAt(client, row) {
+    if (!row || !row.plan_id || !row.colour || !row.allowed_by || !row.allowed_at) return false;
+    const key = [row.plan_id, row.colour, row.allowed_by, row.allowed_at];
+    await client.query('SAVEPOINT sync_eqa_twin');
+    let done = false;
+    try {
+        const rows = await client.query(
+            `SELECT id, (allowed_at = $4::timestamptz) AS exact FROM extra_qty_allowances
+              WHERE plan_id = $1 AND colour = $2 AND allowed_by = $3
+                AND date_trunc('milliseconds', allowed_at) = date_trunc('milliseconds', $4::timestamptz)`,
+            key
+        );
+        if (rows.rows.length === 1 && !rows.rows[0].exact) {
+            await markSyncApply(client);
+            await client.query('UPDATE extra_qty_allowances SET allowed_at = $1::timestamptz WHERE id = $2', [row.allowed_at, rows.rows[0].id]);
+            if (SERVER_TYPE !== 'LOCAL') await client.query(`SELECT set_config('${SYNC_APPLY_FLAG}', 'off', true)`);
+            done = true;
+        }
+    } catch (e) {
+        await client.query('ROLLBACK TO SAVEPOINT sync_eqa_twin');
+        console.warn('[Sync] extra_qty_allowances twin re-key skipped:', e.message);
+        done = false;
+    }
+    await client.query('RELEASE SAVEPOINT sync_eqa_twin');
+    return done;
+}
+
 // Shivani's plan_board has no global_id column: there the copies cannot be matched, and asking
 // for the column aborted every plan pull (24-Nov-2026).
 async function loadPlansWithoutFactory(client, tableColumns) {
@@ -2532,6 +2566,10 @@ async function upsertData(table, data) {
 
                 if (table === 'dpr_hourly') {
                     await adoptDprHourlyTwinGlobalId(client, row, tableColumns, seenGlobalIds);
+                }
+
+                if (table === 'extra_qty_allowances') {
+                    await adoptExtraQtyTwinAllowedAt(client, row);
                 }
 
                 let whereClause = hasUpdatedAtColumn
@@ -3851,6 +3889,7 @@ module.exports = {
         coerceDateColumnsForWire,
         upsertData,
         adoptDprHourlyTwinGlobalId,
+        adoptExtraQtyTwinAllowedAt,
         reconcilePlanFactory,
         setRuntimeForTests,
         resyncSerialSequence,
