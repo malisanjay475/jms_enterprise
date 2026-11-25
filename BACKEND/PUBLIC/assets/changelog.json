@@ -11,8 +11,21 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.199.2",
+  "latest": "1.200.0",
   "versions": [
+    {
+      "version": "1.200.0",
+      "date": "2026-11-25",
+      "title": "QC app for Shivani and Premier",
+      "modules": [
+        {
+          "app": "quality",
+          "changes": [
+            { "type": "feature", "text": "QC Android app 1.11.0: choose your factory (Dungra Unit 1, Shivani or Premier) on the login screen." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.199.2",
       "date": "2026-11-25",
