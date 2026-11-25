@@ -2363,7 +2363,10 @@ async function adoptDprHourlyTwinGlobalId(client, row, tableColumns, seenGlobalI
     }
 }
 
-async function loadPlansWithoutFactory(client) {
+// Shivani's plan_board has no global_id column: there the copies cannot be matched, and asking
+// for the column aborted every plan pull (24-Nov-2026).
+async function loadPlansWithoutFactory(client, tableColumns) {
+    if (!tableColumns.has('global_id')) return new Set();
     const res = await client.query('SELECT global_id FROM plan_board WHERE factory_id IS NULL AND global_id IS NOT NULL');
     return new Set((res?.rows || []).map((r) => String(r.global_id)));
 }
@@ -2423,7 +2426,7 @@ async function upsertData(table, data) {
                 table === 'dpr_hourly' ? data.map((r) => r && r.global_id).filter(Boolean).map(String) : []
             );
 
-            const plansWithoutFactory = table === 'plan_board' ? await loadPlansWithoutFactory(client) : null;
+            const plansWithoutFactory = table === 'plan_board' ? await loadPlansWithoutFactory(client, tableColumns) : null;
 
             for (let row of data) {
                 if (table === 'plan_board' && (row.plan_id == null || String(row.plan_id).trim() === '')) {
