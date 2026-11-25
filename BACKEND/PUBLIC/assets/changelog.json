@@ -14,6 +14,22 @@
   "latest": "1.203.1",
   "versions": [
     {
+      "version": "1.204.0",
+      "date": "2026-11-25",
+      "title": "Order popup shows complete products part by part",
+      "modules": [
+        {
+          "app": "planning",
+          "changes": [
+            { "type": "feat", "text": "Machine Timeline order popup now shows OR, JR, job card and planned quantity, complete products made, balance, expected finish and target date." },
+            { "type": "feat", "text": "Parts are listed once with pieces per product, made, balance and how many products they are enough for; the part holding the order is marked. Click a part for its moulds, machines, job cards and colours." },
+            { "type": "fix", "text": "When a part can be made on more than one mould, the moulds are counted together, and an unused mould shows Not needed or Dropped instead of Pending." },
+            { "type": "fix", "text": "Every plan of a mould is shown, not only the first one, and the popup uses the selected unit." }
+          ]
+        }
+      ]
+    },
+    {
       "version": "1.203.1",
       "date": "2026-11-25",
       "title": "Extra Qty no longer doubles",

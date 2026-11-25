@@ -177,7 +177,7 @@
                 return `<tr><td><b>${esc(m.mould_name)}</b><div class="opv-mono">${esc(m.mould_no)}</div></td><td>–</td><td>–</td><td>${badge('Made, no plan', 'planned')}</td>
                     <td class="num">–</td><td class="num" style="color:#15803d">${n(m.produced)}</td><td class="num">–</td><td class="opv-sm">${day(m.first_date)} → ${day(m.last_date)}</td></tr>`;
             }
-            const r = ROLE[m.role] || [m.role, ''];
+            const r = m.role === 'ALTERNATE' && p.plan_gap > 0 ? ['Available', `Can make the ${n(p.plan_gap)} pcs not planned yet`] : ROLE[m.role] || [m.role, ''];
             const why = m.role === 'DROPPED' && m.drop
                 ? `Dropped ${dt(m.drop.at)}${m.drop.by && m.drop.by !== 'User' ? ' by ' + esc(m.drop.by) : ''}${m.drop.remarks && !/^drop$/i.test(m.drop.remarks) ? ': ' + esc(m.drop.remarks) : ''}`
                 : esc(r[1]);
@@ -217,7 +217,7 @@
                 const st = PART_STATUS[p.status] || [p.status, 'planned'];
                 const spare = p.moulds.filter(m => m.role === 'ALTERNATE').length;
                 const dropped = p.moulds.filter(m => m.role === 'DROPPED').length;
-                const sub = `${p.moulds_used} of ${p.moulds_total} mould${p.moulds_total === 1 ? '' : 's'} in use${dropped ? `, ${dropped} dropped` : ''}${spare ? `, ${spare} not needed` : ''}`;
+                const sub = `${p.moulds_used} of ${p.moulds_total} mould${p.moulds_total === 1 ? '' : 's'} in use${dropped ? `, ${dropped} dropped` : ''}${spare ? `, ${spare} ${p.plan_gap > 0 ? 'available' : 'not needed'}` : ''}`;
                 const open = ctx.open.has(p.key);
                 const limit = p.is_limit && p.balance > 0;
                 return `<tr class="part ${limit ? 'limit' : ''} ${open ? 'open' : ''}" data-i="${i}">
