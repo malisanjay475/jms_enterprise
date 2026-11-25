@@ -11,8 +11,21 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.202.0",
+  "latest": "1.202.1",
   "versions": [
+    {
+      "version": "1.202.1",
+      "date": "2026-11-25",
+      "title": "Bottom bar removed",
+      "modules": [
+        {
+          "app": "all",
+          "changes": [
+            { "type": "improvement", "text": "The bottom bar (Home, Plan, DPR, Stats, Menu) is removed. Use the menu button at the top left on small screens." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.202.0",
       "date": "2026-11-25",
