@@ -4280,7 +4280,7 @@
                           <span class="dpr-sc-kg">Good <b>${kg(st.goodKg)}</b> kg${vsTarget != null ? ` · <b>${vsTarget}%</b> of target` : ''}${st.dtHrs ? ` · DT <b>${st.dtHrs.toFixed(1)}</b> h` : ''}</span>
                         </button>`;
                     }).join('');
-                    const deckHtml = `<section class="dpr-deck dpr-fold${foldOpen.lines ? ' is-open' : ''}"><div class="dpr-deck-head">${foldHead('lines', 'Lines', `${stats.length} line${stats.length === 1 ? '' : 's'}`)}<span class="dpr-v2-spacer"></span><span class="dpr-seg dpr-fold-body" role="group" aria-label="Sort lines">${[['worst', 'Worst filled'], ['late', 'Most late'], ['eff', 'Lowest EFF'], ['name', 'Name']].map(([k, l]) => `<button type="button" data-dpr-sort="${k}" class="${sortMode === k ? 'is-on' : ''}">${l}</button>`).join('')}</span><button type="button" class="dpr-v2-btn" data-dpr-lines="expand"><i class="bi bi-arrows-expand"></i> Open all</button><button type="button" class="dpr-v2-btn" data-dpr-lines="collapse"><i class="bi bi-arrows-collapse"></i> Close all</button></div><div class="dpr-deck-grid dpr-fold-body">${cards}</div></section>`;
+                    const deckHtml = `<section class="dpr-deck dpr-fold${foldOpen.lines ? ' is-open' : ''}"><div class="dpr-deck-head">${foldHead('lines', 'Lines', `${stats.length} line${stats.length === 1 ? '' : 's'}`)}<span class="dpr-v2-spacer"></span><span class="dpr-seg dpr-fold-body" role="group" aria-label="Sort lines">${[['worst', 'Worst filled'], ['late', 'Most late'], ['eff', 'Lowest EFF'], ['name', 'Name']].map(([k, l]) => `<button type="button" data-dpr-sort="${k}" class="${sortMode === k ? 'is-on' : ''}">${l}</button>`).join('')}</span><button type="button" class="dpr-v2-btn" data-dpr-flow aria-pressed="${document.body.classList.contains('dpr-show-flow')}" title="Show or hide Prod, QC and Shifting figures on every machine"><i class="bi bi-list-ul"></i> <span class="dpr-flow-off">Show details</span><span class="dpr-flow-on">Hide details</span></button><button type="button" class="dpr-v2-btn" data-dpr-lines="expand"><i class="bi bi-arrows-expand"></i> Open all</button><button type="button" class="dpr-v2-btn" data-dpr-lines="collapse"><i class="bi bi-arrows-collapse"></i> Close all</button></div><div class="dpr-deck-grid dpr-fold-body">${cards}</div></section>`;
                     window.__dprLastDeck = { stats, tot, filledPct, onTime, worstHour, worstMachines, bestLine };
                     return { overview, insights, deck: deckHtml };
                 };
@@ -4380,6 +4380,11 @@
                     window.__dprFoldOpen[t.dataset.dprFold] = open;
                     t.setAttribute('aria-expanded', String(open));
                     t.closest('.dpr-fold').classList.toggle('is-open', open);
+                });
+                // Machine details (Prod / QC / Shifting strip) start hidden; one click shows them on every machine.
+                document.addEventListener('click', (ev) => {
+                    const b = ev.target.closest && ev.target.closest('[data-dpr-flow]');
+                    if (b) b.setAttribute('aria-pressed', String(document.body.classList.toggle('dpr-show-flow')));
                 });
                 // Sort buttons on the Lines deck: re-order the cards in place, no reload.
                 document.addEventListener('click', (ev) => {

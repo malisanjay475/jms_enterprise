@@ -11,8 +11,21 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.202.2",
+  "latest": "1.203.0",
   "versions": [
+    {
+      "version": "1.203.0",
+      "date": "2026-11-25",
+      "title": "DPR Compliance machine details on demand",
+      "modules": [
+        {
+          "app": "dpr",
+          "changes": [
+            { "type": "improvement", "text": "Compliance Summary hides the Prod, QC and Shifting figures under each machine; the Show details button opens them for all machines in one click." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.202.2",
       "date": "2026-11-25",
