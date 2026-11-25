@@ -49,6 +49,21 @@
         return [...map.values()].sort((a, b) => a.ts - b.ts);
     }
 
+    /**
+     * Left to make and extra made, counted colour by colour so one colour's extra never
+     * hides another's balance. A plan without a full colour split is counted as a whole.
+     * Same rule as the plan popup (timeline_patch.js).
+     */
+    function balance(colourStats, plan, good) {
+        const cs = Object.values(colourStats || {}).map((c) => ({ p: num(c.plan_qty), g: num(c.good_qty) }));
+        const full = cs.length > 0 && cs.every((c) => c.p > 0 || !c.g) && cs.reduce((a, c) => a + c.p, 0) === plan;
+        const list = full ? cs : [{ p: plan, g: good }];
+        return {
+            left: list.reduce((a, c) => a + Math.max(0, c.p - c.g), 0),
+            extra: plan > 0 ? list.reduce((a, c) => a + Math.max(0, c.g - c.p), 0) : 0
+        };
+    }
+
     /** STD pieces per hour from the mould master (cycle time and cavity). */
     function targetPerHour(info) {
         const cycle = num(info && info.std_cycle), cav = num(info && info.std_cavity);
@@ -160,5 +175,5 @@
         return out.sort((a, b) => rank[a.level] - rank[b.level]);
     }
 
-    return { SLOTS, slotEnd, hourly, byShift, targetPerHour, timeUse, forecast, findings };
+    return { SLOTS, slotEnd, hourly, byShift, balance, targetPerHour, timeUse, forecast, findings };
 });

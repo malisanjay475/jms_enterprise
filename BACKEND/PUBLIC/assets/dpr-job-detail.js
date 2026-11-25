@@ -94,15 +94,15 @@
         $('jdMeta').innerHTML = items.map(([l, v]) => `<span>${l} <b>${esc(v)}</b></span>`).join('');
     }
 
-    function renderStatus(info, plan, good) {
-        const st = String(info.status || '').trim().toUpperCase();
+    function renderStatus(m) {
+        const st = String(m.info.status || '').trim().toUpperCase();
         let cls = 'idle', text = st ? st.charAt(0) + st.slice(1).toLowerCase() : 'Unknown';
         if (['COMPLETED', 'CLOSED'].includes(st)) cls = 'done';
         else if (st === 'RUNNING') cls = 'run';
         else if (/STOP|HOLD|CANCEL|REJECT/.test(st)) cls = 'bad';
         let extra = '';
-        if (plan > 0 && good > plan) extra = `<span class="jd-status over">Over by ${qty(good - plan)}</span>`;
-        else if (plan > 0 && good === plan && cls === 'run') extra = '<span class="jd-status done">Plan made</span>';
+        if (m.extra > 0) extra = `<span class="jd-status over">${qty(m.extra)} extra</span>`;
+        else if (m.plan > 0 && m.balance === 0 && cls === 'run') extra = '<span class="jd-status done">Plan made</span>';
         $('jdStatus').innerHTML = `<span class="jd-status ${cls}">${esc(text)}</span>${extra}`;
     }
 
@@ -117,16 +117,17 @@
         info.act_weight = info.act_weight || d.act_weight || d.article_act;
         info.act_cavity = info.act_cavity || d.act_cavity || d.cavity_act;
         const t = data.totals || {};
-        const plan = num(t.plan) || num(info.plan_qty), good = num(t.good), rej = num(t.rej);
+        const plan = num(info.plan_qty) || num(t.plan), good = num(t.good), rej = num(t.rej);
         const hours = A.hourly(data.logs), target = A.targetPerHour(info);
         const use = A.timeUse(hours, target);
-        return { data, info, plan, good, rej, balance: plan - good, hours, target, use, fc: A.forecast(hours, plan - good, target, Date.now()) };
+        const b = A.balance(data.colour_stats, plan, good);
+        return { data, info, plan, good, rej, balance: b.left, extra: b.extra, hours, target, use, fc: A.forecast(hours, b.left, target, Date.now()) };
     }
 
     function renderAll() {
         const m = model();
         renderHeader(m.info, state.details);
-        renderStatus(m.info, m.plan, m.good);
+        renderStatus(m);
         if (!state.view) state.view = m.hours.length > 48 ? 'shift' : 'hour';
         const top = $('jdBody').scrollTop;
         $('jdMain').innerHTML = [
@@ -151,7 +152,7 @@
             <span class="jd-track"><i class="${cls}" style="width:${Math.min(100, (num(v) / base) * 100).toFixed(1)}%"></i></span>
             <b>${qty(v)}</b><span class="jd-flow-note ${noteCls || ''}">${note}</span></div>`;
         const blank = (label) => `<div class="jd-flow-row"><span class="jd-flow-label">${label}</span><span class="jd-track"></span><b>–</b><span class="jd-flow-note">${state.shipError ? 'not available' : 'loading…'}</span></div>`;
-        const left = m.balance > 0 ? `${qty(m.balance)} to make` : m.balance < 0 ? `${qty(-m.balance)} over plan` : 'plan made';
+        const left = (m.balance > 0 ? `${qty(m.balance)} to make` : 'plan made') + (m.extra > 0 ? `, ${qty(m.extra)} extra` : '');
         let flow = row('Produced', m.good, 'c-good', left, m.balance > 0 ? 'warn' : '');
         if (t) {
             const enforcedNote = s.verification_enforced ? '' : ' (factory server has the full figure)';
@@ -163,7 +164,7 @@
         const facts = [
             ['Plan', qty(m.plan), orq && orq !== m.plan ? `of OR ${qty(orq)}` : ''],
             ['Produced', qty(m.good), pct(f) + ' of plan', 'good'],
-            [m.balance < 0 ? 'Over plan' : 'Balance', qty(Math.abs(m.balance)), m.balance < 0 ? 'extra pieces' : m.balance === 0 ? 'done' : pct(m.plan > 0 ? m.balance / m.plan : 0) + ' left', m.balance > 0 ? 'warn' : ''],
+            ['Balance', qty(m.balance), m.extra > 0 ? `+${qty(m.extra)} extra made` : m.balance === 0 ? 'done' : pct(m.plan > 0 ? m.balance / m.plan : 0) + ' left', m.balance > 0 ? 'warn' : ''],
             ['Reject', qty(m.rej), pct(m.good + m.rej > 0 ? m.rej / (m.good + m.rej) : 0) + ' of all made', m.rej > 0 ? 'bad' : ''],
             ['On shop floor', t ? qty(Math.max(num(t.produced) - num(t.shifted), 0)) : '–', 'made, not shifted']
         ];
@@ -300,7 +301,7 @@
         const ship = new Map((s && s.colours || []).map((c) => [key(c.colour), c]));
         const rows = Object.keys(stats).map((c) => ({ name: c, ...stats[c], s: ship.get(key(c)) }));
         rows.sort((a, b) => num(b.plan_qty) - num(a.plan_qty) || num(b.good_qty) - num(a.good_qty));
-        const bal = (n) => n > 0 ? `<b class="warn">${qty(n)}</b>` : n === 0 ? '<b class="good">Done</b>' : `<b class="over">${qty(-n)} over</b>`;
+        const bal = (n) => n > 0 ? `<b class="warn">${qty(n)}</b>` : n === 0 ? '<b class="good">Done</b>' : `<b class="over">${qty(-n)} extra</b>`;
         const cell = (c, f, cls) => c ? `<td class="r ${c[f] > 0 && cls ? cls : ''}">${qty(c[f])}</td>` : '<td class="r">–</td>';
         const t = s && s.totals;
         const un = s && s.unassigned && num(s.unassigned.shifted) > 0;
@@ -315,7 +316,7 @@
                         ${cell(r.s, 'verified')}${cell(r.s, 'not_verified', 'warn')}${cell(r.s, 'shifted')}${cell(r.s, 'ready', 'warn')}</tr>`;
                 }).join('') : '<tr><td colspan="9" class="jd-note">No production entered yet.</td></tr>'}
                 ${un ? `<tr><td>No colour (manual shift)</td><td colspan="6"></td><td class="r">${qty(s.unassigned.shifted)}</td><td></td></tr>` : ''}</tbody>
-                ${rows.length > 1 || un ? `<tfoot><tr><td>Total</td><td class="r">${qty(m.plan)}</td><td class="r">${qty(m.good)}</td><td class="r">${bal(m.balance)}</td><td class="r">${qty(m.rej)}</td><td class="r">${t ? qty(t.verified) : '–'}</td><td class="r">${t ? qty(t.not_verified) : '–'}</td><td class="r">${t ? qty(t.shifted) : '–'}</td><td class="r">${t ? qty(t.ready) : '–'}</td></tr></tfoot>` : ''}
+                ${rows.length > 1 || un ? `<tfoot><tr><td>Total</td><td class="r">${qty(m.plan)}</td><td class="r">${qty(m.good)}</td><td class="r">${bal(m.balance > 0 ? m.balance : -m.extra)}${m.balance > 0 && m.extra > 0 ? ` <em>+${qty(m.extra)} extra</em>` : ''}</td><td class="r">${qty(m.rej)}</td><td class="r">${t ? qty(t.verified) : '–'}</td><td class="r">${t ? qty(t.not_verified) : '–'}</td><td class="r">${t ? qty(t.shifted) : '–'}</td><td class="r">${t ? qty(t.ready) : '–'}</td></tr></tfoot>` : ''}
             </table></div>${historyHtml()}</section>`;
     }
 

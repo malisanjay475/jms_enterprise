@@ -41,6 +41,14 @@ describe('DPR job popup analysis', () => {
     expect(A.forecast(h, 0, 80, now)).toBeNull();
   });
 
+  test('extra of one colour does not hide what is left of another', () => {
+    const c = { Red: { plan_qty: 100, good_qty: 130 }, Blue: { plan_qty: 100, good_qty: 60 } };
+    expect(A.balance(c, 200, 190)).toEqual({ left: 40, extra: 30 });
+    // not a full colour split: counted as a whole
+    expect(A.balance(c, 300, 190)).toEqual({ left: 110, extra: 0 });
+    expect(A.balance({ Red: { plan_qty: 200, good_qty: 0 }, Other: { plan_qty: 0, good_qty: 190 } }, 200, 190)).toEqual({ left: 10, extra: 0 });
+  });
+
   test('findings name the top reject reason and the extra material', () => {
     const hours = A.hourly(A.SLOTS.map(s => log('2026-11-24', 'Day', s, 60, 10, 0)));
     const list = A.findings({ info, hours, target: 80, use: A.timeUse(hours, 80), rejStats: { Scratches: 100, Warpage: 20 }, dtStats: {} });
