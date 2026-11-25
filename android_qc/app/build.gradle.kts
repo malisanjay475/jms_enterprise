@@ -20,7 +20,7 @@ android {
         // versionCode is set by CI (APP_VERSION_CODE = 1000 + run number) so it
         // ALWAYS increases and phones auto-update. Local builds fall back to 100.
         versionCode = System.getenv("APP_VERSION_CODE")?.toIntOrNull() ?: 100
-        versionName = "1.11.0"
+        versionName = "1.11.1"
 
         // Placeholder API address. The real server is the factory the user picks on the
         // login screen (data/FactoryServer.kt), which replaces this host on every request.
