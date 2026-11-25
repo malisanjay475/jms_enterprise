@@ -11,8 +11,24 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.204.9",
+  "latest": "1.205.0",
   "versions": [
+    {
+      "version": "1.205.0",
+      "date": "2026-11-25",
+      "title": "New DPR job detail popup",
+      "modules": [
+        {
+          "app": "dpr",
+          "changes": [
+            { "type": "feat", "text": "DPR job detail is redesigned: what needs attention, where the machine time went, OEE, and production hour by hour or shift by shift." },
+            { "type": "improvement", "text": "Produced, QC verified and shifted are in one progress block and one colour table instead of being repeated down the page." },
+            { "type": "fix", "text": "The status is the real plan status, the finish time uses the last 8 hours with stops included, and a job moved to another machine shows the quantity made on both." },
+            { "type": "fix", "text": "Job detail balance is counted colour by colour, same as the plan popup, and extra pieces are shown separately." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.204.9",
       "date": "2026-11-25",
