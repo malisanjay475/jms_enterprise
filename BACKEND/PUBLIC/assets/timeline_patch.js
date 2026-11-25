@@ -499,12 +499,12 @@
         // History brings in completed + dropped plans so we can show proper status.
         try {
             const api = (window.JPSMS && window.JPSMS.api) ? window.JPSMS.api : window.api;
-            // api.request sends the factory and the sign-in; a plain fetch() does not
+            // api.request adds /api and sends the factory and the sign-in; a plain fetch() does not
             const getJson = (url, ms) => Promise.race([
                 api.request(url, { skipLoader: true, silentError: true }),
                 new Promise((_, no) => setTimeout(() => no(new Error('timeout')), ms))
             ]);
-            const partsCall = getJson(`/api/order-tracker/parts?order_no=${encodeURIComponent(orderNo)}`, 15000)
+            const partsCall = getJson(`/order-tracker/parts?order_no=${encodeURIComponent(orderNo)}`, 15000)
                 .then(r => {
                     if (!isCurrent() || !r || !r.ok || !r.data || !r.data.parts.length || typeof window.renderOrderParts !== 'function') return false;
                     const live = (window.allMasterPlans || []).filter(p => p.orderNo === orderNo);
@@ -521,8 +521,8 @@
 
             // Fetch both in parallel
             const [detailsResult, historyResult] = await Promise.allSettled([
-                getJson(`/api/planning/orders/${encodeURIComponent(orderNo)}/details`, 8000),
-                getJson(`/api/planning/orders/${encodeURIComponent(orderNo)}/history`, 8000)
+                getJson(`/planning/orders/${encodeURIComponent(orderNo)}/details`, 8000),
+                getJson(`/planning/orders/${encodeURIComponent(orderNo)}/history`, 8000)
             ]);
             const partsShown = await partsCall;
             if (!isCurrent()) return;

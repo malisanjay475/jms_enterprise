@@ -119,3 +119,8 @@ describe('order tracker need per mould', () => {
     expect([...run([m('A'), m('B')], { drops: [{ mould_no: 'A' }] }).alloc.keys()]).toEqual(['B']);
   });
 });
+
+test('popup calls do not repeat /api (the api helper adds it)', () => {
+  const src = require('fs').readFileSync(require('path').join(__dirname, '../PUBLIC/assets/timeline_patch.js'), 'utf8');
+  expect(src).not.toMatch(/(getJson|api\.(get|post|put|request))\(\s*[`'"]\/api\//);
+});
