@@ -10,139 +10,151 @@
     <link rel="stylesheet" href="/assets/app.css?v=12">
     <style>
         :root {
-            --bg: #f5f7fb; --card: #fff; --line: #e4e9f0; --ink: #0f172a; --mute: #64748b;
+            --bg: #f5f7fb; --card: #fff; --line: #e2e8f0; --ink: #0f172a; --mute: #56637a;
             /* stage colours: Blue pending, Yellow in progress, Green complete, Red N/A */
             --p-bg: #dbeafe; --p-ink: #1d4ed8;
-            --i-bg: #fef3c7; --i-ink: #a16207;
-            --c-bg: #dcfce7; --c-ink: #15803d;
+            --i-bg: #fef3c7; --i-ink: #854d0e;
+            --c-bg: #dcfce7; --c-ink: #166534;
             --n-bg: #fee2e2; --n-ink: #b91c1c;
+            --wsr: 56px; --wcode: 118px; --wname: 320px; --hgrp: 34px;
         }
-        .npd { padding: 20px 24px 48px; background: var(--bg); min-height: 100vh; color: var(--ink); font-size: 13px; }
-        .npd { flex: 1 1 auto; min-width: 0; max-width: 100%; }
-        .npd * { box-sizing: border-box; }
-        .hd { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 14px; }
-        .hd h1 { font-family: 'Outfit', sans-serif; font-size: 26px; font-weight: 800; margin: 0; display: flex; align-items: center; gap: 10px; }
-        .hd h1 .ic { width: 38px; height: 38px; border-radius: 11px; background: var(--ink); color: #fff; display: grid; place-items: center; font-size: 18px; }
-        .hd .sub { color: var(--mute); font-size: 13px; margin-top: 4px; }
+        .npd { flex: 1 1 auto; min-width: 0; max-width: 100%; height: calc(100vh - 32px); height: calc(100dvh - 32px); display: flex; flex-direction: column; padding: 4px 8px; background: transparent; color: var(--ink); font-size: 13px; overflow: hidden; }
+        .npd, .npd *, .menu, .menu * { box-sizing: border-box; }
+        .npd button, .npd input, .npd textarea, .menu button { font-family: inherit; }
+        .npd :focus-visible, .menu :focus-visible { outline: 2px solid #2563eb; outline-offset: 1px; }
+        .hd { display: flex; align-items: center; justify-content: space-between; gap: 12px 16px; flex-wrap: wrap; margin-bottom: 12px; }
+        .hd h1 { font-family: 'Outfit', sans-serif; font-size: 23px; font-weight: 800; margin: 0; line-height: 1.2; }
+        .hd .sub { color: var(--mute); font-size: 12.5px; margin-top: 2px; }
         .tools { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
-        .btn { border: 1px solid var(--line); background: #fff; border-radius: 10px; padding: 8px 14px; font-weight: 600; cursor: pointer; display: inline-flex; gap: 6px; align-items: center; font-size: 13px; }
+        .btn { border: 1px solid var(--line); background: #fff; border-radius: 9px; padding: 8px 13px; font-weight: 600; cursor: pointer; display: inline-flex; gap: 6px; align-items: center; font-size: 13px; color: var(--ink); }
+        .btn:hover { background: #f1f5f9; }
+        .btn:disabled { opacity: .55; cursor: default; }
         .btn.pri { background: #0f172a; color: #fff; border-color: #0f172a; }
+        .btn.pri:hover { background: #1e293b; }
         .btn.sm { padding: 4px 9px; font-size: 12px; border-radius: 8px; }
         .btn.danger { color: #b91c1c; }
-        .inp { border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; font-size: 13px; background: #fff; }
-        .bar { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
-        .legend { display: flex; gap: 8px; flex-wrap: wrap; }
-        .chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; font-weight: 700; font-size: 12px; }
+        .btn.spin i { animation: npdspin .8s linear infinite; }
+        @keyframes npdspin { to { transform: rotate(360deg); } }
+        @media (prefers-reduced-motion: reduce) { .btn.spin i { animation: none; } }
+        .inp { border: 1px solid var(--line); border-radius: 9px; padding: 8px 12px; font-size: 13px; background: #fff; color: var(--ink); }
+        .bar { display: flex; gap: 8px 12px; flex-wrap: wrap; align-items: center; margin-bottom: 10px; }
+        .srch { position: relative; flex: 0 1 250px; min-width: 180px; }
+        .srch i { position: absolute; left: 11px; top: 50%; transform: translateY(-50%); color: var(--mute); pointer-events: none; }
+        .npd .srch .inp { width: 100%; padding-left: 32px; }
+        .tiles, .jump { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+        .tiles { margin-left: auto; }
+        .tile { background: #fff; border: 1px solid var(--line); border-radius: 9px; padding: 6px 11px; cursor: pointer; font-weight: 600; font-size: 12.5px; color: #334155; }
+        .tile:hover { background: #f1f5f9; }
+        .tile b { margin-left: 5px; font-variant-numeric: tabular-nums; color: var(--ink); }
+        .tile.on { background: #0f172a; border-color: #0f172a; color: #fff; }
+        .tile.on b { color: #fff; }
+        .fsw { display: inline-flex; gap: 2px; padding: 3px; border: 1px solid var(--line); border-radius: 11px; background: #fff; flex-wrap: wrap; }
+        .fsw button { border: 0; background: none; border-radius: 8px; padding: 5px 11px; font-weight: 600; font-size: 12.5px; color: #334155; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+        .fsw button:hover { background: #f1f5f9; }
+        .fsw button.on { background: #0f172a; color: #fff; }
+        .fsw button b { font-size: 11.5px; font-variant-numeric: tabular-nums; }
+        .fsw .one { padding: 5px 11px; font-weight: 700; font-size: 12.5px; display: inline-flex; align-items: center; gap: 6px; }
+        .bar2 { display: flex; gap: 8px 14px; flex-wrap: wrap; align-items: center; justify-content: space-between; margin-bottom: 8px; font-size: 12px; color: var(--mute); }
+        .jump button { border: 0; background: none; color: #334155; font-weight: 600; font-size: 12.5px; padding: 4px 9px; border-radius: 7px; cursor: pointer; }
+        .jump button:hover { background: #e2e8f0; }
+        .jump button.on { background: #e2e8f0; color: var(--ink); font-weight: 700; }
+        .legend { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+        .legend span { display: inline-flex; align-items: center; gap: 5px; }
+        .legend i { width: 12px; height: 12px; border-radius: 4px; border: 1px solid rgba(15, 23, 42, .12); }
+        .chip { display: inline-flex; align-items: center; padding: 4px 10px; border-radius: 7px; font-weight: 700; font-size: 12px; }
         .st-pending { background: var(--p-bg); color: var(--p-ink); }
         .st-in_progress { background: var(--i-bg); color: var(--i-ink); }
         .st-complete { background: var(--c-bg); color: var(--c-ink); }
         .st-na { background: var(--n-bg); color: var(--n-ink); }
-        .tiles { display: flex; gap: 8px; flex-wrap: wrap; margin-left: auto; }
-        .tile { background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 6px 12px; cursor: pointer; font-weight: 600; }
-        .tile b { font-size: 15px; margin-left: 4px; }
-        .tile.on { border-color: #0f172a; box-shadow: 0 0 0 1px #0f172a inset; }
-        /* factory switch: one pill per factory the user can see, All first */
-        .fsw { display: inline-flex; gap: 2px; padding: 3px; border: 1px solid var(--line); border-radius: 12px; background: #fff; flex-wrap: wrap; }
-        .fsw button { border: 0; background: none; border-radius: 9px; padding: 5px 12px; font-weight: 700; font-size: 12.5px; color: #334155; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
-        .fsw button:hover { background: #f1f5f9; }
-        .fsw button.on { background: #0f172a; color: #fff; }
-        .fsw button b { font-size: 11px; font-weight: 800; opacity: .7; }
-        .fsw .one { padding: 5px 12px; font-weight: 700; font-size: 12.5px; display: inline-flex; align-items: center; gap: 6px; }
-        .tile.pend { color: var(--p-ink); }
-        .tile.pend.on { border-color: var(--p-ink); box-shadow: 0 0 0 1px var(--p-ink) inset; }
-        .g tr.fgrp td { background: #0f172a; color: #fff; padding: 0; border-right: 0; }
-        .g tr.fgrp td div { position: sticky; left: 0; display: inline-flex; align-items: center; gap: 8px; padding: 7px 14px; font-weight: 800; font-size: 12.5px; letter-spacing: .3px; }
-        .g tr.fgrp td small { font-weight: 600; opacity: .7; }
-        .g tr.fgrp + tr.main td { border-top: 0; }
-        .wrap { max-width: 100%; background: #fff; border: 1px solid var(--line); border-radius: 14px; overflow: auto; max-height: calc(100vh - 210px); }
-        table.g { border-collapse: separate; border-spacing: 0; min-width: 100%; }
-        .g th, .g td { border-bottom: 1px solid var(--line); border-right: 1px solid var(--line); padding: 4px; vertical-align: middle; }
-        .g thead th { position: sticky; background: #f8fafc; z-index: 2; font-size: 11px; font-weight: 700; color: #334155; text-align: center; }
-        .g thead tr.grp th { top: 0; height: 28px; text-transform: uppercase; letter-spacing: .4px; font-size: 10.5px; }
-        .g thead tr.col th { top: 28px; min-width: 112px; max-width: 130px; white-space: normal; line-height: 1.25; padding: 6px; }
-        .g thead tr.col th small { display: block; color: var(--mute); font-weight: 600; margin-top: 2px; }
-        .g .fix { position: sticky; background: #fff; z-index: 1; }
-        .g thead .fix { z-index: 3; background: #f8fafc; }
-        .g .c0 { left: 0; min-width: 64px; max-width: 64px; text-align: center; }
-        .g .ct { left: 52px; min-width: 148px; max-width: 148px; padding: 6px 10px; }
-        .g .cc { left: 64px; min-width: 130px; max-width: 130px; }
-        .g td.cc input.code { width: 100%; }
-        select.fsel { width: 140px; border: 1px solid var(--line); border-radius: 7px; padding: 5px 6px; font-size: 12px; font-weight: 600; background: #fff; }
-        .fac { font-weight: 700; font-size: 12px; }
-        .g .c1 { left: 194px; min-width: 320px; max-width: 320px; box-shadow: 2px 0 0 var(--line); }
-        /* product block: warm main row with an accent edge, child moulds grouped under one label */
-        .g tr.main td { border-top: 2px solid #e2e8f0; }
-        .g tbody tr.main:first-child td { border-top: 0; }
-        .g tr.main td.c0, .g tr.main td.ct, .g tr.main td.c1, .g tr.main td.pcode { background: #fff4ea; }
-        .g tr.main td.c0 { box-shadow: inset 3px 0 0 #ea7a2c; }
-        .g tr.main td.c0 b { color: #9a3412; font-size: 14px; }
-        .ksr { font-weight: 700; color: #64748b; font-size: 12.5px; font-variant-numeric: tabular-nums; }
-        .ttag { display: inline-flex; align-items: center; gap: 5px; border-radius: 999px; padding: 3px 9px; font-size: 10.5px; font-weight: 800; letter-spacing: .3px; text-transform: uppercase; white-space: nowrap; }
-        .ttag.main { background: #fde3cf; color: #9a3412; }
-        .ttag.kid { background: #e2e8f0; color: #334155; }
-        .ttag small { font-weight: 700; opacity: .7; }
-        .g tr.child td.c1 { position: sticky; }
-        .mbar { width: 160px; height: 7px; background: #fde3cf; border-radius: 99px; overflow: hidden; }
-        .mbar i { display: block; height: 100%; background: #16a34a; border-radius: 99px; }
-        .g td.rmall { min-width: 320px; max-width: 360px; vertical-align: top; padding: 6px; }
-        .g td.rmall textarea.rm { width: 100%; }
-        .rlist { display: flex; flex-direction: column; gap: 4px; max-height: 150px; overflow: auto; margin-bottom: 5px; }
-        .ritem { display: flex; gap: 6px; align-items: flex-start; font-size: 11.5px; line-height: 1.35; background: #f8fafc; border: 1px solid var(--line); border-radius: 8px; padding: 4px 6px; }
-        .ritem b { font-size: 10.5px; color: #334155; }
-        .ritem small { color: var(--mute); font-size: 10px; }
-        .rdept { flex: 0 0 auto; background: #0f172a; color: #fff; border-radius: 5px; padding: 1px 6px; font-size: 9.5px; font-weight: 800; letter-spacing: .3px; margin-top: 1px; }
-        .rgen { font-size: 12px; }
-        .rline { font-size: 12px; line-height: 1.5; margin-bottom: 5px; word-break: break-word; }
-        .rseg b { color: #64748b; font-weight: 700; }
-        .rseg.has b { color: #0f172a; }
-        .rseg.has { cursor: help; }
-        .g tr.child .thumb { width: 34px; height: 34px; flex-basis: 34px; font-size: 15px; }
-        .g tr.child td.c1 .pc { padding-left: 10px; border-left: 2px solid #cbd5e1; margin-left: 4px; }
-        .g td.c1 input.inp { border-color: transparent; background: transparent; border-radius: 8px; }
-        .g td.c1 input.inp:hover { border-color: var(--line); background: #fff; }
-        .g td.c1 input.inp:focus { border-color: #ea7a2c; background: #fff; outline: 0; box-shadow: 0 0 0 3px #ea7a2c22; }
-        .g tr.main td.c1 input.inp { font-size: 13.5px; color: #431407; }
-        .g td.pcode input.code { font-variant-numeric: tabular-nums; letter-spacing: .3px; font-weight: 700; background: #fff; }
-        .g td.pcode input.code:placeholder-shown { font-weight: 500; border-style: dashed; }
-        .g tbody tr:hover td { background-color: #fafcff; }
-        .g td.c1 .nm { font-weight: 700; }
-        .g td.c1 .pc { display: flex; gap: 8px; align-items: center; }
-        .g td.c1 .pc > div { flex: 1; min-width: 0; }
-        .thumb { width: 46px; height: 46px; flex: 0 0 46px; border-radius: 8px; border: 1px solid var(--line); background: #f8fafc; overflow: hidden; display: grid; place-items: center; color: #cbd5e1; font-size: 20px; cursor: pointer; }
+        .wrap { flex: 1 1 auto; min-height: 260px; max-width: 100%; background: #fff; border: 1px solid var(--line); border-radius: 12px; overflow: auto; overscroll-behavior: contain; scrollbar-color: #94a3b8 #f1f5f9; }
+        table.g { border-collapse: separate; border-spacing: 0; table-layout: fixed; }
+        .g th, .g td { border: 0; border-bottom: 1px solid var(--line); border-right: 1px solid var(--line); padding: 6px; vertical-align: middle; font-size: 12.5px; height: auto; }
+        .g thead th { position: sticky; background: #f1f5f9; z-index: 2; font-size: 12px; font-weight: 600; color: #1e293b; text-align: center; text-transform: none; letter-spacing: 0; line-height: 1.3; white-space: normal; }
+        .g thead tr.grp th { top: 0; }
+        .g thead tr.grp th.gh { height: var(--hgrp); padding: 0 12px; line-height: 1.2; text-align: left; font-size: 12.5px; font-weight: 700; background: #e2e8f0; }
+        .g thead th.gh span { position: sticky; left: calc(var(--wsr) + var(--wcode) + var(--wname) + 12px); }
+        .g thead tr.col th { top: var(--hgrp); vertical-align: top; padding: 8px 8px 9px; }
+        .g thead th small { display: block; color: var(--mute); font-weight: 500; font-size: 11.5px; margin-top: 3px; }
+        .g .gs { border-left: 2px solid #94a3b8; }
+        .g .fix { position: sticky; z-index: 1; }
+        .g thead .fix { z-index: 4; }
+        .g .c0 { left: 0; text-align: center; }
+        .g .cc { left: var(--wsr); }
+        .g .c1 { left: calc(var(--wsr) + var(--wcode)); box-shadow: 4px 0 8px -4px rgba(15, 23, 42, .18); }
+        /* product row carries the warm tint; its moulds sit under it */
+        .g tr.main td { background: #fff; border-top: 2px solid #cbd5e1; }
+        .g tbody.b0 tr.main td { border-top: 0; }
+        .g tr.main td.fix { background: #fff4ea; }
+        .g tr.main td.c0 { font-weight: 800; font-size: 14px; color: #9a3412; }
+        .g tr.child td { background: #fafcfe; }
+        .g tr.child td.c1 { padding-left: 18px; }
+        .g tr:hover td:not(.off) { background: #f3f7fc; }
+        .g tr.main:hover td.fix { background: #ffeddc; }
+        .ksr { font-weight: 600; color: var(--mute); }
+        .g td.c0, .g td.cc { font-variant-numeric: tabular-nums; }
+        .fold { border: 0; background: none; padding: 2px 4px; cursor: pointer; color: #9a3412; display: block; margin: 2px auto 0; border-radius: 6px; line-height: 1; }
+        .fold:hover { background: #fde3cf; }
+        .pc { display: flex; gap: 10px; align-items: flex-start; }
+        .pc > div { flex: 1; min-width: 0; }
+        .thumb { width: 44px; height: 44px; flex: 0 0 44px; border-radius: 8px; border: 1px solid var(--line); background: #f8fafc; overflow: hidden; display: grid; place-items: center; color: #94a3b8; font-size: 18px; cursor: pointer; padding: 0; }
         .thumb img { width: 100%; height: 100%; object-fit: cover; }
-        .g td.c1 .meta { color: var(--mute); font-size: 11px; display: flex; gap: 8px; margin-top: 3px; }
-        .g td.c1 .meta a { color: #2563eb; cursor: pointer; text-decoration: none; }
-        select.cell, span.cell { width: 100%; border: 0; border-radius: 7px; padding: 6px 4px; font-weight: 700; font-size: 11.5px; text-align: center; text-align-last: center; cursor: pointer; appearance: none; display: block; }
-        span.cell { cursor: default; }
-        input.dt { width: 100%; border: 1px solid var(--line); border-radius: 7px; padding: 5px 4px; font-size: 12px; }
-        select.ps { width: 130px; border: 1px solid var(--line); border-radius: 7px; padding: 6px; font-weight: 700; font-size: 12px; }
+        .g tr.child .thumb { width: 34px; height: 34px; flex-basis: 34px; font-size: 14px; }
+        .nm { display: block; width: 100%; text-align: left; font-size: 13.5px; font-weight: 700; line-height: 1.35; color: var(--ink); white-space: normal; overflow-wrap: anywhere; }
+        .g tr.child .nm { font-weight: 600; font-size: 13px; }
+        /* click-to-edit text: reads as text, shows it is editable on hover */
+        button.ed-t { border: 1px solid transparent; background: none; border-radius: 6px; padding: 2px 5px; margin: -3px -6px; cursor: text; text-align: left; color: inherit; font-size: inherit; overflow-wrap: anywhere; white-space: pre-wrap; max-width: calc(100% + 12px); }
+        button.ed-t:hover { border-color: #94a3b8; background: #fff; }
+        button.ed-t.ph { color: var(--mute); font-weight: 500; }
+        .code-t { font-weight: 600; overflow-wrap: anywhere; }
+        .ed-in { width: 100%; border: 1px solid #2563eb; border-radius: 7px; padding: 5px 7px; font-size: 13px; line-height: 1.35; background: #fff; color: var(--ink); resize: vertical; }
+        .meta { color: var(--mute); font-size: 12px; display: flex; flex-wrap: wrap; gap: 2px 12px; margin-top: 4px; align-items: center; }
+        .meta button { border: 0; background: none; padding: 0; color: #1d4ed8; cursor: pointer; font-size: 12px; }
+        .meta button:hover { text-decoration: underline; text-underline-offset: 2px; }
+        .prog { color: #9a3412; font-weight: 600; font-variant-numeric: tabular-nums; }
+        .mbar { width: 80px; height: 6px; background: #f3d5bd; border-radius: 99px; overflow: hidden; }
+        .mbar i { display: block; height: 100%; background: #16a34a; }
+        .g td.s { text-align: center; }
+        .cell { display: flex; align-items: center; justify-content: center; gap: 4px; width: 100%; min-height: 29px; border: 1px solid transparent; border-radius: 7px; padding: 4px 6px; font-weight: 700; font-size: 12px; line-height: 1.2; text-align: center; }
+        button.cell { cursor: pointer; }
+        button.cell:hover, button.pick:hover { border-color: currentColor; }
+        .sdone, .srm, .srb, .sauto { display: block; font-size: 11.5px; line-height: 1.35; margin-top: 3px; text-align: center; }
+        .sdone { color: var(--c-ink); font-weight: 600; }
+        .srb { color: #0f5f59; font-weight: 600; overflow-wrap: anywhere; }
+        .srm { color: var(--mute); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; cursor: help; }
+        .sauto { color: var(--mute); }
+        .dval { font-weight: 600; font-variant-numeric: tabular-nums; }
+        .pick { display: block; width: 100%; border: 1px dashed #cbd5e1; border-radius: 7px; background: none; padding: 5px 7px; min-height: 29px; font-size: 12.5px; font-weight: 600; color: #334155; cursor: pointer; text-align: left; overflow-wrap: anywhere; white-space: normal; line-height: 1.3; }
+        .pick.ph { color: var(--mute); font-weight: 500; }
+        td.s .pick { text-align: center; }
+        .g td.off { background: #eef2f6; }
         .ps-Hold { background: #f1f5f9; color: #475569; }
         .ps-Launched { background: var(--c-bg); color: var(--c-ink); }
         .ps-Delayed { background: var(--n-bg); color: var(--n-ink); }
-        .ps-On.Schedule, .ps-OnSchedule { background: var(--p-bg); color: var(--p-ink); }
+        .ps-OnSchedule { background: var(--p-bg); color: var(--p-ink); }
         .ps-Cancelled { background: #e5e7eb; color: #374151; text-decoration: line-through; }
-        textarea.rm { width: 220px; min-height: 34px; border: 1px solid var(--line); border-radius: 7px; padding: 5px; font-size: 12px; resize: vertical; font-family: inherit; }
-        .g tr.child td { background: #fbfdff; }
-        .g tr.child td.c1 .nm, .g tr.child td.c1 input { font-weight: 600 !important; }
-        .mtag { display: inline-block; font-size: 10px; font-weight: 700; color: #7c3aed; background: #ede9fe; border-radius: 5px; padding: 1px 5px; margin-bottom: 2px; }
-        .addm { color: #7c3aed !important; }
-        .sdone { display: block; font-size: 10px; color: var(--c-ink); font-weight: 700; text-align: center; margin-top: 2px; }
-        .srm { display: block; font-size: 10px; color: var(--mute); text-align: center; margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 120px; cursor: help; }
-        .lock { opacity: .85; }
-        .g td.off { background: repeating-linear-gradient(45deg, #f1f5f9, #f1f5f9 6px, #e9eef4 6px, #e9eef4 12px) !important; }
-        .g td.auto { background: #f5f9ff; }
-        .sauto { display: block; font-size: 10px; color: #2563eb; font-weight: 700; text-align: center; margin-top: 2px; }
-        .msum-t { color: #9a3412; font-weight: 700; }
-        .srb { display: block; font-size: 10px; color: #0f766e; font-weight: 700; text-align: center; margin-top: 1px; }
-        input.code { width: 110px; border: 1px solid var(--line); border-radius: 7px; padding: 5px 6px; font-size: 12px; }
-        .cols { display: flex; flex-wrap: wrap; gap: 4px; min-width: 170px; align-items: center; }
-        .ctag { display: inline-flex; align-items: center; gap: 3px; background: #ede9fe; color: #6d28d9; border-radius: 6px; padding: 2px 6px; font-size: 11px; font-weight: 700; }
-        .ctag button { border: 0; background: none; color: inherit; cursor: pointer; padding: 0; font-size: 12px; line-height: 1; }
-        select.cadd { border: 1px dashed var(--line); border-radius: 6px; font-size: 11px; padding: 2px 4px; background: #fff; }
+        .ps- { background: #f8fafc; color: var(--mute); border-color: #cbd5e1; border-style: dashed; font-weight: 500; }
+        .rline { font-size: 12.5px; line-height: 1.45; margin-bottom: 6px; overflow-wrap: anywhere; color: var(--mute); }
+        .rseg.has { color: var(--ink); cursor: help; }
+        .rseg b { font-weight: 600; }
+        .cols { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+        .ctag { display: inline-flex; align-items: center; gap: 4px; background: #e2e8f0; color: #1e293b; border-radius: 6px; padding: 3px 7px; font-size: 12px; font-weight: 600; }
+        .ctag button { border: 0; background: none; color: inherit; cursor: pointer; padding: 0 2px; font-size: 13px; line-height: 1; }
+        .cols .pick { width: auto; padding: 3px 8px; min-height: 0; font-size: 12px; }
+        .g tr.fgrp td { background: #0f172a; color: #fff; padding: 0; border-right: 0; }
+        .g tr.fgrp:hover td:not(.off) { background: #0f172a; }
+        .g tr.fgrp td div { position: sticky; left: 0; display: inline-flex; align-items: center; gap: 8px; padding: 8px 14px; font-weight: 700; font-size: 13px; }
+        .g tr.fgrp small { font-weight: 500; color: #cbd5e1; font-size: 12px; }
         .mrow { display: flex; gap: 6px; margin-bottom: 6px; }
         .mrow .inp { padding: 6px 8px; }
-        .empty { padding: 60px 20px; text-align: center; color: var(--mute); }
-        .ro-note { color: var(--mute); font-size: 12px; }
+        .empty { padding: 56px 20px; text-align: center; color: var(--mute); position: sticky; left: 0; }
+        .sk { padding: 14px; }
+        .sk i { display: block; height: 52px; border-radius: 8px; background: #eef2f7; margin-bottom: 8px; }
+        .ro-note { color: var(--mute); font-size: 12.5px; }
+        .menu { position: fixed; z-index: 1500; background: #fff; border: 1px solid #cbd5e1; border-radius: 10px; box-shadow: 0 10px 28px rgba(15, 23, 42, .18); padding: 5px; min-width: 150px; max-width: 300px; max-height: 300px; overflow: auto; }
+        .menu button { display: flex; align-items: center; gap: 8px; width: 100%; border: 0; border-radius: 7px; background: none; padding: 7px 9px; font-size: 13px; font-weight: 600; text-align: left; cursor: pointer; color: var(--ink); }
+        .menu button:hover, .menu button:focus { background: #f1f5f9; outline: 0; }
+        .menu button i { width: 12px; height: 12px; border-radius: 4px; flex: 0 0 12px; border: 1px solid rgba(15, 23, 42, .12); }
+        .menu button[aria-checked="true"]::after { content: '\2713'; margin-left: auto; }
         /* modal */
         .mb { position: fixed; inset: 0; background: rgba(15, 23, 42, .45); display: none; align-items: flex-start; justify-content: center; z-index: 2000; padding: 40px 16px; overflow: auto; }
         .mb.on { display: flex; }
@@ -178,7 +190,21 @@
         .vw .vnav.l { left: 12px; }
         .vw .vnav.r { right: 12px; }
         .vw .zoom-only { display: inline-flex; gap: 8px; align-items: center; }
-        @media (max-width: 700px) { .npd { padding: 14px 10px 80px; } .g .c1 { min-width: 200px; max-width: 200px; } .g .cc { position: static; } .g .c1 { left: 64px; } .wrap { max-height: none; } }
+        @media (max-width: 1100px) { :root { --wname: 250px; --wcode: 100px; --wsr: 46px; } }
+        @media (max-width: 700px) {
+            :root { --wname: 200px; }
+            .npd { height: auto; min-height: 100vh; overflow: visible; padding: 12px 10px 80px; }
+            .wrap { max-height: 78vh; }
+            .tiles, .jump, .fsw { margin-left: 0; max-width: 100%; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+            .tile, .jump button, .fsw button { white-space: nowrap; flex: 0 0 auto; }
+            .srch { flex: 1 1 100%; }
+            .hd .sub, .jump > span { display: none; }
+            .g .c0, .g .cc { position: static; }
+            .g thead .c0, .g thead .cc { position: sticky; left: auto; z-index: 2; }
+            .g .c1 { left: 0; }
+            .g thead th.gh span { left: calc(var(--wname) + 12px); }
+            .thumb { display: none; }
+        }
     </style>
 </head>
 
@@ -186,7 +212,7 @@
     <div class="npd">
         <div class="hd">
             <div>
-                <h1><span class="ic"><i class="bi bi-lightbulb"></i></span>NPD Tracker</h1>
+                <h1>NPD Tracker</h1>
                 <div class="sub">New product development: every stage from mould receipt to launch</div>
             </div>
             <div class="tools">
@@ -198,22 +224,26 @@
         </div>
 
         <div class="bar">
-            <input class="inp" id="q" placeholder="Search product…" style="width:220px">
-            <div class="legend">
-                <span class="chip st-pending">Pending</span>
-                <span class="chip st-in_progress">In Progress</span>
-                <span class="chip st-complete">Complete</span>
-                <span class="chip st-na">Not Applicable</span>
-            </div>
+            <div class="srch"><i class="bi bi-search"></i><input class="inp" id="q" placeholder="Search name, code or Sr No" aria-label="Search products"></div>
             <div class="fsw" id="facSwitch" style="display:none" role="group" aria-label="Factory"></div>
-            <div class="tiles" id="tiles"></div>
+            <div class="tiles" id="tiles" role="group" aria-label="Product status"></div>
+        </div>
+        <div class="bar2">
+            <div class="jump" id="jump"><span>Go to</span></div>
+            <div class="legend"><span>Stage colours:</span>
+                <span><i class="st-pending"></i>Pending</span><span><i class="st-in_progress"></i>In Progress</span><span><i class="st-complete"></i>Complete</span><span><i class="st-na"></i>Not Applicable</span>
+                <button class="btn sm" id="foldAll"></button>
+            </div>
         </div>
 
-        <div class="wrap">
+        <!-- table-responsive: tells the shell not to add its own phone scroller, which would unpin the header -->
+        <div class="wrap table-responsive" id="wrap">
+            <div class="sk" id="sk"><i></i><i></i><i></i><i></i><i></i><i></i></div>
             <table class="g" id="grid"></table>
             <div class="empty" id="empty" style="display:none"></div>
         </div>
     </div>
+    <div class="menu" id="menu" role="menu" hidden></div>
 
     <!-- add product -->
     <div class="mb" id="addModal">
@@ -355,83 +385,130 @@
                 if (st.every(v => v === 'complete' || v === 'na')) return 'complete';
                 return st.some(v => v !== 'pending') ? 'in_progress' : 'pending';
             }
-            /* product row, mould stage: read-only roll-up of its moulds */
-            function rollupCell(c, kids) {
-                const v = rollup(c[0], c[3], kids);
-                const tip = 'title="Automatic: from the child moulds"';
-                if (c[3] === 'date') return `<td class="lock auto" ${tip}>${v ? esc(fmtDate(v)) : '<span class="none">—</span>'}<span class="sauto"><i class="bi bi-arrow-repeat"></i> auto</span></td>`;
-                return `<td class="lock auto" ${tip}><span class="cell st-${v}">${(STATE.find(s => s[0] === v) || STATE[0])[1]}</span><span class="sauto"><i class="bi bi-arrow-repeat"></i> from moulds</span></td>`;
-            }
-            const offCell = '<td class="off" title="Not used on this row"></td>';
             const STATE = [['pending', 'Pending'], ['in_progress', 'In Progress'], ['complete', 'Complete'], ['na', 'N/A']];
             const PSTAT = ['Hold', 'Launched', 'Delayed', 'On Schedule', 'Cancelled'];
             /* colours for trials (picked by H.O): this list plus any colour already used */
             const COLOURS = ['White', 'Black', 'Red', 'Blue', 'Navy Blue', 'Sky Blue', 'Green', 'Parrot Green', 'Yellow', 'Orange', 'Pink', 'Purple', 'Grey', 'Brown', 'Beige', 'Ivory', 'Maroon', 'Transparent', 'Natural'];
             const colourList = v => String(v || '').split(',').map(c => c.trim()).filter(Boolean);
-            const S = { rows: [], canEdit: false, canDelete: false, editable: new Set(), depts: [], q: '', fstat: '', factories: [], facs: [], allFacs: false, fac: '', open: null, pending: null };
+            const S = { rows: [], canEdit: false, canDelete: false, editable: new Set(), depts: [], q: '', fstat: '', factories: [], facs: [], allFacs: false, fac: '', open: null, pending: null, folded: new Set() };
+            try { S.folded = new Set(JSON.parse(localStorage.getItem('npd_folded') || '[]')); } catch (_) { }
             const $ = id => document.getElementById(id);
             const esc = v => String(v == null ? '' : v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
             const psClass = s => 'ps-' + String(s || '').replace(/\s+/g, '');
             const toast = (m, t) => (window.JPSMS && JPSMS.toast) ? JPSMS.toast(m, t) : alert(m);
             const api = (url, opt = {}) => JPSMS.api.request(url, { skipLoader: true, ...opt });
 
+            /* ---------- data ---------- */
+            const me = () => { try { return JSON.parse(localStorage.getItem('user') || '{}').username || ''; } catch (_) { return ''; } };
+            const CACHE = 'npd_cache_v2';
+            /* rows by parent, rebuilt whenever S.rows changes: no scan of all rows per cell */
+            let KIDS = new Map(), BYID = new Map();
+            function index() {
+                KIDS = new Map(); BYID = new Map();
+                S.rows.forEach(r => {
+                    BYID.set(r.id, r);
+                    if (!r.parent_sync_id) return;
+                    const k = String(r.parent_sync_id);
+                    if (!KIDS.has(k)) KIDS.set(k, []);
+                    KIDS.get(k).push(r);
+                });
+            }
+            const kidsOf = p => KIDS.get(String(p.sync_id)) || [];
+            const parentOf = r => r.parent_sync_id ? S.rows.find(x => String(x.sync_id) === String(r.parent_sync_id)) : r;
+            const facKey = v => String(v || '').trim().toLowerCase();
+            /* a product block belongs to every factory set on it or one of its moulds;
+               it is listed (grouped) under the product's factory, else its first mould's */
+            const facsOf = p => [p, ...kidsOf(p)].map(x => facKey(x.factory)).filter(Boolean);
+            const homeFac = p => p.factory || (kidsOf(p).find(k => k.factory) || {}).factory || '';
+
+            function useData(res) {
+                S.rows = res.data || [];
+                S.canEdit = !!res.can_edit;
+                S.canFiles = !!res.can_files;
+                S.canAdd = !!res.can_add;
+                S.canDelete = !!res.can_delete;
+                S.canColours = !!res.can_colours;
+                S.factories = res.factory_master || S.factories;
+                /* factories this user can see: the server already sends only their products */
+                S.facs = res.factories || [];
+                S.allFacs = !!res.all_factories;
+                if (!S.facsReady) {
+                    S.facsReady = true;
+                    let pick = '';
+                    try { pick = localStorage.getItem('npd_factory') || ''; } catch (_) { }
+                    if (!pick) pick = (JPSMS.factories && JPSMS.factories.getCurrentScope().name) || '';
+                    S.fac = S.facs.includes(pick) ? pick : '';
+                } else if (S.fac && !S.facs.includes(S.fac)) S.fac = '';
+                S.editable = new Set(res.editable_stages || []);
+                S.depts = res.departments || [];
+                $('addBtn').style.display = S.canAdd ? '' : 'none';
+                $('roNote').textContent = S.canEdit ? ''
+                    : S.canAdd && !S.editable.size ? 'You can add products and child moulds only'
+                    : S.editable.size ? `You can edit ${S.depts.join(' / ')} stages only`
+                    : 'View only - editing is for admin and the stage departments';
+            }
+            /* first paint: what this user last saw in this tab, replaced as soon as the server answers */
+            function paintCache() {
+                try {
+                    const c = JSON.parse(sessionStorage.getItem(CACHE) || 'null');
+                    if (!c || !c.u || c.u !== me()) return;
+                    /* view only until the server confirms the rows and this user's rights */
+                    useData({ ...c.res, can_edit: false, can_add: false, can_delete: false, can_files: false, can_colours: false, editable_stages: [] });
+                    $('roNote').textContent = 'Updating…';
+                    render();
+                } catch (_) { }
+            }
+            let loadSeq = 0;
             async function load() {
+                const seq = ++loadSeq;
+                $('refresh').classList.add('spin');
                 try {
                     const res = await api('/npd/products');
-                    S.rows = res.data || [];
-                    S.canEdit = !!res.can_edit;
-                    S.canFiles = !!res.can_files;
-                    S.canAdd = !!res.can_add;
-                    S.canDelete = !!res.can_delete;
-                    S.canColours = !!res.can_colours;
-                    if (S.canColours && !S.factories.length) {
-                        const fr = await api('/factories').catch(() => null);
-                        S.factories = ((fr && fr.data) || []).map(f => f.name).filter(Boolean);
-                    }
-                    /* factories this user can see: the server already sends only their products */
-                    S.facs = res.factories || [];
-                    S.allFacs = !!res.all_factories;
-                    if (!S.facsReady) {
-                        S.facsReady = true;
-                        let pick = '';
-                        try { pick = localStorage.getItem('npd_factory') || ''; } catch (_) { }
-                        if (!pick) pick = (JPSMS.factories && JPSMS.factories.getCurrentScope().name) || '';
-                        S.fac = S.facs.includes(pick) ? pick : '';
-                    } else if (S.fac && !S.facs.includes(S.fac)) S.fac = '';
-                    S.editable = new Set(res.editable_stages || []);
-                    S.depts = res.departments || [];
-                    $('addBtn').style.display = S.canAdd ? '' : 'none';
-                    $('roNote').textContent = S.canEdit ? ''
-                        : S.canAdd && !S.editable.size ? 'You can add products and child moulds only'
-                        : S.editable.size ? `You can edit ${S.depts.join(' / ')} stages only`
-                        : 'View only - editing is for admin and the stage departments';
-                    render();
-                } catch (e) { }
+                    if (seq !== loadSeq) return;
+                    useData(res);
+                    try { sessionStorage.setItem(CACHE, JSON.stringify({ u: me(), res })); } catch (_) { try { sessionStorage.removeItem(CACHE); } catch (__) { } }
+                    render(true);
+                } catch (e) {
+                    if (seq !== loadSeq) return;
+                    $('sk').hidden = true;
+                    $('sk').style.display = 'none';
+                    if (S.rows.length) $('roNote').textContent = 'Could not update. Press Refresh to try again.';
+                    else { $('empty').style.display = ''; $('empty').textContent = 'Could not load the NPD list. Press Refresh to try again.'; }
+                } finally { if (seq === loadSeq) $('refresh').classList.remove('spin'); }
             }
 
-            /* a stage is editable only by its department (or a PPC manager);
-               a completed stage shows the day it was completed, every stage its last remark */
-            function stageCell(p, c) {
+            /* ---------- cells ---------- */
+            const stLabel = v => (STATE.find(s => s[0] === v) || STATE[0])[1];
+            /* a stage is editable only by its department; a completed stage shows
+               the day it was completed, every stage its last remark */
+            function stageCell(p, c, gs) {
                 const [key, , , type] = c;
                 const v = (p.stages || {})[key];
                 const info = (p.stage_info || {})[key] || {};
                 const ed = S.editable.has(key);
-                const rm = info.remarks ? `<span class="srm" title="${esc(info.remarks)}${info.by ? ' - ' + esc(info.by) : ''}${info.at ? ' · ' + esc(new Date(info.at).toLocaleString('en-GB')) : ''}"><i class="bi bi-chat-left-text"></i> ${esc(info.remarks)}</span>` : '';
+                const rm = info.remarks ? `<span class="srm" title="${esc(info.remarks)}${info.by ? ' - ' + esc(info.by) : ''}${info.at ? ' · ' + esc(new Date(info.at).toLocaleString('en-GB')) : ''}">${esc(info.remarks)}</span>` : '';
+                const at = `data-id="${p.id}" data-stage="${key}"`;
                 if (type === 'date') {
-                    if (!ed) return `<td class="lock">${v ? esc(fmtDate(v)) : '<span class="none">—</span>'}${rm}</td>`;
-                    return `<td><input type="date" class="dt" data-id="${p.id}" data-stage="${key}" value="${esc(v || '')}">${rm}</td>`;
+                    const t = v ? esc(fmtDate(v)) : '';
+                    return `<td class="s${gs}">${ed ? `<button type="button" class="pick dval${v ? '' : ' ph'}" ${at} data-date>${t || 'Set date'}</button>` : `<span class="dval">${t || '<span class="none">—</span>'}</span>`}${rm}</td>`;
                 }
                 const st = v || 'pending';
-                const done = (st === 'complete' && info.completed_on ? `<span class="sdone"><i class="bi bi-check2-circle"></i> ${esc(fmtDate(info.completed_on))}</span>` : '')
-                    + (st === 'complete' && info.received_by ? `<span class="srb"><i class="bi bi-person-check"></i> by ${esc(info.received_by)}</span>` : '');
-                if (!ed) return `<td class="lock"><span class="cell st-${st}">${(STATE.find(s => s[0] === st) || STATE[0])[1]}</span>${done}${rm}</td>`;
-                return `<td><select class="cell st-${st}" data-id="${p.id}" data-stage="${key}">${STATE.map(([k, l]) => `<option value="${k}"${k === st ? ' selected' : ''}>${l}</option>`).join('')}</select>${done}${rm}</td>`;
+                const done = (st === 'complete' && info.completed_on ? `<span class="sdone">${esc(fmtDate(info.completed_on))}</span>` : '')
+                    + (st === 'complete' && info.received_by ? `<span class="srb">by ${esc(info.received_by)}</span>` : '');
+                return `<td class="s${gs}">${ed ? `<button type="button" class="cell st-${st}" ${at} aria-haspopup="menu">${stLabel(st)}<i class="bi bi-chevron-down" style="font-size:9px"></i></button>` : `<span class="cell st-${st}">${stLabel(st)}</span>`}${done}${rm}</td>`;
             }
+            /* product row, mould stage: read-only roll-up of its moulds */
+            function rollupCell(c, kids, gs) {
+                const v = rollup(c[0], c[3], kids);
+                const tip = 'title="Automatic: from the child moulds"';
+                if (c[3] === 'date') return `<td class="s${gs}" ${tip}><span class="dval">${v ? esc(fmtDate(v)) : '<span class="none">—</span>'}</span><span class="sauto">from moulds</span></td>`;
+                return `<td class="s${gs}" ${tip}><span class="cell st-${v}">${stLabel(v)}</span><span class="sauto">from moulds</span></td>`;
+            }
+            const offCell = gs => `<td class="off${gs}" title="Not used on this row"></td>`;
             /* factory the product is made at: chosen by H.O (admin) from the factory master */
             function factoryCell(p) {
-                if (!S.canColours) return p.factory ? `<span class="fac">${esc(p.factory)}</span>` : '<span class="none">—</span>';
-                const names = [...new Set([...S.factories, p.factory].filter(Boolean))];
-                return `<select class="fsel" data-id="${p.id}" data-f="factory"><option value="">— Factory —</option>${names.map(n => `<option${n === p.factory ? ' selected' : ''}>${esc(n)}</option>`).join('')}</select>`;
+                if (!S.canColours) return p.factory ? esc(p.factory) : '<span class="none">—</span>';
+                return `<button type="button" class="pick${p.factory ? '' : ' ph'}" data-id="${p.id}" data-factory aria-haspopup="menu">${esc(p.factory || 'Set factory')}</button>`;
             }
             /* Remarks column: one line, every department in sheet order with its latest
                stage remark - same as remarkLine() in registerNpdRoutes.js:
@@ -439,131 +516,189 @@
                Hover a department for the stage, who and when. */
             const RDEPTS = [];
             COLS.forEach(c => { const d = String(c[2] || '').split(/\s+[\/&]\s+/)[0]; if (d && !RDEPTS.includes(d)) RDEPTS.push(d); });
+            const DEPT_COLS = RDEPTS.map(d => [d, COLS.filter(c => String(c[2] || '').split(/\s+[\/&]\s+/)[0] === d)]);
             function deptRemarks(p) {
                 const si = p.stage_info || {};
-                const parts = RDEPTS.map(d => {
-                    const hit = COLS.filter(c => String(c[2] || '').split(/\s+[\/&]\s+/)[0] === d && si[c[0]] && si[c[0]].remarks)
+                const parts = DEPT_COLS.map(([d, cols]) => {
+                    const hit = cols.filter(c => si[c[0]] && si[c[0]].remarks)
                         .map(c => ({ c, i: si[c[0]] })).sort((x, y) => String(y.i.at || '').localeCompare(String(x.i.at || '')))[0];
                     const tip = hit ? ` title="${esc(hit.c[1])}${hit.i.by ? ' - ' + esc(hit.i.by) : ''}${hit.i.at ? ' · ' + esc(new Date(hit.i.at).toLocaleString('en-GB')) : ''}"` : '';
                     return `<span class="rseg${hit ? ' has' : ''}"${tip}><b>(${esc(d)})</b>${hit ? esc(hit.i.remarks) : ''}</span>`;
                 });
                 return `<div class="rline">${parts.join('- ')}</div>`;
             }
+            const editText = (p, f, v, ph, cls) => `<button type="button" class="ed-t ${cls || ''}${v ? '' : ' ph'}" data-id="${p.id}" data-edit="${f}" title="Click to edit">${esc(v || ph)}</button>`;
+            const remarkCell = p => `<td>${deptRemarks(p)}${S.canEdit ? editText(p, 'remarks', p.remarks, 'Add general remark') : (p.remarks ? `<div style="white-space:pre-wrap;overflow-wrap:anywhere">${esc(p.remarks)}</div>` : '')}</td>`;
+            function statusCell(p) {
+                if (!S.canEdit) return `<td class="s">${p.status ? `<span class="cell ${psClass(p.status)}">${esc(p.status)}</span>` : '<span class="none">—</span>'}</td>`;
+                return `<td class="s"><button type="button" class="cell ${psClass(p.status)}" data-id="${p.id}" data-status aria-haspopup="menu">${esc(p.status || 'Set status')}<i class="bi bi-chevron-down" style="font-size:9px"></i></button></td>`;
+            }
             function colourCell(p) {
-                const cur = colourList(p.trial_colours);
-                const tags = cur.map(c => `<span class="ctag">${esc(c)}${S.canColours ? `<button data-cdel="${p.id}" data-c="${esc(c)}" title="Remove">×</button>` : ''}</span>`).join('');
+                const tags = colourList(p.trial_colours).map(c => `<span class="ctag">${esc(c)}${S.canColours ? `<button type="button" data-cdel="${p.id}" data-c="${esc(c)}" title="Remove ${esc(c)}" aria-label="Remove ${esc(c)}">×</button>` : ''}</span>`).join('');
                 if (!S.canColours) return `<div class="cols">${tags || '<span class="none">—</span>'}</div>`;
-                const used = S.rows.flatMap(r => colourList(r.trial_colours));
-                const opts = [...new Set([...COLOURS, ...used])].filter(c => !cur.includes(c));
-                return `<div class="cols">${tags}<select class="cadd" data-cadd="${p.id}"><option value="">+ Colour</option>${opts.map(c => `<option>${esc(c)}</option>`).join('')}<option value="__other">Other…</option></select></div>`;
+                return `<div class="cols">${tags}<button type="button" class="pick ph" data-cadd="${p.id}" aria-haspopup="menu">+ Colour</button></div>`;
             }
-            function setColours(id, list) {
-                save(id, { trial_colours: list.join(', ') }).then(ok => ok && render());
-            }
-            /* product row: share of all stages complete (product stages here + mould stages on each mould) */
+            async function setColours(id, list) { if (await save(id, { trial_colours: list.join(', ') })) refreshBlock(id); }
+            /* product row: share of the stages that apply which are complete (product stages
+               here + mould stages on each mould). N/A stages do not count either way. */
             function progress(p) {
-                const ks = S.rows.filter(c => c.parent_sync_id && String(c.parent_sync_id) === String(p.sync_id));
+                const ks = kidsOf(p);
                 let tot = 0, done = 0;
-                COLS.filter(c => c[3] !== 'date').forEach(c => {
-                    const src = MOULD_KEYS.has(c[0]) ? ks : [p];
-                    src.forEach(r => { tot++; if ((r.stages || {})[c[0]] === 'complete') done++; });
+                COLS.forEach(c => {
+                    if (c[3] === 'date') return;
+                    (MOULD_KEYS.has(c[0]) ? ks : [p]).forEach(r => {
+                        const v = (r.stages || {})[c[0]];
+                        if (v === 'na') return;
+                        tot++;
+                        if (v === 'complete') done++;
+                    });
                 });
-                const pct = tot ? Math.round(done * 100 / tot) : 0;
-                return `<div class="meta"><span class="msum-t">${ks.length} mould${ks.length === 1 ? '' : 's'} · ${pct}% complete</span><span class="mbar" style="width:90px;align-self:center"><i style="width:${pct}%"></i></span></div>`;
+                const pct = tot ? Math.floor(done * 100 / tot) : (ks.length ? 100 : 0);
+                return `<div class="meta" title="${done} of ${tot} stages complete"><span class="prog">${ks.length} mould${ks.length === 1 ? '' : 's'}, ${pct}% complete</span><span class="mbar"><i style="width:${pct}%"></i></span></div>`;
             }
             function fmtDate(v) { const d = new Date(v + 'T00:00:00'); return isNaN(d) ? v : d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: '2-digit' }); }
 
-            function render() {
+            /* ---------- grid ---------- */
+            const FIRST = new Set(GROUPS.map(g => g.cols[0][0]));
+            const gsOf = c => FIRST.has(c[0]) ? ' gs' : '';
+            const ncol = () => 5 + COLS.length + 2 + (S.canDelete ? 1 : 0);
+            function headHtml() {
+                let w = `<colgroup><col style="width:var(--wsr)"><col style="width:var(--wcode)"><col style="width:var(--wname)"><col style="width:160px"><col style="width:170px">`;
+                COLS.forEach(c => { w += `<col style="width:${c[3] === 'date' ? 132 : 148}px">`; });
+                w += `<col style="width:140px"><col style="width:400px">${S.canDelete ? '<col style="width:56px">' : ''}</colgroup>`;
+                let h = `${w}<thead><tr class="grp"><th class="fix c0" rowspan="2">Sr</th><th class="fix cc" rowspan="2">Product / mould code</th><th class="fix c1" rowspan="2" style="text-align:left;padding-left:14px">Product name</th><th rowspan="2">Factory<small>H.O</small></th><th rowspan="2">Colour details for trials<small>H.O</small></th>`;
+                GROUPS.forEach((g, i) => { h += `<th class="gh gs" colspan="${g.cols.length}" data-g="${i}"><span>${esc(g.label)}</span></th>`; });
+                h += `<th class="gs" rowspan="2">Status</th><th rowspan="2">Remarks<small>All departments</small></th>${S.canDelete ? '<th rowspan="2"></th>' : ''}</tr><tr class="col">`;
+                COLS.forEach(c => { h += `<th class="${gsOf(c).trim()}">${esc(c[1])}<small>${c[2] ? esc(c[2]) + ', ' : ''}${MOULD_KEYS.has(c[0]) ? 'per mould' : 'per product'}</small></th>`; });
+                return h + '</tr></thead>';
+            }
+            function rowHtml(p, sr, kids) {
+                const child = !kids;
+                let reps = 0, imgs = 0, img = null;
+                p.files.forEach(f => { if (f.kind === 'report') reps++; else if (f.kind === 'image') { imgs++; img = f; } });
+                const thumb = `<button type="button" class="thumb" ${img ? `data-thumb="${p.id}"` : `data-files="${p.id}"`} title="${img ? 'Product images' : 'No product image yet'}">${img ? `<img src="${esc(img.url)}" alt="" loading="lazy" decoding="async">` : '<i class="bi bi-image"></i>'}</button>`;
+                const name = S.canEdit ? editText(p, 'product_name', p.product_name, '', 'nm') : `<div class="nm">${esc(p.product_name)}</div>`;
+                const code = S.canEdit ? editText(p, 'product_code', p.product_code, 'Add code', 'code-t') : (p.product_code ? `<span class="code-t">${esc(p.product_code)}</span>` : '<span class="none">—</span>');
+                const addMould = S.canAdd && !child ? `<button type="button" data-addm="${p.id}" title="Add a child mould under this product">+ Mould</button>` : '';
+                const fold = !child && kids.length ? `<button type="button" class="fold" data-fold="${p.sync_id}" aria-expanded="${!S.folded.has(p.sync_id)}" aria-label="Show or hide moulds" title="Show or hide moulds"><i class="bi bi-chevron-${S.folded.has(p.sync_id) ? 'right' : 'down'}"></i></button>` : '';
+                let h = `<tr class="${child ? 'child' : 'main'}"><td class="fix c0">${child ? `<span class="ksr">${esc(sr)}</span>` : esc(sr) + fold}</td><td class="fix cc">${code}</td><td class="fix c1"><div class="pc">${thumb}<div>${name}<div class="meta"><button type="button" data-files="${p.id}">Trial report (${reps})</button><button type="button" data-files="${p.id}">Images (${imgs})</button>${addMould}</div>${child ? '' : progress(p)}</div></div></td><td>${factoryCell(p)}</td><td>${child ? colourCell(p) : ''}</td>`;
+                COLS.forEach(c => {
+                    const gs = gsOf(c), m = MOULD_KEYS.has(c[0]);
+                    h += child ? (m ? stageCell(p, c, gs) : offCell(gs)) : (m ? rollupCell(c, kids, gs) : stageCell(p, c, gs));
+                });
+                h += statusCell(p) + remarkCell(p);
+                if (S.canDelete) h += `<td class="s"><button type="button" class="btn sm danger" data-del="${p.id}" title="Delete" aria-label="Delete ${esc(p.product_name)}"><i class="bi bi-trash"></i></button></td>`;
+                return h + '</tr>';
+            }
+            /* one tbody per product (with its moulds), so an edit redraws only that block */
+            function blockInner(p) {
+                const kids = kidsOf(p);
+                let h = rowHtml(p, p.sr_no || '', kids);
+                if (!S.folded.has(p.sync_id) || S.q) kids.forEach((k, i) => { h += rowHtml(k, (p.sr_no ? p.sr_no + '.' : '') + (i + 1), null); });
+                return h;
+            }
+            const blockHtml = (p, i) => `<tbody class="b${i ? '' : ' b0'}" data-block="${p.id}">${blockInner(p)}</tbody>`;
+            function refreshBlock(id) {
+                index();
+                const r = BYID.get(id), p = r && parentOf(r);
+                const el = p && $('grid').querySelector(`[data-block="${p.id}"]`);
+                if (el) el.innerHTML = blockInner(p);
+            }
+
+            const visible = () => {
+                const all = S.rows.filter(p => !p.parent_sync_id);
+                const parents = all.filter(p => !S.fac || facsOf(p).includes(facKey(S.fac)));
+                return { all, parents };
+            };
+            function filtered(parents) {
                 const q = S.q.toLowerCase();
-                const kidsOf = p => S.rows.filter(c => c.parent_sync_id && String(c.parent_sync_id) === String(p.sync_id));
-                /* a product block belongs to every factory set on it or one of its moulds;
-                   it is listed (grouped) under the product's factory, else its first mould's */
-                const facKey = v => String(v || '').trim().toLowerCase();
-                const facsOf = p => [p, ...kidsOf(p)].map(x => facKey(x.factory)).filter(Boolean);
-                const homeFac = p => p.factory || (kidsOf(p).find(k => k.factory) || {}).factory || '';
-                const allParents = S.rows.filter(p => !p.parent_sync_id);
-                renderFacSwitch(allParents, facsOf);
-                const parents = allParents.filter(p => !S.fac || facsOf(p).includes(facKey(S.fac)));
-                /* a product matches the search by its own name or a child mould's name */
-                let list = parents.filter(p => (!q || [p, ...kidsOf(p)].some(x => (x.product_name + ' ' + (x.sr_no || '')).toLowerCase().includes(q))) && (!S.fstat || (p.status || 'No status') === S.fstat));
+                /* a product matches the search by its own name, code or Sr No, or a child mould's */
+                let list = parents.filter(p => (!S.fstat || (p.status || 'No status') === S.fstat)
+                    && (!q || [p, ...kidsOf(p)].some(x => `${x.product_name} ${x.product_code || ''} ${x.sr_no || ''}`.toLowerCase().includes(q))));
                 /* All factories: products grouped factory wise, in factory master order */
-                const grouped = !S.fac && S.facs.length > 1;
-                if (grouped) {
+                if (!S.fac && S.facs.length > 1) {
                     const order = f => { const i = S.facs.findIndex(n => facKey(n) === facKey(f)); return i < 0 ? (f ? S.facs.length : S.facs.length + 1) : i; };
                     list = list.map((p, i) => ({ p, i, o: order(homeFac(p)) })).sort((a, b) => a.o - b.o || a.i - b.i).map(x => x.p);
                 }
-                const rows = list.flatMap(p => [p, ...kidsOf(p)]);
+                return list;
+            }
+            let renderSeq = 0;
+            /* keep = same list redrawn in place (scroll stays); else a new list from the top,
+               first screen at once and the rest in the next frames */
+            function render(keep) {
+                const seq = ++renderSeq;
+                closeMenu();
+                index();
+                $('sk').style.display = 'none';
+                const { all, parents } = visible();
+                renderFacSwitch(all);
+                const list = filtered(parents);
+                const grouped = !S.fac && S.facs.length > 1;
                 const counts = {};
                 parents.forEach(p => { const k = p.status || 'No status'; counts[k] = (counts[k] || 0) + 1; });
                 /* Pending = products with no status chosen yet */
                 $('tiles').innerHTML = [['', 'All', parents.length], ['No status', 'Pending', counts['No status'] || 0], ...PSTAT.map(s => [s, s, counts[s] || 0])]
-                    .map(([k, l, n]) => `<span class="tile${k === 'No status' ? ' pend' : ''}${S.fstat === k ? ' on' : ''}" data-f="${esc(k)}"${k === 'No status' ? ' title="Products with no status chosen yet"' : ''}>${esc(l)}<b>${n}</b></span>`).join('');
-                const ncol = 5 + COLS.length + 2 + (S.canDelete ? 1 : 0);
-                let lastFac = null;
-
-                let h = `<thead><tr class="grp"><th class="fix c0" rowspan="2" style="top:0">Sr</th><th class="fix cc" rowspan="2" style="top:0">Product Code / Mould Code</th><th class="fix c1" rowspan="2" style="top:0;text-align:left;padding-left:14px">Product Name</th><th rowspan="2" style="top:0;min-width:150px">Factory<small style="display:block;color:var(--mute)">H.O</small></th><th rowspan="2" style="top:0;min-width:180px">Colour details for trials<small style="display:block;color:var(--mute)">H.O</small></th>`;
-                GROUPS.forEach(g => { h += `<th colspan="${g.cols.length}">${esc(g.label)}</th>`; });
-                h += `<th rowspan="2" style="top:0;min-width:140px">Status</th><th rowspan="2" style="top:0;min-width:320px">Remarks<small style="display:block;color:var(--mute)">All departments</small></th>${S.canDelete ? '<th rowspan="2" style="top:0"></th>' : ''}</tr><tr class="col">`;
-                COLS.forEach(c => { h += `<th>${esc(c[1])}${c[2] ? `<small>${esc(c[2])}</small>` : ''}<small style="color:${MOULD_KEYS.has(c[0]) ? '#7c3aed' : '#9a3412'}">${MOULD_KEYS.has(c[0]) ? 'Per mould' : 'Per product'}</small></th>`; });
-                h += `</tr></thead><tbody>`;
-                rows.forEach(p => {
-                    const child = !!p.parent_sync_id;
-                    if (grouped && !child && facKey(homeFac(p)) !== lastFac) {
-                        lastFac = facKey(homeFac(p));
-                        const n = list.filter(x => facKey(homeFac(x)) === lastFac).length;
-                        h += `<tr class="fgrp"><td colspan="${ncol}"><div><i class="bi bi-buildings"></i>${esc(homeFac(p) || 'No factory yet')}<small>${n} product${n === 1 ? '' : 's'}</small></div></td></tr>`;
+                    .map(([k, l, n]) => `<button type="button" class="tile${S.fstat === k ? ' on' : ''}" data-f="${esc(k)}" aria-pressed="${S.fstat === k}"${k === 'No status' ? ' title="Products with no status chosen yet"' : ''}>${esc(l)}<b>${n}</b></button>`).join('');
+                $('foldAll').textContent = list.length && list.every(p => S.folded.has(p.sync_id)) ? 'Show moulds' : 'Hide moulds';
+                const perFac = {};
+                if (grouped) list.forEach(p => { const k = facKey(homeFac(p)); perFac[k] = (perFac[k] || 0) + 1; });
+                const n = ncol();
+                const part = (from, to) => {
+                    let h = '';
+                    for (let i = from; i < Math.min(to, list.length); i++) {
+                        const p = list[i], f = facKey(homeFac(p));
+                        if (grouped && (!i || facKey(homeFac(list[i - 1])) !== f)) {
+                            h += `<tbody><tr class="fgrp"><td colspan="${n}"><div>${esc(homeFac(p) || 'No factory yet')}<small>${perFac[f]} product${perFac[f] === 1 ? '' : 's'}</small></div></td></tr></tbody>`;
+                        }
+                        h += blockHtml(p, i);
                     }
-                    const reps = p.files.filter(f => f.kind === 'report').length, imgs = p.files.filter(f => f.kind === 'image').length;
-                    /* latest product photo after trial, else a placeholder; click opens the files */
-                    const img = p.files.filter(f => f.kind === 'image').pop();
-                    const thumb = `<span class="thumb" ${img ? `data-thumb="${p.id}"` : `data-files="${p.id}"`}title="${img ? 'Product images' : 'No product image yet'}">${img ? `<img src="${esc(img.url)}" alt="" loading="lazy">` : '<i class="bi bi-image"></i>'}</span>`;
-                    const name = S.canEdit
-                        ? `<input class="inp" style="width:100%;padding:4px 6px;font-weight:700" data-id="${p.id}" data-f="product_name" value="${esc(p.product_name)}">`
-                        : `<div class="nm">${esc(p.product_name)}</div>`;
-                    const addMould = S.canAdd && !child ? `<a class="addm" data-addm="${p.id}" title="Add a child mould under this product"><i class="bi bi-plus-circle"></i> Mould</a>` : '';
-                    /* child moulds are numbered under their product: 20.1, 20.2 ... */
-                    let srCell = `<b>${esc(p.sr_no || '')}</b>`;
-                    if (child) {
-                        const par = S.rows.find(r => String(r.sync_id) === String(p.parent_sync_id));
-                        const idx = par ? kidsOf(par).indexOf(p) + 1 : '';
-                        srCell = `<span class="ksr">${esc(par && par.sr_no ? par.sr_no + '.' : '')}${idx}</span>`;
-                    }
-                    h += `<tr class="${child ? 'child' : 'main'}"><td class="fix c0">${srCell}</td>
-                        <td class="fix cc pcode">${S.canEdit ? `<input class="code" data-id="${p.id}" data-f="product_code" value="${esc(p.product_code || '')}" maxlength="60" placeholder="Code">` : esc(p.product_code || '') || '<span class="none">—</span>'}</td>
-                        <td class="fix c1"><div class="pc">${thumb}<div>${name}<div class="meta"><a data-files="${p.id}"><i class="bi bi-file-earmark-text"></i> Trial report (${reps})</a><a data-files="${p.id}"><i class="bi bi-images"></i> Images (${imgs})</a>${addMould}</div>${child ? '' : progress(p)}</div></div></td>`;
-                    h += `<td>${factoryCell(p)}</td>`;
-                    const statusCell = S.canEdit
-                        ? `<td><select class="ps ${psClass(p.status)}" data-id="${p.id}" data-f="status"><option value="">— Select —</option>${PSTAT.map(s => `<option${s === p.status ? ' selected' : ''}>${s}</option>`).join('')}</select></td>`
-                        : `<td>${p.status ? `<span class="chip ${psClass(p.status)}">${esc(p.status)}</span>` : '<span class="none">—</span>'}</td>`;
-                    /* product row: product stages are edited here, mould stages show the roll-up of its moulds */
-                    if (!child) {
-                        const ks = kidsOf(p);
-                        h += '<td></td>';
-                        COLS.forEach(c => { h += MOULD_KEYS.has(c[0]) ? rollupCell(c, ks) : stageCell(p, c); });
-                        h += statusCell;
-                        h += `<td class="rmall">${deptRemarks(p)}${S.canEdit
-                            ? `<textarea class="rm" data-id="${p.id}" data-f="remarks" placeholder="General remark">${esc(p.remarks || '')}</textarea>`
-                            : (p.remarks ? `<div class="rgen">${esc(p.remarks)}</div>` : '')}</td>`;
-                        if (S.canDelete) h += `<td><button class="btn sm danger" data-del="${p.id}" title="Delete"><i class="bi bi-trash"></i></button></td>`;
-                        h += '</tr>';
-                        return;
-                    }
-                    h += `<td>${colourCell(p)}</td>`;
-                    COLS.forEach(c => { h += MOULD_KEYS.has(c[0]) ? stageCell(p, c) : offCell; });
-                    h += statusCell;
-                    h += `<td class="rmall">${deptRemarks(p)}${S.canEdit
-                        ? `<textarea class="rm" data-id="${p.id}" data-f="remarks" placeholder="General remark">${esc(p.remarks || '')}</textarea>`
-                        : (p.remarks ? `<div class="rgen">${esc(p.remarks)}</div>` : '')}</td>`;
-                    if (S.canDelete) h += `<td><button class="btn sm danger" data-del="${p.id}" title="Delete"><i class="bi bi-trash"></i></button></td>`;
-                    h += '</tr>';
-                });
-                $('grid').innerHTML = h + '</tbody>';
-                $('empty').style.display = rows.length ? 'none' : '';
-                $('empty').textContent = parents.length ? 'No product matches the filter.' : S.fac && allParents.length ? `No NPD products for ${S.fac} yet.` : (S.canAdd ? 'No NPD products yet. Click "Add Product" to start.' : 'No NPD products yet.');
+                    return h;
+                };
+                const wrap = $('wrap'), top = wrap.scrollTop, left = wrap.scrollLeft;
+                const first = keep && top > 0 ? list.length : 10;
+                $('grid').innerHTML = list.length ? headHtml() + part(0, first) : '';
+                wrap.scrollTop = keep ? top : 0;
+                wrap.scrollLeft = left;
+                let at = first;
+                const more = () => {
+                    if (seq !== renderSeq || at >= list.length) return;
+                    $('grid').insertAdjacentHTML('beforeend', part(at, at + 12));
+                    at += 12;
+                    setTimeout(more, 0);
+                };
+                if (at < list.length) setTimeout(more, 0);
+                $('empty').style.display = list.length ? 'none' : '';
+                $('empty').textContent = parents.length ? 'No product matches the filter.' : S.fac && all.length ? `No NPD products for ${S.fac} yet.` : (S.canAdd ? 'No NPD products yet. Click "Add Product" to start.' : 'No NPD products yet.');
             }
 
+            /* stage group shortcuts: scroll the grid to the group, mark the one in view */
+            function groupLeft(i) {
+                const ths = [...$('grid').querySelectorAll('thead .gh')];
+                return ths[i] ? ths[i].offsetLeft : 0;
+            }
+            function pinnedWidth() {
+                return [...$('grid').querySelectorAll('thead .fix')].filter(t => getComputedStyle(t).left !== 'auto').reduce((s, t) => s + t.offsetWidth, 0);
+            }
+            $('jump').insertAdjacentHTML('beforeend', GROUPS.map((g, i) => `<button type="button" data-j="${i}">${esc(g.label)}</button>`).join('') + '<button type="button" data-j="end">Status & Remarks</button>');
+            $('jump').addEventListener('click', e => {
+                const b = e.target.closest('[data-j]');
+                if (!b) return;
+                const w = $('wrap');
+                w.scrollTo({ left: b.dataset.j === 'end' ? w.scrollWidth : groupLeft(Number(b.dataset.j)) - pinnedWidth(), behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+            });
+            let jumpT = 0;
+            function markJump() {
+                jumpT = 0;
+                const w = $('wrap'), x = w.scrollLeft + pinnedWidth() + 20;
+                let on = '';
+                if (w.scrollLeft + w.clientWidth >= w.scrollWidth - 4 && w.scrollLeft > 0) on = 'end';
+                else GROUPS.forEach((g, i) => { if (groupLeft(i) && groupLeft(i) <= x) on = String(i); });
+                $('jump').querySelectorAll('[data-j]').forEach(b => b.classList.toggle('on', b.dataset.j === on));
+            }
+            $('wrap').addEventListener('scroll', () => { closeMenu(); if (!jumpT) jumpT = requestAnimationFrame(markJump); }, { passive: true });
+
             /* factory switch: All + each factory the user can see; one factory = just its name */
-            function renderFacSwitch(parents, facsOf) {
+            function renderFacSwitch(parents) {
                 const el = $('facSwitch');
                 if (!S.facs.length) { el.style.display = 'none'; return; }
                 el.style.display = '';
@@ -571,9 +706,10 @@
                     el.innerHTML = `<span class="one"><i class="bi bi-buildings"></i>${esc(S.facs[0])}</span>`;
                     return;
                 }
-                const n = f => parents.filter(p => facsOf(p).includes(String(f).trim().toLowerCase())).length;
-                el.innerHTML = [['', 'All', parents.length], ...S.facs.map(f => [f, f, n(f)])]
-                    .map(([k, l, c]) => `<button type="button" class="${S.fac === k ? 'on' : ''}" data-fac="${esc(k)}" aria-pressed="${S.fac === k}">${k ? '' : '<i class="bi bi-buildings"></i>'}${esc(l)}<b>${c}</b></button>`).join('');
+                const n = {};
+                parents.forEach(p => new Set(facsOf(p)).forEach(f => { n[f] = (n[f] || 0) + 1; }));
+                el.innerHTML = [['', 'All', parents.length], ...S.facs.map(f => [f, f, n[facKey(f)] || 0])]
+                    .map(([k, l, c]) => `<button type="button" class="${S.fac === k ? 'on' : ''}" data-fac="${esc(k)}" aria-pressed="${S.fac === k}">${esc(l)}<b>${c}</b></button>`).join('');
             }
             $('facSwitch').addEventListener('click', e => {
                 const b = e.target.closest('[data-fac]');
@@ -582,6 +718,14 @@
                 try { localStorage.setItem('npd_factory', S.fac); } catch (_) { }
                 render();
             });
+            const saveFold = () => { try { localStorage.setItem('npd_folded', JSON.stringify([...S.folded])); } catch (_) { } };
+            $('foldAll').onclick = () => {
+                const list = filtered(visible().parents);
+                const hide = !list.every(p => S.folded.has(p.sync_id));
+                list.forEach(p => hide ? S.folded.add(p.sync_id) : S.folded.delete(p.sync_id));
+                saveFold();
+                render();
+            };
 
             async function save(id, body) {
                 try {
@@ -592,25 +736,109 @@
                 } catch (e) { load(); return false; }
             }
 
-            $('grid').addEventListener('change', e => {
-                const t = e.target;
-                if (t.dataset.cadd) {
-                    const pid = Number(t.dataset.cadd), p = S.rows.find(r => r.id === pid);
-                    let c = t.value;
-                    if (c === '__other') c = (prompt('Colour name') || '').trim();
-                    if (!c || !p) { render(); return; }
-                    setColours(pid, [...colourList(p.trial_colours), c]);
-                    return;
+            /* ---------- one shared menu for stage, status, factory and colour ---------- */
+            let menuBack = null;
+            function closeMenu() { if (!$('menu').hidden) { $('menu').hidden = true; menuBack = null; } }
+            function openMenu(anchor, items, cur, onPick) {
+                const m = $('menu');
+                m.innerHTML = items.map((it, i) => `<button type="button" role="menuitemradio" aria-checked="${it[0] === cur}" data-i="${i}">${it[2] ? `<i class="${it[2]}"></i>` : ''}${esc(it[1])}</button>`).join('');
+                m.hidden = false;
+                const a = anchor.getBoundingClientRect(), b = m.getBoundingClientRect();
+                m.style.left = Math.max(8, Math.min(a.left, innerWidth - b.width - 8)) + 'px';
+                m.style.top = (a.bottom + 4 + b.height > innerHeight - 8 ? Math.max(8, a.top - b.height - 4) : a.bottom + 4) + 'px';
+                menuBack = anchor;
+                m.onclick = e => { const x = e.target.closest('[data-i]'); if (!x) return; const it = items[Number(x.dataset.i)]; closeMenu(); if (it[0] !== cur) onPick(it[0]); };
+                (m.querySelector('[aria-checked="true"]') || m.firstElementChild).focus({ preventScroll: true });
+            }
+            $('menu').addEventListener('keydown', e => {
+                const all = [...$('menu').children], i = all.indexOf(document.activeElement);
+                if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); all[(i + (e.key === 'ArrowDown' ? 1 : all.length - 1)) % all.length].focus(); }
+                else if (e.key === 'Escape' || e.key === 'Tab') { e.preventDefault(); const b = menuBack; closeMenu(); if (b) b.focus(); }
+            });
+            document.addEventListener('mousedown', e => { if (!$('menu').hidden && !$('menu').contains(e.target)) closeMenu(); });
+            window.addEventListener('resize', closeMenu);
+
+            /* click-to-edit text: Enter saves, Esc cancels, leaving the box saves */
+            function editInline(btn) {
+                const id = Number(btn.dataset.id), f = btn.dataset.edit, p = BYID.get(id);
+                if (!p) return;
+                const was = String(p[f] || '');
+                const el = document.createElement(f === 'product_code' ? 'input' : 'textarea');
+                el.className = 'ed-in';
+                el.value = was;
+                el.maxLength = f === 'product_code' ? 60 : f === 'remarks' ? 2000 : 300;
+                if (el.tagName === 'TEXTAREA') el.rows = Math.max(2, Math.ceil(btn.offsetHeight / 18));
+                btn.replaceWith(el);
+                el.focus();
+                el.select();
+                let over = false;
+                const end = async ok => {
+                    if (over) return;
+                    over = true;
+                    const v = el.value.trim();
+                    if (!ok || v === was.trim()) return refreshBlock(id);
+                    if (f === 'product_name' && !v) { toast('Product name is required', 'error'); return refreshBlock(id); }
+                    el.disabled = true;
+                    if (await save(id, { [f]: v })) refreshBlock(id);
+                };
+                el.addEventListener('blur', () => end(true));
+                el.addEventListener('keydown', e => {
+                    if (e.key === 'Escape') end(false);
+                    else if (e.key === 'Enter' && !(f === 'remarks' && e.shiftKey)) { e.preventDefault(); end(true); }
+                });
+            }
+            function editDate(btn) {
+                const id = Number(btn.dataset.id), key = btn.dataset.stage, p = BYID.get(id);
+                if (!p) return;
+                const was = (p.stages || {})[key] || '';
+                const el = document.createElement('input');
+                el.type = 'date';
+                el.className = 'ed-in';
+                el.value = was;
+                btn.replaceWith(el);
+                el.focus();
+                try { el.showPicker(); } catch (_) { }
+                let over = false;
+                const end = ok => {
+                    if (over) return;
+                    over = true;
+                    const v = el.value;
+                    refreshBlock(id);
+                    if (ok && v !== was && !el.validity.badInput) askRemark(id, key, v);
+                };
+                /* typed dates pass through half-written values, so typing waits for Enter or leaving the box */
+                let typed = false;
+                el.addEventListener('keydown', e => {
+                    if (e.key === 'Escape') end(false); else if (e.key === 'Enter') end(true); else if (e.key !== 'Tab') typed = true;
+                });
+                el.addEventListener('change', () => { if (!typed) end(true); });
+                el.addEventListener('blur', () => end(true));
+            }
+
+            const M_STATE = STATE.map(([k, l]) => [k, l, 'st-' + k]);
+            $('grid').addEventListener('click', e => {
+                const b = e.target.closest('button');
+                if (!b) return;
+                const id = Number(b.dataset.id || b.dataset.cadd), p = BYID.get(id);
+                if (b.dataset.fold) {
+                    const f = b.dataset.fold;
+                    S.folded.has(f) ? S.folded.delete(f) : S.folded.add(f);
+                    saveFold();
+                    return refreshBlock(Number(b.closest('[data-block]').dataset.block));
                 }
-                const id = Number(t.dataset.id);
-                if (!id) return;
-                if (t.dataset.stage) {
-                    if (t.tagName === 'SELECT') t.className = 'cell st-' + t.value;
-                    askRemark(id, t.dataset.stage, t.value);
-                } else if (t.dataset.f) {
-                    if (t.dataset.f === 'product_name' && !t.value.trim()) { toast('Product name is required', 'error'); load(); return; }
-                    if (t.dataset.f === 'status') { t.className = 'ps ' + psClass(t.value); save(id, { status: t.value }).then(ok => ok && render()); return; }
-                    save(id, { [t.dataset.f]: t.value });
+                if (!p) return;
+                if (b.dataset.edit) return editInline(b);
+                if ('date' in b.dataset) return editDate(b);
+                if (b.dataset.stage) return openMenu(b, M_STATE, (p.stages || {})[b.dataset.stage] || 'pending', v => askRemark(id, b.dataset.stage, v));
+                if ('status' in b.dataset) return openMenu(b, [['', 'No status'], ...PSTAT.map(x => [x, x])], p.status || '', async v => { if (await save(id, { status: v })) render(true); });
+                if ('factory' in b.dataset) return openMenu(b, [['', 'No factory'], ...[...new Set([...S.factories, p.factory].filter(Boolean))].map(x => [x, x])], p.factory || '', async v => { if (await save(id, { factory: v })) render(true); });
+                if (b.dataset.cadd) {
+                    const cur = colourList(p.trial_colours);
+                    const opts = [...new Set([...COLOURS, ...S.rows.flatMap(r => colourList(r.trial_colours))])].filter(c => !cur.includes(c));
+                    return openMenu(b, [...opts.map(c => [c, c]), ['__other', 'Other…']], null, v => {
+                        const c = v === '__other' ? (prompt('Colour name') || '').trim() : v;
+                        if (c) setColours(id, [...cur, c]);
+                    });
                 }
             });
             /* a stage change opens the remark box (remark optional); cancel puts the cell back */
@@ -627,7 +855,7 @@
                 if (needRb) return $('rbName').focus();
                 $('rmText').focus();
             }
-            $('rmCancel').onclick = () => { S.pending = null; $('rmModal').classList.remove('on'); render(); };
+            $('rmCancel').onclick = () => { S.pending = null; $('rmModal').classList.remove('on'); };
             $('rmSave').onclick = async () => {
                 const txt = $('rmText').value.trim();
                 const pd = S.pending;
@@ -643,7 +871,7 @@
                 if (!ok) return;
                 S.pending = null;
                 $('rmModal').classList.remove('on');
-                render();
+                refreshBlock(pd.id);
             };
             $('grid').addEventListener('click', async e => {
                 const cd = e.target.closest('[data-cdel]');
@@ -676,12 +904,13 @@
                     const p = S.rows.find(r => r.id === Number(d.dataset.del));
                     const kids = p ? S.rows.filter(c => c.parent_sync_id && String(c.parent_sync_id) === String(p.sync_id)) : [];
                     if (!p || !confirm(`Delete "${p.product_name}"${kids.length ? ` and its ${kids.length} child mould(s)` : ''} with trial reports and images?`)) return;
-                    try { await api(`/npd/products/${p.id}`, { method: 'DELETE' }); S.rows = S.rows.filter(r => r.id !== p.id && !kids.includes(r)); render(); }
+                    try { await api(`/npd/products/${p.id}`, { method: 'DELETE' }); S.rows = S.rows.filter(r => r.id !== p.id && !kids.includes(r)); render(true); }
                     catch (err) { }
                 }
             });
             $('tiles').addEventListener('click', e => { const t = e.target.closest('[data-f]'); if (t) { S.fstat = t.dataset.f; render(); } });
-            $('q').addEventListener('input', e => { S.q = e.target.value.trim(); render(); });
+            let qT = 0;
+            $('q').addEventListener('input', e => { clearTimeout(qT); qT = setTimeout(() => { S.q = e.target.value.trim(); render(); }, 120); });
             $('refresh').onclick = load;
             /* Excel of the rows shown (status tile + search), built on the server with colours */
             $('exportBtn').onclick = async () => {
@@ -723,7 +952,8 @@
                 if (!moulds.length) return toast('Add at least one child mould - a product cannot be created without a mould', 'error');
                 try {
                     const res = await api('/npd/products', { method: 'POST', body: JSON.stringify({ product_name: name, product_code: $('aCode').value.trim(), moulds, factory: S.fac || (S.facs.length === 1 ? S.facs[0] : '') }) });
-                    S.rows.push(res.data, ...(res.children || [])); $('addModal').classList.remove('on'); render();
+                    S.rows.push(res.data, ...(res.children || [])); $('addModal').classList.remove('on'); render(true);
+                    { const el = $('grid').querySelector(`[data-block="${res.data.id}"]`); if (el) el.scrollIntoView({ block: 'center' }); }
                 } catch (e) { }
             };
             $('mSave').onclick = async () => {
@@ -731,7 +961,7 @@
                 if (!name) return toast('Mould name is required', 'error');
                 try {
                     const res = await api('/npd/products', { method: 'POST', body: JSON.stringify({ product_name: name, product_code: $('mCode').value.trim(), parent_id: S.mouldParent }) });
-                    S.rows.push(res.data); $('mouldModal').classList.remove('on'); render();
+                    S.rows.push(res.data); $('mouldModal').classList.remove('on'); refreshBlock(res.data.id);
                 } catch (e) { }
             };
 
@@ -762,7 +992,7 @@
                     const res = await api(`/npd/products/${S.open}/files/${kind}`, { method: 'POST', body: fd });
                     const p = S.rows.find(r => r.id === S.open);
                     p.files.push(...(res.data || []));
-                    renderFiles(); render();
+                    renderFiles(); refreshBlock(S.open);
                     if (res.data.length < files.length) toast('Some files were skipped (type not allowed)', 'warning');
                 } catch (e) { }
             }
@@ -783,7 +1013,7 @@
                     await api(`/npd/files/${b.dataset.fdel}`, { method: 'DELETE' });
                     const p = S.rows.find(r => r.id === S.open);
                     p.files = p.files.filter(f => f.id !== Number(b.dataset.fdel));
-                    renderFiles(); render();
+                    renderFiles(); refreshBlock(S.open);
                 } catch (err) { }
             });
 
@@ -938,7 +1168,8 @@
             if (window.JPSMS && JPSMS.renderShell) JPSMS.renderShell();
             /* the shell moves the page into .main-content, which has a transform, so a
                position:fixed overlay inside it would not cover the sidebar */
-            ['viewer', 'fileModal', 'addModal', 'mouldModal', 'rmModal'].forEach(id => document.body.appendChild($(id)));
+            ['viewer', 'fileModal', 'addModal', 'mouldModal', 'rmModal', 'menu'].forEach(id => document.body.appendChild($(id)));
+            paintCache();
             load();
         })();
     </script>

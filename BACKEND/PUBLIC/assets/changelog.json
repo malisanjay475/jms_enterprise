@@ -14,6 +14,22 @@
   "latest": "1.197.15",
   "versions": [
     {
+      "version": "1.198.0",
+      "date": "2026-11-25",
+      "title": "NPD Tracker: new page design, faster",
+      "modules": [
+        {
+          "app": "npd",
+          "changes": [
+            { "type": "improvement", "text": "NPD Tracker is redesigned: full product and factory names wrap, the table fills the screen, the header and product name stay in view, and stage buttons jump to each group." },
+            { "type": "perf", "text": "NPD Tracker opens faster and an edit updates only that product instead of the whole table." },
+            { "type": "feat", "text": "Hide or show the moulds of one product or of all products, and search by product or mould code as well as name (also in the Excel export)." },
+            { "type": "fix", "text": "The % complete no longer counts stages marked N/A as unfinished." }
+          ]
+        }
+      ]
+    },
+    {
       "version": "1.197.15",
       "date": "2026-11-25",
       "changes": [
