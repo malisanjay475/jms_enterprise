@@ -1401,8 +1401,8 @@ tbody tr:hover {
 }
 
 /* The hamburger FAB and backdrop are injected by app.js on every page that has
-   a .sidebar. They stay hidden at >=1025px and only appear as the off-canvas
-   drawer chrome below 1024px. */
+   a .sidebar. They stay hidden above 600px, where the menu is docked and open; on
+   phones they are the off-canvas drawer chrome. */
 .mobile-sidebar-fab,
 .mobile-sidebar-backdrop {
   display: none;
@@ -1414,7 +1414,7 @@ tbody tr:hover {
   display: none !important;
 }
 
-@media (max-width: 1024px) {
+@media (max-width: 600px) {
   /* Sidebar becomes a fixed off-canvas drawer — unconditional, no per-page classes */
   .sidebar {
     position: fixed !important;
@@ -1628,7 +1628,7 @@ tbody tr:hover {
   background: rgba(255, 255, 255, 0.25);
 }
 
-@media (max-width: 1024px) {
+@media (max-width: 600px) {
   .sidebar-close-btn {
     display: inline-flex !important;
   }
@@ -1656,3 +1656,49 @@ tbody tr:hover {
   }
 }
 
+/* Docked menu on compact windows: logo clears the collapse icon, and the user
+   name gets its own line above the buttons */
+body.viewport-compact .sidebar:not(.collapsed) .brand-logo {
+  font-size: 1.15rem;
+  gap: 8px;
+}
+
+body.viewport-compact .sidebar:not(.collapsed) .brand-logo img {
+  width: 34px;
+  height: 34px;
+}
+
+body.viewport-compact .sidebar:not(.collapsed) .user-profile {
+  flex-wrap: wrap;
+  row-gap: 4px;
+}
+
+body.viewport-compact .sidebar:not(.collapsed) .user-profile > div:nth-child(2) {
+  flex: 1 1 130px !important;
+}
+
+/* Small windows: the menu stays docked and open */
+@media (min-width: 601px) and (max-width: 768px) {
+  body:has(> .sidebar) {
+    display: flex !important;
+  }
+
+  .sidebar {
+    position: sticky !important;
+    top: 0;
+    height: 100dvh !important;
+  }
+
+  /* The docked menu replaces the phone bottom bar */
+  body:has(> .sidebar) .mobile-nav {
+    display: none !important;
+  }
+
+  body:has(> .sidebar) {
+    padding-bottom: 0 !important;
+  }
+
+  body:has(> .sidebar) .main-content {
+    min-width: 0;
+  }
+}

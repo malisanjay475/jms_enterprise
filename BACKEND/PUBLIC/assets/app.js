@@ -865,25 +865,23 @@ function escHtml(value) {
         if (typeof window === 'undefined' || typeof document === 'undefined' || !document.body) return;
         const width = window.innerWidth || document.documentElement.clientWidth || 0;
         const height = window.innerHeight || document.documentElement.clientHeight || 0;
-        const mobile = width <= 768;
+        const mobile = isMobileShellViewport();
         const compact = width <= 1440;
         const tight = width <= 1280 || height <= 820;
         const short = height <= 760;
-        const autoCollapse = width <= 1366 || height <= 820;
         const body = document.body;
 
         body.classList.toggle('viewport-compact', compact);
         body.classList.toggle('viewport-tight', tight);
         body.classList.toggle('viewport-short', short);
-        body.classList.toggle('sidebar-auto-collapsed', !mobile && autoCollapse);
+        body.classList.remove('sidebar-auto-collapsed');
 
         const sb = document.querySelector('.sidebar');
         if (sb) {
-            if (mobile) {
-                sb.classList.remove('auto-collapsed');
-            } else {
+            // The menu stays open at every window size; only the user collapses it.
+            sb.classList.remove('auto-collapsed');
+            if (!mobile) {
                 sb.classList.remove('mobile-open');
-                sb.classList.toggle('auto-collapsed', autoCollapse);
                 body.classList.remove('mobile-sidebar-open');
             }
         }
@@ -916,7 +914,7 @@ function escHtml(value) {
 
     function isMobileShellViewport() {
         if (typeof window === 'undefined') return false;
-        return (window.innerWidth || document.documentElement.clientWidth || 0) <= 1024;
+        return (window.innerWidth || document.documentElement.clientWidth || 0) <= 600; // phones only: the menu is a drawer there
     }
 
     function refreshMobileSidebarControls() {
@@ -934,7 +932,7 @@ function escHtml(value) {
 
         if (sidebar) {
             sidebar.id = sidebar.id || 'appSidebar';
-            sidebar.setAttribute('aria-hidden', open ? 'false' : 'true');
+            sidebar.setAttribute('aria-hidden', enabled && !open ? 'true' : 'false');
         }
 
         if (fab) {
@@ -1026,6 +1024,14 @@ function escHtml(value) {
         refreshMobileSidebarControls();
     }
 
+    // v2 key: the old one could be set by a click while the menu was auto-collapsed.
+    const SIDEBAR_COLLAPSED_KEY = 'sidebar_collapsed_v2';
+    function setSidebarCollapsed(sb, collapsed) {
+        sb.classList.toggle('collapsed', collapsed);
+        document.body.classList.toggle('sidebar-collapsed', collapsed);
+        try { localStorage.setItem(SIDEBAR_COLLAPSED_KEY, String(collapsed)); } catch (_) { /* private mode */ }
+    }
+
     exports.closeSidebar = () => {
         const sb = document.querySelector('.sidebar');
         if (!sb) return;
@@ -1040,8 +1046,7 @@ function escHtml(value) {
                 sb.classList.toggle('mobile-open');
                 refreshMobileSidebarControls();
             } else {
-                sb.classList.toggle('collapsed');
-                localStorage.setItem('sidebar_collapsed', sb.classList.contains('collapsed'));
+                setSidebarCollapsed(sb, !sb.classList.contains('collapsed'));
                 applyViewportLayoutMode();
             }
         }
@@ -1928,7 +1933,7 @@ function escHtml(value) {
         }
 
         // Restore Collapsed State
-        const isCollapsed = localStorage.getItem('sidebar_collapsed') === 'true';
+        const isCollapsed = localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === 'true';
         if (isCollapsed) {
             sidebar.classList.add('collapsed');
             document.body.classList.add('sidebar-collapsed'); // Optional for main content adjustment
@@ -1943,13 +1948,7 @@ function escHtml(value) {
                     return;
                 }
 
-                sidebar.classList.toggle('collapsed');
-                const collapsed = sidebar.classList.contains('collapsed');
-                localStorage.setItem('sidebar_collapsed', collapsed);
-
-                // Adjust Main Content margin if needed via global class
-                if (collapsed) document.body.classList.add('sidebar-collapsed');
-                else document.body.classList.remove('sidebar-collapsed');
+                setSidebarCollapsed(sidebar, !sidebar.classList.contains('collapsed'));
             };
         }
 
