@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.197.15",
+  "latest": "1.199.0",
   "versions": [
+    {
+      "version": "1.199.0",
+      "date": "2026-11-25",
+      "title": "DPR Compliance Summary: loads only on Apply",
+      "modules": [
+        {
+          "app": "dpr",
+          "changes": [
+            { "type": "improvement", "text": "Compliance Summary loads only when you click Apply. Changing dates, shift, process, factory or view no longer reloads the page, and Apply turns orange while a change is waiting." },
+            { "type": "feat", "text": "New Today and Yesterday buttons load that day in one click." },
+            { "type": "improvement", "text": "Plant Total is right under the filled score. What stands out, Machines to chase and Lines start closed and open with one click." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.198.0",
       "date": "2026-11-25",
