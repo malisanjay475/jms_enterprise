@@ -2248,17 +2248,17 @@
                             // --- GLOBAL STICKY HEADER PER DATE ---
                             const _stickyHeaderHtml = `
                                 <div class="date-section-header" style="position:sticky; z-index:45; top:130px; margin-bottom:0; box-shadow:0 1px 2px rgba(0,0,0,0.05); background:#f8fafc; border-bottom:1px solid #e2e8f0; border:1px solid #cbd5e1; border-radius:8px 8px 0 0; overflow:hidden">
-                                    <table style="width:100%; border-collapse:separate; border-spacing:0; font-size:0.8rem; text-align:center; table-layout:fixed">
+                                    <table class="dpr-grid" style="width:100%; border-collapse:separate; border-spacing:0; font-size:0.8rem; text-align:center; table-layout:fixed">
                                         <colgroup>
-                                            <col style="width:220px; min-width:220px">
-                                            <col style="width:45px; min-width:45px">
-                                            ${slots.map(() => '<col style="width:65px; min-width:65px">').join('')}
-                                            <col style="width:140px; min-width:140px">
+                                            <col style="width:230px">
+                                            <col style="width:50px">
+                                            ${slots.map(() => '<col style="width:78px">').join('')}
+                                            <col style="width:172px">
                                         </colgroup>
                                         <thead>
                                             <tr>
-                                                <th style="padding:12px; text-align:left; min-width:220px; border-bottom:1px solid #e2e8f0; background:#f8fafc; font-weight:600; color:#475569; border-right:1px solid #e2e8f0">Machine / Mould</th>
-                                                <th style="padding:10px 4px; border-bottom:1px solid #e2e8f0; background:#f8fafc; min-width:70px; font-weight:600; color:#475569; border-right:1px solid #e2e8f0;text-align:center"><div style="line-height:1.3"><div>STD</div><div style="font-size:0.6rem;color:#cbd5e1">───</div><div style="color:#16a34a">ACT</div></div></th>
+                                                <th style="position:sticky; left:0; z-index:6; padding:12px; text-align:left; border-bottom:1px solid #e2e8f0; background:#f8fafc; font-weight:600; color:#475569; border-right:1px solid #e2e8f0">Machine / Mould</th>
+                                                <th class="dpr-std-cell" style="position:sticky; left:230px; z-index:6; padding:10px 4px; border-bottom:1px solid #e2e8f0; background:#f8fafc; font-weight:600; color:#475569; border-right:1px solid #e2e8f0;text-align:center"><div style="line-height:1.3"><div>STD</div><div style="font-size:0.6rem;color:#cbd5e1">───</div><div style="color:#16a34a">ACT</div></div></th>
                                                 ${slots.map(s => `<th style="padding:10px; border-bottom:1px solid #e2e8f0; background:#f8fafc; min-width:65px; font-weight:600; color:#475569; font-size:0.75rem; text-align:center; border-right:1px solid #e2e8f0">${s}</th>`).join('')}
                                                 <th style="padding:10px; border-bottom:1px solid #e2e8f0; background:#f0f9ff; min-width:140px; font-weight:700; color:#0369a1; border-left:2px solid #e2e8f0">Summary</th>
                                             </tr>
@@ -2345,12 +2345,12 @@
                                         </div>
                                     </div>
                                     <div style="overflow-x:auto">
-                                        <table style="width:100%; border-collapse:separate; border-spacing:0; font-size:0.8rem; text-align:center; table-layout:fixed">
+                                        <table class="dpr-grid" style="width:100%; border-collapse:separate; border-spacing:0; font-size:0.8rem; text-align:center; table-layout:fixed">
                                             <colgroup>
-                                                <col style="width:220px; min-width:220px">
-                                                    <col style="width:45px; min-width:45px">
-                                                        ${slots.map(() => '<col style="width:65px; min-width:65px">').join('')}
-                                                        <col style="width:140px; min-width:140px">
+                                                <col style="width:230px">
+                                                    <col style="width:50px">
+                                                        ${slots.map(() => '<col style="width:78px">').join('')}
+                                                        <col style="width:172px">
                                                         </colgroup>
                                                         <tbody>
                                                             `;
@@ -2708,8 +2708,8 @@
                                         const borderLeft = isHighJC && isFirstMouldInMachine ? `border-left:8px solid ${jcColor};` : '';
 
                                         machineRowHtml += `<tr style="${isFirstMouldInMachine ? 'border-top:2px solid #cbd5e1' : ''}">
-                                                                <td ${isFirstMouldInMachine ? `data-dpr-machine="${dprEscHtml(machine)}" data-dpr-shift="${rowShift}" data-dpr-date="${date}"` : ''} style="padding:6px 8px; text-align:left; border-right:1px solid #f1f5f9; border-bottom:1px solid #e2e8f0; background:${cellBg}; ${borderLeft} position:sticky; left:0; z-index:5; vertical-align:top; min-width:220px">${machineHtml}${mouldDisplay}<!--ROWCLEAR--></td>
-                                                                <td style="padding:6px 4px; text-align:center; border-right:2px solid #e2e8f0; border-bottom:1px solid #e2e8f0; background:#fff; position:sticky; left:220px; z-index:5; vertical-align:middle; min-width:70px">${stdDisplay}</td>`;
+                                                                <td ${isFirstMouldInMachine ? `data-dpr-machine="${dprEscHtml(machine)}" data-dpr-shift="${rowShift}" data-dpr-date="${date}"` : ''} style="padding:6px 8px; text-align:left; border-right:1px solid #f1f5f9; border-bottom:1px solid #e2e8f0; background:${cellBg}; ${borderLeft} position:sticky; left:0; z-index:5; vertical-align:top">${machineHtml}${mouldDisplay}<!--ROWCLEAR--></td>
+                                                                <td class="dpr-std-cell" style="padding:6px 4px; text-align:center; border-right:2px solid #e2e8f0; border-bottom:1px solid #e2e8f0; background:#fff; position:sticky; left:230px; z-index:5; vertical-align:middle">${stdDisplay}</td>`;
                                         // C. Slots Iteration
                                         let activeOverrideStatus = '';
                                         let skipRemainingSlots = false;
@@ -2902,7 +2902,7 @@
                                                         const sTxt  = `${Math.round(dtMins)}m ${dtMeta ? dtMeta.code : 'DT'}`;
                                                         // Negative margins cancel the entry's 3px/4px padding so the strip runs
                                                         // edge-to-edge; margin-top:auto pins it to the bottom of the entry block
-                                                        manualDtHtml = `<div title="${dtTip || (dtMeta ? dtMeta.label : 'Downtime')}" style="flex:0 0 auto; margin:auto -4px -3px -4px; display:flex; align-items:center; justify-content:center; gap:3px; background:${sBg}; border-top:1px solid ${sBd}; color:${sFg}; font-weight:800; font-size:0.62rem; line-height:1.15; padding:2px 2px; text-align:center; min-height:17px"><span style="width:14px; height:14px; border-radius:50%; background:#fff; border:1.5px solid ${sFg}; display:inline-flex; align-items:center; justify-content:center; flex:0 0 auto"><i class="bi ${sIcon}" style="font-size:0.55rem; line-height:1; color:${sFg}"></i></span><span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap">${sTxt}</span></div>`;
+                                                        manualDtHtml = `<div title="${dtTip || (dtMeta ? dtMeta.label : 'Downtime')}" style="flex:0 0 auto; margin:auto -4px -3px -4px; display:flex; align-items:center; justify-content:center; gap:3px; background:${sBg}; border-top:1px solid ${sBd}; color:${sFg}; font-weight:800; font-size:0.62rem; line-height:1.15; padding:2px 2px; text-align:center; min-height:17px"><span style="width:14px; height:14px; border-radius:50%; background:#fff; border:1.5px solid ${sFg}; display:inline-flex; align-items:center; justify-content:center; flex:0 0 auto"><i class="bi ${sIcon}" style="font-size:0.55rem; line-height:1; color:${sFg}"></i></span><span style="min-width:0; overflow-wrap:anywhere; white-space:normal">${sTxt}</span></div>`;
                                                     }
 
                                                     const ppcBadge  = isAllAccess ? `<span style="font-size:0.58rem;color:#fff;background:#6366f1;padding:1px 3px;border-radius:2px;font-weight:700">PPC</span>` : '';
@@ -2917,7 +2917,7 @@
                                                         <div onclick='showEntryDetails(${JSON.stringify(entry).replace(/'/g, "&apos;")})' style="cursor:pointer;flex:1;min-width:0;width:100%;background:${blockBg};${separator}padding:3px 4px;display:flex;flex-direction:column;gap:2px;transition:background 0.2s" onmouseover="this.style.filter='brightness(0.94)'" onmouseout="this.style.filter='none'">
 
                                                             <!-- Row 1: 90 | 10  (good green | rej red, no label) + QC verified tick -->
-                                                            <div style="display:flex;align-items:baseline;gap:3px;line-height:1;min-width:0">
+                                                            <div style="display:flex;flex-wrap:wrap;align-items:baseline;gap:3px;line-height:1;min-width:0">
                                                                 <span style="font-weight:800;font-size:0.95rem;color:#15803d;line-height:1">${entry.good_qty}</span>
                                                                 ${rejQty > 0 ? `<span style="font-size:0.78rem;color:#9ca3af;font-weight:600;line-height:1">|</span><span style="font-weight:800;font-size:0.85rem;color:#dc2626;line-height:1">${rejQty}</span>` : ''}
                                                                 ${qcMarkHtml(entry)}
@@ -2953,7 +2953,7 @@
                                                         content += `
                                                             <div title="${spMeta.label}${spDt > 0 ? ` — ${spDt} min downtime this hour` : ''}" style="flex:0 0 auto; display:flex; align-items:center; justify-content:center; gap:3px; background:${spMeta.bg}; border-top:1px solid ${spMeta.bd}; color:${spMeta.color}; font-weight:800; font-size:0.62rem; line-height:1.15; padding:2px 2px; text-align:center; min-height:17px">
                                                                 <span style="width:14px; height:14px; border-radius:50%; background:#fff; border:1.5px solid ${spMeta.color}; display:inline-flex; align-items:center; justify-content:center; flex:0 0 auto"><i class="bi ${spMeta.icon}" style="font-size:0.55rem; line-height:1; color:${spMeta.color}"></i></span>
-                                                                <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap">${spDt > 0 ? spDt + 'm ' : ''}${spMeta.code}</span>
+                                                                <span style="min-width:0; overflow-wrap:anywhere; white-space:normal">${spDt > 0 ? spDt + 'm ' : ''}${spMeta.code}</span>
                                                             </div>`;
                                                     }
                                                 }
@@ -3569,12 +3569,12 @@
                             masterHtml += `
                                 <div style="margin-bottom:24px; background:white; border:1px solid #cbd5e1; border-radius:0 0 12px 12px; overflow:hidden; box-shadow:0 4px 6px -1px rgba(0,0,0,0.05); margin-top:-1px">
                                     <div style="overflow-x:auto">
-                                        <table style="width:100%; border-collapse:separate; border-spacing:0; font-size:0.8rem; text-align:center; table-layout:fixed">
+                                        <table class="dpr-grid" style="width:100%; border-collapse:separate; border-spacing:0; font-size:0.8rem; text-align:center; table-layout:fixed">
                                             <colgroup>
-                                                <col style="width:220px; min-width:220px">
-                                                <col style="width:45px; min-width:45px">
-                                                ${slots.map(() => '<col style="width:65px; min-width:65px">').join('')}
-                                                <col style="width:140px; min-width:140px">
+                                                <col style="width:230px">
+                                                <col style="width:50px">
+                                                ${slots.map(() => '<col style="width:78px">').join('')}
+                                                <col style="width:172px">
                                             </colgroup>
                                             <tbody>
                                                 ${filteredMachineBuffer.map(m => {
@@ -3658,10 +3658,10 @@
                                 const filterLabels = { ShowAll: 'Show All (by EFF)', AbovePlan: '🔴 Above Plan Qty', Pending: '⚠️ Pending Entries', LowEff: 'Low EFF', LowOee: 'Low OEE', MouldChange: 'Mould Change', PlanChangeOver: 'Plan Change Over (≤20% left)', ManPowerShortage: '🚷 MP Shortage', MouldMaintenance: '🔧 Mould Maintenance', PowerCut: '⚡ Power Cut', NoPlan: '📅 No Plan', MachineMaintenance: '🛠️ Machine Maintenance', MouldTrial: '🧪 Mould Trial', Stopped: stoppedLabel };
                                 let tbodies = '';
                                 flat.forEach(f => { tbodies += `<tbody class="mm-machine" data-search="${mkSearchText(f.machine, f.rowsHtml)}">${f.rowsHtml}</tbody>`; });
-                                const colgroup = `<colgroup><col style="width:220px; min-width:220px"><col style="width:45px; min-width:45px">${Array(12).fill('<col style="width:65px; min-width:65px">').join('')}<col style="width:140px; min-width:140px"></colgroup>`;
+                                const colgroup = `<colgroup><col style="width:230px"><col style="width:50px">${Array(12).fill('<col style="width:78px">').join('')}<col style="width:172px"></colgroup>`;
                                 masterHtml += `<div class="dpr-line-card"><div style="margin-bottom:24px; background:white; border:1px solid #cbd5e1; border-radius:0 0 12px 12px; overflow:hidden; box-shadow:0 4px 6px -1px rgba(0,0,0,0.05); margin-top:-1px">
                                     <div style="display:flex; align-items:center; gap:8px; padding:8px 14px; background:#0f172a; color:#fff; font-size:0.8rem; font-weight:700; letter-spacing:.3px"><i class="bi bi-funnel-fill"></i><span>${filterLabels[filterMode] || filterMode}</span><span style="margin-left:auto; background:${flat.length ? '#3b82f6' : '#64748b'}; padding:2px 10px; border-radius:12px; font-weight:800">${flat.length} machine${flat.length === 1 ? '' : 's'}</span></div>
-                                    <div style="overflow-x:auto"><table style="width:100%; border-collapse:separate; border-spacing:0; font-size:0.8rem; text-align:center; table-layout:fixed">${colgroup}<tbody></tbody>${tbodies}</table></div></div></div>`;
+                                    <div style="overflow-x:auto"><table class="dpr-grid" style="width:100%; border-collapse:separate; border-spacing:0; font-size:0.8rem; text-align:center; table-layout:fixed">${colgroup}<tbody></tbody>${tbodies}</table></div></div></div>`;
                             } else {
                                 // No View Filter → grouped machine-wise (one table per line).
                                 const lineStats = [];
@@ -4390,6 +4390,29 @@
                     const html = window.dprRenderLineDeck(window.__dprLastDeck.stats).deck;
                     if (deck && html) deck.outerHTML = html;
                 });
+                // The hour grid is scaled down to fit the window, so nothing is cut off. Below the
+                // smallest readable scale it scrolls sideways; header and lines scroll together.
+                const DPR_GRID_W = 1388, DPR_GRID_MIN = 0.68;
+                const dprFitGrid = () => {
+                    const c = document.getElementById('summary-container');
+                    if (!c || !c.clientWidth) return;
+                    const z = Math.max(DPR_GRID_MIN, Math.min(1, Math.floor((c.clientWidth - 4) / DPR_GRID_W * 1000) / 1000));
+                    c.style.setProperty('--dpr-zoom', z);
+                    c.classList.toggle('dpr-narrow', c.clientWidth < 760);
+                    c.classList.toggle('dpr-hscroll', c.clientWidth < DPR_GRID_W * DPR_GRID_MIN + 4); // sideways scroll: keep every line rendered so all stay in step
+                };
+                dprFitGrid();
+                {
+                    const c = document.getElementById('summary-container');
+                    if (c && window.ResizeObserver) new ResizeObserver(dprFitGrid).observe(c);
+                    else window.addEventListener('resize', dprFitGrid);
+                    const scrollers = () => Array.from(c.querySelectorAll('table[style*="table-layout:fixed"]'), t => t.parentElement); // app.js wraps tables, so use the real parent
+                    if (c) c.addEventListener('scroll', (ev) => {
+                        const src = ev.target;
+                        if (!src.querySelector || !src.querySelector(':scope > table[style*="table-layout:fixed"]')) return;
+                        scrollers().forEach(e => { if (e !== src && Math.abs(e.scrollLeft - src.scrollLeft) > 1) e.scrollLeft = src.scrollLeft; });
+                    }, true);
+                }
                 // "/" jumps to the search box.
                 document.addEventListener('keydown', (ev) => {
                     if (ev.key !== '/' || ev.ctrlKey || ev.metaKey || /input|textarea|select/i.test((ev.target || {}).tagName || '')) return;
