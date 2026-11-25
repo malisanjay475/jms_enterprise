@@ -1042,6 +1042,8 @@ function buildTonnageLoad(orders, board, { untilMs, eff, basis, colourByPlan }) 
   tot.machine_booked_pct = tot.avail_hours > 0 ? Math.round((tot.load_hours - tot.mould_limited_hours) / tot.avail_hours * 100) : null;
   tot.orders = new Set(data.flatMap(r => r.items.filter(i => i.counted).map(i => i.order_no))).size;
   tot.all_orders = orders.length;
+  /* moulds left out: another mould makes the part, or Planning dropped it */
+  tot.spare_moulds = orders.reduce((s, o) => s + (o.spare_moulds || []).length, 0);
   const inLoad = new Set([...data, unknown].flatMap(r => r.items.filter(i => i.counted).map(i => i.order_no)));
   tot.closed_orders = orders.filter(o => (o.erp_closed || o.status === 'COMPLETE') && !inLoad.has(o.order_no)).length;
   tot.plan_basis = data.reduce((s, r) => s + r.items.filter(i => i.plan_basis).length, 0);
@@ -1248,7 +1250,7 @@ async function tonnageFor(pool, req) {
   const open = (await pool.query(OPEN_ORDERS_SQL, [factoryId])).rows;
   const orderNos = open.map(r => r.order_no);
   const q = await queueSchedule(pool, factoryId);
-  const orders = await loadOrders(pool, orderNos, factoryId, q.map, q.board, { itemFallback: true });
+  const orders = await loadOrders(pool, orderNos, factoryId, q.map, q.board, { itemFallback: true, byPart: true });
   /* order master rows with no JR and no plan: nothing to build an order from */
   const built = new Set(orders.map(o => o.order_no));
   open.filter(r => !built.has(r.order_no)).forEach(r => orders.push({
