@@ -30,7 +30,7 @@ const { getFactoryId } = require('../../app/requestContext');
 const { sendServerError } = require('../../app/httpErrors');
 const { buildTonnageWorkbook } = require('./tonnageWorkbook');
 const packingProgress = require('./packingProgress');
-const { buildParts } = require('./orderParts');
+const { allocateParts, buildParts } = require('./orderParts');
 
 const RATE_DAYS = 3;
 /* a set needing more pieces of one mould than this is almost certainly a data error */
@@ -168,16 +168,16 @@ const MACHINES_SQL = `
 
 /* ERP part rows per mould: alternative moulds repeat the same part code */
 const PART_ITEM_SQL = `
-  SELECT TRIM(mould_no) AS mould_no, TRIM(mould_item_code) AS item_code, MAX(mould_item_name) AS item_name,
+  SELECT TRIM(or_jr_no) AS order_no, TRIM(mould_no) AS mould_no, TRIM(mould_item_code) AS item_code, MAX(mould_item_name) AS item_name,
          SUM(COALESCE(NULLIF(regexp_replace(COALESCE(mould_item_qty::text, ''), '[^0-9.]+', '', 'g'), '')::numeric, 0)) AS qty
     FROM mould_planning_report
    WHERE TRIM(or_jr_no) = ANY($1::text[])
      AND COALESCE(TRIM(mould_no), '') <> ''
      AND ($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL)
-   GROUP BY 1, 2`;
+   GROUP BY 1, 2, 3`;
 
 const DROP_SQL = `
-  SELECT mould_no, item_code, mould_name, remarks, dropped_by, created_at
+  SELECT TRIM(order_no) AS order_no, mould_no, item_code, mould_name, remarks, dropped_by, created_at
     FROM planning_drops
    WHERE TRIM(COALESCE(order_no, '')) = ANY($1::text[])
      AND ($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL)
@@ -230,7 +230,7 @@ const ITEM_MOULD_SQL = `
      AND ($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL)`;
 const itemBase = v => key(v).replace(/[A-Z]+$/, '').replace(/^0+/, '');
 
-async function loadOrders(pool, orderNos, factoryId, sched, board, { itemFallback = false } = {}) {
+async function loadOrders(pool, orderNos, factoryId, sched, board, { itemFallback = false, byPart = false } = {}) {
   if (!orderNos.length) return [];
   const p = [orderNos, factoryId];
   const [jc, bom, plans, dpr] = await Promise.all([
@@ -256,6 +256,19 @@ async function loadOrders(pool, orderNos, factoryId, sched, board, { itemFallbac
       });
     });
   }
+  let itemRows = [];
+  let dropRows = [];
+  let offMoulds = new Set();
+  if (byPart) {
+    const codes = [...new Set(bom.rows.map(b => key(b.mould_no)))];
+    const [it, dr, off] = await Promise.all([
+      pool.query(PART_ITEM_SQL, p), pool.query(DROP_SQL, p),
+      codes.length ? pool.query(INACTIVE_SQL, [codes, factoryId]) : { rows: [] }
+    ]);
+    itemRows = it.rows;
+    dropRows = dr.rows;
+    offMoulds = new Set(off.rows.map(r => r.code));
+  }
   const planIds = plans.rows.map(r => Number(r.id)).filter(Number.isInteger);
   const shifted = planIds.length
     ? (await pool.query(SHIFT_SQL, [planIds]).catch(() => ({ rows: [] }))).rows : [];
@@ -270,6 +283,8 @@ async function loadOrders(pool, orderNos, factoryId, sched, board, { itemFallbac
   const bomBy = group(bom.rows, r => r.order_no);
   const planBy = group(plans.rows, r => r.order_no);
   const dprBy = group(dpr.rows, r => r.order_no);
+  const itemBy = group(itemRows, r => r.order_no);
+  const dropBy = group(dropRows, r => r.order_no);
 
   const built = orderNos.map(orderNo => buildOrder(orderNo, {
     jcRows: jcBy.get(orderNo) || [],
@@ -279,7 +294,8 @@ async function loadOrders(pool, orderNos, factoryId, sched, board, { itemFallbac
     mouldStd,
     sched,
     board,
-    shiftByPlan
+    shiftByPlan,
+    partInfo: byPart ? { items: itemBy.get(orderNo) || [], drops: dropBy.get(orderNo) || [], inactive: offMoulds } : null
   })).filter(Boolean);
   /* packing to dispatch (packing module scans); never fails the order view */
   try {
@@ -291,7 +307,7 @@ async function loadOrders(pool, orderNos, factoryId, sched, board, { itemFallbac
   return built;
 }
 
-function buildOrder(orderNo, { jcRows, bomRows, planRows, dprRows, mouldStd, sched, board, shiftByPlan }) {
+function buildOrder(orderNo, { jcRows, bomRows, planRows, dprRows, mouldStd, sched, board, shiftByPlan, partInfo }) {
   if (!jcRows.length && !planRows.length) return null;
   const head = jcRows[0] || {};
   const orderQty = num(head.jr_qty) || num(head.or_qty) || Math.max(0, ...bomRows.map(b => num(b.jr_qty)));
@@ -333,6 +349,30 @@ function buildOrder(orderNo, { jcRows, bomRows, planRows, dprRows, mouldStd, sch
     return plan ? key(plan.mould_code || plan.mould_name) : '';
   };
 
+  /* ---- alternative moulds of one part: the part is needed once ---- */
+  let alloc = new Map();
+  let spareMoulds = [];
+  if (partInfo) {
+    const r = allocateParts([...moulds.entries()].map(([k, m]) => ({
+      key: k, mould_no: m.mould_no, mould_name: m.mould_name, ratio: m.ratio, ratio_bom: m.bomRatio, ratio_source: m.ratioSource,
+      produced: dprRows.filter(d => mouldKeyOfDpr(d) === k).reduce((s, d) => s + num(d.good), 0),
+      plans: planRows.filter(p => key(p.mould_code || p.mould_name) === k).map(p => ({
+        plan_qty: num(p.plan_qty), status: p.status, colour_details: Array.isArray(p.colour_details) ? p.colour_details : [],
+        produced: dprRows.filter(d => d.plan_id != null && (String(d.plan_id) === String(p.plan_id) || String(d.plan_id) === String(p.id)))
+          .reduce((s, d) => s + num(d.good), 0)
+      }))
+    })), partInfo.items, {
+      drops: partInfo.drops, inactive: partInfo.inactive, jrQty: orderQty,
+      jcQty: jcRows.filter(x => x.job_card_no).reduce((s, x) => s + num(x.prod_plan_qty), 0)
+    });
+    if (r.alloc.size) {
+      alloc = r.alloc;
+      spareMoulds = r.spare;
+      [...moulds.keys()].forEach(k => { if (!alloc.has(k)) moulds.delete(k); });
+      alloc.forEach((a, k) => { const m = moulds.get(k); m.ratio = a.ratio; m.ratioSource = a.source; });
+    }
+  }
+
   /* recent window for the live rate */
   const allDates = [...new Set(dprRows.map(d => d.dpr_date))].sort();
   const recentFrom = allDates.length ? allDates[Math.max(0, allDates.length - RATE_DAYS)] : null;
@@ -343,7 +383,8 @@ function buildOrder(orderNo, { jcRows, bomRows, planRows, dprRows, mouldStd, sch
   const mouldList = [...moulds.entries()].map(([k, m]) => {
     const rows = dprRows.filter(d => mouldKeyOfDpr(d) === k);
     const plansOf = planRows.filter(p => key(p.mould_code || p.mould_name) === k);
-    const required = Math.round(orderQty * m.ratio);
+    const part = alloc.get(k);
+    const required = part ? part.required : Math.round(orderQty * m.ratio);
     const produced = rows.reduce((s, r) => s + num(r.good), 0);
     const reject = rows.reduce((s, r) => s + num(r.reject), 0);
 
@@ -440,6 +481,7 @@ function buildOrder(orderNo, { jcRows, bomRows, planRows, dprRows, mouldStd, sch
       queue: queued ? { machine: queued.q.machine, position: queued.q.queue_pos, plan_id: queued.p.plan_id } : null,
       shifted: shiftedQty, closed_short: closedShort,
       ratio_source: m.ratioSource, ratio_bom: m.bomRatio,
+      part_group: part ? part.group : null, part_moulds: part ? part.partMoulds : 1, part_share: part ? part.share : 1,
       copies: m.copies || 1,
       mould_source: m.fromItem ? 'item code' : (bomRows.some(b => key(b.mould_no) === k) ? 'ERP BOM' : 'plan'),
       /* suspect = the ratio in use is implausible; mismatch = the ERP BOM disagrees with it */
@@ -474,6 +516,12 @@ function buildOrder(orderNo, { jcRows, bomRows, planRows, dprRows, mouldStd, sch
     };
   });
 
+  /* moulds sharing a part: their pieces together make the sets */
+  mouldList.filter(m => m.part_moulds > 1).forEach(m => {
+    const made = mouldList.filter(x => x.part_group === m.part_group).reduce((s, x) => s + x.produced, 0);
+    m.sets_equiv = m.ratio > 0 ? Math.floor(made / m.ratio) : 0;
+  });
+
   /* ---- start sequence: the mould that must start first gets 1 ---- */
   mouldList.filter(m => m.status !== 'COMPLETE')
     .sort((a, b) => String(a.must_start_by || '9').localeCompare(String(b.must_start_by || '9')) || (a.pct - b.pct))
@@ -495,7 +543,7 @@ function buildOrder(orderNo, { jcRows, bomRows, planRows, dprRows, mouldStd, sch
     .slice().sort((a, b) => String(a.job_card_date || '9').localeCompare(String(b.job_card_date || '9')));
   mouldList.forEach(m => {
     let cum = 0;
-    jcSorted.forEach(r => { cum += Math.round(num(r.prod_plan_qty) * m.ratio); fifoNeed.set(r.job_card_no + '|' + m.mould_no, cum); });
+    jcSorted.forEach(r => { cum += Math.round(num(r.prod_plan_qty) * m.ratio * m.part_share); fifoNeed.set(r.job_card_no + '|' + m.mould_no, cum); });
   });
   const reachDate = (m, need) => {
     let run = 0;
@@ -508,7 +556,7 @@ function buildOrder(orderNo, { jcRows, bomRows, planRows, dprRows, mouldStd, sch
       const k = key(m.mould_no);
       const made = dprRows.filter(d => d.jobcard_no === r.job_card_no && mouldKeyOfDpr(d) === k)
         .reduce((s, d) => s + num(d.good), 0);
-      const need = Math.round(qty * m.ratio);
+      const need = Math.round(qty * m.ratio * m.part_share);
       const cumNeed = fifoNeed.get(r.job_card_no + '|' + m.mould_no) || 0;
       const doneOn = cumNeed > 0 && m.produced >= cumNeed ? reachDate(m, cumNeed) : null;
       let eta = null;
@@ -518,7 +566,12 @@ function buildOrder(orderNo, { jcRows, bomRows, planRows, dprRows, mouldStd, sch
       }
       return { mould_no: m.mould_no, mould_name: m.mould_name, ratio: m.ratio, required: need, produced: made,
         balance: Math.max(0, need - made), sets_equiv: m.ratio > 0 ? Math.floor(made / m.ratio) : 0,
+        part_group: m.part_moulds > 1 ? m.part_group : null,
         done_on: doneOn, eta };
+    });
+    perMould.filter(x => x.part_group != null).forEach(x => {
+      const made = perMould.filter(y => y.part_group === x.part_group).reduce((s, y) => s + y.produced, 0);
+      x.sets_equiv = x.ratio > 0 ? Math.floor(made / x.ratio) : 0;
     });
     const allDone = perMould.length > 0 && perMould.every(x => x.done_on);
     const ends = perMould.map(x => x.done_on || x.eta);
@@ -603,6 +656,7 @@ function buildOrder(orderNo, { jcRows, bomRows, planRows, dprRows, mouldStd, sch
       const n = mouldList.filter(m => !['COMPLETE', 'RUNNING'].includes(m.status)).sort((a, b) => a.start_seq - b.start_seq)[0];
       return n ? { mould_no: n.mould_no, mould_name: n.mould_name, must_start_by: n.must_start_by, expected_start: n.expected_start, start_state: n.start_state, machine: n.queue && n.queue.machine } : null;
     })(),
+    spare_moulds: spareMoulds,
     moulds: mouldList, job_cards: jobCards
   };
   order.process = orderProcess(jobCards);
@@ -1244,7 +1298,7 @@ function registerOrderTrackerRoutes(app, pool) {
       }
       const orderNos = (await pool.query(sql, params)).rows.map(r => r.order_no);
       const q = await queueSchedule(pool, factoryId);
-      const orders = await loadOrders(pool, orderNos, factoryId, q.map, q.board);
+      const orders = await loadOrders(pool, orderNos, factoryId, q.map, q.board, { byPart: true });
       /* open scope hides orders already complete in production */
       const data = (scope === 'open' ? orders.filter(o => !packingProgress.fullyDone(o)) : orders).map(slim);
       res.json({ ok: true, scope, server_time: new Date().toISOString(), data });
@@ -1261,7 +1315,7 @@ function registerOrderTrackerRoutes(app, pool) {
       if (!orderNo) return res.status(400).json({ ok: false, error: 'order_no is required' });
       const factoryId = getFactoryId(req) || null;
       const q = await queueSchedule(pool, factoryId);
-      const [order] = await loadOrders(pool, [orderNo], factoryId, q.map, q.board);
+      const [order] = await loadOrders(pool, [orderNo], factoryId, q.map, q.board, { byPart: true });
       if (!order) return res.status(404).json({ ok: false, error: 'Order not found' });
       res.json({ ok: true, server_time: new Date().toISOString(), data: order });
     } catch (e) {

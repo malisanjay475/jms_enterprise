@@ -1,6 +1,6 @@
 'use strict';
 
-const { buildParts, pickRatio } = require('../src/modules/orderTracker/orderParts');
+const { allocateParts, buildParts, pickRatio } = require('../src/modules/orderTracker/orderParts');
 
 const mould = (mould_no, o = {}) => ({
   mould_no, mould_name: mould_no + ' NAME', ratio: 1, ratio_bom: 1, ratio_source: 'plan', produced: 0, reject: 0, today_qty: 0,
@@ -92,4 +92,30 @@ describe('pieces per product when the plan and ERP disagree', () => {
     colours: [{ itemCode: 'A', planQty: 100 }],
     items: [item('X', 'A', 'Lid - Red', 100), item('X', 'B', 'Lid - Blue', 100), item('X', 'C', 'Lid - Green', 100)]
   })).toBe(3));
+});
+
+describe('order tracker need per mould', () => {
+  const m = (k, o = {}) => ({ key: k, mould_no: k, mould_name: k + ' NAME', ratio: 1, ratio_bom: 1, ratio_source: 'plan', produced: 0, plans: [], ...o });
+  const its = [item('A', 'P', 'Lid - Red', 100), item('B', 'P', 'Lid - Red', 100)];
+  const run = (list, o = {}) => allocateParts(list, its, { jrQty: 100, jcQty: 100, ...o });
+
+  test('the spare mould is not needed', () => {
+    const r = run([m('A', { produced: 40, plans: [plan('1', 100, 'RUNNING', 40)] }), m('B')]);
+    expect([...r.alloc.keys()]).toEqual(['A']);
+    expect(r.alloc.get('A').required).toBe(100);
+    expect(r.spare).toEqual([{ mould_no: 'B', mould_name: 'B NAME', role: 'ALTERNATE', used_instead: ['A'] }]);
+  });
+  test('two moulds in use share the need by open plan balance', () => {
+    const r = run([m('A', { produced: 40, plans: [plan('1', 60, 'RUNNING', 40)] }), m('B', { plans: [plan('2', 40, 'PLANNED')] })]);
+    expect(['A', 'B'].map(k => r.alloc.get(k).required)).toEqual([60, 40]);
+  });
+  test('done between them: both complete', () => {
+    const r = run([m('A', { produced: 70, plans: [plan('1', 70, 'COMPLETED', 70)] }), m('B', { produced: 50, plans: [plan('2', 50, 'COMPLETED', 50)] })]);
+    expect(r.alloc.get('A').required).toBeLessThanOrEqual(70);
+    expect(r.alloc.get('B').required).toBeLessThanOrEqual(50);
+  });
+  test('all dropped: the part is not counted; nothing planned: one mould is', () => {
+    expect(run([m('A'), m('B')], { drops: [{ mould_no: 'A' }, { mould_no: 'B' }] }).alloc.size).toBe(0);
+    expect([...run([m('A'), m('B')], { drops: [{ mould_no: 'A' }] }).alloc.keys()]).toEqual(['B']);
+  });
 });
