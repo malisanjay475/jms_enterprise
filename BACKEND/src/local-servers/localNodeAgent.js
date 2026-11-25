@@ -183,6 +183,24 @@ async function getSyncFailureSummary(pool) {
   }
 }
 
+// Access rows that exist only on this server (sync.service checkLocalOnlyAccess), shown with
+// the sync failures on MAIN's Settings page.
+function localOnlyAccessEntry(raw) {
+  try {
+    const found = JSON.parse(raw || 'null');
+    if (!found || !(found.count > 0)) return [];
+    return [{
+      table: 'user_factories (only on this server)',
+      count: found.count,
+      attempts: 0,
+      lastAttemptAt: found.checkedAt || null,
+      error: `Not on the main site: ${(found.users || []).join(', ')}`.slice(0, 400)
+    }];
+  } catch (_) {
+    return [];
+  }
+}
+
 function pickFirst(...values) {
   for (const value of values) {
     if (value !== undefined && value !== null && String(value).trim() !== '') {
@@ -309,7 +327,7 @@ async function sendHeartbeat(pool, config, agentConfig) {
     lastPushAt: serverConfig.LAST_PUSH || null,
     lastPullAt: serverConfig.LAST_PULL || null
   };
-  const syncFailures = await getSyncFailureSummary(pool);
+  const syncFailures = [...await getSyncFailureSummary(pool), ...localOnlyAccessEntry(serverConfig.LOCAL_ONLY_ACCESS)];
   await fetchJson(
     buildUrl(agentConfig.mainServerUrl, `/api/local-servers/${agentConfig.nodeId}/heartbeat`),
     {
@@ -344,7 +362,7 @@ async function sendSyncStatus(pool, config, agentConfig) {
     lastPushAt: serverConfig.LAST_PUSH || null,
     lastPullAt: serverConfig.LAST_PULL || null
   };
-  const syncFailures = await getSyncFailureSummary(pool);
+  const syncFailures = [...await getSyncFailureSummary(pool), ...localOnlyAccessEntry(serverConfig.LOCAL_ONLY_ACCESS)];
   await fetchJson(
     buildUrl(agentConfig.mainServerUrl, `/api/local-servers/${agentConfig.nodeId}/sync-status`),
     {
@@ -532,5 +550,5 @@ async function init({ pool, config }) {
 
 module.exports = {
   init,
-  __test: { fetchWithTimeout, networkErrorDetail }
+  __test: { fetchWithTimeout, networkErrorDetail, localOnlyAccessEntry }
 };
