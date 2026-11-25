@@ -53,8 +53,18 @@ class LoginViewModel : ViewModel() {
             _state.update { it.copy(error = "Enter username & password.") }
             return
         }
-        _state.update { it.copy(loading = true, error = null, statusLine = "Getting location…") }
+        _state.update { it.copy(loading = true, error = null, statusLine = "Finding the ${s.factory.label} server…") }
         viewModelScope.launch {
+            if (!FactoryServer.findServer()) {
+                _state.update {
+                    it.copy(
+                        loading = false, statusLine = null,
+                        error = "Can't reach the ${s.factory.label} server (${s.factory.host}). Connect the phone to that factory's Wi-Fi and try again."
+                    )
+                }
+                return@launch
+            }
+            _state.update { it.copy(statusLine = "Getting location…") }
             val geo = if (locationPermitted) LocationProvider.current(ShiftingApp.instance) else null
             _state.update {
                 it.copy(
