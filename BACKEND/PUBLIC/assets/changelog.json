@@ -11,10 +11,10 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.204.7",
+  "latest": "1.204.9",
   "versions": [
     {
-      "version": "1.204.7",
+      "version": "1.204.9",
       "date": "2026-11-25",
       "title": "Extra made in the order popup, Tonnage load by part",
       "modules": [
@@ -24,6 +24,30 @@
             { "type": "feat", "text": "The plan popup shows Extra Made for the plan and for each colour, and the extra pieces under Balance." },
             { "type": "fix", "text": "Plan balance adds up the colours, so extra pieces of one colour no longer hide what is left of another." },
             { "type": "fix", "text": "Order Tracker Tonnage load counts a part once when several moulds can make it, so unused and dropped moulds no longer add machine hours." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.204.8",
+      "date": "2026-11-25",
+      "changes": [
+        {
+          "app": "all",
+          "type": "fix",
+          "text": "Deleting a user now reaches every factory server, and a user re-created on the main site no longer stops a factory server's sync. Users can be added, edited or deleted only on the main site."
+        }
+      ]
+    },
+    {
+      "version": "1.204.7",
+      "date": "2026-11-25",
+      "title": "App links always give the newest app",
+      "modules": [
+        {
+          "app": "all",
+          "changes": [
+            { "type": "fix", "text": "The QC, Shifting and Chat app download links always give the newest app; phones could reinstall an old copy for up to 7 days." }
           ]
         }
       ]
