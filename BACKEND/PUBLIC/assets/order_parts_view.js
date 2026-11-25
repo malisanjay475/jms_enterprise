@@ -205,7 +205,7 @@
             ${p.colours.length ? `<div class="opv-h">Colour-wise</div><div style="overflow-x:auto"><table class="opv-in" style="min-width:480px;max-width:760px"><thead><tr><th>Colour</th><th style="text-align:right">Required</th><th style="text-align:right">Made</th><th style="text-align:right">Balance</th><th style="text-align:right">Reject</th><th>Progress</th></tr></thead><tbody>
                 ${p.colours.map(c => {
                     const pc = c.required > 0 ? Math.min(100, Math.round(c.produced / c.required * 100)) : 0;
-                    return `<tr><td><b>${esc(c.colour)}</b></td><td class="num">${c.required ? n(c.required) : '–'}</td><td class="num" style="color:#15803d">${n(c.produced)}</td><td class="num">${n(c.balance)}</td><td class="num">${n(c.reject)}</td><td><span class="opv-sm">${pc}%</span><div class="opv-prog ${pc >= 100 ? 'done' : ''}"><span style="width:${pc}%"></span></div></td></tr>`;
+                    return `<tr><td><b>${esc(c.colour)}</b></td><td class="num">${c.required ? n(c.required) : '–'}</td><td class="num" style="color:#15803d">${n(c.produced)}</td><td class="num">${n(c.balance)}${c.required > 0 && c.produced > c.required ? `<div class="opv-sm">+${n(c.produced - c.required)} extra</div>` : ''}</td><td class="num">${n(c.reject)}</td><td><span class="opv-sm">${pc}%</span><div class="opv-prog ${pc >= 100 ? 'done' : ''}"><span style="width:${pc}%"></span></div></td></tr>`;
                 }).join('')}</tbody></table></div>` : ''}`;
     }
 
@@ -225,7 +225,7 @@
                     <td><b>${esc(p.name)}</b>${limit ? ' ' + badge('Holding the order', 'stopped') : ''}<div class="opv-sm">${esc(sub)}</div>${p.machines.length ? `<div class="opv-sm">On ${esc(p.machines.map(mach).join(', '))}</div>` : ''}</td>
                     <td class="num">${n(p.ratio)}</td><td class="num">${n(p.required)}</td>
                     <td class="num">${n(p.planned)}${p.plan_gap > 0 && p.counted ? `<div class="opv-sm" style="color:#b45309">${n(p.plan_gap)} short</div>` : ''}</td>
-                    <td class="num" style="color:#15803d">${n(p.produced)}</td><td class="num" style="color:${p.balance > 0 ? '#b45309' : '#15803d'}">${n(p.balance)}</td>
+                    <td class="num" style="color:#15803d">${n(p.produced)}</td><td class="num" style="color:${p.balance > 0 ? '#b45309' : '#15803d'}">${n(p.balance)}${p.required > 0 && p.produced > p.required ? `<div class="opv-sm">+${n(p.produced - p.required)} extra</div>` : ''}</td>
                     <td>${p.counted ? `<b>${n(p.sets)}</b> <span class="opv-sm">${unitOf(d)}s · ${p.pct}%</span><div class="opv-prog ${p.pct >= 100 ? 'done' : limit ? 'low' : ''}"><span style="width:${p.pct}%"></span></div>` : '<span class="opv-sm">not counted</span>'}</td>
                     <td>${badge(st[0], st[1])}</td>
                     <td class="opv-sm" style="white-space:nowrap">${p.status === 'COMPLETE' ? 'Done' : p.eta ? dt(p.eta) : p.counted ? 'Not known' : '–'}</td></tr>
