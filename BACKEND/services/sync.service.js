@@ -260,7 +260,7 @@ const TABLES_TO_PULL = [...SYNC_ALL];
 //     is the load-bearing factory_id referenced everywhere, so it must never be re-minted.
 //   vendor_payments/grn_entries/jc_summaries/job_cards/plan_history — no writer anywhere;
 //     they only ever receive rows from MAIN, so a LOCAL has nothing to push.
-const LOCAL_NO_PUSH_TABLES = ['users', 'roles', 'erp_jr_status', 'erp_jr_summary', 'erp_jr_details', 'erp_bom', 'erp_mould_item',
+const LOCAL_NO_PUSH_TABLES = ['users', 'roles', 'user_factories', 'erp_jr_status', 'erp_jr_summary', 'erp_jr_details', 'erp_bom', 'erp_mould_item',
     'bom_master', 'bom_components', 'factories', 'vendor_payments', 'grn_entries', 'jc_summaries', 'job_cards', 'plan_history',
     // Full-replication batch 6 — head-office modules authored on MAIN (procurement, HR,
     // interview panel, job-card detail). They keep serial-id keys with internal id links
@@ -287,6 +287,11 @@ const LOCAL_NO_PUSH_TABLES = ['users', 'roles', 'erp_jr_status', 'erp_jr_summary
     'packing_workers',
     // Day close lost-time reasons: set on MAIN only.
     'packing_loss_reasons'];
+
+// Who may use which factory goes with users: MAIN decides. MAIN also ignores it from a LOCAL
+// on an older version, whose outbox re-sent old access on every cycle (so access removed on
+// MAIN came back) and whose user ids can mean somebody else on MAIN.
+const MAIN_IGNORES_FROM_LOCAL = new Set(['user_factories']);
 
 const CONFLICT_KEYS = {
     users: 'id',
@@ -982,6 +987,12 @@ router.post('/push', async (req, res) => {
         if (!syncKeyValid(apiKey)) return res.status(403).json({ error: 'Invalid Key' });
         if (!TABLES_TO_PUSH.includes(table)) return res.status(400).json({ error: 'Invalid Table' });
 
+        // Answer as saved, so the sender clears the rows instead of retrying them for ever.
+        if (MAIN_IGNORES_FROM_LOCAL.has(table)) {
+            const ignored = Array.isArray(data) ? data.length : 0;
+            return res.json({ ok: true, rows: ignored, stats: { created: 0, updated: 0, failed: 0 }, partialFailures: false, ignored: true });
+        }
+
         console.log(`[Sync] Received ${Array.isArray(data) ? data.length : 0} rows for ${table} from Factory ${factoryId}`);
 
         const normalized = Array.isArray(data) ? data : [];
@@ -1036,7 +1047,8 @@ router.post('/push-deletions', async (req, res) => {
         if (!syncKeyValid(apiKey)) return res.status(403).json({ error: 'Invalid Key' });
         if (!Array.isArray(deletions)) return res.status(400).json({ error: 'Invalid deletions payload' });
 
-        const normalized = deletions.filter((entry) => entry && TABLES_TO_PUSH.includes(entry.table));
+        const normalized = deletions.filter((entry) => entry && TABLES_TO_PUSH.includes(entry.table)
+            && !MAIN_IGNORES_FROM_LOCAL.has(entry.table));
         const stats = await applyRemoteDeletions(normalized);
         if (stats.failed > 0) {
             return res.status(500).json({ error: `Failed to apply ${stats.failed} deletion(s)`, stats });
@@ -1656,7 +1668,13 @@ async function drainOutbox() {
 
     for (const table of tables) {
         if (!TABLES_TO_PUSH.includes(table)) continue;
-        if (SERVER_TYPE === 'LOCAL' && LOCAL_NO_PUSH_TABLES.includes(table)) continue;
+        if (SERVER_TYPE === 'LOCAL' && LOCAL_NO_PUSH_TABLES.includes(table)) {
+            // Parked before the table became MAIN-only: it can never be sent, so drop it.
+            await pool.query('DELETE FROM sync_failed_rows WHERE table_name = $1', [table]).catch((e) => {
+                console.error(`[Sync] Outbox cleanup failed for ${table}:`, e.message);
+            });
+            continue;
+        }
 
         let res;
         try {
