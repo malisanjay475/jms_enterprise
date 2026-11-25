@@ -95,11 +95,12 @@ if command -v rclone >/dev/null 2>&1 && rclone listremotes 2>/dev/null | grep -q
   fi
 
   if [ -f "$UP_FILE" ]; then
-    # The full archive (~3.4 GB in Oct-2026) goes up once a day (re-sending it every 6h timed
-    # out the job). If it fails or runs out of time it is retried next run.
+    # The full archive (~15.5 GB in Nov-2026) goes up once a day. At 8 MB/s that takes ~33 min;
+    # 60m leaves room for growth to ~28 GB. rclone cannot resume a stopped upload, so too short
+    # a limit wastes the whole transfer. Raise it together with the workflow timeouts.
     TODAY="$(date +%Y-%m-%d)"; FULL_MARK="$BACKUP_ROOT/.last-full-uploads-drive"
     if [ "$(cat "$FULL_MARK" 2>/dev/null)" != "$TODAY" ]; then
-      if $LOWPRIO timeout "${FULL_UPLOAD_TIMEOUT:-25m}" rclone copy "$UP_FILE" "${RCLONE_REMOTE}:${RCLONE_DEST}/uploads/${M}/" --no-traverse $RC_FLAGS 2>&1; then
+      if $LOWPRIO timeout "${FULL_UPLOAD_TIMEOUT:-60m}" rclone copy "$UP_FILE" "${RCLONE_REMOTE}:${RCLONE_DEST}/uploads/${M}/" --no-traverse $RC_FLAGS 2>&1; then
         echo "$TODAY" > "$FULL_MARK"; log "Drive: full uploads archive uploaded (daily)."
       else log "WARN: Drive full uploads archive failed or ran out of time (retries next run)."; fi
     else log "Drive: full uploads archive already sent today — skipped."; fi
