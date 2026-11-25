@@ -833,7 +833,7 @@
                       </div>
                     </div>
                   </div>
-                  <div id="summary-container">
+                  <div id="summary-container" data-no-motion>
                     <div style="padding:20px; text-align:center; color:#64748b"><i class="bi bi-arrow-repeat spin"></i> Loading summary map...</div>
                   </div>
                 `;
@@ -1849,6 +1849,13 @@
                         b.classList.toggle('is-on', on); b.setAttribute('aria-pressed', on ? 'true' : 'false');
                     });
                 };
+                // Cells keep only a number; the record is looked up when a cell is clicked
+                // (copying every record into the HTML made the page slow). A copy is handed out.
+                let dprRefs = [];
+                const dprKeep = (obj) => dprRefs.push(obj) - 1;
+                window.dprRef = (i) => JSON.parse(JSON.stringify(dprRefs[i] || {}));
+                const dprTimeFmt = new Intl.DateTimeFormat([], { hour: '2-digit', minute: '2-digit' });
+                const dprDayFmt = new Intl.DateTimeFormat('en-GB', { day: '2-digit', month: 'short' });
                 const loadSummary = async () => {
                     const loadSeq = ++dprLoadSeq;
                     dprProcess = document.getElementById('s-process-sel')?.value || dprProcess;
@@ -1964,6 +1971,7 @@
                     Promise.all([...promises, scopedMachinesPromise, maintPromise, memoPromise]).then(([resDayMat, resNightMat, resDayTeam, resNightTeam, scopedMachinesRes, maintRes, memoRes]) => {
                         if (loadSeq !== dprLoadSeq) return;
                         // Error Check
+                        dprRefs = [];
                         if (!resDayMat.ok) throw new Error(resDayMat.error || 'Day Fetch Failed');
                         if (!resNightMat.ok) throw new Error(resNightMat.error || 'Night Fetch Failed');
 
@@ -2633,7 +2641,7 @@
                                             if (mmMode) {
                                                 // Machine-wise: every row is one date+shift, so label it with both.
                                                 const badgeColor = (rowShift === 'Day') ? '#f59e0b' : '#6366f1';
-                                                const dLbl = new Date(date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
+                                                const dLbl = dprDayFmt.format(new Date(date));
                                                 label += ` <span style="color:#334155; font-size:0.7rem; background:#e2e8f0; padding:1px 5px; border-radius:4px; margin-left:4px">${dLbl}</span>`;
                                                 label += ` <span style="color:${badgeColor}; font-size:0.7rem; background:${badgeColor}15; padding:1px 4px; border-radius:4px; margin-left:3px">${rowShift}</span>`;
                                             } else if (shiftMode === 'Both') {
@@ -2673,7 +2681,7 @@
                                             : '';
 
                                         let mouldDisplay = `
-                                             <div style="cursor:pointer" onclick='showJobDetails(${JSON.stringify({ ...d, _row_date: date, _row_shift: rowShift }).replace(/'/g, "&apos;")}, "${m.order_no || ''}")'>
+                                             <div style="cursor:pointer" onclick='showJobDetails(dprRef(${dprKeep({ ...d, _row_date: date, _row_shift: rowShift })}), "${m.order_no || ''}")'>
                                                  <div style="display:flex; flex-direction:column; gap:0px">
                                                      ${ordHtml}
                                                      ${cliHtml}
@@ -2909,33 +2917,27 @@
                                                     const autoBadge = isAuto      ? `<span style="font-size:0.58rem;color:#fff;background:#94a3b8;padding:1px 3px;border-radius:2px;font-weight:700" title="Auto-Filled">AUTO</span>` : '';
                                                     const ccBadge   = isCC        ? `<span style="font-size:0.58rem;color:#c2410c;background:#fff7ed;border:1px solid #ffedd5;padding:1px 3px;border-radius:2px;font-weight:700">CC</span>` : '';
 
-                                                    const timeStr = entry.created_at ? new Date(entry.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+                                                    const timeStr = entry.created_at ? dprTimeFmt.format(new Date(entry.created_at)) : '';
 
                                                     const rejQty = Number(entry.reject_qty || 0);
 
                                                     content += `
-                                                        <div onclick='showEntryDetails(${JSON.stringify(entry).replace(/'/g, "&apos;")})' style="cursor:pointer;flex:1;min-width:0;width:100%;background:${blockBg};${separator}padding:3px 4px;display:flex;flex-direction:column;gap:2px;transition:background 0.2s" onmouseover="this.style.filter='brightness(0.94)'" onmouseout="this.style.filter='none'">
+                                                        <div onclick='showEntryDetails(dprRef(${dprKeep(entry)}))' style="cursor:pointer;flex:1;min-width:0;width:100%;background:${blockBg};${separator}padding:3px 4px;display:flex;flex-direction:column;gap:2px;transition:background 0.2s" onmouseover="this.style.filter='brightness(0.94)'" onmouseout="this.style.filter='none'">
 
-                                                            <!-- Row 1: 90 | 10  (good green | rej red, no label) + QC verified tick -->
                                                             <div style="display:flex;flex-wrap:wrap;align-items:baseline;gap:3px;line-height:1;min-width:0">
                                                                 <span style="font-weight:800;font-size:0.95rem;color:#15803d;line-height:1">${entry.good_qty}</span>
                                                                 ${rejQty > 0 ? `<span style="font-size:0.78rem;color:#9ca3af;font-weight:600;line-height:1">|</span><span style="font-weight:800;font-size:0.85rem;color:#dc2626;line-height:1">${rejQty}</span>` : ''}
                                                                 ${qcMarkHtml(entry)}
                                                             </div>
 
-                                                            <!-- Row 2: Time -->
                                                             ${timeStr ? `<div style="font-size:0.62rem;color:#64748b;font-weight:600;line-height:1">${timeStr}</div>` : ''}
 
-                                                            <!-- Row 3: Auto DT -->
                                                             ${autoDtStr ? `<div style="font-size:0.68rem;color:#be185d;font-weight:600;line-height:1">${autoDtStr}</div>` : ''}
 
-                                                            <!-- Row 4: Colour name — plain block, wraps at word boundaries, max 3 lines -->
                                                             ${colName ? `<div style="font-size:0.68rem;color:#334155;font-weight:600;line-height:1.3;overflow:hidden;max-height:3.9em;width:100%;word-break:normal;overflow-wrap:anywhere;white-space:normal" title="${colName}">${colName}</div>` : ''}
 
-                                                            <!-- Row 5: Badges only if present (CC / PPC / AUTO) -->
                                                             ${(ccBadge || ppcBadge || autoBadge) ? `<div style="display:flex;gap:2px;flex-wrap:wrap">${ccBadge}${ppcBadge}${autoBadge}</div>` : ''}
 
-                                                            <!-- Bottom half: supervisor DT reason strip (half-split card) -->
                                                             ${manualDtHtml}
 
                                                         </div>
@@ -4384,7 +4386,10 @@
                 // Machine details (Prod / QC / Shifting strip) start hidden; one click shows them on every machine.
                 document.addEventListener('click', (ev) => {
                     const b = ev.target.closest && ev.target.closest('[data-dpr-flow]');
-                    if (b) b.setAttribute('aria-pressed', String(document.body.classList.toggle('dpr-show-flow')));
+                    if (!b) return;
+                    const on = document.body.classList.toggle('dpr-show-flow');
+                    b.setAttribute('aria-pressed', String(on));
+                    if (on && window.JMSJobShifting) window.JMSJobShifting.decorate(document.getElementById('summary-container'));
                 });
                 // Sort buttons on the Lines deck: re-order the cards in place, no reload.
                 document.addEventListener('click', (ev) => {

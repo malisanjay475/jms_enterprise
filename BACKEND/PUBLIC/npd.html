@@ -529,9 +529,12 @@
             }
             const editText = (p, f, v, ph, cls) => `<button type="button" class="ed-t ${cls || ''}${v ? '' : ' ph'}" data-id="${p.id}" data-edit="${f}" title="Click to edit">${esc(v || ph)}</button>`;
             const remarkCell = p => `<td>${deptRemarks(p)}${S.canEdit ? editText(p, 'remarks', p.remarks, 'Add general remark') : (p.remarks ? `<div style="white-space:pre-wrap;overflow-wrap:anywhere">${esc(p.remarks)}</div>` : '')}</td>`;
+            /* only the main product is launched: a child mould has no Launched status */
+            const statusOf = p => p.parent_sync_id && p.status === 'Launched' ? '' : p.status || '';
             function statusCell(p) {
-                if (!S.canEdit) return `<td class="s">${p.status ? `<span class="cell ${psClass(p.status)}">${esc(p.status)}</span>` : '<span class="none">—</span>'}</td>`;
-                return `<td class="s"><button type="button" class="cell ${psClass(p.status)}" data-id="${p.id}" data-status aria-haspopup="menu">${esc(p.status || 'Set status')}<i class="bi bi-chevron-down" style="font-size:9px"></i></button></td>`;
+                const st = statusOf(p);
+                if (!S.canEdit) return `<td class="s">${st ? `<span class="cell ${psClass(st)}">${esc(st)}</span>` : '<span class="none">—</span>'}</td>`;
+                return `<td class="s"><button type="button" class="cell ${psClass(st)}" data-id="${p.id}" data-status aria-haspopup="menu">${esc(st || 'Set status')}<i class="bi bi-chevron-down" style="font-size:9px"></i></button></td>`;
             }
             function colourCell(p) {
                 const tags = colourList(p.trial_colours).map(c => `<span class="ctag">${esc(c)}${S.canColours ? `<button type="button" data-cdel="${p.id}" data-c="${esc(c)}" title="Remove ${esc(c)}" aria-label="Remove ${esc(c)}">×</button>` : ''}</span>`).join('');
@@ -830,7 +833,7 @@
                 if (b.dataset.edit) return editInline(b);
                 if ('date' in b.dataset) return editDate(b);
                 if (b.dataset.stage) return openMenu(b, M_STATE, (p.stages || {})[b.dataset.stage] || 'pending', v => askRemark(id, b.dataset.stage, v));
-                if ('status' in b.dataset) return openMenu(b, [['', 'No status'], ...PSTAT.map(x => [x, x])], p.status || '', async v => { if (await save(id, { status: v })) render(true); });
+                if ('status' in b.dataset) return openMenu(b, [['', 'No status'], ...PSTAT.filter(x => !(p.parent_sync_id && x === 'Launched')).map(x => [x, x])], statusOf(p), async v => { if (await save(id, { status: v })) render(true); });
                 if ('factory' in b.dataset) return openMenu(b, [['', 'No factory'], ...[...new Set([...S.factories, p.factory].filter(Boolean))].map(x => [x, x])], p.factory || '', async v => { if (await save(id, { factory: v })) render(true); });
                 if (b.dataset.cadd) {
                     const cur = colourList(p.trial_colours);

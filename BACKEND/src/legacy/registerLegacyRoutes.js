@@ -6553,6 +6553,9 @@ async function initializeLegacyRuntime() {
     // the machine-wise / machine-date-history reports look up dpr_hourly by machine (+ date).
     // No (machine, dpr_date) index existed, so each per-machine read scanned by date alone.
     await qIdx(`CREATE INDEX IF NOT EXISTS idx_dpr_hourly_machine_date ON dpr_hourly(machine, dpr_date) WHERE is_deleted = false;`);
+    // Shifting job flow / availability match plans by TRIM(CAST(plan_id AS TEXT)); without
+    // this index every call scanned the whole dpr_hourly table.
+    await qIdx(`CREATE INDEX IF NOT EXISTS idx_dpr_hourly_plan_trim ON dpr_hourly(TRIM(CAST(plan_id AS TEXT))) WHERE is_deleted IS NOT TRUE;`);
     // Reports perf: tonnage / dpr-daily / other date-range rollups scan dpr_hourly by
     // dpr_date alone (shift='all'), which the shift-leading idx_dpr_hourly_shift_date_fac
     // cannot serve. A date-leading partial index turns those big range scans into an index
@@ -16494,7 +16497,7 @@ app.get('/api/planning/orders/:orderNo/history', async (req, res) => {
        ) ojr ON true
        WHERE TRIM(COALESCE(pb.order_no,'')) = TRIM($1)
          AND pb.status = 'COMPLETED'
-         AND pb.factory_id = $2
+         AND ($2::int IS NULL OR pb.factory_id = $2)
        ORDER BY pb.completed_at DESC NULLS LAST`,
       [orderNo, factoryId]
     );
@@ -26198,8 +26201,9 @@ app.get('/api/dpr/summary-matrix', async (req, res) => {
       sqlMachines += ` AND COALESCE(NULLIF(TRIM(machine_process), ''), 'Moulding') = $${mParams.length + 1}`;
       mParams.push(requestedProcess);
     }
-    const machinesRes = await q(sqlMachines, mParams);
-    const machines = machinesRes.sort((a, b) => naturalCompare(a.machine, b.machine));
+    // The queries below are independent, so they run side by side.
+    const settle = (p) => { p.catch(() => {}); return p; }; // a failure is raised where it is awaited
+    const machinesP = settle(q(sqlMachines, mParams));
 
     // 1.1 Get Closed Plants for this Range
     let sqlClosed = `SELECT id, dpr_date::text as dpr_date_str, plant, shift, remarks FROM closed_plants WHERE dpr_date BETWEEN $1 AND $2`;
@@ -26208,7 +26212,7 @@ app.get('/api/dpr/summary-matrix', async (req, res) => {
       sqlClosed += ` AND (factory_id = $3 OR factory_id IS NULL)`; // a closure saved without a factory applies to all
       cParams.push(factoryId);
     }
-    const closedPlants = await q(sqlClosed, cParams);
+    const closedP = settle(q(sqlClosed, cParams));
 
     // 2. Get DPR Entries for this Range
     let sqlEntries = `
@@ -26309,11 +26313,7 @@ app.get('/api/dpr/summary-matrix', async (req, res) => {
     if (factoryId) {
       entryParams.push(factoryId);
     }
-    const entries = await q(sqlEntries, entryParams);
-    // Safety net: a dpr_hourly row must appear exactly once. Even if a LEFT JOIN ever
-    // fans out again (a non-unique join key), collapse back to one row per dpr_hourly id
-    // so the matrix can never render the same entry twice.
-    dedupeById(entries);
+    const entriesP = settle(q(sqlEntries, entryParams));
 
     // 3. Get Setup Data (std_actual) for Range
     let setupQuery = `
@@ -26462,7 +26462,12 @@ app.get('/api/dpr/summary-matrix', async (req, res) => {
     const setupParams = [fDate, tDate, shift, factoryId || null];
 
     // 3. Get Setup Data (std_actual) for Date Range
-    const setups = await q(setupQuery, setupParams);
+    const [machinesRes, closedPlants, entries, setups] = await Promise.all([machinesP, closedP, entriesP, q(setupQuery, setupParams)]);
+    const machines = machinesRes.sort((a, b) => naturalCompare(a.machine, b.machine));
+    // Safety net: a dpr_hourly row must appear exactly once. Even if a LEFT JOIN ever
+    // fans out again (a non-unique join key), collapse back to one row per dpr_hourly id
+    // so the matrix can never render the same entry twice.
+    dedupeById(entries);
     // Safety net: one row per std_actual id (see dedupeById note on entries above).
     dedupeById(setups);
 
