@@ -11,8 +11,21 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.204.6",
+  "latest": "1.204.7",
   "versions": [
+    {
+      "version": "1.204.7",
+      "date": "2026-11-25",
+      "title": "App links always give the newest app",
+      "modules": [
+        {
+          "app": "all",
+          "changes": [
+            { "type": "fix", "text": "The QC, Shifting and Chat app download links always give the newest app; phones could reinstall an old copy for up to 7 days." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.204.6",
       "date": "2026-11-25",
