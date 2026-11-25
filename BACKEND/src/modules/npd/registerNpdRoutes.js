@@ -463,6 +463,8 @@ function registerNpdRoutes(app, pool) {
         pool.query('SELECT id, product_sync_id, kind, file_path, original_name, uploaded_by, uploaded_at FROM npd_files ORDER BY uploaded_at, id'),
         npdFactoryScope(pool, u)
       ]);
+      const master = !isNpdHo(u) ? [] : scope.all ? scope.names
+        : (await pool.query('SELECT name FROM factories WHERE COALESCE(is_active, TRUE) ORDER BY id')).rows.map(r => r.name);
       const byProduct = new Map();
       files.rows.forEach(f => {
         const k = String(f.product_sync_id);
@@ -481,6 +483,8 @@ function registerNpdRoutes(app, pool) {
         /* factories this user may switch between; all = every factory */
         factories: scope.names,
         all_factories: scope.all,
+        /* factory master for H.O's Factory column (saves the page a second call) */
+        factory_master: master,
         data: scopeProducts(products.rows, scope, u).map(p => ({ ...p, files: byProduct.get(String(p.sync_id)) || [] }))
       });
     } catch (err) { sendServerError(res, err); }
@@ -505,7 +509,8 @@ function registerNpdRoutes(app, pool) {
       const count = new Map(files.rows.map(f => [`${f.product_sync_id}:${f.kind}`, f.n]));
       const parents = products.rows.filter(p => !p.parent_sync_id).filter(p =>
         (!status || (p.status || 'No status') === status) &&
-        (!q || `${p.product_name} ${p.sr_no || ''}`.toLowerCase().includes(q)));
+        (!q || [p, ...products.rows.filter(c => String(c.parent_sync_id) === String(p.sync_id))]
+          .some(x => `${x.product_name} ${x.product_code || ''} ${x.sr_no || ''}`.toLowerCase().includes(q))));
       /* each product followed by its child moulds */
       const rows = parents.flatMap(p => [p, ...products.rows.filter(c => String(c.parent_sync_id) === String(p.sync_id))]);
 
