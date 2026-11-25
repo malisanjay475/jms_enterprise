@@ -11,8 +11,21 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.204.4",
+  "latest": "1.204.6",
   "versions": [
+    {
+      "version": "1.204.6",
+      "date": "2026-11-25",
+      "title": "Order popup job card table",
+      "modules": [
+        {
+          "app": "planning",
+          "changes": [
+            { "type": "fix", "text": "In the order popup the job card table numbers line up under their column headings." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.204.4",
       "date": "2026-11-25",
