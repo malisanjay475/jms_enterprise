@@ -11,17 +11,26 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.204.0",
+  "latest": "1.204.1",
   "versions": [
     {
       "version": "1.204.1",
       "date": "2026-11-25",
+<<<<<<< HEAD
+      "title": "DPR Compliance Summary loads faster",
+      "modules": [
+        {
+          "app": "dpr",
+          "changes": [
+            { "type": "perf", "text": "Compliance Summary opens faster, most of all for Day + Night and for several days; the figures are unchanged." }
+=======
       "title": "NPD Tracker: Launched only on the main product",
       "modules": [
         {
           "app": "npd",
           "changes": [
             { "type": "improvement", "text": "Child moulds no longer have the Launched status. Launched is set on the main product only." }
+>>>>>>> origin/develop
           ]
         }
       ]

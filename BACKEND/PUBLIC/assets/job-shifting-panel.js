@@ -156,6 +156,8 @@
         if (!container) return;
         const cells = [...container.querySelectorAll('td[data-dpr-machine]')];
         if (!cells.length) return;
+        // DPR Moulding summary: the strip is hidden until "Show details", so do not load it before.
+        if (container.querySelector('.dpr-deck') && !document.body.classList.contains('dpr-show-flow')) return;
         // One strip per machine per date block (job-level figures).
         const seen = new Set();
         const targets = cells.filter(td => {

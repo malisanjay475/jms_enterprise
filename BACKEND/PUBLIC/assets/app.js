@@ -1148,10 +1148,12 @@ function escHtml(value) {
         const reduceMotion = typeof window.matchMedia === 'function'
             && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
         let order = 0;
+        const toMeasure = [];
 
         collectMotionTargets(root).forEach(node => {
             if (!(node instanceof HTMLElement)) return;
-            if (node.id === 'global-loader' || node.closest('#global-loader')) return;
+            if (node.id === 'global-loader' || node.closest('#global-loader, [data-no-motion]')) return;
+            if (node.dataset.motionBound === 'true' && node.classList.contains('motion-visible')) { order++; return; }
             if (node.dataset.motionBound !== 'true') {
                 node.dataset.motionBound = 'true';
                 node.classList.add('motion-target');
@@ -1170,11 +1172,14 @@ function escHtml(value) {
             }
 
             premiumMotionObserver.observe(node);
-            const rect = node.getBoundingClientRect();
-            if (rect.top <= window.innerHeight * 0.9) {
-                revealMotionTarget(node);
-                premiumMotionObserver.unobserve(node);
-            }
+            toMeasure.push(node);
+        });
+
+        // Read positions only after every write above, so the page is laid out once.
+        const limit = window.innerHeight * 0.9;
+        toMeasure.filter(node => node.getBoundingClientRect().top <= limit).forEach(node => {
+            revealMotionTarget(node);
+            premiumMotionObserver.unobserve(node);
         });
     }
 
