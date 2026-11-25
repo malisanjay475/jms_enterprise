@@ -355,6 +355,8 @@
     #summary-container.dpr-narrow .dpr-std-cell { position:static !important; }
     .dpr-lt { grid-template-columns:repeat(auto-fit,minmax(106px,1fr)) !important; }
     .dpr-lt .dpr-pt-value, .dpr-pt-chg { overflow:visible; flex-wrap:wrap; }
+    /* Machine details strip: hidden until "Show details" */
+    body:not(.dpr-show-flow) #summary-container:has(.dpr-deck) .jms-flow, body:not(.dpr-show-flow) .dpr-flow-on, body.dpr-show-flow .dpr-flow-off { display:none !important; }
     @media (max-width:760px) { .dpr-lt { grid-template-columns:repeat(auto-fit,minmax(92px,1fr)) !important; } }
     </style>
 </head>
@@ -392,7 +394,7 @@
 
     <script src="/assets/app.min.js?v=1583"></script>
   <script src="/assets/machine-status-meta.js?v=1"></script>
-  <script src="/assets/dpr-script-1.js?v=release128"></script>
+  <script src="/assets/dpr-script-1.js?v=release129"></script>
 
     <!-- ADMIN EDIT MODAL -->
     <div id="dprEditModal" class="modal"
