@@ -11,8 +11,21 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.204.3",
+  "latest": "1.204.4",
   "versions": [
+    {
+      "version": "1.204.4",
+      "date": "2026-11-25",
+      "title": "Order popup opens the new view",
+      "modules": [
+        {
+          "app": "planning",
+          "changes": [
+            { "type": "fix", "text": "The Machine Timeline order popup opens the new part-wise view; it was falling back to the old table without the product name." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.204.3",
       "date": "2026-11-25",
