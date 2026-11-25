@@ -325,6 +325,28 @@
     .dpr-lt .dpr-pt-chg { gap:6px; font-size:.72rem; } .dpr-lt .dpr-pt-chg b { font-size:.8rem; }
     @media (max-width:1280px) { .dpr-lt { grid-template-columns:repeat(6,minmax(0,1fr)); } }
     @media (max-width:760px) { .dpr-lt { grid-template-columns:repeat(3,minmax(0,1fr)); } }
+    /* DPR compliance v3.6: quick dates, Apply-only filters, folded insights + lines */
+    .dpr-ov { grid-template-areas:"score hours hours hours"; }
+    .dpr-quick { height:36px; box-sizing:border-box; }
+    #sticky-dpr-filter .dpr-quick button { font-size:.8rem; padding:0 10px; }
+    #sticky-dpr-filter #s-search { width:140px !important; } #sticky-dpr-filter #s-eff-filter { width:140px; } #sticky-dpr-filter #s-line-btn { min-width:104px !important; }
+    .dpr-quick button:hover { background:var(--dpr-soft); } .dpr-quick button.is-on:hover { background:#e0f2fe; }
+    .dpr-seg button:focus-visible, .dpr-fold-btn:focus-visible { outline:2px solid var(--dpr-accent); outline-offset:-2px; }
+    #sticky-dpr-filter #btn-s-apply.is-pending { background:#b45309 !important; box-shadow:0 0 0 3px rgba(217,119,6,.28); }
+    .dpr-fold-btn { display:inline-flex; align-items:center; gap:9px; border:0; background:transparent; padding:6px 4px; font:inherit; font-size:.76rem; color:var(--dpr-mute); cursor:pointer; text-align:left; border-radius:8px; }
+    .dpr-fold-btn strong { font-size:.95rem; color:var(--dpr-ink); }
+    .dpr-fold-btn > i { color:var(--dpr-accent); transition:transform .15s ease; }
+    .dpr-fold-btn[aria-expanded="true"] > i { transform:rotate(90deg); }
+    .dpr-fold:not(.is-open) .dpr-fold-body { display:none; }
+    .dpr-fold { background:#fff; border:1px solid var(--dpr-line); border-radius:14px; padding:6px 12px; margin-bottom:12px; box-shadow:0 1px 2px rgba(15,23,42,.04); }
+    .dpr-fold.is-open { padding-bottom:12px; }
+    .dpr-deck.dpr-fold .dpr-deck-head { margin-bottom:0; } .dpr-deck.dpr-fold.is-open .dpr-deck-head { margin-bottom:8px; }
+    .dpr-fold-ins .dpr-fold-btn { width:100%; }
+    .dpr-ins-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; margin-top:6px; }
+    .dpr-ins-grid > .dpr-ov-card { grid-area:auto; }
+    @media (max-width:1280px) { .dpr-ov { grid-template-areas:"score hours"; } }
+    @media (max-width:760px) { .dpr-ov { grid-template-areas:"score" "hours"; } .dpr-ins-grid { grid-template-columns:minmax(0,1fr); } }
+    @media (prefers-reduced-motion:reduce) { .dpr-fold-btn > i { transition:none; } }
     </style>
 </head>
 
@@ -361,7 +383,7 @@
 
     <script src="/assets/app.min.js?v=1583"></script>
   <script src="/assets/machine-status-meta.js?v=1"></script>
-  <script src="/assets/dpr-script-1.js?v=release125"></script>
+  <script src="/assets/dpr-script-1.js?v=release126"></script>
 
     <!-- ADMIN EDIT MODAL -->
     <div id="dprEditModal" class="modal"
@@ -458,8 +480,8 @@
                 if (!res || !res.ok) throw new Error((res && res.error) || 'Delete failed');
                 document.querySelectorAll('[data-qc-pop]').forEach(el => el.remove());
                 if (typeof after === 'function') after();
-                const sel = document.getElementById('s-process-sel');
-                if (sel) sel.dispatchEvent(new Event('change'));
+                const applyBtn = document.getElementById('btn-s-apply'); // filters load only on Apply
+                if (applyBtn) applyBtn.click();
             } catch (e) {
                 alert('Could not delete: ' + (e.message || e));
             }

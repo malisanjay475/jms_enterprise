@@ -754,6 +754,10 @@
                         </div>
                       </div>
                       <div>
+                        <label style="display:block; font-size:0.7rem; font-weight:600; color:#64748b; margin-bottom:3px">Quick date</label>
+                        <span class="dpr-seg dpr-quick" role="group" aria-label="Quick date"><button type="button" data-dpr-day="0">Today</button><button type="button" data-dpr-day="-1">Yesterday</button></span>
+                      </div>
+                      <div>
                         <label style="display:block; font-size:0.7rem; font-weight:600; color:#64748b; margin-bottom:3px">From</label>
                         <input type="date" id="s-date" class="form-control" style="padding:6px; border:1px solid #cbd5e1; border-radius:4px; font-size:0.8rem" value="${today}">
                       </div>
@@ -894,16 +898,9 @@
                     dprLineMenu.style.display = 'none';
                 });
 
-                // Process is now a compact dropdown.
+                // Process is a compact dropdown; loadSummary reads it when Apply is clicked.
                 const dprProcessSel = document.getElementById('s-process-sel');
-                if (dprProcessSel) {
-                    dprProcessSel.value = dprProcess;
-                    dprProcessSel.addEventListener('change', () => {
-                        dprProcess = dprProcessSel.value;
-                        localStorage.setItem('jpsms_dpr_process', dprProcess);
-                        loadSummary();
-                    });
-                }
+                if (dprProcessSel) dprProcessSel.value = dprProcess;
 
                 // ---- Labour DPR Summary ----
                 let _labourDprPartyId = '';
@@ -1829,7 +1826,35 @@
                 // ---- End Shifting DPR Summary ----
 
 
+                let dprLoadSeq = 0; // a newer load makes the older one's answer stale
+                const dprFilterState = () => JSON.stringify(['s-date', 's-date-to', 's-process-sel', 's-shift', 's-factory', 's-eff-filter', 's-stop-hrs']
+                    .map(id => document.getElementById(id)?.value || '').concat(selLines));
+                let dprAppliedState = '';
+                const dprDayStr = (offset) => {
+                    const [y, m, d] = localToday().split('-').map(Number);
+                    return new Date(Date.UTC(y, m - 1, d + offset)).toISOString().slice(0, 10);
+                };
+                // Filters load only on Apply: mark the button while a changed filter is waiting.
+                const dprMarkPending = () => {
+                    const btn = document.getElementById('btn-s-apply');
+                    if (btn) {
+                        const pending = dprFilterState() !== dprAppliedState;
+                        btn.classList.toggle('is-pending', pending);
+                        btn.title = pending ? 'Filters changed - click Apply to load' : '';
+                    }
+                    // Today / Yesterday is lit when both dates are that day.
+                    const f = document.getElementById('s-date')?.value, t = document.getElementById('s-date-to')?.value || f;
+                    document.querySelectorAll('[data-dpr-day]').forEach(b => {
+                        const on = f === t && f === dprDayStr(Number(b.dataset.dprDay));
+                        b.classList.toggle('is-on', on); b.setAttribute('aria-pressed', on ? 'true' : 'false');
+                    });
+                };
                 const loadSummary = async () => {
+                    const loadSeq = ++dprLoadSeq;
+                    dprProcess = document.getElementById('s-process-sel')?.value || dprProcess;
+                    localStorage.setItem('jpsms_dpr_process', dprProcess);
+                    dprAppliedState = dprFilterState();
+                    dprMarkPending();
                     let fromDate = document.getElementById('s-date').value;
                     let toDate = document.getElementById('s-date-to')?.value || fromDate;
                     // Tolerate a reversed range — swap so From is always the earlier day.
@@ -1891,6 +1916,7 @@
                             const sr = await J.api.get(`/dpr/stopped-machines?minutes=${stopHrs * 60}&factory_id=${encodeURIComponent(selectedFactory || 'all')}`);
                             ((sr && sr.ok && sr.data) || []).filter(s => !s.powerCut).forEach(s => stoppedNow.set(stopKey(s.machine), s));
                         } catch (e) { console.warn('Stopped-machine filter failed:', e); }
+                        if (loadSeq !== dprLoadSeq) return;
                     }
                     const stoppedLabel = `⛔ Machine Stopped ${stopHrs} hours + (now, excl. Power Cut)`;
 
@@ -1936,6 +1962,7 @@
                     }
 
                     Promise.all([...promises, scopedMachinesPromise, maintPromise, memoPromise]).then(([resDayMat, resNightMat, resDayTeam, resNightTeam, scopedMachinesRes, maintRes, memoRes]) => {
+                        if (loadSeq !== dprLoadSeq) return;
                         // Error Check
                         if (!resDayMat.ok) throw new Error(resDayMat.error || 'Day Fetch Failed');
                         if (!resNightMat.ok) throw new Error(resNightMat.error || 'Night Fetch Failed');
@@ -3574,7 +3601,7 @@
                         // e.g. M-1 04 Day, M-1 04 Night, M-1 05 Day, M-1 05 Night, then M-2, …
                         if (mmMode && mmOrder.length) {
                             const dprDeckAt = masterHtml.length; // line scorecards go above the column header
-                            let dprDeckHtml = '', dprOverviewHtml = '';
+                            let dprDeckHtml = '', dprOverviewHtml = '', dprInsightsHtml = '';
                             masterHtml += mmStickyHeader;
                             const extractIdx = (str) => { const m = String(str).match(/-(\d+)$/); return m ? parseInt(m[1]) : 999999; };
                             // View Filter: a machine passes if ANY of its date/shift passes matches.
@@ -3688,9 +3715,10 @@
                                 const dprDeck = dprRenderLineDeck(lineStats);
                                 dprDeckHtml = dprDeck.deck;
                                 dprOverviewHtml = dprDeck.overview;
+                                dprInsightsHtml = dprDeck.insights;
                             }
-                            if (dprDeckHtml) masterHtml = masterHtml.slice(0, dprDeckAt) + dprDeckHtml + masterHtml.slice(dprDeckAt);
-                            if (dprOverviewHtml) masterHtml = dprOverviewHtml + masterHtml; // Plant total is the first block
+                            if (dprDeckHtml) masterHtml = masterHtml.slice(0, dprDeckAt) + dprInsightsHtml + dprDeckHtml + masterHtml.slice(dprDeckAt);
+                            if (dprOverviewHtml) masterHtml = dprOverviewHtml + masterHtml; // score, then Plant total, then the folded sections
                         }
 
                         // ---- ENTRIES COUNT: Standalone calculation from raw API data ----
@@ -4105,6 +4133,7 @@
                         }
 
                     }).catch(err => {
+                        if (loadSeq !== dprLoadSeq) return;
                         console.error(err);
                         container.innerHTML = `<div style="padding:20px; text-align:center; color:#ef4444">Error: ${escHtml(err.message)}</div>`;
                     });
@@ -4117,6 +4146,7 @@
                     try { return new Set(JSON.parse(localStorage.getItem(DPR_CLOSED_KEY) || '[]')); } catch (_) { return new Set(); }
                 };
                 const dprSaveClosed = (set) => { try { localStorage.setItem(DPR_CLOSED_KEY, JSON.stringify(Array.from(set))); } catch (_) { /* private mode */ } };
+                window.__dprFoldOpen = { insights: false, lines: false }; // folded on page load, kept across Apply
                 const DPR_SORT_KEY = 'dpr_line_sort';
                 window.dprGetSort = () => { try { return localStorage.getItem(DPR_SORT_KEY) || 'worst'; } catch (_) { return 'worst'; } };
                 window.dprTone = (p) => p == null ? 'none' : p >= 95 ? 'good' : p >= 80 ? 'warn' : 'bad';
@@ -4165,7 +4195,7 @@
                       </svg>`;
                 };
                 window.dprRenderLineDeck = function (stats) {
-                    if (!stats || !stats.length) return { overview: '', deck: '' };
+                    if (!stats || !stats.length) return { overview: '', insights: '', deck: '' };
                     const esc = dprEsc, strip = window.dprHourStrip, tone = window.dprTone;
                     const kg = (v) => Math.round(v || 0).toLocaleString('en-IN');
                     const sortMode = dprGetSort();
@@ -4218,8 +4248,17 @@
                         </div>
                         <div class="dpr-ov-card dpr-ov-hours"><div class="dpr-ins-title"><strong>Entries by hour</strong><span>whole plant · % of machines that filled the hour</span></div>${strip(P.open, P.miss, P.late, true)}
                           <div class="dpr-hs-legend"><span><i class="h-good"></i>95%+</span><span><i class="h-warn"></i>80–94%</span><span><i class="h-bad"></i>below 80%</span><span><i class="h-fut"></i>not due</span><span><i class="h-good h-late"></i>late entries</span></div></div>
+                      </section>`;
+                    const foldOpen = window.__dprFoldOpen;
+                    const foldHead = (key, label, hint) => `<button type="button" class="dpr-fold-btn" data-dpr-fold="${key}" aria-expanded="${foldOpen[key] ? 'true' : 'false'}"><i class="bi bi-chevron-right"></i><strong>${label}</strong><span>${hint}</span></button>`;
+                    const missN = allMachines.filter(m => m.missing > 0).length;
+                    const insights = `
+                      <section class="dpr-fold dpr-fold-ins${foldOpen.insights ? ' is-open' : ''}">
+                        ${foldHead('insights', 'What stands out &amp; machines to chase', missN ? `${missN} machine${missN === 1 ? '' : 's'} with missing hours` : 'every machine is up to date')}
+                        <div class="dpr-fold-body dpr-ins-grid">
                         <div class="dpr-ov-card dpr-ov-notes"><div class="dpr-ins-title"><strong>What stands out</strong></div><ul class="dpr-ins-list">${notes}</ul></div>
                         <div class="dpr-ov-card dpr-ov-chase"><div class="dpr-ins-title"><strong>Machines to chase</strong><span>most missing hours</span></div><div class="dpr-wm-list">${machinesHtml}</div></div>
+                        </div>
                       </section>`;
 
                     const cards = sorted.map(st => {
@@ -4241,9 +4280,9 @@
                           <span class="dpr-sc-kg">Good <b>${kg(st.goodKg)}</b> kg${vsTarget != null ? ` · <b>${vsTarget}%</b> of target` : ''}${st.dtHrs ? ` · DT <b>${st.dtHrs.toFixed(1)}</b> h` : ''}</span>
                         </button>`;
                     }).join('');
-                    const deckHtml = `<section class="dpr-deck"><div class="dpr-deck-head"><strong>Lines</strong><span>click a line to open its hours</span><span class="dpr-v2-spacer"></span><span class="dpr-seg" role="group" aria-label="Sort lines">${[['worst', 'Worst filled'], ['late', 'Most late'], ['eff', 'Lowest EFF'], ['name', 'Name']].map(([k, l]) => `<button type="button" data-dpr-sort="${k}" class="${sortMode === k ? 'is-on' : ''}">${l}</button>`).join('')}</span><button type="button" class="dpr-v2-btn" data-dpr-lines="expand"><i class="bi bi-arrows-expand"></i> Open all</button><button type="button" class="dpr-v2-btn" data-dpr-lines="collapse"><i class="bi bi-arrows-collapse"></i> Close all</button></div><div class="dpr-deck-grid">${cards}</div></section>`;
+                    const deckHtml = `<section class="dpr-deck dpr-fold${foldOpen.lines ? ' is-open' : ''}"><div class="dpr-deck-head">${foldHead('lines', 'Lines', `${stats.length} line${stats.length === 1 ? '' : 's'}`)}<span class="dpr-v2-spacer"></span><span class="dpr-seg dpr-fold-body" role="group" aria-label="Sort lines">${[['worst', 'Worst filled'], ['late', 'Most late'], ['eff', 'Lowest EFF'], ['name', 'Name']].map(([k, l]) => `<button type="button" data-dpr-sort="${k}" class="${sortMode === k ? 'is-on' : ''}">${l}</button>`).join('')}</span><button type="button" class="dpr-v2-btn" data-dpr-lines="expand"><i class="bi bi-arrows-expand"></i> Open all</button><button type="button" class="dpr-v2-btn" data-dpr-lines="collapse"><i class="bi bi-arrows-collapse"></i> Close all</button></div><div class="dpr-deck-grid dpr-fold-body">${cards}</div></section>`;
                     window.__dprLastDeck = { stats, tot, filledPct, onTime, worstHour, worstMachines, bestLine };
-                    return { overview, deck: deckHtml };
+                    return { overview, insights, deck: deckHtml };
                 };
                 const dprSetLineOpen = (card, open) => card.classList.toggle('is-collapsed', !open);
                 document.addEventListener('click', (ev) => {
@@ -4322,7 +4361,26 @@
                     right.appendChild(cnt); if (legend) right.appendChild(legend);
                     head.appendChild(right);
                 })();
-                ['s-date', 's-date-to', 's-shift'].forEach(id => document.getElementById(id)?.addEventListener('change', loadSummary));
+                // Changing a filter never loads by itself; only Apply (or Today / Yesterday) does.
+                document.getElementById('sticky-dpr-filter')?.addEventListener('change', () => {
+                    const stopWrap = document.getElementById('s-stop-hrs-wrap');
+                    if (stopWrap) stopWrap.style.display = document.getElementById('s-eff-filter')?.value === 'Stopped' ? '' : 'none';
+                    dprMarkPending();
+                });
+                document.querySelectorAll('[data-dpr-day]').forEach(b => b.addEventListener('click', () => {
+                    const day = dprDayStr(Number(b.dataset.dprDay));
+                    ['s-date', 's-date-to'].forEach(id => { const el = document.getElementById(id); if (el) el.value = day; });
+                    loadSummary();
+                }));
+                // Insights and the Lines cards start folded; one click opens them.
+                document.getElementById('summary-container')?.addEventListener('click', (ev) => {
+                    const t = ev.target.closest && ev.target.closest('[data-dpr-fold]');
+                    if (!t) return;
+                    const open = t.getAttribute('aria-expanded') !== 'true';
+                    window.__dprFoldOpen[t.dataset.dprFold] = open;
+                    t.setAttribute('aria-expanded', String(open));
+                    t.closest('.dpr-fold').classList.toggle('is-open', open);
+                });
                 // Sort buttons on the Lines deck: re-order the cards in place, no reload.
                 document.addEventListener('click', (ev) => {
                     const b = ev.target.closest && ev.target.closest('[data-dpr-sort]');
@@ -4338,9 +4396,6 @@
                     const inp = document.getElementById('s-search');
                     if (inp) { ev.preventDefault(); inp.focus(); inp.select(); }
                 });
-                document.getElementById('s-eff-filter')?.addEventListener('change', loadSummary);
-                document.getElementById('s-stop-hrs')?.addEventListener('change', loadSummary);
-                document.getElementById('s-factory')?.addEventListener('change', loadSummary);
                 // Live search over the rendered machine blocks (machine / OR / client).
                 const dprSearchInput = document.getElementById('s-search');
                 if (dprSearchInput) dprSearchInput.addEventListener('input', () => applyDprSearch());
