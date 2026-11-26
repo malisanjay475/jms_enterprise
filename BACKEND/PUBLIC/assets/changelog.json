@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.207.0",
+  "latest": "1.208.0",
   "versions": [
+    {
+      "version": "1.208.0",
+      "date": "2026-11-26",
+      "title": "Hold an order on the Excel View Timeline",
+      "modules": [
+        {
+          "app": "planning",
+          "changes": [
+            { "type": "feat", "text": "Excel View Timeline: new Hold button on every plan card. Superadmin, admin, PPC Ass. Manager, PPC Manager and Sr. PPC Manager can put a whole order on hold with a reason, change the reason or release the hold." },
+            { "type": "feat", "text": "Every plan of an order on hold shows ON HOLD with the reason, and the status filter has a new On Hold option." },
+            { "type": "feat", "text": "Superadmin can open Hold History to see who held, changed or released each order and when." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.207.0",
       "date": "2026-11-26",
