@@ -2249,6 +2249,9 @@
       if (m) m.remove();
       await window.etvLoadHolds();
       if (typeof window.etvFilter === 'function') window.etvFilter();
+      // Same dialog is used on the Machine Timeline: redraw it too when it is on screen.
+      const tlc = document.getElementById('timelineContainer');
+      if (tlc && tlc.offsetParent !== null && window.timelineGroups && typeof window.superFilterTimeline === 'function') window.superFilterTimeline();
     }
     window.etvSaveHold = async function (orderNo) {
       const reason = (document.getElementById('etv-hold-reason')?.value || '').trim();
