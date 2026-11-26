@@ -136,6 +136,18 @@ describe('NPD trial report / images upload (QC)', () => {
   });
 });
 
+describe('NPD RM & colour finalization: whole PPC team', () => {
+  const user = (role_code, role_label) => ({ role_code, role_label });
+  test('every PPC / Planning role and Planner edits RM & colour, and only that extra stage', () => {
+    for (const u of [user('planner'), user('ppc_assistant_manager'), user('ppc_executive'), user('planning_manager'), user('x', 'PPC Executive'), user('ppc_manager')]) {
+      expect(editableStageKeys(u)).toContain('rm_colour');
+    }
+    expect(editableStageKeys(user('planner'))).toEqual(['rm_colour']);
+    expect(editableStageKeys(user('dispatch_manager'))).not.toContain('rm_colour');
+    expect(editableStageKeys(user('quality'))).not.toContain('rm_colour');
+  });
+});
+
 describe('NPD W/H & Dispatch roles', () => {
   const user = (role_code, role_label) => ({ role_code, role_label });
   test('Dispatch Executive and Dispatch Manager edit the W/H & Dispatch stages', () => {
