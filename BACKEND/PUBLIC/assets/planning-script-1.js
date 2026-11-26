@@ -1249,6 +1249,28 @@
       if (typeof window.etvFilter === 'function') window.etvFilter();
     };
 
+    /* Pick / unpick a machine that has no plan (its empty first slot).
+       Goes on the sheet as "No Plan" with blank manpower. */
+    window.etvPriorityPickEmpty = function (code) {
+      if (!window.etvPrioritySelecting || !window.etvPriorityCtx) return;
+      const key = 'M:' + code;
+      const items = window.etvPriorityCtx.items;
+      const at = items.findIndex(it => it._key === key);
+      if (at >= 0) {
+        items.splice(at, 1);
+      } else {
+        items.push({
+          _key: key,
+          machine: (typeof stripMachPfx === 'function' ? stripMachPfx(code) : code),
+          mouldName: 'No Plan',
+          mouldNo: '',
+          manpower: null
+        });
+      }
+      window.etvRenderPriorityPanel();
+      if (typeof window.etvFilter === 'function') window.etvFilter();
+    };
+
     window.etvPriorityMove = function (idx, dir) {
       const items = window.etvPriorityCtx && window.etvPriorityCtx.items;
       if (!items) return;
@@ -1291,7 +1313,7 @@
           <button class="pp-moveup" title="Move up" onclick="window.etvPriorityMove(${idx},-1)"><i class="bi bi-chevron-up"></i></button>
           <button class="pp-movedn" title="Move down" onclick="window.etvPriorityMove(${idx},1)"><i class="bi bi-chevron-down"></i></button>
           <button class="pp-rm" title="Remove" onclick="window.etvPriorityRemove(${idx})"><i class="bi bi-x-lg"></i></button>
-        </div>`).join('') : `<div style="padding:24px 8px;text-align:center;color:#94a3b8;font-size:.8rem">Click plan cards in the grid to add them in priority order.</div>`;
+        </div>`).join('') : `<div style="padding:24px 8px;text-align:center;color:#94a3b8;font-size:.8rem">Click plan cards in the grid to add them in priority order. For a machine with no plan, click its empty slot.</div>`;
 
       panel.innerHTML = `
         <div class="pp-head">
@@ -1471,6 +1493,19 @@
         const _machByCode = {};
         (etvMachines || []).forEach(m => { if (m && m.code) _machByCode[_mSimp(m.code)] = m; });
         const _machObj = name => _machByCode[_mSimp(name)] || { code: name };
+        // Machines with no running plan still get a row (blank manpower), so
+        // the sheet lists every machine on the timeline.
+        const _hasRow = new Set(items.map(it => _mSimp(it.machine)));
+        (etvMachines || []).forEach(m => {
+          if (!m || !m.code || _hasRow.has(_mSimp(m.code))) return;
+          _hasRow.add(_mSimp(m.code));
+          const queued = (etvGroups && etvGroups[m.code] && etvGroups[m.code].length) ? true : false;
+          items.push({
+            machine: stripMachPfx(m.code),
+            mouldName: queued ? 'No running plan' : 'No Plan',
+            mouldNo: '', manpower: null, upcoming: false, noPlan: true
+          });
+        });
         const _machCmp = (typeof window.tlMachineSort === 'function')
           ? (a, b) => window.tlMachineSort(_machObj(a), _machObj(b))
           : (a, b) => window.etvMachineCompare(a, b);
@@ -1487,7 +1522,7 @@
       const title = ('Running Plan Manpower — ' + dateTxt + ' · ' + shift).trim();
 
       const rowsHtml = items.map((it, i) => `
-        <tr${it.upcoming ? ' style="background:#fff7ed"' : ''}>
+        <tr${it.upcoming ? ' style="background:#fff7ed"' : (it.noPlan ? ' style="background:#f8fafc;color:#64748b"' : '')}>
           <td class="c">${i + 1}</td>
           <td>${prioEsc(it.machine)}</td>
           <td>${prioEsc(it.mouldName)}</td>
@@ -1915,6 +1950,13 @@
         /* plan slot cells */
         const planCells = Array.from({length: cols}, (_,i) => {
           const p = plans[i];
+          /* MC/MP SCH: a machine with no plan can still go on the sheet —
+             its first empty slot is clickable while selecting. */
+          if (!p && i === 0 && plans.length === 0 && window.etvPrioritySelecting && window.etvPriorityCtx) {
+            const eIdx = window.etvPriorityCtx.items.findIndex(it => it._key === 'M:' + m.code);
+            const picked = eIdx >= 0;
+            return `<td class="etv-plan-cell etv-empty" data-machine="${esc(m.code)}" data-slot="0" data-slot-pid="" onclick="window.etvPriorityPickEmpty('${esc(m.code)}')" style="cursor:pointer" title="No plan — click to add this machine to MC/MP SCH"><div class="etv-empty-inner" style="position:relative;${picked ? 'background:#dcfce7;border:2px solid #16a34a;border-radius:8px;opacity:1' : ''}">${picked ? `<span class="etv-prio-order-badge">${eIdx + 1}</span>` : ''}<span class="etv-slot-num">1</span><span style="letter-spacing:.05em;${picked ? 'color:#166534;font-weight:800' : 'opacity:.7'}">${picked ? 'No Plan · added' : '+ Add (No Plan)'}</span></div></td>`;
+          }
           if (!p) return `<td class="etv-plan-cell etv-empty" data-machine="${esc(m.code)}" data-slot="${i}" data-slot-pid="" ondragover="window.etvDragOverCell(event, this)" ondragleave="window.etvDragLeaveCell(event, this)" ondrop="window.etvDropCell(event, this)"><div class="etv-empty-inner"><span class="etv-slot-num">${i+1}</span><span style="letter-spacing:.05em;opacity:.5">empty</span></div></td>`;
 
           const st   = (p.status||'').toLowerCase();
