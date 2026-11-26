@@ -6,6 +6,31 @@ const log = (date, shift, hour_slot, good_qty, reject_qty, downtime_min, x) => (
 const info = { std_cycle: 45, std_cavity: 1, act_cycle: 33.48, act_cavity: 1, std_weight: 0.49, act_weight: 0.502 };
 
 describe('DPR job popup analysis', () => {
+  test('timeline: dates in order with days between, first production from the first hour', () => {
+    const hours = A.hourly([log('2026-11-22', 'Day', '07-08', 50, 0, 0), log('2026-11-24', 'Night', '01-02', 50, 0, 0)]);
+    const lifecycle = { or_date: '2026-11-18', jc_date: '2026-11-18', plan_created: '2026-11-20T10:15:00' };
+    const finishTs = new Date('2026-11-27T03:42:00').getTime();
+    const tl = A.timeline({ lifecycle, hours, finishTs, done: false });
+    expect(tl.steps.map(s => s.key)).toEqual(['or', 'jc', 'plan', 'start', 'last', 'finish']);
+    expect(tl.steps.map(s => s.gap)).toEqual([null, 0, 2, 2, 3, 2]);
+    expect(tl.steps[3].at.getHours()).toBe(7); // slot 07-08 starts at 07:00
+    expect(tl.steps[4].at.getDate()).toBe(25); // Night 01-02 of the 24th ends on the 25th
+    expect(tl.orderToStart).toBe(4);
+    expect(tl.leadDays).toBe(9);
+    expect(tl.runHours).toBe(67);
+  });
+
+  test('timeline: a finished job ends at its last production, missing dates stay empty', () => {
+    const hours = A.hourly([log('2026-11-22', 'Day', '07-08', 50, 0, 0)]);
+    const tl = A.timeline({ lifecycle: { or_date: '2026-11-20' }, hours, done: true });
+    expect(tl.steps.map(s => s.key)).toEqual(['or', 'jc', 'plan', 'start', 'last']);
+    expect(tl.steps[4].label).toBe('Finished');
+    expect(tl.steps[1].at).toBeNull();
+    expect(tl.steps[3].gap).toBe(2); // counted from the last known date (the order)
+    expect(tl.leadDays).toBe(2);
+    expect(A.timeline({ lifecycle: {}, hours: [] }).orderToStart).toBeNull();
+  });
+
   test('night slots after midnight fall on the next day, in order', () => {
     const h = A.hourly([log('2026-11-24', 'Night', '01-02', 1, 0, 0), log('2026-11-24', 'Night', '11-12', 1, 0, 0), log('2026-11-24', 'Day', '06-07', 1, 0, 0)]);
     expect(h.map(x => x.slot)).toEqual(['06-07', '11-12', '01-02']);

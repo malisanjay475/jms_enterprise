@@ -128,6 +128,7 @@
 
     // QC One-time Setup (QC app, saved twice per shift: 1st half / 2nd half) for the
     // clicked job + date + shift: STD vs Actual weight, cycle time and cavity.
+    // Shown under the DPR setup in the popup's Setup section.
     async function loadQcSetupBlock(details, date, shift) {
         const jc = details.job_card_no || details.JobCardNo || '';
         const machine = details.machine || '';
@@ -150,48 +151,36 @@
             ];
             const cell = (h, key, s, off) => {
                 const a = num(h && h[key]);
-                if (a === null) return '<td style="padding:5px 8px; color:#94a3b8">—</td>';
-                const bad = s !== null && off(s, a);
-                return `<td style="padding:5px 8px; font-weight:800; color:${bad ? '#dc2626' : '#0f172a'}">${dprEsc(String(a))}</td>`;
+                if (a === null) return '<td class="r">–</td>';
+                return `<td class="r"><b class="${s !== null && off(s, a) ? 'bad' : ''}">${dprEsc(String(a))}</b></td>`;
             };
             const when = h => h
                 ? `${dprEsc(h.setup_by || '—')}${h.setup_at ? ' · ' + dprEsc(new Date(h.setup_at).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: false })) : ''}`
                 : 'not saved';
             const savedCount = halves.filter(Boolean).length;
+            const canDel = window.canDeleteQcEntry && window.canDeleteQcEntry() && halves.some(h => h && h.id);
             return `
-                <div style="margin-top:12px; border:1px solid #bfdbfe; border-radius:10px; padding:10px 12px; background:#f8fbff">
-                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px">
-                        <div style="font-size:0.8rem; font-weight:900; color:#1d4ed8; text-transform:uppercase">QC One-time Setup</div>
-                        <span style="font-size:0.72rem; font-weight:800; padding:2px 8px; border-radius:999px; ${savedCount === 2 ? 'background:#dcfce7; color:#166534' : 'background:#fee2e2; color:#991b1b'}">${savedCount}/2 saved</span>
-                    </div>
-                    <div style="font-size:0.72rem; color:#64748b; margin-bottom:6px">${dprEsc(dprFmtDate(date))} · ${dprEsc(shift)} shift</div>
-                    <table style="width:100%; border-collapse:collapse; font-size:0.8rem">
-                        <thead><tr style="text-align:left; color:#64748b; font-size:0.7rem; text-transform:uppercase">
-                            <th style="padding:5px 8px"></th><th style="padding:5px 8px">STD</th><th style="padding:5px 8px">1st half</th><th style="padding:5px 8px">2nd half</th>
-                        </tr></thead>
-                        <tbody>
-                            ${rows.map(([label, s, key, off]) => `<tr style="border-top:1px solid #e2e8f0">
-                                <td style="padding:5px 8px; font-weight:700; color:#334155">${label}</td>
-                                <td style="padding:5px 8px; color:#475569">${s === null ? '—' : dprEsc(String(s))}</td>
-                                ${cell(halves[0], key, s, off)}${cell(halves[1], key, s, off)}
-                            </tr>`).join('')}
-                        </tbody>
-                    </table>
-                    <div style="font-size:0.72rem; color:#64748b; margin-top:6px">1st half: ${when(halves[0])} &nbsp;|&nbsp; 2nd half: ${when(halves[1])}</div>
-                    ${(window.canDeleteQcEntry && window.canDeleteQcEntry() && halves.some(h => h && h.id)) ? `<div style="display:flex; gap:6px; justify-content:flex-end; margin-top:8px">
-                        ${halves.map((h, i) => (h && h.id) ? `<button type="button" onclick="deleteQcEntry('setup', ${Number(h.id)}, '${i ? '2nd' : '1st'} half setup', () => { if (window._lastQcJobDetails && window.loadJobQCEvidence) window.loadJobQCEvidence(window._lastQcJobDetails); })" style="border:1px solid #fca5a5; background:#fef2f2; color:#b91c1c; border-radius:8px; padding:3px 9px; font-size:0.75rem; font-weight:700; cursor:pointer"><i class="bi bi-trash"></i> Delete ${i ? '2nd' : '1st'} half</button>` : '').join('')}
-                    </div>` : ''}
-                </div>`;
+                <div class="jd-sub">QC one-time setup <span class="jd-note">${dprEsc(dprFmtDate(date))} · ${dprEsc(shift)} shift</span>
+                    <span class="jd-pill ${savedCount === 2 ? 'good' : 'bad'}">${savedCount}/2 saved</span></div>
+                <table class="jd-table jd-setup">
+                    <thead><tr><th></th><th class="r">STD</th><th class="r">1st half</th><th class="r">2nd half</th></tr></thead>
+                    <tbody>${rows.map(([label, s, key, off]) => `<tr><td>${label}</td><td class="r">${s === null ? '–' : dprEsc(String(s))}</td>${cell(halves[0], key, s, off)}${cell(halves[1], key, s, off)}</tr>`).join('')}</tbody>
+                </table>
+                <div class="jd-note jd-mt">1st half: ${when(halves[0])} &nbsp;|&nbsp; 2nd half: ${when(halves[1])}</div>
+                ${canDel ? `<div class="jd-actions">${halves.map((h, i) => (h && h.id) ? `<button type="button" class="jd-btn jd-btn-danger" onclick="deleteQcEntry('setup', ${Number(h.id)}, '${i ? '2nd' : '1st'} half setup', () => { if (window._lastQcJobDetails && window.loadJobQCEvidence) window.loadJobQCEvidence(window._lastQcJobDetails); })"><i class="bi bi-trash"></i> Delete ${i ? '2nd' : '1st'} half</button>` : '').join('')}</div>` : ''}`;
         } catch (_) {
             return '';
         }
     }
 
+    // Fills three sections of the job popup (dpr-job-detail.js): the QC half of Setup,
+    // Photos (FPA form + product photos) and First piece approval.
     async function loadJobQCEvidence(details) {
-        const box = document.getElementById('modalJobQCEvidence');
-        if (!box) return;
-        // Remember the job so a delete can re-render this same evidence panel.
+        if (!window.jdFill || !document.getElementById('jdSec-fpa')) return;
+        // Remember the job so a delete can re-render these sections; an answer for a job
+        // that is no longer open is dropped.
         window._lastQcJobDetails = details;
+        const fresh = () => window._lastQcJobDetails === details && document.getElementById('jdSec-fpa');
 
         const jc = details.job_card_no || details.JobCardNo || '';
         const planId = details.plan_id || details.PlanID || '';
@@ -200,7 +189,13 @@
         const scope = getJobSummaryScope();
         const rowDate = details._row_date || scope.date || '';
         const rowShift = details._row_shift || (scope.shift === 'Both' ? '' : scope.shift) || '';
-        box.innerHTML = '<div style="color:#64748b; font-size:0.85rem">Loading QC weights and FPA evidence...</div>';
+        const when = v => v ? new Date(v).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false }) : '';
+        const thumb = (src, w) => /^\/uploads\/qc-images\//.test(src) ? ('/api/qc/thumb?src=' + encodeURIComponent(src) + '&w=' + w) : src;
+        const hasImg = r => r && (r.fpa_form_image || (Array.isArray(r.product_images) && r.product_images.length));
+        const imagesOf = r => r ? [
+            ...(r.fpa_form_image ? [{ src: r.fpa_form_image, label: 'FPA form' }] : []),
+            ...(Array.isArray(r.product_images) ? r.product_images : []).filter(Boolean).map((src, i) => ({ src, label: `Product photo ${i + 1}` }))
+        ] : [];
 
         try {
             const qs = new URLSearchParams();
@@ -221,71 +216,83 @@
                 const q2 = new URLSearchParams(qs); q2.delete('machine');
                 try {
                     const j2 = await (await fetch(`/api/qc/job-checks?${q2.toString()}`)).json();
-                    otherFpa = ((j2.ok && j2.data) || []).find(r => r.fpa_status === 'Done' && r.machine !== machine
-                        && (r.fpa_form_image || (Array.isArray(r.product_images) && r.product_images.length))) || null;
+                    otherFpa = ((j2.ok && j2.data) || []).find(r => r.fpa_status === 'Done' && r.machine !== machine && hasImg(r)) || null;
                 } catch (_) { /* best-effort */ }
             }
-            const weights = rows
-                .flatMap(r => [r.qc_weight_1, r.qc_weight_2, r.qc_weight_3])
-                .filter(v => v !== null && v !== undefined && String(v) !== '')
-                .slice(0, 2);
-            const fpa = rows.find(r => r.fpa_form_image || (Array.isArray(r.product_images) && r.product_images.length));
-            // Who saved the QC weights (qc_job_checks.supervisor / fpa_done_by).
-            const qcSavedBy = (rows.find(r => r.supervisor || r.fpa_done_by) || {});
-            const qcSavedByName = qcSavedBy.supervisor || qcSavedBy.fpa_done_by || '';
-            const fpaImages = fpa ? [fpa.fpa_form_image, ...((Array.isArray(fpa.product_images) ? fpa.product_images : []))].filter(Boolean) : [];
-            const fpaRowId = fpa ? fpa.id : null;
-            const canDelFpa = !!(window.canDeleteFpaImage && window.canDeleteFpaImage());
-            // QC approval remark left by Quality when approving the FPA (optional).
-            const fpaStatus = fpa ? (fpa.fpa_approval_status || 'Pending') : '';
-            const fpaReviewer = fpa ? (fpa.fpa_reviewed_by || '') : '';
-            const fpaRemark = fpa ? (fpa.fpa_approve_remark || '') : '';
-            const fpaApprovalNote = (fpaStatus === 'Approved' && (fpaReviewer || fpaRemark))
-                ? `<div style="margin-top:10px; background:#ecfdf5; border:1px solid #a7f3d0; border-radius:10px; padding:8px 12px; font-size:0.82rem; color:#065f46">
-                       <b>Approved${fpaReviewer ? ' by ' + dprEsc(fpaReviewer) : ''}</b>${fpaRemark ? ' — <b>Remark:</b> ' + dprEsc(fpaRemark) : ''}
-                   </div>`
-                : '';
+            if (!fresh()) return;
 
-            box.innerHTML = `
-                <div class="jd-head"><h4>Quality check</h4>${qcSavedByName ? `<span class="jd-note">QC saved by ${dprEsc(qcSavedByName)}</span>` : ''}</div>
-                <div class="jd-kv">
-                    ${[0, 1].map(i => `<span>QC weight ${i + 1}</span><b>${dprEsc(weights[i] || '-')}</b>`).join('')}
+            // Setup: the QC half
+            const setupBox = document.getElementById('jdQcSetup');
+            if (setupBox) setupBox.innerHTML = qcSetupHtml || '<div class="jd-sub">QC one-time setup</div><div class="jd-note">Not saved for this date and shift.</div>';
+
+            // Photos
+            const imgRow = rows.find(hasImg);
+            const photos = imagesOf(imgRow);
+            const canDelFpa = !!(window.canDeleteFpaImage && window.canDeleteFpaImage()) && imgRow && imgRow.id;
+            const tile = (p, big, other) => `<figure class="jd-photo${other ? ' other' : ''}">
+                    <button type="button" onclick="openJobImage(decodeURIComponent('${encodeURIComponent(p.src)}'))" aria-label="Open ${dprEsc(p.label)}">
+                        <img src="${dprEsc(thumb(p.src, big ? 360 : 200))}" alt="${dprEsc(p.label)}" loading="lazy" decoding="async"></button>
+                    <figcaption>${dprEsc(p.label)}</figcaption>
+                    ${(!other && canDelFpa) ? `<button type="button" class="jd-photo-del" title="Delete this photo" aria-label="Delete ${dprEsc(p.label)}" onclick="deleteFpaImage(${Number(imgRow.id)}, decodeURIComponent('${encodeURIComponent(p.src)}'))">&times;</button>` : ''}
+                </figure>`;
+            if (photos.length) {
+                window.jdFill('photos', `<div class="jd-photos">${photos.map(p => tile(p, true)).join('')}</div>
+                    ${imgRow.fpa_done_by || imgRow.fpa_done_at ? `<div class="jd-note jd-mt">Taken by ${dprEsc(imgRow.fpa_done_by || '-')}${imgRow.fpa_done_at ? ' · ' + dprEsc(when(imgRow.fpa_done_at)) : ''}${imgRow.machine ? ' · ' + dprEsc(imgRow.machine) : ''}</div>` : ''}`,
+                    `${photos.length} photo${photos.length === 1 ? '' : 's'}`, 'good');
+            } else if (otherFpa) {
+                const op = imagesOf(otherFpa);
+                window.jdFill('photos', `<div class="jd-note jd-mb">No photos on ${dprEsc(machine)} yet. These are from <b>${dprEsc(otherFpa.machine || '-')}</b>, before the job moved.</div>
+                    <div class="jd-photos">${op.map(p => tile(p, false, true)).join('')}</div>`, `From ${otherFpa.machine || 'another machine'}`, 'warn');
+            } else {
+                window.jdFill('photos', '<div class="jd-empty"><i class="bi bi-camera"></i> No photos saved for this job yet. Quality adds them in the QC app with the FPA.</div>', 'None yet', 'warn');
+            }
+
+            // First piece approval
+            const fpa = rows.find(r => r.fpa_status === 'Done') || imgRow || null;
+            const weights = rows.flatMap(r => [r.qc_weight_1, r.qc_weight_2, r.qc_weight_3])
+                .filter(v => v !== null && v !== undefined && String(v) !== '').slice(0, 2);
+            const savedBy = (rows.find(r => r.supervisor || r.fpa_done_by) || {});
+            let status, tone, icon, note;
+            if (fpa) {
+                status = fpa.fpa_approval_status || 'Pending';
+                tone = /approv/i.test(status) ? 'good' : /reject/i.test(status) ? 'bad' : 'warn';
+                icon = tone === 'good' ? 'bi-patch-check-fill' : tone === 'bad' ? 'bi-x-octagon-fill' : 'bi-hourglass-split';
+                note = tone === 'good' ? `Approved${fpa.fpa_reviewed_by ? ' by ' + fpa.fpa_reviewed_by : ''}${fpa.fpa_reviewed_at ? ' on ' + when(fpa.fpa_reviewed_at) : ''}`
+                    : tone === 'bad' ? `Rejected${fpa.fpa_reviewed_by ? ' by ' + fpa.fpa_reviewed_by : ''}${fpa.fpa_reject_reason ? ': ' + fpa.fpa_reject_reason : ''}`
+                    : 'Waiting for Quality to approve';
+            } else if (otherFpa) {
+                status = 'Due on this machine'; tone = 'warn'; icon = 'bi-arrow-left-right';
+                note = `FPA was done on ${otherFpa.machine || 'another machine'}${otherFpa.fpa_done_at ? ' on ' + when(otherFpa.fpa_done_at) : ''}${otherFpa.fpa_approval_status ? ' (' + otherFpa.fpa_approval_status + ')' : ''}. The job moved here, so it needs an FPA here.`;
+            } else {
+                status = 'Not done'; tone = 'bad'; icon = 'bi-exclamation-octagon-fill';
+                note = 'No first piece approval saved for this job yet.';
+            }
+            const kv = [
+                fpa && ['FPA done by', [fpa.fpa_done_by, when(fpa.fpa_done_at)].filter(Boolean).join(' · ')],
+                fpa && fpa.fpa_reviewed_by && ['Reviewed by', [fpa.fpa_reviewed_by, when(fpa.fpa_reviewed_at)].filter(Boolean).join(' · ')],
+                fpa && fpa.fpa_approve_remark && ['Remark', fpa.fpa_approve_remark],
+                fpa && Number(fpa.fpa_resubmit_count) > 0 && ['Sent again', `${fpa.fpa_resubmit_count} time${Number(fpa.fpa_resubmit_count) === 1 ? '' : 's'}`],
+                fpa && fpa.fpa_transferred_from && ['Moved from', fpa.fpa_transferred_from],
+                ['QC weight 1', weights[0] || '–'],
+                ['QC weight 2', weights[1] || '–'],
+                (savedBy.supervisor || savedBy.fpa_done_by) && ['QC saved by', savedBy.supervisor || savedBy.fpa_done_by]
+            ].filter(x => x && x[1]);
+            window.jdFill('fpa', `
+                <div class="jd-fpa ${tone}"><i class="bi ${icon}"></i><div><b>${dprEsc(status)}</b><p>${dprEsc(note)}</p></div></div>
+                <dl class="jd-dl">${kv.map(([k, v]) => `<div><dt>${k}</dt><dd>${dprEsc(v)}</dd></div>`).join('')}</dl>
+                <div class="jd-actions jd-left">
+                    <button type="button" class="jd-btn" onclick="toggleJobOnlineQC(this)" data-machine="${dprEsc(machine)}" data-date="${dprEsc(rowDate)}" data-shift="${dprEsc(rowShift)}">
+                        <i class="bi bi-clipboard-data"></i> Show QC 2-hour Online Report</button>
                 </div>
-                ${qcSetupHtml}
-                ${fpaImages.length ? `
-                    <div style="font-size:0.85rem; color:#334155; font-weight:800; margin:14px 0 8px">FPA Images</div>
-                    <div style="display:grid; grid-template-columns:repeat(3,1fr); gap:8px">
-                        ${fpaImages.map((src, i) => `
-                        <div style="position:relative">
-                        <button type="button" onclick="openJobImage(decodeURIComponent('${encodeURIComponent(src)}'))"
-                            style="display:block;padding:0;border:2px solid #e2e8f0;background:#f8fafc;cursor:zoom-in;border-radius:10px;overflow:hidden;transition:border-color 0.2s,transform 0.2s;width:100%"
-                            onmouseover="this.style.borderColor='#93c5fd';this.style.transform='scale(1.02)'"
-                            onmouseout="this.style.borderColor='#e2e8f0';this.style.transform='scale(1)'">
-                            <img src="${dprEsc(/^\/uploads\/qc-images\//.test(src) ? ('/api/qc/thumb?src=' + encodeURIComponent(src) + '&w=360') : src)}" alt="FPA image ${i + 1}" loading="lazy" decoding="async"
-                                style="width:100%;aspect-ratio:4/3;object-fit:cover;display:block;border-radius:8px">
-                        </button>
-                        ${(canDelFpa && fpaRowId) ? `<button type="button" title="Delete this FPA image"
-                            onclick="deleteFpaImage(${fpaRowId}, decodeURIComponent('${encodeURIComponent(src)}'))"
-                            style="position:absolute;top:5px;right:5px;width:26px;height:26px;padding:0;border:none;border-radius:50%;background:#dc2626;color:#fff;font-size:15px;font-weight:900;line-height:1;cursor:pointer;box-shadow:0 1px 4px rgba(0,0,0,.35);z-index:2">&times;</button>` : ''}
-                        </div>`).join('')}
-                    </div>
-                ` : otherFpa ? `
-                    <div style="margin-top:10px; padding:10px 12px; background:#fffbeb; border:1px solid #fde68a; border-radius:8px">
-                        <div style="font-weight:800; color:#b45309; font-size:0.85rem">No FPA on ${dprEsc(machine)} yet</div>
-                        <div style="font-size:0.8rem; color:#92400e; margin-top:2px">FPA for this job was done on <b>${dprEsc(otherFpa.machine || '-')}</b>${otherFpa.fpa_done_at ? ' on ' + dprEsc(new Date(otherFpa.fpa_done_at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })) : ''}${otherFpa.fpa_approval_status ? ' (' + dprEsc(otherFpa.fpa_approval_status) + ')' : ''}. The job moved to this machine, so it needs an FPA here.</div>
-                        <div style="display:flex; gap:6px; flex-wrap:wrap; margin-top:8px">${[otherFpa.fpa_form_image, ...(Array.isArray(otherFpa.product_images) ? otherFpa.product_images : [])].filter(Boolean).map(src => `<a href="${dprEsc(src)}" target="_blank" rel="noopener"><img src="${dprEsc(/^\/uploads\/qc-images\//.test(src) ? ('/api/qc/thumb?src=' + encodeURIComponent(src) + '&w=200') : src)}" alt="FPA image from ${dprEsc(otherFpa.machine || '')}" loading="lazy" style="width:64px; height:64px; object-fit:cover; border-radius:6px; border:1px solid #fde68a; opacity:0.85"></a>`).join('')}</div>
-                    </div>` : '<div style="color:#64748b; font-size:0.82rem; margin-top:10px">No FPA images saved for this job yet.</div>'}
-                ${fpaApprovalNote}
-                <div style="margin-top:14px; border-top:1px dashed #e2e8f0; padding-top:12px">
-                    <button type="button" onclick="toggleJobOnlineQC(this)" data-machine="${dprEsc(machine)}" data-date="${dprEsc(rowDate)}" data-shift="${dprEsc(rowShift)}"
-                        style="display:inline-flex; align-items:center; gap:6px; background:#0ea5e9; color:#fff; border:none; border-radius:8px; padding:8px 14px; font-weight:700; font-size:0.82rem; cursor:pointer">
-                        <i class="bi bi-clipboard-data"></i> Show QC 2-hour Online Report
-                    </button>
-                    <div id="modalJobOnlineQC" style="display:none; margin-top:10px"></div>
-                </div>
-            `;
+                <div id="modalJobOnlineQC" style="display:none; margin-top:10px"></div>`,
+                tone === 'good' ? `Approved${fpa.fpa_reviewed_by ? ' by ' + fpa.fpa_reviewed_by : ''}` : status, tone);
         } catch (err) {
-            box.innerHTML = `<div style="color:#b91c1c; font-size:0.85rem">QC evidence could not be loaded: ${String(err.message || err)}</div>`;
+            if (!fresh()) return;
+            const msg = `<div class="jd-error">QC evidence could not be loaded: ${dprEsc(String(err.message || err))}</div>`;
+            window.jdFill('photos', msg, 'Not available', 'bad');
+            window.jdFill('fpa', msg, 'Not available', 'bad');
+            const setupBox = document.getElementById('jdQcSetup');
+            if (setupBox) setupBox.innerHTML = '';
         }
     }
 

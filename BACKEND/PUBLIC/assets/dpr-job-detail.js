@@ -1,8 +1,11 @@
 /*
  * DPR job popup: one job, whole life (all dates, all machines it ran on).
- * Sections: header, progress, findings, machine time, trend, reasons, colours, setup,
- * dates, shifting. The QC section stays in dpr-script-2.js (loadJobQCEvidence).
- * Calculations: dpr-job-analysis.js. Data: /api/analyze/order and /api/shifting/availability.
+ * Sections, in this order, each one folds open and shut (choice is remembered):
+ *   dates, setup, photos, FPA, progress, what needs attention (shut by default),
+ *   machine time, production chart, reasons, colours, shifting.
+ * Photos, FPA and the QC half of Setup are filled by loadJobQCEvidence (dpr-script-2.js)
+ * through window.jdFill. Calculations: dpr-job-analysis.js.
+ * Data: /api/analyze/order and /api/shifting/availability.
  * Uses dprEsc / dprNumber / dprFmtQty / dprFmtDate from dpr-script-2.js.
  */
 (function () {
@@ -16,7 +19,69 @@
     const dayMon = (d) => new Date(String(d).split('T')[0] + 'T00:00:00').toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
     const stamp = (ts) => new Date(ts).toLocaleString('en-GB', { weekday: 'short', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false });
     const span = (h) => h >= 48 ? `${(h / 24).toFixed(1)} days` : `${h.toFixed(1)} hrs`;
+    const days = (n) => n === null || n === undefined ? '–' : n === 0 ? 'Same day' : `${n} day${Math.abs(n) === 1 ? '' : 's'}`;
     const val = (v, unit) => (v === null || v === undefined || v === '' || Number(v) === 0) ? '–' : `${v}${unit || ''}`;
+    const isDone = (st) => ['COMPLETED', 'CLOSED'].includes(String(st || '').trim().toUpperCase());
+
+    // ── Sections ─────────────────────────────────────────────────────────────
+    const SECTIONS = [
+        ['dates', 'Dates', 'bi-calendar3'],
+        ['setup', 'Setup', 'bi-sliders'],
+        ['photos', 'Photos', 'bi-images'],
+        ['fpa', 'First piece approval (FPA)', 'bi-patch-check'],
+        ['progress', 'Production progress', 'bi-speedometer2'],
+        ['attention', 'What needs attention', 'bi-exclamation-triangle'],
+        ['time', 'Where the machine time went', 'bi-pie-chart'],
+        ['trend', 'Production chart', 'bi-bar-chart'],
+        ['reasons', 'Downtime and reject reasons', 'bi-list-ol'],
+        ['colours', 'Colours', 'bi-palette'],
+        ['shifting', 'Shifting', 'bi-truck']
+    ];
+    const SHUT_BY_DEFAULT = ['attention'];
+    const OPEN_KEY = 'jms.dprJobDetail.open';
+    function openPrefs() { try { return JSON.parse(localStorage.getItem(OPEN_KEY) || '{}') || {}; } catch (_) { return {}; } }
+    function saveOpen(k, open) { try { const p = openPrefs(); p[k] = open; localStorage.setItem(OPEN_KEY, JSON.stringify(p)); } catch (_) { /* private mode */ } }
+    const isOpen = (k, prefs) => (k in prefs ? !!prefs[k] : !SHUT_BY_DEFAULT.includes(k));
+
+    function skeleton() {
+        const prefs = openPrefs();
+        $('jdMain').innerHTML = SECTIONS.map(([k, title, icon]) => `
+            <details class="jd-sec" id="jdSec-${k}" data-k="${k}"${isOpen(k, prefs) ? ' open' : ''}${['dates', 'setup', 'photos', 'fpa'].includes(k) ? '' : ' hidden'}>
+                <summary><span class="jd-ic"><i class="bi ${icon}"></i></span><h4>${title}</h4><span class="jd-sum" id="jdS-${k}"></span><i class="bi bi-chevron-down jd-chev" aria-hidden="true"></i></summary>
+                <div class="jd-sec-body" id="jdB-${k}">${k === 'setup'
+                    ? '<div id="jdSetupDpr"><div class="jd-note">Loading job…</div></div><div id="jdQcSetup"><div class="jd-note">Loading QC setup…</div></div>'
+                    : ['dates', 'photos', 'fpa'].includes(k) ? '<div class="jd-note">Loading…</div>' : ''}</div>
+            </details>`).join('');
+        $('jdMain').querySelectorAll('.jd-sec').forEach((el) => el.addEventListener('toggle', () => { saveOpen(el.dataset.k, el.open); syncAllBtn(); }));
+        syncAllBtn();
+    }
+
+    /** Fill a section body (html '' hides the section) and its folded-header summary. */
+    function fill(k, html, sum, tone) {
+        const sec = $('jdSec-' + k);
+        if (!sec) return;
+        if (html !== undefined && html !== null) { $('jdB-' + k).innerHTML = html; sec.hidden = !html; }
+        setSum(k, sum, tone);
+    }
+    function setSum(k, text, tone) {
+        const s = $('jdS-' + k);
+        if (!s) return;
+        s.textContent = text || '';
+        s.className = 'jd-sum' + (tone ? ' ' + tone : '');
+    }
+
+    function syncAllBtn() {
+        const btn = $('jdAllBtn');
+        if (!btn) return;
+        const secs = [...document.querySelectorAll('#jdMain .jd-sec:not([hidden])')];
+        const anyShut = secs.some((s) => !s.open);
+        btn.innerHTML = anyShut ? '<i class="bi bi-arrows-expand"></i> Open all' : '<i class="bi bi-arrows-collapse"></i> Close all';
+        btn.dataset.open = anyShut ? '1' : '0';
+    }
+    function jdToggleAll() {
+        const open = $('jdAllBtn').dataset.open === '1';
+        document.querySelectorAll('#jdMain .jd-sec').forEach((s) => { s.open = open; });
+    }
 
     // ── Open / close ─────────────────────────────────────────────────────────
     function showJobDetails(details, orderNo) {
@@ -35,7 +100,8 @@
 
         renderHeader({}, d, orderNo);
         $('jdStatus').innerHTML = '';
-        $('jdMain').innerHTML = '<div class="jd-card jd-note">Loading job…</div>';
+        $('jdBar').innerHTML = '';
+        skeleton();
         $('jdBody').scrollTop = 0;
         $('jobDetailModal').style.display = 'flex';
         loadJobQCEvidence(d);
@@ -70,7 +136,8 @@
             state.data = ans.data;
         } catch (e) {
             if (token !== state.token) return;
-            $('jdMain').innerHTML = `<div class="jd-card jd-error">Job details could not be loaded: ${esc(e.message || e)}</div>`;
+            fill('dates', `<div class="jd-error">Job details could not be loaded: ${esc(e.message || e)}</div>`);
+            $('jdSetupDpr').innerHTML = '';
             return;
         }
         renderAll(); // production first; QC and shifting figures fill in when they arrive
@@ -97,13 +164,17 @@
     function renderStatus(m) {
         const st = String(m.info.status || '').trim().toUpperCase();
         let cls = 'idle', text = st ? st.charAt(0) + st.slice(1).toLowerCase() : 'Unknown';
-        if (['COMPLETED', 'CLOSED'].includes(st)) cls = 'done';
+        if (isDone(st)) cls = 'done';
         else if (st === 'RUNNING') cls = 'run';
         else if (/STOP|HOLD|CANCEL|REJECT/.test(st)) cls = 'bad';
         let extra = '';
         if (m.extra > 0) extra = `<span class="jd-status over">${qty(m.extra)} extra</span>`;
         else if (m.plan > 0 && m.balance === 0 && cls === 'run') extra = '<span class="jd-status done">Plan made</span>';
         $('jdStatus').innerHTML = `<span class="jd-status ${cls}">${esc(text)}</span>${extra}`;
+        // Slim progress line under the title, so the key figure stays in view.
+        const f = m.plan > 0 ? Math.min(1, m.good / m.plan) : 0;
+        $('jdBar').innerHTML = m.plan > 0 ? `<span class="jd-track"><i class="c-good" style="width:${(f * 100).toFixed(1)}%"></i></span>
+            <span><b>${qty(m.good)}</b> of ${qty(m.plan)} made · ${m.balance > 0 ? `<b class="warn">${qty(m.balance)}</b> left` : '<b class="good">plan made</b>'}</span>` : '';
     }
 
     // ── Everything ───────────────────────────────────────────────────────────
@@ -116,6 +187,9 @@
         info.act_cycle = info.act_cycle || d.act_cycle || d.cycle_act;
         info.act_weight = info.act_weight || d.act_weight || d.article_act;
         info.act_cavity = info.act_cavity || d.act_cavity || d.cavity_act;
+        info.std_manpower = info.std_manpower || d.std_manpower;
+        info.act_manpower = info.act_manpower || d.act_manpower;
+        info.act_pcshr = info.act_pcshr || d.pcshr_act;
         const t = data.totals || {};
         const plan = num(info.plan_qty) || num(t.plan), good = num(t.good), rej = num(t.rej);
         const hours = A.hourly(data.logs), target = A.targetPerHour(info);
@@ -129,20 +203,97 @@
         renderHeader(m.info, state.details);
         renderStatus(m);
         if (!state.view) state.view = m.hours.length > 48 ? 'shift' : 'hour';
-        const top = $('jdBody').scrollTop;
-        $('jdMain').innerHTML = [
-            progressHtml(m), findingsHtml(m), timeHtml(m),
-            '<section class="jd-card" id="jdTrend"></section>',
-            `<div class="jd-two">${reasonsHtml('Downtime reasons', m.data.downtime_stats, 'min', 'down', m)}${reasonsHtml('Reject reasons', m.data.rejection_stats, 'pcs', 'rej', m)}</div>`,
-            coloursHtml(m),
-            `<div class="jd-two">${setupHtml(m)}${datesHtml(m)}</div>`,
-            shiftingHtml()
-        ].join('');
+
+        renderDates(m);
+        renderSetup(m);
+        fill('progress', progressHtml(m), `${qty(m.good)} of ${qty(m.plan)} · ${m.balance > 0 ? qty(m.balance) + ' left' : 'plan made'}`, m.balance > 0 ? '' : 'good');
+        renderFindings(m);
+        const u = m.use;
+        fill('time', timeHtml(m), u.oee !== null ? `OEE ${pct(u.oee, 0)} · running ${pct(u.availability, 0)}` : `${qty(u.hours)} hours`, u.oee !== null && u.oee < 0.6 ? 'warn' : '');
+        fill('trend', '<div id="jdTrend"></div>', m.hours.length ? `${qty(m.hours.length)} hours · ${A.byShift(m.hours).length} shifts` : 'No production yet');
         renderTrend(m);
-        $('jdBody').scrollTop = top;
+        const dtTotal = Object.values(m.data.downtime_stats || {}).reduce((a, v) => a + num(v), 0);
+        fill('reasons', `<div class="jd-two">${reasonsHtml('Downtime', m.data.downtime_stats, 'min', 'down', m)}${reasonsHtml('Rejects', m.data.rejection_stats, 'pcs', 'rej', m)}</div>`,
+            `Stopped ${qty(dtTotal)} min · ${qty(m.rej)} rejected`, dtTotal > 0 || m.rej > 0 ? 'warn' : '');
+        const nCol = Object.keys(m.data.colour_stats || {}).length;
+        fill('colours', coloursHtml(m), nCol ? `${nCol} colour${nCol === 1 ? '' : 's'}` : '');
+        const t = state.ship && state.ship.totals;
+        fill('shifting', shiftingHtml(), t ? `${qty(t.shifted)} shifted · ${qty(t.ready)} ready` : '');
+        syncAllBtn();
     }
 
-    // ── 1. Progress ──────────────────────────────────────────────────────────
+    // ── 1. Dates ─────────────────────────────────────────────────────────────
+    function renderDates(m) {
+        const done = isDone(m.info.status);
+        const tl = A.timeline({ lifecycle: m.data.lifecycle, hours: m.hours, done, finishTs: m.fc && m.fc.finish });
+        const year = new Date().getFullYear();
+        const node = (s) => {
+            const d = s.at;
+            const big = d ? d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' }) + (d.getFullYear() !== year ? ' ' + d.getFullYear() : '') : '–';
+            const small = d ? d.toLocaleDateString('en-GB', { weekday: 'short' }) + (s.time ? ' · ' + d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false }) : '') : 'not yet';
+            const gap = s.gap === null ? '' : `<em class="jd-gap ${s.gap > 2 ? 'long' : ''}">${s.gap === 0 ? 'same day' : (s.gap > 0 ? '+' : '') + days(s.gap).toLowerCase()}</em>`;
+            return `<li class="${d ? 'on' : ''} ${s.future ? 'future' : ''} ${s.key === 'last' && done ? 'end' : ''}">${gap}<i></i><span>${s.label}</span><b>${big}</b><small>${small}</small></li>`;
+        };
+        const machines = [...new Set(m.hours.map((h) => h.machine).filter(Boolean))];
+        const tile = (l, v, n, cls) => `<div class="${cls || ''}"><span>${l}</span><b>${v}</b><em>${n || ''}</em></div>`;
+        const lead = tl.leadDays === null ? '–' : days(tl.leadDays);
+        const html = `<ol class="jd-tl">${tl.steps.map(node).join('')}</ol>
+            <div class="jd-tiles">
+                ${tile('Order to first production', days(tl.orderToStart), tl.orderToStart === null ? 'not started' : 'waiting before the machine started', tl.orderToStart > 3 ? 'warn' : '')}
+                ${tile('Production run', tl.runHours === null ? '–' : span(tl.runHours), `${qty(m.use.hours)} hours with a DPR entry`)}
+                ${tile(done ? 'Order to finish' : 'Order to expected finish', lead, done ? 'total lead time' : m.fc && m.fc.finish ? 'at the current pace' : 'no finish time yet')}
+                ${tile('Machines', qty(machines.length || 1), machines.length > 1 ? machines.map((x) => `${esc(x)} (${qty(m.hours.filter((h) => h.machine === x).reduce((a, h) => a + h.good, 0))})`).join(', ') : esc(machines[0] || m.info.machine || state.details.machine || ''))}
+            </div>
+            ${forecastHtml(m)}`;
+        const or = tl.steps[0].at, end = tl.steps[tl.steps.length - 1];
+        const fmt = (d) => d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
+        const sum = [or ? `OR ${fmt(or)}` : '', end.at ? `${done ? 'finished' : 'finish'} ${fmt(end.at)}` : (done ? '' : 'no finish time')].filter(Boolean).join(' → ');
+        fill('dates', html, sum, !done && (!m.fc || !m.fc.finish) && m.balance > 0 ? 'warn' : '');
+    }
+
+    function forecastHtml(m) {
+        const st = String(m.info.status || '').toUpperCase(), fc = m.fc;
+        if (isDone(st) || !fc) {
+            const last = m.hours.length ? m.hours[m.hours.length - 1].ts : 0;
+            return last && (m.balance <= 0 || isDone(st))
+                ? `<div class="jd-finish done"><div><span>Last production</span><b>${stamp(last)}</b></div><p>${m.balance > 0 ? `Closed with ${qty(m.balance)} pcs not made.` : 'The planned quantity is made.'}</p></div>` : '';
+        }
+        if (!fc.paceHours) return `<div class="jd-finish"><div><span>Not started</span><b>${fc.bestHours ? `Needs ${span(fc.bestHours)} at STD` : 'No production yet'}</b></div><p></p></div>`;
+        const live = st === 'RUNNING' && fc.silentHours < 4;
+        const late = fc.hoursLeft === null || (fc.bestHours && fc.hoursLeft > fc.bestHours * 1.3);
+        if (!live) {
+            return `<div class="jd-finish late"><div><span>No finish time</span><b>Last entry ${stamp(fc.lastTs)}</b></div>
+                <p>${qty(m.balance)} pcs left.${fc.bestHours ? ` Needs ${span(fc.bestHours)} at STD` : ''}${fc.hoursLeft ? `, ${span(fc.hoursLeft)} at its last pace.` : '.'}</p></div>`;
+        }
+        if (fc.finish === null) return `<div class="jd-finish late"><div><span>No finish time</span><b>No good pieces in the last ${fc.paceHours} hours</b></div><p>${qty(m.balance)} pcs left.${fc.bestHours ? ` Needs ${span(fc.bestHours)} at STD.` : ''}</p></div>`;
+        return `<div class="jd-finish ${late ? 'late' : ''}">
+            <div><span>Expected finish</span><b>${stamp(fc.finish)}</b></div>
+            <p>${span(fc.hoursLeft)} left at ${qty(Math.round(fc.pace))} pcs/hr (last ${fc.paceHours} hours, stops included).${fc.bestFinish ? ` At STD ${qty(Math.round(m.target))} pcs/hr it would finish ${stamp(fc.bestFinish)}.` : ''}</p></div>`;
+    }
+
+    // ── 2. Setup (the QC half is filled by loadJobQCEvidence into #jdQcSetup) ─
+    function renderSetup(m) {
+        const i = m.info, off = [];
+        const row = (label, std, act, unit, badIf) => {
+            const s = num(std), a = num(act), d = s > 0 && a > 0 ? (a - s) / s : null;
+            const bad = d !== null && badIf(d);
+            if (bad) off.push(`${label} ${d > 0 ? '+' : '−'}${pct(Math.abs(d), 0)}`);
+            return `<tr><td>${label}</td><td class="r">${esc(val(std, unit))}</td><td class="r"><b>${esc(val(act, unit))}</b></td><td class="r ${bad ? 'bad' : d !== null ? 'good' : ''}">${d === null ? '–' : Math.abs(d) < 0.0005 ? 'same' : (d > 0 ? '+' : '−') + pct(Math.abs(d))}</td></tr>`;
+        };
+        const stdHr = m.target ? Math.round(m.target) : 0;
+        $('jdSetupDpr').innerHTML = `<div class="jd-sub">DPR setup <span class="jd-note">entered by the supervisor</span></div>
+            <table class="jd-table jd-setup">
+            <thead><tr><th></th><th class="r">STD</th><th class="r">Actual</th><th class="r">Difference</th></tr></thead><tbody>
+            ${row('Cycle time', i.std_cycle, i.act_cycle, ' s', (d) => d > 0.1)}
+            ${row('Part weight', i.std_weight, i.act_weight, ' kg', (d) => Math.abs(d) >= 0.02)}
+            ${row('Cavities', i.std_cavity, i.act_cavity, '', (d) => d < 0)}
+            ${row('Pcs / hr', stdHr || '', i.act_pcshr, '', (d) => d < -0.1)}
+            ${row('Manpower', i.std_manpower, i.act_manpower, '', (d) => d > 0)}
+            </tbody></table>`;
+        setSum('setup', off.length ? off.join(' · ') : 'Within STD', off.length ? 'bad' : 'good');
+    }
+
+    // ── 5. Progress ──────────────────────────────────────────────────────────
     function progressHtml(m) {
         const s = state.ship, t = s && s.totals;
         const f = m.plan > 0 ? m.good / m.plan : 0;
@@ -162,57 +313,35 @@
 
         const orq = num(m.info.or_qty);
         const facts = [
-            ['Plan', qty(m.plan), orq && orq !== m.plan ? `of OR ${qty(orq)}` : ''],
+            ['Plan', qty(m.plan), orq && orq !== m.plan ? `of OR ${qty(orq)}` : 'pieces'],
             ['Produced', qty(m.good), pct(f) + ' of plan', 'good'],
-            ['Balance', qty(m.balance), m.extra > 0 ? `+${qty(m.extra)} extra made` : m.balance === 0 ? 'done' : pct(m.plan > 0 ? m.balance / m.plan : 0) + ' left', m.balance > 0 ? 'warn' : ''],
+            ['Balance', qty(m.balance), m.extra > 0 ? `+${qty(m.extra)} extra made` : m.balance === 0 ? 'done' : pct(m.plan > 0 ? m.balance / m.plan : 0) + ' left', m.balance > 0 ? 'warn' : 'good'],
             ['Reject', qty(m.rej), pct(m.good + m.rej > 0 ? m.rej / (m.good + m.rej) : 0) + ' of all made', m.rej > 0 ? 'bad' : ''],
             ['On shop floor', t ? qty(Math.max(num(t.produced) - num(t.shifted), 0)) : '–', 'made, not shifted']
         ];
         const hold = s && s.hold;
-        return `<section class="jd-card jd-progress">
-            ${hold ? `<div class="jd-hold"><i class="bi bi-octagon-fill"></i> QC hold on ${esc(s.machine)}${hold.qty > 0 ? ` (${qty(hold.qty)} pcs)` : ''}: ${esc((hold.reasons || []).join('; ') || 'no reason given')}</div>` : ''}
-            <div class="jd-facts">${facts.map(([l, v, n, c]) => `<div><span>${l}</span><b class="${c || ''}">${v}</b><em>${n}</em></div>`).join('')}</div>
-            <div class="jd-flow">${flow}</div>
-            ${forecastHtml(m)}
-        </section>`;
+        return `${hold ? `<div class="jd-hold"><i class="bi bi-octagon-fill"></i> QC hold on ${esc(s.machine)}${hold.qty > 0 ? ` (${qty(hold.qty)} pcs)` : ''}: ${esc((hold.reasons || []).join('; ') || 'no reason given')}</div>` : ''}
+            <div class="jd-tiles jd-tiles-5">${facts.map(([l, v, n, c]) => `<div class="${c || ''}"><span>${l}</span><b>${v}</b><em>${n}</em></div>`).join('')}</div>
+            <div class="jd-flow">${flow}</div>`;
     }
 
-    function forecastHtml(m) {
-        const st = String(m.info.status || '').toUpperCase(), fc = m.fc;
-        if (['COMPLETED', 'CLOSED'].includes(st) || !fc) {
-            const last = m.hours.length ? m.hours[m.hours.length - 1].ts : 0;
-            return last && (m.balance <= 0 || st === 'COMPLETED' || st === 'CLOSED')
-                ? `<div class="jd-finish done"><div><span>Last production</span><b>${stamp(last)}</b></div><p>${m.balance > 0 ? `Closed with ${qty(m.balance)} pcs not made.` : 'The planned quantity is made.'}</p></div>` : '';
-        }
-        if (!fc.paceHours) return `<div class="jd-finish"><div><span>Not started</span><b>${fc.bestHours ? `Needs ${span(fc.bestHours)} at STD` : 'No production yet'}</b></div><p></p></div>`;
-        const live = st === 'RUNNING' && fc.silentHours < 4;
-        const late = fc.hoursLeft === null || (fc.bestHours && fc.hoursLeft > fc.bestHours * 1.3);
-        if (!live) {
-            return `<div class="jd-finish late"><div><span>No finish time</span><b>Last entry ${stamp(fc.lastTs)}</b></div>
-                <p>${qty(m.balance)} pcs left.${fc.bestHours ? ` Needs ${span(fc.bestHours)} at STD` : ''}${fc.hoursLeft ? `, ${span(fc.hoursLeft)} at its last pace.` : '.'}</p></div>`;
-        }
-        if (fc.finish === null) return `<div class="jd-finish late"><div><span>No finish time</span><b>No good pieces in the last ${fc.paceHours} hours</b></div><p>${qty(m.balance)} pcs left.${fc.bestHours ? ` Needs ${span(fc.bestHours)} at STD.` : ''}</p></div>`;
-        return `<div class="jd-finish ${late ? 'late' : ''}">
-            <div><span>Expected finish</span><b>${stamp(fc.finish)}</b></div>
-            <p>${span(fc.hoursLeft)} left at ${qty(Math.round(fc.pace))} pcs/hr (last ${fc.paceHours} hours, stops included).${fc.bestFinish ? ` At STD ${qty(Math.round(m.target))} pcs/hr it would finish ${stamp(fc.bestFinish)}.` : ''}</p></div>`;
-    }
-
-    // ── 2. Findings ──────────────────────────────────────────────────────────
-    function findingsHtml(m) {
-        if (!m.hours.length) return '';
+    // ── 6. What needs attention ──────────────────────────────────────────────
+    function renderFindings(m) {
+        if (!m.hours.length) { fill('attention', ''); return; }
         const list = A.findings({ info: m.info, hours: m.hours, use: m.use, target: m.target, rejStats: m.data.rejection_stats, dtStats: m.data.downtime_stats });
         const icon = { bad: 'bi-exclamation-octagon-fill', warn: 'bi-exclamation-triangle-fill', info: 'bi-info-circle-fill' };
-        return `<section class="jd-card"><div class="jd-head"><h4>What needs attention</h4></div>
-            ${list.length ? `<ul class="jd-find">${list.map((f) => `<li class="${f.level}"><i class="bi ${icon[f.level]}"></i><div><b>${esc(f.title)}</b><p>${esc(f.text)}</p></div></li>`).join('')}</ul>`
-                : '<div class="jd-note">Nothing unusual. Reject, downtime, speed and weight are within limits.</div>'}</section>`;
+        const bad = list.filter((f) => f.level === 'bad').length, warn = list.filter((f) => f.level === 'warn').length;
+        const sum = list.length ? [bad ? `${bad} serious` : '', warn ? `${warn} to watch` : '', !bad && !warn ? `${list.length} note${list.length === 1 ? '' : 's'}` : ''].filter(Boolean).join(' · ') : 'Nothing unusual';
+        fill('attention', list.length ? `<ul class="jd-find">${list.map((f) => `<li class="${f.level}"><i class="bi ${icon[f.level]}"></i><div><b>${esc(f.title)}</b><p>${esc(f.text)}</p></div></li>`).join('')}</ul>`
+            : '<div class="jd-note">Nothing unusual. Reject, downtime, speed and weight are within limits.</div>', sum, bad ? 'bad' : warn ? 'warn' : 'good');
     }
 
-    // ── 3. Machine time ──────────────────────────────────────────────────────
+    // ── 7. Machine time ──────────────────────────────────────────────────────
     function timeHtml(m) {
         const u = m.use;
         if (!u.hours) return '';
         const tile = (l, v, n) => `<div><span>${l}</span><b>${v}</b><em>${n}</em></div>`;
-        const tiles = `<div class="jd-facts jd-oee">
+        const tiles = `<div class="jd-tiles jd-tiles-5">
             ${tile('OEE', pct(u.oee, 0), u.oee === null ? 'no STD cycle' : 'good pcs against STD')}
             ${tile('Running time', pct(u.availability, 0), `${u.runHours.toFixed(1)} of ${qty(u.hours)} hrs`)}
             ${tile('Speed', pct(u.speed, 0), m.target ? `STD ${qty(Math.round(m.target))} pcs/hr` : 'no STD cycle')}
@@ -226,13 +355,14 @@
                 ${parts.map(([l, h, c]) => h > 0 ? `<i class="${c}" style="flex:${h.toFixed(3)}" title="${l}: ${h.toFixed(1)} hrs"></i>` : '').join('')}</div>
                 <div class="jd-legend">${parts.map(([l, h, c]) => `<span><i class="${c}"></i>${l} <b>${h.toFixed(1)} h</b> ${pct(h / u.hours, 0)}</span>`).join('')}</div>`;
         }
-        return `<section class="jd-card"><div class="jd-head"><h4>Where the machine time went</h4><span class="jd-note">${qty(u.hours)} hours with a DPR entry</span></div>${bar}${tiles}</section>`;
+        return `<div class="jd-note jd-mb">${qty(u.hours)} hours with a DPR entry</div>${bar}${tiles}`;
     }
 
-    // ── 4. Trend ─────────────────────────────────────────────────────────────
+    // ── 8. Production chart ──────────────────────────────────────────────────
     function renderTrend(m) {
         const box = $('jdTrend');
-        if (!m.hours.length) { box.innerHTML = '<div class="jd-head"><h4>Production</h4></div><div class="jd-note">No production entered yet.</div>'; return; }
+        if (!box) return;
+        if (!m.hours.length) { box.innerHTML = '<div class="jd-note">No production entered yet.</div>'; return; }
         const shiftView = state.view === 'shift';
         const all = shiftView ? A.byShift(m.hours) : m.hours;
         const MAX = 48, list = all.slice(-MAX);
@@ -271,12 +401,12 @@
         if (m.target && !shiftView) g += `<line class="std" x1="${L}" x2="${W - R}" y1="${y(m.target).toFixed(1)}" y2="${y(m.target).toFixed(1)}"></line><text x="${W - R}" y="${(y(m.target) - 4).toFixed(1)}" text-anchor="end" class="stdt">STD ${qty(Math.round(m.target))}/hr</text>`;
 
         const shifts = A.byShift(m.hours).reverse();
-        box.innerHTML = `<div class="jd-head"><h4>Production</h4>
+        box.innerHTML = `<div class="jd-head">
+                <div class="jd-legend jd-legend-top"><span><i class="c-good"></i>Good</span><span><i class="c-rej"></i>Reject</span><span><i class="c-down"></i>Stopped time</span>${m.target ? '<span><i class="c-std"></i>STD</span>' : ''}</div>
                 <div class="jd-seg" role="group" aria-label="Chart view">
                     <button type="button" class="${shiftView ? '' : 'on'}" onclick="jdView('hour')">Hour by hour</button>
                     <button type="button" class="${shiftView ? 'on' : ''}" onclick="jdView('shift')">Shift by shift</button>
                 </div></div>
-            <div class="jd-legend"><span><i class="c-good"></i>Good</span><span><i class="c-rej"></i>Reject</span><span><i class="c-down"></i>Stopped time</span>${m.target ? '<span><i class="c-std"></i>STD</span>' : ''}</div>
             <div class="jd-scroll"><svg class="jd-chart" viewBox="0 0 ${W} ${H}">${g}</svg></div>
             ${all.length > MAX ? `<div class="jd-note">Last ${MAX} of ${all.length} ${shiftView ? 'shifts' : 'hours'}.</div>` : ''}
             <details class="jd-more"><summary>Shift table (${shifts.length})</summary><div class="jd-scroll"><table class="jd-table">
@@ -285,17 +415,17 @@
     }
     function jdView(v) { state.view = v; if (state.data) renderTrend(model()); }
 
-    // ── 5. Reasons ───────────────────────────────────────────────────────────
+    // ── 9. Reasons ───────────────────────────────────────────────────────────
     function reasonsHtml(title, stats, unit, cls, m) {
         const rows = Object.entries(stats || {}).map(([r, v]) => ({ r, v: num(v) })).filter((x) => x.v > 0).sort((a, b) => b.v - a.v);
         const total = rows.reduce((a, x) => a + x.v, 0), top = rows.length ? rows[0].v : 1;
         const lost = cls === 'down' && m.target ? `, about ${qty(Math.round((total / 60) * m.target))} pcs` : '';
-        return `<section class="jd-card"><div class="jd-head"><h4>${title}</h4><span class="jd-note">${rows.length ? `${qty(total)} ${unit}${lost}` : ''}</span></div>
+        return `<div class="jd-panel"><div class="jd-head"><div class="jd-sub">${title}</div><span class="jd-note">${rows.length ? `${qty(total)} ${unit}${lost}` : ''}</span></div>
             ${rows.length ? rows.map((x) => `<div class="jd-reason"><div><span>${esc(x.r)}</span><b>${qty(x.v)} <em>${pct(x.v / total, 0)}</em></b></div><span class="jd-track"><i class="c-${cls}" style="width:${((x.v / top) * 100).toFixed(1)}%"></i></span></div>`).join('')
-                : '<div class="jd-note">None entered.</div>'}</section>`;
+                : '<div class="jd-note">None entered.</div>'}</div>`;
     }
 
-    // ── 6. Colours (production + QC + shifting in one table) ─────────────────
+    // ── 10. Colours (production + QC + shifting in one table) ────────────────
     function coloursHtml(m) {
         const s = state.ship, stats = m.data.colour_stats || {};
         const ship = new Map((s && s.colours || []).map((c) => [key(c.colour), c]));
@@ -305,7 +435,7 @@
         const cell = (c, f, cls) => c ? `<td class="r ${c[f] > 0 && cls ? cls : ''}">${qty(c[f])}</td>` : '<td class="r">–</td>';
         const t = s && s.totals;
         const un = s && s.unassigned && num(s.unassigned.shifted) > 0;
-        return `<section class="jd-card"><div class="jd-head"><h4>Colours</h4><span class="jd-note">Click a produced figure for its hour-by-hour entries</span></div>
+        return `<div class="jd-note jd-mb">Click a produced figure for its hour-by-hour entries</div>
             <div class="jd-scroll"><table class="jd-table">
                 <thead><tr><th>Colour</th><th class="r">Plan</th><th class="r">Produced</th><th class="r">Balance</th><th class="r">Reject</th><th class="r">QC verified</th><th class="r">Waiting QC</th><th class="r">Shifted</th><th class="r">Ready to shift</th></tr></thead>
                 <tbody>${rows.length ? rows.map((r) => {
@@ -317,7 +447,7 @@
                 }).join('') : '<tr><td colspan="9" class="jd-note">No production entered yet.</td></tr>'}
                 ${un ? `<tr><td>No colour (manual shift)</td><td colspan="6"></td><td class="r">${qty(s.unassigned.shifted)}</td><td></td></tr>` : ''}</tbody>
                 ${rows.length > 1 || un ? `<tfoot><tr><td>Total</td><td class="r">${qty(m.plan)}</td><td class="r">${qty(m.good)}</td><td class="r">${bal(m.balance > 0 ? m.balance : -m.extra)}${m.balance > 0 && m.extra > 0 ? ` <em>+${qty(m.extra)} extra</em>` : ''}</td><td class="r">${qty(m.rej)}</td><td class="r">${t ? qty(t.verified) : '–'}</td><td class="r">${t ? qty(t.not_verified) : '–'}</td><td class="r">${t ? qty(t.shifted) : '–'}</td><td class="r">${t ? qty(t.ready) : '–'}</td></tr></tfoot>` : ''}
-            </table></div>${historyHtml()}</section>`;
+            </table></div>${historyHtml()}`;
     }
 
     function historyHtml() {
@@ -325,7 +455,7 @@
         if (!c) return '<div id="jdHistory"></div>';
         const rows = ((state.data.history || {})[c] || []).slice()
             .sort((a, b) => A.slotEnd(b.date, b.shift, b.hour_slot) - A.slotEnd(a.date, a.shift, a.hour_slot));
-        return `<div id="jdHistory" class="jd-history"><div class="jd-head"><h4>${esc(c)}: entries</h4><button type="button" class="jd-btn" onclick="closeColourHistory()">Hide</button></div>
+        return `<div id="jdHistory" class="jd-history"><div class="jd-head"><div class="jd-sub">${esc(c)}: entries</div><button type="button" class="jd-btn" onclick="closeColourHistory()">Hide</button></div>
             ${rows.length ? `<div class="jd-scroll jd-tall"><table class="jd-table"><thead><tr><th>Date</th><th>Shift</th><th>Hour</th><th>Machine</th><th class="r">Good</th><th class="r">Reject</th><th class="r">Stopped</th><th>Entered by</th></tr></thead>
             <tbody>${rows.map((r) => `<tr><td>${esc(dprFmtDate(r.date))}</td><td>${esc(r.shift || '-')}</td><td>${esc(r.hour_slot || '-')}</td><td>${esc(r.machine || '-')}</td><td class="r"><b>${qty(r.good)}</b></td><td class="r ${num(r.reject) > 0 ? 'bad' : ''}">${qty(r.reject)}</td><td class="r">${qty(r.downtime)} min</td><td>${esc(r.by || '-')}</td></tr>`).join('')}</tbody></table></div>` : '<div class="jd-note">No entries for this colour.</div>'}</div>`;
     }
@@ -336,45 +466,15 @@
     function openColourHistory(colour) { state.colour = colour; swapHistory(); }
     function closeColourHistory() { state.colour = ''; swapHistory(); }
 
-    // ── 7. Setup and dates ───────────────────────────────────────────────────
-    function setupHtml(m) {
-        const i = m.info;
-        const row = (label, std, act, unit, badIf) => {
-            const s = num(std), a = num(act), d = s > 0 && a > 0 ? (a - s) / s : null;
-            return `<tr><td>${label}</td><td class="r">${esc(val(std, unit))}</td><td class="r"><b>${esc(val(act, unit))}</b></td><td class="r ${d !== null && badIf(d) ? 'bad' : ''}">${d === null ? '–' : Math.abs(d) < 0.0005 ? 'same' : (d > 0 ? '+' : '−') + pct(Math.abs(d))}</td></tr>`;
-        };
-        return `<section class="jd-card"><div class="jd-head"><h4>Setup</h4></div><table class="jd-table">
-            <thead><tr><th></th><th class="r">STD</th><th class="r">Actual</th><th class="r">Difference</th></tr></thead><tbody>
-            ${row('Cycle time', i.std_cycle, i.act_cycle, ' s', (d) => d > 0.1)}
-            ${row('Part weight', i.std_weight, i.act_weight, ' kg', (d) => Math.abs(d) >= 0.02)}
-            ${row('Cavities', i.std_cavity, i.act_cavity, '', (d) => d < 0)}
-            </tbody></table></section>`;
-    }
-
-    function datesHtml(m) {
-        const l = m.data.lifecycle || {}, g = l.gaps || {};
-        const steps = [
-            ['Order (OR)', l.or_date, null], ['Job card', l.jc_date, g.or_to_jc],
-            ['Planned', l.plan_created || l.plan_date, g.jc_to_plan_created],
-            ['First production', l.prod_start, g.plan_to_prod], ['Last production', l.prod_last, g.prod_span]
-        ];
-        const gap = (n) => n === null || n === undefined ? '' : n === 0 ? 'same day' : n > 0 ? `${n} day${n === 1 ? '' : 's'} later` : `${-n} day${n === -1 ? '' : 's'} earlier`;
-        const machines = [...new Set(m.hours.map((h) => h.machine).filter(Boolean))];
-        return `<section class="jd-card"><div class="jd-head"><h4>Dates</h4></div><ol class="jd-steps">
-            ${steps.map(([n, d, x]) => `<li class="${d ? 'on' : ''}"><span>${n}</span><b>${d ? esc(dprFmtDate(d)) : '–'}</b><em>${d ? gap(x) : ''}</em></li>`).join('')}</ol>
-            ${machines.length > 1 ? `<div class="jd-note">Ran on ${machines.length} machines: ${machines.map((x) => `${esc(x)} (${qty(m.hours.filter((h) => h.machine === x).reduce((a, h) => a + h.good, 0))})`).join(', ')}</div>` : ''}</section>`;
-    }
-
-    // ── 8. Shifting ──────────────────────────────────────────────────────────
+    // ── 11. Shifting ─────────────────────────────────────────────────────────
     function shiftingHtml() {
         const s = state.ship;
-        if (!s) return state.shipError ? `<section class="jd-card jd-error">QC and shifting figures could not be loaded: ${esc(state.shipError)}</section>` : '';
+        if (!s) return state.shipError ? `<div class="jd-error">QC and shifting figures could not be loaded: ${esc(state.shipError)}</div>` : '';
         const loc = (s.totals && s.totals.by_location) || [], recent = s.recent || [];
         if (!loc.length && !recent.length) return '';
-        return `<section class="jd-card"><div class="jd-head"><h4>Shifting</h4></div>
-            ${loc.length ? `<div class="jd-chips">${loc.map((l) => `<span>${esc(l.location)} <b>${qty(l.qty)}</b></span>`).join('')}</div>` : ''}
+        return `${loc.length ? `<div class="jd-chips">${loc.map((l) => `<span>${esc(l.location)} <b>${qty(l.qty)}</b></span>`).join('')}</div>` : ''}
             ${recent.length ? `<details class="jd-more"><summary>Latest entries (${recent.length})</summary><div class="jd-scroll"><table class="jd-table"><thead><tr><th>When</th><th>Colour</th><th>To</th><th>Label</th><th>By</th><th class="r">Pcs</th><th class="r">Kg</th></tr></thead><tbody>
-            ${recent.map((r) => `<tr><td>${r.at ? stamp(r.at) : '–'}</td><td>${esc(r.colour || 'Manual')}</td><td>${esc(r.location)}</td><td>${esc(r.label || 'Manual')}</td><td>${esc(r.by)}</td><td class="r"><b>${qty(r.qty)}</b></td><td class="r">${r.kg ? num(r.kg).toLocaleString('en-IN', { maximumFractionDigits: 2 }) : '–'}</td></tr>`).join('')}</tbody></table></div></details>` : ''}</section>`;
+            ${recent.map((r) => `<tr><td>${r.at ? stamp(r.at) : '–'}</td><td>${esc(r.colour || 'Manual')}</td><td>${esc(r.location)}</td><td>${esc(r.label || 'Manual')}</td><td>${esc(r.by)}</td><td class="r"><b>${qty(r.qty)}</b></td><td class="r">${r.kg ? num(r.kg).toLocaleString('en-IN', { maximumFractionDigits: 2 }) : '–'}</td></tr>`).join('')}</tbody></table></div></details>` : ''}`;
     }
 
     document.addEventListener('keydown', (e) => {
@@ -382,5 +482,5 @@
         if ($('modalJobImageViewer').style.display !== 'none') closeJobImage(); else closeJobModal();
     });
 
-    Object.assign(window, { showJobDetails, closeJobModal, jdView, openColourHistory, closeColourHistory });
+    Object.assign(window, { showJobDetails, closeJobModal, jdView, jdToggleAll, openColourHistory, closeColourHistory, jdFill: fill, jdSum: setSum });
 })();
