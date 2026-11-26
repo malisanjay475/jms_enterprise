@@ -11,8 +11,22 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.206.0",
+  "latest": "1.207.0",
   "versions": [
+    {
+      "version": "1.207.0",
+      "date": "2026-11-26",
+      "title": "MC/MP SCH lists machines without a plan",
+      "modules": [
+        {
+          "app": "planning",
+          "changes": [
+            { "type": "feat", "text": "In Excel View, while making an MC/MP SCH, a machine with no plan shows \"+ Add (No Plan)\" in its first slot; click it to put that machine on the sheet as No Plan." },
+            { "type": "improvement", "text": "Running Plan Manpower now lists every machine; machines without a running plan show as No Plan or No running plan with blank manpower." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.206.0",
       "date": "2026-11-25",
