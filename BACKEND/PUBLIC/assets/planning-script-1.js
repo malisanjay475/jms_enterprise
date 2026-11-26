@@ -114,6 +114,38 @@
       #etv-prio-modal label { display: block; font-size: .78rem; font-weight: 700; color: #475569; margin-bottom: 5px; }
       #etv-prio-modal input, #etv-prio-modal select { width: 100%; padding: 9px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: .85rem; margin-bottom: 14px; }
       #etv-prio-modal .pm-close { background: transparent; border: none; color: #fff; font-size: 1.3rem; cursor: pointer; }
+      /* ── Order Hold ── */
+      .etv-card.hold { border-left-color: #64748b !important; background: repeating-linear-gradient(135deg, #f1f5f9 0 8px, #e2e8f0 8px 16px) !important; border-color: #94a3b8 !important; }
+      .etv-card-hold { display: block; font-size: .6rem; font-weight: 800; color: #fff; background: #475569; border-radius: 4px; padding: 2px 6px; line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .etv-hold-btn { cursor: pointer; display: inline-flex; align-items: center; gap: 2px; font-size: .58rem; font-weight: 700; padding: 1px 5px; border-radius: 4px; border: 1px solid #cbd5e1; background: #f8fafc; color: #475569; white-space: nowrap; }
+      .etv-hold-btn:hover { background: #e2e8f0; }
+      .etv-hold-btn.on { background: #475569; border-color: #475569; color: #fff; }
+      #etv-hold-history-btn { display: none; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 8px; border: 1px solid #94a3b8; background: #f1f5f9; color: #334155; font-weight: 700; font-size: .8rem; cursor: pointer; white-space: nowrap; }
+      #etv-hold-modal, #etv-hold-modal * { box-sizing: border-box; }
+      #etv-hold-modal { position: fixed; inset: 0; z-index: 6200; background: rgba(15,23,42,.45); display: flex; align-items: center; justify-content: center; padding: 16px; }
+      #etv-hold-modal .hm-box { background: #fff; border-radius: 12px; width: 100%; max-width: 520px; max-height: 86vh; overflow: hidden; display: flex; flex-direction: column; }
+      #etv-hold-modal.wide .hm-box { max-width: 900px; }
+      #etv-hold-modal .hm-head { padding: 14px 18px; background: #334155; color: #fff; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+      #etv-hold-modal .hm-head h3 { margin: 0; font-size: 1rem; font-weight: 800; }
+      #etv-hold-modal .hm-close { background: transparent; border: none; color: #fff; font-size: 1.3rem; cursor: pointer; }
+      #etv-hold-modal .hm-body { padding: 18px; overflow-y: auto; }
+      #etv-hold-modal label { display: block; font-size: .78rem; font-weight: 700; color: #475569; margin-bottom: 5px; }
+      #etv-hold-modal textarea, #etv-hold-modal input { width: 100%; padding: 9px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: .85rem; margin-bottom: 12px; font-family: inherit; box-sizing: border-box; }
+      #etv-hold-modal .hm-info { font-size: .8rem; color: #334155; background: #f1f5f9; border: 1px solid #e2e8f0; border-radius: 8px; padding: 9px 11px; margin-bottom: 12px; line-height: 1.5; }
+      #etv-hold-modal .hm-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
+      #etv-hold-modal .hm-btn { border: 1px solid transparent; border-radius: 8px; padding: 8px 14px; font-weight: 800; font-size: .82rem; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+      #etv-hold-modal .hm-btn:disabled { opacity: .5; cursor: wait; }
+      #etv-hold-modal .hm-btn.save { background: #334155; color: #fff; }
+      #etv-hold-modal .hm-btn.release { background: #16a34a; color: #fff; }
+      #etv-hold-modal .hm-btn.ghost { background: #fff; color: #475569; border-color: #cbd5e1; }
+      #etv-hold-modal .hm-err { color: #b91c1c; font-size: .78rem; font-weight: 700; min-height: 1em; margin-bottom: 8px; }
+      #etv-hold-modal table { width: 100%; border-collapse: collapse; font-size: .78rem; }
+      #etv-hold-modal th { text-align: left; background: #f1f5f9; color: #334155; padding: 7px 8px; position: sticky; top: 0; font-weight: 800; }
+      #etv-hold-modal td { padding: 7px 8px; border-top: 1px solid #e2e8f0; vertical-align: top; color: #1e293b; }
+      #etv-hold-modal .hm-act { font-weight: 800; border-radius: 999px; padding: 1px 8px; font-size: .7rem; white-space: nowrap; }
+      #etv-hold-modal .hm-act.HOLD { background: #475569; color: #fff; }
+      #etv-hold-modal .hm-act.EDIT { background: #dbeafe; color: #1d4ed8; }
+      #etv-hold-modal .hm-act.RELEASE { background: #dcfce7; color: #15803d; }
       .pm-saved-row { display: flex; align-items: center; gap: 10px; padding: 10px; border: 1px solid #e2e8f0; border-radius: 8px; margin-bottom: 8px; }
       .pm-saved-row .pm-saved-info { flex: 1; min-width: 0; }
       .pm-saved-row .pm-saved-title { font-size: .8rem; font-weight: 800; color: #1e293b; }
@@ -761,6 +793,7 @@
         // timeline views no longer re-fetches the (heavy) board every time.
         const machinesPromise = api.get(`/masters/machines?${q}`);
         const mouldPromise    = api.get(`/masters/moulds`).catch(() => null);
+        const holdsPromise    = window.etvLoadHolds();
 
         let pRes;
         const _pbc = window._planBoardCache;
@@ -949,6 +982,7 @@
           } catch (e) { console.warn('[ExcelTimeline] cycle prediction failed', e); }
         }
 
+        await holdsPromise;
         renderExcelView(wrap);
         /* Fix 5: stamp last-refreshed time and start the "X min ago" ticker */
         window._etvLastRefresh = Date.now();
@@ -1040,6 +1074,9 @@
                 <button id="etv-saved-priority-btn" type="button" onclick="window.etvOpenSavedPriorities()" title="View saved MC/MP schedules" style="display:none">
                   <i class="bi bi-clock-history"></i> Saved MC/MP SCH
                 </button>
+                <button id="etv-hold-history-btn" type="button" onclick="window.etvOpenHoldHistory()" title="Every order hold, edit and release (superadmin)">
+                  <i class="bi bi-pause-circle"></i> Hold History
+                </button>
                 <div id="etv-count">0 machines</div>
                 <!-- Fix 7: Refresh button + Fix 5: last-refreshed label -->
                 <button id="etv-refresh-btn" type="button" onclick="window.loadExcelTimeline()" title="Refresh all data from server" style="display:flex;align-items:center;gap:6px;padding:6px 14px;border-radius:8px;border:1px solid #cbd5e1;background:#fff;color:#475569;font-weight:700;font-size:.8rem;cursor:pointer;white-space:nowrap">
@@ -1078,6 +1115,7 @@
                 <option value="Planned">🔵 Has Plans</option>
                 <option value="Empty">⬜ No Plans</option>
                 <option value="MouldChange">🟠 Mould Change</option>
+                <option value="Hold">⏸ On Hold</option>
               </select>
               <select id="etv-forecast" onchange="window.etvFilter()" style="min-width:140px;border-color:#f59e0b;color:#b45309;font-weight:700">
                 <option value="">Forecast: Off</option>
@@ -1127,6 +1165,8 @@
       window.etvFilter();
       if (typeof window.etvUpdateSmartBadge === 'function') window.etvUpdateSmartBadge();
       if (typeof window.etvApplyPriorityRole === 'function') window.etvApplyPriorityRole();
+      const hhb = document.getElementById('etv-hold-history-btn');
+      if (hhb) hhb.style.display = (window._etvHoldPerm && window._etvHoldPerm.history) ? 'inline-flex' : 'none';
     }
 
     /* ── Create Priority: role gating ───────────────────────────────────
@@ -1701,6 +1741,7 @@
         if (sVal === 'Planned'     && mPlans.length === 0) return false;
         if (sVal === 'Empty'       && mPlans.length > 0) return false;
         if (sVal === 'MouldChange' && !mPlans.some((p,i)=>i>0&&(p.mouldNo||''!==(mPlans[i-1].mouldNo||'')))) return false;
+        if (sVal === 'Hold'        && !mPlans.some(p => window.etvHoldFor(p.orderNo))) return false;
 
         if (q) {
           if (m.code.toLowerCase().includes(q)) return true;
@@ -1828,6 +1869,7 @@
       /* visible plans per machine — when forecast is on, drop plans starting beyond the cutoff
          (keep RUNNING/started plans so the active job stays in view) */
       const approvalPendingOnly = (document.getElementById('etv-approval')?.value || '') === 'pending';
+      const holdOnly = (document.getElementById('etv-status')?.value || '') === 'Hold';
       const visiblePlans = (code) => {
         const all = etvGroups[code] || [];
         let filtered = cutoffTime ? all.filter(p => {
@@ -1838,6 +1880,8 @@
         if (approvalPendingOnly) {
           filtered = filtered.filter(p => window.tlIsApprovalPending && window.tlIsApprovalPending(p));
         }
+        // "On Hold" status filter: show only the plans of held orders.
+        if (holdOnly) filtered = filtered.filter(p => window.etvHoldFor(p.orderNo));
         // Push plans with BAL ≤ 0 (fully/over-produced) to the end.
         // Running plans are exempt — they stay in position even if bal is 0.
         return filtered.slice().sort((a, b) => {
@@ -1976,7 +2020,8 @@
             </div>`;
           }
 
-          const cardClass = isPrevMould ? 'chg' : (st==='running'?'running':st==='stopped'?'stopped':st==='completed'?'completed':'planned');
+          const hold = window.etvHoldFor(p.orderNo);
+          const cardClass = (isPrevMould ? 'chg' : (st==='running'?'running':st==='stopped'?'stopped':st==='completed'?'completed':'planned')) + (hold ? ' hold' : '');
           const statusClass = st==='running'?'running':st==='stopped'?'stopped':st==='completed'?'completed':'planned';
 
           const isMatched = searchVal && (
@@ -2083,6 +2128,7 @@
                   <div class="etv-card-order">${esc(orderDisp)}</div>
                   <div class="etv-card-status ${statusClass}">${stLabel}</div>
                 </div>
+                ${hold ? `<div class="etv-card-hold" title="Order on hold&#10;Reason: ${esc(hold.reason)}&#10;By ${esc(hold.updated_by || hold.held_by || '')}"><i class="bi bi-pause-circle-fill"></i> ON HOLD: ${esc(hold.reason)}</div>` : ''}
                 <div class="etv-card-mould" title="${esc(p.mouldName || '')}">${esc(mouldDisp)}</div>
                 ${clientDisp ? `<div style="font-size:.6rem;color:#64748b;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(clientDisp)}</div>` : ''}
                 ${(() => {
@@ -2104,6 +2150,7 @@
                 ${stdBadge}
                 <div style="display:flex;align-items:center;gap:4px;flex-wrap:nowrap;">
                   <div onclick="window.etvToggleJcGiven(event,'${esc(String(p.id||p.planId||p.plan_id||''))}',${p.job_card_given?'true':'false'})" style="cursor:pointer;display:inline-flex;align-items:center;gap:2px;font-size:.58rem;font-weight:700;padding:1px 5px;border-radius:4px;border:1px solid ${p.job_card_given?'#bbf7d0':'#e2e8f0'};background:${p.job_card_given?'#dcfce7':'#f8fafc'};color:${p.job_card_given?'#15803d':'#94a3b8'};white-space:nowrap;transition:all .15s;" title="${p.job_card_given?'JC Given — Click to remove':'Click to mark Job Card as Given'}"><i class="bi bi-file-earmark-check${p.job_card_given?'-fill':''}"></i>&nbsp;${p.job_card_given?'JC✓':'JC?'}</div>
+                  ${(window._etvHoldPerm && window._etvHoldPerm.edit && p.orderNo) ? `<div class="etv-hold-btn${hold ? ' on' : ''}" onclick="event.stopPropagation(); window.etvOpenHold('${esc(p.orderNo)}')" title="${hold ? 'Order on hold — click to edit the reason or release it' : 'Put this whole order on hold'}"><i class="bi bi-pause-circle${hold ? '-fill' : ''}"></i>&nbsp;${hold ? 'Held' : 'Hold'}</div>` : ''}
                 </div>
                 <!-- P1-P4 MACHINE PRIORITY BUTTONS -->
                 <div class="etv-mp-btns" onclick="event.stopPropagation()">
@@ -2128,6 +2175,129 @@
 
       tbody.innerHTML = rows.join('');
     }
+
+    /* ════════════════════════════════════════════════════════════════════
+       ORDER HOLD — superadmin, admin and PPC managers hold a whole order;
+       every card of that order shows ON HOLD. Superadmin sees the history.
+       API: src/modules/orderHold/registerOrderHoldRoutes.js
+    ════════════════════════════════════════════════════════════════════ */
+    window._etvHolds = window._etvHolds || {};
+    window._etvHoldPerm = window._etvHoldPerm || { edit: false, history: false };
+    const holdKey = v => String(v == null ? '' : v).trim().toUpperCase();
+    window.etvHoldFor = function (orderNo) {
+      const k = holdKey(orderNo);
+      return k ? (window._etvHolds[k] || null) : null;
+    };
+    window.etvLoadHolds = async function () {
+      try {
+        const r = await fetch('/api/order-holds', { credentials: 'same-origin' });
+        const d = await r.json();
+        if (!r.ok || !d.ok) throw new Error(d.error || ('HTTP ' + r.status));
+        const map = {};
+        (d.data || []).forEach(h => { map[holdKey(h.order_no)] = h; });
+        window._etvHolds = map;
+        window._etvHoldPerm = { edit: !!d.can_edit, history: !!d.can_history };
+      } catch (e) { console.warn('[ExcelTimeline] order holds failed', e); }
+    };
+    const holdWhen = v => { if (!v) return ''; const d = new Date(v); return isNaN(d) ? '' : d.toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }); };
+    function holdModal(title, body, wide) {
+      const old = document.getElementById('etv-hold-modal');
+      if (old) old.remove();
+      const host = document.createElement('div');
+      host.id = 'etv-hold-modal';
+      if (wide) host.className = 'wide';
+      host.innerHTML = `<div class="hm-box"><div class="hm-head"><h3>${title}</h3><button class="hm-close" type="button" onclick="document.getElementById('etv-hold-modal').remove()">&times;</button></div><div class="hm-body">${body}</div></div>`;
+      host.addEventListener('click', e => { if (e.target === host) host.remove(); });
+      document.body.appendChild(host);
+      return host;
+    }
+    window.etvOpenHold = function (orderNo) {
+      const k = holdKey(orderNo);
+      if (!k) return;
+      const h = window.etvHoldFor(k);
+      const perm = window._etvHoldPerm || {};
+      const info = h
+        ? `<div class="hm-info"><b>On hold</b> since ${esc(holdWhen(h.held_at))} by <b>${esc(h.held_by || '-')}</b>${(h.updated_by && h.updated_by !== h.held_by) ? `<br>Last changed by <b>${esc(h.updated_by)}</b> on ${esc(holdWhen(h.updated_at))}` : ''}</div>`
+        : `<div class="hm-info">Every plan of this order will show <b>ON HOLD</b> on the board until the hold is released.</div>`;
+      holdModal(`<i class="bi bi-pause-circle"></i> ${h ? 'Order on Hold' : 'Hold Order'}: ${esc(k)}`, `
+        ${info}
+        <label for="etv-hold-reason">Reason for hold</label>
+        <textarea id="etv-hold-reason" rows="3" maxlength="500" placeholder="e.g. Client asked to stop, RM not available…">${esc(h ? h.reason : '')}</textarea>
+        <div class="hm-err" id="etv-hold-err"></div>
+        <div class="hm-actions">
+          ${perm.history ? `<button class="hm-btn ghost" type="button" onclick="window.etvOpenHoldHistory('${esc(k)}')"><i class="bi bi-clock-history"></i> History</button>` : ''}
+          ${h ? `<button class="hm-btn release" type="button" id="etv-hold-release" onclick="window.etvReleaseHold('${esc(k)}')"><i class="bi bi-play-circle"></i> Release Hold</button>` : ''}
+          <button class="hm-btn save" type="button" id="etv-hold-save" onclick="window.etvSaveHold('${esc(k)}')"><i class="bi bi-pause-circle"></i> ${h ? 'Save Reason' : 'Put on Hold'}</button>
+        </div>`);
+      const ta = document.getElementById('etv-hold-reason');
+      if (ta) ta.focus();
+    };
+    async function holdPost(url, body) {
+      const r = await fetch(url, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      let d = {};
+      try { d = await r.json(); } catch (_) { /* not JSON */ }
+      if (!r.ok || !d.ok) throw new Error(d.error || ('HTTP ' + r.status));
+      return d;
+    }
+    function holdBusy(on, msg) {
+      ['etv-hold-save', 'etv-hold-release'].forEach(id => { const b = document.getElementById(id); if (b) b.disabled = on; });
+      const err = document.getElementById('etv-hold-err');
+      if (err) err.textContent = msg || '';
+    }
+    async function holdDone() {
+      const m = document.getElementById('etv-hold-modal');
+      if (m) m.remove();
+      await window.etvLoadHolds();
+      if (typeof window.etvFilter === 'function') window.etvFilter();
+    }
+    window.etvSaveHold = async function (orderNo) {
+      const reason = (document.getElementById('etv-hold-reason')?.value || '').trim();
+      if (!reason) { holdBusy(false, 'Please write the reason for the hold.'); return; }
+      holdBusy(true);
+      try {
+        await holdPost('/api/order-holds', { order_no: orderNo, reason });
+        await holdDone();
+      } catch (e) { holdBusy(false, e.message || String(e)); }
+    };
+    window.etvReleaseHold = async function (orderNo) {
+      if (!confirm(`Release the hold on order ${orderNo}?`)) return;
+      holdBusy(true);
+      try {
+        await holdPost('/api/order-holds/release', { order_no: orderNo });
+        await holdDone();
+      } catch (e) { holdBusy(false, e.message || String(e)); }
+    };
+    window.etvOpenHoldHistory = async function (orderNo) {
+      const k = holdKey(orderNo);
+      const host = holdModal(`<i class="bi bi-clock-history"></i> Hold History${k ? ': ' + esc(k) : ''}`, `
+        <input id="etv-hold-hsearch" type="text" placeholder="Search order, reason, user…" oninput="window.etvFilterHoldHistory()" style="${k ? 'display:none' : ''}">
+        <div id="etv-hold-hlist" style="color:#64748b;font-size:.85rem">Loading…</div>`, true);
+      try {
+        const r = await fetch('/api/order-holds/history' + (k ? '?order_no=' + encodeURIComponent(k) : ''), { credentials: 'same-origin' });
+        const d = await r.json();
+        if (!r.ok || !d.ok) throw new Error(d.error || ('HTTP ' + r.status));
+        window._etvHoldHistRows = d.data || [];
+        if (document.body.contains(host)) window.etvFilterHoldHistory();
+      } catch (e) {
+        const el = document.getElementById('etv-hold-hlist');
+        if (el) el.innerHTML = `<span style="color:#b91c1c;font-weight:700">${esc(e.message || String(e))}</span>`;
+      }
+    };
+    window.etvFilterHoldHistory = function () {
+      const el = document.getElementById('etv-hold-hlist');
+      if (!el) return;
+      const q = (document.getElementById('etv-hold-hsearch')?.value || '').trim().toLowerCase();
+      const label = { HOLD: 'Hold', EDIT: 'Reason changed', RELEASE: 'Released' };
+      const rows = (window._etvHoldHistRows || []).filter(h => !q ||
+        [h.order_no, h.reason, h.old_reason, h.done_by, h.done_role].some(v => String(v || '').toLowerCase().includes(q)));
+      if (!rows.length) { el.innerHTML = '<div style="padding:12px;color:#94a3b8;font-weight:600">No hold history yet</div>'; return; }
+      el.innerHTML = `<table><thead><tr><th>When</th><th>Order</th><th>Action</th><th>Reason</th><th>By</th></tr></thead><tbody>${rows.map(h => {
+        let why = esc(h.reason || '');
+        if (h.action === 'EDIT' && h.old_reason) why += `<div style="color:#94a3b8;font-size:.72rem">was: ${esc(h.old_reason)}</div>`;
+        if (h.action === 'RELEASE') why = h.old_reason ? `<span style="color:#64748b">held for: ${esc(h.old_reason)}</span>` : '';
+        return `<tr><td style="white-space:nowrap">${esc(holdWhen(h.done_at))}</td><td style="font-weight:800">${esc(h.order_no)}</td><td><span class="hm-act ${esc(h.action)}">${esc(label[h.action] || h.action)}</span></td><td>${why}</td><td>${esc(h.done_by || '')}<div style="color:#94a3b8;font-size:.7rem">${esc(h.done_role || '')}</div></td></tr>`;
+      }).join('')}</tbody></table>`;
+    };
 
     /* ── Set / clear P1-P4 machine priority ─────────────────────────── */
     /* In-flight guard: planId → true while a save is in progress (Fix 3: race protection) */
@@ -2723,4 +2893,4 @@
     _planLiveRefreshLastAt = now;
     if (typeof window.loadMasterPlan === 'function') window.loadMasterPlan();
   });
-  /* ----------------------------------------------------------------------- */
+  /* ----------------------------------------------------------------------- */
