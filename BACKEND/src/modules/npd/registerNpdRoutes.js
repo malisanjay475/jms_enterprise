@@ -414,6 +414,23 @@ function scopeProducts(rows, scope, u, only) {
   return out;
 }
 
+/* Sr No for a list: place of each product in the chosen factory's list, 1, 2, 3 ...
+   with no gaps. All factories: grouped by the product's factory (else its first
+   mould's) in factory master order, numbered straight through. Returns the
+   products in that order and Map(id -> number). Same rule as npd.html. */
+function npdSerials(rows, facNames, factory) {
+  const parents = rows.filter(r => !r.parent_sync_id).sort((a, b) => a.id - b.id);
+  let list = parents;
+  if (!factory && (facNames || []).length > 1) {
+    const kids = new Map();
+    rows.forEach(r => { if (r.parent_sync_id) { const k = String(r.parent_sync_id); if (!kids.has(k)) kids.set(k, []); kids.get(k).push(r); } });
+    const home = p => p.factory || ((kids.get(String(p.sync_id)) || []).find(k => k.factory) || {}).factory || '';
+    const order = f => { const i = facNames.findIndex(n => facKey(n) === facKey(f)); return i < 0 ? (f ? facNames.length : facNames.length + 1) : i; };
+    list = parents.map((p, i) => ({ p, i, o: order(home(p)) })).sort((a, b) => a.o - b.o || a.i - b.i).map(x => x.p);
+  }
+  return { list, sr: new Map(list.map((p, i) => [p.id, i + 1])) };
+}
+
 function registerNpdRoutes(app, pool) {
   let ready = null;
   function ensureTables() {
@@ -512,10 +529,17 @@ function registerNpdRoutes(app, pool) {
       ]);
       const products = { rows: scopeProducts(all.rows, scope, u, factory) };
       const count = new Map(files.rows.map(f => [`${f.product_sync_id}:${f.kind}`, f.n]));
-      const parents = products.rows.filter(p => !p.parent_sync_id).filter(p =>
+      const { list: ordered, sr } = npdSerials(products.rows, scope.names, factory);
+      const parents = ordered.filter(p =>
         (!status || (p.status || 'No status') === status) &&
-        (!q || [p, ...products.rows.filter(c => String(c.parent_sync_id) === String(p.sync_id))]
-          .some(x => `${x.product_name} ${x.product_code || ''} ${x.sr_no || ''}`.toLowerCase().includes(q))));
+        (!q || String(sr.get(p.id)) === q || [p, ...products.rows.filter(c => String(c.parent_sync_id) === String(p.sync_id))]
+          .some(x => `${x.product_name} ${x.product_code || ''}`.toLowerCase().includes(q))));
+      /* moulds are numbered under their product: 3.1, 3.2 ... */
+      const srOf = new Map();
+      parents.forEach(p => {
+        srOf.set(p.id, sr.get(p.id));
+        products.rows.filter(c => String(c.parent_sync_id) === String(p.sync_id)).forEach((c, i) => srOf.set(c.id, `${sr.get(p.id)}.${i + 1}`));
+      });
       /* each product followed by its child moulds */
       const rows = parents.flatMap(p => [p, ...products.rows.filter(c => String(c.parent_sync_id) === String(p.sync_id))]);
 
@@ -567,7 +591,7 @@ function registerNpdRoutes(app, pool) {
         const info = p.stage_info || {};
         /* stage that does not belong to this row's level: left blank and greyed */
         const off = s => s.level !== (isMould ? 'mould' : 'product');
-        const vals = [/^\d+$/.test(p.sr_no || '') ? Number(p.sr_no) : (p.sr_no || ''), isMould ? 'Mould' : 'Product',
+        const vals = [srOf.get(p.id), isMould ? 'Mould' : 'Product',
           p.parent_sync_id ? `   ↳ Mould: ${p.product_name}` : p.product_name, p.factory || '', p.product_code || '', p.trial_colours || ''];
         STAGES.forEach(s => {
           const v = st[s.key];
@@ -879,6 +903,7 @@ module.exports = {
   STAGE_STATES,
   PRODUCT_STATUSES,
   rowStatus,
+  npdSerials,
   cleanStages,
   cleanColours,
   roleDepts,

@@ -596,8 +596,9 @@
             /* one tbody per product (with its moulds), so an edit redraws only that block */
             function blockInner(p) {
                 const kids = kidsOf(p);
-                let h = rowHtml(p, p.sr_no || '', kids);
-                if (!S.folded.has(p.sync_id) || S.q) kids.forEach((k, i) => { h += rowHtml(k, (p.sr_no ? p.sr_no + '.' : '') + (i + 1), null); });
+                const sr = String(SR.get(p.id) || '');
+                let h = rowHtml(p, sr, kids);
+                if (!S.folded.has(p.sync_id) || S.q) kids.forEach((k, i) => { h += rowHtml(k, (sr ? sr + '.' : '') + (i + 1), null); });
                 return h;
             }
             const blockHtml = (p, i) => `<tbody class="b${i ? '' : ' b0'}" data-block="${p.id}">${blockInner(p)}</tbody>`;
@@ -613,17 +614,24 @@
                 const parents = all.filter(p => !S.fac || facsOf(p).includes(facKey(S.fac)));
                 return { all, parents };
             };
+            /* Sr No shown = place in the list of the chosen factory, 1, 2, 3 ... with no gaps
+               (the stored Sr No is shared by every factory, so one factory saw 3, 6, 9).
+               All factories: grouped factory wise in factory master order, numbered straight
+               through. A status filter or search keeps each product's number.
+               Same rule as npdSerials() for the Excel export. */
+            let SR = new Map();
+            function ordered(parents) {
+                if (S.fac || S.facs.length < 2) return parents;
+                const order = f => { const i = S.facs.findIndex(n => facKey(n) === facKey(f)); return i < 0 ? (f ? S.facs.length : S.facs.length + 1) : i; };
+                return parents.map((p, i) => ({ p, i, o: order(homeFac(p)) })).sort((a, b) => a.o - b.o || a.i - b.i).map(x => x.p);
+            }
             function filtered(parents) {
                 const q = S.q.toLowerCase();
+                const all = ordered(parents);
+                SR = new Map(all.map((p, i) => [p.id, i + 1]));
                 /* a product matches the search by its own name, code or Sr No, or a child mould's */
-                let list = parents.filter(p => (!S.fstat || (p.status || 'No status') === S.fstat)
-                    && (!q || [p, ...kidsOf(p)].some(x => `${x.product_name} ${x.product_code || ''} ${x.sr_no || ''}`.toLowerCase().includes(q))));
-                /* All factories: products grouped factory wise, in factory master order */
-                if (!S.fac && S.facs.length > 1) {
-                    const order = f => { const i = S.facs.findIndex(n => facKey(n) === facKey(f)); return i < 0 ? (f ? S.facs.length : S.facs.length + 1) : i; };
-                    list = list.map((p, i) => ({ p, i, o: order(homeFac(p)) })).sort((a, b) => a.o - b.o || a.i - b.i).map(x => x.p);
-                }
-                return list;
+                return all.filter(p => (!S.fstat || (p.status || 'No status') === S.fstat)
+                    && (!q || String(SR.get(p.id)) === q || [p, ...kidsOf(p)].some(x => `${x.product_name} ${x.product_code || ''}`.toLowerCase().includes(q))));
             }
             let renderSeq = 0;
             /* keep = same list redrawn in place (scroll stays); else a new list from the top,
