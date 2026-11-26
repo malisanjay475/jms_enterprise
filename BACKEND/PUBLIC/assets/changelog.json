@@ -14,6 +14,19 @@
   "latest": "1.210.0",
   "versions": [
     {
+      "version": "1.210.2",
+      "date": "2026-11-26",
+      "title": "NPD Tracker: Sr No in series",
+      "modules": [
+        {
+          "app": "npd",
+          "changes": [
+            { "type": "improvement", "text": "Sr No now runs 1, 2, 3 ... with no gaps for the factory you are viewing (moulds 1.1, 1.2 ...). With All factories it runs straight through the factory groups. The Excel export uses the same numbers." }
+          ]
+        }
+      ]
+    },
+    {
       "version": "1.210.1",
       "date": "2026-11-26",
       "title": "NPD Tracker: Final QC approval per product",
