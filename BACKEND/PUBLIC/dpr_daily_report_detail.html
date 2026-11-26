@@ -33,7 +33,7 @@
 h1,h2,h3{font-family:var(--display);margin:0;text-wrap:balance}
 h1{font-size:1.45rem} h2{font-size:1.05rem} h3{font-size:.92rem}
 .muted{color:var(--muted)} .small{font-size:.8rem}
-.lbl{font-size:.68rem;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--muted)}
+.lbl{font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--muted)}
 button{font:inherit;color:inherit;cursor:pointer}
 button:focus-visible,select:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--teal);outline-offset:2px}
 .dcard{background:var(--card);border:1px solid var(--line);border-radius:12px}
@@ -75,13 +75,13 @@ button:focus-visible,select:focus-visible,[tabindex]:focus-visible{outline:2px s
 /* tables */
 .tw{overflow-x:auto}
 table.t{width:100%;border-collapse:collapse;font-size:.8rem}
-.t th{font-size:.68rem;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:700;text-align:right;padding:8px 8px;border-bottom:2px solid var(--line);white-space:nowrap;background:var(--card);position:sticky;top:0}
+.t th{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:700;text-align:right;padding:8px 8px;border-bottom:2px solid var(--line);white-space:nowrap;background:var(--card);position:sticky;top:0}
 .t td{padding:7px 8px;text-align:right;border-bottom:1px solid var(--line);white-space:nowrap}
 .t .l{text-align:left}
 .t tr.click{cursor:pointer} .t tr.click:hover td{background:var(--soft)}
 .t tr.sub td{background:var(--soft);font-size:.76rem}
 .t tr.tot td{font-weight:800;background:var(--soft);border-top:2px solid var(--line)}
-.t tr.grp td{background:var(--soft);font-size:.68rem;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);text-align:left}
+.t tr.grp td{background:var(--soft);font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);text-align:left}
 .ebar{display:inline-block;width:70px;height:6px;border-radius:99px;background:var(--idle-bg);vertical-align:middle;margin-left:6px;overflow:hidden}
 .ebar i{display:block;height:100%}
 .two{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);gap:16px}
@@ -132,7 +132,7 @@ table.t{width:100%;border-collapse:collapse;font-size:.8rem}
 .dhero .ttl{display:flex;align-items:center;gap:10px;font-family:var(--display);font-size:1.2rem;font-weight:700}
 .dhero .ttl svg{width:22px;height:22px}
 .dhero .sub{font-size:.74rem;font-weight:600;opacity:.85;margin-top:2px}
-.dhero .fl label{display:block;font-size:.58rem;font-weight:800;letter-spacing:.08em;text-transform:uppercase;opacity:.8;margin-bottom:3px}
+.dhero .fl label{display:block;font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;opacity:.8;margin-bottom:3px}
 .dhero .date{background:#fff;color:#17384c;border-radius:10px;padding:7px 10px;font-weight:800;font-size:.84rem}
 .hb{display:inline-flex;align-items:center;gap:6px;padding:8px 14px;border-radius:10px;font-weight:800;font-size:.8rem;border:1px solid rgba(255,255,255,.35);background:rgba(255,255,255,.15);color:#fff}
 .hb.solid{background:#fff;color:#024c81;border-color:#fff}
@@ -171,10 +171,10 @@ table.t{width:100%;border-collapse:collapse;font-size:.8rem}
 .dk .kpi{gap:4px}
 .dk .vr{display:flex;align-items:center;justify-content:space-between;gap:8px}
 .ring{--p:0;--c:var(--good);width:52px;height:52px;border-radius:50%;background:conic-gradient(var(--c) calc(var(--p)*1%),var(--idle-bg) 0);display:grid;place-items:center;flex-shrink:0}
-.ring b{width:40px;height:40px;border-radius:50%;background:var(--card);display:grid;place-items:center;font-size:.66rem;font-weight:800}
+.ring b{width:40px;height:40px;border-radius:50%;background:var(--card);display:grid;place-items:center;font-size:11px;font-weight:800}
 .pb{height:6px;border-radius:99px;background:var(--idle-bg);overflow:hidden;display:flex;margin-top:4px}
 .pb i{display:block;height:100%}
-.dn{display:grid;grid-template-columns:auto 1fr auto;gap:2px 6px;align-items:center;font-size:.68rem;color:var(--muted);margin-top:2px}
+.dn{display:grid;grid-template-columns:auto 1fr auto;gap:2px 6px;align-items:center;font-size:11px;color:var(--muted);margin-top:2px}
 .dn .pb{margin:0;height:5px}
 .charts{display:grid;gap:12px}
 .charts.c3{grid-template-columns:repeat(3,minmax(0,1fr))}
@@ -193,7 +193,7 @@ table.t{width:100%;border-collapse:collapse;font-size:.8rem}
 .tabs button{border:0;background:transparent;padding:9px 14px;border-radius:10px;font-weight:700;font-size:.82rem;color:var(--muted);white-space:nowrap;display:inline-flex;align-items:center;gap:6px}
 .tabs button svg{width:15px;height:15px}
 .tabs button[aria-selected="true"]{background:linear-gradient(135deg,#024c81,#0f8ea8);color:#fff}
-.tabs .cnt{font-size:.66rem;background:var(--bad);color:#fff;border-radius:99px;padding:0 6px}
+.tabs .cnt{font-size:11px;background:var(--bad);color:#fff;border-radius:99px;padding:0 6px}
 .hs{display:grid;grid-template-columns:repeat(24,minmax(9px,1fr));gap:1px;min-width:230px}
 .hs i{height:16px;border-radius:2px;display:block}
 .hs i.mid{box-shadow:-2px 0 0 #334155}
@@ -578,7 +578,7 @@ function drawD(){
   const COL={'b-tot':CL.blue,'b-plan':CL.teal,'b-co':CL.warn,'b-loss':CL.bad,'b-ex':CL.grey,'b-good':CL.good,'b-gain':'#86efac'};
   const wd=S.map(s=>{let a,b;if(s.tot){a=0;b=s.v;run=s.v;}else{a=run;b=run+s.v;run=b;}return [Math.min(a,b),Math.max(a,b)];});
   mk('cWf',{type:'bar',data:{labels:S.map(s=>SH[s.k]||s.k),datasets:[{data:wd,backgroundColor:S.map(s=>COL[s.c]),borderRadius:4,borderSkipped:false,maxBarThickness:46}]},
-    options:{...base({plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>(S[c.dataIndex].v<0?'−':'')+fmt(Math.abs(S[c.dataIndex].v))+' kg'}},datalabels:{display:true,anchor:'end',align:'end',offset:2,color:css('--ink'),font:{weight:'bold',size:10},formatter:(v,c)=>fmt(Math.abs(S[c.dataIndex].v))}}}),
+    options:{...base({plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>(S[c.dataIndex].v<0?'−':'')+fmt(Math.abs(S[c.dataIndex].v))+' kg'}},datalabels:{display:true,anchor:'end',align:'end',offset:2,color:css('--ink'),font:{weight:'bold',size:11},formatter:(v,c)=>fmt(Math.abs(S[c.dataIndex].v))}}}),
       onClick:(e,els)=>{if(els[0])showFormula(S[els[0].index].k);},scales:{x:{grid:{display:false},ticks:{autoSkip:false,maxRotation:35,minRotation:0}},y:{beginAtZero:true,grid,grace:'10%',ticks:{callback:v=>fmt(v)}}}}});
   // 2 downtime doughnut
   const items=Object.entries(f.downBy).map(([c,h])=>({n:DT_NAMES[c]||c,h,col:null}));
@@ -587,10 +587,10 @@ function drawD(){
   if(f.npH>0)top.push({n:'No plan',h:f.npH,np:1});
   const PALD=['#ef4444','#f59e0b','#8b5cf6','#3b82f6','#ec4899','#14b8a6','#0ea5e9','#64748b'];
   mk('cDt',{type:'doughnut',data:{labels:top.map(x=>x.n),datasets:[{data:top.map(x=>+x.h.toFixed(1)),backgroundColor:top.map((x,i)=>x.np?'#cbd5e1':PALD[i%PALD.length]),borderWidth:2,borderColor:css('--card')}]},
-    options:{...base({plugins:{legend:{position:'bottom',labels:{boxWidth:10,boxHeight:10,padding:8,font:{size:10}}},tooltip:{callbacks:{label:c=>c.label+': '+fmt(c.raw,1)+' h'}},datalabels:{display:c=>c.dataset.data[c.dataIndex]>=f.downH*0.06,color:'#fff',font:{weight:'bold',size:10},formatter:v=>fmt(v,0)+'h'}}}),cutout:'58%'}});
+    options:{...base({plugins:{legend:{position:'bottom',labels:{boxWidth:10,boxHeight:10,padding:8,font:{size:11}}},tooltip:{callbacks:{label:c=>c.label+': '+fmt(c.raw,1)+' h'}},datalabels:{display:c=>c.dataset.data[c.dataIndex]>=f.downH*0.06,color:'#fff',font:{weight:'bold',size:11},formatter:v=>fmt(v,0)+'h'}}}),cutout:'58%'}});
   // 3 efficiency
   mk('cEff',{type:'bar',data:{labels:ls,datasets:[{label:'Day',data:ls.map(l=>+(R.lines[l].d.eff*100).toFixed(1)),backgroundColor:CL.day,borderRadius:4},{label:'Night',data:ls.map(l=>+(R.lines[l].n.eff*100).toFixed(1)),backgroundColor:CL.night,borderRadius:4},{type:'line',label:'85% target',data:ls.map(()=>85),borderColor:CL.good,borderDash:[5,4],borderWidth:1.5,pointRadius:0}]},
-    options:{...base({plugins:{tooltip:{callbacks:{label:c=>c.dataset.label+': '+fmt(c.raw,1)+'%'}},datalabels:{display:c=>c.datasetIndex<2&&c.raw>0,anchor:'end',align:'end',offset:0,color:css('--ink'),font:{size:9,weight:'bold'},formatter:v=>fmt(v,0)}}}),scales:{x:{grid:{display:false}},y:{beginAtZero:true,suggestedMax:100,grid,ticks:{callback:v=>v+'%'}}}}});
+    options:{...base({plugins:{tooltip:{callbacks:{label:c=>c.dataset.label+': '+fmt(c.raw,1)+'%'}},datalabels:{display:c=>c.datasetIndex<2&&c.raw>0,anchor:'end',align:'end',offset:0,color:css('--ink'),font:{size:11,weight:'bold'},formatter:v=>fmt(v,0)}}}),scales:{x:{grid:{display:false}},y:{beginAtZero:true,suggestedMax:100,grid,ticks:{callback:v=>v+'%'}}}}});
   // 4 loss by line (stacked horizontal)
   const LS=[['Good',o=>o.good,CL.good],['Rejection',o=>o.rej,CL.bad],['Speed',o=>Math.max(0,o.speed),CL.blue],['Downtime',o=>o.dtLoss,CL.vio],['Change-over',o=>o.coLoss,CL.warn]];
   mk('cLoss',{type:'bar',data:{labels:ls,datasets:LS.map(([n,fn,c])=>({label:n,data:ls.map(l=>Math.round(fn(R.lines[l].all))),backgroundColor:c}))},
@@ -601,15 +601,15 @@ function drawD(){
   // 6 rejection reasons
   const rr=Object.entries(f.rejBy).map(([c,v])=>({n:REJ_NAMES[c]||String(c).replace(/^OTHER_?/,'Other: ')||'Other',v})).sort((a,b)=>b.v-a.v).slice(0,8);
   mk('cRr',{type:'bar',data:{labels:rr.map(x=>x.n.length>24?x.n.slice(0,23)+'…':x.n),datasets:[{label:'Pcs',data:rr.map(x=>x.v),backgroundColor:CL.orange,borderRadius:4}]},
-    options:{...base({plugins:{legend:{display:false},tooltip:{callbacks:{title:c=>rr[c[0].dataIndex].n,label:c=>fmt(c.raw)+' pcs'}},datalabels:{display:true,anchor:'end',align:'end',color:css('--ink'),font:{size:9,weight:'bold'},formatter:v=>fmt(v)}}}),indexAxis:'y',scales:{x:{beginAtZero:true,grid,grace:'12%'},y:{grid:{display:false}}}}});
+    options:{...base({plugins:{legend:{display:false},tooltip:{callbacks:{title:c=>rr[c[0].dataIndex].n,label:c=>fmt(c.raw)+' pcs'}},datalabels:{display:true,anchor:'end',align:'end',color:css('--ink'),font:{size:11,weight:'bold'},formatter:v=>fmt(v)}}}),indexAxis:'y',scales:{x:{beginAtZero:true,grid,grace:'12%'},y:{grid:{display:false}}}}});
   // 7 change-over
   mk('cCo',{type:'bar',data:{labels:ls,datasets:[{label:'Std h',data:ls.map(l=>+R.lines[l].all.stdCOH.toFixed(2)),backgroundColor:'#93c5fd',borderRadius:4},{label:'Actual h',data:ls.map(l=>+R.lines[l].all.actCOH.toFixed(2)),backgroundColor:CL.warn,borderRadius:4}]},
     options:{...base({plugins:{tooltip:{callbacks:{label:c=>c.dataset.label.replace(' h','')+': '+fmt(c.raw,1)+' h'}}}}),scales:{x:{grid:{display:false}},y:{beginAtZero:true,grid}}}});
   // 8 top machines by loss
   const tm=R.machines.map(x=>({x,l:x.all.totalLoss})).filter(y=>y.x.all.machines).sort((a,b)=>b.l-a.l).slice(0,10);
   mk('cTop',{type:'bar',data:{labels:tm.map(y=>y.x.m.name),datasets:[{label:'Loss kg',data:tm.map(y=>Math.round(y.l)),backgroundColor:tm.map(y=>({g:'#16a34a',a:'#f59e0b',r:'#ef4444',z:'#94a3b8'})[band(y.x.all.oee)]),borderRadius:4}]},
-    options:{...base({plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>fmt(c.raw)+' kg lost · OEE '+pct(tm[c.dataIndex].x.all.oee)}},datalabels:{display:true,anchor:'end',align:'end',color:css('--ink'),font:{size:9,weight:'bold'},formatter:v=>fmt(v)}}}),indexAxis:'y',
-      onClick:(e,els)=>{if(els[0])openMachine(tm[els[0].index].x.m.i);},scales:{x:{beginAtZero:true,grid,grace:'14%'},y:{grid:{display:false},ticks:{font:{size:10}}}}}});
+    options:{...base({plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>fmt(c.raw)+' kg lost · OEE '+pct(tm[c.dataIndex].x.all.oee)}},datalabels:{display:true,anchor:'end',align:'end',color:css('--ink'),font:{size:11,weight:'bold'},formatter:v=>fmt(v)}}}),indexAxis:'y',
+      onClick:(e,els)=>{if(els[0])openMachine(tm[els[0].index].x.m.i);},scales:{x:{beginAtZero:true,grid,grace:'14%'},y:{grid:{display:false},ticks:{font:{size:11}}}}}});
 }
 
 /* ---------- design D v2: tabs with every detail ---------- */
@@ -733,23 +733,23 @@ function drawD2(){
   shifts.forEach(s=>{for(let i=0;i<12;i++){let a={gk:0,rk:0,pl:0,dt:0,np:0,co:0,g:0,r:0};R.sel.filter(x=>x.s===s).forEach(ms=>{const x=ms.slots[i];if(!x||x.miss||x.fut)return;a.gk+=x.gk;a.rk+=x.rk;a.pl+=x.plan;a.dt+=x.dt;a.np+=x.np;a.co+=x.co;a.g+=x.g;a.r+=x.r;});
     lab.push(HL(s,i)+':00');gk.push(Math.round(a.gk));rk.push(Math.round(a.rk));pl.push(Math.round(a.pl));dtm.push(a.dt);npm.push(a.np);com.push(a.co);rp.push(a.g+a.r?+(a.r/(a.g+a.r)*100).toFixed(2):0);sh.push(s);}});
   mk('cHr',{type:'bar',data:{labels:lab,datasets:[{label:'Good kg',data:gk,backgroundColor:sh.map(s=>s?CL.night:CL.day),borderRadius:3,stack:'a'},{label:'Rejected kg',data:rk,backgroundColor:CL.bad,borderRadius:3,stack:'a'},{type:'line',label:'Planned kg',data:pl,borderColor:CL.teal,backgroundColor:CL.teal,pointRadius:2,tension:.25}]},
-    options:{...base({plugins:{tooltip:{mode:'index',intersect:false,callbacks:{label:c=>c.dataset.label+': '+fmt(c.raw)+' kg',footer:items=>{const i=items[0].dataIndex;return pl[i]?'Hour efficiency '+fmt(gk[i]/pl[i]*100,0)+'%':'';}}}}}),scales:{x:{stacked:true,grid:{display:false},ticks:{autoSkip:false,maxRotation:60,font:{size:9}}},y:{stacked:true,beginAtZero:true,grid,ticks:{callback:v=>fmt(v)}}}}});
+    options:{...base({plugins:{tooltip:{mode:'index',intersect:false,callbacks:{label:c=>c.dataset.label+': '+fmt(c.raw)+' kg',footer:items=>{const i=items[0].dataIndex;return pl[i]?'Hour efficiency '+fmt(gk[i]/pl[i]*100,0)+'%':'';}}}}}),scales:{x:{stacked:true,grid:{display:false},ticks:{autoSkip:false,maxRotation:60,font:{size:11}}},y:{stacked:true,beginAtZero:true,grid,ticks:{callback:v=>fmt(v)}}}}});
   mk('cDh',{type:'bar',data:{labels:lab,datasets:[{label:'Downtime min',data:dtm,backgroundColor:CL.bad,stack:'a'},{label:'Mould change min',data:com,backgroundColor:CL.warn,stack:'a'},{label:'No plan min',data:npm,backgroundColor:'#cbd5e1',stack:'a'}]},
-    options:{...base({plugins:{tooltip:{mode:'index',intersect:false,callbacks:{label:c=>c.dataset.label+': '+fmt(c.raw)+' min ('+fmt(c.raw/60,1)+' h)'}}}}),scales:{x:{stacked:true,grid:{display:false},ticks:{autoSkip:false,maxRotation:60,font:{size:9}}},y:{stacked:true,beginAtZero:true,grid}}}});
+    options:{...base({plugins:{tooltip:{mode:'index',intersect:false,callbacks:{label:c=>c.dataset.label+': '+fmt(c.raw)+' min ('+fmt(c.raw/60,1)+' h)'}}}}),scales:{x:{stacked:true,grid:{display:false},ticks:{autoSkip:false,maxRotation:60,font:{size:11}}},y:{stacked:true,beginAtZero:true,grid}}}});
   mk('cRh',{type:'line',data:{labels:lab,datasets:[{label:'Rejection %',data:rp,borderColor:CL.bad,backgroundColor:'rgba(239,68,68,.12)',fill:true,tension:.3,pointRadius:2},{label:'5% limit',data:lab.map(()=>5),borderColor:CL.warn,borderDash:[5,4],pointRadius:0,borderWidth:1.5}]},
-    options:{...base({plugins:{tooltip:{callbacks:{label:c=>c.dataset.label+': '+fmt(c.raw,1)+'%'}}}}),scales:{x:{grid:{display:false},ticks:{autoSkip:false,maxRotation:60,font:{size:9}}},y:{beginAtZero:true,grid,ticks:{callback:v=>v+'%'}}}}});
+    options:{...base({plugins:{tooltip:{callbacks:{label:c=>c.dataset.label+': '+fmt(c.raw,1)+'%'}}}}),scales:{x:{grid:{display:false},ticks:{autoSkip:false,maxRotation:60,font:{size:11}}},y:{beginAtZero:true,grid,ticks:{callback:v=>v+'%'}}}}});
   // downtime Day vs Night by reason
   const dd=R.day,nn=R.night;const codes=[...new Set([...Object.keys(dd.downBy),...Object.keys(nn.downBy)])].sort((a,b)=>((dd.downBy[b]||0)+(nn.downBy[b]||0))-((dd.downBy[a]||0)+(nn.downBy[a]||0)));
   const dl=[...codes.map(c=>DT_NAMES[c]||c),'Mould change-over','No plan'];const dv=[...codes.map(c=>[dd.downBy[c]||0,nn.downBy[c]||0]),[dd.actCOH,nn.actCOH],[dd.npH,nn.npH]];
   mk('cDp',{type:'bar',data:{labels:dl.map(x=>x.length>26?x.slice(0,25)+'…':x),datasets:[{label:'Day',data:dv.map(x=>+x[0].toFixed(1)),backgroundColor:CL.day},{label:'Night',data:dv.map(x=>+x[1].toFixed(1)),backgroundColor:CL.night}]},
-    options:{...base({plugins:{tooltip:{callbacks:{title:c=>dl[c[0].dataIndex],label:c=>c.dataset.label+': '+fmt(c.raw,1)+' h'}}}}),indexAxis:'y',scales:{x:{stacked:true,grid,beginAtZero:true},y:{stacked:true,grid:{display:false},ticks:{font:{size:10}}}}}});
+    options:{...base({plugins:{tooltip:{callbacks:{title:c=>dl[c[0].dataIndex],label:c=>c.dataset.label+': '+fmt(c.raw,1)+' h'}}}}),indexAxis:'y',scales:{x:{stacked:true,grid,beginAtZero:true},y:{stacked:true,grid:{display:false},ticks:{font:{size:11}}}}}});
   // top rejection machines
   const rm=R.machines.filter(x=>x.all.goodPcs+x.all.rejPcs>=200).sort((a,b)=>b.all.rejPct-a.all.rejPct).slice(0,10);
   mk('cRm',{type:'bar',data:{labels:rm.map(x=>x.m.name),datasets:[{label:'Rejection %',data:rm.map(x=>+(x.all.rejPct*100).toFixed(1)),backgroundColor:rm.map(x=>x.all.rejPct>.05?'#ef4444':'#f59e0b'),borderRadius:4}]},
-    options:{...base({plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>fmt(c.raw,1)+'% · '+fmt(rm[c.dataIndex].all.rejPcs)+' pcs rejected'}},datalabels:{display:true,anchor:'end',align:'end',color:css('--ink'),font:{size:9,weight:'bold'},formatter:v=>fmt(v,1)+'%'}}}),indexAxis:'y',onClick:(e,els)=>{if(els[0])openMachine(rm[els[0].index].m.i);},scales:{x:{beginAtZero:true,grid,grace:'15%',ticks:{callback:v=>v+'%'}},y:{grid:{display:false},ticks:{font:{size:10}}}}}});
+    options:{...base({plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>fmt(c.raw,1)+'% · '+fmt(rm[c.dataIndex].all.rejPcs)+' pcs rejected'}},datalabels:{display:true,anchor:'end',align:'end',color:css('--ink'),font:{size:11,weight:'bold'},formatter:v=>fmt(v,1)+'%'}}}),indexAxis:'y',onClick:(e,els)=>{if(els[0])openMachine(rm[els[0].index].m.i);},scales:{x:{beginAtZero:true,grid,grace:'15%',ticks:{callback:v=>v+'%'}},y:{grid:{display:false},ticks:{font:{size:11}}}}}});
   // changes by line
   mk('cCc',{type:'bar',data:{labels:ls,datasets:[['Mould','mc','#3b82f6'],['Colour','cc','#ec4899'],['Job','jc','#14b8a6']].map(([n,k,c])=>({label:n,data:ls.map(l=>R.lines[l].all[k]),backgroundColor:c,borderRadius:3}))},
-    options:{...base({plugins:{datalabels:{display:c=>c.raw>0,anchor:'end',align:'end',color:css('--ink'),font:{size:9,weight:'bold'}}}}),scales:{x:{grid:{display:false}},y:{beginAtZero:true,grid,grace:'10%',ticks:{precision:0}}}}});
+    options:{...base({plugins:{datalabels:{display:c=>c.raw>0,anchor:'end',align:'end',color:css('--ink'),font:{size:11,weight:'bold'}}}}),scales:{x:{grid:{display:false}},y:{beginAtZero:true,grid,grace:'10%',ticks:{precision:0}}}}});
 }
 
 /* ---------- machine drawer ---------- */
