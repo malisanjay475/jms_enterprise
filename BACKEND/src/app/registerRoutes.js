@@ -313,6 +313,10 @@ function registerRoutes(app, deps) {
   const { registerNpdRoutes } = require('../modules/npd/registerNpdRoutes');
   registerNpdRoutes(app, pool);
 
+  // Order Hold (Hold button on the Planning Excel View Timeline)
+  const { registerOrderHoldRoutes } = require('../modules/orderHold/registerOrderHoldRoutes');
+  registerOrderHoldRoutes(app, pool);
+
   // Packing Masters (stations + item packing standard behind PUBLIC/packing_masters.html)
   const { registerPackingMasterRoutes } = require('../modules/packing/registerPackingMasterRoutes');
   registerPackingMasterRoutes(app, pool);
