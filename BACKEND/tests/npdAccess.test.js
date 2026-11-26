@@ -233,6 +233,11 @@ describe('NPD pilot run is set product wise by QC', () => {
   const { STAGE_LEVEL } = require('../src/modules/npd/registerNpdRoutes');
   const user = (role_code, role_label = '') => ({ username: 'u', role_code, role_label });
 
+  test('final QC approved after testing is a product stage', () => {
+    expect(STAGE_LEVEL.get('qc_approval_ho')).toBe('product');
+    expect(editableStageKeys(user('quality', 'QC HOD'))).toContain('qc_approval_ho');
+  });
+
   test('pilot run & drop test is a product stage', () => {
     expect(STAGE_LEVEL.get('pilot_drop_test')).toBe('product');
   });

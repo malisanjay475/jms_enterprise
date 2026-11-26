@@ -371,7 +371,7 @@
             /* stages worked on each child mould; the product row shows their roll-up.
                Every other stage is worked once on the product row. Keep in sync with
                STAGES[].level in registerNpdRoutes.js */
-            const MOULD_KEYS = new Set(['mould_received', 'mould_trials', 'rm_colour', 'qc_approval_ho', 'jc_start_date', 'jc_end_date', 'mass_moulding']);
+            const MOULD_KEYS = new Set(['mould_received', 'mould_trials', 'rm_colour', 'jc_start_date', 'jc_end_date', 'mass_moulding']);
             /* same rule as rollupStage() on the server */
             function rollup(key, type, kids) {
                 const vals = kids.map(k => (k.stages || {})[key]);

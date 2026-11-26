@@ -83,7 +83,7 @@ const STAGES = [
   { key: 'samples_ho', level: 'product', type: 'status', group: 'Mould & Trial', label: 'Final samples sent to HO for approval & photo shoot (QC)', depts: ['QC'] },
   { key: 'sample_approval_ho', level: 'product', type: 'status', group: 'Mould & Trial', label: 'Final sample approval from HO (HO)', depts: ['HO'] },
   { key: 'pilot_drop_test', level: 'product', type: 'status', group: 'Mould & Trial', label: 'Pilot run & drop test @ factory (Moulding / QC)', depts: ['Moulding', 'QC'] },
-  { key: 'qc_approval_ho', level: 'mould', type: 'status', group: 'Mould & Trial', label: 'Final QC approved after testing (QC)', depts: ['QC'] },
+  { key: 'qc_approval_ho', level: 'product', type: 'status', group: 'Mould & Trial', label: 'Final QC approved after testing (QC)', depts: ['QC'] },
   { key: 'packing_material', level: 'product', type: 'status', group: 'Packing, BOM & ERP', label: 'Packing material finalization (Packing)', depts: ['Packing'] },
   { key: 'bom_approval', level: 'product', type: 'status', group: 'Packing, BOM & ERP', label: 'Product BOM finalization / approval (Planning)', depts: ['Planning'] },
   { key: 'packing_receiving', level: 'product', type: 'status', group: 'Packing, BOM & ERP', label: 'Packing material follow up & receiving @ factory (Purchase)', depts: ['Purchase'] },
@@ -348,18 +348,16 @@ async function migrateNpdLevels(pool) {
   }
 }
 
-/* One-time data move (MAIN only, syncs out): Pilot run & drop test moved from
-   the child moulds to the product row (QC HOD / Quality Ass. Manager set it
-   product wise). A product with no value of its own gets its moulds' roll-up
-   and the latest mould remark. */
-async function migrateNpdPilotToProduct(pool) {
+/* One-time data move (MAIN only, syncs out) for a stage moved from the child
+   moulds to the product row. A product with no value of its own gets its
+   moulds' roll-up and the latest mould remark; the moulds keep theirs. */
+async function moveStageToProduct(pool, key, flagKey) {
   if (String(process.env.SERVER_TYPE || '').toUpperCase() === 'LOCAL') return;
   await pool.query('CREATE TABLE IF NOT EXISTS server_config (key TEXT PRIMARY KEY, value TEXT)');
   const flag = await pool.query(
-    `INSERT INTO server_config (key, value) VALUES ('NPD_PILOT_PRODUCT_V1', NOW()::text)
-     ON CONFLICT (key) DO NOTHING RETURNING key`);
+    `INSERT INTO server_config (key, value) VALUES ($1, NOW()::text)
+     ON CONFLICT (key) DO NOTHING RETURNING key`, [flagKey]);
   if (!flag.rowCount) return;
-  const key = 'pilot_drop_test';
   const all = (await pool.query('SELECT id, sync_id, parent_sync_id, stages, stage_info FROM npd_products')).rows;
   for (const p of all.filter(r => !r.parent_sync_id)) {
     if ((p.stages || {})[key] !== undefined) continue;
@@ -372,6 +370,10 @@ async function migrateNpdPilotToProduct(pool) {
       [JSON.stringify({ [key]: rollupStage(key, kids) }), JSON.stringify(info ? { [key]: info } : {}), p.id]);
   }
 }
+/* Pilot run & drop test: product wise since v1.193.0 (QC HOD / Quality Ass. Manager) */
+const migrateNpdPilotToProduct = pool => moveStageToProduct(pool, 'pilot_drop_test', 'NPD_PILOT_PRODUCT_V1');
+/* Final QC approved after testing: product wise since v1.210.1 */
+const migrateNpdQcApprovalToProduct = pool => moveStageToProduct(pool, 'qc_approval_ho', 'NPD_QC_APPROVAL_PRODUCT_V1');
 
 /* Factories a user may see in NPD, by name. Superadmin, and a global or admin
    user with no factory ticked, see every factory (all = true). */
@@ -415,7 +417,7 @@ function scopeProducts(rows, scope, u, only) {
 function registerNpdRoutes(app, pool) {
   let ready = null;
   function ensureTables() {
-    if (!ready) ready = ensureNpdSchema(pool).then(() => migrateNpdLevels(pool)).then(() => migrateNpdPilotToProduct(pool)).catch(err => { ready = null; throw err; });
+    if (!ready) ready = ensureNpdSchema(pool).then(() => migrateNpdLevels(pool)).then(() => migrateNpdPilotToProduct(pool)).then(() => migrateNpdQcApprovalToProduct(pool)).catch(err => { ready = null; throw err; });
     return ready;
   }
   /* LOCAL: send the change to MAIN now instead of waiting for the next cycle */
@@ -869,6 +871,7 @@ module.exports = {
   remarkLine,
   migrateNpdLevels,
   migrateNpdPilotToProduct,
+  migrateNpdQcApprovalToProduct,
   scopeProducts,
   DEPT_ROLES,
   ADMIN_ROLES,
