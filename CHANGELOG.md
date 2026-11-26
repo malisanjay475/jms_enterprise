@@ -13,7 +13,11 @@ part of your PR. On release, the `[Unreleased]` items move under the new version
 
 ## [Unreleased]
 
+### Changed
+- Daily Report (Detailed) (v1.211.1): no text below 11px; the .58/.66/.68rem labels (hero field label, tab count, KPI labels, table headings, rings, Day/Night bars) and the 9/10px Chart.js labels now use 11px.
+
 ### Added
+- Daily Report (Detailed) (v1.211.0): new PUBLIC/dpr_daily_report_detail.html (menu DPR > Daily Report (Detailed)); dpr_daily_report.html is unchanged. Same APIs (summary-matrix Day + Night, masters/machines, change-counts, shift/team-range) plus masters/moulds. Kg worked out per mould run (std pcs/hr = 3600 / std cycle x std cavities, Mould Master std weight or setup actual by option); entries whose plan has no DPR setup use the plan mould's Mould Master std (by mould_no, then name), else the machine's first setup. Full capacity = run hours + finished hours with no entry, so on today's date only finished hours count. Planned = Full - DPR not filled - No plan (option); Achievable = Planned - std mould change (machine load + unload min) - optional 5%; losses: change-over overrun, downtime (all codes but 2 and 13), speed (signed), rejection; they add up to Planned - Good. OEE = Good / Planned. Tabs: Overview, Lines, Machines (24-hour strip, filters, machine drawer hour by hour), Downtime, Quality, Change-overs, Data checks. CSV export per machine-shift.
 - Table scanners on the scanning page (v1.192.0): /api/assembly/device-scan now tags its live events with the packing table code and source 'device' (recordAssemblyScan takes opts {table, source}; the scan event and WRONG_BARCODE alert carry them; the UNKNOWN_BARCODE alert also carries station). scanning.html / scanning_list.html (js/production_scanning.js) listen on /api/assembly/events and log device scans in the station card ("Table B9 · <ean> · OK n/plan" or "WRONG (reason)"), update Done and flash the card. Station cards show the plan's tables. Live log only on the server the scanner posts to (the factory LOCAL server); MAIN gets the synced count.
 
 ### Fixed

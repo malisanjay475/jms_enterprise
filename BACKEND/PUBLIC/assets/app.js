@@ -66,6 +66,7 @@ function escHtml(value) {
         'raw_material_jobwise.html': 'raw_material',
         'dpr.html': 'dpr',
         'dpr_daily_report.html': 'dpr',
+        'dpr_daily_report_detail.html': 'dpr',
         'job_summary.html': 'dpr',
         // Pulse sits under the Analyze menu, so Analyze access governs it. The
         // nav hides a sub-item whose href the user cannot open, so this has to
@@ -1398,6 +1399,7 @@ function escHtml(value) {
                 { id: 'dpr_hourly', label: 'DPR Hourly', icon: 'bi-clock-history', href: 'dpr.html?view=hourly' },
                 { id: 'dpr_summary', label: 'Compliance Summary', icon: 'bi-calendar-check', href: 'dpr.html?view=summary' },
                 { id: 'dpr_daily_rep', label: 'Daily Report (NEW)', icon: 'bi-bar-chart-fill', href: 'dpr_daily_report.html' },
+                { id: 'dpr_daily_detail', label: 'Daily Report (Detailed)', icon: 'bi-clipboard2-data-fill', href: 'dpr_daily_report_detail.html' },
                 { id: 'dpr_job_sum', label: 'Job Summary', icon: 'bi-file-earmark-medical', href: 'job_summary.html' },
                 { id: 'dpr_setup', label: 'DPR Setup', icon: 'bi-folder-check', href: 'dpr.html?view=setup' },
                 { id: 'dpr_settings', label: 'DPR Settings', icon: 'bi-gear', href: 'dpr.html?view=settings' }
@@ -2477,7 +2479,7 @@ function escHtml(value) {
     '': 'dashboard', '/': 'dashboard', 'index.html': 'dashboard',
     'planning.html': 'planning', 'order_tracker.html': 'planning', 'npd.html': 'npd', 'analyze.html': 'analyze',
     'raw_material_jobwise.html': 'raw_material', 'dpr.html': 'dpr',
-    'dpr_daily_report.html': 'dpr', 'job_summary.html': 'dpr',
+    'dpr_daily_report.html': 'dpr', 'dpr_daily_report_detail.html': 'dpr', 'job_summary.html': 'dpr',
     'purchase_orders.html': 'purchase', 'purchase_vendors.html': 'purchase',
     'purchase_grn.html': 'purchase', 'masters.html': 'masters',
     'quality.html': 'quality', 'qc_memo.html': 'quality', 'fpa.html': 'quality', 'qc_setup_report.html': 'quality', 'hr.html': 'hr', 'hr_performance.html': 'hr',
