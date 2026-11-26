@@ -14,6 +14,19 @@
   "latest": "1.210.0",
   "versions": [
     {
+      "version": "1.210.1",
+      "date": "2026-11-26",
+      "title": "NPD Tracker: Final QC approval per product",
+      "modules": [
+        {
+          "app": "npd",
+          "changes": [
+            { "type": "improvement", "text": "Final QC approved after testing is now set once on the main product instead of on each mould. Each product starts with the value its moulds had together." }
+          ]
+        }
+      ]
+    },
+    {
       "version": "1.210.0",
       "date": "2026-11-26",
       "title": "Order Tracker shows orders on hold",
