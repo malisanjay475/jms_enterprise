@@ -11,8 +11,22 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.209.1",
+  "latest": "1.210.0",
   "versions": [
+    {
+      "version": "1.210.0",
+      "date": "2026-11-26",
+      "title": "Order Tracker shows orders on hold",
+      "modules": [
+        {
+          "app": "planning",
+          "changes": [
+            { "type": "feat", "text": "Order Tracker: orders on hold show in red with ON HOLD and the reason, and there is a new On hold filter." },
+            { "type": "feat", "text": "Order Tracker: an order on hold shows a red Order on hold box with the reason, who held it and when. Machine wise marks held jobs with a red HOLD tag." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.209.1",
       "date": "2026-11-26",
