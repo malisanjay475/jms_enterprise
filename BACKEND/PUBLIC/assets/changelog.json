@@ -14,6 +14,19 @@
   "latest": "1.211.0",
   "versions": [
     {
+      "version": "1.211.1",
+      "date": "2026-11-26",
+      "title": "NPD Tracker: Dispatch Executive can edit W/H & Dispatch",
+      "modules": [
+        {
+          "app": "npd",
+          "changes": [
+            { "type": "improvement", "text": "Dispatch Executive and Dispatch Manager can now update the W/H & Dispatch stages in NPD Tracker, and NPD is ticked in their app access." }
+          ]
+        }
+      ]
+    },
+    {
       "version": "1.211.0",
       "date": "2026-11-26",
       "title": "New Daily Report (Detailed)",

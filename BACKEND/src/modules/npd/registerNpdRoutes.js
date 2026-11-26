@@ -53,7 +53,7 @@ const HO_ROLE = /^salescoord.*ho$/;
    letters / digits removed (so 'sr__ppc_manager' and 'Sr. PPC Manager' are the
    same); a RegExp entry matches any role containing it (Purchase roles are
    created in Settings with varying names). Production (printing / tufting) is
-   run by Moulding; W/H is the Dispatch Manager. HO stages are admin and Sales Co-ordinator H.O. */
+   run by Moulding; W/H & Dispatch is the Dispatch Manager and Dispatch Executive. HO stages are admin and Sales Co-ordinator H.O. */
 const DEPT_ROLES = {
   'Tool Room': ['toolroommanager'],
   Moulding: ['mouldingmanager'],
@@ -63,7 +63,7 @@ const DEPT_ROLES = {
   Packing: ['packingmanager'],
   Purchase: [/purchase/],
   Production: ['mouldingmanager'],
-  'W/H': ['dispatchmanager'],
+  'W/H': ['dispatchmanager', 'dispatchexecutive'],
   HO: [HO_ROLE]
 };
 const norm = v => String(v || '').toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -431,11 +431,47 @@ function npdSerials(rows, facNames, factory) {
   return { list, sr: new Map(list.map((p, i) => [p.id, i + 1])) };
 }
 
+/* One-time (MAIN only; users sync out to the factories): every Dispatch Manager /
+   Dispatch Executive user whose app list leaves NPD out gets NPD ticked, so they
+   can open the tracker and fill the W/H & Dispatch stages. Matched on the role
+   code or the role name, letters and digits only. Users with no app list already
+   see every app and are left alone. */
+const NPD_ACCESS_ROLES = ['dispatchmanager', 'dispatchexecutive'];
+async function grantNpdAccessToDispatch(pool) {
+  if (String(process.env.SERVER_TYPE || '').toUpperCase() === 'LOCAL') return [];
+  await pool.query('CREATE TABLE IF NOT EXISTS server_config (key TEXT PRIMARY KEY, value TEXT)');
+  const flag = await pool.query(
+    `INSERT INTO server_config (key, value) VALUES ('NPD_DISPATCH_ACCESS_V1', NOW()::text)
+     ON CONFLICT (key) DO NOTHING RETURNING key`);
+  if (!flag.rowCount) return [];
+  const norm = sql => `lower(regexp_replace(COALESCE(${sql}, ''), '[^a-zA-Z0-9]', '', 'g'))`;
+  const r = await pool.query(
+    `UPDATE users u
+        SET permissions = CASE
+              WHEN jsonb_typeof(u.permissions->'__apps') = 'object'
+                THEN jsonb_set(u.permissions, '{__apps,npd}', 'true'::jsonb)
+              ELSE jsonb_set(u.permissions, '{app_access,npd}', 'true'::jsonb) END,
+            updated_at = NOW()
+       FROM (SELECT x.id FROM users x LEFT JOIN roles ro ON ro.code = x.role_code
+              WHERE (${norm('x.role_code')} = ANY($1) OR ${norm('ro.label')} = ANY($1))) m
+      WHERE u.id = m.id
+        AND (jsonb_typeof(u.permissions->'__apps') = 'object' AND (u.permissions->'__apps'->'npd') IS DISTINCT FROM 'true'::jsonb
+          OR jsonb_typeof(u.permissions->'__apps') IS DISTINCT FROM 'object'
+             AND jsonb_typeof(u.permissions->'app_access') = 'object' AND (u.permissions->'app_access'->'npd') IS DISTINCT FROM 'true'::jsonb)
+      RETURNING u.username`, [NPD_ACCESS_ROLES]);
+  if (r.rowCount) console.log(`[NPD] NPD access given to dispatch users: ${r.rows.map(x => x.username).join(', ')}`);
+  return r.rows.map(x => x.username);
+}
+
 function registerNpdRoutes(app, pool) {
   let ready = null;
   function ensureTables() {
     if (!ready) ready = ensureNpdSchema(pool).then(() => migrateNpdLevels(pool)).then(() => migrateNpdPilotToProduct(pool)).then(() => migrateNpdQcApprovalToProduct(pool)).catch(err => { ready = null; throw err; });
     return ready;
+  }
+  /* MAIN: give the dispatch users NPD access soon after start, not only when someone opens NPD */
+  if (String(process.env.SERVER_TYPE || '').toUpperCase() !== 'LOCAL' && process.env.NODE_ENV !== 'test') {
+    setTimeout(() => grantNpdAccessToDispatch(pool).catch(err => console.warn('[NPD] dispatch access:', err.message)), 20000).unref();
   }
   /* LOCAL: send the change to MAIN now instead of waiting for the next cycle */
   const pushNow = () => {
@@ -904,6 +940,7 @@ module.exports = {
   PRODUCT_STATUSES,
   rowStatus,
   npdSerials,
+  grantNpdAccessToDispatch,
   cleanStages,
   cleanColours,
   roleDepts,

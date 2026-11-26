@@ -136,6 +136,17 @@ describe('NPD trial report / images upload (QC)', () => {
   });
 });
 
+describe('NPD W/H & Dispatch roles', () => {
+  const user = (role_code, role_label) => ({ role_code, role_label });
+  test('Dispatch Executive and Dispatch Manager edit the W/H & Dispatch stages', () => {
+    for (const u of [user('dispatch_executive'), user('x', 'Dispatch Executive'), user('dispatch_manager'), user('y', 'DISPATCH MANAGER')]) {
+      const keys = editableStageKeys(u);
+      expect(keys).toEqual(expect.arrayContaining(['or_jr_erp_wh', 'fg_receiving', 'post_card_receiving', 'post_card_posting', 'dispatch_date']));
+      expect(keys).not.toContain('mould_trials');
+    }
+  });
+});
+
 describe('NPD Sr No in series', () => {
   const P = (id, factory, parent) => ({ id, sync_id: 's' + id, parent_sync_id: parent ? 's' + parent : null, factory: factory || '' });
   const rows = [P(3, 'U1'), P(4, '', 3), P(6, 'U2'), P(9, 'U1'), P(12, ''), P(13, 'U2', 12)];
