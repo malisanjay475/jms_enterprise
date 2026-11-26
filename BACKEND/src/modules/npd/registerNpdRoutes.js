@@ -58,6 +58,9 @@ const DEPT_ROLES = {
   'Tool Room': ['toolroommanager'],
   Moulding: ['mouldingmanager'],
   Planning: ['srppcmanager', 'ppcmanager', 'ppcassmanager'],
+  /* the whole PPC team (any PPC / Planning role, and Planner): used only where a
+     stage names it, today RM & colour finalization */
+  'PPC team': [/ppc/, /^planning/, 'planner'],
   /* 'quality' is the QC HOD role; Quality Ass. Manager is 'quality_ass__manager' */
   QC: ['quality', 'qchod', 'qualityhod', 'qualityassmanager', 'qualityasstmanager', 'qcassmanager'],
   Packing: ['packingmanager'],
@@ -79,7 +82,7 @@ function roleDepts(u) {
 const STAGES = [
   { key: 'mould_received', level: 'mould', type: 'status', group: 'Mould & Trial', label: 'Final mould received @ factory (Tool Room)', depts: ['Tool Room'] },
   { key: 'mould_trials', level: 'mould', type: 'status', group: 'Mould & Trial', label: 'Product mould final trials @ factory (Moulding)', depts: ['Moulding'] },
-  { key: 'rm_colour', level: 'mould', type: 'status', group: 'Mould & Trial', label: 'RM & colour finalization (Planning / Moulding)', depts: ['Planning', 'Moulding'] },
+  { key: 'rm_colour', level: 'mould', type: 'status', group: 'Mould & Trial', label: 'RM & colour finalization (Planning / Moulding)', depts: ['Planning', 'Moulding', 'PPC team'] },
   { key: 'samples_ho', level: 'product', type: 'status', group: 'Mould & Trial', label: 'Final samples sent to HO for approval & photo shoot (QC)', depts: ['QC'] },
   { key: 'sample_approval_ho', level: 'product', type: 'status', group: 'Mould & Trial', label: 'Final sample approval from HO (HO)', depts: ['HO'] },
   { key: 'pilot_drop_test', level: 'product', type: 'status', group: 'Mould & Trial', label: 'Pilot run & drop test @ factory (Moulding / QC)', depts: ['Moulding', 'QC'] },
