@@ -11,8 +11,25 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.210.0",
+  "latest": "1.211.0",
   "versions": [
+    {
+      "version": "1.211.0",
+      "date": "2026-11-26",
+      "title": "New Daily Report (Detailed)",
+      "modules": [
+        {
+          "app": "dpr",
+          "changes": [
+            { "type": "feat", "text": "New page DPR > Daily Report (Detailed): the same day report with 7 tabs (Overview, Lines, Machines, Downtime, Quality, Change-overs, Data checks), hour-by-hour charts, a 24-hour strip for every machine and a click-through view of each machine. The old Daily Report (NEW) stays as it is." },
+            { "type": "feat", "text": "Daily Report (Detailed) works out every Kg per mould run, so a machine that ran two moulds gets each mould's own speed and weight, and every loss adds up to Planned minus Good." },
+            { "type": "feat", "text": "Daily Report (Detailed): hours with no DPR setup take the std cycle, cavities and weight of the plan's mould from Mould Master instead of counting as 0 kg." },
+            { "type": "feat", "text": "Daily Report (Detailed): on today's date the target counts only the hours that have finished, so a mid-shift report no longer shows a false low efficiency." },
+            { "type": "feat", "text": "Daily Report (Detailed): Data checks list what makes the numbers wrong, such as moulds with no std, hours not filled, entries without a setup, typed Other downtime and missing supervisor names." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.210.2",
       "date": "2026-11-26",
