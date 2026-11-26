@@ -1431,9 +1431,9 @@
                 const hold = (typeof window.etvHoldFor === 'function') ? window.etvHoldFor(p.orderNo) : null;
                 const canHold = !!(window._etvHoldPerm && window._etvHoldPerm.edit && p.orderNo);
                 const holdAttr = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-                if (hold) leftBorder = '#64748b';
-                const cardBg = isMatched ? '#fef9c3' : hold ? 'repeating-linear-gradient(135deg, #f1f5f9 0 8px, #e2e8f0 8px 16px)' : isOverProduced ? '#fff1f2' : (isMouldChange ? '#fff3e6' : '#ffffff');
-                const cardBorder = isMatched ? '#eab308' : hold ? '#94a3b8' : isOverProduced ? '#fca5a5' : (isMouldChange ? '#fdba74' : '#e2e8f0');
+                if (hold) leftBorder = '#dc2626';
+                const cardBg = isMatched ? '#fef9c3' : hold ? 'repeating-linear-gradient(135deg, #fef2f2 0 8px, #fecaca 8px 16px)' : isOverProduced ? '#fff1f2' : (isMouldChange ? '#fff3e6' : '#ffffff');
+                const cardBorder = isMatched ? '#eab308' : hold ? '#f87171' : isOverProduced ? '#fca5a5' : (isMouldChange ? '#fdba74' : '#e2e8f0');
                 const cardShadow = isMatched ? '0 0 16px rgba(234, 179, 8, 0.75)' : isOverProduced ? '0 0 10px rgba(239,68,68,0.18)' : '0 1px 2px rgba(0,0,0,0.05)';
                 const cardBorderWidth = isMatched ? '2.5px' : isOverProduced ? '2px' : '1px';
 
@@ -1466,7 +1466,7 @@
                           <div style="font-weight:800; color:#0f172a; font-size:0.9rem; line-height:1.1">${esc(p.orderNo || '-')}</div>
                           <div style="font-size:0.7rem; font-weight:700; text-transform:uppercase; background:${bgTag}; color:${txtTag}; padding:2px 5px; border-radius:4px; white-space:nowrap">${st}</div>
                        </div>
-                       ${hold ? `<div class="tl-hold-badge" title="Order on hold&#10;Reason: ${holdAttr(hold.reason)}&#10;By ${holdAttr(hold.updated_by || hold.held_by || '')}" style="display:block; font-size:0.72rem; font-weight:800; color:#fff; background:#475569; border-radius:4px; padding:3px 6px; line-height:1.3; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"><i class="bi bi-pause-circle-fill"></i> ON HOLD: ${holdAttr(hold.reason)}</div>` : ''}
+                       ${hold ? `<div class="tl-hold-badge" title="Order on hold&#10;Reason: ${holdAttr(hold.reason)}&#10;By ${holdAttr(hold.updated_by || hold.held_by || '')}" style="display:block; font-size:0.72rem; font-weight:800; color:#fff; background:#b91c1c; border-radius:4px; padding:3px 6px; line-height:1.3; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"><i class="bi bi-pause-circle-fill"></i> ON HOLD: ${holdAttr(hold.reason)}</div>` : ''}
                        
                        <div style="font-size:0.8rem; color:#64748b; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis" title="${esc(p.clientName)}">
                           ${esc(p.clientName || 'Unknown')}
@@ -1541,7 +1541,7 @@
                                <button class="btn icon mini tl-hold-btn"
                                    onclick="window.etvOpenHold('${holdAttr(p.orderNo)}'); event.stopPropagation();"
                                    title="${hold ? 'Order on hold — click to edit the reason or release it' : 'Put this whole order on hold'}"
-                                   style="background:${hold ? '#475569' : '#f8fafc'}; color:${hold ? '#fff' : '#475569'}; border:1px solid ${hold ? '#475569' : '#cbd5e1'}; width:26px; height:26px; display:flex; align-items:center; justify-content:center; border-radius:4px; cursor:pointer;">
+                                   style="background:${hold ? '#b91c1c' : '#f8fafc'}; color:${hold ? '#fff' : '#475569'}; border:1px solid ${hold ? '#b91c1c' : '#cbd5e1'}; width:26px; height:26px; display:flex; align-items:center; justify-content:center; border-radius:4px; cursor:pointer;">
                                    <i class="bi bi-pause-circle${hold ? '-fill' : ''}" style="font-size:0.9rem"></i>
                                </button>` : ''}
                                ${_tlIsSuperAdmin ? `

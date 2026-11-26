@@ -115,11 +115,11 @@
       #etv-prio-modal input, #etv-prio-modal select { width: 100%; padding: 9px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: .85rem; margin-bottom: 14px; }
       #etv-prio-modal .pm-close { background: transparent; border: none; color: #fff; font-size: 1.3rem; cursor: pointer; }
       /* ── Order Hold ── */
-      .etv-card.hold { border-left-color: #64748b !important; background: repeating-linear-gradient(135deg, #f1f5f9 0 8px, #e2e8f0 8px 16px) !important; border-color: #94a3b8 !important; }
-      .etv-card-hold { display: block; font-size: .6rem; font-weight: 800; color: #fff; background: #475569; border-radius: 4px; padding: 2px 6px; line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .etv-card.hold { border-left-color: #dc2626 !important; background: repeating-linear-gradient(135deg, #fef2f2 0 8px, #fecaca 8px 16px) !important; border-color: #f87171 !important; }
+      .etv-card-hold { display: block; font-size: .6rem; font-weight: 800; color: #fff; background: #b91c1c; border-radius: 4px; padding: 2px 6px; line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       .etv-hold-btn { cursor: pointer; display: inline-flex; align-items: center; gap: 2px; font-size: .58rem; font-weight: 700; padding: 1px 5px; border-radius: 4px; border: 1px solid #cbd5e1; background: #f8fafc; color: #475569; white-space: nowrap; }
       .etv-hold-btn:hover { background: #e2e8f0; }
-      .etv-hold-btn.on { background: #475569; border-color: #475569; color: #fff; }
+      .etv-hold-btn.on { background: #b91c1c; border-color: #b91c1c; color: #fff; }
       #etv-hold-history-btn { display: none; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 8px; border: 1px solid #94a3b8; background: #f1f5f9; color: #334155; font-weight: 700; font-size: .8rem; cursor: pointer; white-space: nowrap; }
       #etv-hold-modal, #etv-hold-modal * { box-sizing: border-box; }
       #etv-hold-modal { position: fixed; inset: 0; z-index: 6200; background: rgba(15,23,42,.45); display: flex; align-items: center; justify-content: center; padding: 16px; }
@@ -143,7 +143,7 @@
       #etv-hold-modal th { text-align: left; background: #f1f5f9; color: #334155; padding: 7px 8px; position: sticky; top: 0; font-weight: 800; }
       #etv-hold-modal td { padding: 7px 8px; border-top: 1px solid #e2e8f0; vertical-align: top; color: #1e293b; }
       #etv-hold-modal .hm-act { font-weight: 800; border-radius: 999px; padding: 1px 8px; font-size: .7rem; white-space: nowrap; }
-      #etv-hold-modal .hm-act.HOLD { background: #475569; color: #fff; }
+      #etv-hold-modal .hm-act.HOLD { background: #b91c1c; color: #fff; }
       #etv-hold-modal .hm-act.EDIT { background: #dbeafe; color: #1d4ed8; }
       #etv-hold-modal .hm-act.RELEASE { background: #dcfce7; color: #15803d; }
       .pm-saved-row { display: flex; align-items: center; gap: 10px; padding: 10px; border: 1px solid #e2e8f0; border-radius: 8px; margin-bottom: 8px; }
