@@ -11,8 +11,35 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.208.0",
+  "latest": "1.209.1",
   "versions": [
+    {
+      "version": "1.209.1",
+      "date": "2026-11-26",
+      "title": "Held orders shown in red",
+      "modules": [
+        {
+          "app": "planning",
+          "changes": [
+            { "type": "improvement", "text": "Orders on hold now stand out in red on the Excel View and Machine Timeline: red stripes, red border and a red ON HOLD label." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.209.0",
+      "date": "2026-11-26",
+      "title": "Order hold on the Machine Timeline",
+      "modules": [
+        {
+          "app": "planning",
+          "changes": [
+            { "type": "feat", "text": "Machine Timeline now shows orders on hold too: the card turns grey with ON HOLD and the reason, and the status filter has an On Hold option." },
+            { "type": "feat", "text": "Superadmin, admin and PPC managers get the Hold button (pause icon) on Machine Timeline cards to hold an order, change the reason or release it." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.208.0",
       "date": "2026-11-26",
