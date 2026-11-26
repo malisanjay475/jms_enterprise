@@ -19,6 +19,7 @@ const {
   canEditSheet,
   canManageFiles,
   rowStatus,
+  npdSerials,
   canAddItems,
   isNpdAdmin,
   isNpdSuperadmin
@@ -132,6 +133,21 @@ describe('NPD trial report / images upload (QC)', () => {
     for (const r of ['quality', 'quality_ass__manager', 'qc_hod', 'admin', 'superadmin']) expect(canManageFiles(user(r))).toBe(true);
     for (const r of ['ppc_manager', 'sr_ppc_manager', 'dispatch_manager', 'moulding_manager', 'sales_coordinator']) expect(canManageFiles(user(r))).toBe(false);
     expect(canManageFiles(null)).toBe(false);
+  });
+});
+
+describe('NPD Sr No in series', () => {
+  const P = (id, factory, parent) => ({ id, sync_id: 's' + id, parent_sync_id: parent ? 's' + parent : null, factory: factory || '' });
+  const rows = [P(3, 'U1'), P(4, '', 3), P(6, 'U2'), P(9, 'U1'), P(12, ''), P(13, 'U2', 12)];
+  test('one factory: 1, 2, 3 with no gaps', () => {
+    const { list, sr } = npdSerials(rows.filter(r => [3, 4, 9].includes(r.id)), ['U1'], 'U1');
+    expect(list.map(p => p.id)).toEqual([3, 9]);
+    expect([sr.get(3), sr.get(9)]).toEqual([1, 2]);
+  });
+  test('all factories: grouped in factory order, numbered straight through', () => {
+    const { list, sr } = npdSerials(rows, ['U1', 'U2'], '');
+    expect(list.map(p => p.id)).toEqual([3, 9, 6, 12]);
+    expect(list.map(p => sr.get(p.id))).toEqual([1, 2, 3, 4]);
   });
 });
 
