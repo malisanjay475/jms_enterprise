@@ -422,7 +422,7 @@ function insights(){
   const c=(bg,i,l,v,s)=>`<div class="chipc"><span class="ic" style="background:${bg}">${ic(i)}</span><div style="min-width:0"><div class="lbl">${l}</div><div class="v">${esc(v)} <span>${s}</span></div></div></div>`;
   return `<div class="ins">${[
     best?c('linear-gradient(135deg,#22c55e,#16a34a)','trophy','Best line',best.l,pct(best.o.eff)+' eff'):'',
-    worst?c('linear-gradient(135deg,#f87171,#ef4444)','down','Needs attention',worst.l,pct(worst.o.eff)+' eff · '+biggestLoss(worst.o).replace(/<[^>]+>/g,'')):'',
+    worst?c('linear-gradient(135deg,#f87171,#ef4444)','down','Needs attention',worst.l,pct(worst.o.eff)+' eff · '+biggestLossText(worst.o)):'',
     hr?c('linear-gradient(135deg,#fb923c,#ea580c)','alert','Highest rejection',hr.l,pct(hr.o.rejPct)+' · '+fmt(hr.o.rej)+' kg'):'',
     dt?c('linear-gradient(135deg,#a78bfa,#7c3aed)','hour','Top downtime',DT_NAMES[dt[0]]||dt[0],fmt(dt[1],1)+' h'):''
   ].join('')}</div>`;
@@ -454,7 +454,9 @@ function rejList(o){
   return `<div class="par">${it.map(x=>`<div class="r"><span class="n" title="${esc(x.n)}">${esc(x.n)}</span><div class="tr2"><i style="width:${x.v/mx*100}%;background:var(--warn)"></i></div><span style="text-align:right;font-weight:600">${fmt(x.v)} pcs</span></div>`).join('')}</div>`;
 }
 const effCell=e=>`<span style="font-weight:700;color:${bandVar(e)}">${e>0?pct(e):'—'}</span><span class="ebar"><i style="width:${Math.min(100,e*100)}%;background:${bandVar(e)}"></i></span>`;
-function biggestLoss(o){const c=[['DPR not filled',o.missing],['Change-over overrun',o.overrun],['Downtime',o.down],['Speed',o.speed],['Rejection',o.rej],['No plan',o.npLoss]].sort((a,b)=>b[1]-a[1])[0];return c&&c[1]>0?`${c[0]} <span class="muted">${fmt(c[1])} kg</span>`:'—';}
+function topLoss(o){const c=[['DPR not filled',o.missing],['Change-over overrun',o.overrun],['Downtime',o.down],['Speed',o.speed],['Rejection',o.rej],['No plan',o.npLoss]].sort((a,b)=>b[1]-a[1])[0];return c&&c[1]>0?c:null;}
+function biggestLoss(o){const c=topLoss(o);return c?`${c[0]} <span class="muted">${fmt(c[1])} kg</span>`:'—';}
+function biggestLossText(o){const c=topLoss(o);return c?c[0]+' '+fmt(c[1])+' kg':'—';}
 
 let openLine=null;
 function machineTable(){
