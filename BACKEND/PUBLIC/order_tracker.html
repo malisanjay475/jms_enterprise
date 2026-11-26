@@ -96,6 +96,16 @@
         .orow.COMPLETE { border-left-color: var(--green); }
         .orow.PAUSED { border-left-color: var(--amber); }
         .orow.late { border-left-color: var(--red); }
+        /* Order on hold (Hold button on the Planning timelines): red stripes, same as the board */
+        .orow.held { background: repeating-linear-gradient(135deg, #fef2f2 0 10px, #fecaca 10px 20px); border-color: #f87171; border-left-color: var(--red); }
+        .holdtag { display: inline-flex; align-items: center; gap: 5px; max-width: 100%; background: #b91c1c; color: #fff; font-size: 11px; font-weight: 800; border-radius: 6px; padding: 3px 8px; margin-top: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .holdtag.sm { font-size: 10px; padding: 1px 6px; margin: 0 0 0 6px; vertical-align: middle; }
+        .holdbar { display: flex; align-items: center; gap: 16px; border-radius: 16px; padding: 14px 20px; margin: 14px 0; border: 1px solid #f87171; border-left: 6px solid var(--red); background: repeating-linear-gradient(135deg, #fef2f2 0 12px, #fee2e2 12px 24px); color: #7f1d1d; }
+        .holdbar .hi { width: 44px; height: 44px; border-radius: 12px; display: grid; place-items: center; font-size: 22px; flex: none; color: #fff; background: #b91c1c; }
+        .holdbar .ht { font-size: 18px; font-weight: 800; color: #991b1b; }
+        .holdbar .hd { margin-top: 2px; font-weight: 600; overflow-wrap: anywhere; }
+        .holdbar .hm { font-size: 12px; margin-top: 4px; color: #991b1b; }
+        .job.held { border-left: 3px solid var(--red); padding-left: 8px; }
         .orow .no { font-weight: 800; font-size: 15px; }
         .orow .prod { font-weight: 600; color: var(--ink2); margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .sets { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; }
@@ -615,18 +625,39 @@
                 $('live').classList.toggle('off', !ok);
                 $('upd').textContent = ok ? `Updated ${new Date().toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' })} · refreshes every minute` : 'Could not refresh, retrying';
             }
+            /* Orders on hold — set with the Hold button on the Planning timelines (/api/order-holds).
+               Loaded with every refresh; a failure just shows no holds. */
+            S.holds = {}; S.holdsP = Promise.resolve();
+            const holdKey = v => String(v == null ? '' : v).trim().toUpperCase();
+            const holdOf = no => (holdKey(no) && S.holds[holdKey(no)]) || null;
+            function loadHolds() {
+                S.holdsP = fetch('/api/order-holds', { credentials: 'same-origin' })
+                    .then(r => r.json())
+                    .then(d => { if (d && d.ok) { const m = {}; (d.data || []).forEach(h => { m[holdKey(h.order_no)] = h; }); S.holds = m; } })
+                    .catch(() => { /* keep the last holds */ });
+                return S.holdsP;
+            }
+            const holdTag = (no, small) => { const h = holdOf(no); return h ? `<span class="holdtag ${small ? 'sm' : ''}" title="Order on hold&#10;Reason: ${esc(h.reason)}&#10;By ${esc(h.updated_by || h.held_by || '')}"><i class="bi bi-pause-circle-fill"></i> ${small ? 'HOLD' : 'ON HOLD: ' + esc(h.reason)}</span>` : ''; };
+            function holdHtml(o) {
+                const h = holdOf(o.order_no);
+                if (!h) return '';
+                const changed = h.updated_by && h.updated_by !== h.held_by ? ` · reason last changed by <b>${esc(h.updated_by)}</b> on ${fd(h.updated_at, true)}` : '';
+                return `<div class="holdbar"><div class="hi"><i class="bi bi-pause-circle-fill"></i></div>
+                    <div><div class="ht">Order on hold</div><div class="hd">${esc(h.reason)}</div>
+                    <div class="hm">Held by <b>${esc(h.held_by || '—')}</b> on ${fd(h.held_at, true)}${changed}. To release it, use the Hold button on the Planning Board.</div></div></div>`;
+            }
             const kpi = (ic, tone, v, l, f) => `<div class="kpi" ${f != null ? `data-f="${f}"` : ''}><div class="ic t-${tone}"><i class="bi ${ic}"></i></div><div><div class="v">${v}</div><div class="l">${l}</div></div></div>`;
 
             /* ================================================== ORDER LIST */
             async function loadOrders() {
                 const q = $('q').value.trim();
-                const res = await JPSMS.api.request(`/order-tracker/orders?scope=${$('scope').value}${q ? '&q=' + encodeURIComponent(q) : ''}`, { skipLoader: true });
+                const [res] = await Promise.all([JPSMS.api.request(`/order-tracker/orders?scope=${$('scope').value}${q ? '&q=' + encodeURIComponent(q) : ''}`, { skipLoader: true }), S.holdsP]);
                 S.orders = res.data || [];
                 renderOrders();
             }
 
-            const OFILTERS = [['', 'All'], ['RUNNING', 'Running'], ['LATE', 'Late'], ['LATESTART', 'Mould late'], ['PAUSED', 'Paused'], ['NOT_STARTED', 'Not started'], ['UNSCHED', 'No end date'], ['COMPLETE', 'Complete']];
-            const omatch = (o, f) => !f || (f === 'LATE' ? isLate(o) : f === 'LATESTART' ? o.late_starts > 0 : f === 'UNSCHED' ? (o.status !== 'COMPLETE' && !o.expected_end) : o.status === f);
+            const OFILTERS = [['', 'All'], ['RUNNING', 'Running'], ['LATE', 'Late'], ['LATESTART', 'Mould late'], ['PAUSED', 'Paused'], ['NOT_STARTED', 'Not started'], ['UNSCHED', 'No end date'], ['COMPLETE', 'Complete'], ['HOLD', 'On hold']];
+            const omatch = (o, f) => !f || (f === 'HOLD' ? !!holdOf(o.order_no) : f === 'LATE' ? isLate(o) : f === 'LATESTART' ? o.late_starts > 0 : f === 'UNSCHED' ? (o.status !== 'COMPLETE' && !o.expected_end) : o.status === f);
 
             function nextLine(o) {
                 const n = o.next_start;
@@ -661,11 +692,12 @@
                     const bars = o.moulds.map(m => `<div class="mbar ${m.mould_no === neck ? 'neck' : ''}" title="${esc(m.mould_name)} · ${n0(m.produced)} / ${n0(m.required)} pcs">
                             <div class="nm"><span>${esc(short(m.mould_name))}</span><span>${pf(m.pct)}</span></div>
                             ${track(m.pct, 'thin ' + (m.status === 'COMPLETE' ? 'g' : m.mould_no === neck ? 'a' : ''))}</div>`).join('');
-                    return `<div class="otc orow ${o.status} ${late ? 'late' : ''}" data-order="${esc(o.order_no)}">
-                        <div>
+                    return `<div class="otc orow ${o.status} ${late ? 'late' : ''} ${holdOf(o.order_no) ? 'held' : ''}" data-order="${esc(o.order_no)}">
+                        <div style="min-width:0">
                             <div class="no">${esc(o.order_no)}</div>
                             <div class="prod" title="${esc(o.product_name)}">${esc(o.product_name) || '—'}</div>
                             <div class="muted small">${esc(o.client_name)}${o.order_date ? ' · ' + fd(o.order_date) : ''} · ${o.jc_count} JC</div>
+                            ${holdTag(o.order_no)}
                         </div>
                         <div>
                             <div class="sets"><span><span class="big">${n0(o.sets_made)}</span> <span class="muted">/ ${n0(o.order_qty)} sets</span></span><span class="b">${pf(o.pct)}</span></div>
@@ -700,7 +732,7 @@
                     window.scrollTo(0, 0);
                 }
                 try {
-                    const res = await JPSMS.api.request(`/order-tracker/order?order_no=${encodeURIComponent(no)}`, { skipLoader: true });
+                    const [res] = await Promise.all([JPSMS.api.request(`/order-tracker/order?order_no=${encodeURIComponent(no)}`, { skipLoader: true }), S.holdsP]);
                     if (S.order === no) { S.detail = res.data; renderDetail(); }
                 } catch (e) { if (!silent) $('v-detail').innerHTML = `<div class="otc empty"><i class="bi bi-exclamation-circle"></i>Could not load ${esc(no)}.</div>`; }
             }
@@ -1051,6 +1083,7 @@
                         ${journey(o)}
                     </div>
 
+                    ${holdHtml(o)}
                     ${verdictHtml(o)}
                     <div class="qtiles">${qtyTiles(o)}</div>
                     <div class="dtiles">${tiles}</div>
@@ -1106,14 +1139,14 @@
 
             /* ================================================ MACHINE WISE */
             async function loadMachines() {
-                const res = await JPSMS.api.request('/order-tracker/machines', { skipLoader: true });
+                const [res] = await Promise.all([JPSMS.api.request('/order-tracker/machines', { skipLoader: true }), S.holdsP]);
                 S.machines = res.data || [];
                 renderMachines();
             }
 
             function jobHtml(j) {
-                return `<div class="job">
-                    <div class="ord"><span><a class="lnk" data-order="${esc(j.order_no)}">${esc(j.order_no || '—')}</a> <span class="muted">${esc(j.job_card_no || '')}</span></span><span class="muted">${esc(j.plan_id)}</span></div>
+                return `<div class="job ${holdOf(j.order_no) ? 'held' : ''}">
+                    <div class="ord"><span><a class="lnk" data-order="${esc(j.order_no)}">${esc(j.order_no || '—')}</a>${holdTag(j.order_no, true)} <span class="muted">${esc(j.job_card_no || '')}</span></span><span class="muted">${esc(j.plan_id)}</span></div>
                     <div class="mould">${esc(j.mould_name)}</div>
                     <div class="sets"><span><b>${n0(j.produced)}</b> <span class="muted">/ ${n0(j.plan_qty)} pcs</span></span><span class="b">${pf(j.pct)}</span></div>
                     ${track(j.pct)}
@@ -1150,7 +1183,7 @@
                         <div class="mh"><div><span class="mn">${esc(m.machine)}</span>${m.tonnage ? ` <span class="muted small">${esc(m.tonnage)} T</span>` : ''}</div>${pill(m.state)}</div>
                         ${m.running.map(jobHtml).join('') || `<div class="muted small" style="margin-top:12px">${m.queue.length ? 'Nothing running. Next job is waiting.' : 'Nothing running or planned.'}</div>`}
                         ${m.queue.length ? `<div class="queue"><div class="qh">UP NEXT · ${m.queue.length}</div>${m.queue.slice(0, 4).map((j, i) => `
-                            <div class="qi"><span class="k">${i + 1}</span><span><a class="lnk" data-order="${esc(j.order_no)}">${esc(j.order_no)}</a> · ${esc(short(j.mould_name))} <span class="muted">· ${n0(j.balance)} pcs</span></span><span class="muted nowrap">${j.eta ? fd(j.eta, true) : '—'}</span></div>`).join('')}
+                            <div class="qi"><span class="k">${i + 1}</span><span><a class="lnk" data-order="${esc(j.order_no)}">${esc(j.order_no)}</a>${holdTag(j.order_no, true)} · ${esc(short(j.mould_name))} <span class="muted">· ${n0(j.balance)} pcs</span></span><span class="muted nowrap">${j.eta ? fd(j.eta, true) : '—'}</span></div>`).join('')}
                             ${m.queue.length > 4 ? `<div class="muted small">+${m.queue.length - 4} more</div>` : ''}</div>` : ''}
                         ${m.free_at ? `<div class="free"><i class="bi bi-flag"></i> Free from <b>${fd(m.free_at, true)}</b></div>` : ''}
                     </div>`).join('')}</div>`).join('');
@@ -1427,6 +1460,7 @@
             }
 
             async function refresh() {
+                if (S.view !== 'tonnage' || S.order) loadHolds();
                 try {
                     if (S.order) await openOrder(S.order, true);
                     else if (S.view === 'orders') await loadOrders();
