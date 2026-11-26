@@ -11,8 +11,21 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.209.0",
+  "latest": "1.209.1",
   "versions": [
+    {
+      "version": "1.209.1",
+      "date": "2026-11-26",
+      "title": "Held orders shown in red",
+      "modules": [
+        {
+          "app": "planning",
+          "changes": [
+            { "type": "improvement", "text": "Orders on hold now stand out in red on the Excel View and Machine Timeline: red stripes, red border and a red ON HOLD label." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.209.0",
       "date": "2026-11-26",
