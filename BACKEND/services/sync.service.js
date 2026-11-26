@@ -186,6 +186,8 @@ const SYNC_ALL = [
     'org_designations',
     'org_people',
     'order_completion_history',
+    'order_hold_history',
+    'order_holds',
     'or_jr_report',
     'orders',
     'packing_boxes',
@@ -474,6 +476,11 @@ const CONFLICT_KEYS = {
     // files link to their product by product_sync_id. No factory_id: every server gets all.
     npd_products: 'sync_id',
     npd_files: 'sync_id',
+    // Order Hold (src/modules/orderHold): set on MAIN or any LOCAL, no factory_id, so every
+    // server gets all. One row per order (natural key, released rows stay with active=FALSE);
+    // the history is an append-only log keyed by sync_id.
+    order_holds: 'order_no',
+    order_hold_history: 'sync_id',
     order_completion_history: 'factory_id, order_no, action_type, changed_at',
     raw_material_issues: 'factory_id, plan_id, created_at',
     wip_stock_movements: 'factory_id, source_type, source_ref, movement_type, created_at',
@@ -631,7 +638,7 @@ const GLOBAL_MASTER_TABLES = new Set([
     'erp_mould_item'
 ]);
 
-const SYNC_ID_REQUIRED_TABLES = ['notifications', 'dpr_reasons', 'assembly_plans', 'assembly_scans', 'maintenance_tickets', 'maintenance_worklogs', 'org_units', 'org_departments', 'org_grades', 'org_designations', 'org_people', 'mould_verify_notes', 'qc_online_reports', 'qc_issue_memos', 'qc_training_sheets', 'qc_deviations', 'qc_job_checks', 'plan_audit_logs', 'mould_audit_logs', 'machine_status_logs', 'operator_history', 'plan_job_card_approval_history', 'jobs_queue', 'planning_drops', 'shifting_records', 'wip_inventory', 'wip_outward_logs', 'grinding_logs', 'qc_shift_team', 'qc_holds', 'qc_material_issues', 'qc_verifications', 'npd_products', 'npd_files', 'packing_lock_events', 'packing_boxes', 'packing_label_reprints', 'packing_handovers', 'packing_dispatches', 'packing_crew', 'packing_day_closes'];
+const SYNC_ID_REQUIRED_TABLES = ['notifications', 'dpr_reasons', 'assembly_plans', 'assembly_scans', 'maintenance_tickets', 'maintenance_worklogs', 'org_units', 'org_departments', 'org_grades', 'org_designations', 'org_people', 'mould_verify_notes', 'qc_online_reports', 'qc_issue_memos', 'qc_training_sheets', 'qc_deviations', 'qc_job_checks', 'plan_audit_logs', 'mould_audit_logs', 'machine_status_logs', 'operator_history', 'plan_job_card_approval_history', 'jobs_queue', 'planning_drops', 'shifting_records', 'wip_inventory', 'wip_outward_logs', 'grinding_logs', 'qc_shift_team', 'qc_holds', 'qc_material_issues', 'qc_verifications', 'npd_products', 'npd_files', 'packing_lock_events', 'packing_boxes', 'packing_label_reprints', 'packing_handovers', 'packing_dispatches', 'packing_crew', 'packing_day_closes', 'order_hold_history'];
 
 // Deterministic sync_id backfill seeds for tables converted to a surrogate UUID key.
 // The same physical row already exists on MAIN AND on its factory's LOCAL (LOCAL pushed
@@ -707,7 +714,8 @@ const SYNC_SCHEMA_READY_KEY = 'SYNC_SCHEMA_READY_VERSION';
 // 2026-11-22: packing_tables (MAIN-only, id); packing_stations.tables_seeded; assembly_plans.tables.
 // 2026-11-23: packing_workers (MAIN-only, id) + packing_crew (sync_id, LOCAL -> MAIN).
 // 2026-11-24: packing_loss_reasons (MAIN-only, id) + packing_day_closes (sync_id, LOCAL -> MAIN).
-const SYNC_SCHEMA_READY_VERSION = '2026-11-24-packing-day-close-v21';
+// 2026-11-26: order_holds (natural key order_no) + order_hold_history (sync_id), both ways.
+const SYNC_SCHEMA_READY_VERSION = '2026-11-26-order-holds-v22';
 
 // "Sync token" columns: app-schema UNIQUE columns that carry a per-row identity
 // token (a UUID) MAIN considers authoritative, but which a LOCAL row may have been
@@ -1468,6 +1476,11 @@ async function ensureSyncRuntimeSchema(config = {}) {
         await require('../src/modules/packing/registerPackingDayCloseRoutes').ensureDayCloseSchema(pool);
     } catch (e) {
         console.warn('[Sync] Packing masters schema ensure failed:', e.message);
+    }
+    try {
+        await require('../src/modules/orderHold/registerOrderHoldRoutes').ensureOrderHoldSchema(pool);
+    } catch (e) {
+        console.warn('[Sync] Order hold schema ensure failed:', e.message);
     }
     await resyncIdKeyedSequences();
     await ensureSyncTouchFunctions();
