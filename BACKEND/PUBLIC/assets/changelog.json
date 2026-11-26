@@ -11,10 +11,10 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.211.0",
+  "latest": "1.211.1",
   "versions": [
     {
-      "version": "1.211.1",
+      "version": "1.211.2",
       "date": "2026-11-26",
       "title": "NPD Tracker: Dispatch Executive can edit W/H & Dispatch",
       "modules": [
@@ -22,6 +22,19 @@
           "app": "npd",
           "changes": [
             { "type": "improvement", "text": "Dispatch Executive and Dispatch Manager can now update the W/H & Dispatch stages in NPD Tracker, and NPD is ticked in their app access." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.211.1",
+      "date": "2026-11-26",
+      "title": "Daily Report (Detailed): easier to read",
+      "modules": [
+        {
+          "app": "dpr",
+          "changes": [
+            { "type": "improvement", "text": "Daily Report (Detailed): small labels, table headings and chart labels are now at least 11px so they are easier to read on shop-floor screens." }
           ]
         }
       ]
