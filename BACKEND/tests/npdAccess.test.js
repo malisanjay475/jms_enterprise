@@ -148,6 +148,19 @@ describe('NPD RM & colour finalization: whole PPC team', () => {
   });
 });
 
+describe('NPD Packing roles', () => {
+  const user = (role_code, role_label) => ({ role_code, role_label });
+  test('Packing Manager, Packing Executive and other packing roles edit the Packing stages', () => {
+    for (const u of [user('packing_manager'), user('packing_executive'), user('x', 'Packing Executive'), user('y', 'PACKING SUPERVISOR'), user('packing_operator')]) {
+      const keys = editableStageKeys(u);
+      expect(keys).toEqual(expect.arrayContaining(['packing_material', 'mass_packaging']));
+      expect(keys).not.toContain('mould_trials');
+      expect(keys).not.toContain('packing_receiving');
+    }
+    expect(editableStageKeys(user('dispatch_manager'))).not.toContain('packing_material');
+  });
+});
+
 describe('NPD W/H & Dispatch roles', () => {
   const user = (role_code, role_label) => ({ role_code, role_label });
   test('Dispatch Executive and Dispatch Manager edit the W/H & Dispatch stages', () => {
