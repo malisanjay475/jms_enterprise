@@ -14,6 +14,19 @@
   "latest": "1.213.0",
   "versions": [
     {
+      "version": "1.213.1",
+      "date": "2026-11-27",
+      "title": "NPD Tracker: department badges in column headings",
+      "modules": [
+        {
+          "app": "npd",
+          "changes": [
+            { "type": "improvement", "text": "Every column heading now shows its department as a coloured badge (one colour per department, capital, bold, underlined), on its own line, so it is easy to see which department fills each column." }
+          ]
+        }
+      ]
+    },
+    {
       "version": "1.213.0",
       "date": "2026-11-27",
       "title": "Factory Transfers: send part of an order to another factory",
