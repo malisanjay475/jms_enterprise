@@ -13,6 +13,9 @@ part of your PR. On release, the `[Unreleased]` items move under the new version
 
 ## [Unreleased]
 
+### Added
+- Factory Transfers gaps (v1.215.0): Order Tracker loadOrders takes the start / finish of transfer plans from the running factory's machine queue (queueSchedule per other factory, keyed by the ' @ <factory>' plan id). reconcileTransferPlans() puts a PLANNED transfer whose plan is gone (deleted, or status CANCELLED / REJECTED / DELETED) back to ACCEPTED, clearing plan_id / machine and setting plan_transfers.plan_removed_at / plan_removed_note (new columns); it runs after /api/planning/delete of a transfer plan and before the transfer APIs read or write. The receiving factory may now reject (give back) an ACCEPTED transfer.
+
 ### Fixed
 - Order detail popup (v1.214.0): /api/orders/detail summed dpr_hourly by plan_id alone, so another factory's plan with the same plan id added to the made qty; it now matches the plan's factory and skips deleted entries.
 

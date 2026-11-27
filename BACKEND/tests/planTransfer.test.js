@@ -168,3 +168,16 @@ describe('colour split', () => {
     expect(plan.colourDetails).toEqual([{ colourName: 'Red', planQty: 100, batchQty: 100 }]);
   });
 });
+
+describe('giving a transfer back', () => {
+  const t = (status) => ({ id: 9, status, from_factory_id: 1, to_factory_id: 3, qty: 1000 });
+
+  test('the receiving factory may reject an accepted transfer (no machine yet)', () => {
+    expect(assertTransition(t('ACCEPTED'), 'reject', { factoryId: 3 })).toBe(STATUS.REJECTED);
+  });
+
+  test('but not once it is planned, and accept still needs waiting', () => {
+    expect(() => assertTransition(t('PLANNED'), 'reject', { factoryId: 3 })).toThrow(/already planned/);
+    expect(() => assertTransition(t('ACCEPTED'), 'accept', { factoryId: 3 })).toThrow(/already accepted/);
+  });
+});

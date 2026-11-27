@@ -110,7 +110,9 @@ function assertTransition(transfer, action, { factoryId, user } = {}) {
 
   if (action === 'accept' || action === 'reject') {
     if (!receiving) throw new PlanTransferError('Only the receiving factory can accept or reject this transfer. Switch to that factory.', 403);
-    if (status !== STATUS.WAITING) throw new PlanTransferError(`This transfer is already ${status.toLowerCase()}.`, 409);
+    // reject also works after accepting, while no machine is set: the factory gives the qty back
+    const open = action === 'accept' ? status === STATUS.WAITING : RESERVING_STATUSES.includes(status);
+    if (!open) throw new PlanTransferError(`This transfer is already ${status.toLowerCase()}.`, 409);
     return action === 'accept' ? STATUS.ACCEPTED : STATUS.REJECTED;
   }
   if (action === 'assign') {
