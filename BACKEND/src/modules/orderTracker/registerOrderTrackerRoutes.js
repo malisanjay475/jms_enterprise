@@ -33,6 +33,19 @@ const packingProgress = require('./packingProgress');
 const { allocateParts, buildParts } = require('./orderParts');
 
 const RATE_DAYS = 3;
+
+/* Factory Transfers: a plan another factory runs for this factory's order
+   (plan_board.source_factory_id = this factory) counts toward the order here,
+   with the hourly entries made on it there. Plan ids repeat in every factory,
+   so its plan id and machine carry " @ <factory>" and never meet a plan of ours.
+   $2 is the factory being viewed; with All Factories nothing changes. */
+const XFER_AT = fid => `(SELECT f.name FROM factories f WHERE f.id = ${fid})`;
+const xferLabel = (col, fid) => `CASE WHEN $2::int IS NOT NULL AND ${fid} IS NOT NULL AND ${fid} <> $2
+      THEN ${col} || ' @ ' || COALESCE(${XFER_AT(fid)}, 'factory ' || ${fid}) ELSE ${col} END`;
+const XFER_DPR_OR = a => `OR ($2::int IS NOT NULL AND EXISTS (
+           SELECT 1 FROM plan_board xp
+            WHERE xp.source_factory_id = $2 AND xp.factory_id = ${a}factory_id AND xp.plan_id = TRIM(${a}plan_id::text)
+              AND TRIM(xp.order_no) = TRIM(${a}order_no)))`;
 /* a set needing more pieces of one mould than this is almost certainly a data error */
 const MAX_SANE_RATIO = 24;
 /* the factory runs on IST; an ERP target date means the end of that day there */
@@ -114,16 +127,18 @@ const BOM_SQL = `
    GROUP BY 1, 2`;
 
 const PLAN_SQL = `
-  SELECT pb.id, pb.plan_id, TRIM(pb.order_no) AS order_no, pb.machine, pb.line,
+  SELECT pb.id, ${xferLabel('pb.plan_id', 'pb.factory_id')} AS plan_id, TRIM(pb.order_no) AS order_no,
+         ${xferLabel('pb.machine', 'pb.factory_id')} AS machine, pb.line,
          TRIM(COALESCE(pb.mould_code, '')) AS mould_code, pb.mould_name, pb.item_name,
          COALESCE(pb.plan_qty, 0) AS plan_qty, UPPER(COALESCE(pb.status, '')) AS status,
          NULLIF(TRIM(pb.job_card_no), '') AS job_card_no, pb.consumption_ratio_qty,
          pb.start_date, pb.end_date, pb.completed_at, pb.completed_by, NULLIF(TRIM(pb.remarks), '') AS remarks, pb.seq,
-         pb.created_at, pb.colour_details, pb.job_card_date
+         pb.created_at, pb.colour_details, pb.job_card_date,
+         CASE WHEN $2::int IS NOT NULL AND pb.factory_id <> $2 THEN ${XFER_AT('pb.factory_id')} END AS transfer_at
     FROM plan_board pb
    WHERE TRIM(pb.order_no) = ANY($1::text[])
      AND UPPER(COALESCE(pb.status, '')) NOT IN ('REJECTED', 'CANCELLED', 'DELETED')
-     AND ($2::int IS NULL OR pb.factory_id = $2 OR pb.factory_id IS NULL)`;
+     AND ($2::int IS NULL OR pb.factory_id = $2 OR pb.factory_id IS NULL OR pb.source_factory_id = $2)`;
 
 /* One row per hourly entry (latest edit wins), rolled up per day. */
 const DPR_SQL = `
@@ -131,15 +146,15 @@ const DPR_SQL = `
          SUM(good_qty) AS good, SUM(reject_qty) AS reject,
          COUNT(*) FILTER (WHERE good_qty > 0) AS run_hours
     FROM (
-      SELECT DISTINCT ON (machine, hour_slot, plan_id, dpr_date, shift, COALESCE(colour, ''))
-             TRIM(order_no) AS order_no, plan_id, TRIM(COALESCE(mould_no, '')) AS mould_no,
-             NULLIF(TRIM(jobcard_no), '') AS jobcard_no, TRIM(machine) AS machine, dpr_date,
+      SELECT DISTINCT ON (factory_id, machine, hour_slot, plan_id, dpr_date, shift, COALESCE(colour, ''))
+             TRIM(order_no) AS order_no, ${xferLabel('dpr_hourly.plan_id', 'dpr_hourly.factory_id')} AS plan_id, TRIM(COALESCE(mould_no, '')) AS mould_no,
+             NULLIF(TRIM(jobcard_no), '') AS jobcard_no, ${xferLabel('TRIM(dpr_hourly.machine)', 'dpr_hourly.factory_id')} AS machine, dpr_date,
              COALESCE(good_qty, 0) AS good_qty, COALESCE(reject_qty, 0) AS reject_qty
         FROM dpr_hourly
        WHERE is_deleted IS NOT TRUE
          AND TRIM(order_no) = ANY($1::text[])
-         AND ($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL)
-       ORDER BY machine, hour_slot, plan_id, dpr_date, shift, COALESCE(colour, ''), id DESC
+         AND ($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL ${XFER_DPR_OR('dpr_hourly.')})
+       ORDER BY factory_id, machine, hour_slot, plan_id, dpr_date, shift, COALESCE(colour, ''), id DESC
     ) x
    GROUP BY 1, 2, 3, 4, 5, 6`;
 
@@ -187,17 +202,18 @@ const DROP_SQL = `
 const PART_COLOUR_SQL = `
   SELECT mould_no, colour, SUM(good_qty) AS good, SUM(reject_qty) AS reject
     FROM (
-      SELECT DISTINCT ON (d.machine, d.hour_slot, d.plan_id, d.dpr_date, d.shift, COALESCE(d.colour, ''))
+      SELECT DISTINCT ON (d.factory_id, d.machine, d.hour_slot, d.plan_id, d.dpr_date, d.shift, COALESCE(d.colour, ''))
              COALESCE(NULLIF(TRIM(d.mould_no), ''), (
                SELECT TRIM(pb.mould_code) FROM plan_board pb
-                WHERE pb.plan_id = d.plan_id AND TRIM(pb.order_no) = TRIM(d.order_no) LIMIT 1)) AS mould_no,
+                WHERE pb.plan_id = d.plan_id AND TRIM(pb.order_no) = TRIM(d.order_no)
+                ORDER BY (pb.factory_id IS NOT DISTINCT FROM d.factory_id) DESC LIMIT 1)) AS mould_no,
              TRIM(COALESCE(d.colour, '')) AS colour,
              COALESCE(d.good_qty, 0) AS good_qty, COALESCE(d.reject_qty, 0) AS reject_qty
         FROM dpr_hourly d
        WHERE d.is_deleted IS NOT TRUE
          AND TRIM(d.order_no) = ANY($1::text[])
-         AND ($2::int IS NULL OR d.factory_id = $2 OR d.factory_id IS NULL)
-       ORDER BY d.machine, d.hour_slot, d.plan_id, d.dpr_date, d.shift, COALESCE(d.colour, ''), d.id DESC
+         AND ($2::int IS NULL OR d.factory_id = $2 OR d.factory_id IS NULL ${XFER_DPR_OR('d.')})
+       ORDER BY d.factory_id, d.machine, d.hour_slot, d.plan_id, d.dpr_date, d.shift, COALESCE(d.colour, ''), d.id DESC
     ) x
    GROUP BY 1, 2`;
 

@@ -11,8 +11,30 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.213.0",
+  "latest": "1.214.0",
   "versions": [
+    {
+      "version": "1.214.0",
+      "date": "2026-11-27",
+      "title": "Factory Transfers: production counts for the sending factory, colours travel with the transfer",
+      "modules": [
+        {
+          "app": "planning",
+          "changes": [
+            { "type": "feat", "text": "Order Tracker now counts what another factory makes on a transfer for your order: made qty, balance and progress include it, and the plan shows as 'PLN-... @ <factory>'." },
+            { "type": "feat", "text": "Send to factory now splits the qty by colour (shared like the order to start, you can change it); the colours go on the plan the other factory creates." },
+            { "type": "improvement", "text": "Order popups (order detail, completed plan history) list transfer plans with the factory running them." },
+            { "type": "fix", "text": "Order detail popup no longer adds production of another factory's plan that has the same plan number." }
+          ]
+        },
+        {
+          "app": "dpr",
+          "changes": [
+            { "type": "improvement", "text": "Daily Report and Daily Report (Detailed) tag machines running a transfer plan with 'Transfer from <factory>'." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.213.1",
       "date": "2026-11-27",

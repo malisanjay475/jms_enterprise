@@ -54,10 +54,12 @@ dbDescribe('factory transfers', () => {
         consumption_ratio_qty NUMERIC, is_active BOOLEAN DEFAULT true, factory_id INT, code TEXT, pcs_per_hour NUMERIC, updated_at TIMESTAMPTZ DEFAULT NOW());
       CREATE TABLE mould_planning_summary (id SERIAL PRIMARY KEY, or_jr_no TEXT, or_jr_date DATE, item_code TEXT, mould_no TEXT,
         mould_name TEXT, mould_item_qty NUMERIC, product_name TEXT, tonnage NUMERIC, cycle_time NUMERIC, cavity NUMERIC,
-        machine_name TEXT, factory_id INT, plan_date DATE);
+        machine_name TEXT, factory_id INT, plan_date DATE, plan_qty NUMERIC);
       CREATE TABLE orders (id SERIAL PRIMARY KEY, order_no TEXT, item_name TEXT, client_name TEXT, factory_id INT, status TEXT, priority TEXT, updated_at TIMESTAMPTZ DEFAULT NOW());
-      CREATE TABLE planning_drops (id SERIAL PRIMARY KEY, order_no TEXT, mould_name TEXT, mould_no TEXT, item_code TEXT);
-      CREATE TABLE dpr_hourly (id SERIAL PRIMARY KEY, plan_id TEXT, factory_id INT, good_qty NUMERIC, is_deleted BOOLEAN DEFAULT false, created_at TIMESTAMPTZ DEFAULT NOW(),
+      CREATE TABLE planning_drops (id SERIAL PRIMARY KEY, order_no TEXT, mould_name TEXT, mould_no TEXT, item_code TEXT,
+        remarks TEXT, dropped_by TEXT, created_at TIMESTAMPTZ DEFAULT NOW());
+      CREATE TABLE job_card_label_print_log (id SERIAL PRIMARY KEY, plan_id TEXT, jc_no TEXT, factory_id INT, printed_at TIMESTAMPTZ);
+      CREATE TABLE dpr_hourly (id SERIAL PRIMARY KEY, plan_id TEXT, factory_id INT, good_qty NUMERIC, reject_qty NUMERIC DEFAULT 0, is_deleted BOOLEAN DEFAULT false, created_at TIMESTAMPTZ DEFAULT NOW(),
         jobcard_no TEXT, order_no TEXT, dpr_date DATE);
       CREATE TABLE plan_board (id SERIAL PRIMARY KEY, plan_id TEXT, plant TEXT, building TEXT, line TEXT, machine TEXT, seq INT,
         order_no TEXT, item_code TEXT, item_name TEXT, mould_name TEXT, mould_code TEXT, plan_qty NUMERIC, bal_qty NUMERIC,
@@ -65,7 +67,7 @@ dbDescribe('factory transfers', () => {
         colour_details JSONB, created_by TEXT, created_at TIMESTAMPTZ, start_date TIMESTAMPTZ, end_date TIMESTAMPTZ,
         status TEXT, updated_at TIMESTAMPTZ, factory_id INT, job_no INT, job_qty NUMERIC, plan_type TEXT,
         source_factory_id INT, transfer_id INT, jc_approval_status TEXT, job_card_given BOOLEAN DEFAULT false,
-        job_card_no TEXT, machine_priority TEXT);
+        job_card_no TEXT, machine_priority TEXT, completed_by TEXT, completed_at TIMESTAMPTZ, job_card_date DATE);
       CREATE TABLE plan_transfers (
         id SERIAL PRIMARY KEY, order_no TEXT NOT NULL, mould_no TEXT NOT NULL, mould_name TEXT, item_code TEXT,
         item_name TEXT, client_name TEXT, qty NUMERIC NOT NULL, colour_details JSONB DEFAULT '[]'::jsonb,
@@ -97,7 +99,7 @@ dbDescribe('factory transfers', () => {
 
   beforeEach(async () => {
     await pool.query(`
-      TRUNCATE labour_parties, or_jr_report, factories, roles, users, user_factories, machines, moulds, mould_planning_summary, orders,
+      TRUNCATE labour_parties, job_card_label_print_log, or_jr_report, factories, roles, users, user_factories, machines, moulds, mould_planning_summary, orders,
                planning_drops, dpr_hourly, plan_board, plan_transfers RESTART IDENTITY;
       INSERT INTO factories (id, name) VALUES (1, 'Unit 1'), (2, 'Shivani'), (3, 'Premier');
       INSERT INTO roles VALUES ('ppc_manager', 'PPC Manager'), ('operator', 'Operator');
@@ -200,6 +202,60 @@ dbDescribe('factory transfers', () => {
     expect(await balance()).toBe(1000);
     const sent = await as('get', '/api/plan-transfers?box=sent', 'ppc1', 1);
     expect(sent.body.data.find((t) => t.id === a).reject_reason).toBe('No machine free');
+  });
+
+  /* send with a colour split -> accept -> assign: the plan gets the colours */
+  const sendAcceptAssign = async ({ qty, colourDetails, planQty }) => {
+    const sent = await as('post', '/api/plan-transfers', 'ppc1', 1)
+      .send({ orderNo: 'OR-1', mouldNo: 'M-1', toFactoryId: 3, qty, colourDetails });
+    expect(sent.body.ok).toBe(true);
+    const id = sent.body.id;
+    expect((await as('post', `/api/plan-transfers/${id}/accept`, 'ppc3', 3)).body.ok).toBe(true);
+    const created = await as('post', '/api/planning/create', 'ppc3', 3).send([{
+      transferId: id, plant: 'PREMIER', machine: 'C-1', orderNo: 'OR-1', itemCode: 'IC-1', mouldName: 'Cap',
+      mouldCode: 'M-1', planQty: planQty || qty, colourDetails: [], startDate: new Date().toISOString()
+    }]);
+    expect(created.body.ok).toBe(true);
+    return (await pool.query('SELECT * FROM plan_board WHERE transfer_id = $1', [id])).rows[0];
+  };
+
+  it('the colour split goes with the transfer onto the plan', async () => {
+    const bad = await as('post', '/api/plan-transfers', 'ppc1', 1).send({
+      orderNo: 'OR-1', mouldNo: 'M-1', toFactoryId: 3, qty: 400,
+      colourDetails: [{ colourName: 'Red', planQty: 300 }, { colourName: 'Blue', planQty: 50 }]
+    });
+    expect(bad.body.error).toMatch(/add up to 350/);
+    const plan = await sendAcceptAssign({
+      qty: 400, colourDetails: [{ colourName: 'Red', planQty: 300 }, { colourName: 'Blue', planQty: 100 }, { colourName: 'Green', planQty: 0 }]
+    });
+    expect(plan.colour_details.map((c) => [c.colourName, c.planQty])).toEqual([['Red', 300], ['Blue', 100]]);
+    const t = (await as('get', '/api/plan-transfers?box=sent', 'ppc1', 1)).body.data[0];
+    expect(t.colour_details).toHaveLength(2);
+  });
+
+  it('a part plan shares the colours in the same ratio', async () => {
+    const plan = await sendAcceptAssign({
+      qty: 400, planQty: 200, colourDetails: [{ colourName: 'Red', planQty: 300 }, { colourName: 'Blue', planQty: 100 }]
+    });
+    expect(plan.colour_details.map((c) => [c.colourName, c.planQty])).toEqual([['Red', 150], ['Blue', 50]]);
+  });
+
+  it("the sending factory's order detail and history count the transfer plan and its production", async () => {
+    const plan = await sendAcceptAssign({ qty: 400 });
+    // made at Premier on the transfer plan, plus a Shivani plan that reuses the same plan id
+    await pool.query(`INSERT INTO dpr_hourly (plan_id, factory_id, good_qty, order_no, dpr_date) VALUES
+      ($1, 3, 120, 'OR-1', CURRENT_DATE), ($1, 3, 80, 'OR-1', CURRENT_DATE), ($1, 2, 999, 'OR-1', CURRENT_DATE)`, [plan.plan_id]);
+    const detail = await as('get', '/api/orders/detail?order_no=OR-1', 'ppc1', 1);
+    expect(detail.body.ok).toBe(true);
+    const row = detail.body.plans.find((p) => p.plan_id === plan.plan_id);
+    expect(row).toEqual(expect.objectContaining({ transfer_from: 'Unit 1', factory_name: 'Premier' }));
+    expect(Number(row.good_qty)).toBe(200); // not the other factory's 999
+
+    await pool.query(`UPDATE plan_board SET status = 'COMPLETED', completed_at = NOW() WHERE id = $1`, [plan.id]);
+    const hist = await as('get', '/api/planning/orders/OR-1/history', 'ppc1', 1);
+    const done = hist.body.completed.find((c) => c.plan_id === plan.plan_id);
+    expect(done).toEqual(expect.objectContaining({ transfer_at: 'Premier' }));
+    expect(Number(done.produced_qty)).toBe(200);
   });
 
   it('assigning before accepting is refused', async () => {

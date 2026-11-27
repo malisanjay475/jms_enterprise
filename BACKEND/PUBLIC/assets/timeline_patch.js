@@ -664,7 +664,7 @@
                 </tr></thead>
                 <tbody>${completed.map(c => `<tr style="border-bottom:1px solid #f0fdf4">
                     <td style="padding:5px 8px"><div style="font-weight:600;color:#15803d">${esc(c.mould_name||'-')}</div><div style="font-size:0.75rem;color:#6b7280;font-family:monospace">${esc(c.mould_no||'')}</div></td>
-                    <td style="padding:5px 8px;color:#334155;font-weight:600">${esc(stripMach(c.machine)||'–')}</td>
+                    <td style="padding:5px 8px;color:#334155;font-weight:600">${esc(stripMach(c.machine)||'–')}${c.transfer_at ? `<div style="font-size:0.72rem;color:#7c3aed">@ ${esc(c.transfer_at)}</div>` : ''}</td>
                     <td style="padding:5px 8px;font-family:monospace;color:#2563eb;font-weight:600;font-size:0.78rem">${esc(c.job_card_no||'—')}</td>
                     <td style="padding:5px 8px;text-align:right;font-weight:700;color:#334155">${Number(c.plan_qty||0).toLocaleString()}</td>
                     <td style="padding:5px 8px;text-align:right;font-weight:700;color:#16a34a">${Number(c.produced_qty||0).toLocaleString()}${Number(c.extra_qty||0)>0?`<div style="font-size:0.7rem;color:#15803d;font-weight:700">+${Number(c.extra_qty).toLocaleString()} extra</div>`:''}</td>

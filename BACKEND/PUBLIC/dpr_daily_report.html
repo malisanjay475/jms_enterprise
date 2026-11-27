@@ -594,6 +594,7 @@ async function generateReport() {
                         if(slotColour===null && e.colour) slotColour=String(e.colour).trim().toLowerCase();
                         if (e.job_card_no) magg[machine].jc = e.job_card_no;
                         if (e.client_name) magg[machine].client = e.client_name;
+                        if (e.transfer_from) magg[machine].xfer = e.transfer_from;
 
                         let ew=0;
                         if (e.plan_id) { const st=mSetups.find(s=>String(s.plan_id)===String(e.plan_id)); if(st) ew=parseFloat(st.article_act||st.std_weight||0); }
@@ -930,7 +931,7 @@ function renderGrid(agg, lines, dateStr, reasonsMap, teamDayMap, teamNightMap) {
 function machineRowMetrics(m) {
     const t=m.Total;
     return {
-        name:m.name, line:m.line, client:m.client||'—', jc:m.jc||'—',
+        name:m.name, line:m.line, client:m.client||'—', jc:m.jc||'—', xfer:m.xfer||'',
         goodPcs:t.goodPcs, rejPcs:t.rejPcs, goodWt:t.goodWt, rejWt:t.rejWt, targetWt:t.targetWt, dtHr:t.totalDtHr,
         eff: t.targetWt>0 ? (t.goodWt/t.targetWt)*100 : 0,
         rejPct: (t.goodPcs+t.rejPcs)>0 ? (t.rejPcs/(t.goodPcs+t.rejPcs))*100 : 0,
@@ -959,7 +960,7 @@ function renderMachineView() {
             const effP = Math.min(100, r.eff);
             const effColor = r.eff>=85?'#16a34a':r.eff>=65?'#d97706':r.eff>0?'#dc2626':'#cbd5e1';
             body += `<tr>
-                <td class="txt"><span class="mc-name">${r.name}</span>${r.client!=='—'?`<div class="mc-sub">${r.client}</div>`:''}</td>
+                <td class="txt"><span class="mc-name">${r.name}</span>${r.client!=='—'?`<div class="mc-sub">${r.client}</div>`:''}${r.xfer?`<div class="mc-sub" style="color:#7c3aed;font-weight:600">Transfer from ${String(r.xfer).replace(/[&<>"']/g,'')}</div>`:''}</td>
                 <td class="txt mc-sub">${r.line}</td>
                 <td>${fmtForce(r.goodPcs,0)}</td>
                 <td style="color:#dc2626;font-weight:700">${fmtForce(r.rejPcs,0)}</td>

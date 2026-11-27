@@ -130,3 +130,41 @@ describe('buildPlanFromTransfer', () => {
     expect(() => buildPlanFromTransfer(transfer, {})).toThrow(/Choose a machine/);
   });
 });
+
+describe('colour split', () => {
+  const { normaliseColourSplit, scaleColourSplit } = require('../src/modules/planning/planTransfer');
+
+  test('none given is fine', () => {
+    expect(normaliseColourSplit(undefined, 400)).toEqual([]);
+    expect(normaliseColourSplit([], 400)).toEqual([]);
+  });
+
+  test('keeps colours with qty and checks the total', () => {
+    const out = normaliseColourSplit([{ colourName: ' Red ', planQty: 300 }, { colourName: 'Blue', planQty: '100' }, { colourName: 'Green', planQty: 0 }], 400);
+    expect(out.map((c) => [c.colourName, c.planQty, c.batchQty])).toEqual([['Red', 300, 300], ['Blue', 100, 100]]);
+  });
+
+  test.each([
+    [[{ colourName: 'Red', planQty: 300 }], /add up to 300/],
+    [[{ colourName: '', planQty: 400 }], /colour name/],
+    [[{ colourName: 'Red', planQty: 500 }, { colourName: 'Blue', planQty: -100 }], /below 0/],
+    [[{ colourName: 'Red', planQty: 200 }, { colourName: 'red', planQty: 200 }], /listed twice/],
+    ['Red', /must be a list/]
+  ])('rejects %j', (list, msg) => {
+    expect(() => normaliseColourSplit(list, 400)).toThrow(msg);
+  });
+
+  test('scales to a part plan in whole pieces, rest on the largest colour', () => {
+    const cols = [{ colourName: 'Red', planQty: 300 }, { colourName: 'Blue', planQty: 100 }];
+    expect(scaleColourSplit(cols, 400, 200).map((c) => c.planQty)).toEqual([150, 50]);
+    expect(scaleColourSplit(cols, 400, 333).map((c) => c.planQty)).toEqual([250, 83]);
+    expect(scaleColourSplit(cols, 400, 400)).toEqual(cols);
+    expect(scaleColourSplit([], 400, 100)).toEqual([]);
+  });
+
+  test('buildPlanFromTransfer scales the colours to the plan qty', () => {
+    const plan = buildPlanFromTransfer({ id: 1, order_no: 'OR-1', mould_no: 'M-1', qty: 400, colour_details: [{ colourName: 'Red', planQty: 400 }] },
+      { machine: 'C-1', planQty: 100 });
+    expect(plan.colourDetails).toEqual([{ colourName: 'Red', planQty: 100, batchQty: 100 }]);
+  });
+});

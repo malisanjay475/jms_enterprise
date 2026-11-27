@@ -15137,6 +15137,12 @@ app.post('/api/planning/create', async (req, res) => {
         if (!transferPlanQty || transferPlanQty > Number(transfer.qty)) {
           throw new Error(`Plan qty must be between 1 and the transferred qty ${Number(transfer.qty)}.`);
         }
+        // The colour split chosen by the sending factory goes on the plan (scaled to a part plan).
+        let sentColours = transfer.colour_details;
+        if (typeof sentColours === 'string') { try { sentColours = JSON.parse(sentColours); } catch (_) { sentColours = []; } }
+        if (Array.isArray(sentColours) && sentColours.length) {
+          p.colourDetails = planTransfer.scaleColourSplit(sentColours, transfer.qty, transferPlanQty);
+        }
       }
 
       if (p.orderNo && !transfer) {
@@ -15425,15 +15431,17 @@ app.post('/api/plan-transfers', async (req, res) => {
     const byFamily = await findMouldFactories(client.query.bind(client), [row.mould_no], fromFactoryId);
     const target = (byFamily.get(planTransfer.mouldFamilyKey(row.mould_no)) || []).find((f) => f.factoryId === input.toFactoryId);
     if (!target) throw new planTransfer.PlanTransferError('The chosen factory does not have this mould in its Mould Master.');
+    const colours = planTransfer.normaliseColourSplit(body.colourDetails, input.qty);
     const ins = await client.query(
       `INSERT INTO plan_transfers
-         (order_no, mould_no, mould_name, item_code, item_name, client_name, qty,
+         (order_no, mould_no, mould_name, item_code, item_name, client_name, qty, colour_details,
           from_factory_id, to_factory_id, status, note, requested_by, requested_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'WAITING', $10, $11, NOW(), NOW())
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $12::jsonb, $8, $9, 'WAITING', $10, $11, NOW(), NOW())
        RETURNING id`,
       [input.orderNo, input.mouldNo, row.mould_name || null, row.item_code || input.mouldNo,
         row.product_name || null, row.client_name || null, input.qty,
-        input.fromFactoryId, input.toFactoryId, String(body.note || '').trim().slice(0, 500) || null, user.username]
+        input.fromFactoryId, input.toFactoryId, String(body.note || '').trim().slice(0, 500) || null, user.username,
+        JSON.stringify(colours)]
     );
     await client.query('COMMIT');
     res.json({ ok: true, id: ins.rows[0].id, toFactoryName: target.factoryName });
@@ -16812,6 +16820,8 @@ app.get('/api/planning/orders/:orderNo/history', async (req, res) => {
     const completedRows = await q(
       `SELECT pb.id, pb.mould_name, pb.mould_code AS mould_no, pb.machine,
               pb.plan_id, pb.plan_qty,
+              CASE WHEN $2::int IS NOT NULL AND pb.factory_id <> $2
+                   THEN (SELECT f.name FROM factories f WHERE f.id = pb.factory_id) END AS transfer_at,
               -- plan_board.job_card_no is usually blank on completed plans, so fall back to
               -- the label print log (by plan) and then the OR-JR report (same order as the board).
               COALESCE(NULLIF(TRIM(pb.job_card_no), ''), jl.jc_no, ojr.job_card_no) AS job_card_no,
@@ -16859,7 +16869,7 @@ app.get('/api/planning/orders/:orderNo/history', async (req, res) => {
        ) ojr ON true
        WHERE TRIM(COALESCE(pb.order_no,'')) = TRIM($1)
          AND pb.status = 'COMPLETED'
-         AND ($2::int IS NULL OR pb.factory_id = $2)
+         AND ($2::int IS NULL OR pb.factory_id = $2 OR pb.source_factory_id = $2)
        ORDER BY pb.completed_at DESC NULLS LAST`,
       [orderNo, factoryId]
     );
@@ -25236,14 +25246,21 @@ app.get('/api/orders/detail', async (req, res) => {
     if (!orderNo) return res.status(400).json({ ok: false, error: 'order_no is required' });
     const factoryScope = await getFactoryScopeForRequest(req);
 
-    const scoped = (col, base) => {
+    const viewFactoryId = getFactoryId(req);
+    const scoped = (col, base, extraCol) => {
       const params = [...base];
       const conditions = [];
       applyFactoryScopeCondition(conditions, params, col, factoryScope);
       if (!conditions.length) return { params, where: '' };
       // Legacy rows saved before factory_id existed stay visible, unless access is denied.
       const nullOk = factoryScope && factoryScope.denyAll ? '' : ` OR ${col} IS NULL`;
-      return { params, where: ` AND (${conditions.join(' AND ')}${nullOk})` };
+      // Factory Transfers: plans another factory runs for this factory's order.
+      let extra = '';
+      if (extraCol && viewFactoryId && !(factoryScope && factoryScope.denyAll)) {
+        params.push(viewFactoryId);
+        extra = ` OR ${extraCol} = $${params.length}`;
+      }
+      return { params, where: ` AND ((${conditions.join(' AND ')})${nullOk}${extra})` };
     };
 
     const m = scoped('factory_id', [orderNo]);
@@ -25253,11 +25270,14 @@ app.get('/api/orders/detail', async (req, res) => {
         WHERE TRIM(or_jr_no) = TRIM($1)${m.where}
         ORDER BY mould_no`, m.params);
 
-    const p = scoped('pb.factory_id', [orderNo]);
+    const p = scoped('pb.factory_id', [orderNo], 'pb.source_factory_id');
     const plans = await q(
       `SELECT pb.plan_id, pb.mould_name, pb.mould_code, pb.machine, pb.line,
               pb.start_date, pb.end_date, pb.plan_qty, pb.bal_qty, pb.status,
               pb.created_by, pb.created_at, pb.job_card_no,
+              pb.factory_id, pb.source_factory_id, pb.transfer_id,
+              (SELECT f.name FROM factories f WHERE f.id = pb.factory_id) AS factory_name,
+              (SELECT f.name FROM factories f WHERE f.id = pb.source_factory_id) AS transfer_from,
               COALESCE(d.good_qty, 0) AS good_qty, COALESCE(d.reject_qty, 0) AS reject_qty,
               d.first_dpr, d.last_dpr
          FROM plan_board pb
@@ -25266,6 +25286,9 @@ app.get('/api/orders/detail', async (req, res) => {
                   MIN(dpr_date) AS first_dpr, MAX(dpr_date) AS last_dpr
              FROM dpr_hourly dh
             WHERE dh.plan_id = pb.plan_id
+              -- plan ids repeat in every factory: only this plan's own factory
+              AND (dh.factory_id = pb.factory_id OR dh.factory_id IS NULL OR pb.factory_id IS NULL)
+              AND dh.is_deleted IS NOT TRUE
          ) d ON TRUE
         WHERE TRIM(pb.order_no) = TRIM($1)${p.where}
         ORDER BY pb.start_date NULLS LAST, pb.created_at`, p.params);
@@ -26588,6 +26611,8 @@ app.get('/api/dpr/summary-matrix', async (req, res) => {
         TRIM(COALESCE(pb.mould_name, mps.mould_name)) as mould_name,
         ojr.job_card_no,
         COALESCE(ojr.client_name, o.client_name) as client_name,
+        -- Factory Transfers: the factory this plan is made for (NULL for own plans)
+        (SELECT sf.name FROM factories sf WHERE sf.id = pb.source_factory_id) as transfer_from,
         -- QC verify detail for this hour slot (one per DPR entry; legacy
         -- hour-level rows still match; qv/qh joined LATERAL below, fan-out-safe).
         (qv.id IS NOT NULL)   AS qc_verified,
