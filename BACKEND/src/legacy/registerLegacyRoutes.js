@@ -14,6 +14,7 @@ const {
   findPlanByCode
 } = require('../modules/planning/planFactory');
 const { withTransactionDeadlockRetry } = require('../utils/deadlockRetry');
+const planTransfer = require('../modules/planning/planTransfer');
 const { deriveSummaryRowsFromDetails } = require('../modules/planning/summaryFromDetails');
 const multer = require('multer');
 const upload = multer({
@@ -5500,6 +5501,44 @@ async function initializeLegacyRuntime() {
             );
             
             ALTER TABLE plan_board ADD COLUMN IF NOT EXISTS seq INTEGER DEFAULT 0;
+            -- Factory Transfers (src/modules/planning/planTransfer.js): a plan made by
+            -- another factory for this order. source_factory_id = the factory that owns
+            -- the order and sent the qty; transfer_id = plan_transfers.id on MAIN.
+            ALTER TABLE plan_board ADD COLUMN IF NOT EXISTS source_factory_id INTEGER;
+            ALTER TABLE plan_board ADD COLUMN IF NOT EXISTS transfer_id INTEGER;
+            -- MAIN-only (not in the sync list): sending and accepting need every
+            -- factory's data, which only MAIN has. The plan it creates syncs as usual.
+            CREATE TABLE IF NOT EXISTS plan_transfers (
+                id SERIAL PRIMARY KEY,
+                order_no TEXT NOT NULL,
+                mould_no TEXT NOT NULL,
+                mould_name TEXT,
+                item_code TEXT,
+                item_name TEXT,
+                client_name TEXT,
+                qty NUMERIC NOT NULL,
+                colour_details JSONB DEFAULT '[]'::jsonb,
+                from_factory_id INTEGER NOT NULL,
+                to_factory_id INTEGER NOT NULL,
+                status TEXT NOT NULL DEFAULT 'WAITING',
+                note TEXT,
+                reject_reason TEXT,
+                requested_by TEXT,
+                requested_at TIMESTAMPTZ DEFAULT NOW(),
+                decided_by TEXT,
+                decided_at TIMESTAMPTZ,
+                plan_id TEXT,
+                plan_row_id INTEGER,
+                planned_machine TEXT,
+                planned_by TEXT,
+                planned_at TIMESTAMPTZ,
+                cancelled_by TEXT,
+                cancelled_at TIMESTAMPTZ,
+                updated_at TIMESTAMPTZ DEFAULT NOW()
+            );
+            CREATE INDEX IF NOT EXISTS idx_plan_transfers_order ON plan_transfers (TRIM(order_no));
+            CREATE INDEX IF NOT EXISTS idx_plan_transfers_to ON plan_transfers (to_factory_id, status);
+            CREATE INDEX IF NOT EXISTS idx_plan_transfers_from ON plan_transfers (from_factory_id, status);
             ALTER TABLE plan_board ADD COLUMN IF NOT EXISTS mould_code VARCHAR(255);
             ALTER TABLE plan_board ADD COLUMN IF NOT EXISTS our_code TEXT;
             ALTER TABLE plan_board ADD COLUMN IF NOT EXISTS batch_no INTEGER;
@@ -12656,7 +12695,11 @@ app.get('/api/planning/board', async (req, res) => {
                     COALESCE(mMaster.pcs_per_hour, m.pcs_per_hour) AS "pcsHour",
                     pb.machine_priority AS "machinePriority",
                     COALESCE(pb.plan_type, 'Moulding') AS "planType",
-                    lp.party_name AS "partyName"
+                    lp.party_name AS "partyName",
+                    -- Factory Transfer: the factory that sent this plan's qty (owns the order).
+                    pb.source_factory_id AS "sourceFactoryId",
+                    pb.transfer_id AS "transferId",
+                    (SELECT sf.name FROM factories sf WHERE sf.id = pb.source_factory_id) AS "transferFromFactory"
       FROM plan_board pb
       LEFT JOIN orders o ON o.order_no = pb.order_no
       LEFT JOIN machines planMachine
@@ -14566,7 +14609,8 @@ async function getPlanningOrderMouldBundle(queryFn, orderNo, factoryId) {
       d.id AS drop_id,
       pb.plan_id AS existing_plan_id,
       pb.status AS existing_plan_status,
-      COALESCE(pb_sum.planned_qty, 0)::numeric AS existing_planned_qty,
+      (COALESCE(pb_sum.planned_qty, 0) + COALESCE(tr_sum.reserved_qty, 0))::numeric AS existing_planned_qty,
+      COALESCE(tr_sum.reserved_qty, 0)::numeric AS transfer_reserved_qty,
       COALESCE(pb_sum.plan_count, 0)::int AS existing_plan_count
     FROM r
     -- LATERAL + LIMIT 1 (not a plain JOIN): orders can also hold this JR under
@@ -14626,6 +14670,18 @@ async function getPlanningOrderMouldBundle(queryFn, orderNo, factoryId) {
         AND TRIM(COALESCE(pb0.mould_name, '')) = TRIM(COALESCE(r.mould_name, ''))
         AND UPPER(COALESCE(pb0.status, '')) IN ('PLANNED', 'RUNNING', 'STOPPED', 'COMPLETED')
     ) pb_sum ON true
+    -- Factory Transfers still waiting / accepted (no plan yet) hold their qty back from
+    -- the sending factory's balance. Once planned, the plan row above counts instead.
+    LEFT JOIN LATERAL (
+      SELECT COALESCE(SUM(COALESCE(t0.qty, 0)), 0)::numeric AS reserved_qty
+      FROM plan_transfers t0
+      WHERE TRIM(t0.order_no) = TRIM(COALESCE(r.or_jr_no, ''))
+        -- mould_no only (not mould_name): variants of one family can share a name,
+        -- and matching by name would count the same transfer on every variant.
+        AND UPPER(TRIM(t0.mould_no)) = UPPER(TRIM(COALESCE(r.mould_no, '')))
+        AND t0.status IN ('WAITING', 'ACCEPTED')
+        AND ($2::int IS NULL OR t0.from_factory_id = $2)
+    ) tr_sum ON true
     LEFT JOIN LATERAL (
       SELECT plan_id, status
       FROM plan_board pb0
@@ -14676,7 +14732,8 @@ async function getPlanningOrderMouldBundle(queryFn, orderNo, factoryId) {
       isDropped: !!row.drop_id,
       isAlreadyPlanned: isFullyPlanned,
       existingPlanId: row.existing_plan_id || null,
-      existingPlanStatus: normalizePlanningText(row.existing_plan_status).toUpperCase() || null
+      existingPlanStatus: normalizePlanningText(row.existing_plan_status).toUpperCase() || null,
+      transferReservedQty: toNum(row.transfer_reserved_qty) ?? 0
     };
   }));
   applyPlanningFamilyCoverage(moulds);
@@ -15058,7 +15115,31 @@ app.post('/api/planning/create', async (req, res) => {
       const seq = Number(mx.rows[0]?.mx || 0) + 1;
       const batchMeta = await getBatchMeta(p.orderNo);
 
-      if (p.orderNo) {
+      // Factory Transfer: the receiving factory assigns its machine to an accepted
+      // transfer. The order lives in the sending factory, so its balance and moulding
+      // sequence were checked when the transfer was sent; here the plan qty is bounded
+      // by the transferred qty instead.
+      let transfer = null;
+      if (p.transferId != null && p.transferId !== '') {
+        const transferUser = (await client.query(
+          `SELECT u.username, u.role_code, r.label AS role_label
+             FROM users u LEFT JOIN roles r ON r.code = u.role_code
+            WHERE u.username = $1 LIMIT 1`, [requestUsername])).rows[0] || null;
+        if (!planTransfer.canManageTransfers(transferUser)) {
+          throw new Error('Only planners, admin and superadmin can assign a machine to a factory transfer.');
+        }
+        transfer = (await client.query('SELECT * FROM plan_transfers WHERE id = $1 FOR UPDATE', [Number(p.transferId) || 0])).rows[0] || null;
+        planTransfer.assertTransition(transfer, 'assign', { factoryId: requestFactoryId });
+        if (String(transfer.order_no).trim() !== String(p.orderNo || '').trim()) {
+          throw new Error('The plan order does not match the transfer.');
+        }
+        const transferPlanQty = Math.max(0, toNum(p.planQty) ?? 0);
+        if (!transferPlanQty || transferPlanQty > Number(transfer.qty)) {
+          throw new Error(`Plan qty must be between 1 and the transferred qty ${Number(transfer.qty)}.`);
+        }
+      }
+
+      if (p.orderNo && !transfer) {
         const bundle = await getPlanningOrderMouldBundle(client.query.bind(client), p.orderNo, requestFactoryId);
         const stagedCodes = stagedOrderCodes.get(String(p.orderNo).trim()) || [];
         const validation = getPlanningSequenceBlockMessage(bundle, p.mouldCode, p.mouldName, { virtualPlannedCodes: stagedCodes });
@@ -15100,13 +15181,13 @@ app.post('/api/planning/create', async (req, res) => {
           order_no, item_code, item_name, mould_name, mould_code,
           plan_qty, bal_qty, our_code, batch_no, batch_qty, mould_item_qty,
           consumption_ratio_qty, colour_details, created_by, created_at, start_date, end_date, status, updated_at,
-          factory_id, job_no, job_qty, plan_type)
+          factory_id, job_no, job_qty, plan_type, source_factory_id, transfer_id)
         VALUES
         ($1, $2, $3, $4, $5, $6,
           $7, $8, $9, $10, $11,
           $12, $13, $14, $15, $16, $17,
           $18, $19::jsonb, $20, NOW(), $21, $22, 'PLANNED', NOW(),
-          $23, $24, $25, $26)
+          $23, $24, $25, $26, $27, $28)
         RETURNING id
         `,
         [
@@ -15137,9 +15218,21 @@ app.post('/api/planning/create', async (req, res) => {
           requestFactoryId,
           toNum(p.jobNo ?? p.batchNo) || batchMeta.batchNo,
           toNum(p.jobQty ?? p.batchQty ?? p.planQty),
-          planType
+          planType,
+          transfer ? Number(transfer.from_factory_id) : null,
+          transfer ? Number(transfer.id) : null
         ]
       );
+
+      if (transfer) {
+        await client.query(
+          `UPDATE plan_transfers
+              SET status = 'PLANNED', plan_id = $2, plan_row_id = $3, planned_machine = $4,
+                  planned_by = $5, planned_at = NOW(), updated_at = NOW()
+            WHERE id = $1`,
+          [transfer.id, reservedPlanId, ins.rows[0].id, p.machine, requestUsername]
+        );
+      }
 
       results.push(ins.rows[0].id);
       generatedPlanIds.push(reservedPlanId);
@@ -15184,6 +15277,265 @@ app.post('/api/planning/create', async (req, res) => {
   }
 });
 
+
+// ============================================================
+// FACTORY TRANSFERS — send part of an order's qty to another factory whose
+// Mould Master has the mould; that factory accepts / rejects and assigns its
+// own machine (POST /api/planning/create with transferId). Rules and status
+// flow: src/modules/planning/planTransfer.js. MAIN-only: sending and accepting
+// need every factory's data.
+// ============================================================
+const isLocalServerForTransfers = () => String(process.env.SERVER_TYPE || '').toUpperCase() === 'LOCAL';
+
+async function loadTransferUser(req, { verified = false } = {}) {
+  const username = (req.auth && req.auth.username) || (verified ? null : getRequestUsername(req));
+  if (!username) return null;
+  const rows = await q(
+    `SELECT u.id, u.username, u.role_code, r.label AS role_label
+       FROM users u LEFT JOIN roles r ON r.code = u.role_code
+      WHERE u.username = $1 LIMIT 1`, [username]);
+  return rows[0] || null;
+}
+
+/* Signed-in planner who may work in `factoryId`; sends the error reply and returns null otherwise. */
+async function requireTransferUser(req, res, factoryId) {
+  const user = await loadTransferUser(req, { verified: true });
+  if (!user) { res.status(401).json({ ok: false, error: 'Please sign in again' }); return null; }
+  if (!planTransfer.canManageTransfers(user)) {
+    res.status(403).json({ ok: false, error: 'Only planners, admin and superadmin can work with factory transfers.' });
+    return null;
+  }
+  if (isLocalServerForTransfers()) {
+    res.status(409).json({ ok: false, error: 'Factory transfers work on the main site only. Open the main site and try again.' });
+    return null;
+  }
+  if (factoryId && !planTransfer.isSuperadmin(user)) {
+    const scope = await getAccessibleFactoriesForUser(user.username);
+    if (!(scope.factories || []).some((f) => Number(f.id) === Number(factoryId))) {
+      res.status(403).json({ ok: false, error: 'You do not have access to this factory.' });
+      return null;
+    }
+  }
+  return user;
+}
+
+function sendTransferError(res, e, label) {
+  if (e instanceof planTransfer.PlanTransferError) return res.status(e.status || 400).json({ ok: false, error: e.message });
+  console.error(label, e);
+  return sendServerError(res, e);
+}
+
+const MOULD_FAMILY_SQL = `UPPER(regexp_replace(TRIM(m.mould_number), '\\s+\\d+$', ''))`;
+
+/* Factories (other than `excludeFactoryId`) whose active Mould Master has each mould, by family. */
+async function findMouldFactories(queryFn, mouldNos, excludeFactoryId) {
+  const families = [...new Set((mouldNos || []).map(planTransfer.mouldFamilyKey).filter(Boolean))];
+  if (!families.length) return new Map();
+  const res = await queryFn(
+    `SELECT DISTINCT ON (m.factory_id, ${MOULD_FAMILY_SQL})
+            m.factory_id, f.name AS factory_name, TRIM(m.mould_number) AS mould_number,
+            ${MOULD_FAMILY_SQL} AS family
+       FROM moulds m
+       JOIN factories f ON f.id = m.factory_id AND COALESCE(f.is_active, true) = true
+      WHERE m.factory_id IS NOT NULL
+        AND ($2::int IS NULL OR m.factory_id <> $2)
+        AND COALESCE(m.is_active, true) = true
+        AND ${MOULD_FAMILY_SQL} = ANY($1::text[])
+      ORDER BY m.factory_id, ${MOULD_FAMILY_SQL}, m.mould_number`,
+    [families, excludeFactoryId || null]
+  );
+  const rows = Array.isArray(res) ? res : (res.rows || []);
+  const byFamily = new Map();
+  rows.forEach((r) => {
+    if (!byFamily.has(r.family)) byFamily.set(r.family, []);
+    byFamily.get(r.family).push({ factoryId: Number(r.factory_id), factoryName: r.factory_name, mouldNumber: r.mould_number });
+  });
+  return byFamily;
+}
+
+const TRANSFER_SELECT_SQL = `
+  SELECT t.*, ff.name AS from_factory_name, tf.name AS to_factory_name,
+         pb.status AS plan_status, pb.machine AS plan_machine,
+         COALESCE(dpr.produced, 0)::numeric AS produced_qty
+    FROM plan_transfers t
+    LEFT JOIN factories ff ON ff.id = t.from_factory_id
+    LEFT JOIN factories tf ON tf.id = t.to_factory_id
+    LEFT JOIN plan_board pb ON pb.id = t.plan_row_id
+    LEFT JOIN LATERAL (
+      SELECT SUM(COALESCE(dh.good_qty, 0)) AS produced
+        FROM dpr_hourly dh
+       WHERE t.plan_id IS NOT NULL AND dh.plan_id = t.plan_id
+         AND dh.factory_id = t.to_factory_id
+         AND COALESCE(dh.is_deleted, false) = false
+    ) dpr ON true`;
+
+// GET /api/plan-transfers/order/:orderNo — where each mould of the order also is,
+// and the transfers of this order that involve the selected factory.
+app.get('/api/plan-transfers/order/:orderNo', async (req, res) => {
+  try {
+    const orderNo = normalizePlanningText(req.params.orderNo);
+    const factoryId = getFactoryId(req);
+    const [user, mouldRows] = await Promise.all([
+      loadTransferUser(req),
+      q(`SELECT DISTINCT TRIM(mould_no) AS mould_no FROM mould_planning_summary
+          WHERE TRIM(COALESCE(or_jr_no, '')) = TRIM($1) AND COALESCE(TRIM(mould_no), '') <> ''
+            AND ($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL)`, [orderNo, factoryId])
+    ]);
+    const mouldNos = mouldRows.map((r) => r.mould_no);
+    const byFamily = await findMouldFactories(q, mouldNos, factoryId);
+    const locations = {};
+    mouldNos.forEach((no) => { locations[no] = byFamily.get(planTransfer.mouldFamilyKey(no)) || []; });
+    const transfers = await q(
+      `${TRANSFER_SELECT_SQL}
+        WHERE TRIM(t.order_no) = TRIM($1)
+          AND ($2::int IS NULL OR t.from_factory_id = $2 OR t.to_factory_id = $2)
+        ORDER BY t.requested_at DESC, t.id DESC`, [orderNo, factoryId]);
+    res.json({
+      ok: true,
+      can_send: !!factoryId && !isLocalServerForTransfers() && planTransfer.canManageTransfers(user),
+      main_only: isLocalServerForTransfers(),
+      locations,
+      transfers
+    });
+  } catch (e) { sendTransferError(res, e, 'plan-transfers/order'); }
+});
+
+// POST /api/plan-transfers — send { orderNo, mouldNo, toFactoryId, qty, note }
+app.post('/api/plan-transfers', async (req, res) => {
+  const fromFactoryId = getFactoryId(req);
+  let user;
+  try { user = await requireTransferUser(req, res, fromFactoryId); } catch (e) { return sendTransferError(res, e, 'plan-transfers/send'); }
+  if (!user) return;
+  const client = await pool.connect();
+  try {
+    const body = req.body || {};
+    const orderNo = normalizePlanningText(body.orderNo);
+    await client.query('BEGIN');
+    // One send at a time per order, so two planners cannot both use the same balance.
+    await client.query(`SELECT pg_advisory_xact_lock(hashtext('plan_transfer:' || $1))`, [orderNo]);
+    const bundle = await getPlanningOrderMouldBundle(client.query.bind(client), orderNo, fromFactoryId);
+    const wanted = normalizePlanningText(body.mouldNo).toUpperCase();
+    const row = (bundle.moulds || []).find((m) => normalizePlanningText(m.mould_no).toUpperCase() === wanted);
+    if (!row) throw new planTransfer.PlanTransferError('This mould is not in the order of the selected factory.');
+    if (row.isDropped) throw new planTransfer.PlanTransferError('This mould is dropped from the order.');
+    const remainingQty = row.familyRemainingQty ?? row.remainingQty;
+    const input = planTransfer.validateSendRequest({
+      fromFactoryId, toFactoryId: body.toFactoryId, orderNo, mouldNo: row.mould_no, qty: body.qty, remainingQty
+    });
+    const byFamily = await findMouldFactories(client.query.bind(client), [row.mould_no], fromFactoryId);
+    const target = (byFamily.get(planTransfer.mouldFamilyKey(row.mould_no)) || []).find((f) => f.factoryId === input.toFactoryId);
+    if (!target) throw new planTransfer.PlanTransferError('The chosen factory does not have this mould in its Mould Master.');
+    const ins = await client.query(
+      `INSERT INTO plan_transfers
+         (order_no, mould_no, mould_name, item_code, item_name, client_name, qty,
+          from_factory_id, to_factory_id, status, note, requested_by, requested_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'WAITING', $10, $11, NOW(), NOW())
+       RETURNING id`,
+      [input.orderNo, input.mouldNo, row.mould_name || null, row.item_code || input.mouldNo,
+        row.product_name || null, row.client_name || null, input.qty,
+        input.fromFactoryId, input.toFactoryId, String(body.note || '').trim().slice(0, 500) || null, user.username]
+    );
+    await client.query('COMMIT');
+    res.json({ ok: true, id: ins.rows[0].id, toFactoryName: target.factoryName });
+  } catch (e) {
+    await client.query('ROLLBACK').catch(() => {});
+    sendTransferError(res, e, 'plan-transfers/send');
+  } finally { client.release(); }
+});
+
+// GET /api/plan-transfers?box=incoming|sent&status=open|all — the selected factory's lists.
+app.get('/api/plan-transfers', async (req, res) => {
+  try {
+    const factoryId = getFactoryId(req);
+    const box = String(req.query.box || 'incoming').toLowerCase() === 'sent' ? 'sent' : 'incoming';
+    const openOnly = String(req.query.status || 'open').toLowerCase() !== 'all';
+    const user = await loadTransferUser(req);
+    if (!factoryId && !planTransfer.isSuperadmin(user)) {
+      return res.json({ ok: true, data: [], waiting_incoming: 0, can_manage: false, need_factory: true });
+    }
+    const col = box === 'sent' ? 't.from_factory_id' : 't.to_factory_id';
+    const rows = await q(
+      `${TRANSFER_SELECT_SQL}
+        WHERE ($1::int IS NULL OR ${col} = $1)
+          AND (NOT $2::boolean OR t.status IN ('WAITING', 'ACCEPTED')
+               OR (t.status = 'PLANNED' AND UPPER(COALESCE(pb.status, '')) NOT IN ('COMPLETED', 'CANCELLED'))
+               OR t.updated_at > NOW() - INTERVAL '7 days')
+        ORDER BY CASE t.status WHEN 'WAITING' THEN 0 WHEN 'ACCEPTED' THEN 1 WHEN 'PLANNED' THEN 2 ELSE 3 END,
+                 t.requested_at DESC, t.id DESC
+        LIMIT 500`, [factoryId, openOnly]);
+    const waiting = await q(
+      `SELECT COUNT(*)::int AS n FROM plan_transfers WHERE status IN ('WAITING', 'ACCEPTED') AND ($1::int IS NULL OR to_factory_id = $1)`,
+      [factoryId]);
+    res.json({
+      ok: true,
+      data: rows,
+      waiting_incoming: waiting[0]?.n || 0,
+      can_manage: !isLocalServerForTransfers() && planTransfer.canManageTransfers(user),
+      main_only: isLocalServerForTransfers()
+    });
+  } catch (e) { sendTransferError(res, e, 'plan-transfers/list'); }
+});
+
+// POST /api/plan-transfers/:id/accept | reject | cancel
+app.post('/api/plan-transfers/:id/:action', async (req, res) => {
+  const action = String(req.params.action || '').toLowerCase();
+  if (!['accept', 'reject', 'cancel'].includes(action)) return res.status(404).json({ ok: false, error: 'Unknown action' });
+  const factoryId = getFactoryId(req);
+  let user;
+  try { user = await requireTransferUser(req, res, factoryId); } catch (e) { return sendTransferError(res, e, 'plan-transfers/action'); }
+  if (!user) return;
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const transfer = (await client.query('SELECT * FROM plan_transfers WHERE id = $1 FOR UPDATE', [Number(req.params.id) || 0])).rows[0] || null;
+    const next = planTransfer.assertTransition(transfer, action, { factoryId, user });
+    if (action === 'reject') {
+      const reason = String((req.body || {}).reason || '').replace(/\s+/g, ' ').trim().slice(0, 500);
+      if (!reason) throw new planTransfer.PlanTransferError('Please write the reason for rejecting.');
+      await client.query(
+        `UPDATE plan_transfers SET status = $2, reject_reason = $3, decided_by = $4, decided_at = NOW(), updated_at = NOW() WHERE id = $1`,
+        [transfer.id, next, reason, user.username]);
+    } else if (action === 'accept') {
+      await client.query(
+        `UPDATE plan_transfers SET status = $2, decided_by = $3, decided_at = NOW(), updated_at = NOW() WHERE id = $1`,
+        [transfer.id, next, user.username]);
+    } else {
+      await client.query(
+        `UPDATE plan_transfers SET status = $2, cancelled_by = $3, cancelled_at = NOW(), updated_at = NOW() WHERE id = $1`,
+        [transfer.id, next, user.username]);
+    }
+    await client.query('COMMIT');
+    res.json({ ok: true, status: next });
+  } catch (e) {
+    await client.query('ROLLBACK').catch(() => {});
+    sendTransferError(res, e, 'plan-transfers/action');
+  } finally { client.release(); }
+});
+
+// GET /api/plan-transfers/:id/machines — the receiving factory's moulding machines (Line,
+// then machine number), with the mould's primary / secondary machine from that factory's master.
+app.get('/api/plan-transfers/:id/machines', async (req, res) => {
+  try {
+    const transfer = (await q('SELECT * FROM plan_transfers WHERE id = $1', [Number(req.params.id) || 0]))[0];
+    if (!transfer) return res.status(404).json({ ok: false, error: 'Transfer not found.' });
+    const toFactoryId = Number(transfer.to_factory_id);
+    const [machines, mould, factory] = await Promise.all([
+      q(`SELECT machine, line, building, tonnage
+           FROM machines
+          WHERE factory_id = $1 AND COALESCE(is_active, true) = true
+            AND COALESCE(NULLIF(TRIM(machine_process), ''), 'Moulding') = 'Moulding'`, [toFactoryId]),
+      q(`SELECT m.mould_number, m.primary_machine, m.secondary_machine, m.tonnage
+           FROM moulds m
+          WHERE m.factory_id = $1 AND ${MOULD_FAMILY_SQL} = $2
+          ORDER BY (UPPER(TRIM(m.mould_number)) = UPPER(TRIM($3))) DESC, m.mould_number
+          LIMIT 1`, [toFactoryId, planTransfer.mouldFamilyKey(transfer.mould_no), transfer.mould_no]),
+      q('SELECT id, name, code FROM factories WHERE id = $1', [toFactoryId])
+    ]);
+    const order = makeMachineOrder(machines);
+    machines.sort((a, b) => order(a.machine, b.machine));
+    res.json({ ok: true, transfer, machines, mould: mould[0] || null, factory: factory[0] || null });
+  } catch (e) { sendTransferError(res, e, 'plan-transfers/machines'); }
+});
 
 // GET /api/planning/orders/:orderNo/batches
 app.get('/api/planning/orders/:orderNo/batches', async (req, res) => {

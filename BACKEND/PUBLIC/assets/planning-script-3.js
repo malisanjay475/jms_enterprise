@@ -571,6 +571,7 @@
               <div class="pb-spacer"></div>
               <button class="btn" id="btnBalance" style="display:${canEdit ? 'inline-flex' : 'none'}"><i class="bi bi-shuffle"></i> Balance load</button>
               <button class="btn primary" id="btnAutoP1" style="display:${canEdit ? 'inline-flex' : 'none'}"><i class="bi bi-lightning-charge"></i> Auto-assign P1</button>
+              <button class="btn" id="btnFactoryTransfers" type="button" onclick="window.PlanTransfers && window.PlanTransfers.openPanel()" title="Transfers sent to and from other factories"><i class="bi bi-arrow-left-right"></i> Transfers <span class="pt-count"></span></button>
               <details class="pb-menu" id="planningActionsMenu">
                 <summary class="btn"><i class="bi bi-grid-3x3-gap"></i> Views <i class="bi bi-chevron-down pb-caret"></i></summary>
                 <div class="pb-menu-list" role="menu">
@@ -7051,6 +7052,8 @@
             }
 
             con.appendChild(row);
+            // Factory Transfers: "Also in" badge, Send button and sent transfers (assets/plan-transfers.js).
+            if (window.PlanTransfers) window.PlanTransfers.decorateMouldCard(row, group, window.cpSelectedOrder);
           });
         }
 

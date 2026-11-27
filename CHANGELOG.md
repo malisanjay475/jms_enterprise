@@ -13,6 +13,9 @@ part of your PR. On release, the `[Unreleased]` items move under the new version
 
 ## [Unreleased]
 
+### Added
+- Factory Transfers (v1.213.0): a factory sends part of an order's qty to another factory whose Mould Master has the mould; that factory accepts or rejects (with a reason) and assigns its own machine. New MAIN-only table plan_transfers (WAITING -> ACCEPTED -> PLANNED, or REJECTED / CANCELLED); plan_board.source_factory_id + transfer_id (sync with the plan). WAITING / ACCEPTED qty is reserved in the sending factory's order balance (getPlanningOrderMouldBundle); once planned, the plan row counts. APIs: GET /api/plan-transfers/order/:orderNo, POST /api/plan-transfers, GET /api/plan-transfers?box=incoming|sent, POST /api/plan-transfers/:id/accept|reject|cancel, GET /api/plan-transfers/:id/machines; /api/planning/create takes transferId (receiving factory only, accepted only, qty <= transferred qty, skips the order sequence check done at send). Planners (planner / PPC / planning roles), admin and superadmin only; refused on LOCAL servers. UI: PUBLIC/assets/plan-transfers.js (Create Plan "Also in" strip + Send, Transfers panel, Assign machine); "Transfer from <factory>" tag on Excel View and Machine Timeline cards (board API returns transferFromFactory). Rules in src/modules/planning/planTransfer.js.
+
 ### Changed
 - Daily Report (Detailed) (v1.211.1): no text below 11px; the .58/.66/.68rem labels (hero field label, tab count, KPI labels, table headings, rings, Day/Night bars) and the 9/10px Chart.js labels now use 11px.
 
