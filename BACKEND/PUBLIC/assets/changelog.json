@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.214.0",
+  "latest": "1.215.0",
   "versions": [
+    {
+      "version": "1.215.0",
+      "date": "2026-11-27",
+      "title": "Factory Transfers: finish times and deleted transfer plans",
+      "modules": [
+        {
+          "app": "planning",
+          "changes": [
+            { "type": "feat", "text": "Order Tracker shows the expected start and finish of a transfer plan from the other factory's machine queue (machine shown as '<machine> @ <factory>')." },
+            { "type": "feat", "text": "If the receiving factory deletes or cancels a transfer plan, the transfer goes back to 'Accepted - machine not set' with a note; the qty stays held for them, they can assign a machine again or give it back." },
+            { "type": "improvement", "text": "The receiving factory can give back an accepted transfer (with a reason) while no machine is set." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.214.0",
       "date": "2026-11-27",

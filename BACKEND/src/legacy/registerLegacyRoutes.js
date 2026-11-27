@@ -5539,6 +5539,8 @@ async function initializeLegacyRuntime() {
             CREATE INDEX IF NOT EXISTS idx_plan_transfers_order ON plan_transfers (TRIM(order_no));
             CREATE INDEX IF NOT EXISTS idx_plan_transfers_to ON plan_transfers (to_factory_id, status);
             CREATE INDEX IF NOT EXISTS idx_plan_transfers_from ON plan_transfers (from_factory_id, status);
+            ALTER TABLE plan_transfers ADD COLUMN IF NOT EXISTS plan_removed_at TIMESTAMPTZ;
+            ALTER TABLE plan_transfers ADD COLUMN IF NOT EXISTS plan_removed_note TEXT;
             ALTER TABLE plan_board ADD COLUMN IF NOT EXISTS mould_code VARCHAR(255);
             ALTER TABLE plan_board ADD COLUMN IF NOT EXISTS our_code TEXT;
             ALTER TABLE plan_board ADD COLUMN IF NOT EXISTS batch_no INTEGER;
@@ -15331,6 +15333,30 @@ function sendTransferError(res, e, label) {
   return sendServerError(res, e);
 }
 
+/* A PLANNED transfer whose plan the receiving factory deleted (or cancelled / rejected)
+   goes back to ACCEPTED: the qty stays held for that factory, which can assign a
+   machine again or give it back (reject), and the sender can cancel it. Runs before
+   transfers or an order's balance are read; not inside a transaction. */
+async function reconcileTransferPlans(orderNo = null) {
+  try {
+    await q(
+      `UPDATE plan_transfers t
+          SET status = 'ACCEPTED', plan_removed_at = NOW(),
+              plan_removed_note = 'Plan ' || COALESCE(t.plan_id, '-') || ' on ' || COALESCE(t.planned_machine, '-') || ' was removed by the receiving factory',
+              plan_id = NULL, plan_row_id = NULL, planned_machine = NULL, planned_by = NULL, planned_at = NULL, updated_at = NOW()
+        WHERE t.status = 'PLANNED'
+          AND ($1::text IS NULL OR TRIM(t.order_no) = TRIM($1::text))
+          AND NOT EXISTS (
+            SELECT 1 FROM plan_board pb
+             WHERE (pb.transfer_id = t.id OR pb.id = t.plan_row_id)
+               AND pb.factory_id = t.to_factory_id
+               AND UPPER(COALESCE(pb.status, '')) NOT IN ('REJECTED', 'CANCELLED', 'DELETED'))`,
+      [orderNo || null]);
+  } catch (e) {
+    console.warn('[plan-transfers] reconcile skipped:', e.message);
+  }
+}
+
 const MOULD_FAMILY_SQL = `UPPER(regexp_replace(TRIM(m.mould_number), '\\s+\\d+$', ''))`;
 
 /* Factories (other than `excludeFactoryId`) whose active Mould Master has each mould, by family. */
@@ -15380,6 +15406,7 @@ const TRANSFER_SELECT_SQL = `
 app.get('/api/plan-transfers/order/:orderNo', async (req, res) => {
   try {
     const orderNo = normalizePlanningText(req.params.orderNo);
+    await reconcileTransferPlans(orderNo);
     const factoryId = getFactoryId(req);
     const [user, mouldRows] = await Promise.all([
       loadTransferUser(req),
@@ -15412,6 +15439,7 @@ app.post('/api/plan-transfers', async (req, res) => {
   let user;
   try { user = await requireTransferUser(req, res, fromFactoryId); } catch (e) { return sendTransferError(res, e, 'plan-transfers/send'); }
   if (!user) return;
+  await reconcileTransferPlans(normalizePlanningText((req.body || {}).orderNo));
   const client = await pool.connect();
   try {
     const body = req.body || {};
@@ -15461,6 +15489,7 @@ app.get('/api/plan-transfers', async (req, res) => {
     if (!factoryId && !planTransfer.isSuperadmin(user)) {
       return res.json({ ok: true, data: [], waiting_incoming: 0, can_manage: false, need_factory: true });
     }
+    await reconcileTransferPlans();
     const col = box === 'sent' ? 't.from_factory_id' : 't.to_factory_id';
     const rows = await q(
       `${TRANSFER_SELECT_SQL}
@@ -15492,6 +15521,7 @@ app.post('/api/plan-transfers/:id/:action', async (req, res) => {
   let user;
   try { user = await requireTransferUser(req, res, factoryId); } catch (e) { return sendTransferError(res, e, 'plan-transfers/action'); }
   if (!user) return;
+  await reconcileTransferPlans();
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -16445,6 +16475,8 @@ app.post('/api/planning/delete', async (req, res) => {
 
     // 2. Delete
     await q('DELETE FROM plan_board WHERE id = $1', [rowId]);
+    // A deleted Factory Transfer plan sends its transfer back to Accepted (machine not set).
+    if (check.length && check[0].transfer_id) await reconcileTransferPlans(check[0].order_no);
 
     // Auto-Sync Status (Revert to Pending if needed)
     if (check.length && check[0].order_no) await syncOrderStatus(check[0].order_no);

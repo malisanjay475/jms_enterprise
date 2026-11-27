@@ -339,13 +339,19 @@
       const where = incoming ? '' : `Running at <b>${esc(t.to_factory_name || '-')}</b> · `;
       lines.push(`${where}Machine <b>${esc(t.plan_machine || t.planned_machine || '-')}</b> · Plan ${esc(t.plan_id || '-')} · ${esc(String(t.plan_status || '').toUpperCase() || 'PLANNED')} · made <b>${fmt(t.produced_qty)}</b> / ${fmt(t.qty)}`);
     }
+    if (st === 'ACCEPTED' && t.plan_removed_note) {
+      lines.push(`<span style="color:#b45309">${esc(t.plan_removed_note)} on ${esc(when(t.plan_removed_at))}. ${incoming ? 'Assign a machine again, or give the qty back.' : 'The qty is still held for them.'}</span>`);
+    }
     if (st === 'CANCELLED') lines.push(`Cancelled by ${esc(t.cancelled_by || '-')}`);
     const acts = [];
     if (can && incoming && st === 'WAITING') {
       acts.push(`<button class="pt-btn ok" data-act="accept" data-id="${t.id}"><i class="bi bi-check2"></i> Accept</button>`);
       acts.push(`<button class="pt-btn no" data-act="reject" data-id="${t.id}"><i class="bi bi-x"></i> Reject</button>`);
     }
-    if (can && incoming && st === 'ACCEPTED') acts.push(`<button class="pt-btn go" data-act="assign" data-id="${t.id}"><i class="bi bi-cpu"></i> Assign machine</button>`);
+    if (can && incoming && st === 'ACCEPTED') {
+      acts.push(`<button class="pt-btn go" data-act="assign" data-id="${t.id}"><i class="bi bi-cpu"></i> Assign machine</button>`);
+      acts.push(`<button class="pt-btn no" data-act="reject" data-id="${t.id}" title="Send the qty back to ${esc(t.from_factory_name || 'the sending factory')}"><i class="bi bi-arrow-return-left"></i> Give back</button>`);
+    }
     if (can && !incoming && (st === 'WAITING' || st === 'ACCEPTED')) acts.push(`<button class="pt-btn no" data-act="cancel" data-id="${t.id}">Cancel</button>`);
     return `
       <div class="pt-card">
