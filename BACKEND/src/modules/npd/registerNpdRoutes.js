@@ -78,7 +78,8 @@ function roleDepts(u) {
 }
 
 /* Columns of the NPD tracking sheet, in sheet order. type 'status' cells hold a
-   stage state, type 'date' cells hold a YYYY-MM-DD date. Keep in sync with npd.html. */
+   stage state, type 'date' cells hold a YYYY-MM-DD date, type 'text' cells a short
+   typed value (OR - JR number). Keep in sync with npd.html. */
 const STAGES = [
   { key: 'mould_received', level: 'mould', type: 'status', group: 'Mould & Trial', label: 'Final mould received @ factory (Tool Room)', depts: ['Tool Room'] },
   { key: 'mould_trials', level: 'mould', type: 'status', group: 'Mould & Trial', label: 'Product mould final trials @ factory (Moulding)', depts: ['Moulding'] },
@@ -92,6 +93,7 @@ const STAGES = [
   { key: 'packing_receiving', level: 'product', type: 'status', group: 'Packing, BOM & ERP', label: 'Packing material follow up & receiving @ factory (Purchase)', depts: ['Purchase'] },
   { key: 'or_jr_erp', level: 'product', type: 'status', group: 'Packing, BOM & ERP', label: 'OR making in ERP by H.O (HO)', depts: ['HO'] },
   { key: 'or_jr_erp_wh', level: 'product', type: 'status', group: 'Packing, BOM & ERP', label: 'OR - JR making in ERP by Warehouse (W/H)', depts: ['W/H'] },
+  { key: 'or_jr_number', level: 'product', type: 'text', group: 'Packing, BOM & ERP', label: 'OR - JR Number (Planning)', depts: ['Planning', 'PPC team'] },
   { key: 'production_planning', level: 'product', type: 'status', group: 'Packing, BOM & ERP', label: 'Production planning as per OR-JR ERP (Planning)', depts: ['Planning'] },
   { key: 'jc_start_date', level: 'mould', type: 'date', group: 'Packing, BOM & ERP', label: 'Planned job card start date (Planning)', depts: ['Planning'] },
   { key: 'jc_end_date', level: 'mould', type: 'date', group: 'Packing, BOM & ERP', label: 'Planned job card completion date (Planning)', depts: ['Planning'] },
@@ -218,6 +220,7 @@ function cleanStages(input) {
     if (type === 'status' && STAGE_STATES.has(v)) out[k] = v;
     else if (type === 'date' && (v === '' || v === null)) out[k] = '';
     else if (type === 'date' && isDate(v)) out[k] = v;
+    else if (type === 'text' && (v === null || typeof v === 'string' || typeof v === 'number')) out[k] = clean(v, 100);
   }
   return out;
 }
@@ -647,6 +650,7 @@ function registerNpdRoutes(app, pool) {
           const v = st[s.key];
           if (off(s)) vals.push(null);
           else if (s.type === 'date') vals.push(v ? new Date(v + 'T00:00:00Z') : null);
+          else if (s.type === 'text') vals.push(v || '');
           else {
             const done = v === 'complete' && info[s.key] && info[s.key].completed_on;
             const rb = s.key === RECEIVED_BY_STAGE && v === 'complete' && info[s.key] && info[s.key].received_by;
@@ -667,6 +671,8 @@ function registerNpdRoutes(app, pool) {
             c.fill = fill(k.fill);
             c.font = { bold: true, color: { argb: k.font } };
             c.alignment = { horizontal: 'center', vertical: 'middle' };
+          } else if (s && s.type === 'text') {
+            c.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
           } else if (s) {
             c.numFmt = 'dd-mmm-yy';
             c.alignment = { horizontal: 'center', vertical: 'middle' };
