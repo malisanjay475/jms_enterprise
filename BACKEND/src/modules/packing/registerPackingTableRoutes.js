@@ -23,6 +23,7 @@
 const { getFactoryId, getRequestUsername, normalizeFactoryId } = require('../../app/requestContext');
 const { sendServerError } = require('../../app/httpErrors');
 const { ensurePackingSchema, canEditMasters } = require('./registerPackingMasterRoutes');
+const { mouldedCte } = require('./mouldedSql');
 
 const isLocalServer = () => String(process.env.SERVER_TYPE || '').toUpperCase() === 'LOCAL';
 const clean = (v, max = 200) => String(v ?? '').replace(/\s+/g, ' ').trim().slice(0, max);
@@ -293,15 +294,16 @@ function registerPackingTableRoutes(app, pool) {
     } catch (err) { sendServerError(res, err); }
   });
 
-  /* Open job cards whose item (and party) is packed at this station, with planned qty and balance. */
+  /* Open job cards whose item (and party) is packed at this station and that moulding has started on
+     (DPR good qty), with planned qty, balance and moulded qty. */
   app.get('/api/packing/station-jobs', async (req, res) => {
     try {
       if (!requireReader(req, res)) return;
       await ensureTables();
       const station = clean(req.query.station, 120);
       if (!station) return res.status(400).json({ ok: false, error: 'Pick a station.' });
-      const t = await pool.query(`SELECT to_regclass('public.or_jr_report') AS jr`);
-      if (!t.rows[0].jr) return res.json({ ok: true, data: [] });
+      const t = await pool.query(`SELECT to_regclass('public.or_jr_report') AS jr, to_regclass('public.dpr_hourly') AS dpr`);
+      if (!t.rows[0].jr || !t.rows[0].dpr) return res.json({ ok: true, data: [] });
       const fid = readFactory(req);
       const excludeId = parseInt(req.query.exclude_plan, 10);
       const r = await pool.query(`
@@ -321,6 +323,7 @@ function registerPackingTableRoutes(app, pool) {
              AND ($2::int IS NULL OR j.factory_id = $2)
              AND (j.or_jr_date IS NULL OR j.or_jr_date >= CURRENT_DATE - ${JOB_DAYS})
            ORDER BY UPPER(TRIM(j.job_card_no)), j.or_jr_date DESC NULLS LAST
+        ), moulded AS (${mouldedCte('jr')}
         ), planned AS (
           SELECT UPPER(TRIM(job_card_no)) AS jc, COALESCE(SUM(plan_qty), 0)::int AS qty, COUNT(*)::int AS plans
             FROM assembly_plans
@@ -332,9 +335,10 @@ function registerPackingTableRoutes(app, pool) {
         SELECT jr.job_card_no, jr.or_jr_no, jr.item_code, jr.product_name AS item_name, jr.client_name, jr.jr_qty,
                to_char(jr.or_jr_date, 'DD-Mon') AS jr_date, std.cycle_time_sec,
                COALESCE(p.qty, 0) AS planned_qty, COALESCE(p.plans, 0) AS plans,
-               GREATEST(jr.jr_qty - COALESCE(p.qty, 0), 0) AS balance_qty
+               GREATEST(jr.jr_qty - COALESCE(p.qty, 0), 0) AS balance_qty, md.qty AS moulded_qty
           FROM jr
           JOIN std ON std.item_key = jr.item_key AND std.party = LOWER(TRIM(COALESCE(jr.client_name, '')))
+          JOIN moulded md ON md.jc = UPPER(jr.job_card_no)
           LEFT JOIN planned p ON p.jc = UPPER(jr.job_card_no)
          WHERE jr.jr_qty - COALESCE(p.qty, 0) > 0
          ORDER BY jr.or_jr_date ASC NULLS LAST, jr.job_card_no

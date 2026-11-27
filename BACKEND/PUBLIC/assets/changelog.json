@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.215.0",
+  "latest": "1.216.0",
   "versions": [
+    {
+      "version": "1.216.0",
+      "date": "2026-11-27",
+      "title": "Packing plan: week view, one table per plan, moulded job cards only",
+      "modules": [
+        {
+          "app": "packing",
+          "changes": [
+            { "type": "feat", "text": "Packing plan has a Day / Week switch: Week shows Monday to Saturday side by side on one screen (Sunday too when a job is planned on it), in Stations and Tables view; click a day's name to open that day." },
+            { "type": "improvement", "text": "A packing plan now goes on one table only. To pack a job on two tables, make two plans. Old plans with several tables stay as they are." },
+            { "type": "improvement", "text": "Job cards waiting to be packed, and the job card list in the plan form, show only job cards that moulding has started on (good qty in the DPR), with the moulded qty." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.215.0",
       "date": "2026-11-27",
