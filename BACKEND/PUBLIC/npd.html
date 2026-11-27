@@ -76,7 +76,11 @@
         .g thead tr.col th { top: var(--hgrp); vertical-align: top; padding: 8px 8px 9px; }
         .g thead th small { display: block; color: var(--mute); font-weight: 500; font-size: 11.5px; margin-top: 3px; }
         /* department names in the column headings: capital, bold, underlined */
-        .g thead th small .dpt { color: #0f172a; font-weight: 800; text-transform: uppercase; text-decoration: underline; text-underline-offset: 2px; letter-spacing: .02em; }
+        /* department under every column heading: a solid coloured badge per department
+           (same colour in every column), capital, bold, underlined */
+        .g thead th .dpts { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px; margin-top: 6px; }
+        .g thead th .dpt { display: inline-block; padding: 3px 8px; border-radius: 6px; background: var(--dc, #334155); color: #fff; font-size: 11.5px; font-weight: 800; line-height: 1.25; text-transform: uppercase; letter-spacing: .03em; text-decoration: underline; text-underline-offset: 2px; text-decoration-thickness: 1.5px; white-space: nowrap; box-shadow: 0 1px 2px rgba(15, 23, 42, .25); }
+        .g thead th .lvl { display: block; margin-top: 4px; color: var(--mute); font-size: 11px; font-weight: 500; }
         .g .tval { font-weight: 700; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
         .g .gs { border-left: 2px solid #94a3b8; }
         .g .fix { position: sticky; z-index: 1; }
@@ -572,14 +576,17 @@
             const FIRST = new Set(GROUPS.map(g => g.cols[0][0]));
             const gsOf = c => FIRST.has(c[0]) ? ' gs' : '';
             const ncol = () => 5 + COLS.length + 2 + (S.canDelete ? 1 : 0);
+            /* one colour per department, used for its badge in every column heading */
+            const DEPT_COLOUR = { 'Tool Room': '#7c3aed', Moulding: '#2563eb', Planning: '#0f766e', QC: '#dc2626', 'H.O': '#b45309', Packing: '#c026d3', Purchase: '#4d7c0f', 'W/H': '#0369a1', 'W/H & Dispatch': '#0369a1', Production: '#ea580c' };
+            const dptTags = s => !s ? '' : `<span class="dpts">${String(s).split(/\s+\/\s+/).map(d => `<span class="dpt" style="--dc:${DEPT_COLOUR[d] || '#334155'}">${esc(d)}</span>`).join('')}</span>`;
             function headHtml() {
                 let w = `<colgroup><col style="width:var(--wsr)"><col style="width:var(--wcode)"><col style="width:var(--wname)"><col style="width:160px"><col style="width:170px">`;
                 COLS.forEach(c => { w += `<col style="width:${c[3] === 'date' ? 132 : 148}px">`; });
                 w += `<col style="width:140px"><col style="width:400px">${S.canDelete ? '<col style="width:56px">' : ''}</colgroup>`;
-                let h = `${w}<thead><tr class="grp"><th class="fix c0" rowspan="2">Sr</th><th class="fix cc" rowspan="2">Product / mould code</th><th class="fix c1" rowspan="2" style="text-align:left;padding-left:14px">Product name</th><th rowspan="2">Factory<small><span class="dpt">H.O</span></small></th><th rowspan="2">Colour details for trials<small><span class="dpt">H.O</span></small></th>`;
+                let h = `${w}<thead><tr class="grp"><th class="fix c0" rowspan="2">Sr</th><th class="fix cc" rowspan="2">Product / mould code</th><th class="fix c1" rowspan="2" style="text-align:left;padding-left:14px">Product name</th><th rowspan="2">Factory${dptTags('H.O')}</th><th rowspan="2">Colour details for trials${dptTags('H.O')}</th>`;
                 GROUPS.forEach((g, i) => { h += `<th class="gh gs" colspan="${g.cols.length}" data-g="${i}"><span>${esc(g.label)}</span></th>`; });
                 h += `<th class="gs" rowspan="2">Status</th><th rowspan="2">Remarks<small>All departments</small></th>${S.canDelete ? '<th rowspan="2"></th>' : ''}</tr><tr class="col">`;
-                COLS.forEach(c => { h += `<th class="${gsOf(c).trim()}">${esc(c[1])}<small>${c[2] ? `<span class="dpt">${esc(c[2])}</span>, ` : ''}${MOULD_KEYS.has(c[0]) ? 'per mould' : 'per product'}</small></th>`; });
+                COLS.forEach(c => { h += `<th class="${gsOf(c).trim()}">${esc(c[1])}${dptTags(c[2])}<span class="lvl">${MOULD_KEYS.has(c[0]) ? 'per mould' : 'per product'}</span></th>`; });
                 return h + '</tr></thead>';
             }
             function rowHtml(p, sr, kids) {
