@@ -22,6 +22,11 @@
     return Number.isFinite(v) ? v.toLocaleString('en-IN', { maximumFractionDigits: 2 }) : '-';
   };
   const when = (iso) => (iso ? new Date(iso).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false }) : '');
+  const coloursOf = (t) => {
+    let c = t && t.colour_details;
+    if (typeof c === 'string') { try { c = JSON.parse(c); } catch (_) { c = []; } }
+    return Array.isArray(c) ? c.filter((x) => x && x.colourName) : [];
+  };
   const famKey = (v) => String(v || '').trim().replace(/\s+\d+$/, '').toUpperCase();
 
   const CSS = `
@@ -173,10 +178,56 @@
         <label>Send to factory <select id="ptFactory"></select></label>
         <label>Qty to send <input id="ptQty" type="number" min="1" step="1" inputmode="numeric"></label>
         <div class="pt-info" id="ptBal"></div>
+        <div id="ptCols"></div>
         <label>Note for the other factory (optional) <textarea id="ptNote" maxlength="500" placeholder="e.g. urgent, start this week"></textarea></label>
         <div class="pt-foot"><button class="pt-btn" data-pt-close>Close</button><button class="pt-btn go" id="ptGo"><i class="bi bi-send"></i> Send</button></div>
       </div>`, { small: true });
     const $ = (id) => m.el.querySelector('#' + id);
+    /* the mould's colours (same list Create Plan uses); 2+ colours -> split the qty */
+    let colours = [];
+    const colourInputs = () => [...m.el.querySelectorAll('.pt-col-q')];
+    const sumColours = () => {
+      if (!colours.length) return;
+      $('ptQty').value = colourInputs().reduce((s, el) => s + (Number(el.value) || 0), 0) || '';
+    };
+    const loadColours = async (o, bal) => {
+      const box = $('ptCols');
+      colours = [];
+      box.innerHTML = '';
+      $('ptQty').readOnly = false;
+      let rows = [];
+      try {
+        const r = await api(`/planning/orders/${encodeURIComponent(order.orderNo)}/colour-plan?mouldNo=${encodeURIComponent(o.code)}`);
+        rows = (r && r.data) || [];
+      } catch (_) { rows = []; }
+      if (options[Number($('ptMould').value) || 0] !== o) return; // mould changed meanwhile
+      colours = rows.filter((c) => c.itemColour).map((c) => ({
+        colourName: c.itemColour, itemCode: c.itemCode || '', itemName: c.itemName || '',
+        need: Math.max(0, Number(c.mouldItemQty ?? c.reqQty) || 0) // the order's qty of this colour
+      }));
+      if (colours.length < 2) {
+        // one colour: it simply goes with the whole qty
+        if (colours.length === 1) box.innerHTML = `<div class="pt-info">Colour: <b>${esc(colours[0].colourName)}</b></div>`;
+        return;
+      }
+      const needSum = colours.reduce((s, c) => s + c.need, 0);
+      box.innerHTML = `<div class="pt-info"><b>Qty by colour</b> - the total above follows these.
+        <div style="display:grid;grid-template-columns:minmax(0,1fr) 110px;gap:6px 10px;margin-top:8px;align-items:center">
+          ${colours.map((c, i) => `<span>${esc(c.colourName)}${c.need ? ` <small style="color:#64748b">(order ${fmt(c.need)})</small>` : ''}</span>
+            <input class="pt-col-q" data-i="${i}" type="number" min="0" step="1" inputmode="numeric" aria-label="${esc(c.colourName)} qty" style="min-height:36px;border:1px solid #cbd5e1;border-radius:8px;padding:4px 8px">`).join('')}
+        </div></div>`;
+      // start with the balance shared like the order needs it
+      const inputs = colourInputs();
+      let left = bal;
+      inputs.forEach((el, i) => {
+        const share = i === inputs.length - 1 ? left : Math.floor(needSum > 0 ? bal * colours[i].need / needSum : bal / inputs.length);
+        el.value = Math.max(0, share);
+        left -= Math.max(0, share);
+        el.addEventListener('input', sumColours);
+      });
+      $('ptQty').readOnly = true;
+      sumColours();
+    };
     const fill = () => {
       const o = options[Number($('ptMould').value) || 0];
       $('ptFactory').innerHTML = o.list.map((f) => `<option value="${f.factoryId}">${esc(f.factoryName)} (master: ${esc(f.mouldNumber)})</option>`).join('');
@@ -184,16 +235,23 @@
       $('ptQty').value = bal || '';
       $('ptQty').max = bal || '';
       $('ptBal').innerHTML = `Balance of this mould: <b>${fmt(bal)}</b>. You can send all of it or only a part.`;
+      loadColours(o, bal);
     };
     $('ptMould').onchange = fill;
     fill();
     $('ptGo').onclick = async () => {
       const o = options[Number($('ptMould').value) || 0];
+      const qty = Number($('ptQty').value);
+      const colourDetails = colours.length >= 2
+        ? colourInputs().map((el) => ({ ...colours[Number(el.dataset.i)], planQty: Number(el.value) || 0 })).filter((c) => c.planQty > 0)
+        : colours.map((c) => ({ ...c, planQty: qty }));
+      colourDetails.forEach((c) => { delete c.need; });
       const btn = $('ptGo');
       btn.disabled = true;
       try {
         const res = await post('/plan-transfers', {
-          orderNo: order.orderNo, mouldNo: o.code, toFactoryId: Number($('ptFactory').value), qty: Number($('ptQty').value), note: $('ptNote').value
+          orderNo: order.orderNo, mouldNo: o.code, toFactoryId: Number($('ptFactory').value), qty, note: $('ptNote').value,
+          colourDetails
         });
         say(`Sent to ${res.toFactoryName || 'the factory'}. They will accept it and set the machine.`, 'success');
         m.close();
@@ -272,6 +330,8 @@
       `${other} · sent by ${esc(t.requested_by || '-')} on ${esc(when(t.requested_at))}`,
       `Mould <b>${esc(t.mould_no)}</b>${t.mould_name ? ' - ' + esc(t.mould_name) : ''} · ${esc(t.item_name || '')}${t.client_name ? ' · ' + esc(t.client_name) : ''}`
     ];
+    const cols = coloursOf(t);
+    if (cols.length) lines.push(`Colours: ${cols.map((c) => `${esc(c.colourName)} <b>${fmt(c.planQty)}</b>`).join(' · ')}`);
     if (t.note) lines.push(`Note: ${esc(t.note)}`);
     if (st === 'REJECTED') lines.push(`<span style="color:#b91c1c">Rejected by ${esc(t.decided_by || '-')}: ${esc(t.reject_reason || '')}</span>`);
     if (st === 'ACCEPTED') lines.push(`Accepted by ${esc(t.decided_by || '-')} on ${esc(when(t.decided_at))}`);
@@ -355,6 +415,7 @@
         </label>
         <label>Start <input id="ptStart" type="datetime-local" value="${now.toISOString().slice(0, 16)}"></label>
         <label>Plan qty <input id="ptPQty" type="number" min="1" max="${esc(t.qty)}" value="${esc(Number(t.qty))}"></label>
+        ${coloursOf(t).length ? `<div class="pt-info">Colours sent: ${coloursOf(t).map((c) => `${esc(c.colourName)} <b>${fmt(c.planQty)}</b>`).join(' · ')}<br><small>They go on the plan. A smaller plan qty shares them in the same ratio.</small></div>` : ''}
         <div class="pt-info">The plan goes on your board with the tag <b>Transfer from ${esc(t.from_factory_name || '-')}</b>, and follows the normal job card approval.</div>
         <div class="pt-foot"><button class="pt-btn" data-pt-close>Close</button><button class="pt-btn go" id="ptSave" ${machines.length ? '' : 'disabled'}><i class="bi bi-check2"></i> Create plan</button></div>
       </div>`, { small: true });

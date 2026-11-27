@@ -126,6 +126,56 @@ function assertTransition(transfer, action, { factoryId, user } = {}) {
   throw new PlanTransferError('Unknown action.');
 }
 
+/**
+ * Colour split sent with a transfer: [{ colourName, planQty, itemCode?, itemName? }].
+ * Rows with no qty are dropped. When any colour is given, the colours must add up
+ * to the transfer qty. Returns the cleaned list ([] when none) or throws.
+ */
+function normaliseColourSplit(list, qty) {
+  if (list == null || list === '') return [];
+  if (!Array.isArray(list)) throw new PlanTransferError('Colour split must be a list.');
+  const seen = new Set();
+  const out = [];
+  list.forEach((c) => {
+    const q = toQty(c && (c.planQty ?? c.qty));
+    if (!Number.isFinite(q) || q === 0) return;
+    const name = cleanText(c.colourName || c.itemColour || c.colour, 120);
+    if (!name) throw new PlanTransferError('Every colour with a qty needs a colour name.');
+    if (q < 0) throw new PlanTransferError(`Qty of ${name} cannot be below 0.`);
+    const k = name.toUpperCase() + '|' + cleanText(c.itemCode, 120).toUpperCase();
+    if (seen.has(k)) throw new PlanTransferError(`${name} is listed twice.`);
+    seen.add(k);
+    out.push({ colourName: name, planQty: q, batchQty: q, itemCode: cleanText(c.itemCode, 120) || undefined, itemName: cleanText(c.itemName, 255) || undefined });
+  });
+  if (out.length) {
+    const sum = out.reduce((s, c) => s + c.planQty, 0);
+    if (Math.abs(sum - Number(qty)) > 0.001) {
+      throw new PlanTransferError(`The colours add up to ${sum}, but the qty to send is ${Number(qty)}.`);
+    }
+  }
+  return out;
+}
+
+/* Colour split for a plan of `planQty` out of a transfer of `transferQty`:
+   the full qty keeps the split, a part scales it (whole pieces, rest on the largest). */
+function scaleColourSplit(colours, transferQty, planQty) {
+  const list = Array.isArray(colours) ? colours : [];
+  const total = Number(transferQty);
+  const want = Number(planQty);
+  if (!list.length || !(total > 0) || !(want > 0) || want === total) return list.map((c) => ({ ...c }));
+  const out = list.map((c) => {
+    const q = Math.floor(Number(c.planQty || 0) * want / total);
+    return { ...c, planQty: q, batchQty: q };
+  });
+  const rest = want - out.reduce((s, c) => s + c.planQty, 0);
+  if (rest) {
+    const big = out.reduce((b, c, i) => (Number(list[i].planQty) > Number(list[b].planQty) ? i : b), 0);
+    out[big].planQty += rest;
+    out[big].batchQty = out[big].planQty;
+  }
+  return out.filter((c) => c.planQty > 0);
+}
+
 /* Plan payload for /api/planning/create built from an accepted transfer. */
 function buildPlanFromTransfer(transfer, { machine, plant, building, line, startDate, planQty } = {}) {
   const qty = planQty == null || planQty === '' ? Number(transfer.qty) : toQty(planQty);
@@ -149,7 +199,7 @@ function buildPlanFromTransfer(transfer, { machine, plant, building, line, start
     balQty: qty,
     batchQty: qty,
     mouldItemQty: Number(transfer.qty),
-    colourDetails: Array.isArray(colours) ? colours : [],
+    colourDetails: scaleColourSplit(Array.isArray(colours) ? colours : [], transfer.qty, qty),
     startDate: startDate || new Date().toISOString()
   };
 }
@@ -163,5 +213,7 @@ module.exports = {
   mouldFamilyKey,
   validateSendRequest,
   assertTransition,
+  normaliseColourSplit,
+  scaleColourSplit,
   buildPlanFromTransfer
 };

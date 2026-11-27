@@ -1426,7 +1426,7 @@
         const rows = g.plans.length
           ? `<table><tr><th>Machine</th><th>Start - end</th><th>Plan qty</th><th>Produced</th><th>Status</th><th>Planned by</th></tr>
               ${g.plans.map(p => `<tr>
-                <td><b>${esc(p.machine || '-')}</b></td>
+                <td><b>${esc(p.machine || '-')}</b>${p.source_factory_id ? `<div style="font-size:11px;color:#7c3aed;font-weight:600">Transfer ${esc(p.transfer_from || '')} → ${esc(p.factory_name || '')}</div>` : ''}</td>
                 <td>${dt(p.start_date)} - ${dt(p.end_date)}</td>
                 <td>${num(p.plan_qty)}</td>
                 <td title="Reject ${num(p.reject_qty)}${p.last_dpr ? ', last DPR ' + dt(p.last_dpr) : ''}">${num(p.good_qty)}</td>

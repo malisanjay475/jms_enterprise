@@ -13,7 +13,11 @@ part of your PR. On release, the `[Unreleased]` items move under the new version
 
 ## [Unreleased]
 
+### Fixed
+- Order detail popup (v1.214.0): /api/orders/detail summed dpr_hourly by plan_id alone, so another factory's plan with the same plan id added to the made qty; it now matches the plan's factory and skips deleted entries.
+
 ### Added
+- Factory Transfers phase 3 (v1.214.0): Order Tracker (order, orders, parts, tonnage) counts plans another factory runs for this factory's order (plan_board.source_factory_id = viewed factory) and the dpr_hourly entries made on them there; their plan id and machine carry ' @ <factory>' so they never meet a same-numbered plan of the viewed factory. /api/orders/detail and /api/planning/orders/:orderNo/history include transfer plans (factory_name, transfer_from / transfer_at). Send takes colourDetails (must add up to the qty; planTransfer.normaliseColourSplit), saved on plan_transfers.colour_details and put on the plan at assign (scaled to a part plan, scaleColourSplit). /api/dpr/summary-matrix entries return transfer_from; Daily Report and Daily Report (Detailed) tag those machines.
 - Factory Transfers (v1.213.0): a factory sends part of an order's qty to another factory whose Mould Master has the mould; that factory accepts or rejects (with a reason) and assigns its own machine. New MAIN-only table plan_transfers (WAITING -> ACCEPTED -> PLANNED, or REJECTED / CANCELLED); plan_board.source_factory_id + transfer_id (sync with the plan). WAITING / ACCEPTED qty is reserved in the sending factory's order balance (getPlanningOrderMouldBundle); once planned, the plan row counts. APIs: GET /api/plan-transfers/order/:orderNo, POST /api/plan-transfers, GET /api/plan-transfers?box=incoming|sent, POST /api/plan-transfers/:id/accept|reject|cancel, GET /api/plan-transfers/:id/machines; /api/planning/create takes transferId (receiving factory only, accepted only, qty <= transferred qty, skips the order sequence check done at send). Planners (planner / PPC / planning roles), admin and superadmin only; refused on LOCAL servers. UI: PUBLIC/assets/plan-transfers.js (Create Plan "Also in" strip + Send, Transfers panel, Assign machine); "Transfer from <factory>" tag on Excel View and Machine Timeline cards (board API returns transferFromFactory). Rules in src/modules/planning/planTransfer.js.
 
 ### Changed
