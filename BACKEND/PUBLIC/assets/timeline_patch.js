@@ -1468,6 +1468,7 @@
                        </div>
                        ${hold ? `<div class="tl-hold-badge" title="Order on hold&#10;Reason: ${holdAttr(hold.reason)}&#10;By ${holdAttr(hold.updated_by || hold.held_by || '')}" style="display:block; font-size:0.72rem; font-weight:800; color:#fff; background:#b91c1c; border-radius:4px; padding:3px 6px; line-height:1.3; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"><i class="bi bi-pause-circle-fill"></i> ON HOLD: ${holdAttr(hold.reason)}</div>` : ''}
                        
+                       ${p.transferFromFactory ? `<div class="tl-xfer-badge" title="Factory Transfer: this order belongs to ${esc(p.transferFromFactory)}" style="display:block; font-size:0.72rem; font-weight:800; color:#9a3412; background:#ffedd5; border:1px solid #fdba74; border-radius:4px; padding:2px 6px; line-height:1.3; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"><i class="bi bi-arrow-left-right"></i> Transfer from ${esc(p.transferFromFactory)}</div>` : ''}
                        <div style="font-size:0.8rem; color:#64748b; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis" title="${esc(p.clientName)}">
                           ${esc(p.clientName || 'Unknown')}
                        </div>

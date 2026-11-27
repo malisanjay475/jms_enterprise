@@ -11,10 +11,10 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.211.1",
+  "latest": "1.213.0",
   "versions": [
     {
-      "version": "1.212.1",
+      "version": "1.213.1",
       "date": "2026-11-27",
       "title": "NPD Tracker: department badges in column headings",
       "modules": [
@@ -22,6 +22,22 @@
           "app": "npd",
           "changes": [
             { "type": "improvement", "text": "Every column heading now shows its department as a coloured badge (one colour per department, capital, bold, underlined), on its own line, so it is easy to see which department fills each column." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.213.0",
+      "date": "2026-11-27",
+      "title": "Factory Transfers: send part of an order to another factory",
+      "modules": [
+        {
+          "app": "planning",
+          "changes": [
+            { "type": "feat", "text": "Create Plan shows which other factories have a mould in their Mould Master (\"Also in\")." },
+            { "type": "feat", "text": "Send to factory: send all or part of a mould's balance to another factory; the qty is held back from your balance until they plan it or reject it." },
+            { "type": "feat", "text": "New Transfers button on the Planning Board: Incoming (accept, reject with a reason, assign your own machine) and Sent (status, machine, qty made)." },
+            { "type": "feat", "text": "Plans made for another factory's order show \"Transfer from <factory>\" on the Excel View and Machine Timeline cards." }
           ]
         }
       ]
