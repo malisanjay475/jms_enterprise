@@ -116,6 +116,7 @@
       #etv-prio-modal .pm-close { background: transparent; border: none; color: #fff; font-size: 1.3rem; cursor: pointer; }
       /* ── Order Hold ── */
       .etv-card.hold { border-left-color: #dc2626 !important; background: repeating-linear-gradient(135deg, #fef2f2 0 8px, #fecaca 8px 16px) !important; border-color: #f87171 !important; }
+      .etv-card-xfer { display: block; font-size: .6rem; font-weight: 800; color: #9a3412; background: #ffedd5; border: 1px solid #fdba74; border-radius: 4px; padding: 1px 6px; line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       .etv-card-hold { display: block; font-size: .6rem; font-weight: 800; color: #fff; background: #b91c1c; border-radius: 4px; padding: 2px 6px; line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       .etv-hold-btn { cursor: pointer; display: inline-flex; align-items: center; gap: 2px; font-size: .58rem; font-weight: 700; padding: 1px 5px; border-radius: 4px; border: 1px solid #cbd5e1; background: #f8fafc; color: #475569; white-space: nowrap; }
       .etv-hold-btn:hover { background: #e2e8f0; }
@@ -2129,6 +2130,7 @@
                   <div class="etv-card-status ${statusClass}">${stLabel}</div>
                 </div>
                 ${hold ? `<div class="etv-card-hold" title="Order on hold&#10;Reason: ${esc(hold.reason)}&#10;By ${esc(hold.updated_by || hold.held_by || '')}"><i class="bi bi-pause-circle-fill"></i> ON HOLD: ${esc(hold.reason)}</div>` : ''}
+                ${p.transferFromFactory ? `<div class="etv-card-xfer" title="Factory Transfer: this order belongs to ${esc(p.transferFromFactory)}"><i class="bi bi-arrow-left-right"></i> Transfer from ${esc(p.transferFromFactory)}</div>` : ''}
                 <div class="etv-card-mould" title="${esc(p.mouldName || '')}">${esc(mouldDisp)}</div>
                 ${clientDisp ? `<div style="font-size:.6rem;color:#64748b;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(clientDisp)}</div>` : ''}
                 ${(() => {
