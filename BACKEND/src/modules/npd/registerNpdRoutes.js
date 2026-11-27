@@ -53,7 +53,7 @@ const HO_ROLE = /^salescoord.*ho$/;
    letters / digits removed (so 'sr__ppc_manager' and 'Sr. PPC Manager' are the
    same); a RegExp entry matches any role containing it (Purchase roles are
    created in Settings with varying names). Production (printing / tufting) is
-   run by Moulding; W/H & Dispatch is the Dispatch Manager and Dispatch Executive. HO stages are admin and Sales Co-ordinator H.O. */
+   run by Moulding; W/H & Dispatch is the Dispatch Manager and Dispatch Executive; Packing is every packing role (Packing Manager, Packing Executive, ...). HO stages are admin and Sales Co-ordinator H.O. */
 const DEPT_ROLES = {
   'Tool Room': ['toolroommanager'],
   Moulding: ['mouldingmanager'],
@@ -63,7 +63,7 @@ const DEPT_ROLES = {
   'PPC team': [/ppc/, /^planning/, 'planner'],
   /* 'quality' is the QC HOD role; Quality Ass. Manager is 'quality_ass__manager' */
   QC: ['quality', 'qchod', 'qualityhod', 'qualityassmanager', 'qualityasstmanager', 'qcassmanager'],
-  Packing: ['packingmanager'],
+  Packing: [/packing/],
   Purchase: [/purchase/],
   Production: ['mouldingmanager'],
   'W/H': ['dispatchmanager', 'dispatchexecutive'],
@@ -441,13 +441,23 @@ function npdSerials(rows, facNames, factory) {
    see every app and are left alone. */
 const NPD_ACCESS_ROLES = ['dispatchmanager', 'dispatchexecutive'];
 async function grantNpdAccessToDispatch(pool) {
+  const norm = sql => `lower(regexp_replace(COALESCE(${sql}, ''), '[^a-zA-Z0-9]', '', 'g'))`;
+  return grantNpdAccess(pool, 'NPD_DISPATCH_ACCESS_V1', 'dispatch',
+    `(${norm('x.role_code')} = ANY($1) OR ${norm('ro.label')} = ANY($1))`, [NPD_ACCESS_ROLES]);
+}
+/* Same one-time grant for every packing role (code or name containing "packing"). */
+async function grantNpdAccessToPacking(pool) {
+  const norm = sql => `lower(regexp_replace(COALESCE(${sql}, ''), '[^a-zA-Z0-9]', '', 'g'))`;
+  return grantNpdAccess(pool, 'NPD_PACKING_ACCESS_V1', 'packing',
+    `(${norm('x.role_code')} LIKE '%packing%' OR ${norm('ro.label')} LIKE '%packing%')`, []);
+}
+async function grantNpdAccess(pool, flagKey, who, matchSql, params) {
   if (String(process.env.SERVER_TYPE || '').toUpperCase() === 'LOCAL') return [];
   await pool.query('CREATE TABLE IF NOT EXISTS server_config (key TEXT PRIMARY KEY, value TEXT)');
   const flag = await pool.query(
-    `INSERT INTO server_config (key, value) VALUES ('NPD_DISPATCH_ACCESS_V1', NOW()::text)
-     ON CONFLICT (key) DO NOTHING RETURNING key`);
+    `INSERT INTO server_config (key, value) VALUES ($1, NOW()::text)
+     ON CONFLICT (key) DO NOTHING RETURNING key`, [flagKey]);
   if (!flag.rowCount) return [];
-  const norm = sql => `lower(regexp_replace(COALESCE(${sql}, ''), '[^a-zA-Z0-9]', '', 'g'))`;
   const r = await pool.query(
     `UPDATE users u
         SET permissions = CASE
@@ -456,13 +466,13 @@ async function grantNpdAccessToDispatch(pool) {
               ELSE jsonb_set(u.permissions, '{app_access,npd}', 'true'::jsonb) END,
             updated_at = NOW()
        FROM (SELECT x.id FROM users x LEFT JOIN roles ro ON ro.code = x.role_code
-              WHERE (${norm('x.role_code')} = ANY($1) OR ${norm('ro.label')} = ANY($1))) m
+              WHERE ${matchSql}) m
       WHERE u.id = m.id
         AND (jsonb_typeof(u.permissions->'__apps') = 'object' AND (u.permissions->'__apps'->'npd') IS DISTINCT FROM 'true'::jsonb
           OR jsonb_typeof(u.permissions->'__apps') IS DISTINCT FROM 'object'
              AND jsonb_typeof(u.permissions->'app_access') = 'object' AND (u.permissions->'app_access'->'npd') IS DISTINCT FROM 'true'::jsonb)
-      RETURNING u.username`, [NPD_ACCESS_ROLES]);
-  if (r.rowCount) console.log(`[NPD] NPD access given to dispatch users: ${r.rows.map(x => x.username).join(', ')}`);
+      RETURNING u.username`, params);
+  if (r.rowCount) console.log(`[NPD] NPD access given to ${who} users: ${r.rows.map(x => x.username).join(', ')}`);
   return r.rows.map(x => x.username);
 }
 
@@ -474,7 +484,8 @@ function registerNpdRoutes(app, pool) {
   }
   /* MAIN: give the dispatch users NPD access soon after start, not only when someone opens NPD */
   if (String(process.env.SERVER_TYPE || '').toUpperCase() !== 'LOCAL' && process.env.NODE_ENV !== 'test') {
-    setTimeout(() => grantNpdAccessToDispatch(pool).catch(err => console.warn('[NPD] dispatch access:', err.message)), 20000).unref();
+    setTimeout(() => grantNpdAccessToDispatch(pool).catch(err => console.warn('[NPD] dispatch access:', err.message))
+      .then(() => grantNpdAccessToPacking(pool)).catch(err => console.warn('[NPD] packing access:', err.message)), 20000).unref();
   }
   /* LOCAL: send the change to MAIN now instead of waiting for the next cycle */
   const pushNow = () => {
@@ -944,6 +955,7 @@ module.exports = {
   rowStatus,
   npdSerials,
   grantNpdAccessToDispatch,
+  grantNpdAccessToPacking,
   cleanStages,
   cleanColours,
   roleDepts,
