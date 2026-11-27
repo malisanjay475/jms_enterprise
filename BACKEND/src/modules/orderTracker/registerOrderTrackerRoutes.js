@@ -134,7 +134,8 @@ const PLAN_SQL = `
          NULLIF(TRIM(pb.job_card_no), '') AS job_card_no, pb.consumption_ratio_qty,
          pb.start_date, pb.end_date, pb.completed_at, pb.completed_by, NULLIF(TRIM(pb.remarks), '') AS remarks, pb.seq,
          pb.created_at, pb.colour_details, pb.job_card_date,
-         CASE WHEN $2::int IS NOT NULL AND pb.factory_id <> $2 THEN ${XFER_AT('pb.factory_id')} END AS transfer_at
+         CASE WHEN $2::int IS NOT NULL AND pb.factory_id <> $2 THEN ${XFER_AT('pb.factory_id')} END AS transfer_at,
+         pb.factory_id AS run_factory_id, pb.plan_id AS raw_plan_id
     FROM plan_board pb
    WHERE TRIM(pb.order_no) = ANY($1::text[])
      AND UPPER(COALESCE(pb.status, '')) NOT IN ('REJECTED', 'CANCELLED', 'DELETED')
@@ -284,6 +285,24 @@ async function loadOrders(pool, orderNos, factoryId, sched, board, { itemFallbac
     itemRows = it.rows;
     dropRows = dr.rows;
     offMoulds = new Set(off.rows.map(r => r.code));
+  }
+  /* Factory Transfers: a transfer plan waits in the other factory's machine queue,
+     so its start / finish come from that factory's board (keyed by its " @ " plan id). */
+  const foreign = factoryId
+    ? [...new Set(plans.rows.filter(r => r.transfer_at && r.run_factory_id).map(r => Number(r.run_factory_id)))] : [];
+  if (foreign.length) {
+    sched = new Map(sched || []);
+    for (const fid of foreign) {
+      try {
+        const { map } = await queueSchedule(pool, fid);
+        plans.rows.filter(r => r.transfer_at && Number(r.run_factory_id) === fid).forEach(r => {
+          const j = map.get(String(r.raw_plan_id));
+          if (j) sched.set(String(r.plan_id), { ...j, plan_id: r.plan_id, machine: `${j.machine} @ ${r.transfer_at}` });
+        });
+      } catch (e) {
+        console.warn('[order-tracker] transfer plan schedule skipped:', e.message);
+      }
+    }
   }
   const planIds = plans.rows.map(r => Number(r.id)).filter(Number.isInteger);
   const shifted = planIds.length

@@ -58,6 +58,7 @@ dbDescribe('factory transfers', () => {
       CREATE TABLE orders (id SERIAL PRIMARY KEY, order_no TEXT, item_name TEXT, client_name TEXT, factory_id INT, status TEXT, priority TEXT, updated_at TIMESTAMPTZ DEFAULT NOW());
       CREATE TABLE planning_drops (id SERIAL PRIMARY KEY, order_no TEXT, mould_name TEXT, mould_no TEXT, item_code TEXT,
         remarks TEXT, dropped_by TEXT, created_at TIMESTAMPTZ DEFAULT NOW());
+      CREATE TABLE plan_audit_logs (id SERIAL PRIMARY KEY, factory_id INT, plan_id INT, action TEXT, details TEXT, user_name TEXT, created_at TIMESTAMPTZ DEFAULT NOW());
       CREATE TABLE job_card_label_print_log (id SERIAL PRIMARY KEY, plan_id TEXT, jc_no TEXT, factory_id INT, printed_at TIMESTAMPTZ);
       CREATE TABLE dpr_hourly (id SERIAL PRIMARY KEY, plan_id TEXT, factory_id INT, good_qty NUMERIC, reject_qty NUMERIC DEFAULT 0, is_deleted BOOLEAN DEFAULT false, created_at TIMESTAMPTZ DEFAULT NOW(),
         jobcard_no TEXT, order_no TEXT, dpr_date DATE);
@@ -74,7 +75,8 @@ dbDescribe('factory transfers', () => {
         from_factory_id INT NOT NULL, to_factory_id INT NOT NULL, status TEXT NOT NULL DEFAULT 'WAITING', note TEXT,
         reject_reason TEXT, requested_by TEXT, requested_at TIMESTAMPTZ DEFAULT NOW(), decided_by TEXT,
         decided_at TIMESTAMPTZ, plan_id TEXT, plan_row_id INT, planned_machine TEXT, planned_by TEXT,
-        planned_at TIMESTAMPTZ, cancelled_by TEXT, cancelled_at TIMESTAMPTZ, updated_at TIMESTAMPTZ DEFAULT NOW());`);
+        planned_at TIMESTAMPTZ, cancelled_by TEXT, cancelled_at TIMESTAMPTZ, updated_at TIMESTAMPTZ DEFAULT NOW(),
+        plan_removed_at TIMESTAMPTZ, plan_removed_note TEXT);`);
     app = express();
     app.use(express.json());
     // Stands in for the session middleware: a verified login.
@@ -99,7 +101,7 @@ dbDescribe('factory transfers', () => {
 
   beforeEach(async () => {
     await pool.query(`
-      TRUNCATE labour_parties, job_card_label_print_log, or_jr_report, factories, roles, users, user_factories, machines, moulds, mould_planning_summary, orders,
+      TRUNCATE labour_parties, plan_audit_logs, job_card_label_print_log, or_jr_report, factories, roles, users, user_factories, machines, moulds, mould_planning_summary, orders,
                planning_drops, dpr_hourly, plan_board, plan_transfers RESTART IDENTITY;
       INSERT INTO factories (id, name) VALUES (1, 'Unit 1'), (2, 'Shivani'), (3, 'Premier');
       INSERT INTO roles VALUES ('ppc_manager', 'PPC Manager'), ('operator', 'Operator');
@@ -256,6 +258,33 @@ dbDescribe('factory transfers', () => {
     const done = hist.body.completed.find((c) => c.plan_id === plan.plan_id);
     expect(done).toEqual(expect.objectContaining({ transfer_at: 'Premier' }));
     expect(Number(done.produced_qty)).toBe(200);
+  });
+
+  it('a deleted transfer plan sends the transfer back to Accepted, still held, and it can be assigned again', async () => {
+    const plan = await sendAcceptAssign({ qty: 400 });
+    expect(await balance()).toBe(600);
+    const del = await as('post', '/api/planning/delete', 'ppc3', 3).send({ rowId: plan.id });
+    expect(del.body.ok).toBe(true);
+    const t = (await pool.query('SELECT * FROM plan_transfers WHERE id = $1', [plan.transfer_id])).rows[0];
+    expect(t).toEqual(expect.objectContaining({ status: 'ACCEPTED', plan_id: null, planned_machine: null }));
+    expect(t.plan_removed_note).toMatch(/was removed/);
+    expect(await balance()).toBe(600); // still held for Premier, not back with Unit 1
+
+    const again = await as('post', '/api/planning/create', 'ppc3', 3).send([{
+      transferId: plan.transfer_id, plant: 'PREMIER', machine: 'C-2', orderNo: 'OR-1', mouldName: 'Cap', mouldCode: 'M-1', planQty: 400
+    }]);
+    expect(again.body.ok).toBe(true);
+    expect((await pool.query('SELECT status FROM plan_transfers WHERE id = $1', [plan.transfer_id])).rows[0].status).toBe('PLANNED');
+  });
+
+  it('a plan cancelled on the board (not deleted) also frees the transfer; the factory can give it back', async () => {
+    const plan = await sendAcceptAssign({ qty: 300 });
+    await pool.query(`UPDATE plan_board SET status = 'CANCELLED' WHERE id = $1`, [plan.id]);
+    const incoming = await as('get', '/api/plan-transfers?box=incoming', 'ppc3', 3);
+    expect(incoming.body.data.find((x) => x.id === plan.transfer_id).status).toBe('ACCEPTED');
+    const back = await as('post', `/api/plan-transfers/${plan.transfer_id}/reject`, 'ppc3', 3).send({ reason: 'Machine broke down' });
+    expect(back.body.ok).toBe(true);
+    expect(await balance()).toBe(1000);
   });
 
   it('assigning before accepting is refused', async () => {
