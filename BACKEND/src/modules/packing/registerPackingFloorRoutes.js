@@ -4,9 +4,11 @@
  * Packing floor - the planning board (assembly.html) and the station scanning
  * screen (scan_station.html).
  *
- *  - GET  /api/packing/board?date=YYYY-MM-DD   stations as rows, the day's plans with
- *                                               packed qty, live rate, standard rate and
- *                                               boxes; totals; job cards waiting to pack.
+ *  - GET  /api/packing/board?date=YYYY-MM-DD&days=N   stations as rows, the plans of N days
+ *                                               (1 = the day, up to 7 = the week view) with
+ *                                               packed qty, live rate, standard rate and boxes;
+ *                                               totals; job cards waiting to pack (only those
+ *                                               moulding has started on: DPR good qty > 0).
  *  - GET  /api/packing/station-screen?station=  everything one station's screen shows.
  *  - GET  /api/packing/live                    the live packing screen: station tiles, totals,
  *                                               store and dispatch figures, alerts (packingLive.js).
@@ -32,6 +34,7 @@ const { sendServerError } = require('../../app/httpErrors');
 const { itemKey, canEditMasters, pcsPerHour, ensurePackingSchema } = require('./registerPackingMasterRoutes');
 const packingBoxes = require('./registerPackingBoxRoutes');
 const live = require('./packingLive');
+const { mouldedCte } = require('./mouldedSql');
 
 const isLocalServer = () => String(process.env.SERVER_TYPE || '').toUpperCase() === 'LOCAL';
 /* The factory this server stands in: a LOCAL box's own factory, null on MAIN. */
@@ -236,12 +239,13 @@ function registerPackingFloorRoutes(app, pool) {
       const fid = readFactory(req);
       const date = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.date || '')) ? req.query.date : null;
       const day = date || new Date(Date.now() + 5.5 * 3600e3).toISOString().slice(0, 10);
+      const days = Math.min(7, Math.max(1, parseInt(req.query.days, 10) || 1));
       const stations = await stationRows(fid);
-      /* plans touching the day; a running job from an earlier day stays on the board */
+      /* plans touching the days; a running job from an earlier day stays on the board */
       const plans = await planDetails(`
         WHERE UPPER(COALESCE(p.status, '')) NOT IN ('ARCHIVED', 'CANCELLED')
-          AND ((p.start_time < ($1::date + 1) AND COALESCE(p.end_time, p.start_time) >= $1::date)
-               OR (UPPER(COALESCE(p.status, '')) = 'RUNNING' AND p.start_time >= $1::date - ${OPEN_PLAN_DAYS} AND p.start_time < ($1::date + 1)))`, [day]);
+          AND ((p.start_time < ($1::date + $2::int) AND COALESCE(p.end_time, p.start_time) >= $1::date)
+               OR (UPPER(COALESCE(p.status, '')) = 'RUNNING' AND p.start_time >= $1::date - ${OPEN_PLAN_DAYS} AND p.start_time < ($1::date + $2::int)))`, [day, days]);
 
       const known = new Set(stations.map(s => s.name.toLowerCase()));
       const oldTables = [...new Set(plans.map(p => p.table_id).filter(t => t && !known.has(String(t).toLowerCase())))];
@@ -252,10 +256,11 @@ function registerPackingFloorRoutes(app, pool) {
         ...oldTables.sort().map(t => ({ name: t, persons: null, scanner: lineScanner[t] || '', is_station: false }))
       ];
 
-      /* Job cards that still have something to plan: new ones and part-planned ones, with the
-         stations that pack the item (this party's standard first) and the ERP pack date. */
+      /* Job cards that still have something to plan: new ones and part-planned ones that
+         moulding has started on (a DPR entry with good qty for the job card), with the moulded
+         qty, the stations that pack the item (this party's standard first) and the ERP pack date. */
       let waiting = [], waitingTotal = 0;
-      if (await tableExists('or_jr_report')) {
+      if (await tableExists('or_jr_report') && await tableExists('dpr_hourly')) {
         const w = await pool.query(`
           WITH ready AS (
             SELECT DISTINCT item_key FROM packing_item_standards
@@ -270,15 +275,17 @@ function registerPackingFloorRoutes(app, pool) {
                AND j.or_jr_date >= CURRENT_DATE - 45
                AND ($1::int IS NULL OR j.factory_id = $1)
              ORDER BY UPPER(TRIM(j.job_card_no)), j.or_jr_date DESC NULLS LAST
+          ), moulded AS (${mouldedCte('jc')}
           ), planned AS (
             SELECT UPPER(TRIM(job_card_no)) AS jc, SUM(plan_qty)::int AS qty FROM assembly_plans
              WHERE NULLIF(TRIM(COALESCE(job_card_no, '')), '') IS NOT NULL
                AND UPPER(COALESCE(status, '')) NOT IN ('ARCHIVED', 'CANCELLED')
              GROUP BY 1
           ), open_jc AS (
-            SELECT jc.*, COALESCE(pl.qty, 0)::int AS planned_qty, COUNT(*) OVER ()::int AS total
+            SELECT jc.*, COALESCE(pl.qty, 0)::int AS planned_qty, md.qty AS moulded_qty, COUNT(*) OVER ()::int AS total
               FROM jc
               JOIN ready ON ready.item_key = jc.item_key
+              JOIN moulded md ON md.jc = UPPER(TRIM(jc.job_card_no))
               LEFT JOIN planned pl ON pl.jc = UPPER(TRIM(jc.job_card_no))
              WHERE COALESCE(jc.jr_qty, 0) > COALESCE(pl.qty, 0)
              ORDER BY jc.or_jr_date DESC NULLS LAST, jc.job_card_no
@@ -286,7 +293,7 @@ function registerPackingFloorRoutes(app, pool) {
           )
           SELECT o.job_card_no, o.or_jr_no, o.item_code, o.product_name AS item_name, o.client_name,
                  COALESCE(o.jr_qty, 0)::int AS jr_qty, o.planned_qty,
-                 (COALESCE(o.jr_qty, 0) - o.planned_qty)::int AS balance_qty,
+                 (COALESCE(o.jr_qty, 0) - o.planned_qty)::int AS balance_qty, o.moulded_qty,
                  to_char(o.or_jr_date, 'YYYY-MM-DD') AS jr_date, LEFT(o.due_date, 10) AS due_date,
                  COALESCE(st.stations, '[]'::jsonb) AS stations, o.total
             FROM open_jc o
@@ -314,7 +321,7 @@ function registerPackingFloorRoutes(app, pool) {
         return t;
       }, { planned: 0, packed: 0, running: 0, plans: plans.length });
 
-      res.json({ ok: true, data: { date: day, rows, plans, totals, waiting, waiting_total: waitingTotal } });
+      res.json({ ok: true, data: { date: day, days, rows, plans, totals, waiting, waiting_total: waitingTotal } });
     } catch (err) { sendServerError(res, err); }
   });
 

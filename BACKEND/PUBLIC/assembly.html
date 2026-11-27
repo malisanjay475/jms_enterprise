@@ -132,6 +132,19 @@
         .pk-ghost span { position: sticky; top: 38px; display: block; width: max-content; transform: translateX(-50%); color: #fff; font-size: .72rem; font-weight: 600; padding: 1px 6px; border-radius: 6px; }
         .pk-ghost { position: absolute; top: 0; bottom: 0; border-left: 1px dashed var(--primary); }
         .pk-ghost span { background: var(--primary); }
+        /* week: the shift of each day side by side, a line between days and a light one at 13:00 */
+        .pk-grid.week .pk-hours { grid-template-columns: repeat(var(--n), 1fr); }
+        .pk-wd { border: 0; border-left: 1px solid var(--line); background: none; padding: 3px 0 3px 8px; text-align: left; cursor: pointer; display: flex; align-items: baseline; gap: 6px; min-width: 0; color: var(--mute); font: inherit; }
+        .pk-wd:first-of-type { border-left-color: transparent; }
+        .pk-wd b { font-size: .8rem; font-weight: 700; color: var(--ink); white-space: nowrap; }
+        .pk-wd small { font-size: .7rem; white-space: nowrap; overflow: hidden; }
+        .pk-wd:hover b { color: var(--primary); text-decoration: underline; text-underline-offset: 3px; }
+        .pk-wd.today { background: #e3f1f8; }
+        .pk-wd.today b { color: var(--primary); }
+        .pk-grid.week .pk-lane { background:
+            repeating-linear-gradient(90deg, transparent 0, transparent calc(100% / var(--n) - 1px), var(--line) calc(100% / var(--n) - 1px), var(--line) calc(100% / var(--n))),
+            repeating-linear-gradient(90deg, transparent 0, transparent calc(50% / var(--n) - 1px), var(--line2) calc(50% / var(--n) - 1px), var(--line2) calc(50% / var(--n))); }
+        .pk-grid.week .pk-txt { padding: 0 6px; }
         .pk-legend { display: flex; flex-wrap: wrap; gap: 4px 16px; padding: 8px 12px; border-top: 1px solid var(--line); font-size: .76rem; color: var(--mute); }
         .pk-legend span { display: inline-flex; align-items: center; gap: 6px; }
         .pk-dot { display: inline-block; width: 11px; height: 11px; border-radius: 3px; border: 1px solid; }
@@ -166,6 +179,7 @@
         .pk-c3 { display: flex; flex-wrap: wrap; gap: 3px 9px; align-items: center; font-size: .75rem; color: var(--mute); }
         .pk-st { font-style: normal; font-weight: 700; color: var(--primary); background: #e4f1f8; border-radius: 6px; padding: 1px 7px; }
         .pk-part { color: var(--warn); }
+        .pk-mld { color: var(--ok); }
         .pk-due { color: var(--mute); white-space: nowrap; }
         .pk-due.bad { color: var(--bad); font-weight: 600; }
         .pk-qnote { margin: 0; padding: 12px; font-size: .78rem; color: var(--mute); }
@@ -324,6 +338,10 @@
             <div class="pk-notice" id="pkNotice" hidden></div>
 
             <div class="pk-bar">
+                <div class="pk-seg" role="group" aria-label="Days shown">
+                    <button type="button" data-span="day" aria-pressed="true">Day</button>
+                    <button type="button" data-span="week" aria-pressed="false">Week</button>
+                </div>
                 <div class="pk-seg" role="group" aria-label="View">
                     <button type="button" data-view="stations" aria-pressed="true">Stations</button>
                     <button type="button" data-view="tables" aria-pressed="false">Tables</button>
@@ -394,7 +412,7 @@
                         <div class="pp-grid">
                             <div class="pp-full"><label class="pp-label" for="p_table_id">Assembly station <span class="pp-src" id="src_station"></span></label><select id="p_table_id" class="form-control" onchange="stationChanged()"></select></div>
                             <div class="pp-full" id="p_tables_wrap">
-                                <div class="pp-tabhead"><span class="pp-label">Tables <span class="pp-src" id="src_tables"></span></span><button type="button" id="p_tables_free" onclick="pickFreeTables()">Pick all free</button></div>
+                                <div class="pp-tabhead"><span class="pp-label">Table <span class="pp-src" id="src_tables"></span></span></div>
                                 <div id="p_tables" class="pp-tables" role="group" aria-label="Tables"></div>
                             </div>
                             <div><label class="pp-label" for="p_start">Start</label><input id="p_start" type="datetime-local" class="form-control" onchange="calcDuration()"></div>
@@ -506,7 +524,7 @@
             $('deletePlanBtn').style.display = 'none';
             fillStationOptions(tableId);
             if (opts.table) SEL.add(opts.table);
-            const dateStr = PackBoard.date();
+            const dateStr = opts.date || PackBoard.date();
             let defaultTime = `${String(PackShift.START_H).padStart(2, '0')}:00`;
             if (dateStr === PackBoard.today() && PackShift.inShift(new Date())) defaultTime = hhmm(new Date());
             $('p_start').value = `${dateStr}T${opts.time || defaultTime}`;
@@ -695,7 +713,6 @@
         function renderTables() {
             const list = stationTables();
             $('p_tables_wrap').hidden = !list.length && !SEL.size;
-            $('p_tables_free').hidden = !list.length;
             // a table no longer in the master (edited plan) still shows so it can be taken off
             const all = [...list, ...[...SEL].filter(c => !list.includes(c))];
             const busy = busyTables();
@@ -703,24 +720,18 @@
                 const b = busy.get(c);
                 return `<button type="button" class="pp-tbl ${SEL.has(c) ? 'on' : ''} ${b ? 'busy' : ''}" data-t="${esc(c)}" aria-pressed="${SEL.has(c)}" title="${b ? esc('In use: ' + b) : 'Free at this time'}">${esc(c)}${b ? '<small>in use</small>' : ''}</button>`;
             }).join('');
+            /* one table per plan: picking a table replaces the one picked before */
             $('p_tables').querySelectorAll('[data-t]').forEach(btn => btn.onclick = () => {
                 const c = btn.dataset.t;
-                if (SEL.has(c)) SEL.delete(c); else SEL.add(c);
+                const was = SEL.has(c) && SEL.size === 1;
+                SEL.clear();
+                if (!was) SEL.add(c);
                 qtyByHand = false;
                 renderTables();
                 calcDuration();
             });
             const nb = [...SEL].filter(c => busy.has(c)).length;
-            setSrc('src_tables', SEL.size ? `${SEL.size} picked${nb ? ` · ${nb} in use then` : ''}` : (list.length ? 'pick one or more' : ''), nb ? 'erp' : (SEL.size ? 'pm' : ''));
-        }
-
-        function pickFreeTables() {
-            const busy = busyTables();
-            SEL.clear();
-            stationTables().forEach(c => { if (!busy.has(c)) SEL.add(c); });
-            qtyByHand = false;
-            renderTables();
-            calcDuration();
+            setSrc('src_tables', SEL.size > 1 ? `${SEL.size} on this old plan, pick one to change it` : SEL.size ? `${[...SEL][0]}${nb ? ' · in use then' : ''}` : (list.length ? 'pick one' : ''), nb ? 'erp' : (SEL.size ? 'pm' : ''));
         }
 
         /* ---------- jobs of the station ---------- */
@@ -858,7 +869,8 @@
                 tables: [...SEL]
             };
             if (!plan.table_id) return JPSMS.toast('Pick a station', 'error');
-            if (stationTables().length && !SEL.size) return JPSMS.toast('Pick at least one table', 'error');
+            if (stationTables().length && !SEL.size) return JPSMS.toast('Pick a table', 'error');
+            if (SEL.size > 1 && !$('p_id').value) return JPSMS.toast('Pick one table. To pack on two tables, make two plans.', 'error');
             const busy = busyTables();
             const clash = [...SEL].filter(c => busy.has(c));
             if (clash.length && !confirm(`Table ${clash.join(', ')} is already in use then (${[...new Set(clash.map(c => busy.get(c)))].join(', ')}). Save anyway?`)) return;

@@ -1,6 +1,7 @@
 /*
- * Packing plan board (assembly.html): the day's jobs by station or by table, and the job
- * cards waiting to be planned. The plan form lives in assembly.html and calls in here:
+ * Packing plan board (assembly.html): the jobs of a day, or of a week (Mon to Sat, Sunday
+ * too when something is planned on it), by station or by table, and the job cards
+ * waiting to be planned (only those moulding has started on). The plan form lives in assembly.html and calls in here:
  *   PackBoard.load(quiet)      read the day again and redraw
  *   PackBoard.data()           last /packing/board answer
  *   PackBoard.rows()           stations (and old tables with a job) as [{ id, label, sub, raw }]
@@ -21,6 +22,9 @@
     const SPAN = PackShift.MIN_PER_DAY;                 // minutes drawn on the board (09:00 to 17:00)
     const hoursText = (min) => (min >= 60 ? `${fmt(min / 60, 1)} h` : `${Math.max(1, Math.round(min))} min`);
     const tablesOf = (p) => String(p.tables || '').split(',').map(x => x.trim()).filter(Boolean);
+    const addDays = (s, n) => { const d = dayDate(s); d.setDate(d.getDate() + n); return isoDay(d); };
+    const mondayOf = (s) => addDays(s, -((dayDate(s).getDay() + 6) % 7));
+    const weekDay = (d) => d.toLocaleDateString('en-IN', { weekday: 'short' });
 
     const store = {
         get(k, d) { try { return localStorage.getItem('packboard_' + k) || d; } catch (_) { return d; } },
@@ -28,7 +32,8 @@
     };
 
     const S = {
-        data: null, stations: [], tableRows: [], crew: null, dayState: {}, tick: 0,
+        data: null, stations: [], tableRows: [], crew: null, dayState: {}, tick: 0, ax: null,
+        span: store.get('span', 'day') === 'week' ? 'week' : 'day',
         view: store.get('view', 'stations'), assembly: store.get('assembly', ''), busyOnly: store.get('busy', '') === '1',
         lateOnly: false, q: '', sort: store.get('sort', 'due'), dragging: null, loadedAt: null, seq: 0
     };
@@ -107,11 +112,13 @@
     const tables = (station) => S.tableRows.filter(t => low(t.station_name) === low(station)).map(t => t.code);
 
     async function load(quiet) {
-        const date = $('viewDate').value || todayStr();
+        const picked = $('viewDate').value || todayStr();
+        const week = S.span === 'week';
+        const date = week ? mondayOf(picked) : picked;
         const seq = ++S.seq;
         let board;
         try {
-            const res = await JPSMS.api.request(`/packing/board?date=${encodeURIComponent(date)}`, { skipLoader: true, silentError: true });
+            const res = await JPSMS.api.request(`/packing/board?date=${encodeURIComponent(date)}&days=${week ? 7 : 1}`, { skipLoader: true, silentError: true });
             board = res.data;
         } catch (e) {
             if (seq !== S.seq) return;
@@ -124,9 +131,10 @@
         S.data = board;
         S.loadedAt = new Date();
         if (!quiet || ++S.tick % 4 === 0 || !S.crew) {
+            const single = !(board.days > 1);
             const [ds, crew] = await Promise.all([
-                PackDayClose.dayStatus(board.date).catch(() => ({})),
-                board.date === todayStr() ? api('/packing/crew').then(r => (r.data && r.data.stations) || {}).catch(() => ({})) : {}
+                single ? PackDayClose.dayStatus(board.date).catch(() => ({})) : {},
+                single && board.date === todayStr() ? api('/packing/crew').then(r => (r.data && r.data.stations) || {}).catch(() => ({})) : {}
             ]);
             if (seq !== S.seq) return;
             S.dayState = ds || {};
@@ -153,6 +161,35 @@
     }
 
     const plansOf = (station) => S.data.plans.filter(p => low(p.table_id) === low(station));
+
+    /* ---------- time axis: one day, or the days of the week side by side ---------- */
+
+    const oneDay = () => !(S.data && S.data.days > 1);
+    const isToday = () => oneDay() && S.data.date === todayStr();      // the board shows today only
+    const hasToday = () => !!S.ax && S.ax.days.includes(todayStr());  // today is one of the days shown
+
+    /* Days drawn on the board: the day, or Mon to Sat (and Sunday when a job is planned on it). */
+    function axis() {
+        let n = 1;
+        if (!oneDay()) {
+            const sun = addDays(S.data.date, 6);
+            n = S.data.plans.some(p => { const t = times(p); return t.start && (isoDay(t.start) === sun || isoDay(t.end) === sun); }) ? 7 : 6;
+        }
+        const days = Array.from({ length: n }, (_, i) => addDays(S.data.date, i));
+        const start = new Date(+dayDate(days[0]) + PackShift.START_H * 36e5);
+        const end = new Date(+dayDate(days[n - 1]) + PackShift.START_H * 36e5 + SPAN * 60000);
+        return { days, n, start, end, total: n * SPAN };
+    }
+
+    /* Where a moment sits on the board, 0-100: only the shift hours of each day are drawn. */
+    function pctOf(d) {
+        const ax = S.ax, x = new Date(d);
+        const idx = Math.round((dayDate(isoDay(x)) - dayDate(ax.days[0])) / 864e5);
+        if (idx < 0) return 0;
+        if (idx >= ax.n) return 100;
+        const m = Math.max(0, Math.min(SPAN, x.getHours() * 60 + x.getMinutes() + x.getSeconds() / 60 - PackShift.START_H * 60));
+        return (idx * SPAN + m) / ax.total * 100;
+    }
     const inAssembly = (name) => !S.assembly || low(name) === low(S.assembly);
 
     /* ---------- drawing ---------- */
@@ -161,6 +198,7 @@
         if (!S.data) return;
         /* a saved station that this factory does not have would filter everything away */
         if (S.assembly && !rows().some(r => low(r.id) === low(S.assembly))) S.assembly = '';
+        S.ax = axis();
         setUpdated(false);
         renderStrip();
         renderNotice();
@@ -181,13 +219,13 @@
         const late = sts.filter(s => s.cls === 'late').length;
         const running = plans.filter(p => p.status === 'RUNNING').length;
         const done = sts.filter(s => s.cls === 'done').length;
-        const isToday = S.data.date === todayStr();
-        const crew = isToday && S.crew ? (S.assembly ? S.crew[low(S.assembly)] || 0 : Object.values(S.crew).reduce((t, n) => t + n, 0)) : null;
+        const live = hasToday();
+        const crew = isToday() && S.crew ? (S.assembly ? S.crew[low(S.assembly)] || 0 : Object.values(S.crew).reduce((t, n) => t + n, 0)) : null;
         $('pkStrip').innerHTML = `
             <div class="pk-prog">
                 <div class="pk-prog-t"><span><b>${fmt(packed)}</b> of ${fmt(planned)} pcs packed</span><b>${pct}%</b></div>
-                <div class="pk-prog-b" role="img" aria-label="${pct}% packed${isToday && planned ? `, ${duePct}% due by now` : ''}"><i style="width:${pct}%"></i>${isToday && planned ? `<em style="left:${duePct}%" title="${fmt(due)} pcs due by now"></em>` : ''}</div>
-                <small>${isToday && planned ? `${fmt(due)} pcs due by now` : planned ? '&nbsp;' : 'Nothing planned on this day'}</small>
+                <div class="pk-prog-b" role="img" aria-label="${pct}% packed${live && planned ? `, ${duePct}% due by now` : ''}"><i style="width:${pct}%"></i>${live && planned ? `<em style="left:${duePct}%" title="${fmt(due)} pcs due by now"></em>` : ''}</div>
+                <small>${live && planned ? `${fmt(due)} pcs due by now` : planned ? '&nbsp;' : `Nothing planned ${oneDay() ? 'on this day' : 'this week'}`}</small>
             </div>
             <div class="pk-fig"><b>${fmt(running)}</b><span>running</span></div>
             <div class="pk-fig"><b>${fmt(plans.length - running - done)}</b><span>still to start</span></div>
@@ -216,19 +254,18 @@
         $('pkBusy').setAttribute('aria-pressed', String(S.busyOnly));
     }
 
-    const pctOf = (d, start) => Math.max(0, Math.min(100, (d - start) / 60000 / SPAN * 100));
-
     /* One plan as drawn on a lane: { p, s, from, to (0-100), ... }, or null when it is not on this day. */
-    function barOf(p, dayStart, dayEnd, now) {
+    function barOf(p, now) {
+        const dayStart = S.ax.start, dayEnd = S.ax.end;
         const t = times(p);
         if (!t.start) return null;
         const s = state(p, now);
         if (S.lateOnly && s.cls !== 'late') return null;
         let start = t.start, end = t.end;
-        if (p.status === 'RUNNING' && end < now && S.data.date === todayStr()) end = now; // still going past its end
+        if (p.status === 'RUNNING' && end < now && hasToday()) end = now; // still going past its end
         if (start >= dayEnd) return null;
         if (end <= dayStart) { if (p.status !== 'RUNNING') return null; end = new Date(+dayStart + 30 * 60000); }
-        const from = pctOf(start, dayStart), to = Math.max(pctOf(end, dayStart), from + 0.8);
+        const from = pctOf(start), to = Math.max(pctOf(end), from + (oneDay() ? 0.8 : 0.3));
         return { p, s, t, from: Math.min(from, 99.2), to, cutL: start < dayStart, cutR: end > dayEnd };
     }
 
@@ -238,11 +275,13 @@
         const name = p.item_name || 'Plan ' + p.id;
         const icon = { running: 'bi-play-fill', late: 'bi-exclamation-triangle-fill', done: 'bi-check2', planned: '' }[s.cls];
         const qty = `${fmt(s.packed)} / ${fmt(s.qty)}`;
-        const when = s.note || (s.cls === 'done' ? s.label.toLowerCase() : `${hhmm(t.start)}–${hhmm(t.end)}`);
+        const span = oneDay() ? `${hhmm(t.start)}–${hhmm(t.end)}`
+            : `${weekDay(t.start)} ${hhmm(t.start)}–${isoDay(t.start) === isoDay(t.end) ? '' : weekDay(t.end) + ' '}${hhmm(t.end)}`;
+        const when = s.note || (s.cls === 'done' ? s.label.toLowerCase() : span);
         const line2 = opts.table
             ? `${qty}${tb.length > 1 ? ` on ${tb.length} tables` : ''} · ${when}`
             : `${tb.length ? `${tb.length > 3 ? `${tb[0]}–${tb[tb.length - 1]} (${tb.length})` : tb.join(' ')} · ` : ''}${qty} · ${when}`;
-        const label = `${name}, ${s.label}, packed ${qty}, ${hhmm(t.start)} to ${hhmm(t.end)}${tb.length ? `, table ${tb.join(', ')}` : ''}`;
+        const label = `${name}, ${s.label}, packed ${qty}, ${PackShift.whenText(t.start)} to ${PackShift.whenText(t.end)}${tb.length ? `, table ${tb.join(', ')}` : ''}`;
         return `<button type="button" class="pk-job ${s.cls}${b.cutL ? ' cutl' : ''}${b.cutR ? ' cutr' : ''}${t.off ? ' off' : ''}${b.out ? ' out' : ''}" data-plan="${esc(p.id)}" aria-label="${esc(label)}"
             style="left:${b.from.toFixed(3)}%;width:${(b.to - b.from).toFixed(3)}%;top:${opts.pad + b.line * opts.h}px;height:${opts.h - 4}px${b.out ? `;--room:${Math.floor(b.out)}px` : ''}">
             <span class="pk-fill" style="width:${s.pct}%"></span>
@@ -263,8 +302,7 @@
 
     function laneHtml(list, key, opts) {
         const now = new Date();
-        const dayStart = new Date(+dayDate(S.data.date) + PackShift.START_H * 36e5), dayEnd = new Date(+dayStart + SPAN * 60000);
-        const bars = list.map(p => barOf(p, dayStart, dayEnd, now)).filter(Boolean);
+        const bars = list.map(p => barOf(p, now)).filter(Boolean);
         const lines = stack(bars);
         placeText(bars, opts.laneW);
         const height = Math.max(opts.min, opts.pad * 2 + lines * opts.h - 4);
@@ -273,7 +311,7 @@
 
     function dayCloseTag(name) {
         const s = S.dayState[low(name)];
-        if (!s || S.data.date > todayStr()) return '';
+        if (!s || !oneDay() || S.data.date > todayStr()) return '';
         if (s.status === 'CLOSED') return `<button type="button" class="pk-tag ok" data-dc="${esc(name)}" title="Closed by ${esc(s.closed_by || '')}"><i class="bi bi-check2" aria-hidden="true"></i>Day closed</button>`;
         if (!s.has_work && s.status !== 'REOPENED') return '';
         const late = S.data.date < todayStr() || new Date().getHours() >= PackShift.END_H;
@@ -282,7 +320,7 @@
 
     /* Share of the shift that is planned: table-minutes when the station has tables, else minutes of the line. */
     function stationLoad(r, plans) {
-        const dayStart = new Date(+dayDate(S.data.date) + PackShift.START_H * 36e5), dayEnd = new Date(+dayStart + SPAN * 60000);
+        const dayStart = S.ax.start, dayEnd = S.ax.end;
         const nTables = tables(r.id).length;
         const now = new Date();
         const usedNow = new Set();
@@ -294,7 +332,7 @@
             mins += PackShift.workBetween(new Date(Math.max(t.start, dayStart)), new Date(Math.min(t.end, dayEnd))) * (nTables ? Math.max(1, tb.length) : 1);
             if (p.status !== 'DONE' && t.start <= now && t.end > now) (tb.length ? tb : ['?' + p.id]).forEach(c => usedNow.add(c));
         });
-        return { nTables, usedNow: usedNow.size, pct: Math.min(100, Math.round(mins * 100 / (SPAN * Math.max(1, nTables)))) };
+        return { nTables, usedNow: hasToday() ? usedNow.size : 0, pct: Math.min(100, Math.round(mins * 100 / (S.ax.total * Math.max(1, nTables)))) };
     }
 
     function scannerIcon(cfg, what) {
@@ -303,31 +341,36 @@
 
     function stationLabel(r, plans) {
         const load = stationLoad(r, plans);
-        const crew = S.data.date === todayStr() && S.crew ? (S.crew[low(r.id)] || 0) : null;
+        const crew = isToday() && S.crew ? (S.crew[low(r.id)] || 0) : null;
         const std = Number(r.raw.persons) || 0;
         const crewHtml = crew === null || !r.raw.is_station ? (std ? `<span class="pk-crew">${std} packers</span>` : '')
             : `<button type="button" class="pk-crew${crew && std && crew < std ? ' short' : ''}" data-crew="${esc(r.id)}" title="Crew on ${esc(r.id)}${std ? `: standard ${std}` : ''}"><i class="bi bi-people" aria-hidden="true"></i>${crew}${std ? ` of ${std}` : ''}</button>`;
         return `<div class="pk-label">
             <div class="pk-l1"><button type="button" class="pk-name" data-open="${esc(r.id)}" title="See the tables of ${esc(r.id)}">${esc(r.label)}</button>${scannerIcon(r.raw.scanner, r.id)}${crewHtml}<button type="button" class="pk-add" data-add="${esc(r.id)}" aria-label="Plan a job on ${esc(r.label)}" title="Plan a job"><i class="bi bi-plus-lg"></i></button></div>
             <div class="pk-l2">${r.raw.is_station
-                ? `<span class="pk-load" title="${load.pct}% of the shift planned"><i style="width:${load.pct}%"></i></span><span>${load.nTables ? `${load.usedNow ? `${load.usedNow}/${load.nTables} busy` : `${load.nTables} tables`}` : `${load.pct}% planned`}</span>`
+                ? `<span class="pk-load" title="${load.pct}% of the ${oneDay() ? 'shift' : 'week'} planned"><i style="width:${load.pct}%"></i></span><span>${load.nTables ? `${load.usedNow ? `${load.usedNow}/${load.nTables} busy` : `${load.nTables} tables`}` : `${load.pct}% planned`}</span>`
                 : '<span>Old table</span>'}${r.raw.is_station ? dayCloseTag(r.id) : ''}</div></div>`;
     }
 
     function tableLabel(r, t, bars) {
-        const now = new Date(), isToday = S.data.date === todayStr();
+        const now = new Date(), today = isToday();
         const open = bars.filter(b => b.s.cls !== 'done');
-        const busyNow = isToday && open.find(b => b.t.start <= now && (b.t.end > now || b.p.status === 'RUNNING'));
+        const busyNow = today && open.find(b => b.t.start <= now && (b.t.end > now || b.p.status === 'RUNNING'));
         const lastEnd = open.reduce((m, b) => (b.t.end > m ? b.t.end : m), new Date(0));
-        const txt = !open.length ? (bars.length ? 'Free now' : 'Free all day') : busyNow ? `Busy to ${PackShift.whenText(busyNow.t.end > now ? busyNow.t.end : now, dayDate(S.data.date))}`
-            : isToday && lastEnd <= now ? `${open.length} job${open.length > 1 ? 's' : ''} not started`
+        const txt = !oneDay() ? (open.length ? `${open.length} job${open.length > 1 ? 's' : ''} to pack` : bars.length ? 'All done' : 'Free all week')
+            : !open.length ? (bars.length ? 'Free now' : 'Free all day') : busyNow ? `Busy to ${PackShift.whenText(busyNow.t.end > now ? busyNow.t.end : now, dayDate(S.data.date))}`
+            : today && lastEnd <= now ? `${open.length} job${open.length > 1 ? 's' : ''} not started`
             : `${open.length} job${open.length > 1 ? 's' : ''}, free ${PackShift.whenText(lastEnd, dayDate(S.data.date))}`;
         return `<div class="pk-label tbl"><div class="pk-l1"><button type="button" class="pk-name" data-add="${esc(r.id)}" data-table="${esc(t.code)}" title="Plan a job on table ${esc(t.code)}">${esc(t.code)}</button>${scannerIcon(t.scanner_config, t.code)}<span class="pk-tnote${open.length ? '' : ' free'}">${esc(txt)}</span><button type="button" class="pk-add" data-add="${esc(r.id)}" data-table="${esc(t.code)}" aria-label="Plan a job on table ${esc(t.code)}" title="Plan a job"><i class="bi bi-plus-lg"></i></button></div>${t.label ? `<div class="pk-l2"><span>${esc(t.label)}</span></div>` : ''}</div>`;
     }
 
     function hoursRow(corner, nowPct) {
-        let h = nowPct === null ? '' : `<em style="left:${nowPct}%">${hhmm(new Date())}</em>`;
-        for (let i = PackShift.START_H; i < PackShift.END_H; i++) h += `<span>${String(i).padStart(2, '0')}:00</span>`;
+        let h = nowPct === null ? '' : `<em style="left:${nowPct}%">${oneDay() ? '' : weekDay(new Date()) + ' '}${hhmm(new Date())}</em>`;
+        if (oneDay()) for (let i = PackShift.START_H; i < PackShift.END_H; i++) h += `<span>${String(i).padStart(2, '0')}:00</span>`;
+        else S.ax.days.forEach(d => {
+            const x = dayDate(d);
+            h += `<button type="button" class="pk-wd${d === todayStr() ? ' today' : ''}" data-day="${d}" title="Open ${esc(x.toLocaleDateString('en-IN', { weekday: 'long', day: '2-digit', month: 'short' }))}"><b>${weekDay(x)} ${x.getDate()}</b><small>${String(PackShift.START_H).padStart(2, '0')}–${PackShift.END_H}</small></button>`;
+        });
         return `<div class="pk-corner">${corner}</div><div class="pk-hours">${h}</div>`;
     }
 
@@ -335,7 +378,7 @@
         const box = $('pkBoard');
         const focusKey = document.activeElement && box.contains(document.activeElement) ? document.activeElement.dataset.plan : null;
         const list = rows().filter(r => inAssembly(r.id));
-        const laneW = Math.max(560, box.clientWidth - (window.matchMedia('(max-width: 768px)').matches ? 118 : 232));
+        const laneW = Math.max(oneDay() ? 560 : 720, box.clientWidth - (window.matchMedia('(max-width: 768px)').matches ? 118 : 232));
         let html = '', shown = 0;
 
         if (S.view === 'tables') {
@@ -363,7 +406,7 @@
                 shown += nRows || 1;
                 const load = stationLoad(r, plans);
                 html += `<div class="pk-group"><div><button type="button" class="pk-name" data-asm="${esc(r.id)}">${esc(r.label)}</button>${r.sub ? `<span>${esc(r.sub)}</span>` : ''}</div>
-                    <div><span>${load.nTables ? `${load.usedNow} of ${load.nTables} tables busy now · ${load.pct}% of the shift planned` : `${plans.length} jobs`}</span>${r.raw.is_station ? dayCloseTag(r.id) : ''}</div></div>` +
+                    <div><span>${load.nTables ? `${hasToday() ? `${load.usedNow} of ${load.nTables} tables busy now · ` : `${load.nTables} tables · `}${load.pct}% of the ${oneDay() ? 'shift' : 'week'} planned` : `${plans.length} jobs`}</span>${r.raw.is_station ? dayCloseTag(r.id) : ''}</div></div>` +
                     (body || `<div class="pk-blank in"><span>No tables set up for this station. Add them in <a href="packing_settings.html">Packing Settings</a>.</span></div>`);
             });
         } else {
@@ -378,15 +421,14 @@
         }
 
         if (!shown) {
-            html += `<div class="pk-blank"><b>${S.lateOnly ? 'No job is behind plan' : 'No jobs here on this day'}</b><span>${S.lateOnly ? '' : 'Pick a job card from the waiting list, or use Plan job.'}</span>${S.lateOnly || S.busyOnly ? '<button type="button" class="btn btn-outline btn-sm" data-showall="1">Show all</button>' : ''}</div>`;
+            html += `<div class="pk-blank"><b>${S.lateOnly ? 'No job is behind plan' : `No jobs here ${oneDay() ? 'on this day' : 'this week'}`}</b><span>${S.lateOnly ? '' : 'Pick a job card from the waiting list, or use Plan job.'}</span>${S.lateOnly || S.busyOnly ? '<button type="button" class="btn btn-outline btn-sm" data-showall="1">Show all</button>' : ''}</div>`;
         }
 
         const now = new Date();
-        const dayStart = new Date(+dayDate(S.data.date) + PackShift.START_H * 36e5);
-        const showNow = S.data.date === todayStr() && now >= dayStart && now < new Date(+dayStart + SPAN * 60000);
+        const showNow = hasToday() && PackShift.inShift(now);
         const keep = { x: box.scrollLeft, y: box.scrollTop };
-        box.innerHTML = `<div class="pk-grid ${S.view}"><div class="pk-row head">${hoursRow(S.view === 'tables' ? 'Table' : 'Station', showNow && shown ? pctOf(now, dayStart) : null)}</div>${html}
-            <div class="pk-over" aria-hidden="true">${showNow && shown ? `<div class="pk-now" style="left:${pctOf(now, dayStart)}%"></div>` : ''}<div class="pk-ghost" hidden><span></span></div></div></div>`;
+        box.innerHTML = `<div class="pk-grid ${S.view}${oneDay() ? '' : ' week'}" style="--n:${S.ax.n}"><div class="pk-row head">${hoursRow(S.view === 'tables' ? 'Table' : 'Station', showNow && shown ? pctOf(now) : null)}</div>${html}
+            <div class="pk-over" aria-hidden="true">${showNow && shown ? `<div class="pk-now" style="left:${pctOf(now)}%"></div>` : ''}<div class="pk-ghost" hidden><span></span></div></div></div>`;
         box.scrollLeft = keep.x; box.scrollTop = keep.y;
         hideTip();
         if (focusKey) { const el = box.querySelector(`.pk-job[data-plan="${CSS.escape(focusKey)}"]`); if (el) el.focus({ preventScroll: true }); }
@@ -421,7 +463,7 @@
         if (!list.length) {
             box.innerHTML = `<div class="pk-blank in"><b>${loaded ? 'No job card matches' : 'Nothing is waiting'}</b><span>${loaded
                 ? (S.assembly ? 'Try All assemblies, or clear the search.' : 'Clear the search to see them all.')
-                : 'Every job card of the last 45 days with a packing standard is planned.'}</span></div>` + more;
+                : 'Every job card of the last 45 days that moulding has started on, with a packing standard, is planned.'}</span></div>` + more;
             return;
         }
         const today = todayStr();
@@ -431,12 +473,12 @@
             const mins = st && st.cycle > 0 ? j.balance_qty * st.cycle / 60 : 0;
             const overdue = j.due_date && j.due_date < today;
             const part = j.planned_qty > 0;
-            const tip = [j.item_name, j.client_name, `${j.job_card_no}${j.or_jr_no ? ' · ' + j.or_jr_no : ''}`, `JR qty ${fmt(j.jr_qty)}${part ? `, planned ${fmt(j.planned_qty)}, left ${fmt(j.balance_qty)}` : ''}`,
+            const tip = [j.item_name, j.client_name, `${j.job_card_no}${j.or_jr_no ? ' · ' + j.or_jr_no : ''}`, `JR qty ${fmt(j.jr_qty)}${part ? `, planned ${fmt(j.planned_qty)}, left ${fmt(j.balance_qty)}` : ''}`, j.moulded_qty > 0 ? `Moulded ${fmt(j.moulded_qty)} (DPR good qty)` : '',
                 j.jr_date ? `JR date ${shortDay(j.jr_date)}` : '', ...(j.stations || []).map(s => `${codeOf(s.station)}: ${fmt(s.cycle, 2)} s/pc, ${s.persons || '?'} packers${s.own ? '' : ' (other party\'s standard)'}`)].filter(Boolean).join('\n');
             return `<div role="button" tabindex="0" class="pk-card" draggable="true" data-jc="${esc(j.job_card_no)}" title="${esc(tip)}">
                 <span class="pk-c1"><b>${esc(j.item_name || j.item_code)}</b><em>${fmt(j.balance_qty)}<small> pcs</small></em></span>
                 <span class="pk-c2"><span>${esc(j.job_card_no)} · ${esc(j.client_name || 'No party')}</span>${j.due_date ? `<span class="pk-due${overdue ? ' bad' : ''}">${overdue ? 'Overdue ' : 'Pack by '}${shortDay(j.due_date)}</span>` : ''}</span>
-                <span class="pk-c3">${st ? `<i class="pk-st">${esc(codeOf(st.station))}</i>` : ''}${mins ? `<span title="One table, at the packing standard">${hoursText(mins)} on 1 table</span>` : ''}${part ? `<span class="pk-part">${fmt(j.planned_qty)} of ${fmt(j.jr_qty)} planned</span>` : ''}</span></div>`;
+                <span class="pk-c3">${st ? `<i class="pk-st">${esc(codeOf(st.station))}</i>` : ''}${mins ? `<span title="One table, at the packing standard">${hoursText(mins)} on 1 table</span>` : ''}${part ? `<span class="pk-part">${fmt(j.planned_qty)} of ${fmt(j.jr_qty)} planned</span>` : ''}${j.moulded_qty > 0 ? `<span class="pk-mld" title="Good qty in the DPR for this job card">${fmt(j.moulded_qty)} moulded</span>` : ''}</span></div>`;
         }).join('') + more;
     }
 
@@ -447,7 +489,7 @@
         if (!p) return;
         const s = state(p), t = times(p), tip = $('pkTip');
         const line = (k, v) => (v ? `<div><dt>${k}</dt><dd>${v}</dd></div>` : '');
-        const day = dayDate(S.data.date);
+        const day = oneDay() ? dayDate(S.data.date) : new Date();
         tip.innerHTML = `<b>${esc(p.item_name || 'Plan ' + p.id)}</b><dl>
             ${line('Status', `<span class="pk-dot ${s.cls}"></span>${esc(s.label)}${s.note && s.note !== 'not started' ? ', ' + esc(s.note) : ''}`)}
             ${line('Packed', `${fmt(s.packed)} of ${fmt(s.qty)} (${s.pct}%)`)}
@@ -466,9 +508,14 @@
 
     function timeAt(lane, clientX) {
         const r = lane.getBoundingClientRect();
-        const m = Math.max(0, Math.min(SPAN - 5, Math.round((clientX - r.left) / r.width * SPAN / 5) * 5));
-        const abs = PackShift.START_H * 60 + m;
-        return { pct: m / SPAN * 100, text: `${String(Math.floor(abs / 60)).padStart(2, '0')}:${String(abs % 60).padStart(2, '0')}` };
+        const total = S.ax.total;
+        const raw = Math.max(0, Math.min(total - 5, Math.round((clientX - r.left) / r.width * total / 5) * 5));
+        const idx = Math.min(S.ax.n - 1, Math.floor(raw / SPAN));
+        const inDay = Math.min(SPAN - 5, raw - idx * SPAN);
+        const abs = PackShift.START_H * 60 + inDay;
+        const time = `${String(Math.floor(abs / 60)).padStart(2, '0')}:${String(abs % 60).padStart(2, '0')}`;
+        const date = S.ax.days[idx];
+        return { pct: (idx * SPAN + inDay) / total * 100, time, date, text: oneDay() ? time : `${weekDay(dayDate(date))} ${time}` };
     }
     function ghost(at) {
         const el = $('pkBoard').querySelector('.pk-ghost');
@@ -488,6 +535,7 @@
 
     function setAssembly(v) { S.assembly = v; store.set('assembly', v); render(); }
     function setView(v) { S.view = v; store.set('view', v); $('pkBoard').scrollTop = 0; render(); }
+    function setSpan(v) { S.span = v === 'week' ? 'week' : 'day'; store.set('span', S.span); paintDay(); load(); }
 
     function setDay(d) {
         $('viewDate').value = d;
@@ -496,10 +544,23 @@
     }
     function paintDay() {
         const v = $('viewDate').value || todayStr();
-        $('pkDayText').textContent = dayDate(v).toLocaleDateString('en-IN', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' });
-        $('pkToday').hidden = v === todayStr();
+        const week = S.span === 'week';
+        document.querySelectorAll('[data-span]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.span === S.span)));
+        $('pkPrev').setAttribute('aria-label', week ? 'Previous week' : 'Previous day');
+        $('pkNext').setAttribute('aria-label', week ? 'Next week' : 'Next day');
+        if (week) {
+            const mon = mondayOf(v), sat = addDays(mon, 5);
+            const a = dayDate(mon), b = dayDate(sat);
+            $('pkDayText').textContent = `${a.toLocaleDateString('en-IN', a.getMonth() === b.getMonth() ? { day: '2-digit' } : { day: '2-digit', month: 'short' })} – ${b.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}`;
+            $('pkToday').hidden = mon === mondayOf(todayStr());
+            $('pkToday').textContent = 'This week';
+        } else {
+            $('pkDayText').textContent = dayDate(v).toLocaleDateString('en-IN', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' });
+            $('pkToday').hidden = v === todayStr();
+            $('pkToday').textContent = 'Today';
+        }
     }
-    function step(n) { const d = dayDate($('viewDate').value || todayStr()); d.setDate(d.getDate() + n); setDay(isoDay(d)); }
+    function step(n) { const d = dayDate($('viewDate').value || todayStr()); d.setDate(d.getDate() + n * (S.span === 'week' ? 7 : 1)); setDay(isoDay(d)); }
 
     function openDayClose(station) {
         PackDayClose.open({ day: (S.data && S.data.date) || $('viewDate').value || todayStr(), station, onChange: () => load() });
@@ -521,6 +582,7 @@
         $('pkNew').onclick = () => openPlanModal(S.assembly || undefined);
         $('pkBusy').onclick = () => { S.busyOnly = !S.busyOnly; store.set('busy', S.busyOnly ? '1' : ''); render(); };
         document.querySelectorAll('[data-view]').forEach(b => { b.onclick = () => setView(b.dataset.view); });
+        document.querySelectorAll('[data-span]').forEach(b => { b.onclick = () => setSpan(b.dataset.span); });
         $('pkAssembly').addEventListener('click', e => { const b = e.target.closest('[data-asm]'); if (b) setAssembly(b.dataset.asm); });
         $('pkStrip').addEventListener('click', e => {
             if (e.target.closest('#pkLate')) { S.lateOnly = !S.lateOnly; render(); }
@@ -541,7 +603,8 @@
             if ((el = hit('[data-asm]'))) return setAssembly(el.dataset.asm);
             if (hit('[data-retry]')) return load();
             if (hit('[data-showall]')) { S.lateOnly = false; S.busyOnly = false; store.set('busy', ''); return render(); }
-            if ((el = hit('.pk-lane'))) planOn(el.dataset.lane, { time: timeAt(el, e.clientX).text });
+            if ((el = hit('[data-day]'))) { S.span = 'day'; store.set('span', 'day'); return setDay(el.dataset.day); }
+            if ((el = hit('.pk-lane'))) { const at = timeAt(el, e.clientX); planOn(el.dataset.lane, { time: at.time, date: at.date }); }
         });
         board.addEventListener('mousemove', e => {
             const lane = e.target.closest('.pk-lane');
@@ -569,7 +632,8 @@
             e.preventDefault();
             lane.classList.remove('drop');
             ghost(null);
-            planOn(lane.dataset.lane, { jc, time: timeAt(lane, e.clientX).text });
+            const at = timeAt(lane, e.clientX);
+            planOn(lane.dataset.lane, { jc, time: at.time, date: at.date });
         });
 
         const queue = $('pkQueue');
