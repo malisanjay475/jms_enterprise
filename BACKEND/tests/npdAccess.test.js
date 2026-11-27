@@ -30,7 +30,7 @@ describe('NPD stage catalogue', () => {
     const keys = STAGES.map((s) => s.key);
     expect(new Set(keys).size).toBe(keys.length);
     for (const s of STAGES) {
-      expect(['status', 'date']).toContain(s.type);
+      expect(['status', 'date', 'text']).toContain(s.type);
       expect(Array.isArray(s.depts)).toBe(true);
       expect(s.depts.length).toBeGreaterThan(0);
       expect(s.label).toBeTruthy();
@@ -138,13 +138,25 @@ describe('NPD trial report / images upload (QC)', () => {
 
 describe('NPD RM & colour finalization: whole PPC team', () => {
   const user = (role_code, role_label) => ({ role_code, role_label });
-  test('every PPC / Planning role and Planner edits RM & colour, and only that extra stage', () => {
+  test('every PPC / Planning role and Planner edits RM & colour (Planner: that and OR - JR Number only)', () => {
     for (const u of [user('planner'), user('ppc_assistant_manager'), user('ppc_executive'), user('planning_manager'), user('x', 'PPC Executive'), user('ppc_manager')]) {
       expect(editableStageKeys(u)).toContain('rm_colour');
     }
-    expect(editableStageKeys(user('planner'))).toEqual(['rm_colour']);
+    expect(editableStageKeys(user('planner'))).toEqual(['rm_colour', 'or_jr_number']);
     expect(editableStageKeys(user('dispatch_manager'))).not.toContain('rm_colour');
     expect(editableStageKeys(user('quality'))).not.toContain('rm_colour');
+  });
+});
+
+describe('NPD OR - JR Number', () => {
+  const user = (role_code, role_label) => ({ role_code, role_label });
+  test('admin, superadmin and PPC / Planning edit OR - JR Number; others do not', () => {
+    for (const u of [user('admin'), user('superadmin'), user('ppc_manager'), user('planner'), user('x', 'PPC Executive')]) {
+      expect(editableStageKeys(u)).toContain('or_jr_number');
+    }
+    for (const u of [user('dispatch_manager'), user('quality'), user('packing_manager')]) {
+      expect(editableStageKeys(u)).not.toContain('or_jr_number');
+    }
   });
 });
 
@@ -324,5 +336,14 @@ describe('NPD factory scope', () => {
     const all = { all: true, names: ['Dungra Unit 1', 'JOYO PLASTICS'] };
     expect(ids(scopeProducts(rows, all, { username: 'sa', role_code: 'superadmin' }))).toHaveLength(6);
     expect(ids(scopeProducts(rows, all, { username: 'sa', role_code: 'superadmin' }, 'JOYO PLASTICS'))).toEqual(['b', 'b1']);
+  });
+});
+
+describe('NPD OR - JR Number value', () => {
+  test('cleanStages keeps a trimmed OR - JR number and allows clearing it', () => {
+    expect(cleanStages({ or_jr_number: '  OR-123 / JR-45  ' })).toEqual({ or_jr_number: 'OR-123 / JR-45' });
+    expect(cleanStages({ or_jr_number: '' })).toEqual({ or_jr_number: '' });
+    expect(cleanStages({ or_jr_number: { x: 1 } })).toEqual({});
+    expect(cleanStages({ or_jr_number: 'x'.repeat(300) }).or_jr_number.length).toBe(100);
   });
 });

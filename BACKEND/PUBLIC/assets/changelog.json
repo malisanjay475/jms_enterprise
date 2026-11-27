@@ -14,6 +14,20 @@
   "latest": "1.211.1",
   "versions": [
     {
+      "version": "1.212.0",
+      "date": "2026-11-27",
+      "title": "NPD Tracker: OR - JR Number column, bold department names",
+      "modules": [
+        {
+          "app": "npd",
+          "changes": [
+            { "type": "feature", "text": "New OR - JR Number column (per product) after OR - JR making in ERP by Warehouse. Admin, Superadmin and the PPC / Planning team type the number in; it is searchable and in the Excel export." },
+            { "type": "improvement", "text": "Department names under every column heading are now capital, bold and underlined." }
+          ]
+        }
+      ]
+    },
+    {
       "version": "1.211.4",
       "date": "2026-11-27",
       "title": "NPD Tracker: all packing roles edit Packing stages",

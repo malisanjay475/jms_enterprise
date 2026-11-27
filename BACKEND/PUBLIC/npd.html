@@ -75,6 +75,9 @@
         .g thead th.gh span { position: sticky; left: calc(var(--wsr) + var(--wcode) + var(--wname) + 12px); }
         .g thead tr.col th { top: var(--hgrp); vertical-align: top; padding: 8px 8px 9px; }
         .g thead th small { display: block; color: var(--mute); font-weight: 500; font-size: 11.5px; margin-top: 3px; }
+        /* department names in the column headings: capital, bold, underlined */
+        .g thead th small .dpt { color: #0f172a; font-weight: 800; text-transform: uppercase; text-decoration: underline; text-underline-offset: 2px; letter-spacing: .02em; }
+        .g .tval { font-weight: 700; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
         .g .gs { border-left: 2px solid #94a3b8; }
         .g .fix { position: sticky; z-index: 1; }
         .g thead .fix { z-index: 4; }
@@ -348,6 +351,7 @@
                     ['packing_receiving', 'Packing material follow up & receiving @ factory', 'Purchase'],
                     ['or_jr_erp', 'OR making in ERP by H.O', 'H.O'],
                     ['or_jr_erp_wh', 'OR - JR making in ERP by Warehouse', 'W/H'],
+                    ['or_jr_number', 'OR - JR Number', 'Planning', 'text'],
                     ['production_planning', 'Production planning as per OR-JR ERP', 'Planning'],
                     ['jc_start_date', 'Planned job card start date', 'Planning', 'date'],
                     ['jc_end_date', 'Planned job card completion date', 'Planning', 'date'],
@@ -488,6 +492,9 @@
                 const ed = S.editable.has(key);
                 const rm = info.remarks ? `<span class="srm" title="${esc(info.remarks)}${info.by ? ' - ' + esc(info.by) : ''}${info.at ? ' · ' + esc(new Date(info.at).toLocaleString('en-GB')) : ''}">${esc(info.remarks)}</span>` : '';
                 const at = `data-id="${p.id}" data-stage="${key}"`;
+                if (type === 'text') {
+                    return `<td class="s${gs}">${ed ? `<button type="button" class="pick tval${v ? '' : ' ph'}" ${at} data-txt title="Click to type the OR - JR number">${v ? esc(v) : 'Add number'}</button>` : `<span class="tval">${v ? esc(v) : '<span class="none">—</span>'}</span>`}${rm}</td>`;
+                }
                 if (type === 'date') {
                     const t = v ? esc(fmtDate(v)) : '';
                     return `<td class="s${gs}">${ed ? `<button type="button" class="pick dval${v ? '' : ' ph'}" ${at} data-date>${t || 'Set date'}</button>` : `<span class="dval">${t || '<span class="none">—</span>'}</span>`}${rm}</td>`;
@@ -548,7 +555,7 @@
                 const ks = kidsOf(p);
                 let tot = 0, done = 0;
                 COLS.forEach(c => {
-                    if (c[3] === 'date') return;
+                    if (c[3] === 'date' || c[3] === 'text') return;
                     (MOULD_KEYS.has(c[0]) ? ks : [p]).forEach(r => {
                         const v = (r.stages || {})[c[0]];
                         if (v === 'na') return;
@@ -569,10 +576,10 @@
                 let w = `<colgroup><col style="width:var(--wsr)"><col style="width:var(--wcode)"><col style="width:var(--wname)"><col style="width:160px"><col style="width:170px">`;
                 COLS.forEach(c => { w += `<col style="width:${c[3] === 'date' ? 132 : 148}px">`; });
                 w += `<col style="width:140px"><col style="width:400px">${S.canDelete ? '<col style="width:56px">' : ''}</colgroup>`;
-                let h = `${w}<thead><tr class="grp"><th class="fix c0" rowspan="2">Sr</th><th class="fix cc" rowspan="2">Product / mould code</th><th class="fix c1" rowspan="2" style="text-align:left;padding-left:14px">Product name</th><th rowspan="2">Factory<small>H.O</small></th><th rowspan="2">Colour details for trials<small>H.O</small></th>`;
+                let h = `${w}<thead><tr class="grp"><th class="fix c0" rowspan="2">Sr</th><th class="fix cc" rowspan="2">Product / mould code</th><th class="fix c1" rowspan="2" style="text-align:left;padding-left:14px">Product name</th><th rowspan="2">Factory<small><span class="dpt">H.O</span></small></th><th rowspan="2">Colour details for trials<small><span class="dpt">H.O</span></small></th>`;
                 GROUPS.forEach((g, i) => { h += `<th class="gh gs" colspan="${g.cols.length}" data-g="${i}"><span>${esc(g.label)}</span></th>`; });
                 h += `<th class="gs" rowspan="2">Status</th><th rowspan="2">Remarks<small>All departments</small></th>${S.canDelete ? '<th rowspan="2"></th>' : ''}</tr><tr class="col">`;
-                COLS.forEach(c => { h += `<th class="${gsOf(c).trim()}">${esc(c[1])}<small>${c[2] ? esc(c[2]) + ', ' : ''}${MOULD_KEYS.has(c[0]) ? 'per mould' : 'per product'}</small></th>`; });
+                COLS.forEach(c => { h += `<th class="${gsOf(c).trim()}">${esc(c[1])}<small>${c[2] ? `<span class="dpt">${esc(c[2])}</span>, ` : ''}${MOULD_KEYS.has(c[0]) ? 'per mould' : 'per product'}</small></th>`; });
                 return h + '</tr></thead>';
             }
             function rowHtml(p, sr, kids) {
@@ -629,9 +636,9 @@
                 const q = S.q.toLowerCase();
                 const all = ordered(parents);
                 SR = new Map(all.map((p, i) => [p.id, i + 1]));
-                /* a product matches the search by its own name, code or Sr No, or a child mould's */
+                /* a product matches the search by its own name, code, OR - JR number or Sr No, or a child mould's */
                 return all.filter(p => (!S.fstat || (p.status || 'No status') === S.fstat)
-                    && (!q || String(SR.get(p.id)) === q || [p, ...kidsOf(p)].some(x => `${x.product_name} ${x.product_code || ''}`.toLowerCase().includes(q))));
+                    && (!q || String(SR.get(p.id)) === q || [p, ...kidsOf(p)].some(x => `${x.product_name} ${x.product_code || ''} ${(x.stages || {}).or_jr_number || ''}`.toLowerCase().includes(q))));
             }
             let renderSeq = 0;
             /* keep = same list redrawn in place (scroll stays); else a new list from the top,
@@ -798,6 +805,35 @@
                     else if (e.key === 'Enter' && !(f === 'remarks' && e.shiftKey)) { e.preventDefault(); end(true); }
                 });
             }
+            /* OR - JR number: typed in place, saved on Enter or leaving the box */
+            function editStageText(btn) {
+                const id = Number(btn.dataset.id), key = btn.dataset.stage, p = BYID.get(id);
+                if (!p) return;
+                const was = String((p.stages || {})[key] || '');
+                const el = document.createElement('input');
+                el.type = 'text';
+                el.className = 'ed-in';
+                el.maxLength = 100;
+                el.value = was;
+                el.placeholder = 'OR - JR number';
+                btn.replaceWith(el);
+                el.focus();
+                el.select();
+                let over = false;
+                const end = async ok => {
+                    if (over) return;
+                    over = true;
+                    const v = el.value.trim();
+                    if (!ok || v === was.trim()) return refreshBlock(id);
+                    el.disabled = true;
+                    await save(id, { stages: { [key]: v } });
+                    refreshBlock(id);
+                };
+                el.addEventListener('blur', () => end(true));
+                el.addEventListener('keydown', e => {
+                    if (e.key === 'Escape') end(false); else if (e.key === 'Enter') { e.preventDefault(); end(true); }
+                });
+            }
             function editDate(btn) {
                 const id = Number(btn.dataset.id), key = btn.dataset.stage, p = BYID.get(id);
                 if (!p) return;
@@ -840,6 +876,7 @@
                 if (!p) return;
                 if (b.dataset.edit) return editInline(b);
                 if ('date' in b.dataset) return editDate(b);
+                if ('txt' in b.dataset) return editStageText(b);
                 if (b.dataset.stage) return openMenu(b, M_STATE, (p.stages || {})[b.dataset.stage] || 'pending', v => askRemark(id, b.dataset.stage, v));
                 if ('status' in b.dataset) return openMenu(b, [['', 'No status'], ...PSTAT.filter(x => !(p.parent_sync_id && x === 'Launched')).map(x => [x, x])], statusOf(p), async v => { if (await save(id, { status: v })) render(true); });
                 if ('factory' in b.dataset) return openMenu(b, [['', 'No factory'], ...[...new Set([...S.factories, p.factory].filter(Boolean))].map(x => [x, x])], p.factory || '', async v => { if (await save(id, { factory: v })) render(true); });
