@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.216.0",
+  "latest": "1.217.0",
   "versions": [
+    {
+      "version": "1.217.0",
+      "date": "2026-11-27",
+      "title": "Hold now holds only the mould you choose",
+      "modules": [
+        {
+          "app": "planning",
+          "changes": [
+            {"type": "improvement", "text": "The Hold button now holds only the mould of the card you press, not the whole order. Other moulds of the same order stay free. Excel View, Machine Timeline and Order Tracker show HOLD only on that mould."},
+            {"type": "improvement", "text": "Holds made before today still cover the whole order and show ORDER ON HOLD. Open one from a card and press Hold only this mould to keep just that mould on hold and free the rest."},
+            {"type": "improvement", "text": "Hold History shows the mould of every hold, edit and release."}
+          ]
+        }
+      ]
+    },
     {
       "version": "1.216.0",
       "date": "2026-11-27",
