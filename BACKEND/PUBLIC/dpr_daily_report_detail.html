@@ -870,6 +870,7 @@ function buildPack(D,day,night,mm,cc,td,tn){
             client:e.client_name||'',jc:e.job_card_no||'',order:e.order_no||'',src:'master'};
           else r={m:mIdx[m],s,mould:mi(e&&e.mould_name),plan:(e&&e.plan_id)||'',stdWt:0,actWt:0,ct:0,cav:0,acav:0,pcshr:0,actCt:0,
             client:(e&&e.client_name)||'',jc:(e&&e.job_card_no)||'',order:(e&&e.order_no)||'',src:'none'};
+          if(e&&e.transfer_from)r.order=(r.order||'')+' · Transfer from '+e.transfer_from;
           Object.assign(r,{h:0,g:0,r:0,dt:{},rej:{},unm:0,slots:[]});runMap[key]=r;
         }
         if(e&&e.plan_id&&!matched)runMap[key].unm++;
