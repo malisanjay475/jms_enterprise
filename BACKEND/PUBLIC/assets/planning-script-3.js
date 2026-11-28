@@ -10277,11 +10277,11 @@
             </section>
           `);
           const labelSheets = [];
-          for (let i = 0; i < labelCardList.length; i += 2) {
+          // One 50 x 50 mm label per page (single-label roll).
+          for (let i = 0; i < labelCardList.length; i += 1) {
             labelSheets.push(`
               <div class="label-sheet">
                 ${labelCardList[i]}
-                ${labelCardList[i + 1] || '<section class="label label-blank"></section>'}
               </div>
             `);
           }
@@ -10294,15 +10294,12 @@
               <title>QR Labels - ${title}</title>
               <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"><\/script>
               <style>
-                @page { size: 103mm 50mm; margin: 0; }
+                @page { size: 50mm 50mm; margin: 0; }
                 * { box-sizing: border-box; }
-                html, body { width: 103mm; margin: 0; padding: 0; }
+                html, body { width: 50mm; margin: 0; padding: 0; }
                 body { font-family: Arial, sans-serif; color: #000; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-                .label-sheet { width: 103mm; height: 50mm; position: relative; page-break-after: always; break-after: page; overflow: hidden; }
-                .label { width: 48mm; height: 48mm; padding: 0; overflow: hidden; position: absolute; top: .35mm; background: #fff; border: 1.25px solid #000; display: grid; grid-template-rows: 3.15mm 3.45mm 3.45mm 8.05mm 3.45mm 3.45mm 1fr; }
-                .label:nth-child(1) { left: .5mm; }
-                .label:nth-child(2) { left: 53.5mm; }
-                .label-blank { padding: 0; }
+                .label-sheet { width: 50mm; height: 50mm; position: relative; page-break-after: always; break-after: page; overflow: hidden; }
+                .label { width: 48mm; height: 48mm; padding: 0; overflow: hidden; position: absolute; top: 1mm; left: 1mm; background: #fff; border: 1.25px solid #000; display: grid; grid-template-rows: 3.15mm 3.45mm 3.45mm 8.05mm 3.45mm 3.45mm 1fr; }
                 .label-title { display: flex; align-items: center; justify-content: center; min-height: 0; border-bottom: 1.05px solid #000; font-size: 6.15px; line-height: 1; font-weight: 900; letter-spacing: 0; overflow: hidden; }
                 .label-row { display: grid; grid-template-columns: 11.7mm 1fr; min-height: 0; border-bottom: 1.05px solid #000; }
                 .label-row > div, .side-row > div { min-width: 0; min-height: 0; padding: .12mm .42mm; display: flex; align-items: center; overflow: hidden; color: #000; }
