@@ -186,8 +186,24 @@ const SYNC_ALL = [
     'org_designations',
     'org_people',
     'order_completion_history',
+    'order_hold_history',
+    'order_holds',
     'or_jr_report',
     'orders',
+    'packing_boxes',
+    'packing_crew',
+    'packing_day_closes',
+    'packing_dispatches',
+    'packing_handovers',
+    'packing_item_standards',
+    'packing_label_reprints',
+    'packing_lock_events',
+    'packing_loss_reasons',
+    'packing_settings',
+    'packing_stations',
+    'packing_tables',
+    'packing_supervisor_pins',
+    'packing_workers',
     'plan_audit_logs',
     'plan_board',
     'plan_history',
@@ -246,7 +262,7 @@ const TABLES_TO_PULL = [...SYNC_ALL];
 //     is the load-bearing factory_id referenced everywhere, so it must never be re-minted.
 //   vendor_payments/grn_entries/jc_summaries/job_cards/plan_history — no writer anywhere;
 //     they only ever receive rows from MAIN, so a LOCAL has nothing to push.
-const LOCAL_NO_PUSH_TABLES = ['users', 'roles', 'erp_jr_status', 'erp_jr_summary', 'erp_jr_details', 'erp_bom', 'erp_mould_item',
+const LOCAL_NO_PUSH_TABLES = ['users', 'roles', 'user_factories', 'erp_jr_status', 'erp_jr_summary', 'erp_jr_details', 'erp_bom', 'erp_mould_item',
     'bom_master', 'bom_components', 'factories', 'vendor_payments', 'grn_entries', 'jc_summaries', 'job_cards', 'plan_history',
     // Full-replication batch 6 — head-office modules authored on MAIN (procurement, HR,
     // interview panel, job-card detail). They keep serial-id keys with internal id links
@@ -261,7 +277,23 @@ const LOCAL_NO_PUSH_TABLES = ['users', 'roles', 'erp_jr_status', 'erp_jr_summary
     'hr_kra_assignments', 'hr_kra_assignment_items', 'hr_interviews', 'hr_interview_scores',
     // Shifting destinations master: edited on MAIN only (the API refuses writes on a LOCAL,
     // which falls back to the built-in list until MAIN's rows arrive), so MAIN mints every id.
-    'shifting_locations'];
+    'shifting_locations',
+    // Packing masters (stations + item packing standard): edited on MAIN only, like
+    // shifting_locations; the API refuses writes on a LOCAL.
+    'packing_stations', 'packing_item_standards', 'packing_tables',
+    // Supervisor PINs that unlock a packing station after a wrong barcode: set on MAIN only.
+    'packing_supervisor_pins',
+    // Packing settings (stock age alert days): set on MAIN only.
+    'packing_settings',
+    // Packers list (packing crew): set on MAIN only.
+    'packing_workers',
+    // Day close lost-time reasons: set on MAIN only.
+    'packing_loss_reasons'];
+
+// Who may use which factory goes with users: MAIN decides. MAIN also ignores it from a LOCAL
+// on an older version, whose outbox re-sent old access on every cycle (so access removed on
+// MAIN came back) and whose user ids can mean somebody else on MAIN.
+const MAIN_IGNORES_FROM_LOCAL = new Set(['user_factories']);
 
 const CONFLICT_KEYS = {
     users: 'id',
@@ -396,6 +428,25 @@ const CONFLICT_KEYS = {
     factories: 'id',
     // MAIN-only writer (LOCAL_NO_PUSH_TABLES) — serial id is globally unique.
     shifting_locations: 'id',
+    // MAIN-only writers (LOCAL_NO_PUSH_TABLES) — serial id is globally unique.
+    packing_stations: 'id',
+    packing_tables: 'id',
+    packing_item_standards: 'id',
+    packing_supervisor_pins: 'id',
+    // Wrong-barcode station locks: opened and cleared on the factory LOCAL, replicate
+    // up for the packing reports. New table, sync_id minted at insert.
+    packing_lock_events: 'sync_id',
+    packing_boxes: 'sync_id',
+    packing_handovers: 'sync_id',
+    packing_dispatches: 'sync_id',
+    packing_settings: 'id',
+    packing_label_reprints: 'sync_id',
+    // Packers list: MAIN-only writer, id key. Crew rows: written on the factory LOCAL, sync_id.
+    packing_workers: 'id',
+    packing_crew: 'sync_id',
+    // Day close reasons: MAIN-only writer, id key. Day closes: written on the factory LOCAL, sync_id.
+    packing_loss_reasons: 'id',
+    packing_day_closes: 'sync_id',
     // Surrogate UUID key (full-replication batch 5): LOCAL floor grinding/rejection log,
     // serial id collides across factories. Deterministic seed in SYNC_ID_SEED_COLUMNS.
     grinding_logs: 'sync_id',
@@ -425,6 +476,11 @@ const CONFLICT_KEYS = {
     // files link to their product by product_sync_id. No factory_id: every server gets all.
     npd_products: 'sync_id',
     npd_files: 'sync_id',
+    // Order Hold (src/modules/orderHold): set on MAIN or any LOCAL, no factory_id, so every
+    // server gets all. One row per order + mould (natural key; mould_no '' = an old whole-order
+    // hold; released rows stay with active=FALSE); the history is an append-only log keyed by sync_id.
+    order_holds: 'order_no, mould_no',
+    order_hold_history: 'sync_id',
     order_completion_history: 'factory_id, order_no, action_type, changed_at',
     raw_material_issues: 'factory_id, plan_id, created_at',
     wip_stock_movements: 'factory_id, source_type, source_ref, movement_type, created_at',
@@ -582,7 +638,7 @@ const GLOBAL_MASTER_TABLES = new Set([
     'erp_mould_item'
 ]);
 
-const SYNC_ID_REQUIRED_TABLES = ['notifications', 'dpr_reasons', 'assembly_plans', 'assembly_scans', 'maintenance_tickets', 'maintenance_worklogs', 'org_units', 'org_departments', 'org_grades', 'org_designations', 'org_people', 'mould_verify_notes', 'qc_online_reports', 'qc_issue_memos', 'qc_training_sheets', 'qc_deviations', 'qc_job_checks', 'plan_audit_logs', 'mould_audit_logs', 'machine_status_logs', 'operator_history', 'plan_job_card_approval_history', 'jobs_queue', 'planning_drops', 'shifting_records', 'wip_inventory', 'wip_outward_logs', 'grinding_logs', 'qc_shift_team', 'qc_holds', 'qc_material_issues', 'qc_verifications', 'npd_products', 'npd_files'];
+const SYNC_ID_REQUIRED_TABLES = ['notifications', 'dpr_reasons', 'assembly_plans', 'assembly_scans', 'maintenance_tickets', 'maintenance_worklogs', 'org_units', 'org_departments', 'org_grades', 'org_designations', 'org_people', 'mould_verify_notes', 'qc_online_reports', 'qc_issue_memos', 'qc_training_sheets', 'qc_deviations', 'qc_job_checks', 'plan_audit_logs', 'mould_audit_logs', 'machine_status_logs', 'operator_history', 'plan_job_card_approval_history', 'jobs_queue', 'planning_drops', 'shifting_records', 'wip_inventory', 'wip_outward_logs', 'grinding_logs', 'qc_shift_team', 'qc_holds', 'qc_material_issues', 'qc_verifications', 'npd_products', 'npd_files', 'packing_lock_events', 'packing_boxes', 'packing_label_reprints', 'packing_handovers', 'packing_dispatches', 'packing_crew', 'packing_day_closes', 'order_hold_history'];
 
 // Deterministic sync_id backfill seeds for tables converted to a surrogate UUID key.
 // The same physical row already exists on MAIN AND on its factory's LOCAL (LOCAL pushed
@@ -650,7 +706,17 @@ const SYNC_SCHEMA_READY_KEY = 'SYNC_SCHEMA_READY_VERSION';
 // 2026-10-06: qc_verifications replicate (sync_id; linked to dpr_hourly by dpr_global_id).
 // 2026-10-14: npd_products / npd_files replicate both ways (sync_id; files by product_sync_id).
 // 2026-10-26: shifting_closures (job shifting closed by hand) replicates, natural key.
-const SYNC_SCHEMA_READY_VERSION = '2026-10-26-shifting-closures-v13';
+// 2026-11-18: packing_stations / packing_item_standards masters (MAIN-only writer, id key).
+// 2026-11-19: packing_supervisor_pins (MAIN-only, id) + packing_lock_events (sync_id); assembly_plans.finished_at.
+// 2026-11-20: packing_boxes + packing_label_reprints (sync_id, LOCAL -> MAIN); packing_stations.auto_print_labels.
+// 2026-11-20: packing_handovers (sync_id, LOCAL -> MAIN); packing_boxes received / rejected / handover columns.
+// 2026-11-21: packing_dispatches (sync_id, LOCAL -> MAIN); packing_boxes dispatched columns; packing_settings (MAIN-only, id).
+// 2026-11-22: packing_tables (MAIN-only, id); packing_stations.tables_seeded; assembly_plans.tables.
+// 2026-11-23: packing_workers (MAIN-only, id) + packing_crew (sync_id, LOCAL -> MAIN).
+// 2026-11-24: packing_loss_reasons (MAIN-only, id) + packing_day_closes (sync_id, LOCAL -> MAIN).
+// 2026-11-26: order_holds (natural key order_no) + order_hold_history (sync_id), both ways.
+// 2026-11-27: order_holds per mould, natural key (order_no, mould_no); history gets the mould too.
+const SYNC_SCHEMA_READY_VERSION = '2026-11-27-order-holds-mould-v23';
 
 // "Sync token" columns: app-schema UNIQUE columns that carry a per-row identity
 // token (a UUID) MAIN considers authoritative, but which a LOCAL row may have been
@@ -930,6 +996,12 @@ router.post('/push', async (req, res) => {
         if (!syncKeyValid(apiKey)) return res.status(403).json({ error: 'Invalid Key' });
         if (!TABLES_TO_PUSH.includes(table)) return res.status(400).json({ error: 'Invalid Table' });
 
+        // Answer as saved, so the sender clears the rows instead of retrying them for ever.
+        if (MAIN_IGNORES_FROM_LOCAL.has(table)) {
+            const ignored = Array.isArray(data) ? data.length : 0;
+            return res.json({ ok: true, rows: ignored, stats: { created: 0, updated: 0, failed: 0 }, partialFailures: false, ignored: true });
+        }
+
         console.log(`[Sync] Received ${Array.isArray(data) ? data.length : 0} rows for ${table} from Factory ${factoryId}`);
 
         const normalized = Array.isArray(data) ? data : [];
@@ -984,7 +1056,8 @@ router.post('/push-deletions', async (req, res) => {
         if (!syncKeyValid(apiKey)) return res.status(403).json({ error: 'Invalid Key' });
         if (!Array.isArray(deletions)) return res.status(400).json({ error: 'Invalid deletions payload' });
 
-        const normalized = deletions.filter((entry) => entry && TABLES_TO_PUSH.includes(entry.table));
+        const normalized = deletions.filter((entry) => entry && TABLES_TO_PUSH.includes(entry.table)
+            && !MAIN_IGNORES_FROM_LOCAL.has(entry.table));
         const stats = await applyRemoteDeletions(normalized);
         if (stats.failed > 0) {
             return res.status(500).json({ error: `Failed to apply ${stats.failed} deletion(s)`, stats });
@@ -1394,6 +1467,22 @@ async function ensureSyncRuntimeSchema(config = {}) {
     } catch (e) {
         console.warn('[Sync] NPD schema ensure failed:', e.message);
     }
+    try {
+        await require('../src/modules/packing/registerPackingFloorRoutes').ensurePackingFloorSchema(pool);
+        await require('../src/modules/packing/registerPackingBoxRoutes').ensurePackingBoxSchema(pool);
+        await require('../src/modules/packing/registerPackingHandoverRoutes').ensureHandoverSchema(pool);
+        await require('../src/modules/packing/registerPackingDispatchRoutes').ensureDispatchSchema(pool);
+        await require('../src/modules/packing/registerPackingTableRoutes').ensureTableSchema(pool);
+        await require('../src/modules/packing/registerPackingCrewRoutes').ensureCrewSchema(pool);
+        await require('../src/modules/packing/registerPackingDayCloseRoutes').ensureDayCloseSchema(pool);
+    } catch (e) {
+        console.warn('[Sync] Packing masters schema ensure failed:', e.message);
+    }
+    try {
+        await require('../src/modules/orderHold/registerOrderHoldRoutes').ensureOrderHoldSchema(pool);
+    } catch (e) {
+        console.warn('[Sync] Order hold schema ensure failed:', e.message);
+    }
     await resyncIdKeyedSequences();
     await ensureSyncTouchFunctions();
 
@@ -1487,6 +1576,7 @@ async function runSyncCycle() {
             if (TABLES_TO_PULL.length > 0) {
                 const pullStats = await pullChanges();
                 const deletePullStats = await pullDeletionChanges();
+                await checkLocalOnlyAccess();
                 cycleStats.created += pullStats.created;
                 cycleStats.updated += pullStats.updated;
                 cycleStats.failed += pullStats.failed + deletePullStats.failed;
@@ -1593,7 +1683,13 @@ async function drainOutbox() {
 
     for (const table of tables) {
         if (!TABLES_TO_PUSH.includes(table)) continue;
-        if (SERVER_TYPE === 'LOCAL' && LOCAL_NO_PUSH_TABLES.includes(table)) continue;
+        if (SERVER_TYPE === 'LOCAL' && LOCAL_NO_PUSH_TABLES.includes(table)) {
+            // Parked before the table became MAIN-only: it can never be sent, so drop it.
+            await pool.query('DELETE FROM sync_failed_rows WHERE table_name = $1', [table]).catch((e) => {
+                console.error(`[Sync] Outbox cleanup failed for ${table}:`, e.message);
+            });
+            continue;
+        }
 
         let res;
         try {
@@ -1918,8 +2014,11 @@ async function pullChanges() {
     const res = await pool.query(`SELECT value FROM server_config WHERE key = 'LAST_PULL'`);
     const lastPull = res.rows.length ? res.rows[0].value : '1970-01-01';
     const cycleWatermark = await getDatabaseNowIso();
+    const failures = []; // one entry per failing table, shown on MAIN's Settings page
 
     for (const table of TABLES_TO_PULL) {
+        let tableFailed = 0;
+        let sampleError = null;
         try {
             if (!(await tableExistsPublic(table))) {
                 console.warn(`[Sync] Pull skipped ${table}: table does not exist locally`);
@@ -1933,13 +2032,22 @@ async function pullChanges() {
                 stats.created += pageStats.created;
                 stats.updated += pageStats.updated;
                 stats.failed += pageStats.failed;
+                tableFailed += pageStats.failed;
+                sampleError = sampleError || pageStats.error || null;
             });
             if (pulled > 0) console.log(`[Sync] Pulled ${pulled} rows for ${table}...`);
         } catch (e) {
             console.error(`[Sync] Pull Failed ${table}:`, e.message);
             stats.failed += 1;
+            tableFailed += 1;
+            sampleError = sampleError || e.message;
         }
+        if (tableFailed) failures.push({ table, count: tableFailed, error: String(sampleError || 'see the server log').slice(0, 300) });
     }
+    await setServerConfigValue('LAST_PULL_FAILURES', JSON.stringify({
+        at: new Date().toISOString(),
+        tables: failures.sort((a, b) => b.count - a.count).slice(0, 12)
+    })).catch((e) => console.warn('[Sync] Pull failure report skipped:', e.message));
 
     // Repair assembly_scans.plan_id to the LOCAL plan identified by the stable
     // plan_sync_id. A scan pulled from another server carries that server's serial
@@ -1969,8 +2077,45 @@ async function reconcileAssemblyScanLinks() {
              WHERE s.plan_sync_id = p.sync_id
                AND s.plan_id IS DISTINCT FROM p.id
         `);
+        // packing boxes / locks carry plan_sync_id the same way
+        for (const t of ['packing_boxes', 'packing_lock_events']) {
+            if (!(await tableExistsPublic(t))) continue;
+            await pool.query(`
+                UPDATE ${t} x SET plan_id = p.id
+                  FROM assembly_plans p
+                 WHERE x.plan_sync_id = p.sync_id AND x.plan_id IS DISTINCT FROM p.id`);
+        }
     } catch (e) {
         console.warn('[Sync] reconcileAssemblyScanLinks skipped:', e.message);
+    }
+}
+
+// MAIN decides who may use which factory, but an access row made on this LOCAL (or removed on
+// MAIN while this server missed it) still works here. Report such rows to MAIN's Settings page.
+// Report only: nothing is deleted.
+const ACCESS_CHECK_INTERVAL_MS = 60 * 60 * 1000;
+let lastAccessCheckAt = 0;
+async function checkLocalOnlyAccess() {
+    if (SERVER_TYPE !== 'LOCAL' || Date.now() - lastAccessCheckAt < ACCESS_CHECK_INTERVAL_MS) return;
+    lastAccessCheckAt = Date.now();
+    try {
+        const onMain = await pullTableAllPages('user_factories', '1970-01-01');
+        if (!onMain.length) return; // MAIN always has access rows: an empty answer is not proof
+        const allowed = new Set(onMain.map((r) => `${r.user_id}|${r.factory_id}`));
+        const local = await pool.query(
+            `SELECT uf.user_id, uf.factory_id, u.username
+               FROM user_factories uf LEFT JOIN users u ON u.id = uf.user_id
+              WHERE uf.factory_id = $1 ORDER BY u.username`,
+            [LOCAL_FACTORY_ID]
+        );
+        const extra = local.rows.filter((r) => !allowed.has(`${r.user_id}|${r.factory_id}`));
+        await setServerConfigValue('LOCAL_ONLY_ACCESS', JSON.stringify({
+            count: extra.length,
+            users: extra.map((r) => r.username || `user ${r.user_id}`).slice(0, 30),
+            checkedAt: new Date().toISOString()
+        }));
+    } catch (e) {
+        console.warn('[Sync] Access check skipped:', e.message);
     }
 }
 
@@ -2232,6 +2377,102 @@ async function adoptDprHourlyTwinGlobalId(client, row, tableColumns, seenGlobalI
     }
 }
 
+// extra_qty_allowances syncs on allowed_at (part of its natural key), but Postgres keeps
+// microseconds while the JSON wire carries milliseconds. The row a server saved itself
+// (58.250967) therefore never matched its own copy coming back (58.250) and was inserted
+// again: every grant, and the production cap, doubled (25-Nov-2026). Before the upsert, give
+// this server's own row the incoming allowed_at, so the upsert finds it. Only when the
+// millisecond key is free and exactly one such row exists. updated_at stays as it is, so the
+// newer-row-wins check (including a delete) still decides.
+async function adoptExtraQtyTwinAllowedAt(client, row) {
+    if (!row || !row.plan_id || !row.colour || !row.allowed_by || !row.allowed_at) return false;
+    const key = [row.plan_id, row.colour, row.allowed_by, row.allowed_at];
+    await client.query('SAVEPOINT sync_eqa_twin');
+    let done = false;
+    try {
+        const rows = await client.query(
+            `SELECT id, (allowed_at = $4::timestamptz) AS exact FROM extra_qty_allowances
+              WHERE plan_id = $1 AND colour = $2 AND allowed_by = $3
+                AND date_trunc('milliseconds', allowed_at) = date_trunc('milliseconds', $4::timestamptz)`,
+            key
+        );
+        if (rows.rows.length === 1 && !rows.rows[0].exact) {
+            await markSyncApply(client);
+            await client.query('UPDATE extra_qty_allowances SET allowed_at = $1::timestamptz WHERE id = $2', [row.allowed_at, rows.rows[0].id]);
+            if (SERVER_TYPE !== 'LOCAL') await client.query(`SELECT set_config('${SYNC_APPLY_FLAG}', 'off', true)`);
+            done = true;
+        }
+    } catch (e) {
+        await client.query('ROLLBACK TO SAVEPOINT sync_eqa_twin');
+        console.warn('[Sync] extra_qty_allowances twin re-key skipped:', e.message);
+        done = false;
+    }
+    await client.query('RELEASE SAVEPOINT sync_eqa_twin');
+    return done;
+}
+
+// Shivani's plan_board has no global_id column: there the copies cannot be matched, and asking
+// for the column aborted every plan pull (24-Nov-2026).
+async function loadPlansWithoutFactory(client, tableColumns) {
+    if (!tableColumns.has('global_id')) return new Set();
+    const res = await client.query('SELECT global_id FROM plan_board WHERE factory_id IS NULL AND global_id IS NOT NULL');
+    return new Set((res?.rows || []).map((r) => String(r.global_id)));
+}
+
+// A plan_board row saved without a factory may later get one on one server only. The
+// conflict key is (plan_id, factory_id), so the two copies no longer match and the upsert
+// would add a second row, taking the global_id away from the first. Returns false when the
+// incoming row has no factory: it is never saved.
+async function reconcilePlanFactory(client, row, plansWithoutFactory) {
+    if (row.factory_id == null) {
+        console.warn(`[Sync] Refused plan ${row.plan_id}: it has no factory`);
+        return false;
+    }
+    if (!row.global_id) return true;
+    if (plansWithoutFactory.has(String(row.global_id))) {
+        // Keep updated_at as it is, so the upsert that follows still compares real edits.
+        await markSyncApply(client);
+        await client.query(
+            `UPDATE plan_board SET factory_id = $1::int
+              WHERE global_id = $2 AND plan_id = $3::text AND factory_id IS NULL
+                AND NOT EXISTS (SELECT 1 FROM plan_board o WHERE o.plan_id = $3::text AND o.factory_id = $1::int)`,
+            [row.factory_id, row.global_id, row.plan_id]
+        );
+        if (SERVER_TYPE !== 'LOCAL') await client.query(`SELECT set_config('${SYNC_APPLY_FLAG}', 'off', true)`);
+        plansWithoutFactory.delete(String(row.global_id));
+    }
+    return true;
+}
+
+// MAIN decides users. If MAIN's user arrives on a LOCAL and another id there still holds the
+// username (deleted and re-created on MAIN, or edited here), the local copy is renamed and
+// switched off, never deleted: deleting a user also removes its HR records. updated_at is not
+// changed, so if MAIN also sends that id, MAIN's row replaces it as usual.
+async function freeUsernameHeldByOtherId(client, table, row, err, sql, vals, stats) {
+    if (SERVER_TYPE !== 'LOCAL' || table !== 'users' || err.code !== '23505'
+        || err.constraint !== 'users_username_key' || row.id == null || !row.username) return false;
+    await client.query('SAVEPOINT sync_username');
+    try {
+        const moved = await client.query(
+            `UPDATE users SET username = username || ' (old ' || id || ')', is_active = FALSE
+              WHERE username = $1 AND id <> $2 RETURNING id`,
+            [row.username, row.id]
+        );
+        const result = await client.query(sql, vals);
+        await client.query('RELEASE SAVEPOINT sync_username');
+        if (result.rows.length && result.rows[0].inserted === true) stats.created += 1;
+        else if (result.rows.length) stats.updated += 1;
+        console.warn('[Sync] Username %s belongs to user %s on MAIN; local user %s renamed and switched off.',
+            row.username, row.id, moved.rows.map((r) => r.id).join(','));
+        return true;
+    } catch (e) {
+        await client.query('ROLLBACK TO SAVEPOINT sync_username');
+        await client.query('RELEASE SAVEPOINT sync_username');
+        console.error('[Sync] Username conflict not resolved:', e.message);
+        return false;
+    }
+}
+
 async function upsertData(table, data) {
     if (!data.length) return { created: 0, updated: 0, failed: 0 };
 
@@ -2261,6 +2502,8 @@ async function upsertData(table, data) {
             const seenGlobalIds = new Set(
                 table === 'dpr_hourly' ? data.map((r) => r && r.global_id).filter(Boolean).map(String) : []
             );
+
+            const plansWithoutFactory = table === 'plan_board' ? await loadPlansWithoutFactory(client, tableColumns) : null;
 
             for (let row of data) {
                 if (table === 'plan_board' && (row.plan_id == null || String(row.plan_id).trim() === '')) {
@@ -2338,16 +2581,18 @@ async function upsertData(table, data) {
                     // conflict key: NEW tombstones are JSON ({"plan_id":..,"factory_id":..}),
                     // while tombstones written before the change are the bare plan_id string.
                     // Match BOTH, and scope by factory so a delete on one factory's plan never
-                    // suppresses a different factory's same-numbered plan.
+                    // suppresses a different factory's same-numbered plan. A JSON tombstone with
+                    // no factory is the delete of a plan copy that had none; it must not block
+                    // the real plan of any factory.
                     const tomb = await client.query(
                         `SELECT 1 FROM sync_deletions
                           WHERE table_name = 'plan_board'
                             AND deleted_at >= COALESCE($2::timestamptz, deleted_at)
                             AND (
-                                  record_pk = $1
-                               OR (left(record_pk, 1) = '{' AND (record_pk::jsonb->>'plan_id') = $1)
+                                  (record_pk = $1 AND (factory_id IS NULL OR $3::int IS NULL OR factory_id = $3::int))
+                               OR (left(record_pk, 1) = '{' AND (record_pk::jsonb->>'plan_id') = $1
+                                   AND ($3::int IS NULL OR factory_id = $3::int))
                             )
-                            AND (factory_id IS NULL OR $3::int IS NULL OR factory_id = $3::int)
                           LIMIT 1`,
                         [String(row.plan_id), row.updated_at ?? null, row.factory_id ?? null]
                     );
@@ -2357,8 +2602,17 @@ async function upsertData(table, data) {
                     }
                 }
 
+                if (table === 'plan_board' && !(await reconcilePlanFactory(client, row, plansWithoutFactory))) {
+                    stats.skipped += 1;
+                    continue;
+                }
+
                 if (table === 'dpr_hourly') {
                     await adoptDprHourlyTwinGlobalId(client, row, tableColumns, seenGlobalIds);
+                }
+
+                if (table === 'extra_qty_allowances') {
+                    await adoptExtraQtyTwinAllowedAt(client, row);
                 }
 
                 let whereClause = hasUpdatedAtColumn
@@ -2439,6 +2693,8 @@ async function upsertData(table, data) {
                                 console.error('[Sync] Legacy notification conflict fallback failed:', legacyErr.message);
                             }
                         }
+
+                        if (await freeUsernameHeldByOtherId(client, table, row, innerErr, sql, vals, stats)) continue;
 
                         // --- external unique-token deconfliction ---
                         // Applies to ANY table that carries one or more UNIQUE indexes on
@@ -2526,6 +2782,7 @@ async function upsertData(table, data) {
                         console.error(`[Sync] Row Error in ${table}:`, innerErr.message);
                         console.error('Failed Row:', JSON.stringify(row));
                         stats.failed += 1;
+                        if (!stats.error) stats.error = innerErr.message; // one sample, for the pull report
                     }
             }
 
@@ -2597,7 +2854,7 @@ async function upsertData(table, data) {
                 // blocking ALL tables, not just the one that failed. Returning stats
                 // lets LAST_PUSH advance so all other tables keep flowing.
                 console.error(`[Sync] Upsert Batch Error ${table} (returning failed stats, not throwing):`, e.message);
-                return { created: stats.created, updated: stats.updated, failed: stats.failed + data.length };
+                return { created: stats.created, updated: stats.updated, failed: stats.failed + data.length, error: e.message };
             }
         } finally {
             client.release();
@@ -2643,7 +2900,11 @@ async function getChanges(table, since, targetFactoryId, afterId) {
     const hasFactoryId = await tableHasColumn(table, 'factory_id');
     if (targetFactoryId && hasFactoryId && !GLOBAL_MASTER_TABLES.has(table)) {
         params.push(targetFactoryId);
-        where.push(`(factory_id = $${params.length} OR factory_id IS NULL)`);
+        // A plan without a factory is one unit's plan that lost its factory, never a
+        // shared row: sending it out puts it on every unit's timeline.
+        where.push(table === 'plan_board'
+            ? `factory_id = $${params.length}`
+            : `(factory_id = $${params.length} OR factory_id IS NULL)`);
     }
 
     if (where.length) {
@@ -2681,7 +2942,8 @@ async function getDeletionChanges(since, targetFactoryId, afterId = null) {
         // so their deletions must reach every factory too, not only the owning factory.
         // A mould transfer is a delete of (mould_number, old factory) + insert under the new
         // factory, so without this every other LOCAL would keep the old-factory copy.
-        where.push(`(factory_id = $${params.length} OR factory_id IS NULL OR table_name IN ('moulds', 'mould_verify_notes'))`);
+        // Users are also sent to every factory, so their deletions are too.
+        where.push(`(factory_id = $${params.length} OR factory_id IS NULL OR table_name IN ('moulds', 'mould_verify_notes', 'users'))`);
     }
 
     let sql = `
@@ -3453,12 +3715,46 @@ function toWireDateString(value) {
     return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
 }
 
+// Plain TIMESTAMP columns that hold a wall-clock time a person planned (no time zone).
+// The pg driver reads them as a JS Date in the process zone and JSON sends the UTC
+// instant; the receiver's TIMESTAMP column then drops the "Z" and keeps the UTC clock,
+// so a packing job planned for 09:00 lands as 03:30 on the other server. Sent as a bare
+// 'YYYY-MM-DD HH:MM:SS.mmm' string they keep the planned time on any server.
+// created_at / updated_at are left alone on purpose: watermarks and the newer-row-wins
+// guard compare them in the form every deployed server already stores.
+const WALL_CLOCK_COLUMNS = {
+    assembly_plans: ['start_time', 'end_time', 'finished_at']
+};
+
+function toWireTimestampString(value) {
+    if (value == null) return value;
+    // already a zone-less time (a row sent by a fixed server, or a drained outbox row)
+    if (typeof value === 'string' && !/(Z|[+-]\d{2}:?\d{2})$/i.test(value.trim())) return value;
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) return value;
+    return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} `
+        + `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}.${String(d.getMilliseconds()).padStart(3, '0')}`;
+}
+
+function coerceWallClockColumnsForWire(table, rows) {
+    const cols = WALL_CLOCK_COLUMNS[table];
+    if (!cols || !Array.isArray(rows)) return rows;
+    return rows.map((row) => {
+        const clone = { ...row };
+        for (const col of cols) {
+            if (clone[col] != null) clone[col] = toWireTimestampString(clone[col]);
+        }
+        return clone;
+    });
+}
+
 // Rewrite DATE columns to bare 'YYYY-MM-DD' strings before a row crosses the sync
 // wire, so timezone differences between LOCAL and MAIN cannot shift the calendar day.
 // Only touches columns whose Postgres type is exactly `date` — timestamp/timestamptz
 // (e.g. updated_at) are left intact so watermark comparisons stay precise.
-async function coerceDateColumnsForWire(table, rows) {
-    if (!Array.isArray(rows) || rows.length === 0) return rows;
+async function coerceDateColumnsForWire(table, sourceRows) {
+    if (!Array.isArray(sourceRows) || sourceRows.length === 0) return sourceRows;
+    const rows = coerceWallClockColumnsForWire(table, sourceRows);
     const dateCols = await getDateColumns(table);
     if (dateCols.size === 0) return rows;
 
@@ -3599,6 +3895,7 @@ function setRuntimeForTests(patch = {}) {
     syncRerunRequested = false;
     lastPendingCountAt = 0;
     lastPendingCountValue = 0;
+    lastAccessCheckAt = 0;
     tableColumnCache.clear();
     tableExistsCache.clear();
     jsonColumnCache.clear();
@@ -3626,6 +3923,7 @@ module.exports = {
     __test: {
         fetchWithSyncRetry,
         pullChanges,
+        checkLocalOnlyAccess,
         pullTableAllPages,
         withPullOverlap,
         pushTableAllBatches,
@@ -3634,8 +3932,11 @@ module.exports = {
         rowRecordPk,
         pushRowsToMain,
         coerceJsonColumnsForWire,
+        coerceDateColumnsForWire,
         upsertData,
         adoptDprHourlyTwinGlobalId,
+        adoptExtraQtyTwinAllowedAt,
+        reconcilePlanFactory,
         setRuntimeForTests,
         resyncSerialSequence,
         findFullReplicationKeyOffenders,

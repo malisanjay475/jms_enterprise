@@ -361,9 +361,9 @@ function registerSignupAdminRoutes(app, pool, { ready, fail, pushTo, isOnline = 
       }
       const factoryId = Number.isInteger(Number(b.factory_id)) && Number(b.factory_id) > 0 ? Number(b.factory_id) : null;
       const { rows: [u] } = await client.query(
-        `INSERT INTO users (username, password, line, role_code, permissions, is_active, global_access)
-         VALUES ($1, NULL, $2, $3, '{}'::jsonb, TRUE, FALSE) RETURNING id`,
-        [username, r.department, ROLE]
+        `INSERT INTO users (username, password, line, role_code, permissions, is_active, global_access, factory_id)
+         VALUES ($1, NULL, $2, $3, '{}'::jsonb, TRUE, FALSE, $4) RETURNING id`,
+        [username, r.department, ROLE, factoryId]
       );
       if (factoryId) {
         await client.query(

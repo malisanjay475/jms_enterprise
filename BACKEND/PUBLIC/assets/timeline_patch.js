@@ -256,12 +256,12 @@
         modal.className = 'om-backdrop';
         modal.innerHTML = `
             <div class="om-content">
-                <div class="om-header">
-                    <button class="om-close" onclick="window.closeOrderModal()">&times;</button>
-                    <div id="om-product" style="font-size:1.5rem; font-weight:800; margin-bottom:4px; color:#60a5fa">Product Name</div>
-                    <div id="om-client" style="font-size:1.1rem; font-weight:500; opacity:0.9; margin-bottom:8px">Client Name</div>
-                    <div style="display:inline-block; background:rgba(255,255,255,0.15); padding:4px 12px; border-radius:20px; font-size:0.9rem; font-family:monospace; font-weight:700;">
-                        <span style="opacity:0.6">ORDER:</span> <span id="om-orderno">#12345</span>
+                <div class="om-header opv">
+                    <button class="om-close" onclick="window.closeOrderModal()" aria-label="Close">&times;</button>
+                    <div id="om-head">
+                        <div id="om-product" class="opv-title">Product Name</div>
+                        <div id="om-client" class="opv-client">Client Name</div>
+                        <div class="opv-tags"><span class="opv-tag mono">Order <b id="om-orderno">#12345</b></span></div>
                     </div>
                 </div>
                 <!-- DRILL-DOWN AREA (replaces body when drilling in) -->
@@ -271,7 +271,8 @@
                 </div>
                 <!-- PLANS LIST (default view) -->
                 <div id="om-plans-area" class="om-body">
-                    <div class="om-table-card">
+                    <div id="om-parts" style="display:none"></div>
+                    <div class="om-table-card" id="om-plain-card">
                         <table class="om-table">
                             <thead>
                                 <tr>
@@ -444,6 +445,20 @@
 
         window.lastClickedPlanId = clickedPlanId; // Track clicked plan for highlighting
 
+        // Reset what a previous order left behind
+        const seq = window._omSeq = (window._omSeq || 0) + 1;
+        const isCurrent = () => seq === window._omSeq && modal.classList.contains('active');
+        document.getElementById('om-parts').style.display = 'none';
+        document.getElementById('om-plain-card').style.display = '';
+        document.getElementById('om-head').innerHTML =
+            '<div id="om-product" class="opv-title">Product Name</div><div id="om-client" class="opv-client">Client Name</div>' +
+            '<div class="opv-tags"><span class="opv-tag mono">Order <b id="om-orderno"></b></span></div>';
+        document.getElementById('om-orderno').textContent = orderNo;
+        const histBtn = document.getElementById('om-history-btn');
+        histBtn.style.display = '';
+        histBtn.textContent = '📋 Loading plan history…';
+        document.getElementById('om-history-body').style.display = 'none';
+
         modal.style.display = 'flex';
         void modal.offsetWidth;
         modal.classList.add('active');
@@ -484,32 +499,47 @@
         // History brings in completed + dropped plans so we can show proper status.
         try {
             const api = (window.JPSMS && window.JPSMS.api) ? window.JPSMS.api : window.api;
-            const fetchWithTimeout = (url, ms) => {
-                const ctrl = new AbortController();
-                const timer = setTimeout(() => ctrl.abort(), ms);
-                return fetch(url, { signal: ctrl.signal }).finally(() => clearTimeout(timer));
-            };
-            const baseUrl = api._base || window.location.origin;
+            // api.request adds /api and sends the factory and the sign-in; a plain fetch() does not
+            const getJson = (url, ms) => Promise.race([
+                api.request(url, { skipLoader: true, silentError: true }),
+                new Promise((_, no) => setTimeout(() => no(new Error('timeout')), ms))
+            ]);
+            const partsCall = getJson(`/order-tracker/parts?order_no=${encodeURIComponent(orderNo)}`, 15000)
+                .then(r => {
+                    if (!isCurrent() || !r || !r.ok || !r.data || !r.data.parts.length || typeof window.renderOrderParts !== 'function') return false;
+                    const live = (window.allMasterPlans || []).filter(p => p.orderNo === orderNo);
+                    const box = document.getElementById('om-parts');
+                    window.renderOrderParts(document.getElementById('om-head'), box, r.data, {
+                        clicked: clickedPlanId,
+                        livePlan: id => live.find(p => String(p.planId || p.plan_id || '') === String(id)) || null
+                    });
+                    document.getElementById('om-plain-card').style.display = 'none';
+                    box.style.display = '';
+                    return true;
+                })
+                .catch(e => { console.warn('[OrderModal] part view not available:', e.message); return false; });
 
             // Fetch both in parallel
             const [detailsResult, historyResult] = await Promise.allSettled([
-                fetchWithTimeout(`${baseUrl}/api/planning/orders/${encodeURIComponent(orderNo)}/details`, 3000),
-                fetchWithTimeout(`${baseUrl}/api/planning/orders/${encodeURIComponent(orderNo)}/history`, 4000)
+                getJson(`/planning/orders/${encodeURIComponent(orderNo)}/details`, 8000),
+                getJson(`/planning/orders/${encodeURIComponent(orderNo)}/history`, 8000)
             ]);
+            const partsShown = await partsCall;
+            if (!isCurrent()) return;
 
             // Parse history first so we can merge into enriched rows
             let completedPlans = [];
             let droppedPlans   = [];
-            if (historyResult.status === 'fulfilled' && historyResult.value.ok) {
+            if (historyResult.status === 'fulfilled' && historyResult.value && historyResult.value.ok) {
                 try {
-                    const hj = await historyResult.value.json();
+                    const hj = historyResult.value;
                     if (hj.ok) { completedPlans = hj.completed || []; droppedPlans = hj.dropped || []; }
                 } catch (e) { /* ignore parse error */ }
             }
 
             // Parse details and build enriched list
-            if (detailsResult.status === 'fulfilled' && detailsResult.value.ok) {
-                const resJson = await detailsResult.value.json();
+            if (!partsShown && detailsResult.status === 'fulfilled' && detailsResult.value && detailsResult.value.ok) {
+                const resJson = detailsResult.value;
                 const summaryItems = (resJson && resJson.data) ? resJson.data : [];
 
                 if (summaryItems.length > 0) {
@@ -634,7 +664,7 @@
                 </tr></thead>
                 <tbody>${completed.map(c => `<tr style="border-bottom:1px solid #f0fdf4">
                     <td style="padding:5px 8px"><div style="font-weight:600;color:#15803d">${esc(c.mould_name||'-')}</div><div style="font-size:0.75rem;color:#6b7280;font-family:monospace">${esc(c.mould_no||'')}</div></td>
-                    <td style="padding:5px 8px;color:#334155;font-weight:600">${esc(stripMach(c.machine)||'–')}</td>
+                    <td style="padding:5px 8px;color:#334155;font-weight:600">${esc(stripMach(c.machine)||'–')}${c.transfer_at ? `<div style="font-size:0.72rem;color:#7c3aed">@ ${esc(c.transfer_at)}</div>` : ''}</td>
                     <td style="padding:5px 8px;font-family:monospace;color:#2563eb;font-weight:600;font-size:0.78rem">${esc(c.job_card_no||'—')}</td>
                     <td style="padding:5px 8px;text-align:right;font-weight:700;color:#334155">${Number(c.plan_qty||0).toLocaleString()}</td>
                     <td style="padding:5px 8px;text-align:right;font-weight:700;color:#16a34a">${Number(c.produced_qty||0).toLocaleString()}${Number(c.extra_qty||0)>0?`<div style="font-size:0.7rem;color:#15803d;font-weight:700">+${Number(c.extra_qty).toLocaleString()} extra</div>`:''}</td>
@@ -796,7 +826,8 @@
         if (!planId) return {};
         try {
             const api = (window.JPSMS && window.JPSMS.api) ? window.JPSMS.api : window.api;
-            const res = await api.get('/extra-qty?plan_id=' + encodeURIComponent(planId));
+            const fid = window._ddState.data?.factoryId; // the plan's own factory (plan IDs repeat per factory)
+            const res = await api.get('/extra-qty?plan_id=' + encodeURIComponent(planId) + (fid ? '&factory_id=' + encodeURIComponent(fid) : ''));
             const map = {};
             (res && res.ok ? res.data : []).forEach(g => {
                 const k = String(g.colour || '').trim().toUpperCase();
@@ -882,7 +913,7 @@
             try {
                 const api = (window.JPSMS && window.JPSMS.api) ? window.JPSMS.api : window.api;
                 const res = await api.post('/extra-qty/allow', {
-                    plan_id: planId, colour, extra_qty: qty, remarks,
+                    plan_id: planId, order_no: window._ddState.data?.orderNo, colour, extra_qty: qty, remarks,
                     session: { username: _eqaUser().username }
                 });
                 if (!res || !res.ok) throw new Error(res?.error || 'Failed');
@@ -909,10 +940,19 @@
         ]);
 
         const canAllow = _eqaCanAllow();
+        // Pieces made over plan. Counted colour by colour, so one colour's extra never hides
+        // another's balance; a plan without a full colour split is counted as a whole.
+        const extraOf = c => (c.planQty > 0 ? Math.max(0, c.producedQty - c.planQty) : 0);
+        const perColour = colours.length > 0
+            && colours.every(c => c.planQty > 0 || !c.producedQty)
+            && colours.reduce((s, c) => s + c.planQty, 0) === planQty;
+        const totalExtra = perColour ? colours.reduce((s, c) => s + extraOf(c), 0) : (planQty > 0 ? Math.max(0, producedQty - planQty) : 0);
+        const totalBal = perColour ? colours.reduce((s, c) => s + c.balQty, 0) : balQty;
+        const balHtml = (bal, extra) => `${_ddN(bal)}${extra > 0 ? `<div style="font-size:0.75rem;font-weight:800;color:#2563eb;white-space:nowrap">+${_ddN(extra)} extra</div>` : ''}`;
         const grants = window._ddState.grants || {};
         let colourRows = '';
         if (colours.length === 0) {
-            colourRows = `<tr><td colspan="${canAllow ? 7 : 6}" class="dd-empty">No colour plan or production entries found for this plan.</td></tr>`;
+            colourRows = `<tr><td colspan="${canAllow ? 8 : 7}" class="dd-empty">No colour plan or production entries found for this plan.</td></tr>`;
         } else {
             // Store colour names in a lookup so onclick uses an index — no string escaping needed
             window._ddColourLookup = colours.map(c => c.colour);
@@ -941,7 +981,8 @@
                     </td>
                     <td class="num">${_ddN(c.planQty)}</td>
                     <td class="num" style="color:#16a34a">${_ddN(c.producedQty)}${bar}</td>
-                    <td class="num" style="color:${c.balQty > 0 ? '#f59e0b' : '#10b981'}">${_ddN(c.balQty)}</td>
+                    <td class="num" style="color:${c.balQty > 0 ? '#f59e0b' : '#10b981'}">${balHtml(c.balQty, extraOf(c))}</td>
+                    <td class="num" style="color:#2563eb">${extraOf(c) > 0 ? '+' + _ddN(extraOf(c)) : '<span class="dim">–</span>'}</td>
                     <td class="num dim">${pct}%</td>
                     <td class="num">${extraCell}</td>
                     ${allowBtn}
@@ -958,7 +999,8 @@
             <div class="dd-summary-bar">
                 <div class="dd-stat"><div class="dd-stat-label">Plan Qty</div><div class="dd-stat-val" style="color:#1e293b">${_ddN(planQty)}</div></div>
                 <div class="dd-stat"><div class="dd-stat-label">Produced</div><div class="dd-stat-val" style="color:#16a34a">${_ddN(producedQty)}</div></div>
-                <div class="dd-stat"><div class="dd-stat-label">Balance</div><div class="dd-stat-val" style="color:${balQty > 0 ? '#f59e0b' : '#10b981'}">${_ddN(balQty)}</div></div>
+                <div class="dd-stat"><div class="dd-stat-label">Balance</div><div class="dd-stat-val" style="color:${totalBal > 0 ? '#f59e0b' : '#10b981'}">${balHtml(totalBal, totalExtra)}</div></div>
+                <div class="dd-stat"><div class="dd-stat-label">Extra Made</div><div class="dd-stat-val" style="color:${totalExtra > 0 ? '#2563eb' : '#94a3b8'}">${totalExtra > 0 ? '+' + _ddN(totalExtra) : '0'}</div></div>
                 <div class="dd-stat"><div class="dd-stat-label">Rejection</div><div class="dd-stat-val" style="color:#ef4444">${_ddN(totalReject)}</div></div>
             </div>
             <div style="padding:16px">
@@ -970,7 +1012,7 @@
                     <table class="dd-table">
                         <thead><tr>
                             <th>Colour</th><th class="num">Plan Qty</th>
-                            <th class="num">Produced</th><th class="num">Balance</th><th class="num">%</th>
+                            <th class="num">Produced</th><th class="num">Balance</th><th class="num">Extra Made</th><th class="num">%</th>
                             <th class="num">Extra Allowed</th>${canAllow ? '<th class="num">PPC</th>' : ''}
                         </tr></thead>
                         <tbody>${colourRows}</tbody>
@@ -1385,8 +1427,14 @@
 
                 // P2: over-produced flag
                 const isOverProduced = (p.balQty || 0) < 0;
-                const cardBg = isMatched ? '#fef9c3' : isOverProduced ? '#fff1f2' : (isMouldChange ? '#fff3e6' : '#ffffff');
-                const cardBorder = isMatched ? '#eab308' : isOverProduced ? '#fca5a5' : (isMouldChange ? '#fdba74' : '#e2e8f0');
+                // Mould of this order on hold (Hold button): red striped card + ON HOLD reason.
+                // Only this mould's cards; an old whole-order hold still covers every mould.
+                const hold = (typeof window.etvHoldFor === 'function') ? window.etvHoldFor(p.orderNo, p.mouldNo || p.mould_no) : null;
+                const canHold = !!(window._etvHoldPerm && window._etvHoldPerm.edit && p.orderNo);
+                const holdAttr = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+                if (hold) leftBorder = '#dc2626';
+                const cardBg = isMatched ? '#fef9c3' : hold ? 'repeating-linear-gradient(135deg, #fef2f2 0 8px, #fecaca 8px 16px)' : isOverProduced ? '#fff1f2' : (isMouldChange ? '#fff3e6' : '#ffffff');
+                const cardBorder = isMatched ? '#eab308' : hold ? '#f87171' : isOverProduced ? '#fca5a5' : (isMouldChange ? '#fdba74' : '#e2e8f0');
                 const cardShadow = isMatched ? '0 0 16px rgba(234, 179, 8, 0.75)' : isOverProduced ? '0 0 10px rgba(239,68,68,0.18)' : '0 1px 2px rgba(0,0,0,0.05)';
                 const cardBorderWidth = isMatched ? '2.5px' : isOverProduced ? '2px' : '1px';
 
@@ -1419,7 +1467,9 @@
                           <div style="font-weight:800; color:#0f172a; font-size:0.9rem; line-height:1.1">${esc(p.orderNo || '-')}</div>
                           <div style="font-size:0.7rem; font-weight:700; text-transform:uppercase; background:${bgTag}; color:${txtTag}; padding:2px 5px; border-radius:4px; white-space:nowrap">${st}</div>
                        </div>
+                       ${hold ? `<div class="tl-hold-badge" title="${hold.whole ? 'Whole order on hold (every mould)' : 'This mould on hold'}&#10;Reason: ${holdAttr(hold.reason)}&#10;By ${holdAttr(hold.updated_by || hold.held_by || '')}" style="display:block; font-size:0.72rem; font-weight:800; color:#fff; background:#b91c1c; border-radius:4px; padding:3px 6px; line-height:1.3; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"><i class="bi bi-pause-circle-fill"></i> ${hold.whole ? 'ORDER ON HOLD' : 'ON HOLD'}: ${holdAttr(hold.reason)}</div>` : ''}
                        
+                       ${p.transferFromFactory ? `<div class="tl-xfer-badge" title="Factory Transfer: this order belongs to ${esc(p.transferFromFactory)}" style="display:block; font-size:0.72rem; font-weight:800; color:#9a3412; background:#ffedd5; border:1px solid #fdba74; border-radius:4px; padding:2px 6px; line-height:1.3; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"><i class="bi bi-arrow-left-right"></i> Transfer from ${esc(p.transferFromFactory)}</div>` : ''}
                        <div style="font-size:0.8rem; color:#64748b; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis" title="${esc(p.clientName)}">
                           ${esc(p.clientName || 'Unknown')}
                        </div>
@@ -1489,6 +1539,14 @@
                            })()}
                            
                            <div style="display:flex; gap:6px;">
+                               ${canHold ? `
+                               <button class="btn icon mini tl-hold-btn"
+                                   data-order="${holdAttr(p.orderNo)}" data-mould="${holdAttr(p.mouldNo || p.mould_no || '')}" data-mname="${holdAttr(p.mouldName || '')}"
+                                   onclick="window.etvOpenHoldEl(this); event.stopPropagation();"
+                                   title="${hold ? (hold.whole ? 'Whole order on hold — click to hold only this mould, edit or release' : 'This mould is on hold — click to edit the reason or release it') : 'Put only this mould of the order on hold'}"
+                                   style="background:${hold ? '#b91c1c' : '#f8fafc'}; color:${hold ? '#fff' : '#475569'}; border:1px solid ${hold ? '#b91c1c' : '#cbd5e1'}; width:26px; height:26px; display:flex; align-items:center; justify-content:center; border-radius:4px; cursor:pointer;">
+                                   <i class="bi bi-pause-circle${hold ? '-fill' : ''}" style="font-size:0.9rem"></i>
+                               </button>` : ''}
                                ${_tlIsSuperAdmin ? `
                                <button class="btn icon mini"
                                    onclick="window.openFillDprModal('${esc(String(p.planId||p.plan_id||p.id))}','${esc(p.orderNo||'')}','${esc(m.code||'')}',${Number(p.planQty||0)}); event.stopPropagation();"
@@ -1588,6 +1646,7 @@
                         <option value="Stopped">Stopped</option>
                         <option value="Planned">Planned</option>
                         <option value="MouldChange">Mould Changed</option>
+                        <option value="Hold">On Hold</option>
                     </select>
                     <select id="filt-forecast" class="mod-select" onchange="window.superFilterTimeline()" style="border-color:#f59e0b; color:#b45309; font-weight:700">
                          <option value="">Forecast: Off</option>
@@ -1667,6 +1726,8 @@
             // plan-board fetch below — they are independent. Previously these two
             // awaits ran back-to-back, adding a full extra round-trip to every load.
             const machinesPromise = api.get(`/masters/machines?${processQuery}`);
+            // Order holds (planning-script-1.js / Excel View) — fetched alongside, never blocks the board.
+            const holdsPromise = (typeof window.etvLoadHolds === 'function') ? window.etvLoadHolds() : null;
 
             // Serve from 2-minute client memory cache if valid
             const now = Date.now();
@@ -1685,6 +1746,7 @@
             }
 
             const mRes = await machinesPromise;
+            if (holdsPromise) await holdsPromise;
             window.allMachines = ((mRes && mRes.data) ? mRes.data : []).map(machine => ({
                 code: machine.machine,
                 name: machine.machine,
@@ -2043,6 +2105,7 @@
                 if (s === 'Stopped' && mPlans.length > 0) return false;
                 if (s === 'Planned' && mPlans.length === 0) return false;
                 if (s === 'MouldChange' && !mPlans.some((p, i) => i > 0 && ((p.mouldNo || '') !== (mPlans[i - 1].mouldNo || '')))) return false;
+                if (s === 'Hold' && !mPlans.some(p => window.etvHoldFor && window.etvHoldFor(p.orderNo, p.mouldNo || p.mould_no))) return false;
             }
             if (q) {
                 if (m.code.toLowerCase().includes(q)) return true;

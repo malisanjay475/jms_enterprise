@@ -20,9 +20,10 @@ android {
         // versionCode is set by CI (APP_VERSION_CODE = 1000 + run number) so it
         // ALWAYS increases and phones auto-update. Local builds fall back to 100.
         versionCode = System.getenv("APP_VERSION_CODE")?.toIntOrNull() ?: 100
-        versionName = "1.10.0"
+        versionName = "1.11.1"
 
-        // Base URL of the JMS API. Change here to point at LOCAL / staging / prod.
+        // Placeholder API address. The real server is the factory the user picks on the
+        // login screen (data/FactoryServer.kt), which replaces this host on every request.
         //  - LOCAL factory server (no geofence, shop-floor): http://192.168.1.173:3001/  ← active
         //  - Production (https, reachable anywhere):          https://jmsocean.cloud/
         //  - Staging (http, VPN/office):                      http://72.62.228.195:9093/

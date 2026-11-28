@@ -25,61 +25,6 @@ function escHtml(value) {
     setLink('apple-touch-icon', '/apple-touch-icon.png', 'image/png');
 })();
 
-/**
- * Mobile App Shell Injection (PWA)
- * Automatically adds bottom navigation on small screens
- */
-(function initMobileApp() {
-    const path = window.location.pathname.toLowerCase();
-    if (window.innerWidth > 768 || path.endsWith('/login.html') || path.includes('/vendor/login.html')) return;
-    const mobileUser = (() => {
-        try {
-            return JSON.parse(localStorage.getItem('user') || '{}');
-        } catch (_err) {
-            return {};
-        }
-    })();
-    const perms = mobileUser.permissions || {};
-    const role = String(mobileUser.role_code || '').toLowerCase();
-    const isAdmin = role === 'admin' || role === 'superadmin';
-    const canPlan = isAdmin || ['planner', 'sr_ppc_manager', 'sr__ppc_manager', 'ppc_manager', 'ppc_ass_manager'].includes(role) || Boolean(perms.planning);
-    const canDpr = isAdmin || ['supervisor', 'planner'].includes(role) || Boolean(perms.dpr);
-    const canStats = isAdmin || role === 'management' || Boolean(perms.analyze);
-
-    // Dynamic Bottom Nav HTML with access checks and a direct 'Menu' drawer button
-    const navHTML = `
-    <nav class="mobile-nav" role="navigation" aria-label="Mobile Navigation">
-        <a href="/index.html" class="nav-item ${window.location.pathname.includes('index') || window.location.pathname === '/' ? 'active' : ''}">
-            <i class="bi bi-grid-1x2-fill"></i>
-            <span>Home</span>
-        </a>
-        ${canPlan ? `
-        <a href="/planning.html" class="nav-item ${window.location.pathname.includes('planning') ? 'active' : ''}">
-            <i class="bi bi-calendar-event"></i>
-            <span>Plan</span>
-        </a>` : ''}
-        ${canDpr ? `
-        <a href="/dpr.html?view=summary" class="nav-item ${window.location.pathname.includes('dpr') ? 'active' : ''}">
-             <i class="bi bi-pencil-square"></i>
-            <span>DPR</span>
-        </a>` : ''}
-        ${canStats ? `
-        <a href="/analyze.html" class="nav-item ${window.location.pathname.includes('analyze') ? 'active' : ''}">
-            <i class="bi bi-graph-up-arrow"></i>
-            <span>Stats</span>
-        </a>` : ''}
-        <a href="javascript:void(0)" onclick="if(window.JPSMS && window.JPSMS.toggleSidebar){window.JPSMS.toggleSidebar();}else{document.querySelector('.sidebar')?.classList.toggle('mobile-open');}" class="nav-item mobile-nav-menu-btn" aria-label="Toggle All Modules Menu">
-            <i class="bi bi-list"></i>
-            <span>Menu</span>
-        </a>
-    </nav>`;
-
-    // Inject if not present
-    if (!document.querySelector('.mobile-nav')) {
-        document.body.insertAdjacentHTML('beforeend', navHTML);
-    }
-})();
-
 (function (exports) {
     const API_BASE = '/api';
     const APP_ACCESS_CONFIG = [
@@ -121,6 +66,7 @@ function escHtml(value) {
         'raw_material_jobwise.html': 'raw_material',
         'dpr.html': 'dpr',
         'dpr_daily_report.html': 'dpr',
+        'dpr_daily_report_detail.html': 'dpr',
         'job_summary.html': 'dpr',
         // Pulse sits under the Analyze menu, so Analyze access governs it. The
         // nav hides a sub-item whose href the user cannot open, so this has to
@@ -151,10 +97,17 @@ function escHtml(value) {
         'notifications.html': 'notifications',
         'settings.html': 'settings',
         'packing_settings.html': 'settings',
+        'packing_masters.html': 'packing',
         'joy.html': 'joy_learning',
         'grinding.html': 'grinding',
         'assembly.html': 'packing',
         'scanning.html': 'packing',
+        'scan_station.html': 'packing',
+        'packing_reports.html': 'packing',
+        'packing_handover.html': 'packing',
+        'packing_stock.html': 'packing',
+        'packing_live.html': 'packing',
+        'packing_dispatch.html': 'packing',
         'scanning_list.html': 'packing',
         'scanning_dashboard.html': 'packing',
         'barcode_printer.html': 'packing',
@@ -423,7 +376,8 @@ function escHtml(value) {
             clearTimeout(timeoutId);
             console.error('API Error:', err);
             // Ignore abort errors (usually manual navigation or timeout)
-            if (err.name !== 'AbortError') {
+            // silentError: the page shows the error itself (e.g. a refused scan).
+            if (err.name !== 'AbortError' && !options.silentError) {
                 toast(err.message === 'The user aborted a request.' ? 'Request Timed Out' : err.message, 'error');
             }
             throw err;
@@ -853,29 +807,37 @@ function escHtml(value) {
 
     };
 
+    // v2 key: the old one could be set by a click while the menu was auto-collapsed.
+    const SIDEBAR_COLLAPSED_KEY = 'sidebar_collapsed_v2';
+    function isSidebarCollapsedSaved() {
+        try { return localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === 'true'; } catch (_) { return false; }
+    }
+
     function applyViewportLayoutMode() {
         if (typeof window === 'undefined' || typeof document === 'undefined' || !document.body) return;
         const width = window.innerWidth || document.documentElement.clientWidth || 0;
         const height = window.innerHeight || document.documentElement.clientHeight || 0;
-        const mobile = width <= 768;
+        const mobile = isMobileShellViewport();
         const compact = width <= 1440;
         const tight = width <= 1280 || height <= 820;
         const short = height <= 760;
-        const autoCollapse = width <= 1366 || height <= 820;
         const body = document.body;
 
         body.classList.toggle('viewport-compact', compact);
         body.classList.toggle('viewport-tight', tight);
         body.classList.toggle('viewport-short', short);
-        body.classList.toggle('sidebar-auto-collapsed', !mobile && autoCollapse);
+        body.classList.remove('sidebar-auto-collapsed');
 
         const sb = document.querySelector('.sidebar');
         if (sb) {
-            if (mobile) {
-                sb.classList.remove('auto-collapsed');
-            } else {
+            // The menu stays open at every window size; only the user collapses it.
+            sb.classList.remove('auto-collapsed');
+            // The phone drawer always shows full names; the saved collapse is for the docked menu.
+            const collapsed = !mobile && isSidebarCollapsedSaved();
+            sb.classList.toggle('collapsed', collapsed);
+            body.classList.toggle('sidebar-collapsed', collapsed);
+            if (!mobile) {
                 sb.classList.remove('mobile-open');
-                sb.classList.toggle('auto-collapsed', autoCollapse);
                 body.classList.remove('mobile-sidebar-open');
             }
         }
@@ -908,7 +870,7 @@ function escHtml(value) {
 
     function isMobileShellViewport() {
         if (typeof window === 'undefined') return false;
-        return (window.innerWidth || document.documentElement.clientWidth || 0) <= 1024;
+        return (window.innerWidth || document.documentElement.clientWidth || 0) <= 600; // phones only: the menu is a drawer there
     }
 
     function refreshMobileSidebarControls() {
@@ -926,7 +888,7 @@ function escHtml(value) {
 
         if (sidebar) {
             sidebar.id = sidebar.id || 'appSidebar';
-            sidebar.setAttribute('aria-hidden', open ? 'false' : 'true');
+            sidebar.setAttribute('aria-hidden', enabled && !open ? 'true' : 'false');
         }
 
         if (fab) {
@@ -1018,6 +980,12 @@ function escHtml(value) {
         refreshMobileSidebarControls();
     }
 
+    function setSidebarCollapsed(sb, collapsed) {
+        sb.classList.toggle('collapsed', collapsed);
+        document.body.classList.toggle('sidebar-collapsed', collapsed);
+        try { localStorage.setItem(SIDEBAR_COLLAPSED_KEY, String(collapsed)); } catch (_) { /* private mode */ }
+    }
+
     exports.closeSidebar = () => {
         const sb = document.querySelector('.sidebar');
         if (!sb) return;
@@ -1032,8 +1000,7 @@ function escHtml(value) {
                 sb.classList.toggle('mobile-open');
                 refreshMobileSidebarControls();
             } else {
-                sb.classList.toggle('collapsed');
-                localStorage.setItem('sidebar_collapsed', sb.classList.contains('collapsed'));
+                setSidebarCollapsed(sb, !sb.classList.contains('collapsed'));
                 applyViewportLayoutMode();
             }
         }
@@ -1127,8 +1094,7 @@ function escHtml(value) {
         '.filters',
         '.filter-bar',
         '.hero',
-        '.hero-card',
-        '.mobile-nav .nav-item'
+        '.hero-card'
     ];
     let premiumMotionObserver = null;
     let premiumMotionMutationObserver = null;
@@ -1183,10 +1149,12 @@ function escHtml(value) {
         const reduceMotion = typeof window.matchMedia === 'function'
             && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
         let order = 0;
+        const toMeasure = [];
 
         collectMotionTargets(root).forEach(node => {
             if (!(node instanceof HTMLElement)) return;
-            if (node.id === 'global-loader' || node.closest('#global-loader')) return;
+            if (node.id === 'global-loader' || node.closest('#global-loader, [data-no-motion]')) return;
+            if (node.dataset.motionBound === 'true' && node.classList.contains('motion-visible')) { order++; return; }
             if (node.dataset.motionBound !== 'true') {
                 node.dataset.motionBound = 'true';
                 node.classList.add('motion-target');
@@ -1205,11 +1173,14 @@ function escHtml(value) {
             }
 
             premiumMotionObserver.observe(node);
-            const rect = node.getBoundingClientRect();
-            if (rect.top <= window.innerHeight * 0.9) {
-                revealMotionTarget(node);
-                premiumMotionObserver.unobserve(node);
-            }
+            toMeasure.push(node);
+        });
+
+        // Read positions only after every write above, so the page is laid out once.
+        const limit = window.innerHeight * 0.9;
+        toMeasure.filter(node => node.getBoundingClientRect().top <= limit).forEach(node => {
+            revealMotionTarget(node);
+            premiumMotionObserver.unobserve(node);
         });
     }
 
@@ -1429,6 +1400,7 @@ function escHtml(value) {
                 { id: 'dpr_hourly', label: 'DPR Hourly', icon: 'bi-clock-history', href: 'dpr.html?view=hourly' },
                 { id: 'dpr_summary', label: 'Compliance Summary', icon: 'bi-calendar-check', href: 'dpr.html?view=summary' },
                 { id: 'dpr_daily_rep', label: 'Daily Report (NEW)', icon: 'bi-bar-chart-fill', href: 'dpr_daily_report.html' },
+                { id: 'dpr_daily_detail', label: 'Daily Report (Detailed)', icon: 'bi-clipboard2-data-fill', href: 'dpr_daily_report_detail.html' },
                 { id: 'dpr_job_sum', label: 'Job Summary', icon: 'bi-file-earmark-medical', href: 'job_summary.html' },
                 { id: 'dpr_setup', label: 'DPR Setup', icon: 'bi-folder-check', href: 'dpr.html?view=setup' },
                 { id: 'dpr_settings', label: 'DPR Settings', icon: 'bi-gear', href: 'dpr.html?view=settings' }
@@ -1654,10 +1626,17 @@ function escHtml(value) {
             icon: 'bi-box2-fill',
             href: 'assembly.html',
             items: [
-                { id: 'pack_assembly', label: 'Assembly Planning', icon: 'bi-grid-3x3-gap-fill', href: 'assembly.html' },
-                { id: 'pack_scan', label: 'Production Scanning', icon: 'bi-upc-scan', href: 'scanning.html' },
-                { id: 'pack_scan', label: 'Scanning (List)', icon: 'bi-list-ul', href: 'scanning_list.html' },
-                { id: 'pack_scan', label: 'Dashboard', icon: 'bi-speedometer2', href: 'scanning_dashboard.html' },
+                { id: 'pack_masters', label: 'Packing Masters', icon: 'bi-box-seam', href: 'packing_masters.html' },
+                { id: 'pack_assembly', label: 'Packing Plan', icon: 'bi-grid-3x3-gap-fill', href: 'assembly.html' },
+                { id: 'pack_scan', label: 'Station Scanning', icon: 'bi-upc-scan', href: 'scan_station.html' },
+                { id: 'pack_scan', label: 'Production Scanning', icon: 'bi-upc', href: 'scanning.html' },
+                { id: 'pack_scan', label: 'Scanning List', icon: 'bi-list-ul', href: 'scanning_list.html' },
+                { id: 'pack_scan', label: 'Live Screen', icon: 'bi-broadcast', href: 'packing_live.html' },
+                { id: 'pack_scan', label: 'Scanning Dashboard', icon: 'bi-speedometer2', href: 'scanning_dashboard.html' },
+                { id: 'pack_scan', label: 'Store Handover', icon: 'bi-box-arrow-right', href: 'packing_handover.html' },
+                { id: 'pack_scan', label: 'Packed Stock', icon: 'bi-boxes', href: 'packing_stock.html' },
+                { id: 'pack_scan', label: 'Dispatch', icon: 'bi-truck', href: 'packing_dispatch.html' },
+                { id: 'pack_scan', label: 'Packing Reports', icon: 'bi-file-earmark-bar-graph', href: 'packing_reports.html' },
                 { id: 'pack_barcode', label: 'Barcode Print', icon: 'bi-printer', href: 'barcode_printer.html' },
                 { id: 'pack_settings', label: 'Settings', icon: 'bi-gear', href: 'packing_settings.html' }
             ]
@@ -1888,7 +1867,7 @@ function escHtml(value) {
       <div id="jms-version-badge" style="padding:10px 16px 6px;text-align:center;font-size:11px;color:rgba(255,255,255,0.35);letter-spacing:0.3px;user-select:none;">
         JMS &nbsp;·&nbsp; <span id="jms-version-text">…</span>
       </div>
-      <div style="padding:0 16px 14px;text-align:center;font-size:10px;color:rgba(255,255,255,0.22);user-select:none;line-height:1.5;">
+      <div class="sidebar-copyright" style="padding:0 16px 14px;text-align:center;font-size:10px;color:rgba(255,255,255,0.22);user-select:none;line-height:1.5;">
         &copy; 2026 Joyo Plastics. All rights reserved.
       </div>
     `;
@@ -1913,13 +1892,6 @@ function escHtml(value) {
             }).catch(() => {});
         }
 
-        // Restore Collapsed State
-        const isCollapsed = localStorage.getItem('sidebar_collapsed') === 'true';
-        if (isCollapsed) {
-            sidebar.classList.add('collapsed');
-            document.body.classList.add('sidebar-collapsed'); // Optional for main content adjustment
-        }
-
         // Toggle Logic
         const toggleBtn = sidebar.querySelector('#sidebar-toggle');
         if (toggleBtn) {
@@ -1929,13 +1901,7 @@ function escHtml(value) {
                     return;
                 }
 
-                sidebar.classList.toggle('collapsed');
-                const collapsed = sidebar.classList.contains('collapsed');
-                localStorage.setItem('sidebar_collapsed', collapsed);
-
-                // Adjust Main Content margin if needed via global class
-                if (collapsed) document.body.classList.add('sidebar-collapsed');
-                else document.body.classList.remove('sidebar-collapsed');
+                setSidebarCollapsed(sidebar, !sidebar.classList.contains('collapsed'));
             };
         }
 
@@ -2514,7 +2480,7 @@ function escHtml(value) {
     '': 'dashboard', '/': 'dashboard', 'index.html': 'dashboard',
     'planning.html': 'planning', 'order_tracker.html': 'planning', 'npd.html': 'npd', 'analyze.html': 'analyze',
     'raw_material_jobwise.html': 'raw_material', 'dpr.html': 'dpr',
-    'dpr_daily_report.html': 'dpr', 'job_summary.html': 'dpr',
+    'dpr_daily_report.html': 'dpr', 'dpr_daily_report_detail.html': 'dpr', 'job_summary.html': 'dpr',
     'purchase_orders.html': 'purchase', 'purchase_vendors.html': 'purchase',
     'purchase_grn.html': 'purchase', 'masters.html': 'masters',
     'quality.html': 'quality', 'qc_memo.html': 'quality', 'fpa.html': 'quality', 'qc_setup_report.html': 'quality', 'hr.html': 'hr', 'hr_performance.html': 'hr',
@@ -2525,9 +2491,9 @@ function escHtml(value) {
     'shifting.html': 'shifting_module', 'wip.html': 'wip_internal',
     'reports.html': 'reports', 'users.html': 'users', 'chat_users.html': 'users',
     'notifications.html': 'notifications', 'settings.html': 'settings',
-    'packing_settings.html': 'settings', 'joy.html': 'joy_learning',
+    'packing_settings.html': 'settings', 'packing_masters.html': 'packing', 'joy.html': 'joy_learning',
     'grinding.html': 'grinding', 'assembly.html': 'packing',
-    'scanning.html': 'packing', 'scanning_list.html': 'packing',
+    'scanning.html': 'packing', 'scanning_list.html': 'packing', 'scan_station.html': 'packing', 'packing_reports.html': 'packing', 'packing_handover.html': 'packing', 'packing_stock.html': 'packing', 'packing_live.html': 'packing', 'packing_dispatch.html': 'packing',
     'scanning_dashboard.html': 'packing', 'barcode_printer.html': 'packing',
     'supervisor.html': 'supervisor_app', 'qcsupervisor.html': 'qc_supervisor_app',
     'shifting_supervisor.html': 'shifting_supervisor_app',

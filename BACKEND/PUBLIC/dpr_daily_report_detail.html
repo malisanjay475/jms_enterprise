@@ -1,0 +1,969 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Daily Report (Detailed) · JMS OCEAN</title>
+    <link href="/assets/vendor/fonts/g-5710dd5f5b.css" rel="stylesheet">
+    <link rel="stylesheet" href="/assets/bootstrap-icons.min.css">
+    <link rel="stylesheet" href="/assets/app.css?v=12">
+    <script src="/assets/vendor/jsdelivr/chart.js"></script>
+    <script src="/assets/vendor/jsdelivr/chartjs-plugin-datalabels@2.0.0/chartjs-plugin-datalabels.min.js"></script>
+    <!--
+      Daily Report (Detailed). Sits next to the older dpr_daily_report.html, which is unchanged.
+      Same live APIs as that page (summary-matrix Day + Night, masters/machines, change-counts,
+      shift team-range) plus masters/moulds as the std fallback when an hour has no DPR setup.
+      Every Kg is worked out per mould run: std pcs/hr = 3600 / std cycle x std cavities,
+      piece weight = Mould Master std (or setup actual, by option). On today's date only
+      finished hours (and hours already entered) count toward the target.
+    -->
+    <style>
+.ddr{
+  --bg:#f1f5f9; --card:#ffffff; --ink:#17384c; --muted:#5d778a; --line:#d9e6ee; --soft:#f4f8fb;
+  --primary:#024c81; --teal:#00929e; --gold:#e09a12;
+  --good:#0f9d6b; --warn:#d98a06; --bad:#d6453d; --idle:#9aaebb;
+  --good-bg:#e3f5ee; --warn-bg:#fdf1dc; --bad-bg:#fbe7e5; --idle-bg:#eef2f5;
+  --day:#e7a31a; --night:#4f5fc9;
+  --display:'Inter',system-ui,sans-serif; --body:'Inter',system-ui,-apple-system,'Segoe UI',sans-serif;
+}
+/* Single light theme on purpose: it must look exactly like the JMS app, which has no dark mode. */
+.ddr,.ddr *{box-sizing:border-box}
+.ddr{color:var(--ink);font-family:var(--body);font-size:14px;line-height:1.45;font-variant-numeric:tabular-nums}
+.wrap{max-width:1600px;margin:0 auto;padding:4px 0 60px;display:flex;flex-direction:column;gap:16px}
+h1,h2,h3{font-family:var(--display);margin:0;text-wrap:balance}
+h1{font-size:1.45rem} h2{font-size:1.05rem} h3{font-size:.92rem}
+.muted{color:var(--muted)} .small{font-size:.8rem}
+.lbl{font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--muted)}
+button{font:inherit;color:inherit;cursor:pointer}
+button:focus-visible,select:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--teal);outline-offset:2px}
+.dcard{background:var(--card);border:1px solid var(--line);border-radius:12px}
+.pad{padding:16px}
+.row{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
+.sp{flex:1}
+.seg{display:inline-flex;background:var(--soft);border:1px solid var(--line);border-radius:9px;padding:3px;gap:2px;flex-wrap:wrap}
+.seg button{border:0;background:transparent;padding:6px 12px;border-radius:7px;font-weight:600;font-size:.82rem;color:var(--muted)}
+.seg button[aria-pressed="true"]{background:var(--card);color:var(--primary);box-shadow:0 1px 3px rgba(0,0,0,.12)}
+/* top bar */
+.top{display:grid;grid-template-columns:1fr auto;gap:14px;align-items:end}
+.top .meta{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px}
+.chip{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:999px;font-size:.75rem;font-weight:600;background:var(--soft);border:1px solid var(--line);color:var(--muted)}
+.chip b{color:var(--ink)}
+/* decisions */
+.dec{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+.dec .q{font-size:.8rem;font-weight:700;margin-bottom:6px}
+.dec .seg{width:100%} .dec .seg button{flex:1}
+/* KPIs */
+.kpis{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:10px}
+.kpi{padding:12px 14px;display:flex;flex-direction:column;gap:3px;border-left:4px solid var(--line)}
+.kpi .v{font-family:var(--display);font-size:1.55rem;font-weight:700;line-height:1.1}
+.kpi .v small{font-size:.75rem;color:var(--muted);font-weight:600}
+.kpi .s{font-size:.74rem;color:var(--muted)}
+.kpi.good{border-left-color:var(--good)} .kpi.warn{border-left-color:var(--warn)} .kpi.bad{border-left-color:var(--bad)} .kpi.info{border-left-color:var(--primary)}
+/* pills */
+.pill{display:inline-block;padding:1px 8px;border-radius:999px;font-size:.72rem;font-weight:700;white-space:nowrap}
+.pill.g{background:var(--good-bg);color:var(--good)} .pill.a{background:var(--warn-bg);color:var(--warn)} .pill.r{background:var(--bad-bg);color:var(--bad)} .pill.z{background:var(--idle-bg);color:var(--idle)}
+.tg{color:var(--good)} .ta{color:var(--warn)} .tr{color:var(--bad)}
+/* waterfall */
+.wf{display:flex;flex-direction:column;gap:3px}
+.wf .r{display:grid;grid-template-columns:minmax(150px,240px) minmax(0,1fr) 92px 64px;gap:10px;align-items:center;padding:3px 6px;border-radius:6px;font-size:.82rem}
+.wf .r.tot{font-weight:700;background:var(--soft)}
+.wf .r[data-k]{cursor:pointer} .wf .r[data-k]:hover{background:var(--soft)}
+.wf .track{position:relative;height:16px}
+.wf .bar{position:absolute;top:2px;bottom:2px;border-radius:3px}
+.wf .num{text-align:right;font-weight:600} .wf .pc{text-align:right;color:var(--muted);font-size:.75rem}
+.b-tot{background:var(--primary)} .b-good{background:var(--good)} .b-ex{background:var(--idle);opacity:.55} .b-loss{background:var(--bad);opacity:.8} .b-plan{background:var(--teal)} .b-co{background:var(--gold)} .b-gain{background:var(--good);opacity:.5}
+/* tables */
+.tw{overflow-x:auto}
+table.t{width:100%;border-collapse:collapse;font-size:.8rem}
+.t th{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:700;text-align:right;padding:8px 8px;border-bottom:2px solid var(--line);white-space:nowrap;background:var(--card);position:sticky;top:0}
+.t td{padding:7px 8px;text-align:right;border-bottom:1px solid var(--line);white-space:nowrap}
+.t .l{text-align:left}
+.t tr.click{cursor:pointer} .t tr.click:hover td{background:var(--soft)}
+.t tr.sub td{background:var(--soft);font-size:.76rem}
+.t tr.tot td{font-weight:800;background:var(--soft);border-top:2px solid var(--line)}
+.t tr.grp td{background:var(--soft);font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);text-align:left}
+.ebar{display:inline-block;width:70px;height:6px;border-radius:99px;background:var(--idle-bg);vertical-align:middle;margin-left:6px;overflow:hidden}
+.ebar i{display:block;height:100%}
+.two{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);gap:16px}
+.head{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:10px}
+/* pareto */
+.par{display:flex;flex-direction:column;gap:6px}
+.par .r{display:grid;grid-template-columns:minmax(0,170px) minmax(0,1fr) 62px;gap:8px;align-items:center;font-size:.8rem}
+.par .r .n{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.par .tr2{height:12px;background:var(--idle-bg);border-radius:3px;overflow:hidden}
+.par .tr2 i{display:block;height:100%;background:var(--bad);opacity:.75}
+.par .r.np .tr2 i{background:var(--idle)}
+/* matrix */
+.mx th.dd{color:var(--day)} .mx th.nn{color:var(--night)}
+.mx td:first-child,.mx th:first-child{position:sticky;left:0;background:var(--card);text-align:left;z-index:1;min-width:210px;white-space:normal}
+.mx tr.grp td:first-child{background:var(--soft)}
+.mx td.f{background:color-mix(in srgb,var(--primary) 6%,var(--card));font-weight:700}
+.mx tr.k td:first-child{cursor:pointer;text-decoration:underline dotted var(--muted)}
+/* board */
+.lines{display:flex;flex-direction:column;gap:14px}
+.lsec .lh{display:flex;gap:12px;align-items:baseline;flex-wrap:wrap;padding:12px 14px;border-bottom:1px solid var(--line)}
+.tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:10px;padding:12px}
+.tile{border:1px solid var(--line);border-radius:10px;padding:10px;display:flex;flex-direction:column;gap:6px;background:var(--card);text-align:left}
+.tile:hover{border-color:var(--primary)}
+.tile .nm{font-weight:700;font-size:.82rem}
+.tile .mo{font-size:.74rem;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.strip{display:grid;grid-template-columns:repeat(24,1fr);gap:1px}
+.strip i{height:14px;border-radius:2px;background:var(--idle-bg)}
+.strip i.sep{box-shadow:-2px 0 0 var(--muted)}
+.tile .nums{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;font-size:.72rem}
+.tile .nums b{display:block;font-size:.85rem}
+.legend{display:flex;gap:12px;flex-wrap:wrap;font-size:.74rem;color:var(--muted)}
+.legend i{display:inline-block;width:12px;height:10px;border-radius:2px;margin-right:4px;vertical-align:-1px}
+/* drawer */
+.ov{position:fixed;inset:0;background:rgba(5,20,30,.55);z-index:50;display:flex;justify-content:flex-end}
+.drawer{background:var(--bg);width:min(980px,100%);height:100%;overflow-y:auto;padding:18px max(16px,env(safe-area-inset-right,0px)) 40px 18px;display:flex;flex-direction:column;gap:14px}
+.x{border:1px solid var(--line);background:var(--card);border-radius:8px;padding:4px 10px;font-weight:700}
+.formula{font-size:.8rem;line-height:1.6}
+.formula code{font-family:ui-monospace,Consolas,monospace;font-size:.78rem;background:var(--soft);padding:1px 5px;border-radius:4px}
+.note{font-size:.78rem;color:var(--muted);border-left:3px solid var(--gold);padding:6px 10px;background:var(--card);border-radius:0 8px 8px 0}
+.calc{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:10px}
+.calc .dcard{padding:12px}
+.calc .v{font-family:var(--display);font-weight:700;font-size:1.1rem}
+/* ===== JMS look: gradient hero, stripe KPI cards, icon chips ===== */
+.dhero{background:linear-gradient(135deg,#024c81 0%,#0f8ea8 100%);border-radius:18px;padding:16px 20px;color:#fff;box-shadow:0 12px 30px -14px rgba(2,76,129,.55);position:relative;overflow:hidden;display:flex;flex-direction:column;gap:12px}
+.dhero::after{content:"";position:absolute;right:-70px;top:-70px;width:220px;height:220px;border-radius:50%;background:rgba(255,255,255,.08);pointer-events:none}
+.dhero>*{position:relative;z-index:1}
+.dhero .t1{display:flex;gap:14px;align-items:center;flex-wrap:wrap}
+.dhero .ttl{display:flex;align-items:center;gap:10px;font-family:var(--display);font-size:1.2rem;font-weight:700}
+.dhero .ttl svg{width:22px;height:22px}
+.dhero .sub{font-size:.74rem;font-weight:600;opacity:.85;margin-top:2px}
+.dhero .fl label{display:block;font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;opacity:.8;margin-bottom:3px}
+.dhero .date{background:#fff;color:#17384c;border-radius:10px;padding:7px 10px;font-weight:800;font-size:.84rem}
+.hb{display:inline-flex;align-items:center;gap:6px;padding:8px 14px;border-radius:10px;font-weight:800;font-size:.8rem;border:1px solid rgba(255,255,255,.35);background:rgba(255,255,255,.15);color:#fff}
+.hb.solid{background:#fff;color:#024c81;border-color:#fff}
+.hb svg{width:14px;height:14px}
+.hpills{display:flex;gap:6px;flex-wrap:wrap}
+.hpill{padding:5px 14px;border-radius:20px;border:1.5px solid rgba(255,255,255,.35);background:rgba(255,255,255,.1);color:#fff;font-size:.78rem;font-weight:800}
+.hpill[aria-pressed="true"]{background:#fff;color:#024c81;border-color:#fff;box-shadow:0 4px 12px rgba(0,0,0,.2)}
+.live{display:inline-flex;align-items:center;gap:6px;font-size:.7rem;font-weight:600;opacity:.9}
+.live i{width:8px;height:8px;border-radius:50%;background:#4ade80;box-shadow:0 0 0 3px rgba(74,222,128,.25)}
+.kpis{gap:12px}
+.kpi{border:1px solid var(--line);border-left:1px solid var(--line);border-radius:16px;padding:14px 16px;position:relative;overflow:hidden;box-shadow:0 1px 2px rgba(15,23,42,.05),0 8px 24px -14px rgba(15,23,42,.2);transition:transform .15s}
+.kpi:hover{transform:translateY(-2px)}
+.kpi::before{content:"";position:absolute;inset:0 0 auto 0;height:4px;background:var(--ac,var(--line))}
+.kpi .kh{display:flex;justify-content:space-between;align-items:center}
+.kpi .ic{width:30px;height:30px;border-radius:9px;display:grid;place-items:center;background:var(--ac);color:#fff}
+.kpi .ic svg{width:16px;height:16px}
+.kpi.good{--ac:linear-gradient(90deg,#22c55e,#16a34a)} .kpi.warn{--ac:linear-gradient(90deg,#fbbf24,#f59e0b)} .kpi.bad{--ac:linear-gradient(90deg,#f87171,#ef4444)} .kpi.info{--ac:linear-gradient(90deg,#60a5fa,#3b82f6)} .kpi.vio{--ac:linear-gradient(90deg,#a78bfa,#8b5cf6)}
+.kpi .v{font-size:1.6rem;font-weight:800}
+.kpi.good,.kpi.warn,.kpi.bad,.kpi.info,.kpi.vio{border-left-color:var(--line)}
+.kpi.vio .v{font-size:1.15rem;line-height:1.3}
+.ins{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+.chipc{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:9px 12px;display:flex;align-items:center;gap:10px;box-shadow:0 8px 24px -16px rgba(15,23,42,.25);min-width:0}
+.chipc .ic{width:34px;height:34px;border-radius:10px;display:grid;place-items:center;color:#fff;flex-shrink:0}
+.chipc .ic svg{width:17px;height:17px}
+.chipc .v{font-weight:800;font-size:.9rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.chipc .v span{font-size:.72rem;color:var(--muted);font-weight:700}
+.dcard{border-radius:16px;box-shadow:0 1px 2px rgba(15,23,42,.05),0 8px 24px -14px rgba(15,23,42,.18)}
+.ph{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:12px 16px;border-bottom:1px solid var(--line)}
+.ph h2{display:flex;align-items:center;gap:8px;font-size:.95rem}
+.ph h2 svg{width:17px;height:17px;color:var(--teal)}
+.dcard.pad>.ph{margin:-16px -16px 14px}
+.mx th.dd{background:#fffbeb;color:#92400e;border-bottom:2px solid #f59e0b}
+.mx th.nn{background:#eef2ff;color:#3730a3;border-bottom:2px solid #6366f1}
+/* ===== Design D ===== */
+.dk{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:12px}
+.dk .kpi{gap:4px}
+.dk .vr{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.ring{--p:0;--c:var(--good);width:52px;height:52px;border-radius:50%;background:conic-gradient(var(--c) calc(var(--p)*1%),var(--idle-bg) 0);display:grid;place-items:center;flex-shrink:0}
+.ring b{width:40px;height:40px;border-radius:50%;background:var(--card);display:grid;place-items:center;font-size:11px;font-weight:800}
+.pb{height:6px;border-radius:99px;background:var(--idle-bg);overflow:hidden;display:flex;margin-top:4px}
+.pb i{display:block;height:100%}
+.dn{display:grid;grid-template-columns:auto 1fr auto;gap:2px 6px;align-items:center;font-size:11px;color:var(--muted);margin-top:2px}
+.dn .pb{margin:0;height:5px}
+.charts{display:grid;gap:12px}
+.charts.c3{grid-template-columns:repeat(3,minmax(0,1fr))}
+.charts.c21{grid-template-columns:minmax(0,2fr) minmax(0,1fr)}
+.cc{padding:14px 16px;display:flex;flex-direction:column;gap:6px;min-width:0}
+.cc .ct{font-size:.8rem;font-weight:800;display:flex;align-items:center;gap:6px}
+.cc .ct svg{width:15px;height:15px;color:var(--teal)}
+.cc .cs{font-size:.72rem;color:var(--muted)}
+.cbox{position:relative;height:250px}
+.cbox.tall{height:300px}
+.stk{display:flex;height:10px;border-radius:99px;overflow:hidden;min-width:120px;background:var(--idle-bg)}
+.stk i{display:block;height:100%}
+.lg{display:flex;gap:10px;flex-wrap:wrap;font-size:.7rem;color:var(--muted)}
+.lg i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:4px;vertical-align:-1px}
+.tabs{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;display:flex;gap:4px;overflow-x:auto;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:5px;box-shadow:0 8px 20px -16px rgba(15,23,42,.35)}
+.tabs button{border:0;background:transparent;padding:9px 14px;border-radius:10px;font-weight:700;font-size:.82rem;color:var(--muted);white-space:nowrap;display:inline-flex;align-items:center;gap:6px}
+.tabs button svg{width:15px;height:15px}
+.tabs button[aria-selected="true"]{background:linear-gradient(135deg,#024c81,#0f8ea8);color:#fff}
+.tabs .cnt{font-size:11px;background:var(--bad);color:#fff;border-radius:99px;padding:0 6px}
+.hs{display:grid;grid-template-columns:repeat(24,minmax(9px,1fr));gap:1px;min-width:230px}
+.hs i{height:16px;border-radius:2px;display:block}
+.hs i.mid{box-shadow:-2px 0 0 #334155}
+.h-g{background:#22c55e}.h-a{background:#fbbf24}.h-r{background:#f87171}.h-d{background:#b91c1c}.h-n{background:#cbd5e1}.h-m{background:#fff;outline:1px dashed #94a3b8;outline-offset:-1px}
+.lcards{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px}
+.lc{padding:14px 16px;display:flex;flex-direction:column;gap:10px;cursor:pointer;text-align:left;border:1px solid var(--line);background:var(--card)}
+.lc:hover{border-color:var(--teal)}
+.lc .top2{display:flex;gap:12px;align-items:center}
+.lc .g3{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;font-size:.72rem;color:var(--muted)}
+.lc .g3 b{display:block;font-size:.92rem;color:var(--ink)}
+.dfilters{display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding:12px 16px;border-bottom:1px solid var(--line)}
+.dfilters select,.dfilters input{font:inherit;font-size:.8rem;padding:6px 10px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink)}
+.fchip{border:1px solid var(--line);background:var(--soft);border-radius:99px;padding:4px 11px;font-size:.75rem;font-weight:700;color:var(--muted)}
+.fchip[aria-pressed="true"]{background:#024c81;color:#fff;border-color:#024c81}
+.hm td.c{font-weight:700}
+.chk{display:flex;flex-direction:column;gap:10px}
+.chk details{border:1px solid var(--line);border-radius:12px;background:var(--card)}
+.chk summary{list-style:none;cursor:pointer;display:flex;gap:12px;align-items:center;padding:12px 14px}
+.chk summary::-webkit-details-marker{display:none}
+.chk .n{min-width:52px;text-align:center;font-family:var(--display);font-weight:700;font-size:1.15rem;border-radius:10px;padding:4px 6px}
+.chk .body{padding:0 14px 14px}
+.seqs{display:flex;flex-direction:column;gap:6px;font-size:.78rem}
+.seqs .s1{display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding:7px 10px;border:1px solid var(--line);border-radius:8px}
+.seqs .mo{background:var(--soft);border-radius:6px;padding:2px 8px}
+@media (max-width:1200px){.dk{grid-template-columns:repeat(3,minmax(0,1fr))}.charts.c3{grid-template-columns:repeat(2,minmax(0,1fr))}.charts.c21{grid-template-columns:1fr}}
+@media (max-width:700px){.dk{grid-template-columns:repeat(2,minmax(0,1fr))}.charts.c3{grid-template-columns:1fr}}
+@media (max-width:1100px){.ins{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:640px){.ins{grid-template-columns:1fr}}
+@media (max-width:1100px){.kpis{grid-template-columns:repeat(3,minmax(0,1fr))}.dec{grid-template-columns:repeat(2,minmax(0,1fr))}.two{grid-template-columns:1fr}}
+@media (max-width:640px){.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.picker,.dec{grid-template-columns:1fr}.top{grid-template-columns:1fr}.wf .r{grid-template-columns:minmax(0,1fr) 80px;}.wf .track,.wf .pc{display:none}}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+.dhero .date{border:0;font:inherit;font-weight:800}
+.dhero .hb{cursor:pointer}
+.opts{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;padding:12px 16px}
+.opts .q{font-size:.78rem;font-weight:700;margin-bottom:6px}
+.opts .seg{width:100%} .opts .seg button{flex:1}
+details.dopt>summary{list-style:none;cursor:pointer;padding:10px 16px;font-weight:700;font-size:.82rem;display:flex;gap:8px;align-items:center}
+details.dopt>summary::-webkit-details-marker{display:none}
+details.dopt>summary svg{width:15px;height:15px;color:var(--teal)}
+.h-f{background:#f1f5f9}
+.empty{padding:50px 20px;text-align:center;color:var(--muted)}
+.livebar{font-size:.74rem;font-weight:700;background:rgba(255,255,255,.18);border-radius:8px;padding:4px 10px}
+@media (max-width:900px){.opts{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:560px){.opts{grid-template-columns:1fr}}
+@media print{.no-print,.tabs,.dfilters,details.dopt{display:none!important}.dhero{background:#fff!important;color:#000!important;box-shadow:none;border:1px solid #ccc}.dcard,.kpi{box-shadow:none!important}.cbox{break-inside:avoid}}
+    </style>
+</head>
+<body>
+<div class="main-content">
+<div class="ddr wrap">
+  <header class="dhero">
+    <div class="t1">
+      <div><div class="ttl"><i class="bi bi-clipboard2-data-fill"></i> Daily Report (Detailed)</div><div class="sub" id="heroSub">Select a date</div></div>
+      <span class="sp"></span>
+      <div class="fl no-print"><label for="repDate">Report date</label><input type="date" id="repDate" class="date"></div>
+      <div class="row no-print" style="gap:8px;align-self:flex-end">
+        <button class="hb solid" id="btnGen" type="button"><i class="bi bi-arrow-repeat"></i> Generate</button>
+        <button class="hb" id="btnCsv" type="button"><i class="bi bi-filetype-csv"></i> Export</button>
+        <button class="hb" id="btnPrint" type="button"><i class="bi bi-printer"></i> Print</button>
+      </div>
+    </div>
+    <div class="t1">
+      <div class="hpills no-print" id="procSeg" role="group" aria-label="Process"><button class="hpill" data-v="Moulding">Moulding</button><button class="hpill" data-v="Printing">Printing</button><button class="hpill" data-v="Tuffting">Tuffting</button></div>
+      <div class="hpills" id="shiftSeg" role="group" aria-label="Shift" style="margin-left:6px"><button class="hpill" data-v="all">24 hours</button><button class="hpill" data-v="0">Day 07–19</button><button class="hpill" data-v="1">Night 19–07</button></div>
+      <span class="sp"></span><span class="livebar" id="liveBar" hidden></span><span class="live"><i></i> <span id="heroMeta">Loading…</span></span>
+    </div>
+  </header>
+
+  <details class="dcard dopt no-print">
+    <summary><i class="bi bi-sliders"></i> Report options <span class="muted small" style="font-weight:500">How the target and efficiency are counted · saved on this device</span></summary>
+    <div class="opts">
+      <div><div class="q">No Plan hours (code 13)</div><div class="seg" id="d-np"><button data-v="exclude">Not a loss</button><button data-v="loss">Count as loss</button></div></div>
+      <div><div class="q">Piece weight for Kg</div><div class="seg" id="d-wt"><button data-v="std">Std (Mould Master)</button><button data-v="act">Actual (setup)</button></div></div>
+      <div><div class="q">5% achievable allowance</div><div class="seg" id="d-buf"><button data-v="off">Off</button><button data-v="on">On</button></div></div>
+      <div><div class="q">Efficiency is Good ÷</div><div class="seg" id="d-eff"><button data-v="ach">Achievable target</button><button data-v="full">Full capacity</button></div></div>
+    </div>
+  </details>
+
+  <div id="view"><section class="dcard empty">Loading…</section></div>
+
+  <section class="dcard pad" id="how" hidden></section>
+  <div id="drawerHost"></div>
+</div>
+</div>
+<script src="/assets/app.min.js?v=1583"></script>
+<script>
+const DT_NAMES={'1':'Manpower shortage','2':'Mould change-over','3':'Accessories shortage','4':'Material shortage','5':'Machine maintenance (water/oil/air leak)','6':'Nozzle block / change','7':'Mould problem','8':'Power failure / pre-heating','9':'Colour change','10':'Process setting','11':'Mould trial','12':'Crane / HRTC','13':'No plan','O':'Other (typed by supervisor)'};
+const REJ_NAMES={A:'Short moulding',B:'Shrinkage mark',C:'Silver streak / colour variation',D:'Flow mark / weld line',E:'Fitment issue',F:'Dent mark / air bubble',G:'Warpage',H:'Black / water marks',I:'Start-up / colour-change pcs',J:'Bottom bulging',K:'Scratch',L:'Over lapping',M:'Punching hole issue'};
+const SLOTS=['07','08','09','10','11','12','01','02','03','04','05','06'];
+const HL=(s,i)=>String(s?(19+i)%24:7+i).padStart(2,'0');   // 24-hour clock: Day 07–18, Night 19–06
+const state={design:'D',shift:'all',np:'exclude',wt:'std',buf:'off',eff:'ach',dview:'line',tab:'overview',mline:'',mfilt:'all',q:''};
+try{const s=JSON.parse(localStorage.getItem('jms-daily-detail')||'{}');['shift','np','wt','buf','eff','tab'].forEach(k=>{if(s[k]!=null)state[k]=s[k];});}catch(e){}
+state.design='D';
+const save=()=>{try{const o={};['shift','np','wt','buf','eff','tab'].forEach(k=>o[k]=state[k]);localStorage.setItem('jms-daily-detail',JSON.stringify(o));}catch(e){}};
+
+const fmt=(v,d=0)=>(v==null||!isFinite(v))?'—':Number(v).toLocaleString('en-IN',{maximumFractionDigits:d,minimumFractionDigits:d});
+const pct=(v,d=1)=>(v==null||!isFinite(v))?'—':fmt(v*100,d)+'%';
+const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const band=e=>!(e>0)?'z':e>=.85?'g':e>=.65?'a':'r';
+const bandVar=e=>({g:'var(--good)',a:'var(--warn)',r:'var(--bad)',z:'var(--idle)'})[band(e)];
+const rejBand=x=>!(x>0)?'z':x>.05?'r':x>.02?'a':'g';
+
+/* ---------- data ---------- */
+let P=null,HRS={},HUS={},DONE=[12,12],MACH=[],RUNS=[],byMS={},LINES=[],lineOf,lineCmp,machCmp,teamFor;
+function buildIndex(){
+MACH=P.machines.map(([name,line,lu,ton],i)=>({i,name,line:String(line).replace(/\s+/g,' ').trim(),lu:+lu||0,ton,no:+((String(name).match(/(\d+)\s*$/)||[0,0])[1])}));
+lineOf=l=>{const m=String(l).match(/^([A-Z])\s*-?\s*L-?\s*(\d+)/i);return m?[m[1].toUpperCase(),+m[2]]:[l,0];};
+lineCmp=(a,b)=>{const x=lineOf(a),y=lineOf(b);return x[0]<y[0]?-1:x[0]>y[0]?1:x[1]-y[1];};
+machCmp=(a,b)=>lineCmp(a.line,b.line)||a.no-b.no||a.name.localeCompare(b.name);
+RUNS=P.runs.map(r=>({m:r[0],s:r[1],mould:P.moulds[r[2]],plan:r[3],stdWt:+r[4]||0,actWt:+r[5]||0,ct:+r[6]||0,cav:+r[7]||0,acav:+r[8]||0,pcshr:+r[9]||0,actCt:+r[10]||0,client:r[11],jc:r[12],order:r[13],h:+r[14]||0,g:+r[15]||0,rj:+r[16]||0,dt:r[17]||{},rej:r[18]||{},unm:+r[19]||0,slots:String(r[20]||'').split('.').filter(x=>x!=='').map(Number),src:r[21]||'setup'}));
+byMS={};RUNS.forEach(r=>{(byMS[r.m+'|'+r.s]=byMS[r.m+'|'+r.s]||[]).push(r);});
+LINES=[...new Set(MACH.map(m=>m.line))].sort(lineCmp);
+}
+teamFor=(line,s)=>{const k=Object.keys(P.team||{}).find(t=>t.replace(/[\s-]/g,'').toUpperCase()===line.replace(/[\s-]/g,'').toUpperCase());return k?(P.team[k][s]||''):'';};
+
+/* ---------- maths ---------- */
+const NUM=['full','noPlan','missing','planned','stdCO','buffer','ach','overrun','down','npLoss','speed','gross','good','rej','goodPcs','rejPcs','fullH','npH','missH','stdCOH','actCOH','downH','runH','mc','cc','jc','actCOkg','machines','qv','hold','nEnt','unmatched'];
+function rateOf(r){const cav=r.cav||r.acav||1;if(r.ct>0)return {v:3600/r.ct*cav,src:'std cycle '+r.ct+' s × '+cav+' cav'};if(r.pcshr>0)return {v:r.pcshr,src:'setup pcs/hr (no std cycle)'};return {v:0,src:'no rate'};}
+function wtOf(r){const g=state.wt==='std'?(r.stdWt||r.actWt):(r.actWt||r.stdWt);return g/1000;}
+function calcMS([m,s,miss,mc,cc,jc]){
+  const runs=byMS[m+'|'+s]||[];const lu=MACH[m].lu;
+  let main=runs[0];runs.forEach(r=>{if(r.h>main.h)main=r;});
+  const o={m,s,runs:[],downBy:{},rejBy:{}};NUM.forEach(k=>o[k]=0);
+  o.mc=mc;o.cc=cc;o.jc=jc;o.machines=1;o.missH=miss;o.fullH=Math.max(DONE[s],runs.reduce((a,r)=>a+r.h,0));
+  runs.forEach(r=>{
+    const rate=rateOf(r),wt=wtOf(r),R=rate.v*wt;
+    const np=(+r.dt['13']||0)/60,co=(+r.dt['2']||0)/60;let dn=0;
+    Object.entries(r.dt).forEach(([c,v])=>{if(c==='13'||c==='2')return;const h=(+v||0)/60;dn+=h;o.downBy[c]=(o.downBy[c]||0)+h;});
+    Object.entries(r.rej).forEach(([c,v])=>{o.rejBy[c]=(o.rejBy[c]||0)+(+v||0);});
+    const rr={...r,rate:rate.v,rateSrc:rate.src,wt,R,np,co,dn,full:R*r.h,gross:(r.g+r.rj)*wt,good:r.g*wt,rejKg:r.rj*wt};
+    rr.runH=Math.max(0,r.h-np-co-dn);rr.speedPct=rr.runH>0&&rate.v>0?(r.g+r.rj)/(rate.v*rr.runH):0;
+    o.runs.push(rr);
+    o.full+=R*r.h;o.noPlan+=R*np;o.npH+=np;o.actCOkg+=R*co;o.actCOH+=co;o.down+=R*dn;o.downH+=dn;
+    o.gross+=rr.gross;o.good+=rr.good;o.rej+=rr.rejKg;o.goodPcs+=r.g;o.rejPcs+=r.rj;o.runH+=rr.runH;
+  });
+  const Rm=main?rateOf(main).v*wtOf(main):0;
+  o.missing=Rm*miss;o.full+=o.missing;
+  o.stdCOH=mc*lu/60;o.stdCO=Math.min(Rm*o.stdCOH,Math.max(0,o.full-o.missing-o.noPlan));
+  o.planned=o.full-o.missing-(state.np==='exclude'?o.noPlan:0);
+  o.npLoss=state.np==='loss'?o.noPlan:0;
+  o.buffer=state.buf==='on'?0.05*Math.max(0,o.planned-o.stdCO):0;
+  o.ach=Math.max(0,o.planned-o.stdCO-o.buffer);
+  o.overrun=Math.max(0,o.actCOkg-o.stdCO);
+  o.speed=o.ach-o.overrun-o.down-o.npLoss-o.gross;
+  o.unmatched=runs.reduce((a,r)=>a+r.unm,0);
+  o.hr=HRS[MACH[m].name+'|'+s]||[];
+  o.hr.forEach(x=>{if(x){o.qv+=x[5];o.hold+=x[6];o.nEnt+=x[7];}});
+  o.users=HUS[MACH[m].name+'|'+s]||[];
+  // per-hour detail: owner runs of each hour give its rate and piece weight
+  o.slots=[];for(let i=0;i<12;i++){const x=o.hr[i];const own=o.runs.filter(r=>r.slots.includes(i));const k=own.length||1;
+    const R=own.reduce((a,r)=>a+r.R,0)/k,rate=own.reduce((a,r)=>a+r.rate,0)/k,wt=own.reduce((a,r)=>a+r.wt,0)/k;
+    if(!x){o.slots.push(i<DONE[s]?{miss:1,R,rate,wt,mould:own[0]?own[0].mould:''}:{fut:1,R,rate,wt,mould:''});continue;}
+    const [g,r,dt,np,co,qv,hold,n]=x;const useMin=Math.max(0,60-np);
+    o.slots.push({g,r,dt,np,co,qv,hold,n,R,rate,wt,gk:g*wt,rk:r*wt,plan:R*(state.np==='exclude'?useMin/60:1),eff:rate>0&&useMin>0?(g+r)/(rate*useMin/60):0,mould:own.map(r=>r.mould).join(' + ')});}
+  return o;
+}
+function sum(list){const o={downBy:{},rejBy:{}};NUM.forEach(k=>o[k]=0);list.forEach(x=>{NUM.forEach(k=>o[k]+=x[k]||0);Object.entries(x.downBy).forEach(([c,v])=>o.downBy[c]=(o.downBy[c]||0)+v);Object.entries(x.rejBy).forEach(([c,v])=>o.rejBy[c]=(o.rejBy[c]||0)+v);});return derive(o);}
+function derive(o){
+  o.eff=(state.eff==='ach'?o.ach:o.full)>0?o.good/(state.eff==='ach'?o.ach:o.full):0;
+  o.rejPct=o.gross>0?o.rej/o.gross:0;
+  // OEE is measured against the Planned target, so change-over time counts as an availability loss.
+  o.runKg=o.ach-o.overrun-o.down-o.npLoss;
+  o.avail=o.planned>0?Math.max(0,o.runKg/o.planned):0;o.perf=o.runKg>0?o.gross/o.runKg:0;o.qual=o.gross>0?o.good/o.gross:0;
+  o.oee=o.planned>0?o.good/o.planned:0;
+  o.coLoss=o.stdCO+o.buffer+o.overrun;o.dtLoss=o.down+o.npLoss;o.totalLoss=o.planned-o.good;
+  o.gap=o.good-o.ach;
+  return o;
+}
+let MS=[],R={};
+function recompute(){
+  MS=P.ms.map(calcMS).map(derive);
+  const inShift=x=>state.shift==='all'||x.s===+state.shift;
+  const sel=MS.filter(inShift);
+  R={sel,fac:sum(sel),day:sum(MS.filter(x=>x.s===0)),night:sum(MS.filter(x=>x.s===1)),lines:{},machines:[]};
+  LINES.forEach(l=>{R.lines[l]={all:sum(sel.filter(x=>MACH[x.m].line===l)),d:sum(MS.filter(x=>x.s===0&&MACH[x.m].line===l)),n:sum(MS.filter(x=>x.s===1&&MACH[x.m].line===l))};});
+  const seen=new Set(MS.map(x=>x.m));
+  R.idle=MACH.filter(m=>!seen.has(m.i)).sort(machCmp);
+  R.machines=MACH.filter(m=>seen.has(m.i)).sort(machCmp).map(m=>({m,all:sum(sel.filter(x=>x.m===m.i)),d:MS.find(x=>x.m===m.i&&x.s===0),n:MS.find(x=>x.m===m.i&&x.s===1)}));
+  R.running=new Set(sel.filter(x=>x.gross>0).map(x=>x.m)).size;
+}
+
+/* ---------- shared pieces ---------- */
+const shiftLabel=()=>state.shift==='all'?'24 hours':state.shift==='0'?'Day shift':'Night shift';
+function steps(o){
+  const S=[];
+  S.push({k:'full',t:'Full capacity at std rate',v:o.full,c:'b-tot',tot:1,h:'All reported machines × 12 h per shift × std pcs/hr × piece weight'});
+  if(state.np==='exclude')S.push({k:'np',t:'− No plan (not counted)',v:-o.noPlan,c:'b-ex',h:fmt(o.npH,1)+' h with no plan'});
+  S.push({k:'miss',t:'− DPR not filled',v:-o.missing,c:'b-loss',h:fmt(o.missH,0)+' machine-hours with no entry'});
+  S.push({k:'planned',t:'= Planned target',v:o.planned,c:'b-plan',tot:1});
+  S.push({k:'stdco',t:'− Std mould change time',v:-o.stdCO,c:'b-co',h:o.mc+' mould changes × load + unload'});
+  if(state.buf==='on')S.push({k:'buf',t:'− 5% allowance',v:-o.buffer,c:'b-co'});
+  S.push({k:'ach',t:'= Achievable target',v:o.ach,c:'b-plan',tot:1});
+  S.push({k:'over',t:'− Change-over overrun',v:-o.overrun,c:'b-loss',h:fmt(Math.max(0,o.actCOH-o.stdCOH),1)+' h over std'});
+  if(state.np==='loss')S.push({k:'np',t:'− No plan',v:-o.npLoss,c:'b-loss',h:fmt(o.npH,1)+' h'});
+  S.push({k:'down',t:'− Downtime (all other reasons)',v:-o.down,c:'b-loss',h:fmt(o.downH,1)+' h'});
+  S.push({k:'speed',t:o.speed>=0?'− Speed loss (slower than std)':'+ Ran faster than std',v:-o.speed,c:o.speed>=0?'b-loss':'b-gain'});
+  S.push({k:'gross',t:'= Gross moulded',v:o.gross,c:'b-tot',tot:1});
+  S.push({k:'rej',t:'− Rejection',v:-o.rej,c:'b-loss',h:fmt(o.rejPcs)+' pcs'});
+  S.push({k:'good',t:'= Good production',v:o.good,c:'b-good',tot:1});
+  return S;
+}
+function waterfall(o){
+  const S=steps(o);const max=Math.max(o.full,o.gross+Math.max(0,-o.speed),1);let run=0;
+  return '<div class="wf">'+S.map(s=>{let a,b;if(s.tot){a=0;b=s.v;run=s.v;}else{b=run;a=run+s.v;if(a>b)[a,b]=[b,a];run=run+s.v;}
+    const L=Math.max(0,a)/max*100,W=Math.max(.3,(b-a)/max*100);
+    return `<div class="r ${s.tot?'tot':''}" data-k="${s.k}" title="${esc(s.h||'')}"><span>${s.t}${s.h?`<div class="muted" style="font-size:.7rem;font-weight:500">${esc(s.h)}</div>`:''}</span><div class="track"><div class="bar ${s.c}" style="left:${L}%;width:${W}%"></div></div><span class="num">${s.v<0?'−':''}${fmt(Math.abs(s.v))} kg</span><span class="pc">${o.full>0?fmt(Math.abs(s.v)/o.full*100,1)+'%':''}</span></div>`;}).join('')+'</div>';
+}
+const IC={
+ clip:'<rect x="6" y="4" width="12" height="17" rx="2"/><path d="M9 4h6v3H9zM9 12h6M9 16h4"/>',
+ sync:'<path d="M20 11a8 8 0 0 0-14-4L4 9M4 4v5h5M4 13a8 8 0 0 0 14 4l2-2M20 20v-5h-5"/>',
+ dl:'<path d="M12 4v11M7 10l5 5 5-5M5 20h14"/>', print:'<path d="M7 9V4h10v5M7 17H5v-6h14v6h-2M7 14h10v6H7z"/>',
+ target:'<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="4"/><circle cx="12" cy="12" r="1"/>',
+ box:'<path d="M4 8l8-4 8 4v8l-8 4-8-4zM4 8l8 4 8-4M12 12v8"/>', gauge:'<path d="M4 16a8 8 0 1 1 16 0M12 16l4-5"/><circle cx="12" cy="16" r="1.2"/>',
+ alert:'<path d="M12 4l9 16H3zM12 10v4M12 17v.5"/>', cpu:'<rect x="7" y="7" width="10" height="10" rx="1"/><path d="M10 3v4M14 3v4M10 17v4M14 17v4M3 10h4M3 14h4M17 10h4M17 14h4"/>',
+ clock:'<circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/>', repeat:'<path d="M17 3l3 3-3 3M4 11V9a3 3 0 0 1 3-3h13M7 21l-3-3 3-3M20 13v2a3 3 0 0 1-3 3H4"/>',
+ trophy:'<path d="M8 4h8v5a4 4 0 0 1-8 0zM8 6H5a3 3 0 0 0 3 4M16 6h3a3 3 0 0 1-3 4M12 13v4M8 20h8"/>', down:'<path d="M4 6l6 6 4-4 6 6M20 10v4h-4"/>',
+ hour:'<path d="M7 4h10M7 20h10M8 4c0 5 8 5 8 8s-8 3-8 8M16 4c0 5-8 5-8 8"/>', table:'<rect x="4" y="5" width="16" height="14" rx="2"/><path d="M4 10h16M4 15h16M10 5v14"/>',
+ layers:'<path d="M12 4l8 4-8 4-8-4zM4 12l8 4 8-4M4 16l8 4 8-4"/>', list:'<path d="M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01"/>', cal:'<rect x="4" y="5" width="16" height="15" rx="2"/><path d="M4 10h16M9 3v4M15 3v4"/>'
+};
+const ic=n=>`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${IC[n]||''}</svg>`;
+const ph=(icon,title,sub,extra='')=>`<div class="ph"><h2>${ic(icon)}${title}</h2>${sub?`<span class="muted small">${sub}</span>`:''}<span class="sp"></span>${extra}</div>`;
+function insights(){
+  const ls=LINES.map(l=>({l,o:R.lines[l].all})).filter(x=>x.o.ach>0);
+  const best=ls.slice().sort((a,b)=>b.o.eff-a.o.eff)[0],worst=ls.slice().sort((a,b)=>a.o.eff-b.o.eff)[0],hr=ls.slice().sort((a,b)=>b.o.rejPct-a.o.rejPct)[0];
+  const f=R.fac;const dt=Object.entries(f.downBy).sort((a,b)=>b[1]-a[1])[0];
+  const c=(bg,i,l,v,s)=>`<div class="chipc"><span class="ic" style="background:${bg}">${ic(i)}</span><div style="min-width:0"><div class="lbl">${l}</div><div class="v">${esc(v)} <span>${s}</span></div></div></div>`;
+  return `<div class="ins">${[
+    best?c('linear-gradient(135deg,#22c55e,#16a34a)','trophy','Best line',best.l,pct(best.o.eff)+' eff'):'',
+    worst?c('linear-gradient(135deg,#f87171,#ef4444)','down','Needs attention',worst.l,pct(worst.o.eff)+' eff · '+biggestLossText(worst.o)):'',
+    hr?c('linear-gradient(135deg,#fb923c,#ea580c)','alert','Highest rejection',hr.l,pct(hr.o.rejPct)+' · '+fmt(hr.o.rej)+' kg'):'',
+    dt?c('linear-gradient(135deg,#a78bfa,#7c3aed)','hour','Top downtime',DT_NAMES[dt[0]]||dt[0],fmt(dt[1],1)+' h'):''
+  ].join('')}</div>`;
+}
+function kpis(o){
+  const effB=band(o.eff),rejB=rejBand(o.rejPct);
+  const icons={'Good production':'box','Efficiency':'gauge','Rejection':'alert','Downtime':'clock','Machines running':'cpu','Changes':'repeat'};
+  const k=(cls,lbl,v,s)=>`<div class="dcard kpi ${cls}"><div class="kh"><span class="lbl">${lbl}</span><span class="ic">${ic(icons[lbl])}</span></div><span class="v">${v}</span><span class="s">${s}</span></div>`;
+  return '<div class="kpis">'+[
+    k('good','Good production',fmt(o.good)+' <small>kg</small>',fmt(o.goodPcs)+' pcs · '+(o.gap>=0?'<span class="tg">+':'<span class="tr">−')+fmt(Math.abs(o.gap))+' kg</span> vs achievable'),
+    k(effB==='g'?'good':effB==='a'?'warn':'bad','Efficiency',pct(o.eff),'Good ÷ '+(state.eff==='ach'?'achievable '+fmt(o.ach):'full capacity '+fmt(o.full))+' kg'),
+    k(rejB==='r'?'bad':rejB==='a'?'warn':'good','Rejection',pct(o.rejPct),fmt(o.rej)+' kg · '+fmt(o.rejPcs)+' pcs'),
+    k('warn','Downtime',fmt(o.downH,1)+' <small>h</small>','+ '+fmt(o.npH,1)+' h no plan · '+fmt(o.actCOH,1)+' h mould change'),
+    k('info','Machines running',R.running+' <small>/ '+MACH.length+'</small>',R.idle.length+' with no DPR all day · '+fmt(o.missH,0)+' h not filled'),
+    k('vio','Changes',`${o.mc} <small>mould</small> · ${o.cc} <small>colour</small> · ${o.jc} <small>job</small>`,'Std '+fmt(o.stdCOH,1)+' h · actual '+fmt(o.actCOH,1)+' h')
+  ].join('')+'</div>'+insights();
+}
+function pareto(o){
+  const items=Object.entries(o.downBy).map(([c,h])=>({c,h,n:DT_NAMES[c]||('Code '+c)}));
+  if(o.npH>0)items.push({c:'13',h:o.npH,n:'No plan'+(state.np==='exclude'?' (not counted)':''),np:state.np==='exclude'});
+  if(o.actCOH>0)items.push({c:'2',h:o.actCOH,n:'Mould change-over'});
+  items.sort((a,b)=>b.h-a.h);const mx=items[0]?items[0].h:1;
+  const other=(P.others||[]).slice(0,6).map(([t,m])=>`<li>${esc(t)} <span class="muted">${fmt(m/60,1)} h</span></li>`).join('');
+  return `<div class="par">${items.map(x=>`<div class="r ${x.np?'np':''}"><span class="n" title="${esc(x.n)}">${esc(x.n)}</span><div class="tr2"><i style="width:${x.h/mx*100}%"></i></div><span style="text-align:right;font-weight:600">${fmt(x.h,1)} h</span></div>`).join('')}</div>
+  <details style="margin-top:10px"><summary class="small muted" style="cursor:pointer">Top typed "Other" reasons (whole day)</summary><ul class="small" style="margin:6px 0 0 16px;padding:0">${other}</ul></details>`;
+}
+function rejList(o){
+  const it=Object.entries(o.rejBy).map(([c,v])=>({n:REJ_NAMES[c]||c.replace(/^OTHER_?/,'Other: ')||'Other',v})).sort((a,b)=>b.v-a.v).slice(0,8);const mx=it[0]?it[0].v:1;
+  return `<div class="par">${it.map(x=>`<div class="r"><span class="n" title="${esc(x.n)}">${esc(x.n)}</span><div class="tr2"><i style="width:${x.v/mx*100}%;background:var(--warn)"></i></div><span style="text-align:right;font-weight:600">${fmt(x.v)} pcs</span></div>`).join('')}</div>`;
+}
+const effCell=e=>`<span style="font-weight:700;color:${bandVar(e)}">${e>0?pct(e):'—'}</span><span class="ebar"><i style="width:${Math.min(100,e*100)}%;background:${bandVar(e)}"></i></span>`;
+function topLoss(o){const c=[['DPR not filled',o.missing],['Change-over overrun',o.overrun],['Downtime',o.down],['Speed',o.speed],['Rejection',o.rej],['No plan',o.npLoss]].sort((a,b)=>b[1]-a[1])[0];return c&&c[1]>0?c:null;}
+function biggestLoss(o){const c=topLoss(o);return c?`${c[0]} <span class="muted">${fmt(c[1])} kg</span>`:'—';}
+function biggestLossText(o){const c=topLoss(o);return c?c[0]+' '+fmt(c[1])+' kg':'—';}
+
+let openLine=null;
+function machineTable(){
+  const rows=R.machines.filter(x=>!openLine||x.m.line===openLine).map(x=>{const a=x.all;if(!a.machines)return'';const moulds=[...new Set([...(x.d?x.d.runs:[]),...(x.n?x.n.runs:[])].map(r=>r.mould))];
+    return `<tr class="click" data-m="${x.m.i}"><td class="l"><b>${esc(x.m.name)}</b><div class="muted" style="font-size:.7rem">${esc(x.m.line)} · ${x.m.ton} T</div></td><td class="l" style="max-width:260px;white-space:normal;font-size:.75rem">${moulds.map(esc).join('<br>')}</td><td>${fmt(a.ach)}</td><td>${fmt(a.goodPcs)}</td><td><b>${fmt(a.good)}</b></td><td class="l">${effCell(a.eff)}</td><td><span class="pill ${rejBand(a.rejPct)}">${pct(a.rejPct)}</span></td><td>${fmt(a.downH,1)}</td><td>${fmt(a.npH,1)}</td><td>${a.missH?'<span class="tr">'+a.missH+'</span>':'0'}</td><td>${a.mc}/${a.cc}/${a.jc}</td></tr>`;}).join('');
+  const idle=R.idle.length?`<div class="pad small muted">No DPR entry all day (${R.idle.length}): ${R.idle.map(m=>esc(m.name)).join(', ')}</div>`:'';
+  return `<section class="dcard">${ph('cpu','Machines'+(openLine?' · '+esc(openLine):''),'Line, then machine number · click a machine for every mould run and hour',openLine?'<button class="x" id="clearLine">Show all lines</button>':'')}
+  <div class="tw"><table class="t"><thead><tr><th class="l">Machine</th><th class="l">Moulds run</th><th>Achievable kg</th><th>Good pcs</th><th>Good kg</th><th class="l">Efficiency</th><th>Rej %</th><th>Downtime h</th><th>No plan h</th><th>DPR missing h</th><th>M/C/J</th></tr></thead><tbody>${rows}</tbody></table></div>${idle}</section>`;
+}
+
+/* ---------- design B ---------- */
+function designB(onlyMatrix){
+  const f=R.fac;const L=LINES.filter(l=>R.lines[l].d.machines||R.lines[l].n.machines);
+  const cols=[];L.forEach(l=>{cols.push([l,0]);cols.push([l,1]);});
+  const get=(l,s)=>s===0?R.lines[l].d:R.lines[l].n;
+  const rows=[
+    ['g','Target'],
+    ['k','Full capacity (kg)',o=>fmt(o.full),'full'],
+    ['k','No plan (kg)'+(state.np==='exclude'?' · not counted':''),o=>fmt(o.noPlan),'np'],
+    ['k','DPR not filled (kg)',o=>fmt(o.missing),'miss'],
+    ['k','Planned target (kg)',o=>'<b>'+fmt(o.planned)+'</b>','planned'],
+    ['k','Std mould change (kg)',o=>fmt(o.stdCO),'stdco'],
+    ['k','Achievable target (kg)',o=>'<b>'+fmt(o.ach)+'</b>','ach'],
+    ['g','Production'],
+    ['k','Gross moulded (kg)',o=>fmt(o.gross),'gross'],
+    ['k','Rejection (kg)',o=>fmt(o.rej),'rej'],
+    ['k','Good production (kg)',o=>'<b>'+fmt(o.good)+'</b>','good'],
+    ['r','Good pieces',o=>fmt(o.goodPcs)],
+    ['r','Efficiency',o=>`<span class="pill ${band(o.eff)}">${pct(o.eff)}</span>`],
+    ['r','Rejection %',o=>`<span class="pill ${rejBand(o.rejPct)}">${pct(o.rejPct)}</span>`],
+    ['r','vs achievable (± kg)',o=>`<span class="${o.gap>=0?'tg':'tr'}">${o.gap>=0?'+':'−'}${fmt(Math.abs(o.gap))}</span>`],
+    ['g','Losses (kg)'],
+    ['r','Change-over overrun',o=>fmt(o.overrun)],
+    ['r','Downtime',o=>fmt(o.down)],
+    ['r','Speed (− = faster than std)',o=>fmt(o.speed)],
+    ['g','Time (hours)'],
+    ['r','Machines reported',o=>o.machines],
+    ['r','Running hours',o=>fmt(o.runH,1)],
+    ['r','Downtime hours',o=>fmt(o.downH,1)],
+    ['r','No plan hours',o=>fmt(o.npH,1)],
+    ['r','DPR missing hours',o=>fmt(o.missH,0)],
+    ['g','Changes'],
+    ['r','Mould / Colour / Job',o=>`${o.mc} / ${o.cc} / ${o.jc}`],
+    ['r','Change-over std / actual h',o=>`${fmt(o.stdCOH,1)} / ${fmt(o.actCOH,1)}`]
+  ];
+  const codes=Object.keys(f.downBy).sort((a,b)=>f.downBy[b]-f.downBy[a]);
+  rows.push(['g','Downtime by reason (h)']);codes.forEach(c=>rows.push(['r',DT_NAMES[c]||('Code '+c),o=>fmt(o.downBy[c]||0,1)]));
+  const head=`<tr><th rowspan="2">Metric</th>${L.map(l=>`<th colspan="2" style="text-align:center">${esc(l)}</th>`).join('')}<th colspan="3" style="text-align:center">Factory</th></tr><tr>${cols.map(([l,s])=>`<th class="${s?'nn':'dd'}" title="${esc(teamFor(l,s))}">${s?'Night':'Day'}<div style="font-weight:500;text-transform:none;letter-spacing:0">${esc((teamFor(l,s)||'').slice(0,12))}</div></th>`).join('')}<th class="dd">Day</th><th class="nn">Night</th><th>24 h</th></tr>`;
+  const all=sum(MS);
+  const body=rows.map(r=>{if(r[0]==='g')return `<tr class="grp"><td colspan="${cols.length+4}">${r[1]}</td></tr>`;const fn=r[2];
+    return `<tr class="${r[3]?'k':''}" ${r[3]?`data-k="${r[3]}"`:''}><td>${r[1]}</td>${cols.map(([l,s])=>`<td>${get(l,s).machines?fn(get(l,s)):'—'}</td>`).join('')}<td class="f">${fn(R.day)}</td><td class="f">${fn(R.night)}</td><td class="f">${fn(all)}</td></tr>`;}).join('');
+  return `${onlyMatrix?'':kpis(f)}
+  ${onlyMatrix?'':`<section class="dcard pad">${ph('layers','Target to good production',shiftLabel()+' · click a step for its formula')}${waterfall(f)}</section>`}
+  <section class="dcard">${ph('table','Operations breakdown','Underlined rows open their formula · supervisor name under each shift')}<div class="tw" style="max-height:70vh"><table class="t mx">${head}<tbody>${body}</tbody></table></div></section>`;
+}
+
+/* ---------- design C ---------- */
+const PAL=['#2c7fb8','#e0892b','#3aa56b','#8e5cc2','#c9485b','#2aa6a6'];
+
+/* ---------- design D: the current page, upgraded ---------- */
+const CL={day:'#f59e0b',night:'#6366f1',good:'#16a34a',bad:'#ef4444',warn:'#f59e0b',blue:'#3b82f6',teal:'#0f8ea8',vio:'#8b5cf6',grey:'#94a3b8',orange:'#ea580c'};
+const ring=(v,col)=>`<span class="ring" style="--p:${Math.max(0,Math.min(1,v||0))*100};--c:${col}"><b>${pct(v,0)}</b></span>`;
+const dn=(d,n,fmtf,mx)=>{mx=mx||Math.max(d,n,1e-9);return `<div class="dn"><span>Day</span><span class="pb"><i style="width:${d/mx*100}%;background:${CL.day}"></i></span><b>${fmtf(d)}</b><span>Night</span><span class="pb"><i style="width:${n/mx*100}%;background:${CL.night}"></i></span><b>${fmtf(n)}</b></div>`;};
+const bandCls=e=>({g:'good',a:'warn',r:'bad',z:'info'})[band(e)];
+function designD(){
+  const f=R.fac,D=R.day,N=R.night;
+  const card=(cls,lbl,icon,v,sub,extra='')=>`<div class="dcard kpi ${cls}"><div class="kh"><span class="lbl">${lbl}</span><span class="ic">${ic(icon)}</span></div>${v}<span class="s">${sub}</span>${extra}</div>`;
+  const big=v=>`<span class="v">${v}</span>`;
+  const lossBar=o=>{const t=Math.max(1,o.totalLoss);return `<div class="pb" title="Change-over ${fmt(o.coLoss)} · Downtime ${fmt(o.dtLoss)} · Speed ${fmt(Math.max(0,o.speed))} · Rejection ${fmt(o.rej)} kg">${[[o.coLoss,CL.warn],[o.dtLoss,CL.vio],[Math.max(0,o.speed),CL.blue],[o.rej,CL.bad]].map(([v,c])=>`<i style="width:${v/t*100}%;background:${c}"></i>`).join('')}</div>`;};
+  const k1=`<div class="dk">
+    ${card('info','Achievable target','target',big(fmt(f.ach)+' <small>kg</small>'),'Full capacity '+fmt(f.full)+' kg · planned '+fmt(f.planned)+' kg',dn(D.ach,N.ach,v=>fmt(v)))}
+    ${card('good','Actual good','box',big(fmt(f.good)+' <small>kg</small>'),`<span class="${f.gap>=0?'tg':'tr'}">${f.gap>=0?'▲ +':'▼ −'}${fmt(Math.abs(f.gap))} kg</span> vs target · ${fmt(f.goodPcs)} pcs`,`<div class="pb"><i style="width:${Math.min(100,f.ach>0?f.good/f.ach*100:0)}%;background:${CL.good}"></i></div>`)}
+    ${card(bandCls(f.eff),'Efficiency','gauge',`<div class="vr">${big(pct(f.eff))}${ring(f.eff,bandVar(f.eff))}</div>`,band(f.eff)==='g'?'On target (85%+)':band(f.eff)==='a'?'Below target (65–85%)':'Critical (below 65%)',dn(D.eff,N.eff,v=>pct(v,0),1))}
+    ${card('bad','Rejection','alert',big(fmt(f.rej)+' <small>kg</small>'),pct(f.rejPct)+' of gross · '+fmt(f.rejPcs)+' pcs',dn(D.rejPct,N.rejPct,v=>pct(v),Math.max(D.rejPct,N.rejPct,.0001)))}
+    ${card('vio','Machines running','cpu',big(R.running+' <small>/ '+MACH.length+'</small>'),pct(R.running/MACH.length,0)+' running · '+R.idle.length+' no DPR all day',`<div class="pb"><i style="width:${R.running/MACH.length*100}%;background:${CL.vio}"></i></div>`)}
+    ${card('warn','Total downtime','clock',big(fmt(f.downH,1)+' <small>h</small>'),pct(f.downH/Math.max(1,f.fullH),1)+' of reported hours · + '+fmt(f.npH,1)+' h no plan',dn(D.downH,N.downH,v=>fmt(v,0)+' h'))}
+  </div>`;
+  const k2=`<div class="dk">
+    ${card(bandCls(f.oee),'OEE','repeat',`<div class="vr">${big(pct(f.oee))}${ring(f.oee,bandVar(f.oee))}</div>`,'Availability × Performance × Quality')}
+    ${card('info','Availability','clock',`<div class="vr">${big(pct(f.avail))}${ring(f.avail,CL.blue)}</div>`,'Running time ÷ planned time')}
+    ${card('vio','Performance','gauge',`<div class="vr">${big(pct(f.perf))}${ring(Math.min(1,f.perf),CL.vio)}</div>`,'Actual speed ÷ std speed')}
+    ${card('good','Quality','box',`<div class="vr">${big(pct(f.qual))}${ring(f.qual,CL.good)}</div>`,'Good ÷ gross')}
+    ${card('bad','Total loss','down',big(fmt(f.totalLoss)+' <small>kg</small>'),'Planned target − good',lossBar(f)+`<div class="lg" style="margin-top:4px"><span><i style="background:${CL.warn}"></i>C/O</span><span><i style="background:${CL.vio}"></i>Down</span><span><i style="background:${CL.blue}"></i>Speed</span><span><i style="background:${CL.bad}"></i>Rej</span></div>`)}
+    ${card('warn','Change-overs','repeat',big(`${f.mc} <small>mould</small> · ${f.cc} <small>colour</small> · ${f.jc} <small>job</small>`),`Std ${fmt(f.stdCOH,1)} h · actual ${fmt(f.actCOH,1)} h · <span class="${f.actCOH>f.stdCOH?'tr':'tg'}">${f.actCOH>f.stdCOH?'+':''}${fmt(f.actCOH-f.stdCOH,1)} h</span>`)}
+  </div>`;
+  const ls=LINES.filter(l=>R.lines[l].all.machines);
+  const stk=o=>{const t=Math.max(1,o.planned);return `<div class="stk" title="Good ${fmt(o.good)} kg of ${fmt(o.planned)} kg planned">${[[o.good,CL.good],[o.rej,CL.bad],[Math.max(0,o.speed),CL.blue],[o.dtLoss,CL.vio],[o.coLoss,CL.warn]].map(([v,c])=>`<i style="width:${Math.max(0,v)/t*100}%;background:${c}"></i>`).join('')}</div>`;};
+  const lossRow=(name,o,tot)=>`<tr class="${tot?'tot':'click'}" ${tot?'':`data-line="${esc(name)}"`}><td class="l"><b>${esc(name)}</b></td><td>${fmt(o.planned)}</td><td><b>${fmt(o.good)}</b></td><td class="tr" style="font-weight:800">${fmt(o.totalLoss)}</td><td>${fmt(o.coLoss)}</td><td>${fmt(o.dtLoss)}</td><td>${fmt(o.speed)}</td><td>${fmt(o.rej)}</td><td>${fmt(o.missing)}</td><td class="l">${stk(o)}</td><td><span class="pill ${band(o.oee)}">${pct(o.oee)}</span></td></tr>`;
+  const coRow=(name,o,tot)=>{const ov=o.actCOH-o.stdCOH;return `<tr class="${tot?'tot':''}"><td class="l"><b>${esc(name)}</b></td><td>${o.mc}</td><td>${o.cc}</td><td>${o.jc}</td><td>${fmt(o.stdCOH,1)}</td><td>${fmt(o.actCOH,1)}</td><td class="${ov>0.2*Math.max(o.stdCOH,.01)&&ov>0?'tr':''}" style="font-weight:700">${ov>0?'+':''}${fmt(ov,1)}</td><td class="tr" style="font-weight:700">${fmt(o.overrun)}</td></tr>`;};
+  const cbox=(id,icon,title,sub,cls='')=>`<div class="dcard cc"><div class="ct">${ic(icon)}${title}</div>${sub?`<div class="cs">${sub}</div>`:''}<div class="cbox ${cls}"><canvas id="${id}" role="img" aria-label="${esc(title)}"></canvas></div></div>`;
+  return `${k1}${k2}${insights()}
+  <div class="charts c21">${cbox('cWf','layers','Target to good production (kg)','Each bar is one step from full capacity down to good production. Click a bar for its formula.','tall')}${cbox('cDt','hour','Top downtime reasons (hours)','No plan is shown in grey'+(state.np==='exclude'?' and is not counted as a loss':''),'tall')}</div>
+  <div class="charts c3">${cbox('cEff','gauge','Line efficiency % · Day vs Night','Dashed line = 85% target')}${cbox('cLoss','down','Where each line\'s target went (kg)','Good + every loss = the line\'s planned target')}${cbox('cRej','alert','Line rejection · kg and %','Bars = kg (Day / Night), line = rejection %')}</div>
+  <div class="charts c3">${cbox('cRr','alert','Rejection reasons (pcs)','From the reject breakup entered each hour')}${cbox('cCo','repeat','Change-over time · std vs actual (h)','Std = mould changes × load + unload time')}${cbox('cTop','cpu','10 machines losing the most kg','Planned target − good · click a bar to open the machine')}</div>
+  <section class="dcard">${ph('down','Loss account & change-over variance (line-wise)',shiftLabel()+' · click a line to see its machines')}
+    <div class="tw"><table class="t"><thead><tr><th class="l">Line</th><th>Planned kg</th><th>Good kg</th><th>Total loss kg</th><th>Change-over</th><th>Downtime</th><th>Speed</th><th>Quality</th><th>DPR missing</th><th class="l">Good vs losses</th><th>OEE</th></tr></thead>
+    <tbody>${ls.map(l=>lossRow(l,R.lines[l].all)).join('')}${lossRow('Factory total',f,1)}</tbody></table></div>
+    <div class="pad lg"><span><i style="background:${CL.good}"></i>Good</span><span><i style="background:${CL.bad}"></i>Rejection</span><span><i style="background:${CL.blue}"></i>Speed</span><span><i style="background:${CL.vio}"></i>Downtime</span><span><i style="background:${CL.warn}"></i>Change-over</span><span>Total loss = Change-over + Downtime + Speed + Quality = Planned − Good. DPR missing is outside the planned target.</span></div>
+    <div class="ph" style="border-top:1px solid var(--line)"><h2>${ic('repeat')}Change-over: std vs actual</h2><span class="muted small">Overrun above 20% of std in red</span></div>
+    <div class="tw"><table class="t"><thead><tr><th class="l">Line</th><th>Mould</th><th>Colour</th><th>Job</th><th>Std h</th><th>Actual h</th><th>Overrun h</th><th>Excess loss kg</th></tr></thead>
+    <tbody>${ls.map(l=>coRow(l,R.lines[l].all)).join('')}${coRow('Factory total',f,1)}</tbody></table></div>
+  </section>
+  <section class="dcard">${ph('table','Operations breakdown','',`<div class="seg" id="dvSeg"><button data-dv="line" aria-pressed="${state.dview==='line'}">Line matrix</button><button data-dv="machine" aria-pressed="${state.dview==='machine'}">Machine list</button></div>`)}
+    ${state.dview==='line'?designB(true).replace(/^\s*<section class="dcard">[\s\S]*?<\/div><div class="tw"/,'<div class="tw"').replace(/<\/section>\s*$/,''):machineTable().replace(/^<section class="dcard">/,'').replace(/<\/section>$/,'')}
+  </section>`;
+}
+let CH={};
+function drawD(){
+  Object.values(CH).forEach(c=>{try{c.destroy();}catch(e){}});CH={};
+  if(state.design!=='D'||typeof Chart==='undefined')return;
+  const css=v=>getComputedStyle(document.querySelector('.ddr')||document.documentElement).getPropertyValue(v).trim();
+  Chart.defaults.font.family="Inter, system-ui, sans-serif";Chart.defaults.font.size=11;Chart.defaults.color=css('--muted');
+  if(typeof ChartDataLabels!=='undefined'&&!Chart.registry.plugins.get('datalabels'))Chart.register(ChartDataLabels);
+  const grid={color:css('--line')};const mk=(id,cfg)=>{const el=document.getElementById(id);if(el)CH[id]=new Chart(el,cfg);};
+  const base=(o={})=>({responsive:true,maintainAspectRatio:false,animation:{duration:400},plugins:{legend:{labels:{boxWidth:10,boxHeight:10,padding:10}},datalabels:{display:false},...(o.plugins||{})},...o.rest});
+  const f=R.fac,ls=LINES.filter(l=>R.lines[l].all.machines);
+  // 1 waterfall
+  const S=steps(f);let run=0;const SH={full:'Full capacity',np:'No plan',miss:'DPR missing',planned:'Planned',stdco:'Std change',buf:'5% allow.',ach:'Achievable',over:'C/O overrun',down:'Downtime',speed:'Speed',gross:'Gross',rej:'Rejection',good:'Good'};
+  const COL={'b-tot':CL.blue,'b-plan':CL.teal,'b-co':CL.warn,'b-loss':CL.bad,'b-ex':CL.grey,'b-good':CL.good,'b-gain':'#86efac'};
+  const wd=S.map(s=>{let a,b;if(s.tot){a=0;b=s.v;run=s.v;}else{a=run;b=run+s.v;run=b;}return [Math.min(a,b),Math.max(a,b)];});
+  mk('cWf',{type:'bar',data:{labels:S.map(s=>SH[s.k]||s.k),datasets:[{data:wd,backgroundColor:S.map(s=>COL[s.c]),borderRadius:4,borderSkipped:false,maxBarThickness:46}]},
+    options:{...base({plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>(S[c.dataIndex].v<0?'−':'')+fmt(Math.abs(S[c.dataIndex].v))+' kg'}},datalabels:{display:true,anchor:'end',align:'end',offset:2,color:css('--ink'),font:{weight:'bold',size:11},formatter:(v,c)=>fmt(Math.abs(S[c.dataIndex].v))}}}),
+      onClick:(e,els)=>{if(els[0])showFormula(S[els[0].index].k);},scales:{x:{grid:{display:false},ticks:{autoSkip:false,maxRotation:35,minRotation:0}},y:{beginAtZero:true,grid,grace:'10%',ticks:{callback:v=>fmt(v)}}}}});
+  // 2 downtime doughnut
+  const items=Object.entries(f.downBy).map(([c,h])=>({n:DT_NAMES[c]||c,h,col:null}));
+  if(f.actCOH>0)items.push({n:'Mould change-over',h:f.actCOH});
+  items.sort((a,b)=>b.h-a.h);const top=items.slice(0,7),rest=items.slice(7).reduce((a,x)=>a+x.h,0);if(rest>0)top.push({n:'All other reasons',h:rest});
+  if(f.npH>0)top.push({n:'No plan',h:f.npH,np:1});
+  const PALD=['#ef4444','#f59e0b','#8b5cf6','#3b82f6','#ec4899','#14b8a6','#0ea5e9','#64748b'];
+  mk('cDt',{type:'doughnut',data:{labels:top.map(x=>x.n),datasets:[{data:top.map(x=>+x.h.toFixed(1)),backgroundColor:top.map((x,i)=>x.np?'#cbd5e1':PALD[i%PALD.length]),borderWidth:2,borderColor:css('--card')}]},
+    options:{...base({plugins:{legend:{position:'bottom',labels:{boxWidth:10,boxHeight:10,padding:8,font:{size:11}}},tooltip:{callbacks:{label:c=>c.label+': '+fmt(c.raw,1)+' h'}},datalabels:{display:c=>c.dataset.data[c.dataIndex]>=f.downH*0.06,color:'#fff',font:{weight:'bold',size:11},formatter:v=>fmt(v,0)+'h'}}}),cutout:'58%'}});
+  // 3 efficiency
+  mk('cEff',{type:'bar',data:{labels:ls,datasets:[{label:'Day',data:ls.map(l=>+(R.lines[l].d.eff*100).toFixed(1)),backgroundColor:CL.day,borderRadius:4},{label:'Night',data:ls.map(l=>+(R.lines[l].n.eff*100).toFixed(1)),backgroundColor:CL.night,borderRadius:4},{type:'line',label:'85% target',data:ls.map(()=>85),borderColor:CL.good,borderDash:[5,4],borderWidth:1.5,pointRadius:0}]},
+    options:{...base({plugins:{tooltip:{callbacks:{label:c=>c.dataset.label+': '+fmt(c.raw,1)+'%'}},datalabels:{display:c=>c.datasetIndex<2&&c.raw>0,anchor:'end',align:'end',offset:0,color:css('--ink'),font:{size:11,weight:'bold'},formatter:v=>fmt(v,0)}}}),scales:{x:{grid:{display:false}},y:{beginAtZero:true,suggestedMax:100,grid,ticks:{callback:v=>v+'%'}}}}});
+  // 4 loss by line (stacked horizontal)
+  const LS=[['Good',o=>o.good,CL.good],['Rejection',o=>o.rej,CL.bad],['Speed',o=>Math.max(0,o.speed),CL.blue],['Downtime',o=>o.dtLoss,CL.vio],['Change-over',o=>o.coLoss,CL.warn]];
+  mk('cLoss',{type:'bar',data:{labels:ls,datasets:LS.map(([n,fn,c])=>({label:n,data:ls.map(l=>Math.round(fn(R.lines[l].all))),backgroundColor:c}))},
+    options:{...base({plugins:{tooltip:{callbacks:{label:c=>c.dataset.label+': '+fmt(c.raw)+' kg'}}}}),indexAxis:'y',scales:{x:{stacked:true,grid,ticks:{callback:v=>fmt(v)}},y:{stacked:true,grid:{display:false}}}}});
+  // 5 rejection by line
+  mk('cRej',{type:'bar',data:{labels:ls,datasets:[{label:'Day kg',data:ls.map(l=>+R.lines[l].d.rej.toFixed(1)),backgroundColor:'#f87171',borderRadius:4,yAxisID:'y'},{label:'Night kg',data:ls.map(l=>+R.lines[l].n.rej.toFixed(1)),backgroundColor:'#fbbf24',borderRadius:4,yAxisID:'y'},{type:'line',label:'Rej %',data:ls.map(l=>+(R.lines[l].all.rejPct*100).toFixed(2)),borderColor:CL.bad,backgroundColor:CL.bad,pointRadius:3,yAxisID:'y1',tension:.3}]},
+    options:{...base({plugins:{tooltip:{callbacks:{label:c=>c.dataset.label+': '+(c.datasetIndex===2?fmt(c.raw,1)+'%':fmt(c.raw,1)+' kg')}}}}),scales:{x:{grid:{display:false}},y:{beginAtZero:true,grid},y1:{position:'right',beginAtZero:true,grid:{display:false},ticks:{callback:v=>v+'%'}}}}});
+  // 6 rejection reasons
+  const rr=Object.entries(f.rejBy).map(([c,v])=>({n:REJ_NAMES[c]||String(c).replace(/^OTHER_?/,'Other: ')||'Other',v})).sort((a,b)=>b.v-a.v).slice(0,8);
+  mk('cRr',{type:'bar',data:{labels:rr.map(x=>x.n.length>24?x.n.slice(0,23)+'…':x.n),datasets:[{label:'Pcs',data:rr.map(x=>x.v),backgroundColor:CL.orange,borderRadius:4}]},
+    options:{...base({plugins:{legend:{display:false},tooltip:{callbacks:{title:c=>rr[c[0].dataIndex].n,label:c=>fmt(c.raw)+' pcs'}},datalabels:{display:true,anchor:'end',align:'end',color:css('--ink'),font:{size:11,weight:'bold'},formatter:v=>fmt(v)}}}),indexAxis:'y',scales:{x:{beginAtZero:true,grid,grace:'12%'},y:{grid:{display:false}}}}});
+  // 7 change-over
+  mk('cCo',{type:'bar',data:{labels:ls,datasets:[{label:'Std h',data:ls.map(l=>+R.lines[l].all.stdCOH.toFixed(2)),backgroundColor:'#93c5fd',borderRadius:4},{label:'Actual h',data:ls.map(l=>+R.lines[l].all.actCOH.toFixed(2)),backgroundColor:CL.warn,borderRadius:4}]},
+    options:{...base({plugins:{tooltip:{callbacks:{label:c=>c.dataset.label.replace(' h','')+': '+fmt(c.raw,1)+' h'}}}}),scales:{x:{grid:{display:false}},y:{beginAtZero:true,grid}}}});
+  // 8 top machines by loss
+  const tm=R.machines.map(x=>({x,l:x.all.totalLoss})).filter(y=>y.x.all.machines).sort((a,b)=>b.l-a.l).slice(0,10);
+  mk('cTop',{type:'bar',data:{labels:tm.map(y=>y.x.m.name),datasets:[{label:'Loss kg',data:tm.map(y=>Math.round(y.l)),backgroundColor:tm.map(y=>({g:'#16a34a',a:'#f59e0b',r:'#ef4444',z:'#94a3b8'})[band(y.x.all.oee)]),borderRadius:4}]},
+    options:{...base({plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>fmt(c.raw)+' kg lost · OEE '+pct(tm[c.dataIndex].x.all.oee)}},datalabels:{display:true,anchor:'end',align:'end',color:css('--ink'),font:{size:11,weight:'bold'},formatter:v=>fmt(v)}}}),indexAxis:'y',
+      onClick:(e,els)=>{if(els[0])openMachine(tm[els[0].index].x.m.i);},scales:{x:{beginAtZero:true,grid,grace:'14%'},y:{grid:{display:false},ticks:{font:{size:11}}}}}});
+}
+
+/* ---------- design D v2: tabs with every detail ---------- */
+const HCLS=x=>{if(x&&x.fut)return 'h-f';if(!x||x.miss)return 'h-m';if(x.np>=45&&x.g+x.r===0)return 'h-n';if(x.g+x.r===0)return 'h-d';return x.eff>=.85?'h-g':x.eff>=.65?'h-a':'h-r';};
+const HTIP=(x,s,i)=>{const t=(s?'Night ':'Day ')+HL(s,i)+':00';if(x&&x.fut)return t+' · not reached yet';if(!x||x.miss)return t+' · no DPR entry';return `${t} · ${x.mould||''} · good ${x.g} · rej ${x.r} · ${x.rate?fmt(x.eff*100,0)+'% of std speed':'no std'}${x.dt?' · down '+x.dt+'m':''}${x.np?' · no plan '+x.np+'m':''}${x.co?' · mould change '+x.co+'m':''}${x.qv?' · QC ✓':''}`;};
+function hstrip(mi){const d=MS.find(x=>x.m===mi&&x.s===0),n=MS.find(x=>x.m===mi&&x.s===1);const c=[];[d,n].forEach((ms,s)=>{for(let i=0;i<12;i++){const x=ms?ms.slots[i]:null;c.push(`<i class="${HCLS(x)} ${s&&!i?'mid':''}" title="${esc(HTIP(x,s,i))}"></i>`);}});return `<div class="hs">${c.join('')}</div>`;}
+const HLEG=`<div class="lg"><span><i class="h-g"></i>85%+ of std speed</span><span><i class="h-a"></i>65–85%</span><span><i class="h-r"></i>below 65%</span><span><i class="h-d"></i>stopped (downtime)</span><span><i class="h-n"></i>no plan</span><span><i class="h-m"></i>no DPR entry</span><span><i class="h-f"></i>not reached yet</span><span>12 Day hours | 12 Night hours · hover a cell for the detail</span></div>`;
+const isBlank=v=>!v||/^(n\/?a|\.|-|na|none)$/i.test(String(v).trim());
+function checks(){
+  const f=R.fac,C=[];
+  const fast=[];R.sel.forEach(ms=>ms.runs.forEach(r=>{if(r.rate>0&&r.runH>=1&&r.speedPct>1.05)fast.push({ms,r});}));fast.sort((a,b)=>b.r.speedPct-a.r.speedPct);
+  C.push({lvl:'r',n:fast.length,t:'Mould runs faster than their std cycle',d:'Usually the std cycle time in Mould Master is too slow. It makes efficiency look better than it is.',
+    rows:fast.map(({ms,r})=>[MACH[ms.m].name,ms.s?'Night':'Day',r.mould,r.ct+' s × '+(r.cav||r.acav),fmt(r.rate)+' pcs/h',fmt((r.g+r.rj)/Math.max(r.runH,.01))+' pcs/h',pct(r.speedPct,0)]),head:['Machine','Shift','Mould','Std cycle × cav','Std rate','Actual rate','Speed']});
+  const lostPcs=[];R.sel.forEach(ms=>ms.runs.forEach(r=>{if(r.g+r.rj>0&&(!(r.stdWt>0)||!(r.ct>0)))lostPcs.push([MACH[ms.m].name,ms.s?'Night':'Day',r.mould,fmt(r.g)+' good · '+fmt(r.rj)+' rej',r.ct?r.ct+' s':'missing',r.stdWt?fmt(r.stdWt,1)+' g':'missing',r.wt>0&&r.rate>0?'Setup values used: '+fmt(r.wt*1000,1)+' g, '+fmt(r.rate)+' pcs/h':(r.wt>0?'Weight only: '+fmt(r.wt*1000,1)+' g, no target':'<b>Not counted: 0 kg</b>')]);}));
+  C.push({lvl:'r',n:lostPcs.length,t:'Pieces made on moulds with no std weight or cycle',d:'Mould Master is missing the standard. Where the DPR setup has a weight and rate those are used; otherwise the pieces add 0 kg and 0 target. Fix in Mould Master.',rows:lostPcs,head:['Machine','Shift','Mould','Pieces','Std cycle','Std weight','How counted']});
+  const idleNoStd=[];R.sel.forEach(ms=>ms.runs.forEach(r=>{if(r.g+r.rj===0&&!(r.rate*r.wt>0))idleNoStd.push([MACH[ms.m].name,ms.s?'Night':'Day',r.mould==='?'?'(no setup, no plan)':r.mould,fmt(r.h,0)+' h',Object.entries(r.dt).map(([c,v])=>(DT_NAMES[c]||c)+' '+fmt(v/60,1)+' h').join(', ')]);}));
+  C.push({lvl:'r',n:idleNoStd.length,t:'Machine-shifts stopped all shift with no DPR setup',d:'Their stopped hours show in downtime hours, but are worth 0 kg: neither a DPR setup nor the plan\'s mould in Mould Master gives a std rate. Fill the DPR setup or the Mould Master std.',rows:idleNoStd,head:['Machine','Shift','Mould','Hours','Why stopped']});
+  const um=R.sel.filter(ms=>ms.unmatched>0).map(ms=>[MACH[ms.m].name,ms.s?'Night':'Day',ms.unmatched,ms.runs.filter(r=>r.unm).map(r=>r.mould+(r.src==='master'?' (Mould Master std)':' (first setup)')).join(', ')]);
+  C.push({lvl:'a',n:um.reduce((a,x)=>a+x[2],0),t:'Hourly entries whose plan has no setup',d:'The supervisor entered production against a plan that has no DPR setup for this shift. These hours are valued at the plan mould\'s std from Mould Master; if the mould is not found there, at the machine\'s first setup.',rows:um,head:['Machine','Shift','Entries','Valued at']});
+  const miss=R.sel.filter(ms=>ms.missH>0).sort((a,b)=>b.missH-a.missH).map(ms=>[MACH[ms.m].name,ms.s?'Night':'Day',ms.missH+' h',ms.slots.map((x,i)=>x.miss?HL(ms.s,i)+':00':null).filter(Boolean).join(' ')]);
+  C.push({lvl:'a',n:f.missH,t:'Machine-hours with no DPR entry',d:'Counted as a loss ("DPR not filled") so missing entries are visible.',rows:miss,head:['Machine','Shift','Hours','Which hours']});
+  C.push({lvl:'a',n:R.idle.length,t:'Machines with no DPR entry all day',d:'Not in any total. Confirm they were really off.',rows:R.idle.map(m=>[m.name,m.line,m.ton+' T']),head:['Machine','Line','Tonnage']});
+  const sup=[];LINES.forEach(l=>{if(!R.lines[l].all.machines)return;[0,1].forEach(s=>{if((state.shift==='all'||+state.shift===s)&&isBlank(teamFor(l,s)))sup.push([l,s?'Night':'Day',teamFor(l,s)||'(blank)']);});});
+  C.push({lvl:'a',n:sup.length,t:'Line-shifts without a supervisor name',d:'Fix in Shift Team so the report shows who was responsible.',rows:sup,head:['Line','Shift','Saved as']});
+  const qcL=LINES.filter(l=>R.lines[l].all.nEnt).map(l=>{const o=R.lines[l].all;return [l,fmt(o.nEnt),fmt(o.qv),pct(o.qv/o.nEnt,0),o.hold];});
+  C.push({lvl:f.nEnt&&f.qv/f.nEnt<.9?'a':'g',n:f.nEnt-f.qv,t:'Hourly entries not verified by QC',d:`${pct(f.nEnt?f.qv/f.nEnt:0,0)} of ${fmt(f.nEnt)} hourly entries were verified. ${f.hold} QC hold${f.hold===1?'':'s'}.`,rows:qcL,head:['Line','Entries','Verified','Verified %','Holds']});
+  const oth=(P.others||[]).map(([t,m])=>[t,fmt(m/60,1)+' h']);
+  C.push({lvl:'a',n:fmt((f.downBy.O||0),1)+' h',t:'Downtime typed as "Other" instead of a reason code',d:'These hours cannot be grouped. Most could use an existing code (Material shortage, Mould problem, Crane).',rows:oth,head:['Typed text (whole day)','Time']});
+  const wv=[];R.sel.forEach(ms=>ms.runs.forEach(r=>{if(r.stdWt>0&&r.actWt>0&&Math.abs(r.actWt/r.stdWt-1)>=.03)wv.push([MACH[ms.m].name,ms.s?'Night':'Day',r.mould,fmt(r.stdWt,1)+' g',fmt(r.actWt,1)+' g',pct(r.actWt/r.stdWt-1,1),fmt((r.actWt-r.stdWt)*(r.g+r.rj)/1000,1)+' kg']);}));
+  C.push({lvl:'a',n:wv.length,t:'Pieces 3%+ off their std weight',d:'Actual weight from the setup vs Mould Master. Positive = extra material used.',rows:wv,head:['Machine','Shift','Mould','Std wt','Actual wt','Diff','Extra material']});
+  return C;
+}
+function machineRows2(){
+  const q=(state.q||'').toLowerCase();
+  return R.machines.filter(x=>x.all.machines&&(!state.mline||x.m.line===state.mline)&&(!q||x.m.name.toLowerCase().includes(q)||[...(x.d?x.d.runs:[]),...(x.n?x.n.runs:[])].some(r=>String(r.mould).toLowerCase().includes(q)))).filter(x=>{const a=x.all;switch(state.mfilt){case 'low':return a.ach>0&&a.eff<.65;case 'fast':return [...(x.d?x.d.runs:[]),...(x.n?x.n.runs:[])].some(r=>r.rate>0&&r.runH>=1&&r.speedPct>1.05);case 'rej':return a.rejPct>.05;case 'np':return a.npH>0;case 'miss':return a.missH>0;case 'multi':return a.mc>0;default:return true;}});
+}
+function machinesTable2(){
+  const rows=machineRows2();
+  const effS=o=>o&&o.ach>0?`<span class="pill ${band(o.eff)}">${pct(o.eff,0)}</span>`:'<span class="muted">—</span>';
+  return `<table class="t"><thead><tr><th class="l">Machine</th><th class="l">Moulds run</th><th class="l">24-hour strip</th><th>Day</th><th>Night</th><th>Eff</th><th>Good pcs</th><th>Good kg</th><th>Rej %</th><th>Down h</th><th>No plan h</th><th>Missing h</th><th>M/C/J</th><th>QC ✓</th></tr></thead><tbody>${rows.map(x=>{const a=x.all;const mo=[...new Set([...(x.d?x.d.runs:[]),...(x.n?x.n.runs:[])].map(r=>r.mould))];
+    return `<tr class="click" data-m="${x.m.i}"><td class="l"><b>${esc(x.m.name)}</b><div class="muted" style="font-size:.7rem">${esc(x.m.line)} · ${x.m.ton} T</div></td><td class="l" style="white-space:normal;max-width:230px;font-size:.73rem">${mo.map(esc).join('<br>')}</td><td class="l">${hstrip(x.m.i)}</td><td>${effS(x.d)}</td><td>${effS(x.n)}</td><td class="l">${effCell(a.eff)}</td><td>${fmt(a.goodPcs)}</td><td><b>${fmt(a.good)}</b></td><td><span class="pill ${rejBand(a.rejPct)}">${pct(a.rejPct)}</span></td><td>${fmt(a.downH,1)}</td><td>${fmt(a.npH,1)}</td><td>${a.missH?'<span class="tr">'+a.missH+'</span>':'0'}</td><td>${a.mc}/${a.cc}/${a.jc}</td><td>${a.nEnt?pct(a.qv/a.nEnt,0):'—'}</td></tr>`;}).join('')||'<tr><td colspan="14" class="l muted" style="padding:20px">No machine matches these filters.</td></tr>'}</tbody></table><div class="pad small muted">${rows.length} machine${rows.length===1?'':'s'} shown · line, then machine number · click a row for every mould run and hour</div>`;
+}
+function designD2(){
+  const f=R.fac,D=R.day,N=R.night;
+  const old=designD();const head=old.split('<div class="charts c21">')[0];   // the two KPI rows + insight chips
+  const CK=checks();const nIssues=CK.filter(c=>c.lvl==='r'&&+c.n>0).length;
+  const T=[['overview','gauge','Overview'],['lines','table','Lines'],['machines','cpu','Machines'],['downtime','hour','Downtime'],['quality','alert','Quality'],['changes','repeat','Change-overs'],['checks','target','Data checks']];
+  const tabs=`<nav class="tabs" role="tablist">${T.map(([k,i,t])=>`<button role="tab" data-tab="${k}" aria-selected="${state.tab===k}">${ic(i)}${t}${k==='checks'&&nIssues?` <span class="cnt">${nIssues}</span>`:''}</button>`).join('')}</nav>`;
+  const cb=(id,icon,title,sub,cls='')=>`<div class="dcard cc"><div class="ct">${ic(icon)}${title}</div>${sub?`<div class="cs">${sub}</div>`:''}<div class="cbox ${cls}"><canvas id="${id}" role="img" aria-label="${esc(title)}"></canvas></div></div>`;
+  const ls=LINES.filter(l=>R.lines[l].all.machines);
+  let body='';
+  if(state.tab==='overview'){
+    body=`<div class="charts c21">${cb('cHr','clock','Hour by hour · good kg vs planned','Bars = good kg (amber Day, indigo Night), red = rejected kg, line = planned kg at std rate','tall')}${cb('cDt','hour','Top downtime reasons (hours)','No plan in grey'+(state.np==='exclude'?', not counted as a loss':''),'tall')}</div>
+    <div class="charts c21">${cb('cWf','layers','Target to good production (kg)','Click a bar for its formula','tall')}${cb('cEff','gauge','Line efficiency % · Day vs Night','Dashed line = 85% target','tall')}</div>`;
+  } else if(state.tab==='lines'){
+    const lcard=l=>{const o=R.lines[l].all,d=R.lines[l].d,n=R.lines[l].n;const ms=R.machines.filter(x=>x.m.line===l&&x.all.machines);const run=new Set(R.sel.filter(x=>MACH[x.m].line===l&&x.gross>0).map(x=>x.m)).size;const tot=MACH.filter(m=>m.line===l).length;
+      const users=[...new Set(R.sel.filter(x=>MACH[x.m].line===l).flatMap(x=>x.users))];
+      return `<button class="dcard lc" data-line="${esc(l)}"><div class="top2">${ring(o.eff,bandVar(o.eff))}<div style="min-width:0;flex:1"><h3>${esc(l)}</h3><div class="muted" style="font-size:.72rem">☀ ${esc(teamFor(l,0)||'—')} · ☾ ${esc(teamFor(l,1)||'—')}</div><div class="muted" style="font-size:.7rem">Entered by ${esc(users.join(', ')||'—')}</div></div><span class="pill ${band(o.oee)}">OEE ${pct(o.oee,0)}</span></div>
+      <div class="stk">${[[o.good,CL.good],[o.rej,CL.bad],[Math.max(0,o.speed),CL.blue],[o.dtLoss,CL.vio],[o.coLoss,CL.warn]].map(([v,c])=>`<i style="width:${Math.max(0,v)/Math.max(1,o.planned)*100}%;background:${c}"></i>`).join('')}</div>
+      <div class="g3"><span>Good / planned<b>${fmt(o.good)} / ${fmt(o.planned)} kg</b></span><span>Day · Night eff<b><span class="${band(d.eff)==='g'?'tg':band(d.eff)==='a'?'ta':'tr'}">${pct(d.eff,0)}</span> · <span class="${band(n.eff)==='g'?'tg':band(n.eff)==='a'?'ta':'tr'}">${pct(n.eff,0)}</span></b></span><span>Machines running<b>${run} / ${tot}</b></span>
+      <span>Rejection<b class="${rejBand(o.rejPct)==='r'?'tr':''}">${pct(o.rejPct)} · ${fmt(o.rej)} kg</b></span><span>Downtime<b>${fmt(o.downH,1)} h</b></span><span>QC verified<b>${o.nEnt?pct(o.qv/o.nEnt,0):'—'}</b></span></div>
+      <div class="muted" style="font-size:.72rem">Biggest loss: ${biggestLoss(o)}</div></button>`;};
+    const stk=o=>`<div class="stk">${[[o.good,CL.good],[o.rej,CL.bad],[Math.max(0,o.speed),CL.blue],[o.dtLoss,CL.vio],[o.coLoss,CL.warn]].map(([v,c])=>`<i style="width:${Math.max(0,v)/Math.max(1,o.planned)*100}%;background:${c}"></i>`).join('')}</div>`;
+    const lossRow=(name,o,tot)=>`<tr class="${tot?'tot':'click'}" ${tot?'':`data-line="${esc(name)}"`}><td class="l"><b>${esc(name)}</b></td><td>${fmt(o.planned)}</td><td><b>${fmt(o.good)}</b></td><td class="tr" style="font-weight:800">${fmt(o.totalLoss)}</td><td>${fmt(o.coLoss)}</td><td>${fmt(o.dtLoss)}</td><td>${fmt(o.speed)}</td><td>${fmt(o.rej)}</td><td>${fmt(o.missing)}</td><td class="l">${stk(o)}</td><td><span class="pill ${band(o.oee)}">${pct(o.oee)}</span></td></tr>`;
+    body=`<div class="lg"><span><i style="background:${CL.good}"></i>Good</span><span><i style="background:${CL.bad}"></i>Rejection</span><span><i style="background:${CL.blue}"></i>Speed loss</span><span><i style="background:${CL.vio}"></i>Downtime</span><span><i style="background:${CL.warn}"></i>Change-over</span><span>Each bar = the line's planned target. Click a line card to open its machines.</span></div>
+    <div class="lcards">${ls.map(lcard).join('')}</div>
+    <div class="charts c21">${cb('cLoss','down','Where each line\'s target went (kg)','Good + every loss = planned target')}${cb('cEff','gauge','Line efficiency % · Day vs Night','Dashed line = 85% target')}</div>
+    <section class="dcard">${ph('down','Loss account (line-wise)',shiftLabel()+' · Total loss = Change-over + Downtime + Speed + Quality = Planned − Good')}<div class="tw"><table class="t"><thead><tr><th class="l">Line</th><th>Planned kg</th><th>Good kg</th><th>Total loss kg</th><th>Change-over</th><th>Downtime</th><th>Speed</th><th>Quality</th><th>DPR missing</th><th class="l">Good vs losses</th><th>OEE</th></tr></thead><tbody>${ls.map(l=>lossRow(l,R.lines[l].all)).join('')}${lossRow('Factory total',f,1)}</tbody></table></div></section>
+    <section class="dcard">${ph('table','Line matrix','Every metric, each line Day / Night, factory totals · underlined rows open their formula')}${designB(true).replace(/^\s*<section class="dcard">[\s\S]*?<\/div><div class="tw"/,'<div class="tw"').replace(/<\/section>\s*$/,'')}</section>`;
+  } else if(state.tab==='machines'){
+    const F=[['all','All'],['low','Below 65%'],['fast','Faster than std'],['rej','Rejection over 5%'],['np','Had no plan'],['miss','DPR missing'],['multi','Mould changed']];
+    body=`<div class="charts c21">${cb('cTop','cpu','10 machines losing the most kg','Planned target − good · click a bar to open the machine')}${cb('cRm','alert','10 machines with the highest rejection %','Machines with at least 200 pcs moulded')}</div>
+    <section class="dcard">${ph('cpu','All machines',shiftLabel())}
+    <div class="dfilters"><select id="fLine" aria-label="Line"><option value="">All lines</option>${LINES.map(l=>`<option ${state.mline===l?'selected':''}>${esc(l)}</option>`).join('')}</select>
+    <input id="fQ" type="search" placeholder="Search machine or mould" value="${esc(state.q)}" aria-label="Search">
+    ${F.map(([k,t])=>`<button class="fchip" data-mf="${k}" aria-pressed="${state.mfilt===k}">${t}</button>`).join('')}</div>
+    <div class="pad" style="padding-bottom:0">${HLEG}</div><div class="tw" id="mtbl">${machinesTable2()}</div></section>`;
+  } else if(state.tab==='downtime'){
+    const codes=Object.keys(f.downBy).sort((a,b)=>f.downBy[b]-f.downBy[a]);
+    const mx=Math.max(...ls.flatMap(l=>codes.map(c=>R.lines[l].all.downBy[c]||0)),1);
+    const hm=`<table class="t hm"><thead><tr><th class="l">Reason</th>${ls.map(l=>`<th>${esc(l)}</th>`).join('')}<th>Total h</th><th>Kg lost</th></tr></thead><tbody>${codes.map(c=>`<tr><td class="l">${esc(DT_NAMES[c]||c)}</td>${ls.map(l=>{const v=R.lines[l].all.downBy[c]||0;return `<td class="c" style="background:rgba(239,68,68,${(v/mx*.55).toFixed(2)})">${v?fmt(v,1):''}</td>`;}).join('')}<td><b>${fmt(f.downBy[c],1)}</b></td><td>${fmt(R.sel.reduce((a,ms)=>a+ms.runs.reduce((b,r)=>b+r.R*((+r.dt[c]||0)/60),0),0))}</td></tr>`).join('')}
+      <tr class="tot"><td class="l">All downtime</td>${ls.map(l=>`<td>${fmt(R.lines[l].all.downH,1)}</td>`).join('')}<td>${fmt(f.downH,1)}</td><td>${fmt(f.down)}</td></tr>
+      <tr><td class="l muted">No plan (${state.np==='exclude'?'not counted':'counted'})</td>${ls.map(l=>`<td class="muted">${fmt(R.lines[l].all.npH,1)}</td>`).join('')}<td class="muted">${fmt(f.npH,1)}</td><td class="muted">${fmt(f.noPlan)}</td></tr>
+      <tr><td class="l muted">Mould change-over</td>${ls.map(l=>`<td class="muted">${fmt(R.lines[l].all.actCOH,1)}</td>`).join('')}<td class="muted">${fmt(f.actCOH,1)}</td><td class="muted">${fmt(f.actCOkg)}</td></tr></tbody></table>`;
+    body=`<div class="charts c21">${cb('cDp','hour','Downtime reasons · Day vs Night (hours)','Mould change-over and no plan shown separately','tall')}${cb('cDt','hour','Share of downtime hours','','tall')}</div>
+    ${cb('cDh','clock','Stopped minutes per hour (all machines)','Downtime, no plan and mould change in each hour of the day')}
+    <section class="dcard">${ph('table','Downtime hours · reason × line','Darker = more hours')}<div class="tw">${hm}</div></section>
+    <section class="dcard">${ph('list','Typed "Other" reasons','Whole day · these should use a reason code')}<div class="tw"><table class="t"><thead><tr><th class="l">What the supervisor typed</th><th>Time</th></tr></thead><tbody>${(P.others||[]).map(([t,m])=>`<tr><td class="l" style="white-space:normal">${esc(t)}</td><td>${fmt(m)} min · ${fmt(m/60,1)} h</td></tr>`).join('')}</tbody></table></div></section>`;
+  } else if(state.tab==='quality'){
+    const wv=[];let extra=0;R.sel.forEach(ms=>ms.runs.forEach(r=>{if(r.stdWt>0&&r.actWt>0){const e=(r.actWt-r.stdWt)*(r.g+r.rj)/1000;extra+=e;if(Math.abs(r.actWt/r.stdWt-1)>=.03)wv.push({m:MACH[ms.m].name,s:ms.s,r,e});}}));wv.sort((a,b)=>Math.abs(b.e)-Math.abs(a.e));
+    body=`<div class="dk" style="grid-template-columns:repeat(4,minmax(0,1fr))">
+      <div class="dcard kpi bad"><div class="kh"><span class="lbl">Rejected</span><span class="ic">${ic('alert')}</span></div><span class="v">${fmt(f.rejPcs)} <small>pcs</small></span><span class="s">${fmt(f.rej)} kg · ${pct(f.rejPct)} of gross</span></div>
+      <div class="dcard kpi good"><div class="kh"><span class="lbl">QC verified hours</span><span class="ic">${ic('box')}</span></div><span class="v">${pct(f.nEnt?f.qv/f.nEnt:0,0)}</span><span class="s">${fmt(f.qv)} of ${fmt(f.nEnt)} hourly entries</span></div>
+      <div class="dcard kpi warn"><div class="kh"><span class="lbl">QC holds</span><span class="ic">${ic('alert')}</span></div><span class="v">${f.hold}</span><span class="s">Active holds on hourly entries</span></div>
+      <div class="dcard kpi vio"><div class="kh"><span class="lbl">Weight vs std</span><span class="ic">${ic('gauge')}</span></div><span class="v">${extra>=0?'+':'−'}${fmt(Math.abs(extra),1)} <small>kg</small></span><span class="s">Material used vs std weight (setup actual weight)</span></div></div>
+    <div class="charts c3">${cb('cRr','alert','Rejection reasons (pcs)','From the reject breakup entered each hour')}${cb('cRej','alert','Line rejection · kg and %','Bars = kg Day / Night, line = %')}${cb('cRm','alert','Highest rejection % machines','At least 200 pcs moulded')}</div>
+    ${cb('cRh','clock','Rejection % hour by hour','Factory, each hour of the day')}
+    <section class="dcard">${ph('gauge','Pieces 3%+ off std weight','Actual weight from the DPR setup vs Mould Master · + = extra material')}<div class="tw"><table class="t"><thead><tr><th class="l">Machine</th><th>Shift</th><th class="l">Mould</th><th>Std wt</th><th>Actual wt</th><th>Diff</th><th>Pcs</th><th>Extra material</th></tr></thead><tbody>${wv.map(x=>`<tr class="click" data-m="${MACH.findIndex(m=>m.name===x.m)}"><td class="l"><b>${esc(x.m)}</b></td><td>${x.s?'Night':'Day'}</td><td class="l">${esc(x.r.mould)}</td><td>${fmt(x.r.stdWt,1)} g</td><td>${fmt(x.r.actWt,1)} g</td><td class="${x.e>0?'tr':'tg'}">${pct(x.r.actWt/x.r.stdWt-1,1)}</td><td>${fmt(x.r.g+x.r.rj)}</td><td class="${x.e>0?'tr':'tg'}"><b>${x.e>0?'+':'−'}${fmt(Math.abs(x.e),1)} kg</b></td></tr>`).join('')||'<tr><td colspan="8" class="l muted">No run is 3% or more off its std weight.</td></tr>'}</tbody></table></div></section>`;
+  } else if(state.tab==='changes'){
+    const coRow=(name,o,tot)=>{const ov=o.actCOH-o.stdCOH;return `<tr class="${tot?'tot':''}"><td class="l"><b>${esc(name)}</b></td><td>${o.mc}</td><td>${o.cc}</td><td>${o.jc}</td><td>${fmt(o.stdCOH,1)}</td><td>${fmt(o.actCOH,1)}</td><td class="${ov>0.2*Math.max(o.stdCOH,.01)&&ov>0?'tr':''}" style="font-weight:700">${ov>0?'+':''}${fmt(ov,1)}</td><td class="tr" style="font-weight:700">${fmt(o.overrun)}</td></tr>`;};
+    const seq=R.sel.filter(ms=>ms.runs.length>1||ms.mc||ms.cc).sort((a,b)=>machCmp(MACH[a.m],MACH[b.m])||a.s-b.s).map(ms=>{const rs=ms.runs.slice().sort((a,b)=>(a.slots[0]??99)-(b.slots[0]??99));
+      return `<div class="s1" data-m="${ms.m}" style="cursor:pointer"><b style="min-width:150px">${esc(MACH[ms.m].name)}</b><span class="pill ${ms.s?'z':'a'}">${ms.s?'Night':'Day'}</span>${rs.map((r,i)=>`${i?'<span class="muted">→</span>':''}<span class="mo">${esc(r.mould)} <span class="muted">${r.slots.length?HL(ms.s,r.slots[0])+':00–'+HL(ms.s,r.slots[r.slots.length-1]+1)+':00':''}</span></span>`).join('')}<span class="sp"></span><span class="muted">M ${ms.mc} · C ${ms.cc} · J ${ms.jc} · std ${fmt(ms.stdCOH,1)} h · actual ${fmt(ms.actCOH,1)} h</span></div>`;}).join('');
+    body=`<div class="charts c21">${cb('cCo','repeat','Change-over time · std vs actual (h)','Std = mould changes × load + unload time (Machine Master)')}${cb('cCc','repeat','Changes by line','Mould, colour and job changes')}</div>
+    <section class="dcard">${ph('repeat','Change-over: std vs actual','Overrun above 20% of std in red')}<div class="tw"><table class="t"><thead><tr><th class="l">Line</th><th>Mould</th><th>Colour</th><th>Job</th><th>Std h</th><th>Actual h</th><th>Overrun h</th><th>Excess loss kg</th></tr></thead><tbody>${ls.map(l=>coRow(l,R.lines[l].all)).join('')}${coRow('Factory total',f,1)}</tbody></table></div></section>
+    <section class="dcard">${ph('layers','Every machine that changed','Mould sequence with the hours each ran · click to open the machine')}<div class="pad seqs">${seq||'<span class="muted">No changes.</span>'}</div></section>`;
+  } else {
+    body=`<div class="chk">${CK.map(c=>`<details><summary><span class="n" style="background:var(--${+String(c.n).replace(/[^\d.]/g,'')>0?(c.lvl==='r'?'bad':'warn'):'good'}-bg);color:var(--${+String(c.n).replace(/[^\d.]/g,'')>0?(c.lvl==='r'?'bad':'warn'):'good'})">${esc(c.n)}</span><div style="flex:1;min-width:0"><b>${esc(c.t)}</b><div class="muted small">${esc(c.d)}</div></div><span class="muted small">Show</span></summary>
+      <div class="body tw">${c.rows.length?`<table class="t"><thead><tr>${c.head.map((h,i)=>`<th class="${i<3?'l':''}">${esc(h)}</th>`).join('')}</tr></thead><tbody>${c.rows.slice(0,200).map(r=>`<tr>${r.map((v,i)=>`<td class="${i<3?'l':''}" style="${i===2?'white-space:normal':''}">${String(v).startsWith('<b>')?v:esc(v)}</td>`).join('')}</tr>`).join('')}</tbody></table>`:'<span class="muted small">Nothing to fix.</span>'}</div></details>`).join('')}</div>`;
+  }
+  return head+tabs+body;
+}
+function drawD2(){
+  drawD();   // draws whichever of the shared charts exist on this tab
+  if(state.design!=='D'||typeof Chart==='undefined')return;
+  const css=v=>getComputedStyle(document.querySelector('.ddr')||document.documentElement).getPropertyValue(v).trim();const grid={color:css('--line')};
+  const mk=(id,cfg)=>{const el=document.getElementById(id);if(el)CH[id]=new Chart(el,cfg);};
+  const base=(o={})=>({responsive:true,maintainAspectRatio:false,animation:{duration:400},plugins:{legend:{labels:{boxWidth:10,boxHeight:10,padding:10}},datalabels:{display:false},...(o.plugins||{})}});
+  const f=R.fac,ls=LINES.filter(l=>R.lines[l].all.machines);
+  // hourly series
+  const shifts=state.shift==='all'?[0,1]:[+state.shift];const lab=[],gk=[],rk=[],pl=[],dtm=[],npm=[],com=[],rp=[],sh=[];
+  shifts.forEach(s=>{for(let i=0;i<12;i++){let a={gk:0,rk:0,pl:0,dt:0,np:0,co:0,g:0,r:0};R.sel.filter(x=>x.s===s).forEach(ms=>{const x=ms.slots[i];if(!x||x.miss||x.fut)return;a.gk+=x.gk;a.rk+=x.rk;a.pl+=x.plan;a.dt+=x.dt;a.np+=x.np;a.co+=x.co;a.g+=x.g;a.r+=x.r;});
+    lab.push(HL(s,i)+':00');gk.push(Math.round(a.gk));rk.push(Math.round(a.rk));pl.push(Math.round(a.pl));dtm.push(a.dt);npm.push(a.np);com.push(a.co);rp.push(a.g+a.r?+(a.r/(a.g+a.r)*100).toFixed(2):0);sh.push(s);}});
+  mk('cHr',{type:'bar',data:{labels:lab,datasets:[{label:'Good kg',data:gk,backgroundColor:sh.map(s=>s?CL.night:CL.day),borderRadius:3,stack:'a'},{label:'Rejected kg',data:rk,backgroundColor:CL.bad,borderRadius:3,stack:'a'},{type:'line',label:'Planned kg',data:pl,borderColor:CL.teal,backgroundColor:CL.teal,pointRadius:2,tension:.25}]},
+    options:{...base({plugins:{tooltip:{mode:'index',intersect:false,callbacks:{label:c=>c.dataset.label+': '+fmt(c.raw)+' kg',footer:items=>{const i=items[0].dataIndex;return pl[i]?'Hour efficiency '+fmt(gk[i]/pl[i]*100,0)+'%':'';}}}}}),scales:{x:{stacked:true,grid:{display:false},ticks:{autoSkip:false,maxRotation:60,font:{size:11}}},y:{stacked:true,beginAtZero:true,grid,ticks:{callback:v=>fmt(v)}}}}});
+  mk('cDh',{type:'bar',data:{labels:lab,datasets:[{label:'Downtime min',data:dtm,backgroundColor:CL.bad,stack:'a'},{label:'Mould change min',data:com,backgroundColor:CL.warn,stack:'a'},{label:'No plan min',data:npm,backgroundColor:'#cbd5e1',stack:'a'}]},
+    options:{...base({plugins:{tooltip:{mode:'index',intersect:false,callbacks:{label:c=>c.dataset.label+': '+fmt(c.raw)+' min ('+fmt(c.raw/60,1)+' h)'}}}}),scales:{x:{stacked:true,grid:{display:false},ticks:{autoSkip:false,maxRotation:60,font:{size:11}}},y:{stacked:true,beginAtZero:true,grid}}}});
+  mk('cRh',{type:'line',data:{labels:lab,datasets:[{label:'Rejection %',data:rp,borderColor:CL.bad,backgroundColor:'rgba(239,68,68,.12)',fill:true,tension:.3,pointRadius:2},{label:'5% limit',data:lab.map(()=>5),borderColor:CL.warn,borderDash:[5,4],pointRadius:0,borderWidth:1.5}]},
+    options:{...base({plugins:{tooltip:{callbacks:{label:c=>c.dataset.label+': '+fmt(c.raw,1)+'%'}}}}),scales:{x:{grid:{display:false},ticks:{autoSkip:false,maxRotation:60,font:{size:11}}},y:{beginAtZero:true,grid,ticks:{callback:v=>v+'%'}}}}});
+  // downtime Day vs Night by reason
+  const dd=R.day,nn=R.night;const codes=[...new Set([...Object.keys(dd.downBy),...Object.keys(nn.downBy)])].sort((a,b)=>((dd.downBy[b]||0)+(nn.downBy[b]||0))-((dd.downBy[a]||0)+(nn.downBy[a]||0)));
+  const dl=[...codes.map(c=>DT_NAMES[c]||c),'Mould change-over','No plan'];const dv=[...codes.map(c=>[dd.downBy[c]||0,nn.downBy[c]||0]),[dd.actCOH,nn.actCOH],[dd.npH,nn.npH]];
+  mk('cDp',{type:'bar',data:{labels:dl.map(x=>x.length>26?x.slice(0,25)+'…':x),datasets:[{label:'Day',data:dv.map(x=>+x[0].toFixed(1)),backgroundColor:CL.day},{label:'Night',data:dv.map(x=>+x[1].toFixed(1)),backgroundColor:CL.night}]},
+    options:{...base({plugins:{tooltip:{callbacks:{title:c=>dl[c[0].dataIndex],label:c=>c.dataset.label+': '+fmt(c.raw,1)+' h'}}}}),indexAxis:'y',scales:{x:{stacked:true,grid,beginAtZero:true},y:{stacked:true,grid:{display:false},ticks:{font:{size:11}}}}}});
+  // top rejection machines
+  const rm=R.machines.filter(x=>x.all.goodPcs+x.all.rejPcs>=200).sort((a,b)=>b.all.rejPct-a.all.rejPct).slice(0,10);
+  mk('cRm',{type:'bar',data:{labels:rm.map(x=>x.m.name),datasets:[{label:'Rejection %',data:rm.map(x=>+(x.all.rejPct*100).toFixed(1)),backgroundColor:rm.map(x=>x.all.rejPct>.05?'#ef4444':'#f59e0b'),borderRadius:4}]},
+    options:{...base({plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>fmt(c.raw,1)+'% · '+fmt(rm[c.dataIndex].all.rejPcs)+' pcs rejected'}},datalabels:{display:true,anchor:'end',align:'end',color:css('--ink'),font:{size:11,weight:'bold'},formatter:v=>fmt(v,1)+'%'}}}),indexAxis:'y',onClick:(e,els)=>{if(els[0])openMachine(rm[els[0].index].m.i);},scales:{x:{beginAtZero:true,grid,grace:'15%',ticks:{callback:v=>v+'%'}},y:{grid:{display:false},ticks:{font:{size:11}}}}}});
+  // changes by line
+  mk('cCc',{type:'bar',data:{labels:ls,datasets:[['Mould','mc','#3b82f6'],['Colour','cc','#ec4899'],['Job','jc','#14b8a6']].map(([n,k,c])=>({label:n,data:ls.map(l=>R.lines[l].all[k]),backgroundColor:c,borderRadius:3}))},
+    options:{...base({plugins:{datalabels:{display:c=>c.raw>0,anchor:'end',align:'end',color:css('--ink'),font:{size:11,weight:'bold'}}}}),scales:{x:{grid:{display:false}},y:{beginAtZero:true,grid,grace:'10%',ticks:{precision:0}}}}});
+}
+
+/* ---------- machine drawer ---------- */
+function openMachine(i){
+  const x=R.machines.find(y=>y.m.i===+i);if(!x)return;const a=sum([x.d,x.n].filter(Boolean).filter(v=>state.shift==='all'||v.s===+state.shift));
+  const shiftBlock=(ms,s)=>{if(!ms)return `<section class="dcard pad"><h3>${s?'☾ Night':'☀ Day'}</h3><p class="muted small">No DPR entry this shift.</p></section>`;
+    const runs=ms.runs.map((r,ri)=>`<tr><td class="l"><i style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${PAL[ri%PAL.length]};margin-right:6px"></i><b>${esc(r.mould)}</b><div class="muted" style="font-size:.7rem">${esc(r.plan||'no plan id')} · ${esc(r.order||'')} ${r.jc?'· JC '+esc(r.jc):''} ${r.client?'· '+esc(r.client):''}${r.unm?` · <span class="tr">${r.unm} entries not matched to a setup</span>`:''}</div></td>
+      <td>${r.slots.length?HL(s,r.slots[0])+':00–'+HL(s,r.slots[r.slots.length-1]+1)+':00':'—'}<div class="muted" style="font-size:.7rem">${fmt(r.h,1)} h</div></td>
+      <td>${r.ct||'—'} s × ${r.cav||r.acav||'—'}<div class="muted" style="font-size:.7rem">${fmt(r.rate)} pcs/h</div></td>
+      <td>${fmt(r.stdWt,1)} g<div class="muted" style="font-size:.7rem">act ${fmt(r.actWt,1)} g</div></td>
+      <td>${fmt(r.full)}</td><td>${fmt(r.g)}</td><td>${fmt(r.rj)}</td><td><b>${fmt(r.good,1)}</b></td>
+      <td>${pct(r.speedPct,0)}</td><td class="l" style="white-space:normal;font-size:.72rem;min-width:160px">${Object.entries(r.dt).map(([c,v])=>`${esc(DT_NAMES[c]||c)} ${v}m`).join('<br>')||'—'}</td></tr>`).join('');
+    return `<section class="dcard"><div class="pad head" style="margin:0"><h3>${s?'☾ Night 19:00–07:00':'☀ Day 07:00–19:00'}</h3><span class="muted small">Supervisor ${esc(teamFor(x.m.line,s)||'—')} · changes M/C/J ${ms.mc}/${ms.cc}/${ms.jc} · DPR missing ${ms.missH} h</span><span class="sp"></span><span class="pill ${band(ms.eff)}">${pct(ms.eff)}</span></div>
+    <div class="tw"><table class="t"><thead><tr><th class="l">Mould run</th><th>Hours</th><th>Std cycle × cav</th><th>Weight</th><th>Capacity kg</th><th>Good pcs</th><th>Rej pcs</th><th>Good kg</th><th>Speed vs std</th><th class="l">Downtime</th></tr></thead><tbody>${runs}</tbody></table></div>
+    <div class="ph" style="border-top:1px solid var(--line)"><h2>${ic('clock')}Hour by hour</h2><span class="muted small">Entered by ${esc((ms.users||[]).join(', ')||'—')}</span></div>
+    <div class="tw"><table class="t"><thead><tr><th class="l">Hour</th><th class="l">Mould</th><th>Good</th><th>Rej</th><th>Good kg</th><th>Speed vs std</th><th>Down min</th><th>No plan min</th><th>Mould chg min</th><th>QC</th></tr></thead><tbody>${ms.slots.map((x,i)=>x.fut?`<tr><td class="l">${HL(s,i)}:00</td><td class="l muted" colspan="9">Not reached yet</td></tr>`:x.miss?`<tr><td class="l">${HL(s,i)}:00</td><td class="l tr" colspan="9">No DPR entry</td></tr>`:`<tr><td class="l"><i class="${HCLS(x)}" style="display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:6px"></i>${HL(s,i)}:00</td><td class="l" style="white-space:normal;max-width:220px">${esc(x.mould)}</td><td>${fmt(x.g)}</td><td class="${x.r?'tr':''}">${fmt(x.r)}</td><td>${fmt(x.gk,1)}</td><td>${x.rate?pct(x.eff,0):'—'}</td><td>${x.dt||''}</td><td>${x.np||''}</td><td>${x.co||''}</td><td>${x.hold?'<span class="pill r">Hold</span>':x.qv?'<span class="pill g">✓</span>':'<span class="muted">—</span>'}</td></tr>`).join('')}</tbody></table></div></section>`;};
+  document.getElementById('drawerHost').innerHTML=`<div class="ov" id="ov"><div class="drawer" role="dialog" aria-modal="true" aria-label="${esc(x.m.name)}">
+    <div class="row"><div><div class="lbl">${esc(x.m.line)} · ${x.m.ton} T · load + unload ${x.m.lu} min</div><h2 style="font-size:1.25rem">${esc(x.m.name)}</h2></div><span class="sp"></span><button class="x" id="closeD">Close</button></div>
+    ${hstrip(x.m.i)}${HLEG}
+    <section class="dcard pad"><div class="head"><h3>Target to good production · ${shiftLabel()}</h3></div>${waterfall(a)}</section>
+    ${state.shift!=='1'?shiftBlock(x.d,0):''}${state.shift!=='0'?shiftBlock(x.n,1):''}
+  </div></div>`;
+  document.getElementById('closeD').focus();
+}
+
+/* ---------- formulas ---------- */
+const FORM={
+  full:o=>`<b>Full capacity</b> = Σ over each mould run of <code>std pcs/hr × piece weight × hours</code>, with hours that have no DPR entry valued at the machine's main mould. Std pcs/hr = <code>3600 ÷ std cycle × std cavities</code> (Mould Master). Factory: <b>${fmt(o.full)} kg</b>.`,
+  np:o=>`<b>No plan</b> = code-13 minutes × that mould's kg/hr. ${fmt(o.npH,1)} h = <b>${fmt(o.noPlan)} kg</b>. ${state.np==='exclude'?'Taken out of the target, so it does not lower efficiency.':'Counted as a loss after the achievable target.'}`,
+  miss:o=>`<b>DPR not filled</b> = hours of a shift with no entry at all × the machine's main-mould kg/hr. ${fmt(o.missH,0)} machine-hours = <b>${fmt(o.missing)} kg</b>. Always a loss, so missing entries are visible.`,
+  planned:o=>`<b>Planned target</b> = Full capacity − DPR not filled${state.np==='exclude'?' − No plan':''} = <b>${fmt(o.planned)} kg</b>.`,
+  stdco:o=>`<b>Std mould change</b> = mould changes × (load + unload minutes from Machine Master) × kg/hr. ${o.mc} changes, ${fmt(o.stdCOH,1)} h = <b>${fmt(o.stdCO)} kg</b>.`,
+  buf:o=>`<b>5% allowance</b> = 5% × (Planned − Std mould change) = <b>${fmt(o.buffer)} kg</b>.`,
+  ach:o=>`<b>Achievable target</b> = Planned − Std mould change${state.buf==='on'?' − 5%':''} = <b>${fmt(o.ach)} kg</b>. This is what the shift should have made.`,
+  over:o=>`<b>Change-over overrun</b> = max(0, actual mould-change time (code 2) × kg/hr − Std mould change). Actual ${fmt(o.actCOH,1)} h vs std ${fmt(o.stdCOH,1)} h = <b>${fmt(o.overrun)} kg</b>.`,
+  down:o=>`<b>Downtime</b> = every downtime minute except mould change (2) and no plan (13), × that mould's kg/hr. ${fmt(o.downH,1)} h = <b>${fmt(o.down)} kg</b>.`,
+  speed:o=>`<b>Speed loss</b> = Achievable − overrun − downtime${state.np==='loss'?' − no plan':''} − Gross. It is what is left when the machine ran slower than its std cycle. Negative means it ran faster. <b>${fmt(o.speed)} kg</b>.`,
+  gross:o=>`<b>Gross</b> = (good + reject pcs) × piece weight of the mould actually running that hour = <b>${fmt(o.gross)} kg</b> (${fmt(o.goodPcs+o.rejPcs)} pcs).`,
+  rej:o=>`<b>Rejection</b> = reject pcs × piece weight = <b>${fmt(o.rej)} kg</b>; Rejection % = reject kg ÷ gross kg = <b>${pct(o.rejPct)}</b>.`,
+  good:o=>`<b>Good</b> = good pcs × piece weight = <b>${fmt(o.good)} kg</b>. Efficiency = Good ÷ ${state.eff==='ach'?'Achievable':'Full capacity'} = <b>${pct(o.eff)}</b>.`
+};
+function showFormula(k){const fn=FORM[k];if(!fn)return;const o=R.fac;
+  document.getElementById('drawerHost').innerHTML=`<div class="ov" id="ov"><div class="drawer" style="width:min(560px,100%)" role="dialog" aria-modal="true" aria-label="Formula"><div class="row"><h2>How this number is worked out</h2><span class="sp"></span><button class="x" id="closeD">Close</button></div><section class="dcard pad formula">${fn(o)}</section><section class="dcard pad">${waterfall(o)}</section></div></div>`;
+  document.getElementById('closeD').focus();}
+function how(){
+  const o=R.fac;
+  return `${ph('target','How every number is worked out',shiftLabel()+' · factory · live with your decisions')}
+  <div class="calc">${Object.keys(FORM).filter(k=>k!=='buf'||state.buf==='on').map(k=>`<div class="dcard formula">${FORM[k](o)}</div>`).join('')}</div>
+  <div class="note" style="margin-top:12px">${MS.reduce((a,x)=>a+x.unmatched,0)} hourly entries carry a plan that has no DPR setup for that shift (valued at the plan mould's std from Mould Master where found). ${RUNS.filter(r=>!(r.ct>0)).length} mould runs have no std cycle. ${isLive()?'This is a live day: the target counts only hours that have finished (Day '+DONE[0]+' of 12 h, Night '+DONE[1]+' of 12 h) plus any hour already entered.':'Every hour of both shifts is counted.'} See the Data checks tab for the full list.</div>`;
+}
+
+/* ---------- render & events ---------- */
+function render(){
+  if(!P){return;}
+  recompute();
+  const has=MS.length>0;
+  document.getElementById('heroSub').textContent=dateLabel()+' · '+state.process+' · '+shiftLabel();
+  document.getElementById('heroMeta').textContent=MACH.length+' machines · '+R.machines.length+' with DPR entries'+(LOADED_AT?' · generated '+LOADED_AT:'');
+  const lb=document.getElementById('liveBar');lb.hidden=!isLive();lb.textContent=isLive()?'Live · Day '+DONE[0]+'/12 h · Night '+DONE[1]+'/12 h done':'';
+  document.getElementById('view').innerHTML=has?designD2():'<section class="dcard empty">No DPR entries for '+esc(dateLabel())+' ('+esc(state.process)+').</section>';
+  document.getElementById('how').innerHTML=has?how():'';
+  document.getElementById('how').hidden=!has;
+  if(has)drawD2();
+  [['shiftSeg','shift'],['d-np','np'],['d-wt','wt'],['d-buf','buf'],['d-eff','eff'],['procSeg','process']].forEach(([id,k])=>document.querySelectorAll('#'+id+' button').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.v===String(state[k])))));
+}
+[['shiftSeg','shift'],['d-np','np'],['d-wt','wt'],['d-buf','buf'],['d-eff','eff']].forEach(([id,k])=>document.getElementById(id).addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;state[k]=b.dataset.v;save();render();}));
+document.addEventListener('click',e=>{
+  if(e.target.id==='ov'||e.target.id==='closeD'){document.getElementById('drawerHost').innerHTML='';return;}
+  if(e.target.closest('.drawer'))return;
+  const dv=e.target.closest('[data-dv]');if(dv){state.dview=dv.dataset.dv;save();render();return;}
+  const tb=e.target.closest('[data-tab]');if(tb){state.tab=tb.dataset.tab;save();render();return;}
+  const mf=e.target.closest('[data-mf]');if(mf){state.mfilt=mf.dataset.mf;save();document.querySelectorAll('[data-mf]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.mf===state.mfilt)));document.getElementById('mtbl').innerHTML=machinesTable2();return;}
+  if(state.design==='D'){const l2=e.target.closest('[data-line]');if(l2){state.mline=l2.dataset.line;state.tab='machines';state.mfilt='all';save();render();window.scrollTo({top:document.querySelector('.tabs').offsetTop-8,behavior:'smooth'});return;}}
+  const m=e.target.closest('[data-m]');if(m){openMachine(m.dataset.m);return;}
+  const ln=e.target.closest('[data-line]');if(ln){openLine=ln.dataset.line;render();setTimeout(()=>{const t=document.querySelectorAll('.t')[1];if(t)t.scrollIntoView({behavior:'smooth',block:'start'});},30);return;}
+  if(e.target.id==='clearLine'){openLine=null;render();return;}
+  const k=e.target.closest('[data-k]');if(k){showFormula(k.dataset.k);}
+});
+document.addEventListener('change',e=>{if(e.target.id==='fLine'){state.mline=e.target.value;save();document.getElementById('mtbl').innerHTML=machinesTable2();}});
+document.addEventListener('input',e=>{if(e.target.id==='fQ'){state.q=e.target.value;document.getElementById('mtbl').innerHTML=machinesTable2();}});
+document.addEventListener('keydown',e=>{if(e.key==='Escape')document.getElementById('drawerHost').innerHTML='';});
+/* ---------- live data ---------- */
+// Hour slots as the DPR stores them (the same 12 labels for Day and Night).
+const DPR_SLOTS=['07-08','08-09','09-10','10-11','11-12','12-01','01-02','02-03','03-04','04-05','05-06','06-07'];
+state.process=(()=>{try{return localStorage.getItem('jpsms_dpr_process')||'Moulding';}catch(e){return 'Moulding';}})();
+let REP_DATE='',LOADED_AT='',MOULDS=null,LOAD_SEQ=0;
+const dateLabel=()=>REP_DATE?new Date(REP_DATE+'T00:00:00').toLocaleDateString('en-IN',{weekday:'long',day:'numeric',month:'long',year:'numeric'}):'';
+const isLive=()=>DONE[0]<12||DONE[1]<12;
+// Hours of a shift that have finished by now. Day = 07:00-19:00 on the date, Night = 19:00 to 07:00 next day.
+function hoursDone(date,s){const start=new Date(date+'T07:00:00');start.setHours(start.getHours()+12*s);return Math.max(0,Math.min(12,Math.floor((Date.now()-start.getTime())/3600000)));}
+const normName=s=>String(s||'').trim().replace(/\s+/g,' ').toUpperCase();
+function mouldIndex(list){const byNo={},byName={};(list||[]).forEach(m=>{if(!(+m.cycle_time>0)&&!(+m.std_wt_kg>0))return;const no=String(m.mould_number||'').trim();if(no&&!byNo[no])byNo[no]=m;const nm=normName(m.mould_name);if(nm&&!byName[nm])byName[nm]=m;});return {byNo,byName};}
+function mouldStd(e){if(!MOULDS||!e)return null;const no=String(e.mould_no||'').trim();return (no&&MOULDS.byNo[no])||MOULDS.byName[normName(e.mould_name)]||null;}
+
+// Turns the API responses into the run / hour tables the report works from.
+function buildPack(D,day,night,mm,cc,td,tn){
+  const mList=((mm&&mm.data)||[]).filter(m=>m.is_active!==false);
+  const mIdx={};const machines=mList.map((m,i)=>{mIdx[m.machine]=i;return [m.machine,m.line||m.building||'General',(+m.mould_load_time||0)+(+m.mould_unload_time||0),m.tonnage||''];});
+  const moulds=[],mouldIdx={};const mi=n=>{n=n||'?';if(!(n in mouldIdx)){mouldIdx[n]=moulds.length;moulds.push(n);}return mouldIdx[n];};
+  const runs=[],ms=[],others={},rejCodes={},hours={},users={};
+  [[day,0],[night,1]].forEach(([res,s])=>{
+    const dd=(((res&&res.data)||{}).dates||{})[D]||{};const setups=dd.setups||[];
+    for(const [m,slots] of Object.entries(dd.entries||{})){
+      if(!(m in mIdx))continue;
+      const su=setups.filter(x=>x.machine===m);const runMap={};
+      const runFor=e=>{
+        let st=e&&e.plan_id?su.find(x=>String(x.plan_id)===String(e.plan_id)):null;const matched=!!st;let mst=null;
+        if(!st){mst=mouldStd(e);if(!mst)st=su[0]||null;}
+        const key=st?('S'+st.id):mst?('M'+mst.id+'|'+((e&&e.plan_id)||'')):('N'+((e&&e.mould_name)||'?'));
+        if(!runMap[key]){
+          let r;
+          if(st)r={m:mIdx[m],s,mould:mi(st.mould_name||(e&&e.mould_name)),plan:st.plan_id,
+            stdWt:Math.round((+st.std_weight||0)*10000)/10,actWt:Math.round(((+st.article_act>=10?st.article_act/1000:+st.article_act)||0)*10000)/10,
+            ct:+st.std_cycle_time||0,cav:+st.std_cavity||0,acav:+st.act_cavity||0,pcshr:+st.pcshr_act||0,actCt:+st.cycle_act||0,
+            client:st.client_name||'',jc:st.job_card_no||'',order:st.order_no||'',src:matched?'setup':'first-setup'};
+          else if(mst)r={m:mIdx[m],s,mould:mi(e.mould_name||mst.mould_name),plan:e.plan_id||'',
+            stdWt:Math.round((+mst.std_wt_kg||0)*10000)/10,actWt:0,ct:+mst.cycle_time||0,cav:+mst.no_of_cav||0,acav:0,pcshr:0,actCt:0,
+            client:e.client_name||'',jc:e.job_card_no||'',order:e.order_no||'',src:'master'};
+          else r={m:mIdx[m],s,mould:mi(e&&e.mould_name),plan:(e&&e.plan_id)||'',stdWt:0,actWt:0,ct:0,cav:0,acav:0,pcshr:0,actCt:0,
+            client:(e&&e.client_name)||'',jc:(e&&e.job_card_no)||'',order:(e&&e.order_no)||'',src:'none'};
+          if(e&&e.transfer_from)r.order=(r.order||'')+' · Transfer from '+e.transfer_from;
+          Object.assign(r,{h:0,g:0,r:0,dt:{},rej:{},unm:0,slots:[]});runMap[key]=r;
+        }
+        if(e&&e.plan_id&&!matched)runMap[key].unm++;
+        return runMap[key];
+      };
+      let miss=0;const hr=[];const us={};
+      DPR_SLOTS.forEach((sl,si)=>{
+        let arr=slots[sl];arr=arr?(Array.isArray(arr)?arr:[arr]).filter(Boolean):[];
+        if(!arr.length){if(si<DONE[s])miss++;hr.push(0);return;}
+        const rs=arr.map(runFor);const uniq=[...new Set(rs)];uniq.forEach(r=>{r.h+=1/uniq.length;r.slots.push(si);});
+        let g=0,rj=0,dt=0,np=0,co=0,qv=0,hold=0;
+        arr.forEach((e,k)=>{const r=rs[k];const eg=+e.good_qty||0,er=+e.reject_qty||0;r.g+=eg;r.r+=er;g+=eg;rj+=er;
+          if(e.qc_verified)qv++;if(e.qc_hold)hold++;if(e.user_name)us[e.user_name]=1;
+          if(e.downtime_breakup&&typeof e.downtime_breakup==='object')for(const [c,v] of Object.entries(e.downtime_breakup)){const mins=+v||0;let key=c;
+            if(!/^\d+$/.test(c)){const t=c.replace(/^OTHER_/,'').trim()||'Other';key='O';others[t]=(others[t]||0)+mins;}
+            r.dt[key]=(r.dt[key]||0)+mins;if(key==='13')np+=mins;else if(key==='2')co+=mins;else dt+=mins;}
+          if(e.reject_breakup&&typeof e.reject_breakup==='object')for(const [c,v] of Object.entries(e.reject_breakup)){r.rej[c]=(r.rej[c]||0)+(+v||0);rejCodes[c]=1;}
+        });
+        hr.push([g,rj,dt,np,co,qv,hold,arr.length]);
+      });
+      Object.values(runMap).forEach(r=>{r.h=Math.round(r.h*100)/100;runs.push([r.m,r.s,r.mould,r.plan,r.stdWt,r.actWt,r.ct,r.cav,r.acav,r.pcshr,r.actCt,r.client,r.jc,r.order,r.h,r.g,r.r,r.dt,r.rej,r.unm,r.slots.join('.'),r.src]);});
+      const c=(((cc&&cc.machines)||{})[m]||{})[s?'Night':'Day']||{};
+      ms.push([mIdx[m],s,miss,+c.mc||0,+c.cc||0,+c.jc||0]);
+      hours[m+'|'+s]=hr;users[m+'|'+s]=Object.keys(us);
+    }
+  });
+  const team={};[[td,0],[tn,1]].forEach(([res,s])=>(((res&&res.data)||{})[D]||[]).forEach(t=>{(team[t.line]=team[t.line]||[null,null])[s]=t.prod_supervisor||t.entry_person||'';}));
+  return {pack:{date:D,machines,moulds,runs,ms,team,others:Object.entries(others).sort((a,b)=>b[1]-a[1]),rejCodes:Object.keys(rejCodes)},hours:{hours,users}};
+}
+
+async function loadReport(){
+  const date=document.getElementById('repDate').value;
+  if(!date){if(window.JPSMS&&JPSMS.toast)JPSMS.toast('Please select a date','error');return;}
+  const seq=++LOAD_SEQ;const proc=state.process;
+  if(window.JPSMS&&JPSMS.toggleLoader)JPSMS.toggleLoader(true);
+  try{
+    const g=u=>JPSMS.api.get(u);const pq='&process='+encodeURIComponent(proc);
+    const [day,night,mm,cc,td,tn,mo]=await Promise.all([
+      g(`/dpr/summary-matrix?fromDate=${date}&toDate=${date}&shift=Day${pq}`),
+      g(`/dpr/summary-matrix?fromDate=${date}&toDate=${date}&shift=Night${pq}`),
+      g(`/masters/machines?process=${encodeURIComponent(proc)}`),
+      g(`/dpr/change-counts?date=${date}`).catch(()=>null),
+      g(`/shift/team-range?fromDate=${date}&toDate=${date}&shift=Day`).catch(()=>null),
+      g(`/shift/team-range?fromDate=${date}&toDate=${date}&shift=Night`).catch(()=>null),
+      MOULDS?Promise.resolve(null):g('/masters/moulds').catch(()=>null)
+    ]);
+    if(seq!==LOAD_SEQ)return;   // a newer request has started
+    if(mo)MOULDS=mouldIndex(mo.data||mo);
+    REP_DATE=date;DONE=[hoursDone(date,0),hoursDone(date,1)];
+    const b=buildPack(date,day,night,mm,cc,td,tn);
+    P=b.pack;HRS=b.hours.hours;HUS=b.hours.users;
+    buildIndex();
+    LOADED_AT=new Date().toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',hour12:false});
+    render();
+  }catch(e){
+    console.error('daily report detail:',e);
+    if(window.JPSMS&&JPSMS.toast)JPSMS.toast('Error: '+(e&&e.message||e),'error');
+    document.getElementById('view').innerHTML='<section class="dcard empty">Could not load the report. '+esc(e&&e.message||e)+'</section>';
+  }finally{if(window.JPSMS&&JPSMS.toggleLoader)JPSMS.toggleLoader(false);}
+}
+
+function exportCSV(){
+  if(!P||!MS.length){if(window.JPSMS&&JPSMS.toast)JPSMS.toast('Generate a report first','warning');return;}
+  const q=v=>{const s=String(v==null?'':v);return /[",\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s;};
+  const n=(v,d=1)=>(v==null||!isFinite(v))?'':(+v).toFixed(d);
+  const head=['Date','Line','Machine','Shift','Supervisor','Moulds','Full capacity kg','No plan kg','DPR missing kg','Planned kg','Std mould change kg','Achievable kg','Gross kg','Good kg','Reject kg','Good pcs','Reject pcs','Efficiency %','OEE %','Rejection %','Change-over overrun kg','Downtime kg','Speed loss kg','Downtime h','No plan h','Mould change h','DPR missing h','Mould/Colour/Job changes','QC verified entries','Hourly entries'];
+  const rows=[head];
+  MS.filter(x=>state.shift==='all'||x.s===+state.shift).slice().sort((a,b)=>machCmp(MACH[a.m],MACH[b.m])||a.s-b.s).forEach(x=>{const m=MACH[x.m];
+    rows.push([REP_DATE,m.line,m.name,x.s?'Night':'Day',teamFor(m.line,x.s),[...new Set(x.runs.map(r=>r.mould))].join(' + '),n(x.full),n(x.noPlan),n(x.missing),n(x.planned),n(x.stdCO),n(x.ach),n(x.gross),n(x.good),n(x.rej),x.goodPcs,x.rejPcs,n(x.eff*100),n(x.oee*100),n(x.rejPct*100,2),n(x.overrun),n(x.down),n(x.speed),n(x.downH,2),n(x.npH,2),n(x.actCOH,2),x.missH,x.mc+'/'+x.cc+'/'+x.jc,x.qv,x.nEnt]);});
+  const f=R.fac;rows.push([REP_DATE,'FACTORY','',shiftLabel(),'','',n(f.full),n(f.noPlan),n(f.missing),n(f.planned),n(f.stdCO),n(f.ach),n(f.gross),n(f.good),n(f.rej),f.goodPcs,f.rejPcs,n(f.eff*100),n(f.oee*100),n(f.rejPct*100,2),n(f.overrun),n(f.down),n(f.speed),n(f.downH,2),n(f.npH,2),n(f.actCOH,2),f.missH,f.mc+'/'+f.cc+'/'+f.jc,f.qv,f.nEnt]);
+  const blob=new Blob(['﻿'+rows.map(r=>r.map(q).join(',')).join('\r\n')],{type:'text/csv;charset=utf-8'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`Daily_Report_Detailed_${REP_DATE}_${state.process}.csv`;document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove();},500);
+  if(window.JPSMS&&JPSMS.toast)JPSMS.toast('CSV exported','success');
+}
+
+function initPage(){
+  try{if(window.JPSMS&&JPSMS.auth)JPSMS.auth.requireAuth();}catch(e){console.error('requireAuth:',e);}
+  try{if(window.JPSMS&&JPSMS.renderShell)JPSMS.renderShell('dpr');}catch(e){console.error('renderShell:',e);}
+  // Before 08:00 the useful report is still yesterday's (Night shift ends 07:00).
+  const t=new Date();if(t.getHours()<8)t.setDate(t.getDate()-1);
+  const pad=v=>String(v).padStart(2,'0');
+  document.getElementById('repDate').value=`${t.getFullYear()}-${pad(t.getMonth()+1)}-${pad(t.getDate())}`;
+  document.getElementById('btnGen').addEventListener('click',loadReport);
+  document.getElementById('repDate').addEventListener('change',loadReport);
+  document.getElementById('btnCsv').addEventListener('click',exportCSV);
+  document.getElementById('btnPrint').addEventListener('click',()=>window.print());
+  document.getElementById('procSeg').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;state.process=b.dataset.v;try{localStorage.setItem('jpsms_dpr_process',state.process);}catch(_){}
+    document.querySelectorAll('#procSeg button').forEach(x=>x.setAttribute('aria-pressed',String(x.dataset.v===state.process)));loadReport();});
+  [['shiftSeg','shift'],['d-np','np'],['d-wt','wt'],['d-buf','buf'],['d-eff','eff'],['procSeg','process']].forEach(([id,k])=>document.querySelectorAll('#'+id+' button').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.v===String(state[k])))));
+  loadReport();
+}
+if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',initPage);else initPage();
+
+</script>
+</body>
+</html>

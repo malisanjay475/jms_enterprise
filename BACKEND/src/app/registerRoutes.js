@@ -313,6 +313,30 @@ function registerRoutes(app, deps) {
   const { registerNpdRoutes } = require('../modules/npd/registerNpdRoutes');
   registerNpdRoutes(app, pool);
 
+  // Order Hold (Hold button on the Planning Excel View Timeline)
+  const { registerOrderHoldRoutes } = require('../modules/orderHold/registerOrderHoldRoutes');
+  registerOrderHoldRoutes(app, pool);
+
+  // Packing Masters (stations + item packing standard behind PUBLIC/packing_masters.html)
+  const { registerPackingMasterRoutes } = require('../modules/packing/registerPackingMasterRoutes');
+  registerPackingMasterRoutes(app, pool);
+  const { registerPackingFloorRoutes } = require('../modules/packing/registerPackingFloorRoutes');
+  registerPackingFloorRoutes(app, pool);
+  const { registerPackingReportRoutes } = require('../modules/packing/registerPackingReportRoutes');
+  registerPackingReportRoutes(app, pool);
+  const { registerPackingBoxRoutes } = require('../modules/packing/registerPackingBoxRoutes');
+  registerPackingBoxRoutes(app, pool);
+  const { registerPackingHandoverRoutes } = require('../modules/packing/registerPackingHandoverRoutes');
+  registerPackingHandoverRoutes(app, pool);
+  const { registerPackingDispatchRoutes } = require('../modules/packing/registerPackingDispatchRoutes');
+  registerPackingDispatchRoutes(app, pool);
+  const { registerPackingTableRoutes } = require('../modules/packing/registerPackingTableRoutes');
+  registerPackingTableRoutes(app, pool);
+  const { registerPackingCrewRoutes } = require('../modules/packing/registerPackingCrewRoutes');
+  registerPackingCrewRoutes(app, pool);
+  const { registerPackingDayCloseRoutes } = require('../modules/packing/registerPackingDayCloseRoutes');
+  registerPackingDayCloseRoutes(app, pool);
+
   // ERP Masters copied from Smart Ops (Masters page ERP types; sync runs on MAIN)
   const { registerErpMastersRoutes } = require('../modules/erpMasters/registerErpMastersRoutes');
   registerErpMastersRoutes(app, pool);

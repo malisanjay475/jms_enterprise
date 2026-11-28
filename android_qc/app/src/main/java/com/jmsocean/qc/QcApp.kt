@@ -1,6 +1,7 @@
 package com.jmsocean.qc
 
 import android.app.Application
+import com.jmsocean.qc.data.FactoryServer
 import com.jmsocean.qc.data.OfflineQueue
 import com.jmsocean.qc.data.QcRepository
 import com.jmsocean.qc.data.SessionStore
@@ -20,10 +21,12 @@ class QcApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        // Factory first: it decides which server the saved login session belongs to.
+        session = SessionStore(this)
+        FactoryServer.init(this, alreadyLoggedIn = session.isLoggedIn)
         // Reload the saved login session before anything talks to the server.
         Network.cookieJar.init(this)
         com.jmsocean.qc.data.NetworkWatcher.start(this)
-        session = SessionStore(this)
         repository = QcRepository(session)
         instance = this
 

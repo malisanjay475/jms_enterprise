@@ -10,8 +10,10 @@
  * status (Hold / Launched / Delayed / On Schedule / Cancelled), remarks, the
  * trial reports and the product photos taken after the trial.
  *
- * Everyone who can open the page can view. Admin / superadmin edit every
- * stage; only superadmin deletes products and child moulds. PPC managers add
+ * Everyone who can open the page can view the products of their own factories
+ * (user_factories; superadmin and unmapped global / admin users see every
+ * factory). Admin / superadmin edit every stage and delete products and child
+ * moulds. PPC managers add
  * products and child moulds, set name / status / remarks and upload files.
  * Sales Co-ordinator only adds products and child moulds.
  * Department roles (DEPT_ROLES) edit only their department's stages
@@ -34,7 +36,7 @@ const multer = require('multer');
 const { getRequestUsername } = require('../../app/requestContext');
 const { sendServerError } = require('../../app/httpErrors');
 
-/* Admin / superadmin edit everything. Only superadmin deletes products / moulds.
+/* Admin / superadmin edit everything and delete products / moulds.
    PPC managers also run the sheet itself (add products and moulds, name,
    status, remarks, files). */
 const ADMIN_ROLES = new Set(['admin', 'superadmin']);
@@ -51,16 +53,20 @@ const HO_ROLE = /^salescoord.*ho$/;
    letters / digits removed (so 'sr__ppc_manager' and 'Sr. PPC Manager' are the
    same); a RegExp entry matches any role containing it (Purchase roles are
    created in Settings with varying names). Production (printing / tufting) is
-   run by Moulding; W/H is the Dispatch Manager. HO stages are admin and Sales Co-ordinator H.O. */
+   run by Moulding; W/H & Dispatch is the Dispatch Manager and Dispatch Executive; Packing is every packing role (Packing Manager, Packing Executive, ...). HO stages are admin and Sales Co-ordinator H.O. */
 const DEPT_ROLES = {
   'Tool Room': ['toolroommanager'],
   Moulding: ['mouldingmanager'],
   Planning: ['srppcmanager', 'ppcmanager', 'ppcassmanager'],
-  QC: ['quality', 'qchod', 'qualityassmanager', 'qualityasstmanager', 'qcassmanager'],
-  Packing: ['packingmanager'],
+  /* the whole PPC team (any PPC / Planning role, and Planner): used only where a
+     stage names it, today RM & colour finalization */
+  'PPC team': [/ppc/, /^planning/, 'planner'],
+  /* 'quality' is the QC HOD role; Quality Ass. Manager is 'quality_ass__manager' */
+  QC: ['quality', 'qchod', 'qualityhod', 'qualityassmanager', 'qualityasstmanager', 'qcassmanager'],
+  Packing: [/packing/],
   Purchase: [/purchase/],
   Production: ['mouldingmanager'],
-  'W/H': ['dispatchmanager'],
+  'W/H': ['dispatchmanager', 'dispatchexecutive'],
   HO: [HO_ROLE]
 };
 const norm = v => String(v || '').toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -72,20 +78,22 @@ function roleDepts(u) {
 }
 
 /* Columns of the NPD tracking sheet, in sheet order. type 'status' cells hold a
-   stage state, type 'date' cells hold a YYYY-MM-DD date. Keep in sync with npd.html. */
+   stage state, type 'date' cells hold a YYYY-MM-DD date, type 'text' cells a short
+   typed value (OR - JR number). Keep in sync with npd.html. */
 const STAGES = [
   { key: 'mould_received', level: 'mould', type: 'status', group: 'Mould & Trial', label: 'Final mould received @ factory (Tool Room)', depts: ['Tool Room'] },
   { key: 'mould_trials', level: 'mould', type: 'status', group: 'Mould & Trial', label: 'Product mould final trials @ factory (Moulding)', depts: ['Moulding'] },
-  { key: 'rm_colour', level: 'mould', type: 'status', group: 'Mould & Trial', label: 'RM & colour finalization (Planning / Moulding)', depts: ['Planning', 'Moulding'] },
+  { key: 'rm_colour', level: 'mould', type: 'status', group: 'Mould & Trial', label: 'RM & colour finalization (Planning / Moulding)', depts: ['Planning', 'Moulding', 'PPC team'] },
   { key: 'samples_ho', level: 'product', type: 'status', group: 'Mould & Trial', label: 'Final samples sent to HO for approval & photo shoot (QC)', depts: ['QC'] },
   { key: 'sample_approval_ho', level: 'product', type: 'status', group: 'Mould & Trial', label: 'Final sample approval from HO (HO)', depts: ['HO'] },
-  { key: 'pilot_drop_test', level: 'mould', type: 'status', group: 'Mould & Trial', label: 'Pilot run & drop test @ factory (Moulding / QC)', depts: ['Moulding', 'QC'] },
-  { key: 'qc_approval_ho', level: 'mould', type: 'status', group: 'Mould & Trial', label: 'Final QC approved after testing (QC)', depts: ['QC'] },
+  { key: 'pilot_drop_test', level: 'product', type: 'status', group: 'Mould & Trial', label: 'Pilot run & drop test @ factory (Moulding / QC)', depts: ['Moulding', 'QC'] },
+  { key: 'qc_approval_ho', level: 'product', type: 'status', group: 'Mould & Trial', label: 'Final QC approved after testing (QC)', depts: ['QC'] },
   { key: 'packing_material', level: 'product', type: 'status', group: 'Packing, BOM & ERP', label: 'Packing material finalization (Packing)', depts: ['Packing'] },
   { key: 'bom_approval', level: 'product', type: 'status', group: 'Packing, BOM & ERP', label: 'Product BOM finalization / approval (Planning)', depts: ['Planning'] },
   { key: 'packing_receiving', level: 'product', type: 'status', group: 'Packing, BOM & ERP', label: 'Packing material follow up & receiving @ factory (Purchase)', depts: ['Purchase'] },
   { key: 'or_jr_erp', level: 'product', type: 'status', group: 'Packing, BOM & ERP', label: 'OR making in ERP by H.O (HO)', depts: ['HO'] },
   { key: 'or_jr_erp_wh', level: 'product', type: 'status', group: 'Packing, BOM & ERP', label: 'OR - JR making in ERP by Warehouse (W/H)', depts: ['W/H'] },
+  { key: 'or_jr_number', level: 'product', type: 'text', group: 'Packing, BOM & ERP', label: 'OR - JR Number (Planning)', depts: ['Planning', 'PPC team'] },
   { key: 'production_planning', level: 'product', type: 'status', group: 'Packing, BOM & ERP', label: 'Production planning as per OR-JR ERP (Planning)', depts: ['Planning'] },
   { key: 'jc_start_date', level: 'mould', type: 'date', group: 'Packing, BOM & ERP', label: 'Planned job card start date (Planning)', depts: ['Planning'] },
   { key: 'jc_end_date', level: 'mould', type: 'date', group: 'Packing, BOM & ERP', label: 'Planned job card completion date (Planning)', depts: ['Planning'] },
@@ -98,9 +106,9 @@ const STAGES = [
   { key: 'fg_receiving', level: 'product', type: 'status', group: 'Mass Production', label: 'Finish goods receiving (W/H)', depts: ['W/H'] },
   { key: 'ex_factory_cost', level: 'product', type: 'status', group: 'Costing & Launch', label: 'Ex factory cost finalization (Planning)', depts: ['Planning'] },
   { key: 'price_final', level: 'product', type: 'status', group: 'Costing & Launch', label: 'Price finalization (HO)', depts: ['HO'] },
-  { key: 'post_card_receiving', level: 'product', type: 'status', group: 'Costing & Launch', label: 'Final post card follow up & receiving by Planning (Planning)', depts: ['Planning'] },
+  { key: 'post_card_receiving', level: 'product', type: 'status', group: 'Costing & Launch', label: 'Final post card follow up & receiving by Planning (W/H & Dispatch)', depts: ['W/H'] },
   { key: 'post_card_making_ho', level: 'product', type: 'status', group: 'Costing & Launch', label: 'Post card making by H.O (HO)', depts: ['HO'] },
-  { key: 'post_card_posting', level: 'product', type: 'status', group: 'Costing & Launch', label: 'Posting post card in new product launch group (Planning)', depts: ['Planning'] },
+  { key: 'post_card_posting', level: 'product', type: 'status', group: 'Costing & Launch', label: 'Posting post card in new product launch group (W/H & Dispatch)', depts: ['W/H'] },
   { key: 'dispatch_date', level: 'product', type: 'date', group: 'Costing & Launch', label: 'Actual dispatch date (W/H & Dispatch)', depts: ['W/H'] }
 ];
 /* Excel export: same words and colours as the page (Blue pending, Yellow in
@@ -156,12 +164,17 @@ const STAGE_STATES = new Set(['pending', 'in_progress', 'complete', 'na']);
 /* stage whose completion also records who received it */
 const RECEIVED_BY_STAGE = 'mould_received';
 const PRODUCT_STATUSES = new Set(['', 'Hold', 'Launched', 'Delayed', 'On Schedule', 'Cancelled']);
+/* only the main product is launched: a child mould cannot be set to Launched, and
+   one saved earlier counts as no status (the stored value is left alone) */
+const rowStatus = r => (r.parent_sync_id && r.status === 'Launched' ? '' : r.status || '');
 
 const isNpdAdmin = u => !!u && ADMIN_ROLES.has(norm(u.role_code));
 const isNpdHo = u => isNpdAdmin(u) || (!!u && userKeys(u).some(k => HO_ROLE.test(k)));
 const isNpdSuperadmin = u => !!u && norm(u.role_code) === 'superadmin';
 const canEditSheet = u => isNpdAdmin(u) || (!!u && userKeys(u).some(k => SHEET_ROLES.has(k)));
 const canAddItems = u => canEditSheet(u) || (!!u && userKeys(u).some(k => ADD_ONLY_ROLE.test(k)));
+/* trial reports and product images after trial are uploaded (and removed) by QC; admin too */
+const canManageFiles = u => isNpdAdmin(u) || roleDepts(u).includes('QC');
 const editableStageKeys = u => {
   if (!u) return [];
   if (isNpdAdmin(u)) return STAGES.map(s => s.key);
@@ -207,6 +220,7 @@ function cleanStages(input) {
     if (type === 'status' && STAGE_STATES.has(v)) out[k] = v;
     else if (type === 'date' && (v === '' || v === null)) out[k] = '';
     else if (type === 'date' && isDate(v)) out[k] = v;
+    else if (type === 'text' && (v === null || typeof v === 'string' || typeof v === 'number')) out[k] = clean(v, 100);
   }
   return out;
 }
@@ -340,11 +354,141 @@ async function migrateNpdLevels(pool) {
   }
 }
 
+/* One-time data move (MAIN only, syncs out) for a stage moved from the child
+   moulds to the product row. A product with no value of its own gets its
+   moulds' roll-up and the latest mould remark; the moulds keep theirs. */
+async function moveStageToProduct(pool, key, flagKey) {
+  if (String(process.env.SERVER_TYPE || '').toUpperCase() === 'LOCAL') return;
+  await pool.query('CREATE TABLE IF NOT EXISTS server_config (key TEXT PRIMARY KEY, value TEXT)');
+  const flag = await pool.query(
+    `INSERT INTO server_config (key, value) VALUES ($1, NOW()::text)
+     ON CONFLICT (key) DO NOTHING RETURNING key`, [flagKey]);
+  if (!flag.rowCount) return;
+  const all = (await pool.query('SELECT id, sync_id, parent_sync_id, stages, stage_info FROM npd_products')).rows;
+  for (const p of all.filter(r => !r.parent_sync_id)) {
+    if ((p.stages || {})[key] !== undefined) continue;
+    const kids = all.filter(c => String(c.parent_sync_id) === String(p.sync_id));
+    if (!kids.some(c => (c.stages || {})[key] !== undefined)) continue;
+    const info = kids.map(c => (c.stage_info || {})[key]).filter(Boolean)
+      .sort((a, b) => String(b.at || '').localeCompare(String(a.at || '')))[0];
+    await pool.query(
+      'UPDATE npd_products SET stages = stages || $1::jsonb, stage_info = stage_info || $2::jsonb, updated_at = NOW() WHERE id = $3',
+      [JSON.stringify({ [key]: rollupStage(key, kids) }), JSON.stringify(info ? { [key]: info } : {}), p.id]);
+  }
+}
+/* Pilot run & drop test: product wise since v1.193.0 (QC HOD / Quality Ass. Manager) */
+const migrateNpdPilotToProduct = pool => moveStageToProduct(pool, 'pilot_drop_test', 'NPD_PILOT_PRODUCT_V1');
+/* Final QC approved after testing: product wise since v1.210.1 */
+const migrateNpdQcApprovalToProduct = pool => moveStageToProduct(pool, 'qc_approval_ho', 'NPD_QC_APPROVAL_PRODUCT_V1');
+
+/* Factories a user may see in NPD, by name. Superadmin, and a global or admin
+   user with no factory ticked, see every factory (all = true). */
+async function npdFactoryScope(pool, u) {
+  if (!u) return { all: false, names: [] };
+  const active = async () => (await pool.query('SELECT name FROM factories WHERE COALESCE(is_active, TRUE) ORDER BY id')).rows.map(r => r.name);
+  if (isNpdSuperadmin(u)) return { all: true, names: await active() };
+  const mine = (await pool.query(
+    `SELECT f.name FROM factories f JOIN user_factories uf ON uf.factory_id = f.id
+      WHERE uf.user_id = $1 AND COALESCE(f.is_active, TRUE) ORDER BY f.id`, [u.id])).rows.map(r => r.name);
+  if (!mine.length && (u.global_access === true || isNpdAdmin(u))) return { all: true, names: await active() };
+  return { all: false, names: mine };
+}
+const facKey = v => String(v || '').trim().toLowerCase();
+/* Product blocks (product + its child moulds) a user may see. A block belongs
+   to every factory set on the product or one of its moulds. A block with no
+   factory yet is seen by all-factory users, H.O (who sets the factory) and
+   whoever added it. `only` narrows to one factory name. */
+function scopeProducts(rows, scope, u, only) {
+  const allowed = new Set((scope.names || []).map(facKey));
+  const want = only ? facKey(only) : '';
+  const kids = new Map();
+  rows.forEach(r => {
+    if (!r.parent_sync_id) return;
+    const k = String(r.parent_sync_id);
+    if (!kids.has(k)) kids.set(k, []);
+    kids.get(k).push(r);
+  });
+  const out = [];
+  rows.filter(r => !r.parent_sync_id).forEach(p => {
+    const block = [p, ...(kids.get(String(p.sync_id)) || [])];
+    const facs = [...new Set(block.map(r => facKey(r.factory)).filter(Boolean))];
+    const ok = facs.length
+      ? facs.some(f => (scope.all || allowed.has(f)) && (!want || f === want))
+      : !want && (scope.all || isNpdHo(u) || (!!u && p.created_by === u.username));
+    if (ok) out.push(...block);
+  });
+  return out;
+}
+
+/* Sr No for a list: place of each product in the chosen factory's list, 1, 2, 3 ...
+   with no gaps. All factories: grouped by the product's factory (else its first
+   mould's) in factory master order, numbered straight through. Returns the
+   products in that order and Map(id -> number). Same rule as npd.html. */
+function npdSerials(rows, facNames, factory) {
+  const parents = rows.filter(r => !r.parent_sync_id).sort((a, b) => a.id - b.id);
+  let list = parents;
+  if (!factory && (facNames || []).length > 1) {
+    const kids = new Map();
+    rows.forEach(r => { if (r.parent_sync_id) { const k = String(r.parent_sync_id); if (!kids.has(k)) kids.set(k, []); kids.get(k).push(r); } });
+    const home = p => p.factory || ((kids.get(String(p.sync_id)) || []).find(k => k.factory) || {}).factory || '';
+    const order = f => { const i = facNames.findIndex(n => facKey(n) === facKey(f)); return i < 0 ? (f ? facNames.length : facNames.length + 1) : i; };
+    list = parents.map((p, i) => ({ p, i, o: order(home(p)) })).sort((a, b) => a.o - b.o || a.i - b.i).map(x => x.p);
+  }
+  return { list, sr: new Map(list.map((p, i) => [p.id, i + 1])) };
+}
+
+/* One-time (MAIN only; users sync out to the factories): every Dispatch Manager /
+   Dispatch Executive user whose app list leaves NPD out gets NPD ticked, so they
+   can open the tracker and fill the W/H & Dispatch stages. Matched on the role
+   code or the role name, letters and digits only. Users with no app list already
+   see every app and are left alone. */
+const NPD_ACCESS_ROLES = ['dispatchmanager', 'dispatchexecutive'];
+async function grantNpdAccessToDispatch(pool) {
+  const norm = sql => `lower(regexp_replace(COALESCE(${sql}, ''), '[^a-zA-Z0-9]', '', 'g'))`;
+  return grantNpdAccess(pool, 'NPD_DISPATCH_ACCESS_V1', 'dispatch',
+    `(${norm('x.role_code')} = ANY($1) OR ${norm('ro.label')} = ANY($1))`, [NPD_ACCESS_ROLES]);
+}
+/* Same one-time grant for every packing role (code or name containing "packing"). */
+async function grantNpdAccessToPacking(pool) {
+  const norm = sql => `lower(regexp_replace(COALESCE(${sql}, ''), '[^a-zA-Z0-9]', '', 'g'))`;
+  return grantNpdAccess(pool, 'NPD_PACKING_ACCESS_V1', 'packing',
+    `(${norm('x.role_code')} LIKE '%packing%' OR ${norm('ro.label')} LIKE '%packing%')`, []);
+}
+async function grantNpdAccess(pool, flagKey, who, matchSql, params) {
+  if (String(process.env.SERVER_TYPE || '').toUpperCase() === 'LOCAL') return [];
+  await pool.query('CREATE TABLE IF NOT EXISTS server_config (key TEXT PRIMARY KEY, value TEXT)');
+  const flag = await pool.query(
+    `INSERT INTO server_config (key, value) VALUES ($1, NOW()::text)
+     ON CONFLICT (key) DO NOTHING RETURNING key`, [flagKey]);
+  if (!flag.rowCount) return [];
+  const r = await pool.query(
+    `UPDATE users u
+        SET permissions = CASE
+              WHEN jsonb_typeof(u.permissions->'__apps') = 'object'
+                THEN jsonb_set(u.permissions, '{__apps,npd}', 'true'::jsonb)
+              ELSE jsonb_set(u.permissions, '{app_access,npd}', 'true'::jsonb) END,
+            updated_at = NOW()
+       FROM (SELECT x.id FROM users x LEFT JOIN roles ro ON ro.code = x.role_code
+              WHERE ${matchSql}) m
+      WHERE u.id = m.id
+        AND (jsonb_typeof(u.permissions->'__apps') = 'object' AND (u.permissions->'__apps'->'npd') IS DISTINCT FROM 'true'::jsonb
+          OR jsonb_typeof(u.permissions->'__apps') IS DISTINCT FROM 'object'
+             AND jsonb_typeof(u.permissions->'app_access') = 'object' AND (u.permissions->'app_access'->'npd') IS DISTINCT FROM 'true'::jsonb)
+      RETURNING u.username`, params);
+  if (r.rowCount) console.log(`[NPD] NPD access given to ${who} users: ${r.rows.map(x => x.username).join(', ')}`);
+  return r.rows.map(x => x.username);
+}
+
 function registerNpdRoutes(app, pool) {
   let ready = null;
   function ensureTables() {
-    if (!ready) ready = ensureNpdSchema(pool).then(() => migrateNpdLevels(pool)).catch(err => { ready = null; throw err; });
+    if (!ready) ready = ensureNpdSchema(pool).then(() => migrateNpdLevels(pool)).then(() => migrateNpdPilotToProduct(pool)).then(() => migrateNpdQcApprovalToProduct(pool)).catch(err => { ready = null; throw err; });
     return ready;
+  }
+  /* MAIN: give the dispatch users NPD access soon after start, not only when someone opens NPD */
+  if (String(process.env.SERVER_TYPE || '').toUpperCase() !== 'LOCAL' && process.env.NODE_ENV !== 'test') {
+    setTimeout(() => grantNpdAccessToDispatch(pool).catch(err => console.warn('[NPD] dispatch access:', err.message))
+      .then(() => grantNpdAccessToPacking(pool)).catch(err => console.warn('[NPD] packing access:', err.message)), 20000).unref();
   }
   /* LOCAL: send the change to MAIN now instead of waiting for the next cycle */
   const pushNow = () => {
@@ -356,13 +500,12 @@ function registerNpdRoutes(app, pool) {
     const username = getRequestUsername(req);
     if (!username) return null;
     const r = await pool.query(
-      `SELECT u.username, u.role_code, r.label AS role_label
+      `SELECT u.id, u.username, u.role_code, u.global_access, r.label AS role_label
          FROM users u LEFT JOIN roles r ON r.code = u.role_code
         WHERE u.username = $1 LIMIT 1`, [username]);
     return r.rows[0] || null;
   }
   const isAdmin = isNpdAdmin;
-  const isSuperadmin = isNpdSuperadmin;
   const canEdit = canEditSheet;
   /* stage keys this user may change */
   const editableStages = editableStageKeys;
@@ -371,6 +514,12 @@ function registerNpdRoutes(app, pool) {
     const u = await sessionUser(req);
     if (!u) { res.status(401).json({ ok: false, error: 'Unauthorized' }); return null; }
     if (!canEdit(u)) { res.status(403).json({ ok: false, error: 'Only admin and PPC managers can do this in NPD' }); return null; }
+    return u;
+  }
+  async function requireFileManager(req, res) {
+    const u = await sessionUser(req);
+    if (!u) { res.status(401).json({ ok: false, error: 'Unauthorized' }); return null; }
+    if (!canManageFiles(u)) { res.status(403).json({ ok: false, error: 'Only admin and QC can upload trial reports and images in NPD' }); return null; }
     return u;
   }
   async function requireAdder(req, res) {
@@ -384,10 +533,13 @@ function registerNpdRoutes(app, pool) {
     try {
       await ensureTables();
       const u = await sessionUser(req);
-      const [products, files] = await Promise.all([
+      const [products, files, scope] = await Promise.all([
         pool.query('SELECT * FROM npd_products ORDER BY id'),
-        pool.query('SELECT id, product_sync_id, kind, file_path, original_name, uploaded_by, uploaded_at FROM npd_files ORDER BY uploaded_at, id')
+        pool.query('SELECT id, product_sync_id, kind, file_path, original_name, uploaded_by, uploaded_at FROM npd_files ORDER BY uploaded_at, id'),
+        npdFactoryScope(pool, u)
       ]);
+      const master = !isNpdHo(u) ? [] : scope.all ? scope.names
+        : (await pool.query('SELECT name FROM factories WHERE COALESCE(is_active, TRUE) ORDER BY id')).rows.map(r => r.name);
       const byProduct = new Map();
       files.rows.forEach(f => {
         const k = String(f.product_sync_id);
@@ -398,11 +550,17 @@ function registerNpdRoutes(app, pool) {
         ok: true,
         can_edit: canEdit(u),
         can_add: canAddItems(u),
-        can_delete: isSuperadmin(u),
+        can_delete: isAdmin(u),
+        can_files: canManageFiles(u),
         can_colours: isNpdHo(u),
         editable_stages: editableStages(u),
         departments: u ? (isAdmin(u) ? ['All'] : roleDepts(u)) : [],
-        data: products.rows.map(p => ({ ...p, files: byProduct.get(String(p.sync_id)) || [] }))
+        /* factories this user may switch between; all = every factory */
+        factories: scope.names,
+        all_factories: scope.all,
+        /* factory master for H.O's Factory column (saves the page a second call) */
+        factory_master: master,
+        data: scopeProducts(products.rows, scope, u).map(p => ({ ...p, files: byProduct.get(String(p.sync_id)) || [] }))
       });
     } catch (err) { sendServerError(res, err); }
   });
@@ -412,17 +570,29 @@ function registerNpdRoutes(app, pool) {
   app.get('/api/npd/export.xlsx', async (req, res) => {
     try {
       await ensureTables();
-      if (!await sessionUser(req)) return res.status(401).json({ ok: false, error: 'Unauthorized' });
+      const u = await sessionUser(req);
+      if (!u) return res.status(401).json({ ok: false, error: 'Unauthorized' });
       const status = clean(req.query.status, 40);
+      const factory = clean(req.query.factory, 120);
       const q = clean(req.query.q, 100).toLowerCase();
-      const [products, files] = await Promise.all([
+      const [all, files, scope] = await Promise.all([
         pool.query('SELECT * FROM npd_products ORDER BY id'),
-        pool.query('SELECT product_sync_id, kind, COUNT(*)::int AS n FROM npd_files GROUP BY product_sync_id, kind')
+        pool.query('SELECT product_sync_id, kind, COUNT(*)::int AS n FROM npd_files GROUP BY product_sync_id, kind'),
+        npdFactoryScope(pool, u)
       ]);
+      const products = { rows: scopeProducts(all.rows, scope, u, factory) };
       const count = new Map(files.rows.map(f => [`${f.product_sync_id}:${f.kind}`, f.n]));
-      const parents = products.rows.filter(p => !p.parent_sync_id).filter(p =>
+      const { list: ordered, sr } = npdSerials(products.rows, scope.names, factory);
+      const parents = ordered.filter(p =>
         (!status || (p.status || 'No status') === status) &&
-        (!q || `${p.product_name} ${p.sr_no || ''}`.toLowerCase().includes(q)));
+        (!q || String(sr.get(p.id)) === q || [p, ...products.rows.filter(c => String(c.parent_sync_id) === String(p.sync_id))]
+          .some(x => `${x.product_name} ${x.product_code || ''}`.toLowerCase().includes(q))));
+      /* moulds are numbered under their product: 3.1, 3.2 ... */
+      const srOf = new Map();
+      parents.forEach(p => {
+        srOf.set(p.id, sr.get(p.id));
+        products.rows.filter(c => String(c.parent_sync_id) === String(p.sync_id)).forEach((c, i) => srOf.set(c.id, `${sr.get(p.id)}.${i + 1}`));
+      });
       /* each product followed by its child moulds */
       const rows = parents.flatMap(p => [p, ...products.rows.filter(c => String(c.parent_sync_id) === String(p.sync_id))]);
 
@@ -440,7 +610,7 @@ function registerNpdRoutes(app, pool) {
       ws.mergeCells(1, 1, 1, last);
       const title = ws.getCell(1, 1);
       title.value = `NPD Tracker - exported ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}` +
-        (status ? ` - status: ${status}` : '') + (q ? ` - search: ${q}` : '');
+        (factory ? ` - factory: ${factory}` : '') + (status ? ` - status: ${status === 'No status' ? 'Pending' : status}` : '') + (q ? ` - search: ${q}` : '');
       title.font = { bold: true, size: 14 };
 
       /* row 2: stage group bands over their columns */
@@ -474,19 +644,20 @@ function registerNpdRoutes(app, pool) {
         const info = p.stage_info || {};
         /* stage that does not belong to this row's level: left blank and greyed */
         const off = s => s.level !== (isMould ? 'mould' : 'product');
-        const vals = [/^\d+$/.test(p.sr_no || '') ? Number(p.sr_no) : (p.sr_no || ''), isMould ? 'Mould' : 'Product',
+        const vals = [srOf.get(p.id), isMould ? 'Mould' : 'Product',
           p.parent_sync_id ? `   ↳ Mould: ${p.product_name}` : p.product_name, p.factory || '', p.product_code || '', p.trial_colours || ''];
         STAGES.forEach(s => {
           const v = st[s.key];
           if (off(s)) vals.push(null);
           else if (s.type === 'date') vals.push(v ? new Date(v + 'T00:00:00Z') : null);
+          else if (s.type === 'text') vals.push(v || '');
           else {
             const done = v === 'complete' && info[s.key] && info[s.key].completed_on;
             const rb = s.key === RECEIVED_BY_STAGE && v === 'complete' && info[s.key] && info[s.key].received_by;
             vals.push((STATE_STYLE[v] || STATE_STYLE.pending).text + (done ? ` (${done})` : '') + (rb ? ` - by ${rb}` : ''));
           }
         });
-        vals.push(p.status || '', [remarkLine(p.stage_info), p.remarks].filter(Boolean).join('\n'), count.get(`${p.sync_id}:report`) || 0, count.get(`${p.sync_id}:image`) || 0,
+        vals.push(rowStatus(p), [remarkLine(p.stage_info), p.remarks].filter(Boolean).join('\n'), count.get(`${p.sync_id}:report`) || 0, count.get(`${p.sync_id}:image`) || 0,
           p.updated_by || '', p.updated_at ? new Date(p.updated_at) : null);
         const r = ws.addRow(vals);
         r.eachCell({ includeEmpty: true }, (c, col) => {
@@ -500,6 +671,8 @@ function registerNpdRoutes(app, pool) {
             c.fill = fill(k.fill);
             c.font = { bold: true, color: { argb: k.font } };
             c.alignment = { horizontal: 'center', vertical: 'middle' };
+          } else if (s && s.type === 'text') {
+            c.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
           } else if (s) {
             c.numFmt = 'dd-mmm-yy';
             c.alignment = { horizontal: 'center', vertical: 'middle' };
@@ -511,7 +684,7 @@ function registerNpdRoutes(app, pool) {
           if (rm && rm.remarks) r.getCell(i + S0).note = `${rm.remarks}${rm.by ? ` - ${rm.by}` : ''}`;
         });
         r.getCell(3).font = { bold: !p.parent_sync_id, italic: !!p.parent_sync_id };
-        const ps = STATUS_STYLE[p.status];
+        const ps = STATUS_STYLE[rowStatus(p)];
         if (ps) {
           const c = r.getCell(STAGES.length + S0);
           c.fill = fill(ps.fill);
@@ -551,6 +724,12 @@ function registerNpdRoutes(app, pool) {
       if (!name) return res.status(400).json({ ok: false, error: 'Product name is required' });
       const status = clean(req.body?.status, 40);
       const code = clean(req.body?.product_code, 60);
+      /* factory picked in the page's factory switch: kept for H.O, or when it is one of the user's factories */
+      let factory = clean(req.body?.factory, 120);
+      if (factory && !isNpdHo(u)) {
+        const scope = await npdFactoryScope(pool, u);
+        if (!scope.all && !scope.names.some(n => facKey(n) === facKey(factory))) factory = '';
+      }
       /* child mould of an existing product: no Sr No of its own */
       const parentId = parseInt(req.body?.parent_id, 10);
       if (parentId) {
@@ -569,12 +748,12 @@ function registerNpdRoutes(app, pool) {
       if (!moulds.length) return res.status(400).json({ ok: false, error: 'Add at least one child mould - a product cannot be created without a mould' });
       /* Sr No is automatic: one more than the highest number used so far. */
       const r = await pool.query(
-        `INSERT INTO npd_products (sr_no, product_name, product_code, trial_colours, stages, status, remarks, created_by, updated_by)
+        `INSERT INTO npd_products (sr_no, product_name, product_code, trial_colours, stages, status, remarks, created_by, updated_by, factory)
          VALUES ((SELECT (COALESCE(MAX(NULLIF(regexp_replace(sr_no, '[^0-9]', '', 'g'), '')::bigint), 0) + 1)::text
                     FROM npd_products),
-                 $1, $2, $3, $4, $5, $6, $7, $7) RETURNING *`,
+                 $1, $2, $3, $4, $5, $6, $7, $7, $8) RETURNING *`,
         [name, code, isNpdHo(u) ? cleanColours(req.body?.trial_colours) : '', JSON.stringify(cleanStages(req.body?.stages)),
-          PRODUCT_STATUSES.has(status) ? status : '', clean(req.body?.remarks, 2000), u.username]
+          PRODUCT_STATUSES.has(status) ? status : '', clean(req.body?.remarks, 2000), u.username, factory]
       );
       const out = [{ ...r.rows[0], files: [] }];
       for (const m of moulds) {
@@ -664,6 +843,10 @@ function registerNpdRoutes(app, pool) {
       if (b.factory !== undefined) add('factory = ?', clean(b.factory, 120));
       if (b.status !== undefined) {
         if (!PRODUCT_STATUSES.has(b.status)) return res.status(400).json({ ok: false, error: 'Invalid status' });
+        if (b.status === 'Launched') {
+          const row = await pool.query('SELECT parent_sync_id FROM npd_products WHERE id = $1', [id]);
+          if (row.rows[0] && row.rows[0].parent_sync_id) return res.status(400).json({ ok: false, error: 'Launched is set on the main product, not on a child mould' });
+        }
         add('status = ?', b.status);
       }
       if (b.remarks !== undefined) add('remarks = ?', clean(b.remarks, 2000));
@@ -687,7 +870,7 @@ function registerNpdRoutes(app, pool) {
       await ensureTables();
       const u = await sessionUser(req);
       if (!u) return res.status(401).json({ ok: false, error: 'Unauthorized' });
-      if (!isSuperadmin(u)) return res.status(403).json({ ok: false, error: 'Only superadmin can delete NPD products and child moulds' });
+      if (!isAdmin(u)) return res.status(403).json({ ok: false, error: 'Only admin can delete NPD products and child moulds' });
       const id = parseInt(req.params.id, 10);
       const r = await pool.query('DELETE FROM npd_products WHERE id = $1 RETURNING sync_id', [id]);
       if (!r.rowCount) return res.status(404).json({ ok: false, error: 'Product not found' });
@@ -708,7 +891,7 @@ function registerNpdRoutes(app, pool) {
     try {
       await ensureTables();
       if (!['report', 'image'].includes(req.params.kind)) return res.status(400).json({ ok: false, error: 'Unknown file kind' });
-      const u = await requireEditor(req, res);
+      const u = await requireFileManager(req, res);
       if (!u) return;
       req.npdUser = u;
       next();
@@ -748,7 +931,7 @@ function registerNpdRoutes(app, pool) {
   app.delete('/api/npd/files/:fileId', async (req, res) => {
     try {
       await ensureTables();
-      const u = await requireEditor(req, res);
+      const u = await requireFileManager(req, res);
       if (!u) return;
       const r = await pool.query('DELETE FROM npd_files WHERE id = $1 RETURNING file_path', [parseInt(req.params.fileId, 10)]);
       if (!r.rows.length) return res.status(404).json({ ok: false, error: 'File not found' });
@@ -767,17 +950,25 @@ module.exports = {
   rollupStage,
   remarkLine,
   migrateNpdLevels,
+  migrateNpdPilotToProduct,
+  migrateNpdQcApprovalToProduct,
+  scopeProducts,
   DEPT_ROLES,
   ADMIN_ROLES,
   SHEET_ROLES,
   STAGE_STATES,
   PRODUCT_STATUSES,
+  rowStatus,
+  npdSerials,
+  grantNpdAccessToDispatch,
+  grantNpdAccessToPacking,
   cleanStages,
   cleanColours,
   roleDepts,
   norm,
   editableStageKeys,
   canEditSheet,
+  canManageFiles,
   canAddItems,
   isNpdAdmin,
   isNpdSuperadmin

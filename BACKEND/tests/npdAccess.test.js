@@ -17,6 +17,9 @@ const {
   norm,
   editableStageKeys,
   canEditSheet,
+  canManageFiles,
+  rowStatus,
+  npdSerials,
   canAddItems,
   isNpdAdmin,
   isNpdSuperadmin
@@ -27,7 +30,7 @@ describe('NPD stage catalogue', () => {
     const keys = STAGES.map((s) => s.key);
     expect(new Set(keys).size).toBe(keys.length);
     for (const s of STAGES) {
-      expect(['status', 'date']).toContain(s.type);
+      expect(['status', 'date', 'text']).toContain(s.type);
       expect(Array.isArray(s.depts)).toBe(true);
       expect(s.depts.length).toBeGreaterThan(0);
       expect(s.label).toBeTruthy();
@@ -76,7 +79,7 @@ describe('NPD role access', () => {
     expect(norm('sr__ppc_manager')).toBe('srppcmanager');
   });
 
-  test('admin / superadmin edit the whole sheet; only superadmin deletes', () => {
+  test('admin / superadmin edit the whole sheet (and delete)', () => {
     expect(isNpdAdmin(user('admin'))).toBe(true);
     expect(isNpdAdmin(user('superadmin'))).toBe(true);
     expect(isNpdSuperadmin(user('admin'))).toBe(false);
@@ -107,6 +110,7 @@ describe('NPD role access', () => {
 
     const mouldKeys = editableStageKeys(user('mouldingmanager'));
     expect(mouldKeys).toEqual(expect.arrayContaining(['mould_trials', 'mass_moulding', 'rm_colour', 'pilot_drop_test']));
+    expect(editableStageKeys(user('quality_ass__manager'))).toContain('pilot_drop_test');
     expect(mouldKeys).not.toContain('mould_received');
 
     const adminKeys = editableStageKeys(user('admin'));
@@ -120,6 +124,98 @@ describe('NPD role access', () => {
     expect(qc.has('mass_printing')).toBe(false);
     expect(qc.has('fg_receiving')).toBe(false);
     expect(qc.has('samples_ho')).toBe(true);
+  });
+});
+
+describe('NPD trial report / images upload (QC)', () => {
+  const user = (role_code) => ({ role_code });
+  test('QC roles and admin upload; PPC and other departments do not', () => {
+    for (const r of ['quality', 'quality_ass__manager', 'qc_hod', 'admin', 'superadmin']) expect(canManageFiles(user(r))).toBe(true);
+    for (const r of ['ppc_manager', 'sr_ppc_manager', 'dispatch_manager', 'moulding_manager', 'sales_coordinator']) expect(canManageFiles(user(r))).toBe(false);
+    expect(canManageFiles(null)).toBe(false);
+  });
+});
+
+describe('NPD RM & colour finalization: whole PPC team', () => {
+  const user = (role_code, role_label) => ({ role_code, role_label });
+  test('every PPC / Planning role and Planner edits RM & colour (Planner: that and OR - JR Number only)', () => {
+    for (const u of [user('planner'), user('ppc_assistant_manager'), user('ppc_executive'), user('planning_manager'), user('x', 'PPC Executive'), user('ppc_manager')]) {
+      expect(editableStageKeys(u)).toContain('rm_colour');
+    }
+    expect(editableStageKeys(user('planner'))).toEqual(['rm_colour', 'or_jr_number']);
+    expect(editableStageKeys(user('dispatch_manager'))).not.toContain('rm_colour');
+    expect(editableStageKeys(user('quality'))).not.toContain('rm_colour');
+  });
+});
+
+describe('NPD OR - JR Number', () => {
+  const user = (role_code, role_label) => ({ role_code, role_label });
+  test('admin, superadmin and PPC / Planning edit OR - JR Number; others do not', () => {
+    for (const u of [user('admin'), user('superadmin'), user('ppc_manager'), user('planner'), user('x', 'PPC Executive')]) {
+      expect(editableStageKeys(u)).toContain('or_jr_number');
+    }
+    for (const u of [user('dispatch_manager'), user('quality'), user('packing_manager')]) {
+      expect(editableStageKeys(u)).not.toContain('or_jr_number');
+    }
+  });
+});
+
+describe('NPD Packing roles', () => {
+  const user = (role_code, role_label) => ({ role_code, role_label });
+  test('Packing Manager, Packing Executive and other packing roles edit the Packing stages', () => {
+    for (const u of [user('packing_manager'), user('packing_executive'), user('x', 'Packing Executive'), user('y', 'PACKING SUPERVISOR'), user('packing_operator')]) {
+      const keys = editableStageKeys(u);
+      expect(keys).toEqual(expect.arrayContaining(['packing_material', 'mass_packaging']));
+      expect(keys).not.toContain('mould_trials');
+      expect(keys).not.toContain('packing_receiving');
+    }
+    expect(editableStageKeys(user('dispatch_manager'))).not.toContain('packing_material');
+  });
+});
+
+describe('NPD W/H & Dispatch roles', () => {
+  const user = (role_code, role_label) => ({ role_code, role_label });
+  test('Dispatch Executive and Dispatch Manager edit the W/H & Dispatch stages', () => {
+    for (const u of [user('dispatch_executive'), user('x', 'Dispatch Executive'), user('dispatch_manager'), user('y', 'DISPATCH MANAGER')]) {
+      const keys = editableStageKeys(u);
+      expect(keys).toEqual(expect.arrayContaining(['or_jr_erp_wh', 'fg_receiving', 'post_card_receiving', 'post_card_posting', 'dispatch_date']));
+      expect(keys).not.toContain('mould_trials');
+    }
+  });
+});
+
+describe('NPD Sr No in series', () => {
+  const P = (id, factory, parent) => ({ id, sync_id: 's' + id, parent_sync_id: parent ? 's' + parent : null, factory: factory || '' });
+  const rows = [P(3, 'U1'), P(4, '', 3), P(6, 'U2'), P(9, 'U1'), P(12, ''), P(13, 'U2', 12)];
+  test('one factory: 1, 2, 3 with no gaps', () => {
+    const { list, sr } = npdSerials(rows.filter(r => [3, 4, 9].includes(r.id)), ['U1'], 'U1');
+    expect(list.map(p => p.id)).toEqual([3, 9]);
+    expect([sr.get(3), sr.get(9)]).toEqual([1, 2]);
+  });
+  test('all factories: grouped in factory order, numbered straight through', () => {
+    const { list, sr } = npdSerials(rows, ['U1', 'U2'], '');
+    expect(list.map(p => p.id)).toEqual([3, 9, 6, 12]);
+    expect(list.map(p => sr.get(p.id))).toEqual([1, 2, 3, 4]);
+  });
+});
+
+describe('NPD mould status', () => {
+  test('Launched counts only on the main product', () => {
+    expect(rowStatus({ status: 'Launched' })).toBe('Launched');
+    expect(rowStatus({ status: 'Launched', parent_sync_id: 'a' })).toBe('');
+    expect(rowStatus({ status: 'Hold', parent_sync_id: 'a' })).toBe('Hold');
+  });
+});
+
+describe('NPD post card stages (W/H & Dispatch)', () => {
+  const user = (role_code) => ({ role_code });
+  test('Dispatch Manager edits both post card stages; Planning no longer does', () => {
+    const wh = editableStageKeys(user('dispatch_manager'));
+    expect(wh).toEqual(expect.arrayContaining(['post_card_receiving', 'post_card_posting', 'dispatch_date', 'fg_receiving']));
+    expect(wh).not.toContain('post_card_making_ho');
+    const ppc = editableStageKeys(user('ppc_manager'));
+    expect(ppc).not.toContain('post_card_receiving');
+    expect(ppc).not.toContain('post_card_posting');
   });
 });
 
@@ -194,5 +290,60 @@ describe('NPD remarks line', () => {
     const s = STAGES.find((x) => x.key === 'launch_date_ho');
     expect(s.label).toBe('Launch Date (HO)');
     expect(s.depts).toEqual(['HO']);
+  });
+});
+
+describe('NPD pilot run is set product wise by QC', () => {
+  const { STAGE_LEVEL } = require('../src/modules/npd/registerNpdRoutes');
+  const user = (role_code, role_label = '') => ({ username: 'u', role_code, role_label });
+
+  test('final QC approved after testing is a product stage', () => {
+    expect(STAGE_LEVEL.get('qc_approval_ho')).toBe('product');
+    expect(editableStageKeys(user('quality', 'QC HOD'))).toContain('qc_approval_ho');
+  });
+
+  test('pilot run & drop test is a product stage', () => {
+    expect(STAGE_LEVEL.get('pilot_drop_test')).toBe('product');
+  });
+
+  test('QC HOD and Quality Ass. Manager can edit it', () => {
+    expect(editableStageKeys(user('quality', 'QC HOD'))).toContain('pilot_drop_test');
+    expect(editableStageKeys(user('quality_ass__manager', 'Quality Ass. Manager'))).toContain('pilot_drop_test');
+    expect(editableStageKeys(user('toolroommanager'))).not.toContain('pilot_drop_test');
+  });
+});
+
+describe('NPD factory scope', () => {
+  const { scopeProducts } = require('../src/modules/npd/registerNpdRoutes');
+  const rows = [
+    { sync_id: 'a', factory: 'Dungra Unit 1', created_by: 'x' },
+    { sync_id: 'a1', parent_sync_id: 'a', factory: '' },
+    { sync_id: 'b', factory: 'JOYO PLASTICS', created_by: 'x' },
+    { sync_id: 'b1', parent_sync_id: 'b', factory: 'dungra unit 1 ' },
+    { sync_id: 'c', factory: '', created_by: 'pc' },
+    { sync_id: 'c1', parent_sync_id: 'c', factory: '' }
+  ];
+  const ids = (r) => r.map((x) => x.sync_id);
+  const plain = { username: 'pc', role_code: 'ppcmanager' };
+
+  test('single factory user sees blocks of that factory (product or any mould) and their own unassigned ones', () => {
+    expect(ids(scopeProducts(rows, { all: false, names: ['Dungra Unit 1'] }, plain))).toEqual(['a', 'a1', 'b', 'b1', 'c', 'c1']);
+    expect(ids(scopeProducts(rows, { all: false, names: ['Dungra Unit 1'] }, { username: 'zz', role_code: 'quality' }))).toEqual(['a', 'a1', 'b', 'b1']);
+    expect(ids(scopeProducts(rows, { all: false, names: ['Other'] }, { username: 'zz', role_code: 'quality' }))).toEqual([]);
+  });
+
+  test('all factory user sees everything; one factory narrows', () => {
+    const all = { all: true, names: ['Dungra Unit 1', 'JOYO PLASTICS'] };
+    expect(ids(scopeProducts(rows, all, { username: 'sa', role_code: 'superadmin' }))).toHaveLength(6);
+    expect(ids(scopeProducts(rows, all, { username: 'sa', role_code: 'superadmin' }, 'JOYO PLASTICS'))).toEqual(['b', 'b1']);
+  });
+});
+
+describe('NPD OR - JR Number value', () => {
+  test('cleanStages keeps a trimmed OR - JR number and allows clearing it', () => {
+    expect(cleanStages({ or_jr_number: '  OR-123 / JR-45  ' })).toEqual({ or_jr_number: 'OR-123 / JR-45' });
+    expect(cleanStages({ or_jr_number: '' })).toEqual({ or_jr_number: '' });
+    expect(cleanStages({ or_jr_number: { x: 1 } })).toEqual({});
+    expect(cleanStages({ or_jr_number: 'x'.repeat(300) }).or_jr_number.length).toBe(100);
   });
 });

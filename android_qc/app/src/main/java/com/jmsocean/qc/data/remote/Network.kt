@@ -1,6 +1,7 @@
 package com.jmsocean.qc.data.remote
 
 import com.jmsocean.qc.BuildConfig
+import com.jmsocean.qc.data.FactoryServer
 import com.jakewharton.retrofit2.converter.kotlinx.serialization.asConverterFactory
 import kotlinx.serialization.json.Json
 import android.content.Context
@@ -223,10 +224,29 @@ object Network {
         )
     }
 
+    /**
+     * Retrofit is built once, on a placeholder address; every API request is sent to
+     * the factory chosen on this phone. Runs before the cookie handling, so cookies
+     * are stored and sent per factory host.
+     */
+    private val factoryHost = okhttp3.Interceptor { chain ->
+        val req = chain.request()
+        val placeholder = BuildConfig.BASE_URL.toHttpUrl()
+        val target = FactoryServer.httpUrl
+        if (req.url.host != placeholder.host || req.url.port != placeholder.port) {
+            chain.proceed(req)
+        } else {
+            val url = req.url.newBuilder()
+                .scheme(target.scheme).host(target.host).port(target.port).build()
+            chain.proceed(req.newBuilder().url(url).build())
+        }
+    }
+
     private val client: OkHttpClient = OkHttpClient.Builder()
         .cookieJar(cookieJar)
         .connectTimeout(8, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
+        .addInterceptor(factoryHost)
         .addInterceptor(networkRetry)
         .addInterceptor(HttpLoggingInterceptor().apply {
             level = if (BuildConfig.DEBUG) HttpLoggingInterceptor.Level.BASIC
@@ -241,10 +261,10 @@ object Network {
         .build()
         .create(ApiService::class.java)
 
-    val baseUrl: String get() = BuildConfig.BASE_URL
+    val baseUrl: String get() = FactoryServer.url
 
     /** Host of the API server, for [PersistentCookieJar.hasSession]. */
-    val apiHost: String by lazy { BuildConfig.BASE_URL.toHttpUrl().host }
+    val apiHost: String get() = FactoryServer.httpUrl.host
 
     /** Streams a URL to a file. Used by the self-updater to fetch the new APK. */
     fun downloadTo(url: String, dest: File): Boolean {

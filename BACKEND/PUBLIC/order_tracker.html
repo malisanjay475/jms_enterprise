@@ -96,6 +96,18 @@
         .orow.COMPLETE { border-left-color: var(--green); }
         .orow.PAUSED { border-left-color: var(--amber); }
         .orow.late { border-left-color: var(--red); }
+        /* Order on hold (Hold button on the Planning timelines): red stripes, same as the board */
+        .orow.held { background: repeating-linear-gradient(135deg, #fef2f2 0 10px, #fecaca 10px 20px); border-color: #f87171; border-left-color: var(--red); }
+        .holdtag { display: inline-flex; align-items: center; gap: 5px; max-width: 100%; background: #b91c1c; color: #fff; font-size: 11px; font-weight: 800; border-radius: 6px; padding: 3px 8px; margin-top: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .holdtag.sm { font-size: 10px; padding: 1px 6px; margin: 0 0 0 6px; vertical-align: middle; }
+        .holdbar { display: flex; align-items: center; gap: 16px; border-radius: 16px; padding: 14px 20px; margin: 14px 0; border: 1px solid #f87171; border-left: 6px solid var(--red); background: repeating-linear-gradient(135deg, #fef2f2 0 12px, #fee2e2 12px 24px); color: #7f1d1d; }
+        .holdbar .hi { width: 44px; height: 44px; border-radius: 12px; display: grid; place-items: center; font-size: 22px; flex: none; color: #fff; background: #b91c1c; }
+        .holdbar .ht { font-size: 18px; font-weight: 800; color: #991b1b; }
+        .holdbar .hd { display: block; margin: 2px 0 0; font-weight: 600; overflow-wrap: anywhere; }
+        .holdbar .hm { font-size: 12px; margin-top: 4px; color: #991b1b; }
+        .holdbar .hl + .hl { margin-top: 6px; padding-top: 6px; border-top: 1px dashed #fca5a5; }
+        .mbar .holdtag.sm { margin-left: 4px; font-size: 9px; padding: 0 5px; }
+        .job.held { border-left: 3px solid var(--red); padding-left: 8px; }
         .orow .no { font-weight: 800; font-size: 15px; }
         .orow .prod { font-weight: 600; color: var(--ink2); margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .sets { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; }
@@ -301,6 +313,27 @@
         .verdict.AT_RISK { background: var(--amber-bg); border-color: var(--amber-br); } .verdict.AT_RISK .vi { background: var(--amber); }
         .verdict.LATE { background: var(--red-bg); border-color: var(--red-br); } .verdict.LATE .vi { background: var(--red); }
         .verdict.NO_TARGET { background: var(--grey-bg); border-color: var(--line); } .verdict.NO_TARGET .vi { background: var(--faint); }
+        .verdict.DISPATCH { background: var(--blue-bg); border-color: var(--blue-br); } .verdict.DISPATCH .vi { background: var(--blue); }
+        /* packing to dispatch */
+        .pk-stages { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; padding: 16px; }
+        .pk-st .l { font-size: 12px; font-weight: 700; color: var(--ink2); display: flex; justify-content: space-between; gap: 6px; }
+        .pk-st .v { font-size: 20px; font-weight: 800; margin: 2px 0 6px; font-variant-numeric: tabular-nums; }
+        .pk-st .v span { font-size: 12px; font-weight: 600; color: var(--mute); }
+        .pk-st .s { font-size: 12px; color: var(--mute); margin-top: 4px; min-height: 16px; }
+        .pk-dates { display: flex; flex-wrap: wrap; gap: 6px 18px; padding: 0 16px 14px; font-size: 12px; color: var(--mute); }
+        .pk-dates b { color: var(--ink); }
+        .pk-gaps { padding: 0 16px 12px; display: grid; gap: 6px; }
+        .pk-more { border-top: 1px solid var(--line2); padding: 10px 16px; font-size: 13px; }
+        .pk-more summary { cursor: pointer; font-weight: 700; color: var(--ink2); }
+        .pk-more table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 12.5px; }
+        .pk-more th { text-align: left; font-weight: 600; color: var(--mute); border-bottom: 1px solid var(--line); padding: 5px 6px; }
+        .pk-more td { border-bottom: 1px solid var(--line2); padding: 5px 6px; }
+        .pk-more .n { text-align: right; font-variant-numeric: tabular-nums; }
+        .pk-tw { overflow-x: auto; width: 0; min-width: 100%; } /* scrolls inside, never widens the page */
+        .pk-more th, .pk-more td { white-space: nowrap; }
+        .pk-line { font-size: 12px; color: var(--mute); }
+        .pk-line b { color: var(--ink2); }
+        @media (max-width: 760px) { .pk-stages { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
         .verdict .proc { margin-left: auto; text-align: right; }
         .verdict .proc .l { font-size: 10px; text-transform: uppercase; letter-spacing: .5px; color: var(--mute); font-weight: 800; }
         .verdict .proc .v { font-size: 16px; font-weight: 800; }
@@ -346,7 +379,7 @@
         .sdates { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; font-size: 11px; color: var(--mute); margin-top: 10px; }
         .sdates b { display: block; font-size: 12px; color: var(--ink); }
         .shortb { margin-top: 8px; background: var(--red-bg); color: #991b1b; border-radius: 8px; padding: 6px 9px; font-size: 12px; font-weight: 700; }
-        @media (max-width: 900px) { .pipe { grid-template-columns: 1fr; gap: 14px; } .stg .bar { display: none; } .verdict { flex-wrap: wrap; } .verdict .proc { margin-left: 0; text-align: left; } }
+        @media (max-width: 900px) { .pipe { grid-template-columns: 1fr; gap: 14px; } .stg .bar { display: none; } .verdict { flex-wrap: wrap; } .verdict > div:nth-child(2) { flex: 1 1 200px; min-width: 0; } .verdict .proc { margin-left: 0; text-align: left; } }
         .qtiles { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; margin: 0 0 10px; }
         .qtile { background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; position: relative; overflow: hidden; }
         .qtile::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--blue); opacity: .55; }
@@ -594,18 +627,66 @@
                 $('live').classList.toggle('off', !ok);
                 $('upd').textContent = ok ? `Updated ${new Date().toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' })} · refreshes every minute` : 'Could not refresh, retrying';
             }
+            /* Holds - set with the Hold button on the Planning timelines (/api/order-holds).
+               A hold is on ONE MOULD of an order; holds made before v1.217.0 have no mould
+               (mould_no '') and cover the whole order. Loaded with every refresh; a failure
+               just shows no holds. */
+            S.holds = {}; S.holdsP = Promise.resolve();
+            const holdKey = v => String(v == null ? '' : v).trim().toUpperCase();
+            /* Mould codes compare with letters and digits only, the same as the Planning Board. */
+            const holdMk = v => { const t = String(v == null ? '' : v).trim(); return t === '-' ? '' : t.toUpperCase().replace(/[^A-Z0-9]/g, ''); };
+            /* All holds of an order */
+            const holdsOf = no => S.holds[holdKey(no)] || [];
+            const wholeHold = no => holdsOf(no).find(h => h.whole) || null;
+            /* Hold covering one mould of an order: its own hold, else a whole-order hold */
+            const holdOf = (no, mould) => { const m = holdMk(mould); return (m && holdsOf(no).find(h => !h.whole && holdMk(h.mould_no) === m)) || wholeHold(no); };
+            function loadHolds() {
+                S.holdsP = fetch('/api/order-holds', { credentials: 'same-origin' })
+                    .then(r => r.json())
+                    .then(d => { if (d && d.ok) { const m = {}; (d.data || []).forEach(h => { h.whole = !holdMk(h.mould_no); (m[holdKey(h.order_no)] = m[holdKey(h.order_no)] || []).push(h); }); S.holds = m; } })
+                    .catch(() => { /* keep the last holds */ });
+                return S.holdsP;
+            }
+            const holdTitle = h => `${h.whole ? 'Whole order on hold' : 'Mould ' + esc(h.mould_no) + ' on hold'}&#10;Reason: ${esc(h.reason)}&#10;By ${esc(h.updated_by || h.held_by || '')}`;
+            /* Tag for one job (order + mould) */
+            const holdTag = (no, mould) => { const h = holdOf(no, mould); return h ? `<span class="holdtag sm" title="${holdTitle(h)}"><i class="bi bi-pause-circle-fill"></i> HOLD</span>` : ''; };
+            /* Tag for an order row: whole order, or how many moulds are held */
+            function orderHoldTag(o) {
+                const w = wholeHold(o.order_no);
+                if (w) return `<span class="holdtag" title="${holdTitle(w)}"><i class="bi bi-pause-circle-fill"></i> ORDER ON HOLD: ${esc(w.reason)}</span>`;
+                const hs = holdsOf(o.order_no);
+                if (!hs.length) return '';
+                const tip = hs.map(h => `${esc(h.mould_no)}${h.mould_name ? ' ' + esc(h.mould_name) : ''}: ${esc(h.reason)}`).join('&#10;');
+                return `<span class="holdtag" title="${tip}"><i class="bi bi-pause-circle-fill"></i> ${hs.length === 1 ? '1 mould' : hs.length + ' moulds'} on hold${hs.length === 1 ? ': ' + esc(hs[0].reason) : ''}</span>`;
+            }
+            function holdHtml(o) {
+                const hs = holdsOf(o.order_no);
+                if (!hs.length) return '';
+                const nameOf = h => { const m = (o.moulds || []).find(x => holdMk(x.mould_no) === holdMk(h.mould_no)); return (m && m.mould_name) || h.mould_name || ''; };
+                const line = h => {
+                    const changed = h.updated_by && h.updated_by !== h.held_by ? ` · reason last changed by <b>${esc(h.updated_by)}</b> on ${fd(h.updated_at, true)}` : '';
+                    const what = h.whole ? 'Whole order (every mould)' : `Mould ${esc(h.mould_no)}${nameOf(h) ? ' · ' + esc(nameOf(h)) : ''}`;
+                    return `<div class="hl"><div class="hd"><b>${what}</b>: ${esc(h.reason)}</div><div class="hm">Held by <b>${esc(h.held_by || '—')}</b> on ${fd(h.held_at, true)}${changed}</div></div>`;
+                };
+                const w = hs.find(h => h.whole);
+                const title = w ? 'Order on hold' : (hs.length === 1 ? '1 mould on hold' : `${hs.length} moulds on hold`);
+                const note = w ? '' : ' Other moulds of this order are not held.';
+                return `<div class="holdbar"><div class="hi"><i class="bi bi-pause-circle-fill"></i></div>
+                    <div style="min-width:0"><div class="ht">${title}</div>${hs.map(line).join('')}
+                    <div class="hm">${note} To release a hold, use the Hold button on the Planning Board.</div></div></div>`;
+            }
             const kpi = (ic, tone, v, l, f) => `<div class="kpi" ${f != null ? `data-f="${f}"` : ''}><div class="ic t-${tone}"><i class="bi ${ic}"></i></div><div><div class="v">${v}</div><div class="l">${l}</div></div></div>`;
 
             /* ================================================== ORDER LIST */
             async function loadOrders() {
                 const q = $('q').value.trim();
-                const res = await JPSMS.api.request(`/order-tracker/orders?scope=${$('scope').value}${q ? '&q=' + encodeURIComponent(q) : ''}`, { skipLoader: true });
+                const [res] = await Promise.all([JPSMS.api.request(`/order-tracker/orders?scope=${$('scope').value}${q ? '&q=' + encodeURIComponent(q) : ''}`, { skipLoader: true }), S.holdsP]);
                 S.orders = res.data || [];
                 renderOrders();
             }
 
-            const OFILTERS = [['', 'All'], ['RUNNING', 'Running'], ['LATE', 'Late'], ['LATESTART', 'Mould late'], ['PAUSED', 'Paused'], ['NOT_STARTED', 'Not started'], ['UNSCHED', 'No end date'], ['COMPLETE', 'Complete']];
-            const omatch = (o, f) => !f || (f === 'LATE' ? isLate(o) : f === 'LATESTART' ? o.late_starts > 0 : f === 'UNSCHED' ? (o.status !== 'COMPLETE' && !o.expected_end) : o.status === f);
+            const OFILTERS = [['', 'All'], ['RUNNING', 'Running'], ['LATE', 'Late'], ['LATESTART', 'Mould late'], ['PAUSED', 'Paused'], ['NOT_STARTED', 'Not started'], ['UNSCHED', 'No end date'], ['COMPLETE', 'Complete'], ['HOLD', 'On hold']];
+            const omatch = (o, f) => !f || (f === 'HOLD' ? holdsOf(o.order_no).length > 0 : f === 'LATE' ? isLate(o) : f === 'LATESTART' ? o.late_starts > 0 : f === 'UNSCHED' ? (o.status !== 'COMPLETE' && !o.expected_end) : o.status === f);
 
             function nextLine(o) {
                 const n = o.next_start;
@@ -638,13 +719,14 @@
                     const late = isLate(o);
                     const neck = o.bottleneck && o.bottleneck.mould_no;
                     const bars = o.moulds.map(m => `<div class="mbar ${m.mould_no === neck ? 'neck' : ''}" title="${esc(m.mould_name)} · ${n0(m.produced)} / ${n0(m.required)} pcs">
-                            <div class="nm"><span>${esc(short(m.mould_name))}</span><span>${pf(m.pct)}</span></div>
+                            <div class="nm"><span>${esc(short(m.mould_name))}${wholeHold(o.order_no) ? '' : holdTag(o.order_no, m.mould_no)}</span><span>${pf(m.pct)}</span></div>
                             ${track(m.pct, 'thin ' + (m.status === 'COMPLETE' ? 'g' : m.mould_no === neck ? 'a' : ''))}</div>`).join('');
-                    return `<div class="otc orow ${o.status} ${late ? 'late' : ''}" data-order="${esc(o.order_no)}">
-                        <div>
+                    return `<div class="otc orow ${o.status} ${late ? 'late' : ''} ${holdsOf(o.order_no).length ? 'held' : ''}" data-order="${esc(o.order_no)}">
+                        <div style="min-width:0">
                             <div class="no">${esc(o.order_no)}</div>
                             <div class="prod" title="${esc(o.product_name)}">${esc(o.product_name) || '—'}</div>
                             <div class="muted small">${esc(o.client_name)}${o.order_date ? ' · ' + fd(o.order_date) : ''} · ${o.jc_count} JC</div>
+                            ${orderHoldTag(o)}
                         </div>
                         <div>
                             <div class="sets"><span><span class="big">${n0(o.sets_made)}</span> <span class="muted">/ ${n0(o.order_qty)} sets</span></span><span class="b">${pf(o.pct)}</span></div>
@@ -661,6 +743,7 @@
                         <div class="right">
                             <div>${pill(o.status)}${late ? ' ' + pill('LATE') : ''}</div>
                             <div class="small"><span class="muted">Process:</span> <b>${esc(o.process ? o.process.current_name : '—')}</b></div>
+                            ${packingLine(o)}
                             ${o.action_count ? `<div class="small" style="color:var(--red);font-weight:700"><i class="bi bi-lightning-charge-fill"></i> ${o.action_count} action${o.action_count > 1 ? 's' : ''} needed</div>` : ''}
                             <div>${o.running_machines.slice(0, 3).map(m => `<span class="mc">${esc(m)}</span>`).join('')}${o.running_machines.length > 3 ? `<span class="muted small">+${o.running_machines.length - 3}</span>` : ''}</div>
                         </div>
@@ -678,7 +761,7 @@
                     window.scrollTo(0, 0);
                 }
                 try {
-                    const res = await JPSMS.api.request(`/order-tracker/order?order_no=${encodeURIComponent(no)}`, { skipLoader: true });
+                    const [res] = await Promise.all([JPSMS.api.request(`/order-tracker/order?order_no=${encodeURIComponent(no)}`, { skipLoader: true }), S.holdsP]);
                     if (S.order === no) { S.detail = res.data; renderDetail(); }
                 } catch (e) { if (!silent) $('v-detail').innerHTML = `<div class="otc empty"><i class="bi bi-exclamation-circle"></i>Could not load ${esc(no)}.</div>`; }
             }
@@ -787,7 +870,7 @@
                     const seq = mDone ? '<span class="sq done"><i class="bi bi-check"></i></span>' : `<span class="sq ${run ? 'run' : ''}">${m.start_seq || '·'}</span>`;
                     const where = run ? m.machines.join(', ') : m.queue ? `${m.queue.machine} (#${m.queue.position} in queue)` : (mDone ? m.all_machines.filter(x => x && x.length > 1).join(', ') : 'no machine');
                     return row('lvl1' + (o.bottleneck && o.bottleneck.mould_no === m.mould_no ? ' neck' : ''),
-                        `${seq}${esc(m.mould_name)}`, `×${m.ratio} per set · ${n0(m.produced)} / ${n0(m.required)} pcs · ${esc(where)}${m.rate_pph ? ' · ' + n0(m.rate_pph) + '/h' : ''}`,
+                        `${seq}${esc(m.mould_name)}${holdTag(o.order_no, m.mould_no)}`, `×${m.ratio} per set · ${n0(m.produced)} / ${n0(m.required)} pcs · ${esc(where)}${m.rate_pph ? ' · ' + n0(m.rate_pph) + '/h' : ''}`,
                         dPlan(m.plan_start), start, must, dPlan(o.target_date), end, variance(mDone ? m.completed_on : m.eta, o.target_date), m.pct, stHtml(m));
                 }).join('');
 
@@ -869,7 +952,38 @@
                 return `<div class="otc scroll"><table class="tbl grid-t"><thead><tr><th>Job card</th>${head}<th>Job card done</th></tr></thead><tbody>${body}</tbody></table></div>`;
             }
 
-            const VIC = { ON_TIME: 'bi-check-lg', DONE: 'bi-check2-all', AT_RISK: 'bi-exclamation-lg', LATE: 'bi-x-lg', NO_TARGET: 'bi-question-lg' };
+            const VIC = { ON_TIME: 'bi-check-lg', DONE: 'bi-check2-all', AT_RISK: 'bi-exclamation-lg', LATE: 'bi-x-lg', NO_TARGET: 'bi-question-lg', DISPATCH: 'bi-truck' };
+            /* Packing to dispatch: moulded -> packed -> reached store -> dispatched, from the packing module's scans */
+            function packingHtml(o) {
+                const p = o.packing;
+                if (!p || !p.tracked) {
+                    return `<div class="sec"><div class="sech"><h3><i class="bi bi-truck"></i> Packing to dispatch</h3></div>
+                        <div class="otc" style="padding:14px 16px"><span class="muted small">No packing scans for this order's job cards yet. It shows here once a job card is planned on the Packing Plan and scanned.</span></div></div>`;
+                }
+                const stages = p.stages.map(st => `<div class="pk-st"><div class="l"><span>${esc(st.name)}</span><span>${pf(st.pct)}</span></div>
+                    <div class="v">${n0(st.qty)} <span>/ ${n0(p.order_qty)} ${esc(st.unit)}</span></div>
+                    ${track(st.pct, st.pct >= 100 ? 'g' : '')}<div class="s">${esc(st.sub || '')}</div></div>`).join('');
+                const dates = [['First packed', p.first_packed], ['Last packed', p.last_packed], ['First in store', p.first_received], ['Last dispatched', p.last_dispatched]]
+                    .filter(d => d[1]).map(d => `<span>${d[0]} <b>${fd(d[1], true)}</b></span>`).join('');
+                const gaps = p.gaps.length ? `<div class="pk-gaps">${p.gaps.map(g => `<div class="note ${g.level === 'bad' ? 'r' : 'a'}" style="margin-top:0"><i class="bi ${g.level === 'bad' ? 'bi-exclamation-octagon' : 'bi-hourglass-split'}"></i><div>${esc(g.text)}</div></div>`).join('')}</div>` : '';
+                const jcs = p.job_cards || [];
+                const tbl = (head, rows) => rows.length ? `<div class="pk-tw"><table><thead><tr>${head.map(h => `<th class="${h[1] || ''}">${h[0]}</th>`).join('')}</tr></thead><tbody>${rows.join('')}</tbody></table></div>` : '<div class="muted small" style="margin-top:6px">None yet.</div>';
+                const plans = jcs.flatMap(j => j.plans.map(x => `<tr><td>${esc(j.job_card_no)}</td><td>${esc(x.station)}</td><td>${fd(x.start, true)}</td><td>${x.first_scan ? fd(x.first_scan, true) : '—'}</td><td>${x.last_scan ? fd(x.last_scan, true) : '—'}</td><td class="n">${n0(x.packed)} / ${n0(x.plan_qty)}</td><td>${esc(x.status || '')}</td></tr>`));
+                const hos = jcs.flatMap(j => j.handovers.map(x => `<tr><td>${esc(j.job_card_no)}</td><td>${esc(x.slip_no)}</td><td>${fd(x.at, true)}</td><td class="n">${n0(x.units)}</td><td class="n">${n0(x.pcs)}</td></tr>`));
+                const dss = jcs.flatMap(j => j.dispatches.map(x => `<tr><td>${esc(j.job_card_no)}</td><td>${esc(x.slip_no)}${x.status === 'CLOSED' ? '' : ' <span class="muted">(loading)</span>'}</td><td>${fd(x.at, true)}</td><td>${esc(x.vehicle_no || '—')}</td><td>${esc(x.invoice_no || '—')}</td><td class="n">${n0(x.units)}</td><td class="n">${n0(x.pcs)}</td></tr>`));
+                return `<div class="sec"><div class="sech"><h3><i class="bi bi-truck"></i> Packing to dispatch</h3><span class="muted small">From packing station scans, store handover and dispatch slips · the order is complete when dispatched</span></div>
+                    <div class="otc"><div class="pk-stages">${stages}</div>
+                        ${dates ? `<div class="pk-dates">${dates}</div>` : ''}${gaps}
+                        <details class="pk-more"><summary>Packing plans (${plans.length})</summary>${tbl([['Job card'], ['Station'], ['Planned'], ['First scan'], ['Last scan'], ['Packed', 'n'], ['Status']], plans)}</details>
+                        <details class="pk-more"><summary>Store handover slips (${hos.length})</summary>${tbl([['Job card'], ['Slip'], ['Received'], ['Cartons', 'n'], ['Pcs', 'n']], hos)}</details>
+                        <details class="pk-more"><summary>Dispatch slips (${dss.length})</summary>${tbl([['Job card'], ['Slip'], ['Date'], ['Vehicle'], ['Invoice / DC'], ['Cartons', 'n'], ['Pcs', 'n']], dss)}</details>
+                    </div></div>`;
+            }
+            function packingLine(o) {
+                const p = o.packing;
+                if (!p || !p.tracked) return '';
+                return `<div class="pk-line">Packed <b>${n0(p.packed)}</b> · Store <b>${n0(p.in_store)}</b> · Dispatched <b>${n0(p.dispatched)}</b>${p.gaps && p.gaps.length ? ` · <span style="color:var(--amber)"><i class="bi bi-hourglass-split"></i> ${p.gaps.length}</span>` : ''}</div>`;
+            }
             function verdictHtml(o) {
                 const v = o.verdict || {};
                 return `<div class="verdict ${esc(v.code)}"><div class="vi"><i class="bi ${VIC[v.code] || 'bi-question-lg'}"></i></div>
@@ -908,6 +1022,14 @@
                     : o.job_cards.map(j => `<div class="pjc">${esc(j.job_card_no)} <span class="muted">· now: ${esc(j.process.current_name)}</span></div>${one(j)}`).join('');
                 return `<div class="sec"><div class="sech"><h3><i class="bi bi-diagram-2"></i> Process</h3><span class="muted small">Moulding → Shifting → Printing / TUF → Packing → Warehouse · ERP stage status and dates</span></div><div class="otc">${body}</div></div>`;
             }
+            /* moulds not counted: another mould makes the part, or Planning dropped it */
+            function spareHtml(o) {
+                const list = o.spare_moulds || [];
+                if (!list.length) return '';
+                const why = { ALTERNATE: 'not needed', DROPPED: 'dropped by Planning', INACTIVE: 'inactive', CLOSED: 'plan closed, nothing made' };
+                return `<details class="muted small" style="margin-top:10px"><summary style="cursor:pointer;font-weight:700">Moulds not counted (${list.length})</summary>${list.map(m =>
+                    `<div style="padding:3px 0 0 14px">${esc(m.mould_name)} (${esc(m.mould_no)}): ${why[m.role] || ''}${m.used_instead.length ? ', part made on ' + esc(m.used_instead.join(', ')) : ''}</div>`).join('')}</details>`;
+            }
             function sequenceHtml(o) {
                 const ms = o.moulds.slice().sort((a, b) => (a.status === 'COMPLETE') - (b.status === 'COMPLETE') || (a.start_seq || 99) - (b.start_seq || 99));
                 const cards = ms.map(m => {
@@ -916,7 +1038,7 @@
                     const tone = m.closed_short || ['START_LATE', 'OVERDUE', 'FINISH_LATE'].includes(m.start_state) ? 'bad' : m.start_state === 'NEEDS_MACHINE' ? 'warn' : '';
                     return `<div class="seqc ${m.status} ${tone}">
                         <div class="hd2"><span class="sq ${done ? 'done' : run ? 'run' : ''}">${done ? '<i class="bi bi-check"></i>' : m.start_seq}</span>
-                            <div style="flex:1"><div class="nm2">${esc(m.mould_name)}</div><div class="muted small">×${m.ratio} per set <span class="src">${esc(m.ratio_source || '')}</span> · ${esc(where)}</div></div></div>
+                            <div style="flex:1"><div class="nm2">${esc(m.mould_name)}${holdTag(o.order_no, m.mould_no)}</div><div class="muted small">×${m.ratio} per set <span class="src">${esc(m.ratio_source || '')}</span> · ${esc(where)}</div></div></div>
                         ${m.ratio_suspect ? `<div class="shortb"><i class="bi bi-exclamation-octagon"></i> Ratio ×${m.ratio} cannot be right: fix the consumption ratio</div>` : m.ratio_mismatch ? `<div class="mism"><i class="bi bi-info-circle"></i> ERP BOM says ×${m.ratio_bom}; using ×${m.ratio} from ${esc(m.ratio_source)}</div>` : ''}
                         <div class="qty"><div><b>${n0(m.required)}</b><span>Need</span></div><div><b>${n0(m.produced)}</b><span>Made</span></div>
                             <div class="${m.balance ? 'bal' : ''}"><b>${n0(m.balance)}</b><span>Balance</span></div><div><b>${n0(m.shifted)}</b><span>Shifted</span></div></div>
@@ -940,7 +1062,7 @@
                     </div>`;
                 });
                 return `<div class="sec"><div class="sech"><h3><i class="bi bi-sort-numeric-down"></i> Mould sequence</h3><span class="muted small">In the order the moulds must start · all quantities in pieces</span></div>
-                    <div class="seqw">${cards.join('<div class="seqa"><i class="bi bi-chevron-right"></i></div>')}</div></div>`;
+                    <div class="seqw">${cards.join('<div class="seqa"><i class="bi bi-chevron-right"></i></div>')}</div>${spareHtml(o)}</div>`;
             }
 
             function qtyTiles(o) {
@@ -990,11 +1112,13 @@
                         ${journey(o)}
                     </div>
 
+                    ${holdHtml(o)}
                     ${verdictHtml(o)}
                     <div class="qtiles">${qtyTiles(o)}</div>
                     <div class="dtiles">${tiles}</div>
                     ${adviceHtml(o)}
                     ${processHtml(o)}
+                    ${packingHtml(o)}
                     ${sequenceHtml(o)}
                     ${notes.length ? '<div style="margin-top:12px">' + notes.join('') + '</div>' : ''}
 
@@ -1044,14 +1168,14 @@
 
             /* ================================================ MACHINE WISE */
             async function loadMachines() {
-                const res = await JPSMS.api.request('/order-tracker/machines', { skipLoader: true });
+                const [res] = await Promise.all([JPSMS.api.request('/order-tracker/machines', { skipLoader: true }), S.holdsP]);
                 S.machines = res.data || [];
                 renderMachines();
             }
 
             function jobHtml(j) {
-                return `<div class="job">
-                    <div class="ord"><span><a class="lnk" data-order="${esc(j.order_no)}">${esc(j.order_no || '—')}</a> <span class="muted">${esc(j.job_card_no || '')}</span></span><span class="muted">${esc(j.plan_id)}</span></div>
+                return `<div class="job ${holdOf(j.order_no, j.mould_no) ? 'held' : ''}">
+                    <div class="ord"><span><a class="lnk" data-order="${esc(j.order_no)}">${esc(j.order_no || '—')}</a>${holdTag(j.order_no, j.mould_no)} <span class="muted">${esc(j.job_card_no || '')}</span></span><span class="muted">${esc(j.plan_id)}</span></div>
                     <div class="mould">${esc(j.mould_name)}</div>
                     <div class="sets"><span><b>${n0(j.produced)}</b> <span class="muted">/ ${n0(j.plan_qty)} pcs</span></span><span class="b">${pf(j.pct)}</span></div>
                     ${track(j.pct)}
@@ -1088,7 +1212,7 @@
                         <div class="mh"><div><span class="mn">${esc(m.machine)}</span>${m.tonnage ? ` <span class="muted small">${esc(m.tonnage)} T</span>` : ''}</div>${pill(m.state)}</div>
                         ${m.running.map(jobHtml).join('') || `<div class="muted small" style="margin-top:12px">${m.queue.length ? 'Nothing running. Next job is waiting.' : 'Nothing running or planned.'}</div>`}
                         ${m.queue.length ? `<div class="queue"><div class="qh">UP NEXT · ${m.queue.length}</div>${m.queue.slice(0, 4).map((j, i) => `
-                            <div class="qi"><span class="k">${i + 1}</span><span><a class="lnk" data-order="${esc(j.order_no)}">${esc(j.order_no)}</a> · ${esc(short(j.mould_name))} <span class="muted">· ${n0(j.balance)} pcs</span></span><span class="muted nowrap">${j.eta ? fd(j.eta, true) : '—'}</span></div>`).join('')}
+                            <div class="qi"><span class="k">${i + 1}</span><span><a class="lnk" data-order="${esc(j.order_no)}">${esc(j.order_no)}</a>${holdTag(j.order_no, j.mould_no)} · ${esc(short(j.mould_name))} <span class="muted">· ${n0(j.balance)} pcs</span></span><span class="muted nowrap">${j.eta ? fd(j.eta, true) : '—'}</span></div>`).join('')}
                             ${m.queue.length > 4 ? `<div class="muted small">+${m.queue.length - 4} more</div>` : ''}</div>` : ''}
                         ${m.free_at ? `<div class="free"><i class="bi bi-flag"></i> Free from <b>${fd(m.free_at, true)}</b></div>` : ''}
                     </div>`).join('')}</div>`).join('');
@@ -1143,7 +1267,7 @@
                     <table class="gtab"><tbody>${TCOLS.map((c, i) => `<tr><td>${c[0]}</td><td>${c[2]}</td><td class="f">${c[3]}</td><td class="ex">${r ? 'e.g. ' + esc(tonName(r.tonnage)) + ': ' + esc(ex[i]) : ''}</td></tr>`).join('')}
                     <tr><td>Not planned yet</td><td colspan="3">Moulds of open orders that are <b>not on any machine</b> on the plan board — no running plan and no queued plan. Their hours still count as load; Planning has to put them on a machine.</td></tr>
                     <tr><td>Mould limit</td><td colspan="3">One mould runs on one machine at a time (more only when it is running on more machines now, i.e. there are copies). When the hours one mould still needs are more than the hours left until the date, the extra hours are a <b>mould limit</b>: the mould cannot finish in time however many machines we have. Open a row to see these moulds.</td></tr>
-                    <tr><td>Which orders</td><td colspan="3">Every open order: pending in the order master, a JR row the ERP has not closed, or a plan on the plan board. No date window and no limit. Moulds already complete and orders the ERP has closed are listed in the row (grey, "Show complete") but not counted. An order with no ERP mould BOM and no plan takes its moulds from the mould master by item code.</td></tr>
+                    <tr><td>Which orders</td><td colspan="3">Every open order: pending in the order master, a JR row the ERP has not closed, or a plan on the plan board. No date window and no limit. Moulds already complete and orders the ERP has closed are listed in the row (grey, "Show complete") but not counted, unless a running or queued plan of theirs still has pieces to make: then the balance of that plan counts. An order with no ERP mould BOM and no plan takes its moulds from the mould master by item code.</td></tr>
                     <tr><td>No tonnage</td><td colspan="3">Moulds with no tonnage in the mould master or ERP that never ran on a machine. They cannot be placed in a row, so they are shown apart and not in the total. Fill the tonnage in Masters → Moulds.</td></tr>
                     </tbody></table>`;
             }
@@ -1210,7 +1334,7 @@
                     ${cell(excessN, 'excess', r.excess_machines)}${cell(excessN, 'excess', r.excess_days)}
                 </tr>${open ? `<tr class="det"><td colspan="12">${tonDetail(r)}</td></tr>` : ''}`;
             }
-            const ISTAT = { COMPLETE: ['COMPLETE', 'Complete'], ERP_CLOSED: ['COMPLETE', 'Closed in ERP'], RUNNING: ['RUNNING', 'Running'], PLANNED: ['QUEUED', 'Planned'], PAUSED: ['PAUSED', 'Paused'], NOT_PLANNED: ['NOT_PLANNED', 'Not planned yet'] };
+            const ISTAT = { COMPLETE: ['COMPLETE', 'Complete'], ERP_CLOSED: ['COMPLETE', 'Closed in ERP'], RUNNING: ['RUNNING', 'Running'], PLANNED: ['QUEUED', 'Planned'], PAUSED: ['PAUSED', 'Paused'], STOPPED: ['PAUSED', 'Stopped'], NOT_PLANNED: ['NOT_PLANNED', 'Not planned yet'] };
             const iStat = i => { const s = ISTAT[i.status] || [i.status, i.status]; return `<span class="pill s-${esc(s[0])}" ${i.erp_state ? `title="${esc(i.erp_state)}"` : ''}>${esc(s[1])}</span>`; };
             /* each machine of the tonnage: what it runs, its queue, booked and free hours till the date */
             function machinesHtml(r) {
@@ -1261,7 +1385,7 @@
                         <td class="r">${n0(i.balance)}</td>
                         <td class="r">${i.rate_pph ? n0(i.rate_pph) : '<span style="color:var(--red)">no rate</span>'}</td>
                         <td class="r b">${!i.counted ? '<span class="muted" title="Not counted in the load">0</span>' : i.hours == null ? '—' : f2(i.hours)}</td>
-                        <td>${i.counted && i.status !== 'PAUSED' ? where(i) : iStat(i)}</td>
+                        <td>${i.counted && i.status !== 'PAUSED' && i.status !== 'STOPPED' ? where(i) : iStat(i)}</td>
                         <td>${i.counted ? stHtml(i) : ''}</td></tr>${linesHtml(i)}`;
                 return `<div class="tl-det">
                     ${machinesHtml(r)}
@@ -1288,7 +1412,7 @@
                 ].join('');
                 const until = fd($('tuntil').value);
                 $('thelp').innerHTML = `<i class="bi bi-info-circle-fill"></i><div>
-                    <b>How to read:</b> Hrs required = pieces still to mould on ${$('tbasis').value === 'due' ? 'open orders due by ' + until : 'all open orders (order master, ERP and plan board - ' + (t.all_orders || 0) + ' orders, of which ' + (t.closed_orders || 0) + ' are complete or closed in the ERP and not counted)'} ÷ pieces per hour (live rate, else mould standard), grouped by the machine tonnage the mould needs.
+                    <b>How to read:</b> Hrs required = pieces still to mould on ${$('tbasis').value === 'due' ? 'open orders due by ' + until : 'all open orders (order master, ERP and plan board - ' + (t.all_orders || 0) + ' orders, of which ' + (t.closed_orders || 0) + ' are complete or closed in the ERP and not counted)'} ÷ pieces per hour (live rate, else mould standard), grouped by the machine tonnage the mould needs.${t.spare_moulds ? ` When several moulds make the same part the part is counted once; ${n0(t.spare_moulds)} other or dropped moulds are not counted.` : ''}
                     Available = machines × 24 h × ${f2(T.days)} days left until ${until} × ${Math.round(T.eff * 100)}% efficiency.
                     <b style="color:var(--red)">Red</b> = we need more machines than we have; <b style="color:var(--green)">green</b> = spare machines. Click a row to see the orders and moulds behind it. Hover a column heading, or open <b>What does each column mean?</b> below, for every column.
                     <div style="margin-top:6px"><span class="lg"><i style="background:var(--blue)"></i>Running now</span><span class="lg"><i style="background:var(--amber)"></i>Queued on a machine</span><span class="lg"><i style="background:#94a3b8"></i>Not planned yet (not on any machine)</span></div></div>`;
@@ -1339,6 +1463,9 @@
                     if (token) headers.Authorization = `Bearer ${token}`;
                     const u = JSON.parse(localStorage.getItem('user') || '{}');
                     if (u.username) headers['X-User-Name'] = u.username;
+                    /* plain fetch: JPSMS.api adds this itself, here it must be sent or the sheet covers every factory */
+                    const factoryId = localStorage.getItem('jpsms_factory_id');
+                    if (factoryId) headers['X-Factory-ID'] = factoryId;
                     const qs = new URLSearchParams({ until: $('tuntil').value, eff: Number($('teff').value) || 100, basis: $('tbasis').value, factory: $('fac').textContent || '' });
                     const res = await fetch(`/api/order-tracker/tonnage.xlsx?${qs}`, { headers });
                     if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Download failed');
@@ -1362,6 +1489,7 @@
             }
 
             async function refresh() {
+                if (S.view !== 'tonnage' || S.order) loadHolds();
                 try {
                     if (S.order) await openOrder(S.order, true);
                     else if (S.view === 'orders') await loadOrders();

@@ -7,12 +7,66 @@
     <title>JMS OCEAN - Packing Settings</title>
     <link rel="stylesheet" href="/assets/app.css?v=12">
     <link rel="stylesheet" href="/assets/bootstrap-icons.min.css">
+    <style>
+        .tb-station { border: 1px solid var(--border, #e2e8f0); border-radius: 10px; margin-bottom: 12px; overflow: hidden; }
+        .tb-station > header { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; justify-content: space-between; padding: 10px 14px; background: var(--bg-body, #f8fafc); }
+        .tb-station > header h6 { margin: 0; font-size: 1rem; font-weight: 800; }
+        .tb-station > header small { color: var(--text-muted, #64748b); font-size: .82rem; }
+        .tb-station table { margin: 0; font-size: .88rem; }
+        .tb-station td, .tb-station th { padding: 6px 10px; vertical-align: middle; }
+        .tb-code { font-weight: 800; font-family: ui-monospace, Consolas, monospace; }
+        .tb-scan { font-family: ui-monospace, Consolas, monospace; font-size: .8rem; background: #dcfce7; color: #166534; border-radius: 6px; padding: 1px 6px; }
+        .tb-none { color: var(--text-muted, #94a3b8); }
+        .tb-off td { opacity: .55; }
+        .tb-filter { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+        .tb-filter input, .tb-filter select { max-width: 240px; }
+    </style>
 </head>
 
 <body>
     <div class="main-content">
         <div class="header">
             <div class="page-title">Packing Settings</div>
+        </div>
+
+        <div class="card" style="margin-bottom:16px">
+            <div class="card-header">
+                <h5 class="mb-0">Supervisor PINs</h5>
+            </div>
+            <div class="card-body">
+                <p style="color:#475569;font-size:.9rem;margin:0 0 12px">When a wrong product is scanned on a <a href="scan_station.html">station screen</a>, the station locks and only a supervisor's PIN unlocks it. While no PIN is set for this factory, stations do not lock (the operator presses Resume, as before). PINs are kept per factory and set on the MAIN server.</p>
+                <div id="pinNote" style="display:none;padding:8px 12px;border-radius:8px;background:#fffbeb;color:#92400e;font-size:.86rem;margin-bottom:12px"></div>
+                <div class="table-responsive">
+                    <table class="table align-middle">
+                        <thead><tr><th>User name</th><th>Name</th><th>Last changed</th><th></th></tr></thead>
+                        <tbody id="pinTable"><tr><td colspan="4" style="color:#64748b">Loading…</td></tr></tbody>
+                    </table>
+                </div>
+                <form id="pinForm" style="display:none;gap:8px;flex-wrap:wrap;align-items:flex-end" onsubmit="savePin(event)">
+                    <div><label class="form-label" for="pin_user">User name</label><input class="form-control" id="pin_user" maxlength="60" required></div>
+                    <div><label class="form-label" for="pin_name">Name</label><input class="form-control" id="pin_name" maxlength="80"></div>
+                    <div><label class="form-label" for="pin_pin">PIN (4–6 digits)</label><input class="form-control" id="pin_pin" type="password" inputmode="numeric" maxlength="6" autocomplete="new-password" required></div>
+                    <button class="btn btn-primary" type="submit"><i class="bi bi-key"></i> Save PIN</button>
+                </form>
+            </div>
+        </div>
+
+        <div class="card" style="margin-bottom:16px">
+            <div class="card-header">
+                <h5 class="mb-0">Station Tables &amp; Scanners</h5>
+            </div>
+            <div class="card-body">
+                <p style="color:#475569;font-size:.9rem;margin:0 0 12px">Every packing table, station-wise. Give a table its own scanner and its scans count on the plan of that station that runs on the table. Persons and note are for the floor. Tables are changed on the MAIN server by someone with Masters edit permission, with one factory selected.</p>
+                <div id="tbNote" style="display:none;padding:8px 12px;border-radius:8px;background:#fffbeb;color:#92400e;font-size:.86rem;margin-bottom:12px"></div>
+                <div class="tb-filter">
+                    <label class="visually-hidden" for="tbStation">Station</label>
+                    <select class="form-select form-select-sm" id="tbStation" onchange="renderTables()"><option value="">All stations</option></select>
+                    <label class="visually-hidden" for="tbFind">Find a table</label>
+                    <input class="form-control form-control-sm" id="tbFind" placeholder="Find table, scanner or note" oninput="renderTables()">
+                    <label style="display:flex;gap:6px;align-items:center;font-size:.86rem"><input type="checkbox" id="tbOff" onchange="renderTables()"> Show removed tables</label>
+                </div>
+                <div id="tbList"><p class="tb-none">Loading…</p></div>
+            </div>
         </div>
 
         <div class="card">
@@ -80,6 +134,40 @@
         </div>
     </div>
 
+    <div id="tableModal" role="dialog" aria-modal="true" aria-labelledby="tbTitle" aria-hidden="true"
+        style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:1100; justify-content:center; align-items:center;">
+        <form onsubmit="saveTable(event)"
+            style="background:var(--bg-card, #fff); color:inherit; padding:22px; border-radius:10px; width:480px; max-width:96%; max-height:90vh; overflow:auto;">
+            <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:14px;">
+                <h5 style="margin:0; font-size:1.05rem; font-weight:800;" id="tbTitle">Table</h5>
+                <button type="button" aria-label="Close" onclick="closeTable()"
+                    style="border:none; background:none; font-size:1.4rem; cursor:pointer; line-height:1;">&times;</button>
+            </div>
+            <div style="margin-bottom:12px">
+                <label class="form-label" for="tb_label">Name (optional)</label>
+                <input class="form-control" id="tb_label" maxlength="60" placeholder="e.g. Corner table">
+            </div>
+            <div style="margin-bottom:12px">
+                <label class="form-label" for="tb_scanner">Scanner</label>
+                <input class="form-control font-mono" id="tb_scanner" maxlength="120" placeholder="IP:192.168.1.50:9000">
+                <div class="form-text">A network scanner (<code>IP:192.168.1.50:9000</code>) is opened by the scanner bridge on the factory PC. Leave empty for none.</div>
+            </div>
+            <div style="margin-bottom:12px">
+                <label class="form-label" for="tb_persons">Persons on this table</label>
+                <input class="form-control" id="tb_persons" type="number" min="0" max="50" step="1">
+            </div>
+            <div style="margin-bottom:12px">
+                <label class="form-label" for="tb_note">Note</label>
+                <textarea class="form-control" id="tb_note" rows="2" maxlength="300"></textarea>
+            </div>
+            <div class="form-text" id="tb_line"></div>
+            <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:16px;">
+                <button type="button" class="btn btn-secondary" onclick="closeTable()">Cancel</button>
+                <button type="submit" class="btn btn-primary" id="tb_save">Save</button>
+            </div>
+        </form>
+    </div>
+
     <script src="/assets/app.min.js?v=1583"></script>
     <script>
         let isEdit = false;
@@ -106,14 +194,181 @@
             lineModal().addEventListener('click', (e) => { if (e.target === lineModal()) closeModal(); });
             // Escape closes the dialog
             document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && isModalOpen()) closeModal(); });
+            const tm = document.getElementById('tableModal');
+            tm.addEventListener('click', (e) => { if (e.target === tm) closeTable(); });
+            document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && tm.style.display !== 'none') closeTable(); });
             loadLines();
+            loadPins();
+            loadTables();
         });
+
+        const escH = (v) => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+        async function loadPins() {
+            const tbody = document.getElementById('pinTable');
+            try {
+                const res = await JPSMS.api.request('/packing/pins', { skipLoader: true });
+                const pins = res.data || [];
+                const canEdit = !!res.can_edit;
+                document.getElementById('pinForm').style.display = canEdit ? 'flex' : 'none';
+                const note = document.getElementById('pinNote');
+                note.style.display = canEdit ? 'none' : 'block';
+                note.textContent = 'PINs can only be set on the MAIN server by someone with Masters edit permission, with one factory selected.';
+                tbody.innerHTML = pins.length ? pins.map(p => `
+                    <tr><td class="font-mono">${escH(p.username)}</td><td>${escH(p.display_name)}</td><td>${escH(p.updated)}${p.updated_by ? ' · ' + escH(p.updated_by) : ''}</td>
+                    <td>${canEdit ? `<button class="btn btn-sm btn-outline-danger" onclick="removePin(${Number(p.id)}, '${escH(p.username)}')" aria-label="Remove PIN of ${escH(p.username)}"><i class="bi bi-trash"></i></button>` : ''}</td></tr>`).join('')
+                    : '<tr><td colspan="4" style="color:#64748b">No PIN set for this factory, so stations do not lock.</td></tr>';
+            } catch (e) {
+                tbody.innerHTML = `<tr><td colspan="4" style="color:#b91c1c">${escH(e.message)}</td></tr>`;
+            }
+        }
+        async function savePin(e) {
+            e.preventDefault();
+            const body = { username: document.getElementById('pin_user').value.trim(), display_name: document.getElementById('pin_name').value.trim(), pin: document.getElementById('pin_pin').value.trim() };
+            if (!/^\d{4,6}$/.test(body.pin)) return JPSMS.toast('PIN must be 4 to 6 digits', 'error');
+            try {
+                await JPSMS.api.post('/packing/pins', body);
+                JPSMS.toast('PIN saved', 'success');
+                document.getElementById('pinForm').reset();
+                loadPins();
+            } catch (err) { JPSMS.toast(err.message, 'error'); }
+        }
+        async function removePin(id, user) {
+            if (!confirm(`Remove the PIN of ${user}? They can no longer unlock stations.`)) return;
+            try { await JPSMS.api.delete(`/packing/pins/${id}`); loadPins(); } catch (err) { JPSMS.toast(err.message, 'error'); }
+        }
+
+        /* ---------- station tables ---------- */
+        const TB = { stations: [], tables: [], canEdit: false, editing: null };
+        async function loadTables() {
+            try {
+                const [meta, st, tb] = await Promise.all([
+                    JPSMS.api.request('/packing/meta', { skipLoader: true }).catch(() => ({})),
+                    JPSMS.api.request('/packing/stations', { skipLoader: true }),
+                    JPSMS.api.request('/packing/tables', { skipLoader: true })
+                ]);
+                TB.canEdit = !!(meta && meta.can_edit && meta.factory_id);
+                TB.stations = (st.data || []).filter(x => x.is_active !== false);
+                TB.tables = tb.data || [];
+                const note = document.getElementById('tbNote');
+                note.style.display = TB.canEdit ? 'none' : 'block';
+                note.textContent = meta && meta.is_local
+                    ? 'This is the factory server: tables are shown here and changed on the MAIN server.'
+                    : 'You can see the tables. Changing them needs Masters edit permission and one factory selected.';
+                const sel = document.getElementById('tbStation');
+                const keep = sel.value;
+                sel.innerHTML = '<option value="">All stations</option>' + TB.stations.map(x => `<option>${escH(x.name)}</option>`).join('');
+                sel.value = keep;
+                renderTables();
+            } catch (e) {
+                document.getElementById('tbList').innerHTML = `<p style="color:#b91c1c">${escH(e.message)}</p>`;
+            }
+        }
+        function renderTables() {
+            const pick = document.getElementById('tbStation').value.toLowerCase();
+            const find = document.getElementById('tbFind').value.trim().toLowerCase();
+            const showOff = document.getElementById('tbOff').checked;
+            const box = document.getElementById('tbList');
+            if (!TB.stations.length) { box.innerHTML = '<p class="tb-none">No packing stations yet. Add them in Packing Masters.</p>'; return; }
+            const html = TB.stations.filter(st => !pick || st.name.toLowerCase() === pick).map(st => {
+                const all = TB.tables.filter(t => String(t.station_name).toLowerCase() === st.name.toLowerCase());
+                const active = all.filter(t => t.is_active);
+                const rows = all.filter(t => (showOff || t.is_active) && (!find || [t.code, t.label, t.scanner_config, t.note].join(' ').toLowerCase().includes(find)));
+                if (find && !rows.length) return '';
+                const withScanner = active.filter(t => t.scanner_config).length;
+                return `<section class="tb-station">
+                    <header>
+                        <div><h6>${escH(st.name)}</h6>
+                        <small>${active.length} tables · ${withScanner} with a scanner · station scanner: ${st.scanner_config ? `<span class="tb-scan">${escH(st.scanner_config)}</span>` : 'none'}</small></div>
+                        ${TB.canEdit ? `<button class="btn btn-sm btn-outline-primary" data-list="${escH(st.name)}"><i class="bi bi-grid-3x3-gap"></i> Add / remove tables</button>` : ''}
+                    </header>
+                    ${rows.length ? `<div class="table-responsive"><table class="table align-middle">
+                        <thead><tr><th>Table</th><th>Name</th><th>Scanner</th><th>Persons</th><th>Note</th><th></th></tr></thead>
+                        <tbody>${rows.map(t => `<tr class="${t.is_active ? '' : 'tb-off'}">
+                            <td class="tb-code">${escH(t.code)}${t.is_active ? '' : ' <small class="tb-none">removed</small>'}</td>
+                            <td>${t.label ? escH(t.label) : '<span class="tb-none">—</span>'}</td>
+                            <td>${t.scanner_config ? `<span class="tb-scan">${escH(t.scanner_config)}</span>` : '<span class="tb-none">None</span>'}</td>
+                            <td>${t.persons === null || t.persons === undefined ? '<span class="tb-none">—</span>' : escH(t.persons)}</td>
+                            <td>${t.note ? escH(t.note) : '<span class="tb-none">—</span>'}</td>
+                            <td>${TB.canEdit && t.is_active ? `<button class="btn btn-sm btn-outline-primary" data-table="${Number(t.id)}" aria-label="Edit table ${escH(t.code)}"><i class="bi bi-pencil"></i></button>` : ''}</td>
+                        </tr>`).join('')}</tbody></table></div>`
+                        : `<p class="tb-none" style="margin:10px 14px">${all.length ? 'No match.' : 'No tables yet.'}</p>`}
+                </section>`;
+            }).join('');
+            box.innerHTML = html || '<p class="tb-none">No table matches.</p>';
+            box.querySelectorAll('[data-table]').forEach(b => b.onclick = () => openTable(Number(b.dataset.table)));
+            box.querySelectorAll('[data-list]').forEach(b => b.onclick = () => editTableList(b.dataset.list));
+        }
+        function openTable(id) {
+            const t = TB.tables.find(x => Number(x.id) === id);
+            if (!t) return;
+            TB.editing = t;
+            document.getElementById('tbTitle').textContent = `Table ${t.code} · ${t.station_name}`;
+            document.getElementById('tb_label').value = t.label || '';
+            document.getElementById('tb_scanner').value = t.scanner_config || '';
+            document.getElementById('tb_persons').value = t.persons === null || t.persons === undefined ? '' : t.persons;
+            document.getElementById('tb_note').value = t.note || '';
+            document.getElementById('tb_line').textContent = `Scanner line: ${t.line_id || (t.station_name + '/' + t.code)}`;
+            const m = document.getElementById('tableModal');
+            m.style.display = 'flex';
+            m.setAttribute('aria-hidden', 'false');
+            document.getElementById('tb_label').focus();
+        }
+        function closeTable() {
+            const m = document.getElementById('tableModal');
+            m.style.display = 'none';
+            m.setAttribute('aria-hidden', 'true');
+            TB.editing = null;
+        }
+        async function saveTable(e) {
+            e.preventDefault();
+            const t = TB.editing;
+            if (!t) return;
+            const scanner = document.getElementById('tb_scanner').value.trim();
+            if (scanner && !/^(IP:)?[^:\s]+:\d+$/i.test(scanner) && !/^(BRIDGE:)?COM\d+/i.test(scanner)) {
+                return JPSMS.toast('Scanner must look like IP:192.168.1.50:9000 or COM3', 'error');
+            }
+            const btn = document.getElementById('tb_save');
+            btn.disabled = true;
+            try {
+                await JPSMS.api.request(`/packing/tables/${Number(t.id)}`, { method: 'PUT', body: JSON.stringify({
+                    label: document.getElementById('tb_label').value.trim(),
+                    scanner_config: scanner,
+                    persons: document.getElementById('tb_persons').value,
+                    note: document.getElementById('tb_note').value.trim()
+                }) });
+                JPSMS.toast(`Table ${t.code} saved`, 'success');
+                closeTable();
+                loadTables();
+                loadLines();
+            } catch (err) { JPSMS.toast(err.message, 'error'); }
+            finally { btn.disabled = false; }
+        }
+        /* The station's table list: comma list or ranges like A1-A13. */
+        async function editTableList(name) {
+            const cur = TB.tables.filter(t => t.is_active && String(t.station_name).toLowerCase() === name.toLowerCase()).map(t => t.code).join(', ');
+            const typed = prompt(`Tables of ${name}\nType them separated by commas, or a range like A1-A13. A table left out is removed (its scanner too).`, cur);
+            if (typed === null) return;
+            const codes = [];
+            typed.split(/[\s,;]+/).filter(Boolean).forEach(part => {
+                const m = part.match(/^([A-Za-z]+)(\d+)-(?:[A-Za-z]*)(\d+)$/);
+                if (m && Number(m[3]) >= Number(m[2]) && Number(m[3]) - Number(m[2]) < 60) {
+                    for (let i = Number(m[2]); i <= Number(m[3]); i++) codes.push(m[1].toUpperCase() + i);
+                } else codes.push(part.toUpperCase());
+            });
+            if (!codes.length && !confirm(`Remove all tables from ${name}?`)) return;
+            try {
+                await JPSMS.api.request('/packing/tables', { method: 'PUT', body: JSON.stringify({ station_name: name, codes }) });
+                JPSMS.toast(`${name}: ${codes.length} tables saved`, 'success');
+                loadTables();
+                loadLines();
+            } catch (err) { JPSMS.toast(err.message, 'error'); }
+        }
 
         async function loadLines() {
             const tbody = document.getElementById('linesTable');
             try {
                 const res = await JPSMS.api.get('/assembly/lines');
-                const lines = (res && Array.isArray(res.data)) ? res.data : [];
+                const lines = ((res && Array.isArray(res.data)) ? res.data : []).filter(l => !String(l.line_id || '').includes('/'));
                 if (!lines.length) {
                     tbody.innerHTML = `
                         <tr>

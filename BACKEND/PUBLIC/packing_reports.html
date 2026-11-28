@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JMS OCEAN - Packing Reports</title>
+    <link href="/assets/vendor/fonts/g-e34670640e.css" rel="stylesheet">
+    <link rel="stylesheet" href="/assets/bootstrap-icons.min.css">
+    <link rel="stylesheet" href="/assets/app.css?v=12">
+    <style>
+        [hidden] { display: none !important; }
+        .pr-tabs { display: flex; gap: 4px; flex-wrap: wrap; border-bottom: 1px solid #e2e8f0; margin-bottom: 14px; }
+        .pr-tab { border: 0; background: none; padding: 9px 14px; font-weight: 600; color: #475569; border-bottom: 3px solid transparent; cursor: pointer; font-size: .92rem; }
+        .pr-tab[aria-selected="true"] { color: #0f172a; border-bottom-color: #2563eb; }
+        .pr-filters { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; margin-bottom: 14px; }
+        .pr-filters label { display: block; font-size: .78rem; color: #475569; font-weight: 600; margin-bottom: 3px; }
+        .pr-filters input, .pr-filters select { height: 36px; border: 1px solid #cbd5e1; border-radius: 8px; padding: 0 10px; font-size: .9rem; background: #fff; min-width: 140px; }
+        .pr-quick { display: flex; gap: 4px; }
+        .pr-quick button { height: 36px; border: 1px solid #cbd5e1; background: #fff; border-radius: 8px; padding: 0 10px; font-size: .82rem; cursor: pointer; }
+        .pr-quick button:hover { background: #f1f5f9; }
+        .pr-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-bottom: 14px; }
+        .pr-tile { border: 1px solid #e2e8f0; border-radius: 10px; padding: 10px 14px; background: #fff; }
+        .pr-tile .l { font-size: .76rem; color: #64748b; font-weight: 600; }
+        .pr-tile .v { font-size: 1.45rem; font-weight: 700; color: #0f172a; font-variant-numeric: tabular-nums; }
+        .pr-note { font-size: .82rem; color: #475569; margin: 0 0 10px; }
+        .pr-wrap { overflow: auto; border: 1px solid #e2e8f0; border-radius: 10px; background: #fff; max-height: 68vh; }
+        .pr-table { border-collapse: collapse; width: 100%; font-size: .86rem; }
+        .pr-table th { position: sticky; top: 0; background: #f8fafc; text-align: left; padding: 8px 10px; font-size: .76rem; color: #475569; border-bottom: 1px solid #e2e8f0; white-space: nowrap; z-index: 1; }
+        .pr-table td { padding: 7px 10px; border-bottom: 1px solid #f1f5f9; white-space: nowrap; }
+        .pr-table td.n, .pr-table th.n { text-align: right; font-variant-numeric: tabular-nums; }
+        .pr-table td.wide { white-space: normal; min-width: 180px; }
+        .pr-table tr:hover td { background: #f8fafc; }
+        .pr-table td.heat { text-align: center; font-variant-numeric: tabular-nums; min-width: 46px; }
+        .pr-table td.heat.ok { background: #ecfdf5; color: #065f46; }
+        .pr-table td.heat.slow { background: #fef3c7; color: #92400e; font-weight: 600; }
+        .pr-table td.heat.none { color: #64748b; }
+        .pr-table tfoot td { font-weight: 700; background: #f8fafc; border-top: 1px solid #e2e8f0; position: sticky; bottom: 0; }
+        .chip { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: .74rem; font-weight: 600; background: #f1f5f9; color: #334155; }
+        .chip.over { background: #fee2e2; color: #991b1b; }
+        .chip.short { background: #fef3c7; color: #92400e; }
+        .chip.done, .chip.packed { background: #dcfce7; color: #166534; }
+        .chip.running, .chip.in-progress { background: #dbeafe; color: #1e40af; }
+        .eff-lo { color: #b91c1c; font-weight: 600; }
+        .eff-hi { color: #15803d; font-weight: 600; }
+        .pr-empty { padding: 30px; text-align: center; color: #64748b; }
+        .pr-actions { margin-left: auto; display: flex; gap: 8px; }
+        @media (max-width: 640px) {
+            .pr-filters > div { flex: 1 1 45%; }
+            .pr-filters input, .pr-filters select { width: 100%; min-width: 0; }
+            .pr-actions { margin-left: 0; width: 100%; }
+            .pr-actions .btn { flex: 1; }
+            .pr-tile .v { font-size: 1.2rem; }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="main-content">
+        <div class="header">
+            <div class="page-title">Packing Reports</div>
+        </div>
+
+        <div class="pr-tabs" role="tablist" id="tabs">
+            <button class="pr-tab" role="tab" data-type="daily">Daily summary</button>
+            <button class="pr-tab" role="tab" data-type="jobs">Jobs</button>
+            <button class="pr-tab" role="tab" data-type="jobcards">Job cards</button>
+            <button class="pr-tab" role="tab" data-type="hourly">Hourly output</button>
+            <button class="pr-tab" role="tab" data-type="wrong">Wrong scans</button>
+            <button class="pr-tab" role="tab" data-type="boxes">Boxes and labels</button>
+            <button class="pr-tab" role="tab" data-type="handover">Store handover</button>
+            <button class="pr-tab" role="tab" data-type="stock">Packed stock</button>
+            <button class="pr-tab" role="tab" data-type="dispatch">Dispatch</button>
+            <button class="pr-tab" role="tab" data-type="packers">Packers</button>
+            <button class="pr-tab" role="tab" data-type="losttime">Lost time</button>
+        </div>
+
+        <form class="pr-filters" id="filters" onsubmit="event.preventDefault(); load();">
+            <div><label for="f_from">From</label><input type="date" id="f_from" required></div>
+            <div><label for="f_to">To</label><input type="date" id="f_to" required></div>
+            <div><label>&nbsp;</label>
+                <div class="pr-quick">
+                    <button type="button" data-q="0">Today</button>
+                    <button type="button" data-q="6">7 days</button>
+                    <button type="button" data-q="month">This month</button>
+                </div>
+            </div>
+            <div><label for="f_station">Station</label><select id="f_station"><option value="">All stations</option></select></div>
+            <div><label for="f_party">Party</label><input id="f_party" placeholder="Any party" maxlength="120"></div>
+            <div class="pr-actions">
+                <button class="btn btn-primary" type="submit"><i class="bi bi-arrow-clockwise"></i> Show</button>
+                <button class="btn btn-outline-secondary" type="button" id="btnExcel"><i class="bi bi-file-earmark-excel"></i> Excel</button>
+            </div>
+        </form>
+
+        <div class="pr-tiles" id="tiles"></div>
+        <p class="pr-note" id="note"></p>
+        <div class="pr-wrap"><div id="out" class="pr-empty">Loading…</div></div>
+    </div>
+
+    <script src="/assets/app.min.js?v=1583"></script>
+    <script>
+        const $ = (id) => document.getElementById(id);
+        const NOTES = {
+            daily: 'Working = first to last good scan, minus pauses longer than 10 minutes (idle). Efficiency = standard time earned (packed × station cycle seconds from Packing Masters) ÷ working time.',
+            jobs: 'Over-packed = more than 110% of plan qty. Short = finished (or past its end time) below plan qty.',
+            jobcards: 'Packed across all packing plans of the job card, against the JR qty. Job cards shown are those planned or packed in the period.',
+            hourly: '',
+            wrong: 'Each wrong scan, with the station lock it caused and who unlocked it (locks happen only on a factory that has supervisor PINs).'
+        };
+        let type = 'daily';
+        let last = null;
+
+        const esc = (v) => String(v ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+        const fmtInt = (v) => (v === null || v === undefined || v === '' ? '–' : Number(v).toLocaleString('en-IN'));
+        const fmtMin = (v) => {
+            if (v === null || v === undefined) return '–';
+            const h = Math.floor(v / 60), m = Math.round(v % 60);
+            return h ? `${h} h ${m} m` : `${m} m`;
+        };
+        const fmtDate = (v) => {
+            if (!v) return '';
+            const d = new Date(v + 'T00:00:00');
+            return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', weekday: 'short' });
+        };
+        const ymd = (d) => new Date(d.getTime() - d.getTimezoneOffset() * 6e4).toISOString().slice(0, 10);
+
+        function cell(c, v, row) {
+            switch (c.type) {
+                case 'int': return `<td class="n">${fmtInt(v)}</td>`;
+                case 'dec': return `<td class="n">${v === null || v === undefined ? '–' : Number(v).toFixed(1)}</td>`;
+                case 'min': return `<td class="n">${fmtMin(v)}</td>`;
+                case 'date': return `<td>${esc(fmtDate(v))}</td>`;
+                case 'pct': {
+                    if (v === null || v === undefined) return '<td class="n">–</td>';
+                    let cls = '';
+                    if (c.key === 'eff') cls = v < 75 ? 'eff-lo' : v >= 95 ? 'eff-hi' : '';
+                    if (c.key === 'pct' && v > 110) cls = 'eff-lo';
+                    if (c.key === 'vs_std') cls = v < 75 ? 'eff-lo' : v >= 95 ? 'eff-hi' : '';
+                    return `<td class="n ${cls}">${v}%</td>`;
+                }
+                case 'heat': {
+                    if (!v) return '<td class="heat none">·</td>';
+                    const slow = row.std_rate && v < row.std_rate * 0.7;
+                    return `<td class="heat ${slow ? 'slow' : 'ok'}" title="${slow ? 'below 70% of standard' : ''}">${fmtInt(v)}</td>`;
+                }
+                case 'status': {
+                    const k = String(v || '').replace(/\s+/g, '-');
+                    const cls = k === 'over-packed' || k === 'voided' ? 'over' : k === 'loose-box' || k === 'open' || k === 'old-stock' ? 'short' : k === 'ok' || k === 'closed' ? 'done' : k;
+                    return `<td><span class="chip ${esc(cls)}">${esc(v)}</span></td>`;
+                }
+                default: {
+                    const wide = ['item', 'party', 'note', 'reprint_reasons', 'void_reason', 'time_reasons', 'short_reasons'].includes(c.key);
+                    return `<td class="${wide ? 'wide' : ''}">${esc(v)}</td>`;
+                }
+            }
+        }
+
+        function footer(d) {
+            if (!d.rows.length || !['daily', 'hourly', 'jobcards'].includes(d.type)) return '';
+            const sumKeys = { daily: ['planned', 'packed', 'work_min', 'idle_min', 'idle_n', 'wrong'], hourly: ['total'], jobcards: ['jr_qty', 'planned', 'packed', 'balance'] }[d.type];
+            const tds = d.columns.map((c, i) => {
+                if (i === 0) return '<td>Total</td>';
+                if (!sumKeys.includes(c.key)) return '<td></td>';
+                const t = d.rows.reduce((s, r) => s + (Number(r[c.key]) || 0), 0);
+                return cell(c, t, {});
+            });
+            return `<tfoot><tr>${tds.join('')}</tr></tfoot>`;
+        }
+
+        function render(d) {
+            last = d;
+            $('tiles').innerHTML = d.summary.map(s => {
+                const v = s.type === 'min' ? fmtMin(s.value) : s.type === 'pct' ? (s.value === null ? '–' : s.value + '%') : s.type === 'int' ? fmtInt(s.value) : esc(s.value ?? '–');
+                return `<div class="pr-tile"><div class="l">${esc(s.label)}</div><div class="v">${v}</div></div>`;
+            }).join('');
+            $('note').textContent = (d.note || NOTES[d.type] || '') + (d.truncated ? ' Showing the first 3,000 rows; narrow the dates to see all.' : '');
+            if (!d.rows.length) {
+                $('out').className = 'pr-empty';
+                $('out').textContent = 'Nothing packed in this period for these filters.';
+                return;
+            }
+            const numeric = new Set(['int', 'dec', 'min', 'pct']);
+            const head = d.columns.map(c => `<th class="${numeric.has(c.type) ? 'n' : ''}">${esc(c.label)}</th>`).join('');
+            const body = d.rows.map(r => `<tr>${d.columns.map(c => cell(c, r[c.key], r)).join('')}</tr>`).join('');
+            $('out').className = '';
+            $('out').innerHTML = `<table class="pr-table"><thead><tr>${head}</tr></thead><tbody>${body}</tbody>${footer(d)}</table>`;
+            addStations(d.rows.map(r => r.station));
+        }
+
+        function params() {
+            const p = new URLSearchParams({ from: $('f_from').value, to: $('f_to').value });
+            if ($('f_station').value) p.set('station', $('f_station').value);
+            if ($('f_party').value.trim()) p.set('party', $('f_party').value.trim());
+            return p;
+        }
+
+        function saveState() {
+            const p = params(); p.set('type', type);
+            history.replaceState(null, '', '?' + p.toString());
+        }
+
+        let loadSeq = 0;
+        async function load() {
+            saveState();
+            const seq = ++loadSeq;
+            $('out').className = 'pr-empty';
+            $('out').textContent = 'Loading…';
+            try {
+                const res = await JPSMS.api.request(`/packing/reports/${type}?${params().toString()}`, { skipLoader: true });
+                if (seq !== loadSeq) return; /* a newer request was made */
+                render(res.data);
+            } catch (err) {
+                if (seq !== loadSeq) return;
+                $('tiles').innerHTML = '';
+                $('out').className = 'pr-empty';
+                $('out').textContent = err.message || 'Could not load the report.';
+            }
+        }
+
+        function selectTab(t) {
+            type = t;
+            document.querySelectorAll('.pr-tab').forEach(b => b.setAttribute('aria-selected', String(b.dataset.type === t)));
+            load();
+        }
+
+        const knownStations = new Set();
+        function addStations(names) {
+            const sel = $('f_station');
+            names.forEach(n => {
+                if (!n || knownStations.has(n.toLowerCase())) return;
+                knownStations.add(n.toLowerCase());
+                const o = document.createElement('option'); o.value = n; o.textContent = n; sel.appendChild(o);
+            });
+        }
+
+        async function exportExcel() {
+            try {
+                const token = localStorage.getItem('token');
+                const user = JSON.parse(localStorage.getItem('user') || '{}');
+                const headers = {};
+                if (token) headers.Authorization = `Bearer ${token}`;
+                if (user.username) headers['X-User-Name'] = user.username;
+                const fid = localStorage.getItem('jpsms_factory_id'); if (fid) headers['X-Factory-ID'] = fid;
+                const r = await fetch(`/api/packing/reports/${type}/export.xlsx?${params().toString()}`, { headers });
+                if (!r.ok) {
+                    let msg = 'Export failed';
+                    try { msg = (await r.json()).error || msg; } catch (_) { /* not json */ }
+                    throw new Error(msg);
+                }
+                const blob = await r.blob();
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(blob);
+                a.download = `packing-${type}-${$('f_from').value}-to-${$('f_to').value}.xlsx`;
+                a.click();
+                setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+            } catch (e) { JPSMS.toast(e.message, 'error'); }
+        }
+
+        document.addEventListener('DOMContentLoaded', async () => {
+            JPSMS.auth.requireAuth();
+            JPSMS.renderShell('packing');
+
+            const q = new URLSearchParams(location.search);
+            const today = new Date();
+            $('f_to').value = /^\d{4}-\d{2}-\d{2}$/.test(q.get('to') || '') ? q.get('to') : ymd(today);
+            $('f_from').value = /^\d{4}-\d{2}-\d{2}$/.test(q.get('from') || '') ? q.get('from') : ymd(new Date(today.getTime() - 6 * 864e5));
+            $('f_party').value = q.get('party') || '';
+
+            document.querySelectorAll('.pr-tab').forEach(b => b.addEventListener('click', () => selectTab(b.dataset.type)));
+            document.querySelectorAll('.pr-quick button').forEach(b => b.addEventListener('click', () => {
+                const now = new Date();
+                $('f_to').value = ymd(now);
+                $('f_from').value = b.dataset.q === 'month' ? ymd(new Date(now.getFullYear(), now.getMonth(), 1)) : ymd(new Date(now.getTime() - Number(b.dataset.q) * 864e5));
+                load();
+            }));
+            $('f_station').addEventListener('change', load);
+            $('btnExcel').addEventListener('click', exportExcel);
+
+            try {
+                const st = await JPSMS.api.request('/packing/stations', { skipLoader: true });
+                addStations((st.data || []).map(s => s.station_name || s.name));
+            } catch (_) { /* stations list is optional */ }
+            if (q.get('station')) { addStations([q.get('station')]); $('f_station').value = q.get('station'); }
+
+            selectTab(['daily', 'jobs', 'jobcards', 'hourly', 'wrong', 'boxes', 'handover', 'stock', 'dispatch', 'packers', 'losttime'].includes(q.get('type')) ? q.get('type') : 'daily');
+        });
+    </script>
+</body>
+
+</html>

@@ -136,7 +136,9 @@ async function getServerConfigMap(pool) {
       'LAST_SYNC_DELETED_COUNT',
       'LAST_SYNC_FAILED_COUNT',
       'LAST_SYNC_PENDING_COUNT',
-      'LAST_SYNC_CYCLE_AT'
+      'LAST_SYNC_CYCLE_AT',
+      'LOCAL_ONLY_ACCESS',
+      'LAST_PULL_FAILURES'
     ]]
   );
 
@@ -181,6 +183,49 @@ async function getSyncFailureSummary(pool) {
     // never let diagnostics collection break the heartbeat.
     return [];
   }
+}
+
+// Access rows that exist only on this server (sync.service checkLocalOnlyAccess), shown with
+// the sync failures on MAIN's Settings page.
+function localOnlyAccessEntry(raw) {
+  try {
+    const found = JSON.parse(raw || 'null');
+    if (!found || !(found.count > 0)) return [];
+    return [{
+      table: 'user_factories (only on this server)',
+      count: found.count,
+      attempts: 0,
+      lastAttemptAt: found.checkedAt || null,
+      error: `Not on the main site: ${(found.users || []).join(', ')}`.slice(0, 400)
+    }];
+  } catch (_) {
+    return [];
+  }
+}
+
+// Tables whose rows from MAIN could not be saved in the last pull (sync.service pullChanges).
+function pullFailureEntries(raw) {
+  try {
+    const report = JSON.parse(raw || 'null');
+    return ((report && report.tables) || []).map((t) => ({
+      table: `${t.table} (pull)`,
+      count: t.count,
+      attempts: 0,
+      lastAttemptAt: report.at || null,
+      error: String(t.error || '').slice(0, 400) || null
+    }));
+  } catch (_) {
+    return [];
+  }
+}
+
+// Everything shown under "Sync Failure Reasons" on MAIN's Settings page.
+async function collectSyncFailures(pool, serverConfig) {
+  return [
+    ...await getSyncFailureSummary(pool),
+    ...pullFailureEntries(serverConfig.LAST_PULL_FAILURES),
+    ...localOnlyAccessEntry(serverConfig.LOCAL_ONLY_ACCESS)
+  ];
 }
 
 function pickFirst(...values) {
@@ -309,7 +354,7 @@ async function sendHeartbeat(pool, config, agentConfig) {
     lastPushAt: serverConfig.LAST_PUSH || null,
     lastPullAt: serverConfig.LAST_PULL || null
   };
-  const syncFailures = await getSyncFailureSummary(pool);
+  const syncFailures = await collectSyncFailures(pool, serverConfig);
   await fetchJson(
     buildUrl(agentConfig.mainServerUrl, `/api/local-servers/${agentConfig.nodeId}/heartbeat`),
     {
@@ -344,7 +389,7 @@ async function sendSyncStatus(pool, config, agentConfig) {
     lastPushAt: serverConfig.LAST_PUSH || null,
     lastPullAt: serverConfig.LAST_PULL || null
   };
-  const syncFailures = await getSyncFailureSummary(pool);
+  const syncFailures = await collectSyncFailures(pool, serverConfig);
   await fetchJson(
     buildUrl(agentConfig.mainServerUrl, `/api/local-servers/${agentConfig.nodeId}/sync-status`),
     {
@@ -532,5 +577,5 @@ async function init({ pool, config }) {
 
 module.exports = {
   init,
-  __test: { fetchWithTimeout, networkErrorDetail }
+  __test: { fetchWithTimeout, networkErrorDetail, localOnlyAccessEntry, getServerConfigMap, collectSyncFailures }
 };

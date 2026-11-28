@@ -11,8 +11,1253 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.177.0",
+  "latest": "1.217.1",
   "versions": [
+    {
+      "version": "1.217.1",
+      "date": "2026-11-28",
+      "title": "QR labels print on 50 x 50 mm",
+      "modules": [
+        {
+          "app": "planning",
+          "changes": [
+            {"type": "fix", "text": "Job Card QR labels now print one label per 50 x 50 mm page instead of two labels side by side on a 100 x 50 mm page."}
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.217.0",
+      "date": "2026-11-27",
+      "title": "Hold now holds only the mould you choose",
+      "modules": [
+        {
+          "app": "planning",
+          "changes": [
+            {"type": "improvement", "text": "The Hold button now holds only the mould of the card you press, not the whole order. Other moulds of the same order stay free. Excel View, Machine Timeline and Order Tracker show HOLD only on that mould."},
+            {"type": "improvement", "text": "Holds made before today still cover the whole order and show ORDER ON HOLD. Open one from a card and press Hold only this mould to keep just that mould on hold and free the rest."},
+            {"type": "improvement", "text": "Hold History shows the mould of every hold, edit and release."}
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.216.0",
+      "date": "2026-11-27",
+      "title": "Packing plan: week view, one table per plan, moulded job cards only",
+      "modules": [
+        {
+          "app": "packing",
+          "changes": [
+            { "type": "feat", "text": "Packing plan has a Day / Week switch: Week shows Monday to Saturday side by side on one screen (Sunday too when a job is planned on it), in Stations and Tables view; click a day's name to open that day." },
+            { "type": "improvement", "text": "A packing plan now goes on one table only. To pack a job on two tables, make two plans. Old plans with several tables stay as they are." },
+            { "type": "improvement", "text": "Job cards waiting to be packed, and the job card list in the plan form, show only job cards that moulding has started on (good qty in the DPR), with the moulded qty." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.215.0",
+      "date": "2026-11-27",
+      "title": "Factory Transfers: finish times and deleted transfer plans",
+      "modules": [
+        {
+          "app": "planning",
+          "changes": [
+            { "type": "feat", "text": "Order Tracker shows the expected start and finish of a transfer plan from the other factory's machine queue (machine shown as '<machine> @ <factory>')." },
+            { "type": "feat", "text": "If the receiving factory deletes or cancels a transfer plan, the transfer goes back to 'Accepted - machine not set' with a note; the qty stays held for them, they can assign a machine again or give it back." },
+            { "type": "improvement", "text": "The receiving factory can give back an accepted transfer (with a reason) while no machine is set." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.214.0",
+      "date": "2026-11-27",
+      "title": "Factory Transfers: production counts for the sending factory, colours travel with the transfer",
+      "modules": [
+        {
+          "app": "planning",
+          "changes": [
+            { "type": "feat", "text": "Order Tracker now counts what another factory makes on a transfer for your order: made qty, balance and progress include it, and the plan shows as 'PLN-... @ <factory>'." },
+            { "type": "feat", "text": "Send to factory now splits the qty by colour (shared like the order to start, you can change it); the colours go on the plan the other factory creates." },
+            { "type": "improvement", "text": "Order popups (order detail, completed plan history) list transfer plans with the factory running them." },
+            { "type": "fix", "text": "Order detail popup no longer adds production of another factory's plan that has the same plan number." }
+          ]
+        },
+        {
+          "app": "dpr",
+          "changes": [
+            { "type": "improvement", "text": "Daily Report and Daily Report (Detailed) tag machines running a transfer plan with 'Transfer from <factory>'." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.213.1",
+      "date": "2026-11-27",
+      "title": "NPD Tracker: department badges in column headings",
+      "modules": [
+        {
+          "app": "npd",
+          "changes": [
+            { "type": "improvement", "text": "Every column heading now shows its department as a coloured badge (one colour per department, capital, bold, underlined), on its own line, so it is easy to see which department fills each column." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.213.0",
+      "date": "2026-11-27",
+      "title": "Factory Transfers: send part of an order to another factory",
+      "modules": [
+        {
+          "app": "planning",
+          "changes": [
+            { "type": "feat", "text": "Create Plan shows which other factories have a mould in their Mould Master (\"Also in\")." },
+            { "type": "feat", "text": "Send to factory: send all or part of a mould's balance to another factory; the qty is held back from your balance until they plan it or reject it." },
+            { "type": "feat", "text": "New Transfers button on the Planning Board: Incoming (accept, reject with a reason, assign your own machine) and Sent (status, machine, qty made)." },
+            { "type": "feat", "text": "Plans made for another factory's order show \"Transfer from <factory>\" on the Excel View and Machine Timeline cards." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.212.0",
+      "date": "2026-11-27",
+      "title": "NPD Tracker: OR - JR Number column, bold department names",
+      "modules": [
+        {
+          "app": "npd",
+          "changes": [
+            { "type": "feature", "text": "New OR - JR Number column (per product) after OR - JR making in ERP by Warehouse. Admin, Superadmin and the PPC / Planning team type the number in; it is searchable and in the Excel export." },
+            { "type": "improvement", "text": "Department names under every column heading are now capital, bold and underlined." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.211.4",
+      "date": "2026-11-27",
+      "title": "NPD Tracker: all packing roles edit Packing stages",
+      "modules": [
+        {
+          "app": "npd",
+          "changes": [
+            { "type": "improvement", "text": "Packing Manager, Packing Executive and every other packing role can now update the Packing stages in NPD Tracker (packing material finalization and mass production packing), and NPD is ticked in their app access." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.211.3",
+      "date": "2026-11-26",
+      "title": "NPD Tracker: PPC team edits RM & colour",
+      "modules": [
+        {
+          "app": "npd",
+          "changes": [
+            { "type": "improvement", "text": "The whole PPC team (every PPC and Planning role, and Planner) can now update RM & colour finalization on each mould, along with Moulding." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.211.2",
+      "date": "2026-11-26",
+      "title": "NPD Tracker: Dispatch Executive can edit W/H & Dispatch",
+      "modules": [
+        {
+          "app": "npd",
+          "changes": [
+            { "type": "improvement", "text": "Dispatch Executive and Dispatch Manager can now update the W/H & Dispatch stages in NPD Tracker, and NPD is ticked in their app access." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.211.1",
+      "date": "2026-11-26",
+      "title": "Daily Report (Detailed): easier to read",
+      "modules": [
+        {
+          "app": "dpr",
+          "changes": [
+            { "type": "improvement", "text": "Daily Report (Detailed): small labels, table headings and chart labels are now at least 11px so they are easier to read on shop-floor screens." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.211.0",
+      "date": "2026-11-26",
+      "title": "New Daily Report (Detailed)",
+      "modules": [
+        {
+          "app": "dpr",
+          "changes": [
+            { "type": "feat", "text": "New page DPR > Daily Report (Detailed): the same day report with 7 tabs (Overview, Lines, Machines, Downtime, Quality, Change-overs, Data checks), hour-by-hour charts, a 24-hour strip for every machine and a click-through view of each machine. The old Daily Report (NEW) stays as it is." },
+            { "type": "feat", "text": "Daily Report (Detailed) works out every Kg per mould run, so a machine that ran two moulds gets each mould's own speed and weight, and every loss adds up to Planned minus Good." },
+            { "type": "feat", "text": "Daily Report (Detailed): hours with no DPR setup take the std cycle, cavities and weight of the plan's mould from Mould Master instead of counting as 0 kg." },
+            { "type": "feat", "text": "Daily Report (Detailed): on today's date the target counts only the hours that have finished, so a mid-shift report no longer shows a false low efficiency." },
+            { "type": "feat", "text": "Daily Report (Detailed): Data checks list what makes the numbers wrong, such as moulds with no std, hours not filled, entries without a setup, typed Other downtime and missing supervisor names." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.210.2",
+      "date": "2026-11-26",
+      "title": "NPD Tracker: Sr No in series",
+      "modules": [
+        {
+          "app": "npd",
+          "changes": [
+            { "type": "improvement", "text": "Sr No now runs 1, 2, 3 ... with no gaps for the factory you are viewing (moulds 1.1, 1.2 ...). With All factories it runs straight through the factory groups. The Excel export uses the same numbers." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.210.1",
+      "date": "2026-11-26",
+      "title": "NPD Tracker: Final QC approval per product",
+      "modules": [
+        {
+          "app": "npd",
+          "changes": [
+            { "type": "improvement", "text": "Final QC approved after testing is now set once on the main product instead of on each mould. Each product starts with the value its moulds had together." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.210.0",
+      "date": "2026-11-26",
+      "title": "Order Tracker shows orders on hold",
+      "modules": [
+        {
+          "app": "planning",
+          "changes": [
+            { "type": "feat", "text": "Order Tracker: orders on hold show in red with ON HOLD and the reason, and there is a new On hold filter." },
+            { "type": "feat", "text": "Order Tracker: an order on hold shows a red Order on hold box with the reason, who held it and when. Machine wise marks held jobs with a red HOLD tag." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.209.1",
+      "date": "2026-11-26",
+      "title": "Held orders shown in red",
+      "modules": [
+        {
+          "app": "planning",
+          "changes": [
+            { "type": "improvement", "text": "Orders on hold now stand out in red on the Excel View and Machine Timeline: red stripes, red border and a red ON HOLD label." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.209.0",
+      "date": "2026-11-26",
+      "title": "Order hold on the Machine Timeline",
+      "modules": [
+        {
+          "app": "planning",
+          "changes": [
+            { "type": "feat", "text": "Machine Timeline now shows orders on hold too: the card turns grey with ON HOLD and the reason, and the status filter has an On Hold option." },
+            { "type": "feat", "text": "Superadmin, admin and PPC managers get the Hold button (pause icon) on Machine Timeline cards to hold an order, change the reason or release it." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.208.0",
+      "date": "2026-11-26",
+      "title": "Hold an order on the Excel View Timeline",
+      "modules": [
+        {
+          "app": "planning",
+          "changes": [
+            { "type": "feat", "text": "Excel View Timeline: new Hold button on every plan card. Superadmin, admin, PPC Ass. Manager, PPC Manager and Sr. PPC Manager can put a whole order on hold with a reason, change the reason or release the hold." },
+            { "type": "feat", "text": "Every plan of an order on hold shows ON HOLD with the reason, and the status filter has a new On Hold option." },
+            { "type": "feat", "text": "Superadmin can open Hold History to see who held, changed or released each order and when." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.207.0",
+      "date": "2026-11-26",
+      "title": "MC/MP SCH lists machines without a plan",
+      "modules": [
+        {
+          "app": "planning",
+          "changes": [
+            { "type": "feat", "text": "In Excel View, while making an MC/MP SCH, a machine with no plan shows \"+ Add (No Plan)\" in its first slot; click it to put that machine on the sheet as No Plan." },
+            { "type": "improvement", "text": "Running Plan Manpower now lists every machine; machines without a running plan show as No Plan or No running plan with blank manpower." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.206.0",
+      "date": "2026-11-25",
+      "title": "DPR job detail in a clearer order",
+      "modules": [
+        {
+          "app": "dpr",
+          "changes": [
+            { "type": "improvement", "text": "Job detail now starts with the dates on one timeline: order, job card, plan, first and last production and the expected finish, with the days between each step." },
+            { "type": "improvement", "text": "Setup, photos and first piece approval (FPA) come next, each in its own section; setup shows the DPR setup and the QC one-time setup together." },
+            { "type": "improvement", "text": "Every section opens and closes with one tap and shows a short summary when closed; What needs attention starts closed. Your choice is remembered." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.205.0",
+      "date": "2026-11-25",
+      "title": "New DPR job detail popup",
+      "modules": [
+        {
+          "app": "dpr",
+          "changes": [
+            { "type": "feat", "text": "DPR job detail is redesigned: what needs attention, where the machine time went, OEE, and production hour by hour or shift by shift." },
+            { "type": "improvement", "text": "Produced, QC verified and shifted are in one progress block and one colour table instead of being repeated down the page." },
+            { "type": "fix", "text": "The status is the real plan status, the finish time uses the last 8 hours with stops included, and a job moved to another machine shows the quantity made on both." },
+            { "type": "fix", "text": "Job detail balance is counted colour by colour, same as the plan popup, and extra pieces are shown separately." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.204.9",
+      "date": "2026-11-25",
+      "title": "Extra made in the order popup, Tonnage load by part",
+      "modules": [
+        {
+          "app": "planning",
+          "changes": [
+            { "type": "feat", "text": "The plan popup shows Extra Made for the plan and for each colour, and the extra pieces under Balance." },
+            { "type": "fix", "text": "Plan balance adds up the colours, so extra pieces of one colour no longer hide what is left of another." },
+            { "type": "fix", "text": "Order Tracker Tonnage load counts a part once when several moulds can make it, so unused and dropped moulds no longer add machine hours." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.204.8",
+      "date": "2026-11-25",
+      "changes": [
+        {
+          "app": "all",
+          "type": "fix",
+          "text": "Deleting a user now reaches every factory server, and a user re-created on the main site no longer stops a factory server's sync. Users can be added, edited or deleted only on the main site."
+        }
+      ]
+    },
+    {
+      "version": "1.204.7",
+      "date": "2026-11-25",
+      "title": "App links always give the newest app",
+      "modules": [
+        {
+          "app": "all",
+          "changes": [
+            { "type": "fix", "text": "The QC, Shifting and Chat app download links always give the newest app; phones could reinstall an old copy for up to 7 days." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.204.6",
+      "date": "2026-11-25",
+      "title": "Order popup job card table",
+      "modules": [
+        {
+          "app": "planning",
+          "changes": [
+            { "type": "fix", "text": "In the order popup the job card table numbers line up under their column headings." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.204.5",
+      "date": "2026-11-25",
+      "title": "QC and Shifting apps connect at Shivani",
+      "modules": [
+        {
+          "app": "quality",
+          "changes": [
+            { "type": "fix", "text": "QC Android app 1.11.1: connects to the Shivani server, and finds each factory server's port by itself at login." }
+          ]
+        },
+        {
+          "app": "shifting_module",
+          "changes": [
+            { "type": "fix", "text": "Shifting Android app 1.8.1: connects to the Shivani server, and finds each factory server's port by itself at login." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.204.4",
+      "date": "2026-11-25",
+      "title": "Order popup opens the new view",
+      "modules": [
+        {
+          "app": "planning",
+          "changes": [
+            { "type": "fix", "text": "The Machine Timeline order popup opens the new part-wise view; it was falling back to the old table without the product name." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.204.3",
+      "date": "2026-11-25",
+      "title": "Order Tracker counts sets by part",
+      "modules": [
+        {
+          "app": "planning",
+          "changes": [
+            { "type": "fix", "text": "Order Tracker counts moulds that make the same part together, so sets made, balance and dates are no longer 0 or late because of an unused or dropped mould; those moulds are listed as Moulds not counted." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.204.2",
+      "date": "2026-11-25",
+      "title": "DPR Compliance Summary loads faster",
+      "modules": [
+        {
+          "app": "dpr",
+          "changes": [
+            { "type": "perf", "text": "Compliance Summary opens faster, most of all for Day + Night and for several days; the figures are unchanged." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.204.1",
+      "date": "2026-11-25",
+      "title": "NPD Tracker: Launched only on the main product",
+      "modules": [
+        {
+          "app": "npd",
+          "changes": [
+            { "type": "improvement", "text": "Child moulds no longer have the Launched status. Launched is set on the main product only." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.204.0",
+      "date": "2026-11-25",
+      "title": "Order popup shows complete products part by part",
+      "modules": [
+        {
+          "app": "planning",
+          "changes": [
+            { "type": "feat", "text": "Machine Timeline order popup now shows OR, JR, job card and planned quantity, complete products made, balance, expected finish and target date." },
+            { "type": "feat", "text": "Parts are listed once with pieces per product, made, balance and how many products they are enough for; the part holding the order is marked. Click a part for its moulds, machines, job cards and colours." },
+            { "type": "fix", "text": "When a part can be made on more than one mould, the moulds are counted together, and an unused mould shows Not needed or Dropped instead of Pending." },
+            { "type": "fix", "text": "Every plan of a mould is shown, not only the first one, and the popup uses the selected unit." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.203.1",
+      "date": "2026-11-25",
+      "title": "Extra Qty no longer doubles",
+      "modules": [
+        {
+          "app": "planning",
+          "changes": [
+            { "type": "fix", "text": "Extra Qty allowed from the Machine Timeline is counted once; it was doubled when the factory server and the main server synced." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.203.0",
+      "date": "2026-11-25",
+      "title": "DPR Compliance machine details on demand",
+      "modules": [
+        {
+          "app": "dpr",
+          "changes": [
+            { "type": "improvement", "text": "Compliance Summary hides the Prod, QC and Shifting figures under each machine; the Show details button opens them for all machines in one click." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.202.2",
+      "date": "2026-11-25",
+      "changes": [
+        {
+          "app": "planning",
+          "type": "fix",
+          "text": "The Shivani factory server receives plans from the main site again (stopped since 24 November)."
+        }
+      ]
+    },
+    {
+      "version": "1.202.1",
+      "date": "2026-11-25",
+      "title": "Bottom bar removed",
+      "modules": [
+        {
+          "app": "all",
+          "changes": [
+            { "type": "improvement", "text": "The bottom bar (Home, Plan, DPR, Stats, Menu) is removed. Use the menu button at the top left on small screens." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.202.0",
+      "date": "2026-11-25",
+      "title": "Shifting app for Shivani and Premier",
+      "modules": [
+        {
+          "app": "shifting_module",
+          "changes": [
+            { "type": "feat", "text": "Shifting Android app 1.8.0: choose your factory (Dungra Unit 1, Shivani or Premier) on the login screen." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.201.0",
+      "date": "2026-11-25",
+      "title": "Side menu stays open",
+      "modules": [
+        {
+          "app": "all",
+          "changes": [
+            { "type": "improvement", "text": "The side menu stays open on every computer and tablet screen size until you collapse it, and it remembers your choice. On phones it still opens with the menu button." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.200.1",
+      "date": "2026-11-25",
+      "changes": [
+        {
+          "app": "all",
+          "type": "fix",
+          "text": "Settings > Local Servers now shows which records a factory server could not receive and why, and the list of users with access only on that server."
+        }
+      ]
+    },
+    {
+      "version": "1.200.0",
+      "date": "2026-11-25",
+      "title": "QC app for Shivani and Premier",
+      "modules": [
+        {
+          "app": "quality",
+          "changes": [
+            { "type": "feat", "text": "QC Android app 1.11.0: choose your factory (Dungra Unit 1, Shivani or Premier) on the login screen." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.199.3",
+      "date": "2026-11-25",
+      "title": "DPR Compliance Summary fits small screens",
+      "modules": [
+        {
+          "app": "all",
+          "changes": [
+            { "type": "fix", "text": "The phone menu links (Home, Plan, DPR, Stats, Menu) no longer show as plain text on computer screens." }
+          ]
+        },
+        {
+          "app": "dpr",
+          "changes": [
+            { "type": "fix", "text": "Compliance Summary fits small windows: the hour table shrinks so the Summary column is never cut off, text no longer overlaps, and on phones the table scrolls sideways with its header and machine names in view." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.199.2",
+      "date": "2026-11-25",
+      "title": "DPR: Production Manager of B and F",
+      "modules": [
+        {
+          "app": "dpr",
+          "changes": [
+            { "type": "fix", "text": "DPR Compliance Summary shows Ratnakar Behra as Production Manager for B and F lines." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.199.1",
+      "date": "2026-11-25",
+      "changes": [
+        {
+          "app": "all",
+          "type": "security",
+          "text": "Settings > Local Servers lists users who have factory access on a factory server but not on the main site."
+        }
+      ]
+    },
+    {
+      "version": "1.199.0",
+      "date": "2026-11-25",
+      "title": "DPR Compliance Summary: loads only on Apply",
+      "modules": [
+        {
+          "app": "dpr",
+          "changes": [
+            { "type": "improvement", "text": "Compliance Summary loads only when you click Apply. Changing dates, shift, process, factory or view no longer reloads the page, and Apply turns orange while a change is waiting." },
+            { "type": "feat", "text": "New Today and Yesterday buttons load that day in one click." },
+            { "type": "improvement", "text": "Plant Total is right under the filled score. What stands out, Machines to chase and Lines start closed and open with one click." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.198.1",
+      "date": "2026-11-25",
+      "changes": [
+        {
+          "app": "all",
+          "type": "security",
+          "text": "Factory access is now decided only on the main site, so access removed there no longer comes back from a factory server."
+        }
+      ]
+    },
+    {
+      "version": "1.198.0",
+      "date": "2026-11-25",
+      "title": "NPD Tracker: new page design, faster",
+      "modules": [
+        {
+          "app": "npd",
+          "changes": [
+            { "type": "improvement", "text": "NPD Tracker is redesigned: full product and factory names wrap, the table fills the screen, the header and product name stay in view, and stage buttons jump to each group." },
+            { "type": "perf", "text": "NPD Tracker opens faster and an edit updates only that product instead of the whole table." },
+            { "type": "feat", "text": "Hide or show the moulds of one product or of all products, and search by product or mould code as well as name (also in the Excel export)." },
+            { "type": "fix", "text": "The % complete no longer counts stages marked N/A as unfinished." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.197.15",
+      "date": "2026-11-25",
+      "changes": [
+        {
+          "app": "all",
+          "type": "fix",
+          "text": "Records are no longer saved under factory 1 by default. They go to the selected factory, or to the factory of their plan, machine or order, and JMS asks you to select a factory when it cannot tell."
+        }
+      ]
+    },
+    {
+      "version": "1.197.14",
+      "date": "2026-11-25",
+      "changes": [
+        {
+          "app": "all",
+          "type": "fix",
+          "text": "The daily backup of uploaded photos and files now gets enough time to finish copying to Google Drive."
+        }
+      ]
+    },
+    {
+      "version": "1.197.13",
+      "date": "2026-11-24",
+      "changes": [
+        {
+          "app": "planning",
+          "type": "fix",
+          "text": "Order Tracker Tonnage Load and Machine wise now count only the login factory's production for booked hours, queue times and colour quantities."
+        }
+      ]
+    },
+    {
+      "version": "1.197.12",
+      "date": "2026-11-24",
+      "changes": [
+        {
+          "app": "all",
+          "type": "security",
+          "text": "Settings, operator, role, assembly line and plan stop/restore changes now need a valid login; if asked, log in again once."
+        },
+        {
+          "app": "dpr",
+          "type": "fix",
+          "text": "Saving the same DPR entry twice at the same moment, or two auto-fills running together, no longer creates duplicate rows."
+        },
+        {
+          "app": "quality",
+          "type": "fix",
+          "text": "The @mention list in the QC app memo shows Moulding people again instead of an error."
+        },
+        {
+          "app": "all",
+          "type": "fix",
+          "text": "Factory servers finish stuck updates, which restores barcode printing and the chart labels on the DPR Daily Report."
+        },
+        {
+          "app": "planning",
+          "type": "fix",
+          "text": "New plan history, packing plan, packing scan and packing line records are saved with their own factory."
+        }
+      ]
+    },
+    {
+      "version": "1.197.11",
+      "date": "2026-11-24",
+      "changes": [
+        {
+          "app": "planning",
+          "type": "fix",
+          "text": "Order Tracker Tonnage Load puts hours on the machine whose plan still has pieces to make, and no longer counts a closed order's plan that has no machine."
+        }
+      ]
+    },
+    {
+      "version": "1.197.10",
+      "date": "2026-11-24",
+      "changes": [
+        {
+          "app": "all",
+          "type": "fix",
+          "text": "Automatic ERP sync no longer stops for a factory with a deadlock error, and cancelled orders are no longer re-sent to the factory servers on every run."
+        }
+      ]
+    },
+    {
+      "version": "1.197.9",
+      "date": "2026-11-24",
+      "changes": [
+        {
+          "app": "planning",
+          "type": "fix",
+          "text": "Order Tracker Tonnage Load now counts plans still running or queued on a machine even when the ERP has closed the JR, shows stopped plans as Stopped, and adds Booked Without Mould Limit to the Excel."
+        }
+      ]
+    },
+    {
+      "version": "1.197.8",
+      "date": "2026-11-24",
+      "changes": [
+        {
+          "app": "planning",
+          "type": "fix",
+          "text": "ORJR Wise Summary now shows an order whose ERP summary came without a mould, using the mould from ERP Details."
+        }
+      ]
+    },
+    {
+      "version": "1.197.7",
+      "date": "2026-11-24",
+      "changes": [
+        {
+          "app": "all",
+          "type": "security",
+          "text": "Internal code check made simpler after a security scan; nothing changes on screen."
+        }
+      ]
+    },
+    {
+      "version": "1.197.6",
+      "date": "2026-11-24",
+      "title": "Plans stay inside their own factory",
+      "modules": [
+        {
+          "app": "planning",
+          "changes": [
+            { "type": "fix", "text": "Starting, stopping, completing, moving or re-ordering a plan no longer affects another factory's plans on a machine with the same name." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.197.5",
+      "date": "2026-11-24",
+      "title": "Extra Qty shows again in the job card popup",
+      "modules": [
+        {
+          "app": "planning",
+          "changes": [
+            { "type": "fix", "text": "Machine Timeline: Extra Allowed quantities show again in the job card popup." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.197.4",
+      "date": "2026-11-24",
+      "changes": [
+        {
+          "app": "planning",
+          "type": "fix",
+          "text": "A plan can no longer be saved without a factory, and can only be moved or recovered onto a machine of its own factory."
+        }
+      ]
+    },
+    {
+      "version": "1.197.3",
+      "date": "2026-11-24",
+      "title": "Job card popup shows the right unit's plan",
+      "modules": [
+        {
+          "app": "planning",
+          "changes": [
+            { "type": "fix", "text": "Machine Timeline: with All Factories selected, the job card popup no longer mixes colours and production of another unit's plan that has the same Plan ID." },
+            { "type": "improvement", "text": "Create Plan warns when Plan Qty is less than Job Qty x Consumption Ratio, for example a handle that needs 2 pieces per set." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.197.2",
+      "date": "2026-11-24",
+      "title": "Order Tracker shows only your factory's orders",
+      "modules": [
+        {
+          "app": "planning",
+          "changes": [
+            { "type": "fix", "text": "Order Tracker: the Order wise list no longer shows another plant's orders that were saved under your factory." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.197.1",
+      "date": "2026-11-24",
+      "title": "Plans stay in their own unit",
+      "modules": [
+        {
+          "app": "planning",
+          "changes": [
+            { "type": "fix", "text": "A plan of another unit no longer shows on your Machine Timeline, Print JobCard or Pending Plan Approval" },
+            { "type": "fix", "text": "A plan can be created only when you are logged in, one factory is selected, and the machine belongs to that factory" }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.197.0",
+      "date": "2026-11-24",
+      "title": "Scanning pages redesigned",
+      "modules": [
+        {
+          "app": "packing",
+          "changes": [
+            { "type": "improvement", "text": "Production Scanning, Scanning List and Scanning Dashboard have a new look with one shared header, an assembly filter and tables on every card" },
+            { "type": "feat", "text": "Scanning Dashboard: TV mode, sound on or off, one card per running job, real counts for today and the last hour" },
+            { "type": "feat", "text": "Scanning pages: a station locked by the supervisor PIN can be unlocked there" },
+            { "type": "fix", "text": "Scanning pages: a refresh no longer clears the scan log, a half typed barcode or the STOP screen" },
+            { "type": "fix", "text": "Scanning List: scans go to the job you picked, also after a refresh" },
+            { "type": "fix", "text": "Scanners show as connected only after the bridge confirms it" }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.196.1",
+      "date": "2026-11-24",
+      "title": "Tonnage load Excel shows only your factory",
+      "modules": [
+        {
+          "app": "planning",
+          "changes": [
+            {
+              "type": "fix",
+              "text": "Order Tracker: the Tonnage load Excel download now has only the orders and machines of the factory you are logged in to, same as the screen."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.196.0",
+      "date": "2026-11-24",
+      "title": "Packing plan redesigned, with a table-wise view",
+      "modules": [
+        {
+          "app": "packing",
+          "changes": [
+            { "type": "feat", "text": "Packing Plan has a Tables view: every table of an assembly station gets its own row, with what is on it and when it is free. Pick one assembly or all with the buttons above the board." },
+            { "type": "improvement", "text": "The board fits the 09:00 to 17:00 day on the screen, jobs at the same time no longer cover each other, and the waiting job cards sit beside the board with search, sort, pack date and hours needed." },
+            { "type": "feat", "text": "Drag a waiting job card onto a table, or click an empty time, to plan it there. Part-planned job cards stay on the waiting list with the quantity left." },
+            { "type": "improvement", "text": "The plan form shows the job and the tables side by side, can pick all free tables at once, and warns how many packed pieces go when a plan is deleted." },
+            { "type": "fix", "text": "The waiting count is now the real number of job cards (it stopped at 40), and jobs saved with a start outside the shift are listed so they can be corrected." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.195.1",
+      "date": "2026-11-24",
+      "title": "Packing plan times stay right between servers",
+      "modules": [
+        {
+          "app": "packing",
+          "changes": [
+            { "type": "fix", "text": "A packing job planned for 09:00 no longer shows as 03:30 on the other server. Plan start, end and finish times now sync exactly as they were entered." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.195.0",
+      "date": "2026-11-23",
+      "title": "FPA Reject History: Export to Excel",
+      "modules": [
+        {
+          "app": "quality",
+          "changes": [
+            { "type": "feat", "text": "Reject History on the FPA page has an Export Excel button. It downloads the rejects shown on screen (your dates, shift, machine and search) with reason, rejected by, submitted by and status." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.194.0",
+      "date": "2026-11-23",
+      "title": "FPA: reject history, search and date range",
+      "modules": [
+        {
+          "app": "quality",
+          "changes": [
+            { "type": "feat", "text": "Each FPA now keeps its full history: every upload, re-upload, reject and approval with the person, time and remark. Old reject reasons stay visible after QC re-uploads." },
+            { "type": "feat", "text": "New Reject History tab on the FPA page lists every FPA reject with its reason, who rejected it, who submitted it and its status now." },
+            { "type": "feat", "text": "FPA page has a search box (machine, job card, item, mould, person or remark) and From / To dates with Today, Last 7 days and This month buttons." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.193.2",
+      "date": "2026-11-23",
+      "title": "NPD Tracker: QC uploads trial reports and images",
+      "modules": [
+        {
+          "app": "npd",
+          "changes": [
+            { "type": "improvement", "text": "Trial reports and product images after trial are now uploaded (and removed) by QC instead of PPC." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.193.1",
+      "date": "2026-11-23",
+      "title": "NPD Tracker: post card stages move to W/H & Dispatch",
+      "modules": [
+        {
+          "app": "npd",
+          "changes": [
+            { "type": "improvement", "text": "\"Final post card follow up & receiving by Planning\" and \"Posting post card in new product launch group\" are now updated by W/H & Dispatch (Dispatch Manager) instead of Planning." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.193.0",
+      "date": "2026-11-23",
+      "title": "NPD Tracker: factory switch and Pending",
+      "modules": [
+        {
+          "app": "npd",
+          "changes": [
+            { "type": "feat", "text": "NPD Tracker shows only the products of your factory. If you have more than one factory, a factory switch next to the filters picks one factory or All, and All lists the products factory wise." },
+            { "type": "feat", "text": "New Pending button lists the products that have no status yet." },
+            { "type": "improvement", "text": "Pilot run & drop test is now set once per product, and QC HOD and Quality Ass. Manager can change it." },
+            { "type": "improvement", "text": "Admin can now delete NPD products and child moulds." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.192.0",
+      "date": "2026-11-20",
+      "title": "Table scanners on the scanning page",
+      "modules": [
+        {
+          "app": "packing",
+          "changes": [
+            { "type": "feat", "text": "Production Line Scanning now shows scans from the table scanners (ESP32) live in the station's log, with the table number, OK with the new count, or WRONG with the reason." },
+            { "type": "improvement", "text": "Each station card shows which tables its plan runs on." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.191.0",
+      "date": "2026-11-19",
+      "title": "Packing day close and lost time",
+      "modules": [
+        {
+          "app": "packing",
+          "changes": [
+            { "type": "feat", "text": "Close each station's day from the Packing Plan (Close day button, or the tag under the station name). It shows each plan's day quantity against what was packed, and every stop of more than 10 minutes with no good scan." },
+            { "type": "feat", "text": "Every short plan and every stoppage needs a reason (No moulded stock, No packing material, Short crew, Scanner / power, Quality hold, Plan too high, or Other with a note). What is left stays on the station's jobs list; nothing is carried forward." },
+            { "type": "feat", "text": "A closed day can be reopened only with a supervisor PIN and a reason. The live screen lists earlier days that were not closed." },
+            { "type": "feat", "text": "New Lost time report: plan vs packed per station and day, minutes lost and pieces short by reason, with Excel export. The reasons list is edited in Packing Masters." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.190.0",
+      "date": "2026-11-19",
+      "title": "Packing crew and output per packer",
+      "modules": [
+        {
+          "app": "packing",
+          "changes": [
+            { "type": "feat", "text": "Packing Masters has a Packers list (name, badge no, contractor), with Excel import." },
+            { "type": "feat", "text": "Put packers on stations each day with the new Crew button on the Packing Plan or on a station screen. Move or take them off during the day; each move keeps its time. Same as yesterday copies the last day's crew." },
+            { "type": "feat", "text": "The live screen and station screen show how many packers are on each station against the standard, and the standard speed is worked out for the people actually there." },
+            { "type": "feat", "text": "New Packers report: each packer's hours on station, their share of the station's pieces and their output against the standard, with Excel export." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.189.0",
+      "date": "2026-11-19",
+      "title": "Packing live screen",
+      "modules": [
+        {
+          "app": "packing",
+          "changes": [
+            { "type": "feat", "text": "New Packing Live screen for the floor TV: packed today, what you will reach by 17:00 at the current speed, stations running, cartons waiting for the store and today's dispatch. It refreshes every 30 seconds." },
+            { "type": "feat", "text": "One tile per station shows Running, Idle (no good scan for over 10 minutes), Locked, Not started or No plan, with the job, packed against plan, finish time in shift hours, speed against standard and the persons it needs." },
+            { "type": "feat", "text": "A Needs action list shows locked and idle stations, cartons not handed to the store after 24 hours and stock in the store too long. TV mode hides the menu and makes the text bigger." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.188.1",
+      "date": "2026-11-19",
+      "title": "Packing tables safety fix",
+      "modules": [
+        {
+          "app": "packing",
+          "changes": [
+            { "type": "security", "text": "Saving a station's table list reads at most 60 tables, however long the list sent." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.188.0",
+      "date": "2026-11-19",
+      "title": "Order Tracker: packing to dispatch",
+      "modules": [
+        {
+          "app": "planning",
+          "changes": [
+            { "type": "feat", "text": "Order Tracker shows each order's journey after moulding: packed, reached the store, and dispatched, with the dates, packing plans, handover slips and dispatch slips (vehicle and invoice)." },
+            { "type": "feat", "text": "When an order is tracked by packing scans, it counts as complete only once the full quantity is dispatched. Moulded but not yet dispatched orders stay in the open list." },
+            { "type": "feat", "text": "Order Tracker flags stuck goods: moulded but not packed for more than 2 shift days, packed but not handed to the store after 24 hours, and in store too long without dispatch." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.187.1",
+      "date": "2026-11-19",
+      "title": "Dispatch rules and slip fixes",
+      "modules": [
+        {
+          "app": "packing",
+          "changes": [
+            { "type": "improvement", "text": "A dispatch slip can only be closed once its invoice / DC number is entered." },
+            { "type": "improvement", "text": "Another party's carton is still refused on a dispatch slip, but a supervisor PIN and a reason let it go once. The printed slip shows who allowed it and why." },
+            { "type": "improvement", "text": "Handover and dispatch: click another person's open slip to work on it, and a reopened slip opens straight away." },
+            { "type": "fix", "text": "Two people scanning on the same slip, undoing or voiding a label at the same time can no longer leave counts or label states wrong." },
+            { "type": "fix", "text": "Packed Stock and Dispatch reports on a factory server use that factory, and opening stock rows quickly no longer shows the wrong row's details." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.187.0",
+      "date": "2026-11-19",
+      "title": "Packing station tables",
+      "modules": [
+        {
+          "app": "packing",
+          "changes": [
+            { "type": "feat", "text": "Every packing station now has its tables (A1-A13, B1-B14, C1-C13, D1-D13, DC1-DC7, E1-E3, F1, SF1-SF15). A plan stays on its station and can run on one or more tables." },
+            { "type": "feat", "text": "Planning a job: pick a station to see all its open job cards with total, already planned and balance. Pick the tables and the day qty fills itself: what those tables can pack until 17:00, up to the balance. More tables pack faster." },
+            { "type": "feat", "text": "A table already busy at that time is shown, and you are asked before using it." },
+            { "type": "feat", "text": "Packing Settings lists every table station-wise. Give a table its own scanner, name, persons and a note; its scans count on the plan of that station running on the table. One scanner can be on one table only." },
+            { "type": "improvement", "text": "Packing Masters shows each station's tables and lets you change the list (for example A1-A13)." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.186.0",
+      "date": "2026-11-19",
+      "title": "Packed stock and dispatch",
+      "modules": [
+        {
+          "app": "packing",
+          "changes": [
+            { "type": "feat", "text": "New Packed Stock page: everything the store has received and not yet dispatched, by item and party, with job cards and carton labels inside each row. Stock older than 30 days is flagged (change the days in Packing Masters > Stations)." },
+            { "type": "feat", "text": "New Dispatch page: pick the party and vehicle, scan cartons out, then close and print the dispatch slip with signature lines for store and driver." },
+            { "type": "feat", "text": "A dispatch scan is refused when the carton is not yet received by the store, already dispatched, voided, or belongs to another party." },
+            { "type": "improvement", "text": "Packing can no longer void a label the store has received or dispatched, and a handover scan cannot be undone once that carton is dispatched." },
+            { "type": "feat", "text": "Packing Reports has Packed stock and Dispatch tabs, with Excel export." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.185.0",
+      "date": "2026-11-19",
+      "title": "Packing day shift",
+      "modules": [
+        {
+          "app": "packing",
+          "changes": [
+            { "type": "improvement", "text": "Packing works one day shift, 09:00 to 17:00. The Packing Plan board shows those hours, and a job that does not fit today carries on at 09:00 the next day." },
+            { "type": "improvement", "text": "A plan's end time counts only shift hours. A start before 09:00 or after 17:00 moves to the next shift start, and the form says so." },
+            { "type": "fix", "text": "Plan end times are saved in factory time. Before, they were saved 5.5 hours early." },
+            { "type": "improvement", "text": "Station Scanning and the board show the expected finish within shift hours, for example 'tomorrow 10:30'. Hours outside the shift appear on the board, greyed as OT, only when a plan runs in them." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.184.0",
+      "date": "2026-11-19",
+      "title": "Store handover",
+      "modules": [
+        {
+          "app": "packing",
+          "changes": [
+            { "type": "feat", "text": "New Store Handover page: the store opens a slip, scans each carton label as it takes it from packing, then closes the slip and prints it with signature lines for packing and store." },
+            { "type": "feat", "text": "A scan is refused when the label is unknown, voided, already on a slip, or is a box that belongs in a carton. Items without a carton size are received as loose boxes." },
+            { "type": "feat", "text": "The store can reject a carton with a reason. It stays on packing's waiting list until it is fixed and scanned again. A closed slip can only be reopened with a supervisor PIN and a reason." },
+            { "type": "feat", "text": "The page lists what is waiting at packing by station, marking anything older than 24 hours. Station Scanning shows the cartons waiting for the store, and Packing Reports has a Store handover tab." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.183.0",
+      "date": "2026-11-19",
+      "title": "Box and carton labels",
+      "modules": [
+        {
+          "app": "packing",
+          "changes": [
+            { "type": "feat", "text": "Station Scanning shows the box and carton being filled. When a box fills (pcs per box from Packing Masters) its label prints, and when a carton's boxes are done the carton label prints. Each label has its own barcode." },
+            { "type": "feat", "text": "Reprint any label with a reason, void a wrong box or carton, and close the last part box and carton at the end of a job (Finish job does this too). The Box list shows every box of the job." },
+            { "type": "feat", "text": "Packing Masters: each station can print labels by itself or wait for a Print button. Packing Reports: new Boxes and labels tab, and boxes, cartons and pieces not in a box on the Jobs tab." },
+            { "type": "improvement", "text": "A job already packed before labels began starts its boxes from the next piece, so no old labels are printed for it." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.182.1",
+      "date": "2026-11-19",
+      "title": "Packing reports fixes",
+      "modules": [
+        {
+          "app": "packing",
+          "changes": [
+            { "type": "fix", "text": "Packing Reports: a job's working time now counts pauses for the whole station, so switching between two jobs no longer shows as idle time." },
+            { "type": "fix", "text": "Packing Reports: switching tabs quickly always shows the tab you picked; hours with only a few pieces no longer drop out of the Hourly view; lock totals follow the party filter." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.182.0",
+      "date": "2026-11-19",
+      "title": "Packing reports",
+      "modules": [
+        {
+          "app": "packing",
+          "changes": [
+            { "type": "feat", "text": "New Packing Reports page (Packing menu, also linked from Reports) with date, station and party filters and Excel export." },
+            { "type": "feat", "text": "Daily summary per station: planned, packed, first to last scan, working time, idle time (pauses over 10 minutes), pieces per hour against the standard, efficiency and wrong scans." },
+            { "type": "feat", "text": "Jobs report: plan vs packed per packing plan with standard and actual time, flags for over-packed (above 110%) and short jobs. Job cards report: JR qty vs packed and balance." },
+            { "type": "feat", "text": "Hourly output per station with slow hours shaded, and a wrong scans list showing the station lock, who unlocked it and how long it was locked." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.181.0",
+      "date": "2026-11-19",
+      "title": "New packing board and station scanning screen",
+      "modules": [
+        {
+          "app": "packing",
+          "changes": [
+            { "type": "feat", "text": "Packing Plan board: one row per station with its persons and scanner, each job showing packed / plan, live rate against the standard, finish time and a progress strip. Colours show Running, Planned, Behind plan and Done, with totals for the day on top." },
+            { "type": "feat", "text": "Job cards waiting to pack are listed under the board. Click one to plan it, or drag it onto a station at the time it should start." },
+            { "type": "feat", "text": "New Station Scanning screen: each PC or tablet remembers its station and shows a big counter, rate now against the standard, boxes done, finish time, last scans and the next jobs, with Start and Finish job buttons." },
+            { "type": "feat", "text": "When the plan qty is reached the screen says so and keeps counting extra pieces." },
+            { "type": "feat", "text": "Wrong barcode: once a supervisor PIN is set in Packing Settings, the station locks and only a supervisor PIN unlocks it. Without a PIN the operator presses Resume as before." },
+            { "type": "improvement", "text": "Starting a job finishes the station's old running job if its qty is packed, otherwise puts it back to Planned. Plans older than 14 days no longer count as active for scanners." },
+            { "type": "improvement", "text": "A packing plan can no longer start more than 7 days back or more than a year ahead." },
+            { "type": "improvement", "text": "Packing Masters: a station can take over an old table's scanner with one click." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.180.0",
+      "date": "2026-11-18",
+      "title": "Packing plan fills itself from the job card",
+      "modules": [
+        {
+          "app": "packing",
+          "changes": [
+            { "type": "feat", "text": "New packing plan: type the job card number and press Fetch. Item, party, qty (job card balance), EAN, station, cycle time, persons and duration fill in, each marked with where it came from." },
+            { "type": "feat", "text": "Duration is qty x cycle seconds per piece and updates as you change qty, station or cycle time. The end time and pieces per hour show below." },
+            { "type": "feat", "text": "EAN comes from Packing Masters, else the ERP Variant Master barcode, else the EAN used last time for the same item and party." },
+            { "type": "improvement", "text": "The planning board now shows your packing stations from Packing Masters. Old tables that still have plans stay on the board." },
+            { "type": "feat", "text": "Packing Masters has a Fill EAN from ERP button that copies ERP barcodes into empty EANs (main server)." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.179.0",
+      "date": "2026-11-18",
+      "title": "Packing Masters: stations and item packing standard",
+      "modules": [
+        {
+          "app": "packing",
+          "changes": [
+            { "type": "feat", "text": "New Packing > Packing Masters page. Stations tab lists every packing station with its items, average cycle time, persons and scanner." },
+            { "type": "feat", "text": "Item packing standard: per item and party group, the station, cycle time (seconds per piece for the whole station), persons, pieces per hour, EAN, pcs per box, boxes per carton and carton type." },
+            { "type": "feat", "text": "Import the StoreMachineOutPut Excel. You see a preview first (new, updated, skipped and rows to check) and nothing is saved until you press Import. Rows you edited on the page are kept." },
+            { "type": "feat", "text": "Tiles and filters show what is ready, what has no station, what needs checking and what has no EAN. Export to Excel any time." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.178.1",
       "date": "2026-11-12",

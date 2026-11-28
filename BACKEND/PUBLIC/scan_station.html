@@ -1,0 +1,633 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JMS OCEAN - Station Scanning</title>
+    <link rel="stylesheet" href="/assets/app.css?v=12">
+    <link rel="stylesheet" href="/assets/bootstrap-icons.min.css">
+    <style>
+        [hidden] { display: none !important; }
+        .ss-top { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+        .ss-chip { display: inline-flex; align-items: center; gap: 6px; font-size: .8rem; font-weight: 600; padding: 3px 10px; border-radius: 999px; border: 1px solid #cbd5e1; color: #334155; background: #fff; }
+        .ss-chip.run { background: #ecfdf5; border-color: #6ee7b7; color: #065f46; }
+        .ss-chip.plan { background: #f8fafc; }
+        .ss-crew { cursor: pointer; min-height: 30px; }
+        .ss-crew.short { background: #fffbeb; border-color: #fcd34d; color: #92400e; }
+        .ss-chip.off { background: #fef2f2; border-color: #fecaca; color: #991b1b; }
+        .ss-chip.on { background: #ecfdf5; border-color: #6ee7b7; color: #065f46; }
+        .ss-main { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(280px, 1fr); gap: 16px; }
+        .ss-card { background: #fff; border: 1px solid #e2e8f0; border-radius: 14px; padding: 18px 20px; }
+        .ss-item { font-size: 1.6rem; font-weight: 700; color: #0f172a; line-height: 1.25; }
+        .ss-meta { font-size: .9rem; color: #64748b; margin-top: 4px; }
+        .ss-meta b { color: #334155; font-weight: 600; }
+        .ss-count { display: flex; align-items: baseline; gap: 12px; margin: 18px 0 8px; flex-wrap: wrap; }
+        .ss-count .big { font-size: clamp(3.5rem, 9vw, 6.5rem); font-weight: 800; line-height: 1; color: #0f172a; font-variant-numeric: tabular-nums; }
+        .ss-count .of { font-size: 1.8rem; color: #64748b; font-weight: 600; font-variant-numeric: tabular-nums; }
+        .ss-progress { height: 14px; background: #e2e8f0; border-radius: 8px; overflow: hidden; }
+        .ss-progress i { display: block; height: 100%; background: #059669; transition: width .3s; }
+        .ss-tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 16px; }
+        .ss-tile { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 10px 12px; }
+        .ss-tile small { display: block; font-size: .76rem; color: #64748b; font-weight: 600; }
+        .ss-tile b { display: block; font-size: 1.5rem; color: #0f172a; font-variant-numeric: tabular-nums; }
+        .ss-tile span { font-size: .76rem; color: #64748b; }
+        .ss-tile.good b { color: #047857; } .ss-tile.slow b { color: #b45309; }
+        .ss-reached { margin-top: 14px; padding: 12px 14px; border-radius: 10px; background: #fffbeb; border: 1px solid #fcd34d; color: #92400e; font-weight: 600; }
+        .ss-scanbox { display: flex; gap: 8px; margin-top: 16px; }
+        .ss-scanbox input { flex: 1; font-size: 1.1rem; font-family: ui-monospace, monospace; }
+        .ss-h { font-size: .8rem; font-weight: 700; color: #475569; margin: 0 0 8px; }
+        .ss-log { font-family: ui-monospace, monospace; font-size: .86rem; line-height: 1.9; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 6px 10px; min-height: 120px; }
+        .ss-log .ok { color: #047857; } .ss-log .bad { color: #b91c1c; } .ss-log .info { color: #64748b; }
+        .ss-queue { display: flex; flex-direction: column; gap: 8px; }
+        .ss-q { display: flex; align-items: center; gap: 8px; border: 1px solid #e2e8f0; border-radius: 10px; padding: 8px 10px; font-size: .86rem; }
+        .ss-q div { flex: 1; min-width: 0; }
+        .ss-q b { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #1e293b; }
+        .ss-q small { color: #64748b; }
+        .ss-q .btn { padding: 4px 10px; min-height: 32px; font-size: .8rem; }
+        .ss-actions { display: flex; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
+        .ss-actions .btn { flex: 1; min-height: 44px; }
+        .ss-empty { text-align: center; padding: 40px 20px; color: #64748b; }
+        .ss-empty b { display: block; font-size: 1.2rem; color: #1e293b; margin-bottom: 6px; }
+        .ss-pick { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 12px; }
+        .ss-pick button { text-align: left; background: #fff; border: 1px solid #cbd5e1; border-radius: 12px; padding: 14px 16px; cursor: pointer; }
+        .ss-pick button:hover { border-color: #2563eb; background: #f8fafc; }
+        .ss-pick b { display: block; font-size: 1.05rem; color: #0f172a; }
+        .ss-pick small { color: #64748b; }
+        .ss-lock { position: fixed; inset: 0; z-index: 2000; background: rgba(127, 29, 29, .96); color: #fff; display: flex; align-items: center; justify-content: center; padding: 20px; }
+        .ss-lock-box { max-width: 640px; width: 100%; text-align: center; }
+        .ss-lock-box h2 { font-size: clamp(2rem, 6vw, 3.4rem); font-weight: 800; margin: 0 0 10px; color: #fff; }
+        .ss-lock-box p { font-size: 1.1rem; margin: 6px 0; color: #fee2e2; }
+        .ss-lock-box code { background: rgba(0, 0, 0, .3); padding: 2px 8px; border-radius: 6px; color: #fff; font-size: 1.2rem; }
+        .ss-lock-form { display: flex; gap: 10px; justify-content: center; margin-top: 22px; flex-wrap: wrap; }
+        .ss-lock-form input { width: 200px; font-size: 1.4rem; text-align: center; letter-spacing: .3em; }
+        .ss-lock-form .btn { min-height: 48px; padding: 0 22px; font-weight: 700; background: #fff; color: #991b1b; border: 0; }
+        .ss-lock-err { min-height: 1.4em; margin-top: 10px; color: #fecaca; font-weight: 600; }
+        .ss-flash-ok { animation: ssOk .5s; } .ss-flash-bad { animation: ssBad .6s; }
+        @keyframes ssOk { 0% { background: #d1fae5; } 100% { background: #fff; } }
+        @keyframes ssBad { 0% { background: #fee2e2; } 100% { background: #fff; } }
+        .ss-tiles.four { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+        .ss-tile b span { font-size: .9rem; color: #64748b; font-weight: 600; }
+        .ss-mini { height: 6px; background: #e2e8f0; border-radius: 4px; overflow: hidden; margin-top: 6px; }
+        .ss-mini i { display: block; height: 100%; background: #2563eb; }
+        .ss-label { margin-top: 12px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 12px; border-radius: 10px; background: #ecfdf5; border: 1px solid #a7f3d0; color: #065f46; font-weight: 600; font-size: .92rem; }
+        .ss-label.todo { background: #eff6ff; border-color: #bfdbfe; color: #1e40af; }
+        .ss-label span { flex: 1; min-width: 180px; }
+        .ss-label .btn { min-height: 36px; padding: 4px 12px; }
+        .ss-modal { position: fixed; inset: 0; z-index: 1900; background: rgba(15, 23, 42, .55); display: flex; align-items: center; justify-content: center; padding: 16px; }
+        .ss-modal-box { background: #fff; border-radius: 14px; width: min(880px, 100%); max-height: 86vh; display: flex; flex-direction: column; }
+        .ss-modal-head { display: flex; align-items: center; gap: 10px; padding: 14px 18px; border-bottom: 1px solid #e2e8f0; }
+        .ss-modal-head h2 { flex: 1; font-size: 1.1rem; margin: 0; }
+        .ss-modal-body { overflow: auto; padding: 8px 18px 16px; }
+        .ss-boxes { width: 100%; border-collapse: collapse; font-size: .86rem; }
+        .ss-boxes th { text-align: left; font-size: .74rem; color: #475569; padding: 8px 6px; border-bottom: 1px solid #e2e8f0; position: sticky; top: 0; background: #fff; }
+        .ss-boxes td { padding: 7px 6px; border-bottom: 1px solid #f1f5f9; vertical-align: middle; }
+        .ss-boxes td.n { text-align: right; font-variant-numeric: tabular-nums; }
+        .ss-boxes tr.void td { color: #64748b; text-decoration: line-through; }
+        .ss-boxes tr.void td:last-child { text-decoration: none; }
+        .ss-boxes .btn { padding: 2px 8px; min-height: 30px; font-size: .78rem; }
+        .ss-tag { display: inline-block; font-size: .72rem; font-weight: 700; padding: 1px 6px; border-radius: 6px; background: #e0e7ff; color: #3730a3; }
+        .ss-tag.c { background: #fef3c7; color: #92400e; }
+        #ssPrint { display: none; }
+        @media print {
+            @page { size: 100mm 50mm; margin: 0; }
+            body > *:not(#ssPrint) { display: none !important; }
+            #ssPrint { display: block !important; }
+            .lbl { width: 100mm; height: 50mm; box-sizing: border-box; padding: 3mm 4mm; font-family: Arial, sans-serif; color: #000; page-break-after: always; break-after: page; overflow: hidden; }
+            .lbl:last-child { page-break-after: auto; break-after: auto; }
+            .lbl .r { display: flex; justify-content: space-between; gap: 2mm; }
+            .lbl .t { font-size: 12pt; font-weight: 700; line-height: 1.15; max-height: 2.3em; overflow: hidden; }
+            .lbl .k { font-size: 12pt; font-weight: 700; white-space: nowrap; }
+            .lbl .m { font-size: 8.5pt; line-height: 1.3; }
+            .lbl svg { display: block; width: 100%; height: 14mm; margin-top: 1mm; }
+            .lbl .code { text-align: center; font-family: monospace; font-size: 9pt; font-weight: 700; }
+        }
+        @media (max-width: 1100px) { .ss-tiles.four { grid-template-columns: 1fr 1fr; } }
+        @media (prefers-reduced-motion: reduce) { .ss-flash-ok, .ss-flash-bad { animation: none; } .ss-progress i { transition: none; } }
+        @media (max-width: 900px) { .ss-main { grid-template-columns: 1fr; } }
+        @media (max-width: 520px) { .ss-tiles, .ss-tiles.four { grid-template-columns: 1fr 1fr; } .ss-item { font-size: 1.3rem; } }
+    </style>
+</head>
+
+<body>
+    <div class="main-content">
+        <div class="header">
+            <div class="page-title" id="ssTitle">Station scanning</div>
+            <div class="ss-top">
+                <span class="ss-chip" id="ssStatus" hidden></span>
+                <span class="ss-chip" id="ssScanner" hidden></span>
+                <button type="button" class="ss-chip ss-crew" id="ssCrew" hidden onclick="openCrew()"></button>
+                <span class="ss-chip" id="ssClock"></span>
+                <button class="btn btn-sm btn-outline" id="ssChange" onclick="showPicker()" hidden><i class="bi bi-arrow-left-right"></i> Change station</button>
+                <button class="btn btn-sm btn-outline" onclick="toggleFull()"><i class="bi bi-arrows-fullscreen"></i> Full screen</button>
+            </div>
+        </div>
+        <div id="ssBody"><div class="ss-empty">Loading…</div></div>
+    </div>
+
+    <div class="ss-lock" id="ssLock" hidden role="alertdialog" aria-modal="true" aria-labelledby="ssLockTitle">
+        <div class="ss-lock-box">
+            <i class="bi bi-exclamation-octagon" style="font-size:3.5rem" aria-hidden="true"></i>
+            <h2 id="ssLockTitle">Stop — wrong product</h2>
+            <p id="ssLockMsg"></p>
+            <div class="ss-lock-form" id="ssLockPinForm">
+                <input type="password" inputmode="numeric" maxlength="6" id="ssPin" class="form-control" placeholder="PIN" aria-label="Supervisor PIN" autocomplete="off">
+                <button class="btn" onclick="unlock()"><i class="bi bi-unlock"></i> Unlock</button>
+            </div>
+            <div class="ss-lock-form" id="ssLockResume" hidden>
+                <button class="btn" onclick="resumeLocal()"><i class="bi bi-play-fill"></i> Resume</button>
+            </div>
+            <div class="ss-lock-err" id="ssLockErr"></div>
+            <p style="font-size:.9rem" id="ssLockHint">Take the wrong piece out. A supervisor unlocks the station with a PIN.</p>
+        </div>
+    </div>
+
+    <div class="ss-modal" id="ssBoxes" hidden role="dialog" aria-modal="true" aria-labelledby="ssBoxesTitle">
+        <div class="ss-modal-box">
+            <div class="ss-modal-head"><h2 id="ssBoxesTitle">Boxes and cartons</h2><button class="btn btn-outline btn-sm" onclick="closeBoxes()"><i class="bi bi-x-lg"></i> Close</button></div>
+            <div class="ss-modal-body" id="ssBoxesBody"></div>
+        </div>
+    </div>
+    <div id="ssPrint" aria-hidden="true"></div>
+
+    <script src="/assets/vendor/jsdelivr/jsbarcode@3.11.5/JsBarcode.all.min.js"></script>
+    <script src="/assets/app.min.js?v=1583"></script>
+    <script src="/assets/packing-shift.js?v=1"></script>
+    <script src="/assets/packing-crew.js?v=1"></script>
+    <script>
+        const STORE_KEY = 'JMS_SCAN_STATION';
+        const $ = (id) => document.getElementById(id);
+        const esc = (v) => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+        const fmt = (n, d = 0) => Number(n || 0).toLocaleString('en-IN', { maximumFractionDigits: d });
+        const hhmm = (d) => d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: false });
+        const S = { station: null, data: null, log: [], localLock: null, bridge: null, bridgeScanner: null, pagePort: null, reloadTimer: null, busy: false };
+
+        function store(k, v) { try { if (v === undefined) return localStorage.getItem(k); if (v === null) localStorage.removeItem(k); else localStorage.setItem(k, v); } catch (_) { return null; } }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            JPSMS.auth.requireAuth();
+            JPSMS.renderShell('packing');
+            setInterval(() => { $('ssClock').textContent = hhmm(new Date()); }, 1000);
+            $('ssClock').textContent = hhmm(new Date());
+            const fromUrl = new URLSearchParams(location.search).get('station');
+            S.station = fromUrl || store(STORE_KEY);
+            if (S.station) openStation(S.station); else showPicker();
+            connectBridge();
+            connectEvents();
+            setInterval(() => { if (S.station) reload(true); }, 15000);
+            $('ssPin').addEventListener('keydown', e => { if (e.key === 'Enter') unlock(); });
+            /* keyboard-wedge scanners type into the page: keep the scan box focused */
+            document.addEventListener('click', e => {
+                if (!e.target.closest('input, select, textarea, button, a, .ss-modal') && $('ssScan') && $('ssLock').hidden) $('ssScan').focus();
+            });
+        });
+
+        function toggleFull() {
+            if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+            else document.documentElement.requestFullscreen().catch(() => {});
+        }
+
+        /* ---------- sounds ---------- */
+        let audio = null;
+        function beep(ok) {
+            try {
+                audio = audio || new (window.AudioContext || window.webkitAudioContext)();
+                const o = audio.createOscillator(), g = audio.createGain();
+                o.frequency.value = ok ? 1200 : 220; o.type = ok ? 'sine' : 'square';
+                g.gain.value = 0.08; o.connect(g); g.connect(audio.destination);
+                o.start(); o.stop(audio.currentTime + (ok ? 0.08 : 0.6));
+            } catch (_) { /* no sound */ }
+        }
+
+        /* ---------- station picker ---------- */
+        async function showPicker() {
+            $('ssChange').hidden = true; $('ssStatus').hidden = true; $('ssScanner').hidden = true;
+            $('ssTitle').textContent = 'Pick this screen\'s station';
+            let stations = [];
+            try {
+                const res = await JPSMS.api.request('/packing/station-screen', { skipLoader: true });
+                stations = res.data.stations || [];
+            } catch (e) { JPSMS.toast(e.message, 'error'); }
+            $('ssBody').innerHTML = stations.length ? `
+                <p style="color:#64748b;margin:0 0 12px">This PC or tablet remembers the station you pick.</p>
+                <div class="ss-pick">${stations.map((s, i) => `
+                    <button type="button" data-st="${i}"><b>${esc(s.code || s.name)}</b><small>${esc(s.name)}${s.persons ? ' · ' + s.persons + ' persons' : ''}${s.scanner ? ' · scanner set' : ''}</small></button>`).join('')}
+                </div>` : `<div class="ss-empty"><b>No packing stations yet</b>Add them in <a href="packing_masters.html">Packing Masters</a> first.</div>`;
+            $('ssBody').querySelectorAll('[data-st]').forEach(b => b.onclick = () => {
+                const s = stations[Number(b.dataset.st)];
+                store(STORE_KEY, s.name);
+                history.replaceState(null, '', location.pathname);
+                openStation(s.name);
+            });
+        }
+
+        function openStation(name) {
+            S.station = name; S.data = null; S.log = []; S.localLock = null;
+            reload();
+        }
+
+        /* ---------- data ---------- */
+        async function reload(quiet) {
+            if (!S.station) return;
+            try {
+                const res = await JPSMS.api.request('/packing/station-screen?station=' + encodeURIComponent(S.station), { skipLoader: true });
+                S.data = res.data;
+            } catch (e) {
+                if (!quiet) $('ssBody').innerHTML = `<div class="ss-empty"><b>Could not load the station</b>${esc(e.message)}</div>`;
+                return;
+            }
+            render();
+            attachPageScanner();
+            if (S.data.auto_print && S.data.pending_labels > 0) printPending();
+        }
+
+        /* Crew on this station (step 10): "Crew 3 / 4", amber when short. */
+        function renderCrewChip() {
+            const d = S.data, b = $('ssCrew');
+            const crew = d.crew || { n: 0, names: [] };
+            const std = (d.current && d.current.std_persons) || (d.station && d.station.persons) || null;
+            b.hidden = false;
+            b.className = 'ss-chip ss-crew' + (std && crew.n < std && d.crew_in_use ? ' short' : '');
+            b.innerHTML = `<i class="bi bi-people"></i> Crew ${crew.n}${std ? ' / ' + std : ''}`;
+            b.title = crew.names.length ? crew.names.join(', ') : 'No packers recorded on this station. Tap to add.';
+        }
+
+        function openCrew() {
+            if (S.station) PackCrew.open({ station: S.station, onChange: () => reload(true) });
+        }
+
+        function reloadSoon() {
+            clearTimeout(S.reloadTimer);
+            S.reloadTimer = setTimeout(() => reload(true), 800);
+        }
+
+        function render() {
+            const d = S.data;
+            const st = d.station;
+            $('ssTitle').textContent = st.code || st.name;
+            $('ssChange').hidden = false;
+            const c = d.current;
+            const chip = $('ssStatus');
+            chip.hidden = false;
+            chip.className = 'ss-chip ' + (c && c.status === 'RUNNING' ? 'run' : 'plan');
+            chip.textContent = c ? (c.status === 'RUNNING' ? 'Running' : 'Not started') : 'No job';
+            renderScannerChip();
+            renderCrewChip();
+            showLock();
+
+            if (!c) {
+                $('ssBody').innerHTML = `<div class="ss-card ss-empty"><b>No job planned for ${esc(st.code || st.name)}</b>Plan one on the <a href="assembly.html">packing plan board</a>.
+                    ${finishedHtml()}</div>`;
+                return;
+            }
+            const qty = Number(c.plan_qty) || 0, packed = Number(c.scanned_qty) || 0;
+            const pct = qty > 0 ? Math.min(100, packed * 100 / qty) : 0;
+            const left = Math.max(0, qty - packed);
+            let eta = '–', etaNote = '';
+            if (left === 0) { eta = 'Now'; etaNote = 'qty reached'; }
+            else if (c.rate_now > 0) { eta = PackShift.whenText(PackShift.addWork(new Date(), left / c.rate_now * 60)); etaNote = `${fmt(left)} pcs left · day shift ${PackShift.label}`; }
+            else if (c.end_local && new Date(c.end_local) > new Date(c.start_local)) { eta = PackShift.whenText(new Date(c.end_local)); etaNote = 'as planned'; }
+            const rateCls = c.std_pcs_hr ? (c.rate_now >= c.std_pcs_hr * 0.9 ? 'good' : (c.rate_now > 0 ? 'slow' : '')) : '';
+            const bx = d.box;
+            const scans = d.scans.map(s => `<div class="${s.is_match ? 'ok' : 'bad'}">${esc(s.at ? new Date(s.at).toLocaleTimeString('en-IN', { hour12: false }) : '')} ${s.is_match ? '✓' : '✗'} ${esc(s.scanned_ean)}</div>`).join('');
+            const local = S.log.map(l => `<div class="${l.cls}">${esc(l.t)} ${esc(l.msg)}</div>`).join('');
+            $('ssBody').innerHTML = `
+                <div class="ss-main">
+                    <div class="ss-card" id="ssCard">
+                        <div class="ss-item">${esc(c.item_name || 'Plan ' + c.id)}</div>
+                        <div class="ss-meta">${esc(c.client_name || '')}${c.job_card_no ? ' · <b>' + esc(c.job_card_no) + '</b>' : ''} · EAN <b>${esc(c.ean_number || 'not set')}</b></div>
+                        <div class="ss-count"><span class="big" id="ssPacked">${fmt(packed)}</span><span class="of">/ ${fmt(qty)}</span></div>
+                        <div class="ss-progress" role="progressbar" aria-label="Packed" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(pct)}"><i style="width:${pct}%"></i></div>
+                        <div class="ss-tiles${bx && bx.boxes_per_carton ? ' four' : ''}">
+                            <div class="ss-tile ${rateCls}"><small>Rate now</small><b>${fmt(c.rate_now)}/hr</b><span>${c.std_pcs_hr ? 'standard ' + fmt(c.std_pcs_hr) + '/hr' : 'no standard set'}</span></div>
+                            ${boxTiles(bx)}
+                            <div class="ss-tile"><small>Ends at</small><b>${eta}</b><span>${etaNote}</span></div>
+                        </div>
+                        ${labelStrip()}
+                        ${qty > 0 && packed >= qty ? `<div class="ss-reached"><i class="bi bi-flag"></i> Plan qty reached (${fmt(qty)}). Finish the job, or keep packing — extra pieces still count.</div>` : ''}
+                        ${!c.ean_number ? `<div class="ss-reached"><i class="bi bi-exclamation-triangle"></i> This plan has no EAN, so every scan will be wrong. Add the EAN on the packing plan.</div>` : ''}
+                        <div class="ss-scanbox">
+                            <input id="ssScan" class="form-control" placeholder="Scan or type the barcode, then Enter" aria-label="Barcode" autocomplete="off">
+                        </div>
+                    </div>
+                    <div class="ss-card">
+                        ${d.waiting_store ? `<div class="ss-label todo" style="margin:0 0 12px"><i class="bi bi-box-arrow-right"></i><span>Cartons waiting for store: ${fmt(d.waiting_store)}</span></div>` : ''}
+                        <h2 class="ss-h">Last scans · packed today on this station ${fmt(d.packed_today)}</h2>
+                        <div class="ss-log">${local}${scans || '<div class="info">No scans yet for this job.</div>'}</div>
+                        <h2 class="ss-h" style="margin-top:16px">Next on this station</h2>
+                        <div class="ss-queue">${d.queue.length ? d.queue.map(q => `
+                            <div class="ss-q"><div><b>${esc(q.item_name || 'Plan ' + q.id)}</b><small>${fmt(q.plan_qty)} pcs · ${esc(String(q.start_local || '').slice(11, 16))}${q.scanned_qty ? ' · ' + fmt(q.scanned_qty) + ' packed' : ''}</small></div>
+                            <button class="btn btn-outline" onclick="startPlan(${Number(q.id)})">Start</button></div>`).join('') : '<div class="info" style="color:#64748b;font-size:.86rem">Nothing else planned.</div>'}</div>
+                        <div class="ss-actions">
+                            ${c.status !== 'RUNNING' ? `<button class="btn btn-primary" onclick="startPlan(${Number(c.id)})"><i class="bi bi-play-fill"></i> Start this job</button>` : ''}
+                            <button class="btn btn-outline" onclick="finishPlan(${Number(c.id)})"><i class="bi bi-check2-circle"></i> Finish job</button>
+                        </div>
+                        ${bx ? `<div class="ss-actions">
+                            ${bx.in_box > 0 || bx.in_carton > 0 ? `<button class="btn btn-outline" onclick="closeBox(${Number(c.id)})"><i class="bi bi-box-seam"></i> Close last box</button>` : ''}
+                            <button class="btn btn-outline" onclick="openBoxes()"><i class="bi bi-list-ul"></i> Box list</button>
+                        </div>` : ''}
+                        ${finishedHtml()}
+                    </div>
+                </div>`;
+            const input = $('ssScan');
+            input.addEventListener('keydown', e => {
+                if (e.key === 'Enter') { e.preventDefault(); const v = input.value.trim(); input.value = ''; if (v) scan(v); }
+            });
+            if ($('ssLock').hidden && !document.activeElement.closest('.ss-lock')) input.focus();
+        }
+
+        /* ---------- boxes, cartons and labels ---------- */
+        function boxTiles(bx) {
+            if (!bx) return `<div class="ss-tile"><small>Boxes</small><b>–</b><span>pcs per box not in Packing Masters</span></div>`;
+            const boxPct = Math.min(100, bx.in_box * 100 / bx.pcs_per_box);
+            let html = `<div class="ss-tile"><small>Box ${fmt(bx.box_no)}${bx.boxes_planned ? ' of ' + fmt(bx.boxes_planned) : ''}</small><b>${fmt(bx.in_box)} <span>/ ${fmt(bx.pcs_per_box)} pcs</span></b><div class="ss-mini"><i style="width:${boxPct}%"></i></div></div>`;
+            if (bx.boxes_per_carton) {
+                const cPct = Math.min(100, bx.in_carton * 100 / bx.boxes_per_carton);
+                html += `<div class="ss-tile"><small>Carton ${fmt(bx.carton_no)}</small><b>${fmt(bx.in_carton)} <span>/ ${fmt(bx.boxes_per_carton)} boxes</span></b><div class="ss-mini"><i style="width:${cPct}%"></i></div></div>`;
+            }
+            return html;
+        }
+
+        function labelStrip() {
+            const d = S.data;
+            if (!d.auto_print && d.pending_labels > 0) {
+                return `<div class="ss-label todo"><i class="bi bi-printer"></i><span>${fmt(d.pending_labels)} label${d.pending_labels > 1 ? 's' : ''} to print</span><button class="btn btn-primary" onclick="printPending(true)">Print now</button></div>`;
+            }
+            const last = (d.labels || []).find(l => !l.voided);
+            if (!last) return '';
+            const what = last.kind === 'CARTON' ? `Carton ${last.seq_no}` : `Box ${last.seq_no}`;
+            const state = last.printed ? 'label printed' : (d.auto_print ? 'printing…' : 'not printed');
+            return `<div class="ss-label"><i class="bi bi-printer"></i><span>${what} full, ${state} · <code>${esc(last.code)}</code></span><button class="btn btn-outline" onclick="reprint(${Number(last.id)})">Reprint</button></div>`;
+        }
+
+        let printing = false;
+        async function printPending(manual) {
+            if (printing || !S.station) return;
+            printing = true;
+            try {
+                const res = await JPSMS.api.request('/packing/boxes/claim', { method: 'POST', body: JSON.stringify({ station: S.station }), skipLoader: true });
+                if (res.data && res.data.length) {
+                    printLabels(res.data);
+                    addLog(`Printed ${res.data.map(l => l.code).join(', ')}`, 'info');
+                } else if (manual) JPSMS.toast('Nothing left to print', 'info');
+            } catch (e) { if (manual) JPSMS.toast(e.message, 'error'); }
+            finally { printing = false; reloadSoon(); }
+        }
+
+        function labelHtml(l) {
+            const carton = l.kind === 'CARTON';
+            const head = `${esc(l.client_name)}${l.item_code ? ' · Code ' + esc(l.item_code) : ''}`;
+            const lines = carton
+                ? [head, `${esc(l.job_card_no || '-')} · ${fmt(l.box_count)} boxes · ${fmt(l.qty)} pcs${l.is_part ? ' (part)' : ''}`,
+                   `Boxes ${esc(l.box_range || '')}`, `${esc(l.made_at)} · ${esc(l.table_id)}`]
+                : [head, `${esc(l.job_card_no || '-')} · Qty ${fmt(l.qty)} pcs${l.is_part ? ' (part box)' : ''}`,
+                   `${esc(l.made_at)} · ${esc(l.table_id)}${l.carton_code ? ' · in ' + esc(l.carton_code) : ''}`];
+            return `<div class="lbl"><div class="r"><div class="t">${esc(l.item_name)}</div><div class="k">${carton ? 'CARTON' : 'BOX'} ${fmt(l.seq_no)}</div></div>
+                ${lines.map(x => `<div class="m">${x}</div>`).join('')}
+                <svg data-code="${esc(l.code)}"></svg><div class="code">${esc(l.code)}</div></div>`;
+        }
+
+        function printLabels(labels) {
+            const area = $('ssPrint');
+            area.innerHTML = labels.map(labelHtml).join('');
+            area.querySelectorAll('svg[data-code]').forEach(svg => {
+                try { JsBarcode(svg, svg.dataset.code, { format: 'CODE128', displayValue: false, margin: 0, height: 50, width: 2 }); } catch (_) { /* the code text still prints */ }
+            });
+            window.print();
+            if ($('ssScan') && $('ssLock').hidden) $('ssScan').focus();
+        }
+
+        function askReason(what) {
+            const r = prompt(`Reason to ${what}? (for example: label torn, wrong count)`);
+            if (r === null) return null;
+            if (r.trim().length < 3) { JPSMS.toast('Give a reason of a few words.', 'error'); return null; }
+            return r.trim();
+        }
+
+        async function reprint(id) {
+            const reason = askReason('reprint this label');
+            if (!reason) return;
+            try {
+                const res = await JPSMS.api.request(`/packing/boxes/${id}/reprint`, { method: 'POST', body: JSON.stringify({ reason }), skipLoader: true });
+                printLabels([res.data]);
+                addLog(`Reprinted ${res.data.code}`, 'info');
+                if (!$('ssBoxes').hidden) openBoxes();
+            } catch (e) { JPSMS.toast(e.message, 'error'); }
+        }
+
+        async function printOne(id) {
+            try {
+                const res = await JPSMS.api.request(`/packing/boxes/${id}/print`, { method: 'POST', body: '{}', skipLoader: true });
+                printLabels([res.data]);
+                openBoxes(); reloadSoon();
+            } catch (e) { JPSMS.toast(e.message, 'error'); }
+        }
+
+        async function voidBox(id, code) {
+            const reason = askReason(`void ${code}`);
+            if (!reason) return;
+            try {
+                await JPSMS.api.request(`/packing/boxes/${id}/void`, { method: 'POST', body: JSON.stringify({ reason }), skipLoader: true });
+                JPSMS.toast(`${code} voided`, 'success');
+                openBoxes(); reloadSoon();
+            } catch (e) { JPSMS.toast(e.message, 'error'); }
+        }
+
+        async function closeBox(id) {
+            const bx = S.data.box;
+            const parts = [];
+            if (bx.in_box > 0) parts.push(`a part box of ${fmt(bx.in_box)} pcs`);
+            if (bx.boxes_per_carton && (bx.in_carton > 0 || bx.in_box > 0)) parts.push('a part carton');
+            if (!confirm(`Close ${parts.join(' and ')} now? Use this for the last pieces of a job.`)) return;
+            try {
+                const res = await JPSMS.api.request(`/packing/plans/${id}/close-box`, { method: 'POST', body: '{}', skipLoader: true });
+                JPSMS.toast(res.data.length ? `${res.data.length} label${res.data.length > 1 ? 's' : ''} made` : 'Nothing to close', 'success');
+                reload();
+            } catch (e) { JPSMS.toast(e.message, 'error'); }
+        }
+
+        async function openBoxes() {
+            const c = S.data && S.data.current;
+            $('ssBoxes').hidden = false;
+            $('ssBoxesTitle').textContent = c ? `Boxes and cartons · ${c.item_name || 'Plan ' + c.id}` : 'Boxes and cartons';
+            $('ssBoxesBody').innerHTML = '<p style="color:#64748b">Loading…</p>';
+            try {
+                const q = c ? 'plan_id=' + Number(c.id) : 'station=' + encodeURIComponent(S.station);
+                const res = await JPSMS.api.request('/packing/boxes?' + q, { skipLoader: true });
+                const rows = res.data || [];
+                $('ssBoxesBody').innerHTML = rows.length ? `<table class="ss-boxes"><thead><tr><th>Label</th><th>Code</th><th>Pcs</th><th>In carton</th><th>Made</th><th>Printed</th><th></th></tr></thead><tbody>
+                    ${rows.map(b => `<tr class="${b.voided ? 'void' : ''}">
+                        <td><span class="ss-tag ${b.kind === 'CARTON' ? 'c' : ''}">${b.kind === 'CARTON' ? 'Carton' : 'Box'} ${fmt(b.seq_no)}</span>${b.is_part ? ' <small>part</small>' : ''}</td>
+                        <td><code>${esc(b.code)}</code></td>
+                        <td class="n">${fmt(b.qty)}${b.kind === 'CARTON' ? ` <small>(${fmt(b.box_count)} boxes)</small>` : ''}</td>
+                        <td>${esc(b.carton_code || '')}</td>
+                        <td>${esc(b.made_at)}</td>
+                        <td>${b.voided ? 'voided: ' + esc(b.void_reason || '') : (b.printed ? 'yes' + (b.reprint_count ? ` · ${b.reprint_count} reprint${b.reprint_count > 1 ? 's' : ''}` : '') : 'no')}</td>
+                        <td style="white-space:nowrap">${b.voided ? '' : `${b.printed ? `<button class="btn btn-outline" onclick="reprint(${Number(b.id)})">Reprint</button>` : `<button class="btn btn-outline" onclick="printOne(${Number(b.id)})">Print</button>`}
+                            ${b.kind === 'CARTON' || !b.carton_code ? `<button class="btn btn-outline" onclick="voidBox(${Number(b.id)}, '${esc(b.code)}')">Void</button>` : ''}`}</td>
+                    </tr>`).join('')}</tbody></table>
+                    <p style="color:#64748b;font-size:.82rem;margin-top:10px">Voiding a box puts its pieces back to loose, and the next scans fill a new box with a new number. To void a box that is in a carton, void the carton first.</p>`
+                    : '<p style="color:#64748b">No boxes yet for this job.</p>';
+            } catch (e) { $('ssBoxesBody').innerHTML = `<p style="color:#b91c1c">${esc(e.message)}</p>`; }
+        }
+        function closeBoxes() { $('ssBoxes').hidden = true; if ($('ssScan')) $('ssScan').focus(); }
+
+        function finishedHtml() {
+            const f = (S.data && S.data.finished_today) || [];
+            if (!f.length) return '';
+            return `<h2 class="ss-h" style="margin-top:16px">Done today</h2><div class="ss-log">${f.map(x => `<div class="info">${esc(String(x.finished_local || '').slice(11, 16))} ${esc(x.item_name)} · ${fmt(x.scanned_qty)}/${fmt(x.plan_qty)}</div>`).join('')}</div>`;
+        }
+
+        function addLog(msg, cls) {
+            S.log.unshift({ t: hhmm(new Date()), msg, cls });
+            S.log = S.log.slice(0, 4);
+        }
+
+        function flash(ok) {
+            const card = $('ssCard'); if (!card) return;
+            card.classList.remove('ss-flash-ok', 'ss-flash-bad'); void card.offsetWidth;
+            card.classList.add(ok ? 'ss-flash-ok' : 'ss-flash-bad');
+        }
+
+        /* ---------- scanning ---------- */
+        async function scan(ean) {
+            const c = S.data && S.data.current;
+            if (!c) { addLog('No job to count against', 'bad'); beep(false); render(); return; }
+            if (S.localLock || (S.data && S.data.lock)) { beep(false); return; }
+            try {
+                const res = await JPSMS.api.request('/assembly/scan', { method: 'POST', body: JSON.stringify({ plan_id: c.id, ean }), skipLoader: true });
+                afterScan(res, ean);
+            } catch (e) {
+                addLog('Not counted: ' + e.message, 'bad'); beep(false); render();
+            }
+        }
+
+        function afterScan(res, ean) {
+            const c = S.data && S.data.current;
+            if (res.locked) { beep(false); reload(true); return; }
+            if (!res.ok) { addLog(`${ean}: ${res.error || 'not counted'}`, 'bad'); beep(false); render(); return; }
+            if (res.match) {
+                beep(true);
+                if (c && res.new_qty != null) c.scanned_qty = res.new_qty;
+                const el = $('ssPacked'); if (el && res.new_qty != null) el.textContent = fmt(res.new_qty);
+                flash(true);
+                if (c && res.new_qty != null && Number(c.plan_qty) > 0 && res.new_qty === Number(c.plan_qty)) { addLog('Plan qty reached', 'info'); render(); }
+                reloadSoon();
+            } else {
+                beep(false); flash(false);
+                addLog(`${ean} ✗ expected ${c ? c.ean_number : ''}`, 'bad');
+                if (S.data.pins_enabled) reload(true);
+                else { S.localLock = { scanned: ean, expected: c ? c.ean_number : '' }; showLock(); }
+            }
+        }
+
+        async function startPlan(id) {
+            try {
+                await JPSMS.api.post(`/packing/plans/${id}/start`, {});
+                JPSMS.toast('Job started', 'success');
+                reload();
+            } catch (e) { JPSMS.toast(e.message, 'error'); }
+        }
+
+        async function finishPlan(id) {
+            const c = S.data.current;
+            const short = c && Number(c.plan_qty) > 0 && Number(c.scanned_qty) < Number(c.plan_qty);
+            const bx = S.data.box;
+            const loose = bx && (bx.in_box > 0 || bx.in_carton > 0) ? ' The last part box and carton will be closed and labelled.' : '';
+            if (!confirm((short ? `Only ${fmt(c.scanned_qty)} of ${fmt(c.plan_qty)} packed. Finish this job anyway?` : 'Finish this job?') + loose)) return;
+            try {
+                await JPSMS.api.post(`/packing/plans/${id}/finish`, {});
+                JPSMS.toast('Job finished', 'success');
+                reload();
+            } catch (e) { JPSMS.toast(e.message, 'error'); }
+        }
+
+        /* ---------- wrong-barcode lock ---------- */
+        function showLock() {
+            const lock = (S.data && S.data.lock) || null;
+            const local = S.localLock;
+            const box = $('ssLock');
+            if (!lock && !local) { box.hidden = true; return; }
+            const l = lock ? { scanned: lock.scanned_ean, expected: lock.expected_ean } : local;
+            $('ssLockMsg').innerHTML = `Scanned <code>${esc(l.scanned)}</code><br>expected <code>${esc(l.expected || 'no EAN on the plan')}</code>`;
+            $('ssLockPinForm').hidden = !lock;
+            $('ssLockResume').hidden = !!lock;
+            $('ssLockHint').textContent = lock ? 'Take the wrong piece out. A supervisor unlocks the station with a PIN.' : 'Take the wrong piece out, then resume.';
+            if (box.hidden) { box.hidden = false; $('ssLockErr').textContent = ''; $('ssPin').value = ''; setTimeout(() => (lock ? $('ssPin') : $('ssLockResume').querySelector('button')).focus(), 30); }
+        }
+
+        async function unlock() {
+            const pin = $('ssPin').value.trim();
+            if (!/^\d{4,6}$/.test(pin)) { $('ssLockErr').textContent = 'Enter the 4 to 6 digit PIN.'; return; }
+            try {
+                const res = await JPSMS.api.request('/packing/unlock', { method: 'POST', body: JSON.stringify({ station: S.station, pin }), skipLoader: true });
+                $('ssLock').hidden = true;
+                addLog('Unlocked by ' + (res.unlocked_by || 'supervisor'), 'info');
+                reload();
+            } catch (e) {
+                $('ssLockErr').textContent = e.message || 'Wrong PIN.';
+                $('ssPin').value = ''; $('ssPin').focus();
+            }
+        }
+
+        function resumeLocal() { S.localLock = null; $('ssLock').hidden = true; render(); }
+
+        /* ---------- live updates: server events ---------- */
+        function connectEvents() {
+            try {
+                const es = new EventSource('/api/assembly/events');
+                es.onmessage = (e) => {
+                    let msg; try { msg = JSON.parse(e.data); } catch (_) { return; }
+                    const d = msg.data || {};
+                    if (!S.station || String(d.table_id || '').toLowerCase() !== S.station.toLowerCase()) return;
+                    if (msg.type === 'scan' || msg.type === 'alert' || msg.type === 'box') reloadSoon();
+                };
+            } catch (_) { /* polling covers it */ }
+        }
+
+        /* ---------- scanner bridge (CLIENT_BRIDGE on this PC, port 8999) ---------- */
+        function connectBridge() {
+            let ws;
+            try { ws = new WebSocket('ws://localhost:8999'); } catch (_) { return; }
+            ws.onopen = () => { S.bridge = ws; renderScannerChip(); attachPageScanner(); };
+            ws.onclose = () => { S.bridge = null; S.bridgeScanner = null; S.pagePort = null; renderScannerChip(); setTimeout(connectBridge, 10000); };
+            ws.onerror = () => {};
+            ws.onmessage = (event) => {
+                let msg; try { msg = JSON.parse(event.data); } catch (_) { return; }
+                const mine = S.station && String(msg.table_id || '').toLowerCase() === S.station.toLowerCase();
+                if (msg.type === 'scanner-status' && mine) { S.bridgeScanner = msg.connected ? (msg.path || 'connected') : null; renderScannerChip(); }
+                else if (msg.type === 'scan-result' && (mine || (S.station && String(msg.table_id || '').toLowerCase().startsWith(S.station.toLowerCase() + '/')))) {
+                    /* the bridge already posted this scan for its IP scanner: only show it */
+                    afterScan({ ok: msg.ok, match: msg.match, new_qty: msg.new_qty, error: msg.error, locked: /LOCKED/i.test(msg.error || '') }, msg.ean);
+                } else if (msg.type === 'data' && S.pagePort && msg.path === S.pagePort) {
+                    scan(String(msg.data || '').trim());
+                }
+            };
+        }
+
+        /* A COM-port scanner set on the station is opened by this page through the bridge. */
+        function attachPageScanner() {
+            const cfg = String((S.data && S.data.scanner) || '').trim();
+            if (!S.bridge || !cfg) return;
+            const m = cfg.match(/^(?:BRIDGE:)?(COM\d+)/i);
+            if (!m || S.pagePort === m[1]) return;
+            S.pagePort = m[1];
+            S.bridge.send(JSON.stringify({ action: 'open', path: m[1], baudRate: 9600, dataBits: 8, stopBits: 1, parity: 'none' }));
+            renderScannerChip();
+        }
+
+        function renderScannerChip() {
+            const chip = $('ssScanner');
+            if (!S.data) { chip.hidden = true; return; }
+            chip.hidden = false;
+            const cfg = String(S.data.scanner || '');
+            if (S.bridgeScanner) { chip.className = 'ss-chip on'; chip.innerHTML = '<i class="bi bi-upc-scan"></i> Scanner connected'; }
+            else if (S.pagePort) { chip.className = 'ss-chip on'; chip.innerHTML = `<i class="bi bi-usb-symbol"></i> ${esc(S.pagePort)}`; }
+            else if (cfg && S.bridge) { chip.className = 'ss-chip off'; chip.innerHTML = '<i class="bi bi-upc-scan"></i> Scanner not connected'; }
+            else if (cfg) { chip.className = 'ss-chip off'; chip.innerHTML = '<i class="bi bi-plug"></i> Bridge not running'; chip.title = 'Scanner bridge not running on this PC. USB scanners that type into the box still work.'; }
+            else { chip.className = 'ss-chip'; chip.innerHTML = '<i class="bi bi-keyboard"></i> USB / typed scans'; }
+        }
+    </script>
+</body>
+
+</html>

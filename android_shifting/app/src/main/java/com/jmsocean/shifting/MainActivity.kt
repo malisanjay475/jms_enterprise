@@ -53,6 +53,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.jmsocean.shifting.data.FactoryServer
 import com.jmsocean.shifting.data.remote.Network
 import com.jmsocean.shifting.ui.jobs.JobDetailScreen
 import com.jmsocean.shifting.ui.jobs.JobsScreen
@@ -164,6 +165,10 @@ fun ShiftingRoot() {
                             if (app.session.line.isNotBlank()) append(" · Line ${app.session.line}")
                         },
                         fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        FactoryServer.current.label,
+                        fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
                 HorizontalDivider()

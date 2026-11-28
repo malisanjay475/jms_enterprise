@@ -4,6 +4,18 @@ const os = require('os');
 const express = require('express');
 const { stripMachinePrefix, dedupePlansById } = require('../utils/machineName');
 const { countChanges } = require('../modules/dpr/changeCounts');
+const {
+  assertPlanCreator,
+  assertMachinesInFactory,
+  planVisibleToFactorySql,
+  healPlansWithoutFactory,
+  ensurePlanFactoryGuard,
+  planFactoryScope,
+  findPlanByCode
+} = require('../modules/planning/planFactory');
+const { withTransactionDeadlockRetry } = require('../utils/deadlockRetry');
+const planTransfer = require('../modules/planning/planTransfer');
+const { deriveSummaryRowsFromDetails } = require('../modules/planning/summaryFromDetails');
 const multer = require('multer');
 const upload = multer({
   dest: 'uploads/',
@@ -123,6 +135,7 @@ const {
   getWriteFactoryHeaderState,
   normalizeFactoryId
 } = require('../app/requestContext');
+const { NO_FACTORY_MESSAGE, resolveSaveFactory } = require('../app/saveFactory');
 const { createRealJcIndex, addRealJcRow, isSupersededBlankJc } = require('../utils/orJrBlankJc');
 const registerHrPerformanceRoutes = require('../modules/hrPerformance/registerHrPerformanceRoutes');
 const registerInterviewPanelRoutes = require('../modules/interviewPanel/registerInterviewPanelRoutes');
@@ -1171,6 +1184,8 @@ const uploadsProxyCache = require('../app/uploadsProxyCache');
 const authSessions = require('../app/auth');
 const { ensureUniqueIndex } = require('../db/indexUtils');
 const { validateDprQuantities } = require('../app/dprValidation');
+const { dprSlotKey, withDprSlotLock } = require('../app/dprSlotLock');
+const { isMissingFileRequest } = require('../app/spaFallback');
 // Cache rules shared with express.static below (staticCachePolicy.js): our own JS/CSS
 // revalidate on every load (304 when unchanged); vendor libs are cached for a year.
 app.use(createPrecompressedStatic(PUBLIC_DIR, (req) => cacheControlForAsset(req.path)));
@@ -4183,6 +4198,9 @@ async function syncOrderCompletionConfirmations(db = pool, { factoryId = null, a
           ]
         );
       } else {
+        // Write only on a real change. Rewriting every cancelled order on each run
+        // re-synced them to the factory servers, whose push of the same rows then
+        // deadlocked with the next run.
         await db.query(
           `UPDATE orders
               SET item_code = COALESCE($2, item_code),
@@ -4200,7 +4218,23 @@ async function syncOrderCompletionConfirmations(db = pool, { factoryId = null, a
                   completion_confirmed_at = NULL,
                   completion_confirmed_by = NULL,
                   updated_at = NOW()
-            WHERE id = $1`,
+            WHERE id = $1
+              AND (
+                item_code IS DISTINCT FROM COALESCE($2, item_code)
+                OR item_name IS DISTINCT FROM COALESCE($3, item_name)
+                OR client_name IS DISTINCT FROM COALESCE($4, client_name)
+                OR qty IS DISTINCT FROM COALESCE($5, qty)
+                OR factory_id IS DISTINCT FROM COALESCE($6, factory_id)
+                OR status IS DISTINCT FROM 'Cancelled'
+                OR completion_confirmation_required IS DISTINCT FROM FALSE
+                OR completion_change_field IS NOT NULL
+                OR completion_change_to IS NOT NULL
+                OR completion_change_summary IS NOT NULL
+                OR completion_detected_at IS NOT NULL
+                OR completion_source_snapshot IS DISTINCT FROM '{}'::jsonb
+                OR completion_confirmed_at IS NOT NULL
+                OR completion_confirmed_by IS NOT NULL
+              )`,
           [
             existing.id,
             normalizeOptionalText(group.item_code),
@@ -5467,6 +5501,46 @@ async function initializeLegacyRuntime() {
             );
             
             ALTER TABLE plan_board ADD COLUMN IF NOT EXISTS seq INTEGER DEFAULT 0;
+            -- Factory Transfers (src/modules/planning/planTransfer.js): a plan made by
+            -- another factory for this order. source_factory_id = the factory that owns
+            -- the order and sent the qty; transfer_id = plan_transfers.id on MAIN.
+            ALTER TABLE plan_board ADD COLUMN IF NOT EXISTS source_factory_id INTEGER;
+            ALTER TABLE plan_board ADD COLUMN IF NOT EXISTS transfer_id INTEGER;
+            -- MAIN-only (not in the sync list): sending and accepting need every
+            -- factory's data, which only MAIN has. The plan it creates syncs as usual.
+            CREATE TABLE IF NOT EXISTS plan_transfers (
+                id SERIAL PRIMARY KEY,
+                order_no TEXT NOT NULL,
+                mould_no TEXT NOT NULL,
+                mould_name TEXT,
+                item_code TEXT,
+                item_name TEXT,
+                client_name TEXT,
+                qty NUMERIC NOT NULL,
+                colour_details JSONB DEFAULT '[]'::jsonb,
+                from_factory_id INTEGER NOT NULL,
+                to_factory_id INTEGER NOT NULL,
+                status TEXT NOT NULL DEFAULT 'WAITING',
+                note TEXT,
+                reject_reason TEXT,
+                requested_by TEXT,
+                requested_at TIMESTAMPTZ DEFAULT NOW(),
+                decided_by TEXT,
+                decided_at TIMESTAMPTZ,
+                plan_id TEXT,
+                plan_row_id INTEGER,
+                planned_machine TEXT,
+                planned_by TEXT,
+                planned_at TIMESTAMPTZ,
+                cancelled_by TEXT,
+                cancelled_at TIMESTAMPTZ,
+                updated_at TIMESTAMPTZ DEFAULT NOW()
+            );
+            CREATE INDEX IF NOT EXISTS idx_plan_transfers_order ON plan_transfers (TRIM(order_no));
+            CREATE INDEX IF NOT EXISTS idx_plan_transfers_to ON plan_transfers (to_factory_id, status);
+            CREATE INDEX IF NOT EXISTS idx_plan_transfers_from ON plan_transfers (from_factory_id, status);
+            ALTER TABLE plan_transfers ADD COLUMN IF NOT EXISTS plan_removed_at TIMESTAMPTZ;
+            ALTER TABLE plan_transfers ADD COLUMN IF NOT EXISTS plan_removed_note TEXT;
             ALTER TABLE plan_board ADD COLUMN IF NOT EXISTS mould_code VARCHAR(255);
             ALTER TABLE plan_board ADD COLUMN IF NOT EXISTS our_code TEXT;
             ALTER TABLE plan_board ADD COLUMN IF NOT EXISTS batch_no INTEGER;
@@ -5687,31 +5761,14 @@ async function initializeLegacyRuntime() {
       )
     `).catch(err => console.warn('[DB] plan_audit_logs sequence reset skipped:', err.message));
 
-    // Backfill plan_board.factory_id for legacy plans created before factory_id was
-    // persisted. Such rows had factory_id = NULL and never appeared on the board
-    // (Master Plan / Machine Timeline), which scopes by factory_id. plant is NOT a
+    // Backfill plan_board.factory_id for plans saved without one. plant is NOT a
     // reliable proxy for factory (e.g. Shivani is factory 4; plant strings are
-    // inconsistent), so we derive factory_id from the linked order, which is
-    // authoritative. Idempotent + error-guarded so it never blocks startup.
-    // 1) Heal any factory_id pointing to a non-existent factory (e.g. a previous
-    //    bad guess). Guarded so it never runs when the factories table is empty.
-    await q(`
-      UPDATE plan_board pb
-      SET factory_id = NULL
-      WHERE pb.factory_id IS NOT NULL
-        AND (SELECT COUNT(*) FROM factories) > 0
-        AND NOT EXISTS (SELECT 1 FROM factories f WHERE f.id = pb.factory_id)
-    `).catch(err => console.warn('[DB] plan_board factory_id heal skipped:', err.message));
-    // 2) Fill NULL factory_id from the plan's order (authoritative relationship).
-    await q(`
-      UPDATE plan_board pb
-      SET factory_id = o.factory_id
-      FROM orders o
-      WHERE pb.factory_id IS NULL
-        AND TRIM(COALESCE(pb.order_no, '')) <> ''
-        AND TRIM(COALESCE(pb.order_no, '')) = TRIM(COALESCE(o.order_no, ''))
-        AND o.factory_id IS NOT NULL
-    `).catch(err => console.warn('[DB] plan_board factory_id backfill skipped:', err.message));
+    // inconsistent), so it is taken from the machine master, then from the plan's
+    // order, and only when that points to exactly one factory (planFactory.js).
+    // A factory_id that does not exist (an earlier bad guess) is corrected too.
+    await healPlansWithoutFactory(q);
+    // From here on the database refuses a plan without a factory.
+    await ensurePlanFactoryGuard(q);
 
     // MISSING TABLE: std_actual
     await q(`
@@ -5849,7 +5906,8 @@ async function initializeLegacyRuntime() {
       'closed_plants'
     ];
 
-    const FID = process.env.LOCAL_FACTORY_ID || 1;
+    // MAIN holds every factory's rows, so it never fills a missing factory by itself.
+    const FID = normalizeFactoryId(process.env.LOCAL_FACTORY_ID);
 
     // One-time data-heal gate: the per-table "fill NULL sync_id / factory_id"
     // UPDATEs scan every row of every sync table. They only have work right after
@@ -5880,7 +5938,9 @@ async function initializeLegacyRuntime() {
       // 2. Heal Data (Fill Nulls) — one-time per version, gated to avoid full scans every boot
       if (needsSyncHeal) {
         await q(`UPDATE ${table} SET sync_id = gen_random_uuid() WHERE sync_id IS NULL`);
-        await q(`UPDATE ${table} SET factory_id = $1 WHERE factory_id IS NULL`, [FID]);
+        // A plan's factory comes from its machine or order (planFactory.js), never from
+        // the server it happens to be on.
+        if (FID && table !== 'plan_board') await q(`UPDATE ${table} SET factory_id = $1 WHERE factory_id IS NULL`, [FID]);
       }
 
       // 3. Unique index on sync_id (required for ON CONFLICT upsert). Skipped when an
@@ -6459,6 +6519,23 @@ async function initializeLegacyRuntime() {
     // FPA copied to a new machine when its plan was moved (needs approval again there).
     await q(`ALTER TABLE qc_job_checks ADD COLUMN IF NOT EXISTS fpa_transferred_from TEXT`);
     await q(`ALTER TABLE qc_job_checks ADD COLUMN IF NOT EXISTS fpa_transferred_from_id INTEGER`);
+    // Every FPA step (Submitted / Re-submitted / Rejected / Approved / Moved) with who, when and
+    // the remark, oldest first. Before this column a re-upload wiped the old reject reason, so
+    // older FPAs are seeded once from what the row still holds (earlier rejects are lost).
+    await q(`ALTER TABLE qc_job_checks ADD COLUMN IF NOT EXISTS fpa_history JSONB`);
+    await q(`
+      UPDATE qc_job_checks SET fpa_history =
+        jsonb_build_array(jsonb_build_object(
+          'action', CASE WHEN COALESCE(fpa_resubmit_count, 0) > 0 THEN 'Re-submitted' ELSE 'Submitted' END,
+          'by', fpa_done_by, 'at', fpa_done_at, 'remark', NULLIF(remarks, '')))
+        || CASE
+             WHEN fpa_approval_status = 'Rejected' THEN jsonb_build_array(jsonb_build_object(
+               'action', 'Rejected', 'by', fpa_reviewed_by, 'at', fpa_reviewed_at, 'remark', fpa_reject_reason))
+             WHEN fpa_approval_status = 'Approved' AND fpa_reviewed_by IS NOT NULL THEN jsonb_build_array(jsonb_build_object(
+               'action', 'Approved', 'by', fpa_reviewed_by, 'at', fpa_reviewed_at, 'remark', fpa_approve_remark))
+             ELSE '[]'::jsonb
+           END
+      WHERE fpa_history IS NULL AND fpa_status = 'Done'`);
 
     await q(`ALTER TABLE shifting_records ADD COLUMN IF NOT EXISTS shift_date DATE;`);
     await q(`ALTER TABLE shifting_records ADD COLUMN IF NOT EXISTS shift_type TEXT;`);
@@ -6517,6 +6594,9 @@ async function initializeLegacyRuntime() {
     // the machine-wise / machine-date-history reports look up dpr_hourly by machine (+ date).
     // No (machine, dpr_date) index existed, so each per-machine read scanned by date alone.
     await qIdx(`CREATE INDEX IF NOT EXISTS idx_dpr_hourly_machine_date ON dpr_hourly(machine, dpr_date) WHERE is_deleted = false;`);
+    // Shifting job flow / availability match plans by TRIM(CAST(plan_id AS TEXT)); without
+    // this index every call scanned the whole dpr_hourly table.
+    await qIdx(`CREATE INDEX IF NOT EXISTS idx_dpr_hourly_plan_trim ON dpr_hourly(TRIM(CAST(plan_id AS TEXT))) WHERE is_deleted IS NOT TRUE;`);
     // Reports perf: tonnage / dpr-daily / other date-range rollups scan dpr_hourly by
     // dpr_date alone (shift='all'), which the shift-leading idx_dpr_hourly_shift_date_fac
     // cannot serve. A date-leading partial index turns those big range scans into an index
@@ -7075,6 +7155,16 @@ app.get('/api/users', async (req, res) => {
   }
 });
 
+// Users are decided on MAIN: an edit made on a factory server never reaches MAIN and then
+// clashes with MAIN's users in sync. Password changes are not blocked.
+app.post([
+  '/api/users/save', '/api/users/delete',
+  '/api/admin/users/create', '/api/admin/users/update', '/api/admin/users/delete'
+], (req, res, next) => {
+  if (String(process.env.SERVER_TYPE || '').toUpperCase() !== 'LOCAL') return next();
+  return res.status(403).json({ ok: false, error: 'Add, edit or delete users on the main website (jmsocean.cloud). The change then reaches this factory server by itself.' });
+});
+
 // POST /api/users/save
 app.post('/api/users/save', async (req, res) => {
   try {
@@ -7192,10 +7282,11 @@ app.post('/api/users/save', async (req, res) => {
       const hash = await bcrypt.hash(password, 12);
 
       const resInsert = await pool.query( // Use pool.query to get RETURNING id
-        `INSERT INTO users (username, password, line, role_code, permissions, is_active, global_access)
-         VALUES ($1, $2, $3, $4, $5::jsonb, $7, $6)
+        `INSERT INTO users (username, password, line, role_code, permissions, is_active, global_access, factory_id)
+         VALUES ($1, $2, $3, $4, $5::jsonb, $7, $6, $8)
          RETURNING id`,
-        [username, hash, line || '', requestedRoleCode, permJson, payload.global_access || false, isActiveParam !== false]
+        [username, hash, line || '', requestedRoleCode, permJson, payload.global_access || false, isActiveParam !== false,
+          normalizeFactoryId(requestedFactoryIds?.[0]) ?? normalizeFactoryId(getFactoryId(req))]
       );
       userId = resInsert.rows[0].id;
     }
@@ -7660,7 +7751,10 @@ app.post('/api/std-actual/save', async (req, res) => {
       ArticleActual, RunnerActual, CavityActual, CycleActual,
       PcsHrActual, ManActual, EnteredBy, SfgQtyActual, OperatorActivities
     } = payload || {};
-    const factoryId = getFactoryId(req) || 1;
+    const factoryId = await resolveSaveFactory(q, {
+      factoryId: getFactoryId(req), planId: PlanID, orderNo: OrderNo, machine: Machine
+    });
+    if (!factoryId) return res.status(400).json({ ok: false, error: NO_FACTORY_MESSAGE });
 
     /* --- SERVER-SIDE GUARD: cavity <= STD ---
        The browser enforces this too, but a stale cached PWA bundle can miss it,
@@ -8120,6 +8214,13 @@ app.post('/api/dpr/submit', async (req, res) => {
       }
     }
 
+    // No factory selected (All Factories on MAIN): use the plan's, machine's or order's own
+    // factory. If that is not certain, ask, instead of saving the entry under factory 1.
+    const saveFactoryId = await resolveSaveFactory(q, {
+      factoryId, planId: PlanID, orderNo: OrderNo, machine: Machine
+    });
+    if (!saveFactoryId) return res.status(400).json({ ok: false, error: NO_FACTORY_MESSAGE });
+
     // --- [NEW] QUICK ACTION CONTINUITY LOGIC ---
     if (Machine && Date && Shift && HourSlot) {
       try {
@@ -8131,7 +8232,7 @@ app.post('/api/dpr/submit', async (req, res) => {
            AND is_deleted = false
            AND ($4::int IS NULL OR factory_id = $4 OR factory_id IS NULL)
            ORDER BY id DESC LIMIT 1`,
-          [Machine, Date, Shift, factoryId]
+          [Machine, Date, Shift, saveFactoryId]
         );
 
         if (lastEntries.length > 0) {
@@ -8150,26 +8251,28 @@ app.post('/api/dpr/submit', async (req, res) => {
               for (let i = lastIdx + 1; i < currIdx; i++) {
                 const gapSlot = SHIFT_SLOTS[i];
                 // Check if already filled
-                const exists = await q(
-                  'SELECT id FROM dpr_hourly WHERE machine=$1 AND dpr_date=$2 AND shift=$3 AND hour_slot=$4 AND is_deleted = false AND ($5::int IS NULL OR factory_id = $5 OR factory_id IS NULL)',
-                  [Machine, Date, Shift, gapSlot, factoryId]
-                );
-                if (exists.length === 0) {
-                  await q(
-                    `INSERT INTO dpr_hourly (
-                      dpr_date, shift, hour_slot, shots, good_qty, reject_qty, downtime_min, 
-                      remarks, line, machine, plan_id, order_no, mould_no, jobcard_no, 
-                      colour, reject_breakup, downtime_breakup, entry_type, created_by, supervisor, factory_id, created_at, updated_at
-                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, NOW(), NOW())`,
-                    [
-                      Date, Shift, gapSlot, 0, 0, 0, 60, 
-                      (last.remarks ? (last.remarks.includes('[Auto-Filled]') ? last.remarks : last.remarks + ' [Auto-Filled]') : '[Auto-Filled]'), 
-                      session?.line || null, Machine, last.plan_id, last.order_no, last.mould_no, last.jobcard_no,
-                      last.colour, last.reject_breakup, last.downtime_breakup, last.entry_type,
-                      'SYSTEM-AUTOFILL', last.supervisor, factoryId || 1
-                    ]
+                await withDprSlotLock(pool, dprSlotKey(saveFactoryId, Machine, Date, Shift, gapSlot), async (lq) => {
+                  const exists = await lq(
+                    'SELECT id FROM dpr_hourly WHERE machine=$1 AND dpr_date=$2 AND shift=$3 AND hour_slot=$4 AND is_deleted = false AND ($5::int IS NULL OR factory_id = $5 OR factory_id IS NULL)',
+                    [Machine, Date, Shift, gapSlot, saveFactoryId]
                   );
-                }
+                  if (exists.length === 0) {
+                    await lq(
+                      `INSERT INTO dpr_hourly (
+                        dpr_date, shift, hour_slot, shots, good_qty, reject_qty, downtime_min,
+                        remarks, line, machine, plan_id, order_no, mould_no, jobcard_no,
+                        colour, reject_breakup, downtime_breakup, entry_type, created_by, supervisor, factory_id, created_at, updated_at
+                      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, NOW(), NOW())`,
+                      [
+                        Date, Shift, gapSlot, 0, 0, 0, 60,
+                        (last.remarks ? (last.remarks.includes('[Auto-Filled]') ? last.remarks : last.remarks + ' [Auto-Filled]') : '[Auto-Filled]'),
+                        session?.line || null, Machine, last.plan_id, last.order_no, last.mould_no, last.jobcard_no,
+                        last.colour, last.reject_breakup, last.downtime_breakup, last.entry_type,
+                        'SYSTEM-AUTOFILL', last.supervisor, saveFactoryId
+                      ]
+                    );
+                  }
+                });
               }
             }
           }
@@ -8185,8 +8288,10 @@ app.post('/api/dpr/submit', async (req, res) => {
     // same machine/date/shift/hour-slot/plan/type/colour with the same quantities was saved
     // in the last 2 minutes, treat this request as the SAME submit: return the existing id
     // (ok:true) instead of inserting a second row, so the writer just sees "Saved."
-    try {
-      const dupRows = await q(
+    // The check and the insert share one lock, so two copies arriving together (or while the
+    // first insert is still waiting) cannot both pass the check.
+    const saved = await withDprSlotLock(pool, dprSlotKey(saveFactoryId, Machine, Date, Shift, HourSlot), async (lq) => {
+      const dupRows = await lq(
         `SELECT id FROM dpr_hourly
          WHERE machine = $1 AND dpr_date = $2 AND shift = $3 AND hour_slot = $4
            AND COALESCE(CAST(plan_id AS TEXT), '') = $5
@@ -8201,49 +8306,51 @@ app.post('/api/dpr/submit', async (req, res) => {
           Machine, Date, Shift, HourSlot,
           String(PlanID || ''), EntryType || 'MAIN', String(Colour || ''),
           toNum(Shots), toNum(GoodQty), toNum(RejectQty), toNum(DowntimeMin),
-          factoryId
+          saveFactoryId
         ]
       );
       if (dupRows.length) {
-        return res.json({ ok: true, id: dupRows[0].id, duplicate: true });
+        return { duplicateId: dupRows[0].id };
       }
-    } catch (err) {
-      // Guard failure must never block the factory — log and fall through to normal insert.
-      console.error('dpr/submit duplicate-guard', err.message);
-    }
 
-    const rows = await q(
-      `
-      INSERT INTO dpr_hourly (
-        dpr_date, shift, hour_slot,
-        shots, good_qty, reject_qty, downtime_min, remarks,
-        line, machine, plan_id, order_no, mould_no, jobcard_no,
-        colour, reject_breakup, downtime_breakup, entry_type,
-        created_by, geo_lat, geo_lng, geo_acc, supervisor,
-        factory_id,
-        created_at, updated_at
-      )
-      VALUES (
-        $1,$2,$3,
-        $4,$5,$6,$7,$8,
-        $9,$10,$11,$12,$13,$14,
-        $15,$16,$17,$18,
-        $19,$20,$21,$22, $23,
-        $24,
-        NOW(), NOW()
-      )
-      RETURNING id
-      `,
-      [
-        Date, Shift, HourSlot,
-        toNum(Shots), toNum(GoodQty), toNum(RejectQty), toNum(DowntimeMin), Remarks || null,
-        session?.line || null, Machine, PlanID, OrderNo, MouldNo, JobCardNo,
-        Colour || null, RejectBreakup || null, DowntimeBreakup || null, EntryType || 'MAIN',
-        session?.username || null,
-        geo?.lat || null, geo?.lng || null, geo?.accuracy || null, Supervisor || null,
-        factoryId || 1 // Default to 1 if missing
-      ]
-    );
+      const inserted = await lq(
+        `
+        INSERT INTO dpr_hourly (
+          dpr_date, shift, hour_slot,
+          shots, good_qty, reject_qty, downtime_min, remarks,
+          line, machine, plan_id, order_no, mould_no, jobcard_no,
+          colour, reject_breakup, downtime_breakup, entry_type,
+          created_by, geo_lat, geo_lng, geo_acc, supervisor,
+          factory_id,
+          created_at, updated_at
+        )
+        VALUES (
+          $1,$2,$3,
+          $4,$5,$6,$7,$8,
+          $9,$10,$11,$12,$13,$14,
+          $15,$16,$17,$18,
+          $19,$20,$21,$22, $23,
+          $24,
+          NOW(), NOW()
+        )
+        RETURNING id
+        `,
+        [
+          Date, Shift, HourSlot,
+          toNum(Shots), toNum(GoodQty), toNum(RejectQty), toNum(DowntimeMin), Remarks || null,
+          session?.line || null, Machine, PlanID, OrderNo, MouldNo, JobCardNo,
+          Colour || null, RejectBreakup || null, DowntimeBreakup || null, EntryType || 'MAIN',
+          session?.username || null,
+          geo?.lat || null, geo?.lng || null, geo?.accuracy || null, Supervisor || null,
+          saveFactoryId
+        ]
+      );
+      return { rows: inserted };
+    });
+    if (saved.duplicateId) {
+      return res.json({ ok: true, id: saved.duplicateId, duplicate: true });
+    }
+    const rows = saved.rows;
 
     // New production entry → drop cached Compliance Summary so it shows at once.
     ttlCacheClear('dprSummaryMatrix');
@@ -8262,7 +8369,7 @@ app.post('/api/dpr/submit', async (req, res) => {
            AND created_by = 'SYSTEM-AUTOFILL' AND is_deleted = false
            AND id <> $5
            AND ($6::int IS NULL OR factory_id = $6 OR factory_id IS NULL)`,
-        [Machine, Date, Shift, HourSlot, rows[0].id, factoryId]
+        [Machine, Date, Shift, HourSlot, rows[0].id, saveFactoryId]
       );
     } catch (err) {
       console.error('dpr/submit autofill-replace', err.message);
@@ -8608,8 +8715,11 @@ app.get('/api/dpr/plan-drilldown', async (req, res) => {
         `SELECT id, plan_id, order_no, plan_qty, bal_qty, colour_details, mould_name, factory_id
          FROM plan_board
          WHERE plan_id = $1 AND ($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL)
-         ORDER BY (factory_id IS NOT DISTINCT FROM $2::int) DESC, id DESC
-         LIMIT 1`, [planId, factoryId || null]
+         -- "All factories" view has no factory to scope by, so the clicked plan's
+         -- order number decides which factory's PLN-xxxx this is.
+         ORDER BY (TRIM(order_no) IS NOT DISTINCT FROM TRIM($3::text)) DESC,
+                  (factory_id IS NOT DISTINCT FROM $2::int) DESC, id DESC
+         LIMIT 1`, [planId, factoryId || null, orderNo || null]
       );
       planRow = rows[0] || null;
     }
@@ -8663,8 +8773,10 @@ app.get('/api/dpr/plan-drilldown', async (req, res) => {
       whereClauses.push(`h.order_no = $${params.length}`);
     }
 
-    if (factoryId) {
-      params.push(factoryId);
+    // Production comes from the plan's own factory, also in "All factories" view.
+    const entryFactoryId = planRow?.factory_id || factoryId;
+    if (entryFactoryId) {
+      params.push(entryFactoryId);
       whereClauses.push(`(h.factory_id = $${params.length} OR h.factory_id IS NULL)`);
     }
 
@@ -8770,6 +8882,7 @@ app.get('/api/dpr/plan-drilldown', async (req, res) => {
       data: {
         planId: effectivePlanId,
         planDbId: planRow?.id || null,         // integer PK for reference
+        factoryId: entryFactoryId || null,     // the plan's own factory
         orderNo: effectiveOrderNo,
         orderQty,                              // total order quantity from orders table
         planQty,
@@ -12030,8 +12143,19 @@ app.post('/api/job/complete', async (req, res) => {
       const planId = req.body.planId || req.body.PlanID || req.body.plan_id || req.body.id;
       if (!planId) return res.status(400).json({ ok: false, error: 'Missing PlanID (AutoStart Route)' });
 
+      // Plan IDs and machine names repeat across factories: work on the one plan row.
+      const found = await findPlanByCode(pool.query.bind(pool), planId, getFactoryId(req));
+      if (found.ambiguous) return res.status(409).json({ ok: false, error: 'This Plan ID exists in more than one factory. Select your factory and try again.' });
+      if (!found.plan) return res.status(404).json({ ok: false, error: 'Job not found' });
+      const plan = found.plan;
+      const scope = await planFactoryScope(pool.query.bind(pool), plan);
+
       // 1. Check if the job actually had any production entries
-      const dprCheck = await q(`SELECT COUNT(*) as c FROM dpr_hourly WHERE plan_id = $1`, [planId]);
+      const dprCheck = await q(
+        `SELECT COUNT(*) as c FROM dpr_hourly
+          WHERE plan_id = $1 AND ($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL)`,
+        [plan.plan_id, plan.factory_id]
+      );
       const hasProduction = dprCheck.length > 0 && parseInt(dprCheck[0].c, 10) > 0;
 
       // If production was logged = it's genuinely 'Stopped'. 
@@ -12043,15 +12167,15 @@ app.post('/api/job/complete', async (req, res) => {
         WITH max_seq AS (
           SELECT COALESCE(MAX(seq), 0) as max_s 
           FROM plan_board 
-          WHERE machine = (SELECT machine FROM plan_board WHERE plan_id = $1)
+          WHERE machine = $3 AND ${scope.sql('$4', '$5')}
         )
         UPDATE plan_board 
         SET status = $2, 
             seq = (SELECT max_s FROM max_seq) + 10,
             updated_at = NOW()
-        WHERE plan_id = $1
+        WHERE id = $1
         RETURNING *
-      `, [planId, newStatus]);
+      `, [plan.id, newStatus, plan.machine, ...scope.params]);
 
       if (!r.length) return res.status(404).json({ ok: false, error: 'Job not found' });
       const currentJob = r[0];
@@ -12059,7 +12183,7 @@ app.post('/api/job/complete', async (req, res) => {
       const currentJobId = currentJob.id;
 
       await q(
-        "INSERT INTO plan_audit_logs (plan_id, action, details, user_name) VALUES ($1, 'COMPLETE_STOP', $2, 'System')",
+        "INSERT INTO plan_audit_logs (factory_id, plan_id, action, details, user_name) VALUES ((SELECT factory_id FROM plan_board WHERE id = $1), $1, 'COMPLETE_STOP', $2, 'System')",
         [currentJobId, JSON.stringify({ machine, msg: 'Job stopped from supervisor completion' })]
       );
 
@@ -12068,19 +12192,20 @@ app.post('/api/job/complete', async (req, res) => {
         FROM plan_board pb
         WHERE pb.machine = $1 
           AND UPPER(pb.status) NOT IN ('RUNNING', 'COMPLETED', 'COMPLETED_PENDING', 'CANCELLED', 'ARCHIVED')
+          AND ${scope.sql('$2', '$3', 'pb')}
         ORDER BY 
           pb.seq ASC, 
           pb.id ASC
         LIMIT 1
       `;
-      const nextJobs = await q(nextJobQuery, [machine]);
+      const nextJobs = await q(nextJobQuery, [machine, ...scope.params]);
 
       if (nextJobs.length > 0) {
         const nextJob = nextJobs[0];
 
         // Stop any other running plans on this machine first to prevent overlaps.
         // Use UPPER() so 'Running', 'RUNNING', etc. are all matched.
-        await q(`UPDATE plan_board SET status = 'Stopped', updated_at = NOW() WHERE TRIM(UPPER(machine)) = TRIM(UPPER($1)) AND UPPER(status) = 'RUNNING'`, [machine]);
+        await q(`UPDATE plan_board SET status = 'Stopped', updated_at = NOW() WHERE TRIM(UPPER(machine)) = TRIM(UPPER($1)) AND UPPER(status) = 'RUNNING' AND ${scope.sql('$2', '$3')}`, [machine, ...scope.params]);
 
         await q(`
           UPDATE plan_board 
@@ -12089,7 +12214,7 @@ app.post('/api/job/complete', async (req, res) => {
         `, [nextJob.id]);
 
         await q(
-          "INSERT INTO plan_audit_logs (plan_id, action, details, user_name) VALUES ($1, 'STATUS_CHANGE', $2, 'System')",
+          "INSERT INTO plan_audit_logs (factory_id, plan_id, action, details, user_name) VALUES ((SELECT factory_id FROM plan_board WHERE id = $1), $1, 'STATUS_CHANGE', $2, 'System')",
           [nextJob.id, JSON.stringify({ old: nextJob.status, new: 'Running', msg: 'Auto-started after previous job completion (Mould priority applied)' })]
         );
       }
@@ -12458,13 +12583,13 @@ app.get('/api/planning/board', async (req, res) => {
     // even when plans already had valid machine assignments, causing data corruption.
     // Plans keep whatever machine they were saved with; only explicit user edits change it.
 
-    // Self-heal 2: if any machine has >1 RUNNING plan, keep only the most-recently-updated one
+    // Self-heal 2: if any machine of a factory has >1 RUNNING plan, keep only the most-recently-updated one
     await q(`
       UPDATE plan_board SET status = 'Stopped', updated_at = NOW()
       WHERE id IN (
         SELECT id FROM (
           SELECT id,
-                 ROW_NUMBER() OVER (PARTITION BY TRIM(UPPER(machine)) ORDER BY updated_at DESC, id DESC) AS rn
+                 ROW_NUMBER() OVER (PARTITION BY TRIM(UPPER(machine)), COALESCE(factory_id, 0) ORDER BY updated_at DESC, id DESC) AS rn
           FROM plan_board
           WHERE UPPER(status) = 'RUNNING'
         ) ranked
@@ -12499,10 +12624,8 @@ app.get('/api/planning/board', async (req, res) => {
 
     if (factoryId) {
       params.push(factoryId);
-      // NULL factory_id means "unassigned / legacy / global" — keep it visible, matching
-      // the sibling queries (machine join below, bulk-approve). A strict equality here
-      // silently hides plans created before factory_id existed or imported without one.
-      where += ` AND (pb.factory_id = $${params.length} OR pb.factory_id IS NULL)`;
+      // A plan without a factory shows only where its machine belongs to this factory.
+      where += ` AND ${planVisibleToFactorySql(`$${params.length}`)}`;
     }
 
     if (date) {
@@ -12574,7 +12697,11 @@ app.get('/api/planning/board', async (req, res) => {
                     COALESCE(mMaster.pcs_per_hour, m.pcs_per_hour) AS "pcsHour",
                     pb.machine_priority AS "machinePriority",
                     COALESCE(pb.plan_type, 'Moulding') AS "planType",
-                    lp.party_name AS "partyName"
+                    lp.party_name AS "partyName",
+                    -- Factory Transfer: the factory that sent this plan's qty (owns the order).
+                    pb.source_factory_id AS "sourceFactoryId",
+                    pb.transfer_id AS "transferId",
+                    (SELECT sf.name FROM factories sf WHERE sf.id = pb.source_factory_id) AS "transferFromFactory"
       FROM plan_board pb
       LEFT JOIN orders o ON o.order_no = pb.order_no
       LEFT JOIN machines planMachine
@@ -12731,7 +12858,7 @@ async function fetchMachineWisePlans({ factoryId, machine, orNos }) {
   let where = `pb.status NOT IN ('COMPLETED', 'REJECTED') AND UPPER(COALESCE(pb.jc_approval_status, '')) != 'REJECTED'`;
   if (factoryId) {
     params.push(factoryId);
-    where += ` AND (pb.factory_id = $${params.length} OR pb.factory_id IS NULL)`;
+    where += ` AND ${planVisibleToFactorySql(`$${params.length}`)}`;
   }
   if (Array.isArray(orNos)) {
     // Sibling-OR expansion: any plan on ANY machine for these OR numbers.
@@ -13113,15 +13240,19 @@ async function getPriorityContiguityError(machine, planId, priority, fClause) {
 
 // Renumber a machine's P1..P4 so they stay contiguous and gap-free after a plan
 // leaves the queue (completed / priority cleared). COMPLETED/REJECTED plans are excluded.
-async function compactMachinePriorities(machine) {
+// Own factory only: the same machine name in another factory has its own P1..P4.
+async function compactMachinePriorities(plan) {
+  const machine = plan && plan.machine;
   if (!machine) return;
+  const scope = await planFactoryScope(pool.query.bind(pool), plan);
   const labelled = await q(
     `SELECT id, machine_priority FROM plan_board
        WHERE TRIM(UPPER(machine)) = TRIM(UPPER($1))
          AND machine_priority IS NOT NULL
          AND UPPER(COALESCE(status, '')) <> 'COMPLETED'
          AND UPPER(COALESCE(jc_approval_status, '')) <> 'REJECTED'
-       ORDER BY machine_priority ASC`, [machine]
+         AND ${scope.sql('$2', '$3')}
+       ORDER BY machine_priority ASC`, [machine, ...scope.params]
   );
   const labels = ['P1', 'P2', 'P3', 'P4'];
   for (let i = 0; i < labelled.length; i++) {
@@ -13193,7 +13324,8 @@ app.post('/api/planning/machine-priority', async (req, res) => {
 
       // 4. Compact: renumber remaining labels on this machine so P1..P4 stay contiguous
       //    (gap-free) and exclude any completed/rejected holders.
-      await compactMachinePriorities(machine);
+      const compactPlan = await q('SELECT factory_id, order_no FROM plan_board WHERE id = $1', [planId]);
+      if (compactPlan.length) await compactMachinePriorities({ ...compactPlan[0], machine });
       await q('COMMIT');
     } catch (txErr) {
       await q('ROLLBACK');
@@ -13268,7 +13400,7 @@ app.post('/api/planning/switch-priority-job', async (req, res) => {
     );
     for (const s of stopped) {
       await q(
-        "INSERT INTO plan_audit_logs (plan_id, action, details, user_name) VALUES ($1, 'SWAP_STOP', $2, 'System')",
+        "INSERT INTO plan_audit_logs (factory_id, plan_id, action, details, user_name) VALUES ((SELECT factory_id FROM plan_board WHERE id = $1), $1, 'SWAP_STOP', $2, 'System')",
         [s.id, JSON.stringify({ reason: `Switch Job to ${nextPlan.machine_priority}`, machine })]
       );
     }
@@ -13280,7 +13412,7 @@ app.post('/api/planning/switch-priority-job', async (req, res) => {
       [nextPlan.id]
     );
     await q(
-      "INSERT INTO plan_audit_logs (plan_id, action, details, user_name) VALUES ($1, 'SWITCH_JOB', $2, 'System')",
+      "INSERT INTO plan_audit_logs (factory_id, plan_id, action, details, user_name) VALUES ((SELECT factory_id FROM plan_board WHERE id = $1), $1, 'SWITCH_JOB', $2, 'System')",
       [nextPlan.id, JSON.stringify({
         from: currentPlan ? currentPlan.machine_priority : null,
         to: nextPlan.machine_priority,
@@ -13354,7 +13486,7 @@ app.post('/api/planning/complete', async (req, res) => {
           updated_at = NOW(),
           last_updated_at = NOW()
       WHERE id = $1
-      RETURNING id, plan_id, order_no, machine
+      RETURNING id, plan_id, order_no, machine, factory_id
     `, [id, remarks || '', user || 'System']);
 
     // A completed plan leaves the priority queue: clear its P1–P4 label and renumber the
@@ -13363,7 +13495,7 @@ app.post('/api/planning/complete', async (req, res) => {
     if (upd && upd.length && upd[0].machine) {
       await q(`UPDATE plan_board SET machine_priority = NULL, updated_at = NOW()
                  WHERE id = $1 AND machine_priority IS NOT NULL`, [id]);
-      await compactMachinePriorities(upd[0].machine);
+      await compactMachinePriorities(upd[0]);
     }
 
     // Audit trail so "who completed it / when" is answerable later (previously
@@ -13371,7 +13503,7 @@ app.post('/api/planning/complete', async (req, res) => {
     // invisible in history).
     if (upd && upd.length) {
       await q(
-        "INSERT INTO plan_audit_logs (plan_id, action, details, user_name) VALUES ($1, 'COMPLETE', $2, $3)",
+        "INSERT INTO plan_audit_logs (factory_id, plan_id, action, details, user_name) VALUES ((SELECT factory_id FROM plan_board WHERE id = $1), $1, 'COMPLETE', $2, $3)",
         [upd[0].id, JSON.stringify({ completed_qty: completed_qty ?? null, remarks: remarks || '' }), user || 'System']
       ).catch(e => console.warn('[complete] audit log skipped:', e.message));
     }
@@ -13415,7 +13547,7 @@ app.post('/api/planning/restore-plan', async (req, res) => {
 
     const restoredId = upd[0].id;
     await q(
-      "INSERT INTO plan_audit_logs (plan_id, action, details, user_name) VALUES ($1, 'RESTORE_PLAN', $2, 'Admin')",
+      "INSERT INTO plan_audit_logs (factory_id, plan_id, action, details, user_name) VALUES ((SELECT factory_id FROM plan_board WHERE id = $1), $1, 'RESTORE_PLAN', $2, 'Admin')",
       [restoredId, JSON.stringify({ note: 'Restored from completed report' })]
     );
 
@@ -13502,8 +13634,8 @@ app.post('/api/grinding/entry', async (req, res) => {
 
     await q(`
        INSERT INTO grinding_logs 
-       (plan_id, order_no, job_card_no, rejection_weight, rejection_qty, reason, created_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       (plan_id, order_no, job_card_no, rejection_weight, rejection_qty, reason, created_by, factory_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
     `, [
       planId || null,
       orderNo,
@@ -13511,7 +13643,8 @@ app.post('/api/grinding/entry', async (req, res) => {
       weight || 0,
       qty || 0,
       reason || '',
-      user || 'System'
+      user || 'System',
+      getFactoryId(req)
     ]);
 
     res.json({ ok: true });
@@ -13544,7 +13677,7 @@ app.get('/api/notifications', async (req, res) => {
   try {
     const user = req.query.user;
     const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 100, 1), 100);
-    if (!user) throw new Error('User required');
+    if (!user) return res.status(400).json({ ok: false, error: 'User required' });
 
     // Fetch all unread + last 50 read
     const rows = await q(`
@@ -14478,7 +14611,8 @@ async function getPlanningOrderMouldBundle(queryFn, orderNo, factoryId) {
       d.id AS drop_id,
       pb.plan_id AS existing_plan_id,
       pb.status AS existing_plan_status,
-      COALESCE(pb_sum.planned_qty, 0)::numeric AS existing_planned_qty,
+      (COALESCE(pb_sum.planned_qty, 0) + COALESCE(tr_sum.reserved_qty, 0))::numeric AS existing_planned_qty,
+      COALESCE(tr_sum.reserved_qty, 0)::numeric AS transfer_reserved_qty,
       COALESCE(pb_sum.plan_count, 0)::int AS existing_plan_count
     FROM r
     -- LATERAL + LIMIT 1 (not a plain JOIN): orders can also hold this JR under
@@ -14538,6 +14672,18 @@ async function getPlanningOrderMouldBundle(queryFn, orderNo, factoryId) {
         AND TRIM(COALESCE(pb0.mould_name, '')) = TRIM(COALESCE(r.mould_name, ''))
         AND UPPER(COALESCE(pb0.status, '')) IN ('PLANNED', 'RUNNING', 'STOPPED', 'COMPLETED')
     ) pb_sum ON true
+    -- Factory Transfers still waiting / accepted (no plan yet) hold their qty back from
+    -- the sending factory's balance. Once planned, the plan row above counts instead.
+    LEFT JOIN LATERAL (
+      SELECT COALESCE(SUM(COALESCE(t0.qty, 0)), 0)::numeric AS reserved_qty
+      FROM plan_transfers t0
+      WHERE TRIM(t0.order_no) = TRIM(COALESCE(r.or_jr_no, ''))
+        -- mould_no only (not mould_name): variants of one family can share a name,
+        -- and matching by name would count the same transfer on every variant.
+        AND UPPER(TRIM(t0.mould_no)) = UPPER(TRIM(COALESCE(r.mould_no, '')))
+        AND t0.status IN ('WAITING', 'ACCEPTED')
+        AND ($2::int IS NULL OR t0.from_factory_id = $2)
+    ) tr_sum ON true
     LEFT JOIN LATERAL (
       SELECT plan_id, status
       FROM plan_board pb0
@@ -14588,7 +14734,8 @@ async function getPlanningOrderMouldBundle(queryFn, orderNo, factoryId) {
       isDropped: !!row.drop_id,
       isAlreadyPlanned: isFullyPlanned,
       existingPlanId: row.existing_plan_id || null,
-      existingPlanStatus: normalizePlanningText(row.existing_plan_status).toUpperCase() || null
+      existingPlanStatus: normalizePlanningText(row.existing_plan_status).toUpperCase() || null,
+      transferReservedQty: toNum(row.transfer_reserved_qty) ?? 0
     };
   }));
   applyPlanningFamilyCoverage(moulds);
@@ -14919,9 +15066,11 @@ app.post('/api/planning/create', async (req, res) => {
       return (aSqn ?? Number.MAX_SAFE_INTEGER) - (bSqn ?? Number.MAX_SAFE_INTEGER);
     });
     if (!plans.length) return res.json({ ok: false, error: 'No plans provided' });
-    const requestFactoryId = getFactoryId(req);
+    // Never save a plan without a user and a factory: it would show on every unit.
+    const requestUsername = getRequestUsername(req);
+    const requestFactoryId = assertPlanCreator({ username: requestUsername, factoryId: getFactoryId(req) });
+    await assertMachinesInFactory(client.query.bind(client), plans, requestFactoryId);
     const stagedOrderCodes = new Map();
-    const requestUsername = getRequestUsername(req) || 'System';
     const batchMetaByOrder = new Map();
 
     await client.query('BEGIN');
@@ -14968,7 +15117,37 @@ app.post('/api/planning/create', async (req, res) => {
       const seq = Number(mx.rows[0]?.mx || 0) + 1;
       const batchMeta = await getBatchMeta(p.orderNo);
 
-      if (p.orderNo) {
+      // Factory Transfer: the receiving factory assigns its machine to an accepted
+      // transfer. The order lives in the sending factory, so its balance and moulding
+      // sequence were checked when the transfer was sent; here the plan qty is bounded
+      // by the transferred qty instead.
+      let transfer = null;
+      if (p.transferId != null && p.transferId !== '') {
+        const transferUser = (await client.query(
+          `SELECT u.username, u.role_code, r.label AS role_label
+             FROM users u LEFT JOIN roles r ON r.code = u.role_code
+            WHERE u.username = $1 LIMIT 1`, [requestUsername])).rows[0] || null;
+        if (!planTransfer.canManageTransfers(transferUser)) {
+          throw new Error('Only planners, admin and superadmin can assign a machine to a factory transfer.');
+        }
+        transfer = (await client.query('SELECT * FROM plan_transfers WHERE id = $1 FOR UPDATE', [Number(p.transferId) || 0])).rows[0] || null;
+        planTransfer.assertTransition(transfer, 'assign', { factoryId: requestFactoryId });
+        if (String(transfer.order_no).trim() !== String(p.orderNo || '').trim()) {
+          throw new Error('The plan order does not match the transfer.');
+        }
+        const transferPlanQty = Math.max(0, toNum(p.planQty) ?? 0);
+        if (!transferPlanQty || transferPlanQty > Number(transfer.qty)) {
+          throw new Error(`Plan qty must be between 1 and the transferred qty ${Number(transfer.qty)}.`);
+        }
+        // The colour split chosen by the sending factory goes on the plan (scaled to a part plan).
+        let sentColours = transfer.colour_details;
+        if (typeof sentColours === 'string') { try { sentColours = JSON.parse(sentColours); } catch (_) { sentColours = []; } }
+        if (Array.isArray(sentColours) && sentColours.length) {
+          p.colourDetails = planTransfer.scaleColourSplit(sentColours, transfer.qty, transferPlanQty);
+        }
+      }
+
+      if (p.orderNo && !transfer) {
         const bundle = await getPlanningOrderMouldBundle(client.query.bind(client), p.orderNo, requestFactoryId);
         const stagedCodes = stagedOrderCodes.get(String(p.orderNo).trim()) || [];
         const validation = getPlanningSequenceBlockMessage(bundle, p.mouldCode, p.mouldName, { virtualPlannedCodes: stagedCodes });
@@ -15010,13 +15189,13 @@ app.post('/api/planning/create', async (req, res) => {
           order_no, item_code, item_name, mould_name, mould_code,
           plan_qty, bal_qty, our_code, batch_no, batch_qty, mould_item_qty,
           consumption_ratio_qty, colour_details, created_by, created_at, start_date, end_date, status, updated_at,
-          factory_id, job_no, job_qty, plan_type)
+          factory_id, job_no, job_qty, plan_type, source_factory_id, transfer_id)
         VALUES
         ($1, $2, $3, $4, $5, $6,
           $7, $8, $9, $10, $11,
           $12, $13, $14, $15, $16, $17,
           $18, $19::jsonb, $20, NOW(), $21, $22, 'PLANNED', NOW(),
-          $23, $24, $25, $26)
+          $23, $24, $25, $26, $27, $28)
         RETURNING id
         `,
         [
@@ -15047,9 +15226,21 @@ app.post('/api/planning/create', async (req, res) => {
           requestFactoryId,
           toNum(p.jobNo ?? p.batchNo) || batchMeta.batchNo,
           toNum(p.jobQty ?? p.batchQty ?? p.planQty),
-          planType
+          planType,
+          transfer ? Number(transfer.from_factory_id) : null,
+          transfer ? Number(transfer.id) : null
         ]
       );
+
+      if (transfer) {
+        await client.query(
+          `UPDATE plan_transfers
+              SET status = 'PLANNED', plan_id = $2, plan_row_id = $3, planned_machine = $4,
+                  planned_by = $5, planned_at = NOW(), updated_at = NOW()
+            WHERE id = $1`,
+          [transfer.id, reservedPlanId, ins.rows[0].id, p.machine, requestUsername]
+        );
+      }
 
       results.push(ins.rows[0].id);
       generatedPlanIds.push(reservedPlanId);
@@ -15086,6 +15277,7 @@ app.post('/api/planning/create', async (req, res) => {
 
   } catch (e) {
     await client.query('ROLLBACK');
+    if (e?.code === 'AUTH_REQUIRED') return res.status(401).json({ ok: false, code: e.code, error: e.message });
     console.error('planning/create', e);
     res.json({ ok: false, error: String(e.message || e) }); // Return 200 with error for frontend handling
   } finally {
@@ -15093,6 +15285,295 @@ app.post('/api/planning/create', async (req, res) => {
   }
 });
 
+
+// ============================================================
+// FACTORY TRANSFERS — send part of an order's qty to another factory whose
+// Mould Master has the mould; that factory accepts / rejects and assigns its
+// own machine (POST /api/planning/create with transferId). Rules and status
+// flow: src/modules/planning/planTransfer.js. MAIN-only: sending and accepting
+// need every factory's data.
+// ============================================================
+const isLocalServerForTransfers = () => String(process.env.SERVER_TYPE || '').toUpperCase() === 'LOCAL';
+
+async function loadTransferUser(req, { verified = false } = {}) {
+  const username = (req.auth && req.auth.username) || (verified ? null : getRequestUsername(req));
+  if (!username) return null;
+  const rows = await q(
+    `SELECT u.id, u.username, u.role_code, r.label AS role_label
+       FROM users u LEFT JOIN roles r ON r.code = u.role_code
+      WHERE u.username = $1 LIMIT 1`, [username]);
+  return rows[0] || null;
+}
+
+/* Signed-in planner who may work in `factoryId`; sends the error reply and returns null otherwise. */
+async function requireTransferUser(req, res, factoryId) {
+  const user = await loadTransferUser(req, { verified: true });
+  if (!user) { res.status(401).json({ ok: false, error: 'Please sign in again' }); return null; }
+  if (!planTransfer.canManageTransfers(user)) {
+    res.status(403).json({ ok: false, error: 'Only planners, admin and superadmin can work with factory transfers.' });
+    return null;
+  }
+  if (isLocalServerForTransfers()) {
+    res.status(409).json({ ok: false, error: 'Factory transfers work on the main site only. Open the main site and try again.' });
+    return null;
+  }
+  if (factoryId && !planTransfer.isSuperadmin(user)) {
+    const scope = await getAccessibleFactoriesForUser(user.username);
+    if (!(scope.factories || []).some((f) => Number(f.id) === Number(factoryId))) {
+      res.status(403).json({ ok: false, error: 'You do not have access to this factory.' });
+      return null;
+    }
+  }
+  return user;
+}
+
+function sendTransferError(res, e, label) {
+  if (e instanceof planTransfer.PlanTransferError) return res.status(e.status || 400).json({ ok: false, error: e.message });
+  console.error(label, e);
+  return sendServerError(res, e);
+}
+
+/* A PLANNED transfer whose plan the receiving factory deleted (or cancelled / rejected)
+   goes back to ACCEPTED: the qty stays held for that factory, which can assign a
+   machine again or give it back (reject), and the sender can cancel it. Runs before
+   transfers or an order's balance are read; not inside a transaction. */
+async function reconcileTransferPlans(orderNo = null) {
+  try {
+    await q(
+      `UPDATE plan_transfers t
+          SET status = 'ACCEPTED', plan_removed_at = NOW(),
+              plan_removed_note = 'Plan ' || COALESCE(t.plan_id, '-') || ' on ' || COALESCE(t.planned_machine, '-') || ' was removed by the receiving factory',
+              plan_id = NULL, plan_row_id = NULL, planned_machine = NULL, planned_by = NULL, planned_at = NULL, updated_at = NOW()
+        WHERE t.status = 'PLANNED'
+          AND ($1::text IS NULL OR TRIM(t.order_no) = TRIM($1::text))
+          AND NOT EXISTS (
+            SELECT 1 FROM plan_board pb
+             WHERE (pb.transfer_id = t.id OR pb.id = t.plan_row_id)
+               AND pb.factory_id = t.to_factory_id
+               AND UPPER(COALESCE(pb.status, '')) NOT IN ('REJECTED', 'CANCELLED', 'DELETED'))`,
+      [orderNo || null]);
+  } catch (e) {
+    console.warn('[plan-transfers] reconcile skipped:', e.message);
+  }
+}
+
+const MOULD_FAMILY_SQL = `UPPER(regexp_replace(TRIM(m.mould_number), '\\s+\\d+$', ''))`;
+
+/* Factories (other than `excludeFactoryId`) whose active Mould Master has each mould, by family. */
+async function findMouldFactories(queryFn, mouldNos, excludeFactoryId) {
+  const families = [...new Set((mouldNos || []).map(planTransfer.mouldFamilyKey).filter(Boolean))];
+  if (!families.length) return new Map();
+  const res = await queryFn(
+    `SELECT DISTINCT ON (m.factory_id, ${MOULD_FAMILY_SQL})
+            m.factory_id, f.name AS factory_name, TRIM(m.mould_number) AS mould_number,
+            ${MOULD_FAMILY_SQL} AS family
+       FROM moulds m
+       JOIN factories f ON f.id = m.factory_id AND COALESCE(f.is_active, true) = true
+      WHERE m.factory_id IS NOT NULL
+        AND ($2::int IS NULL OR m.factory_id <> $2)
+        AND COALESCE(m.is_active, true) = true
+        AND ${MOULD_FAMILY_SQL} = ANY($1::text[])
+      ORDER BY m.factory_id, ${MOULD_FAMILY_SQL}, m.mould_number`,
+    [families, excludeFactoryId || null]
+  );
+  const rows = Array.isArray(res) ? res : (res.rows || []);
+  const byFamily = new Map();
+  rows.forEach((r) => {
+    if (!byFamily.has(r.family)) byFamily.set(r.family, []);
+    byFamily.get(r.family).push({ factoryId: Number(r.factory_id), factoryName: r.factory_name, mouldNumber: r.mould_number });
+  });
+  return byFamily;
+}
+
+const TRANSFER_SELECT_SQL = `
+  SELECT t.*, ff.name AS from_factory_name, tf.name AS to_factory_name,
+         pb.status AS plan_status, pb.machine AS plan_machine,
+         COALESCE(dpr.produced, 0)::numeric AS produced_qty
+    FROM plan_transfers t
+    LEFT JOIN factories ff ON ff.id = t.from_factory_id
+    LEFT JOIN factories tf ON tf.id = t.to_factory_id
+    LEFT JOIN plan_board pb ON pb.id = t.plan_row_id
+    LEFT JOIN LATERAL (
+      SELECT SUM(COALESCE(dh.good_qty, 0)) AS produced
+        FROM dpr_hourly dh
+       WHERE t.plan_id IS NOT NULL AND dh.plan_id = t.plan_id
+         AND dh.factory_id = t.to_factory_id
+         AND COALESCE(dh.is_deleted, false) = false
+    ) dpr ON true`;
+
+// GET /api/plan-transfers/order/:orderNo — where each mould of the order also is,
+// and the transfers of this order that involve the selected factory.
+app.get('/api/plan-transfers/order/:orderNo', async (req, res) => {
+  try {
+    const orderNo = normalizePlanningText(req.params.orderNo);
+    await reconcileTransferPlans(orderNo);
+    const factoryId = getFactoryId(req);
+    const [user, mouldRows] = await Promise.all([
+      loadTransferUser(req),
+      q(`SELECT DISTINCT TRIM(mould_no) AS mould_no FROM mould_planning_summary
+          WHERE TRIM(COALESCE(or_jr_no, '')) = TRIM($1) AND COALESCE(TRIM(mould_no), '') <> ''
+            AND ($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL)`, [orderNo, factoryId])
+    ]);
+    const mouldNos = mouldRows.map((r) => r.mould_no);
+    const byFamily = await findMouldFactories(q, mouldNos, factoryId);
+    const locations = {};
+    mouldNos.forEach((no) => { locations[no] = byFamily.get(planTransfer.mouldFamilyKey(no)) || []; });
+    const transfers = await q(
+      `${TRANSFER_SELECT_SQL}
+        WHERE TRIM(t.order_no) = TRIM($1)
+          AND ($2::int IS NULL OR t.from_factory_id = $2 OR t.to_factory_id = $2)
+        ORDER BY t.requested_at DESC, t.id DESC`, [orderNo, factoryId]);
+    res.json({
+      ok: true,
+      can_send: !!factoryId && !isLocalServerForTransfers() && planTransfer.canManageTransfers(user),
+      main_only: isLocalServerForTransfers(),
+      locations,
+      transfers
+    });
+  } catch (e) { sendTransferError(res, e, 'plan-transfers/order'); }
+});
+
+// POST /api/plan-transfers — send { orderNo, mouldNo, toFactoryId, qty, note }
+app.post('/api/plan-transfers', async (req, res) => {
+  const fromFactoryId = getFactoryId(req);
+  let user;
+  try { user = await requireTransferUser(req, res, fromFactoryId); } catch (e) { return sendTransferError(res, e, 'plan-transfers/send'); }
+  if (!user) return;
+  await reconcileTransferPlans(normalizePlanningText((req.body || {}).orderNo));
+  const client = await pool.connect();
+  try {
+    const body = req.body || {};
+    const orderNo = normalizePlanningText(body.orderNo);
+    await client.query('BEGIN');
+    // One send at a time per order, so two planners cannot both use the same balance.
+    await client.query(`SELECT pg_advisory_xact_lock(hashtext('plan_transfer:' || $1))`, [orderNo]);
+    const bundle = await getPlanningOrderMouldBundle(client.query.bind(client), orderNo, fromFactoryId);
+    const wanted = normalizePlanningText(body.mouldNo).toUpperCase();
+    const row = (bundle.moulds || []).find((m) => normalizePlanningText(m.mould_no).toUpperCase() === wanted);
+    if (!row) throw new planTransfer.PlanTransferError('This mould is not in the order of the selected factory.');
+    if (row.isDropped) throw new planTransfer.PlanTransferError('This mould is dropped from the order.');
+    const remainingQty = row.familyRemainingQty ?? row.remainingQty;
+    const input = planTransfer.validateSendRequest({
+      fromFactoryId, toFactoryId: body.toFactoryId, orderNo, mouldNo: row.mould_no, qty: body.qty, remainingQty
+    });
+    const byFamily = await findMouldFactories(client.query.bind(client), [row.mould_no], fromFactoryId);
+    const target = (byFamily.get(planTransfer.mouldFamilyKey(row.mould_no)) || []).find((f) => f.factoryId === input.toFactoryId);
+    if (!target) throw new planTransfer.PlanTransferError('The chosen factory does not have this mould in its Mould Master.');
+    const colours = planTransfer.normaliseColourSplit(body.colourDetails, input.qty);
+    const ins = await client.query(
+      `INSERT INTO plan_transfers
+         (order_no, mould_no, mould_name, item_code, item_name, client_name, qty, colour_details,
+          from_factory_id, to_factory_id, status, note, requested_by, requested_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $12::jsonb, $8, $9, 'WAITING', $10, $11, NOW(), NOW())
+       RETURNING id`,
+      [input.orderNo, input.mouldNo, row.mould_name || null, row.item_code || input.mouldNo,
+        row.product_name || null, row.client_name || null, input.qty,
+        input.fromFactoryId, input.toFactoryId, String(body.note || '').trim().slice(0, 500) || null, user.username,
+        JSON.stringify(colours)]
+    );
+    await client.query('COMMIT');
+    res.json({ ok: true, id: ins.rows[0].id, toFactoryName: target.factoryName });
+  } catch (e) {
+    await client.query('ROLLBACK').catch(() => {});
+    sendTransferError(res, e, 'plan-transfers/send');
+  } finally { client.release(); }
+});
+
+// GET /api/plan-transfers?box=incoming|sent&status=open|all — the selected factory's lists.
+app.get('/api/plan-transfers', async (req, res) => {
+  try {
+    const factoryId = getFactoryId(req);
+    const box = String(req.query.box || 'incoming').toLowerCase() === 'sent' ? 'sent' : 'incoming';
+    const openOnly = String(req.query.status || 'open').toLowerCase() !== 'all';
+    const user = await loadTransferUser(req);
+    if (!factoryId && !planTransfer.isSuperadmin(user)) {
+      return res.json({ ok: true, data: [], waiting_incoming: 0, can_manage: false, need_factory: true });
+    }
+    await reconcileTransferPlans();
+    const col = box === 'sent' ? 't.from_factory_id' : 't.to_factory_id';
+    const rows = await q(
+      `${TRANSFER_SELECT_SQL}
+        WHERE ($1::int IS NULL OR ${col} = $1)
+          AND (NOT $2::boolean OR t.status IN ('WAITING', 'ACCEPTED')
+               OR (t.status = 'PLANNED' AND UPPER(COALESCE(pb.status, '')) NOT IN ('COMPLETED', 'CANCELLED'))
+               OR t.updated_at > NOW() - INTERVAL '7 days')
+        ORDER BY CASE t.status WHEN 'WAITING' THEN 0 WHEN 'ACCEPTED' THEN 1 WHEN 'PLANNED' THEN 2 ELSE 3 END,
+                 t.requested_at DESC, t.id DESC
+        LIMIT 500`, [factoryId, openOnly]);
+    const waiting = await q(
+      `SELECT COUNT(*)::int AS n FROM plan_transfers WHERE status IN ('WAITING', 'ACCEPTED') AND ($1::int IS NULL OR to_factory_id = $1)`,
+      [factoryId]);
+    res.json({
+      ok: true,
+      data: rows,
+      waiting_incoming: waiting[0]?.n || 0,
+      can_manage: !isLocalServerForTransfers() && planTransfer.canManageTransfers(user),
+      main_only: isLocalServerForTransfers()
+    });
+  } catch (e) { sendTransferError(res, e, 'plan-transfers/list'); }
+});
+
+// POST /api/plan-transfers/:id/accept | reject | cancel
+app.post('/api/plan-transfers/:id/:action', async (req, res) => {
+  const action = String(req.params.action || '').toLowerCase();
+  if (!['accept', 'reject', 'cancel'].includes(action)) return res.status(404).json({ ok: false, error: 'Unknown action' });
+  const factoryId = getFactoryId(req);
+  let user;
+  try { user = await requireTransferUser(req, res, factoryId); } catch (e) { return sendTransferError(res, e, 'plan-transfers/action'); }
+  if (!user) return;
+  await reconcileTransferPlans();
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const transfer = (await client.query('SELECT * FROM plan_transfers WHERE id = $1 FOR UPDATE', [Number(req.params.id) || 0])).rows[0] || null;
+    const next = planTransfer.assertTransition(transfer, action, { factoryId, user });
+    if (action === 'reject') {
+      const reason = String((req.body || {}).reason || '').replace(/\s+/g, ' ').trim().slice(0, 500);
+      if (!reason) throw new planTransfer.PlanTransferError('Please write the reason for rejecting.');
+      await client.query(
+        `UPDATE plan_transfers SET status = $2, reject_reason = $3, decided_by = $4, decided_at = NOW(), updated_at = NOW() WHERE id = $1`,
+        [transfer.id, next, reason, user.username]);
+    } else if (action === 'accept') {
+      await client.query(
+        `UPDATE plan_transfers SET status = $2, decided_by = $3, decided_at = NOW(), updated_at = NOW() WHERE id = $1`,
+        [transfer.id, next, user.username]);
+    } else {
+      await client.query(
+        `UPDATE plan_transfers SET status = $2, cancelled_by = $3, cancelled_at = NOW(), updated_at = NOW() WHERE id = $1`,
+        [transfer.id, next, user.username]);
+    }
+    await client.query('COMMIT');
+    res.json({ ok: true, status: next });
+  } catch (e) {
+    await client.query('ROLLBACK').catch(() => {});
+    sendTransferError(res, e, 'plan-transfers/action');
+  } finally { client.release(); }
+});
+
+// GET /api/plan-transfers/:id/machines — the receiving factory's moulding machines (Line,
+// then machine number), with the mould's primary / secondary machine from that factory's master.
+app.get('/api/plan-transfers/:id/machines', async (req, res) => {
+  try {
+    const transfer = (await q('SELECT * FROM plan_transfers WHERE id = $1', [Number(req.params.id) || 0]))[0];
+    if (!transfer) return res.status(404).json({ ok: false, error: 'Transfer not found.' });
+    const toFactoryId = Number(transfer.to_factory_id);
+    const [machines, mould, factory] = await Promise.all([
+      q(`SELECT machine, line, building, tonnage
+           FROM machines
+          WHERE factory_id = $1 AND COALESCE(is_active, true) = true
+            AND COALESCE(NULLIF(TRIM(machine_process), ''), 'Moulding') = 'Moulding'`, [toFactoryId]),
+      q(`SELECT m.mould_number, m.primary_machine, m.secondary_machine, m.tonnage
+           FROM moulds m
+          WHERE m.factory_id = $1 AND ${MOULD_FAMILY_SQL} = $2
+          ORDER BY (UPPER(TRIM(m.mould_number)) = UPPER(TRIM($3))) DESC, m.mould_number
+          LIMIT 1`, [toFactoryId, planTransfer.mouldFamilyKey(transfer.mould_no), transfer.mould_no]),
+      q('SELECT id, name, code FROM factories WHERE id = $1', [toFactoryId])
+    ]);
+    const order = makeMachineOrder(machines);
+    machines.sort((a, b) => order(a.machine, b.machine));
+    res.json({ ok: true, transfer, machines, mould: mould[0] || null, factory: factory[0] || null });
+  } catch (e) { sendTransferError(res, e, 'plan-transfers/machines'); }
+});
 
 // GET /api/planning/orders/:orderNo/batches
 app.get('/api/planning/orders/:orderNo/batches', async (req, res) => {
@@ -15412,17 +15893,19 @@ app.post('/api/planning/update', async (req, res) => {
 
     // If updating to RUNNING, auto-stop any other RUNNING plan on the same machine first
     if (status && status.toUpperCase() === 'RUNNING') {
-      const planRow = await q('SELECT machine FROM plan_board WHERE id = $1', [rowId]);
+      const planRow = await q('SELECT machine, factory_id, order_no FROM plan_board WHERE id = $1', [rowId]);
       if (planRow.length && planRow[0].machine) {
+        const scope = await planFactoryScope(pool.query.bind(pool), planRow[0]);
         const stopped = await q(
           `UPDATE plan_board SET status = 'Stopped', updated_at = NOW()
            WHERE TRIM(UPPER(machine)) = TRIM(UPPER($1)) AND UPPER(status) = 'RUNNING' AND id != $2
+             AND ${scope.sql('$3', '$4')}
            RETURNING id, order_no`,
-          [planRow[0].machine, rowId]
+          [planRow[0].machine, rowId, ...scope.params]
         );
         for (const s of stopped) {
           await q(
-            "INSERT INTO plan_audit_logs (plan_id, action, details, user_name) VALUES ($1, 'SWAP_STOP', $2, 'System')",
+            "INSERT INTO plan_audit_logs (factory_id, plan_id, action, details, user_name) VALUES ((SELECT factory_id FROM plan_board WHERE id = $1), $1, 'SWAP_STOP', $2, 'System')",
             [s.id, JSON.stringify({ reason: `Auto-stopped by update of plan ${rowId}`, by_plan_id: rowId })]
           );
         }
@@ -15622,7 +16105,7 @@ app.post('/api/planning/superadmin-edit', async (req, res) => {
     );
 
     await q(
-      "INSERT INTO plan_audit_logs (plan_id, action, details, user_name) VALUES ($1, 'SUPERADMIN_EDIT', $2, $3)",
+      "INSERT INTO plan_audit_logs (factory_id, plan_id, action, details, user_name) VALUES ((SELECT factory_id FROM plan_board WHERE id = $1), $1, 'SUPERADMIN_EDIT', $2, $3)",
       [
         rowId,
         JSON.stringify({
@@ -15759,7 +16242,7 @@ app.post('/api/planning/superadmin-edit', async (req, res) => {
         }
 
         await client.query(
-          "INSERT INTO plan_audit_logs (plan_id, action, details, user_name) VALUES ($1, 'SUPERADMIN_EDIT_MOULD', $2, $3)",
+          "INSERT INTO plan_audit_logs (factory_id, plan_id, action, details, user_name) VALUES ((SELECT factory_id FROM plan_board WHERE id = $1), $1, 'SUPERADMIN_EDIT_MOULD', $2, $3)",
           [
             rowId,
             JSON.stringify({
@@ -15880,14 +16363,17 @@ app.post('/api/planning/run', async (req, res) => {
     // 2. Check for EXISTING Running Plan on this machine
     // 2. AUTO-STOP ALL other Running Plans (Robust Fix)
     // Use UPDATE with RETURNING to catch and stop multiple existing plans if any
+    // Own factory only: machine names repeat across factories.
+    const scope = await planFactoryScope(pool.query.bind(pool), plan);
     const stopped = await q(
       `UPDATE plan_board 
           SET status = 'Stopped', updated_at = NOW() 
         WHERE TRIM(UPPER(machine)) = TRIM(UPPER($1)) 
           AND UPPER(status) = 'RUNNING' 
           AND id != $2
+          AND ${scope.sql('$3', '$4')}
         RETURNING id, order_no`,
-      [machine, rowId]
+      [machine, rowId, ...scope.params]
     );
 
     // Log Stops
@@ -15897,7 +16383,7 @@ app.post('/api/planning/run', async (req, res) => {
       console.log('[auto-stop] Plan %s stopped %d conflicting plan(s):', rowId, stopped.length, stopped.map((s) => s.id));
       for (const s of stopped) {
         await q(
-          "INSERT INTO plan_audit_logs (plan_id, action, details, user_name) VALUES ($1, $2, $3, $4)",
+          "INSERT INTO plan_audit_logs (factory_id, plan_id, action, details, user_name) VALUES ((SELECT factory_id FROM plan_board WHERE id = $1), $1, $2, $3, $4)",
           [s.id, 'SWAP_STOP', JSON.stringify({ reason: `Auto-stopped for Plan ${rowId}`, by_plan_id: rowId }), 'System']
         );
       }
@@ -15911,7 +16397,7 @@ app.post('/api/planning/run', async (req, res) => {
 
     // 5. Log ACTIVATE
     await q(
-      "INSERT INTO plan_audit_logs (plan_id, action, details, user_name) VALUES ($1, 'ACTIVATE', $2, 'System')",
+      "INSERT INTO plan_audit_logs (factory_id, plan_id, action, details, user_name) VALUES ((SELECT factory_id FROM plan_board WHERE id = $1), $1, 'ACTIVATE', $2, 'System')",
       [rowId, JSON.stringify({ machine: plan.machine, order: plan.order_no })]
     );
 
@@ -15982,13 +16468,15 @@ app.post('/api/planning/delete', async (req, res) => {
       const p = check[0];
       // Log DELETE
       await q(
-        "INSERT INTO plan_audit_logs (plan_id, action, details, user_name) VALUES ($1, 'DELETE', $2, $3)",
+        "INSERT INTO plan_audit_logs (factory_id, plan_id, action, details, user_name) VALUES ((SELECT factory_id FROM plan_board WHERE id = $1), $1, 'DELETE', $2, $3)",
         [rowId, JSON.stringify({ machine: p.machine, order: p.order_no }), actor]
       );
     }
 
     // 2. Delete
     await q('DELETE FROM plan_board WHERE id = $1', [rowId]);
+    // A deleted Factory Transfer plan sends its transfer back to Accepted (machine not set).
+    if (check.length && check[0].transfer_id) await reconcileTransferPlans(check[0].order_no);
 
     // Auto-Sync Status (Revert to Pending if needed)
     if (check.length && check[0].order_no) await syncOrderStatus(check[0].order_no);
@@ -16160,6 +16648,17 @@ app.post('/api/admin/recover-deleted-plan', async (req, res) => {
       return res.status(403).json({ ok: false, error: 'You can only recover plans from your own factory.' });
     }
 
+    // An old snapshot may have no factory, or another unit's machine: never bring that back.
+    if (snapFactoryId == null || !Number.isInteger(Number(snapFactoryId))) {
+      return res.status(400).json({ ok: false, error: 'This plan has no factory. Select the factory and recover it again.' });
+    }
+    await assertMachinesInFactory(
+      pool.query.bind(pool),
+      [{ machine: planSnap.machine, planType: planSnap.plan_type }],
+      Number(snapFactoryId)
+    );
+    planSnap.factory_id = Number(snapFactoryId);
+
     // Guard: never create a duplicate if a live row already exists.
     const existing = await q(
       `SELECT id FROM plan_board
@@ -16219,7 +16718,7 @@ app.post('/api/admin/recover-deleted-plan', async (req, res) => {
     const newId = inserted[0]?.id;
 
     await q(
-      "INSERT INTO plan_audit_logs (plan_id, action, details, user_name) VALUES ($1, 'RECOVER_DELETED', $2, $3)",
+      "INSERT INTO plan_audit_logs (factory_id, plan_id, action, details, user_name) VALUES ((SELECT factory_id FROM plan_board WHERE id = $1), $1, 'RECOVER_DELETED', $2, $3)",
       [newId, JSON.stringify({ recovered_plan_id: snapPlanId, order: snapOrderNo, factory_id: snapFactoryId, source: 'approval-history snapshot' }), actor.username]
     );
 
@@ -16231,6 +16730,7 @@ app.post('/api/admin/recover-deleted-plan', async (req, res) => {
 
     res.json({ ok: true, message: `Plan ${snapPlanId} recovered for ${snapOrderNo}.`, id: newId, planId: snapPlanId });
   } catch (e) {
+    if (e?.code === 'PLAN_FACTORY') return res.status(400).json({ ok: false, error: e.message });
     console.error('admin/recover-deleted-plan', e);
     sendServerError(res, e);
   }
@@ -16352,6 +16852,8 @@ app.get('/api/planning/orders/:orderNo/history', async (req, res) => {
     const completedRows = await q(
       `SELECT pb.id, pb.mould_name, pb.mould_code AS mould_no, pb.machine,
               pb.plan_id, pb.plan_qty,
+              CASE WHEN $2::int IS NOT NULL AND pb.factory_id <> $2
+                   THEN (SELECT f.name FROM factories f WHERE f.id = pb.factory_id) END AS transfer_at,
               -- plan_board.job_card_no is usually blank on completed plans, so fall back to
               -- the label print log (by plan) and then the OR-JR report (same order as the board).
               COALESCE(NULLIF(TRIM(pb.job_card_no), ''), jl.jc_no, ojr.job_card_no) AS job_card_no,
@@ -16399,7 +16901,7 @@ app.get('/api/planning/orders/:orderNo/history', async (req, res) => {
        ) ojr ON true
        WHERE TRIM(COALESCE(pb.order_no,'')) = TRIM($1)
          AND pb.status = 'COMPLETED'
-         AND pb.factory_id = $2
+         AND ($2::int IS NULL OR pb.factory_id = $2 OR pb.source_factory_id = $2)
        ORDER BY pb.completed_at DESC NULLS LAST`,
       [orderNo, factoryId]
     );
@@ -17114,6 +17616,10 @@ app.post('/api/planning/drop', async (req, res) => {
     const { orderNo, itemCode, mouldNo, mouldName, remarks } = req.body;
     if (!orderNo || !mouldName) return res.json({ ok: false, error: 'Missing Info' });
 
+    // The drop belongs to the order's own factory.
+    const orderFactory = await q('SELECT MIN(factory_id) AS f FROM orders WHERE TRIM(order_no) = TRIM($1) HAVING COUNT(DISTINCT factory_id) = 1', [orderNo]);
+    const dropFactoryId = orderFactory[0]?.f ?? normalizeFactoryId(getFactoryId(req));
+    if (!dropFactoryId) return res.status(400).json({ ok: false, error: NO_FACTORY_MESSAGE });
     const targetFamily = stripTrailingNumberAndSpace(mouldNo);
 
     if (targetFamily) {
@@ -17148,24 +17654,24 @@ app.post('/api/planning/drop', async (req, res) => {
 
           if (existing.length === 0) {
             await q(`
-              INSERT INTO planning_drops (order_no, item_code, mould_no, mould_name, remarks)
-              VALUES ($1, $2, $3, $4, $5)
-            `, [orderNo, variant.mould_no, variant.mould_no, variant.mould_name, remarks]);
+              INSERT INTO planning_drops (order_no, item_code, mould_no, mould_name, remarks, factory_id)
+              VALUES ($1, $2, $3, $4, $5, $6)
+            `, [orderNo, variant.mould_no, variant.mould_no, variant.mould_name, remarks, dropFactoryId]);
           }
         }
       } else {
         // Fallback to inserting just the target mould if no variants found in summary
         await q(`
-          INSERT INTO planning_drops (order_no, item_code, mould_no, mould_name, remarks)
-          VALUES ($1, $2, $3, $4, $5)
-        `, [orderNo, itemCode, mouldNo, mouldName, remarks]);
+          INSERT INTO planning_drops (order_no, item_code, mould_no, mould_name, remarks, factory_id)
+          VALUES ($1, $2, $3, $4, $5, $6)
+        `, [orderNo, itemCode, mouldNo, mouldName, remarks, dropFactoryId]);
       }
     } else {
       // No family name could be derived, just drop target mould
       await q(`
-        INSERT INTO planning_drops (order_no, item_code, mould_no, mould_name, remarks)
-        VALUES ($1, $2, $3, $4, $5)
-      `, [orderNo, itemCode, mouldNo, mouldName, remarks]);
+        INSERT INTO planning_drops (order_no, item_code, mould_no, mould_name, remarks, factory_id)
+        VALUES ($1, $2, $3, $4, $5, $6)
+      `, [orderNo, itemCode, mouldNo, mouldName, remarks, dropFactoryId]);
     }
 
     // 2. Check Completion
@@ -17265,18 +17771,21 @@ app.post('/api/planning/start', async (req, res) => {
 
     // 2. Auto-stop any other Running plans on this machine first.
     //    Using UPPER() so 'Running', 'RUNNING' etc. are all caught.
+    //    Own factory only: machine names repeat across factories.
+    const scope = await planFactoryScope(pool.query.bind(pool), plan);
     const stopped = await q(
       `UPDATE plan_board
           SET status = 'Stopped', updated_at = NOW()
         WHERE TRIM(UPPER(machine)) = TRIM(UPPER($1))
           AND UPPER(status) = 'RUNNING'
           AND id != $2
+          AND ${scope.sql('$3', '$4')}
         RETURNING id, order_no`,
-      [plan.machine, rowId]
+      [plan.machine, rowId, ...scope.params]
     );
     for (const s of stopped) {
       await q(
-        "INSERT INTO plan_audit_logs (plan_id, action, details, user_name) VALUES ($1, 'SWAP_STOP', $2, 'System')",
+        "INSERT INTO plan_audit_logs (factory_id, plan_id, action, details, user_name) VALUES ((SELECT factory_id FROM plan_board WHERE id = $1), $1, 'SWAP_STOP', $2, 'System')",
         [s.id, JSON.stringify({ reason: `Auto-stopped for Plan ${rowId}`, by_plan_id: rowId })]
       );
     }
@@ -17286,7 +17795,7 @@ app.post('/api/planning/start', async (req, res) => {
 
     // 4. Log
     await q(
-      "INSERT INTO plan_audit_logs (plan_id, action, details, user_name) VALUES ($1, 'START', $2, 'System')",
+      "INSERT INTO plan_audit_logs (factory_id, plan_id, action, details, user_name) VALUES ((SELECT factory_id FROM plan_board WHERE id = $1), $1, 'START', $2, 'System')",
       [rowId, JSON.stringify({ machine: plan.machine, order: plan.order_no })]
     );
 
@@ -17317,7 +17826,7 @@ app.post('/api/planning/stop', async (req, res) => {
 
     // 3. Log
     await q(
-      "INSERT INTO plan_audit_logs (plan_id, action, details, user_name) VALUES ($1, 'STOP', $2, 'System')",
+      "INSERT INTO plan_audit_logs (factory_id, plan_id, action, details, user_name) VALUES ((SELECT factory_id FROM plan_board WHERE id = $1), $1, 'STOP', $2, 'System')",
       [rowId, JSON.stringify({ machine: plan.machine, order: plan.order_no })]
     );
 
@@ -17721,8 +18230,8 @@ app.post('/api/planning/restore', async (req, res) => {
     await q(`UPDATE orders SET status = 'Pending' WHERE order_no = $1`, [orderNo]);
 
     await q(
-      "INSERT INTO plan_audit_logs (action, details, user_name) VALUES ('RESTORE', $1, 'User')",
-      [JSON.stringify({ order: orderNo })]
+      "INSERT INTO plan_audit_logs (action, details, user_name, factory_id) VALUES ('RESTORE', $1, 'User', $2)",
+      [JSON.stringify({ order: orderNo }), getFactoryId(req)]
     );
 
     // [Real-Time Sync]
@@ -17808,6 +18317,12 @@ app.get('/api/planning/mould-machines', async (req, res) => {
 // "transferred from" set, so QC must approve it again on the new machine. If the job
 // already has an FPA row on the new machine (moved back), that row is reset the same way.
 // The old machine's FPA stays as history. Returns { id, from } or null when there is none.
+// One FPA history step as a 1-element JSON array, ready to append with
+// `fpa_history = COALESCE(fpa_history, '[]'::jsonb) || $n::jsonb`.
+function fpaHistoryEvent(action, by, remark, at) {
+  return JSON.stringify([{ action, by: by || null, at: (at || new Date()).toISOString(), remark: remark || null }]);
+}
+
 async function transferFpaToMachine(plan, fromMachine, toMachine) {
   const refs = [plan.plan_id, plan.id].map(v => String(v ?? '').trim()).filter(Boolean);
   const src = (await q(
@@ -17833,6 +18348,11 @@ async function transferFpaToMachine(plan, fromMachine, toMachine) {
         AND ($3::int IS NULL OR factory_id = $3 OR factory_id IS NULL)
       ORDER BY id DESC LIMIT 1`, [jc, toMachine, src.factory_id ?? null]))[0] : null;
 
+  // History step for the move (plus the auto-approve when that window is on).
+  const movedHistory = JSON.stringify([
+    ...JSON.parse(fpaHistoryEvent('Moved', 'Planning', `Job moved from ${fromMachine} to ${toMachine} — needs approval again`)),
+    ...(autoUntil ? JSON.parse(fpaHistoryEvent('Approved', reviewer, remark)) : [])
+  ]);
   let id;
   if (existing) {
     id = existing.id;
@@ -17841,11 +18361,12 @@ async function transferFpaToMachine(plan, fromMachine, toMachine) {
          fpa_status = 'Done', fpa_form_image = $2, fpa_form_url = $3, product_images = $4::jsonb,
          fpa_done_at = $5, fpa_done_by = $6, plan_id = $7, order_no = $8, item_name = $9, mould_name = $10,
          fpa_approval_status = $11, fpa_reviewed_by = $12, fpa_reviewed_at = $13, fpa_approve_remark = $14,
-         fpa_reject_reason = NULL, fpa_transferred_from = $15, fpa_transferred_from_id = $16, updated_at = NOW()
+         fpa_reject_reason = NULL, fpa_transferred_from = $15, fpa_transferred_from_id = $16,
+         fpa_history = COALESCE(fpa_history, '[]'::jsonb) || $17::jsonb, updated_at = NOW()
        WHERE id = $1`,
       [id, src.fpa_form_image, src.fpa_form_url, JSON.stringify(src.product_images || []),
        src.fpa_done_at, src.fpa_done_by, src.plan_id, src.order_no, src.item_name, src.mould_name,
-       status, reviewer, autoUntil ? new Date() : null, remark, fromMachine, src.id]);
+       status, reviewer, autoUntil ? new Date() : null, remark, fromMachine, src.id, movedHistory]);
   } else {
     const line = (await q(`SELECT line FROM machines WHERE machine = $1 LIMIT 1`, [toMachine]))[0];
     const ins = await q(
@@ -17854,14 +18375,15 @@ async function transferFpaToMachine(plan, fromMachine, toMachine) {
          fpa_status, fpa_form_image, fpa_form_url, product_images, remarks, supervisor,
          fpa_done_at, fpa_done_by, factory_id, fpa_approval_status,
          fpa_reviewed_by, fpa_reviewed_at, fpa_approve_remark,
-         fpa_transferred_from, fpa_transferred_from_id, updated_at
-       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'Done',$11,$12,$13::jsonb,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,NOW())
+         fpa_transferred_from, fpa_transferred_from_id, fpa_history, updated_at
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'Done',$11,$12,$13::jsonb,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25::jsonb,NOW())
        RETURNING id`,
       [src.date, src.shift, src.hour_slot, src.plan_id, src.job_card_no, src.order_no,
        (line && line.line) || src.line, toMachine, src.item_name, src.mould_name,
        src.fpa_form_image, src.fpa_form_url, JSON.stringify(src.product_images || []), src.remarks, src.supervisor,
        src.fpa_done_at, src.fpa_done_by, src.factory_id, status,
-       reviewer, autoUntil ? new Date() : null, remark, fromMachine, src.id]);
+       reviewer, autoUntil ? new Date() : null, remark, fromMachine, src.id,
+       JSON.stringify([...(Array.isArray(src.fpa_history) ? src.fpa_history : []), ...JSON.parse(movedHistory)])]);
     id = ins[0] && ins[0].id;
   }
 
@@ -17899,6 +18421,11 @@ app.post('/api/planning/move', async (req, res) => {
     if (!planRes.length) return res.json({ ok: false, error: 'Plan not found' });
     const plan = planRes[0];
 
+    // A plan may only move to a machine of its own factory.
+    if (plan.factory_id != null) {
+      await assertMachinesInFactory(pool.query.bind(pool), [{ machine: targetMachine, planType: plan.plan_type }], Number(plan.factory_id));
+    }
+
     // 2. Update Machine & Status (Always Stop on Move/Drag)
     const isRunning = (plan.status || '').toUpperCase() === 'RUNNING' || (plan.status || '').toUpperCase() === 'Running';
 
@@ -17907,19 +18434,20 @@ app.post('/api/planning/move', async (req, res) => {
     if (isRunning) {
       // Log the auto-stop
       await q(
-        "INSERT INTO plan_audit_logs (plan_id, action, details, user_name) VALUES ($1, 'AUTO_STOP_MOVE', $2, 'System')",
+        "INSERT INTO plan_audit_logs (factory_id, plan_id, action, details, user_name) VALUES ((SELECT factory_id FROM plan_board WHERE id = $1), $1, 'AUTO_STOP_MOVE', $2, 'System')",
         [rowId, JSON.stringify({ from: plan.machine, to: targetMachine, reason: 'Moved while running' })]
       );
     }
 
-    // 4. Handle Resequencing
+    // 4. Handle Resequencing (own factory only: machine names repeat across factories)
+    const scope = await planFactoryScope(pool.query.bind(pool), { ...plan, machine: targetMachine });
     const { dropBeforeId } = req.body;
 
     // A. Get all plans for this machine (excluding the moved one, to re-insert)
     // We fetch everything sorted by seq, then re-build the list.
     let allPlans = await q(
-      `SELECT id, seq FROM plan_board WHERE machine = $1 AND id != $2 ORDER BY seq ASC, id ASC`,
-      [targetMachine, rowId]
+      `SELECT id, seq FROM plan_board WHERE machine = $1 AND id != $2 AND ${scope.sql('$3', '$4')} ORDER BY seq ASC, id ASC`,
+      [targetMachine, rowId, ...scope.params]
     );
 
     // B. Determine Insert Index - honor dropBeforeId when provided, else append to end
@@ -17942,9 +18470,10 @@ app.post('/api/planning/move', async (req, res) => {
 
     // E. Also compact the old machine when a plan was moved away.
     if (plan.machine && String(plan.machine).trim() !== String(targetMachine).trim()) {
+      const oldScope = await planFactoryScope(pool.query.bind(pool), plan);
       const oldMachinePlans = await q(
-        `SELECT id FROM plan_board WHERE machine = $1 ORDER BY COALESCE(seq, 999999) ASC, start_date ASC, id ASC`,
-        [plan.machine]
+        `SELECT id FROM plan_board WHERE machine = $1 AND ${oldScope.sql('$2', '$3')} ORDER BY COALESCE(seq, 999999) ASC, start_date ASC, id ASC`,
+        [plan.machine, ...oldScope.params]
       );
       for (let i = 0; i < oldMachinePlans.length; i++) {
         await q('UPDATE plan_board SET seq = $1 WHERE id = $2', [(i + 1) * 10, oldMachinePlans[i].id]);
@@ -17953,7 +18482,7 @@ app.post('/api/planning/move', async (req, res) => {
 
     // 3. Log
     await q(
-      "INSERT INTO plan_audit_logs (plan_id, action, details, user_name) VALUES ($1, 'MOVE', $2, 'System')",
+      "INSERT INTO plan_audit_logs (factory_id, plan_id, action, details, user_name) VALUES ((SELECT factory_id FROM plan_board WHERE id = $1), $1, 'MOVE', $2, 'System')",
       [rowId, JSON.stringify({ from: plan.machine, to: targetMachine, index: insertIdx })]
     );
 
@@ -17969,6 +18498,7 @@ app.post('/api/planning/move', async (req, res) => {
 
     res.json({ ok: true, fpa_transferred: fpaTransferred });
   } catch (e) {
+    if (e?.code === 'PLAN_FACTORY') return res.status(400).json({ ok: false, error: e.message });
     console.error('planning/move', e);
     sendServerError(res, e);
   }
@@ -18001,9 +18531,21 @@ app.post('/api/planning/reseq', async (req, res) => {
 
       // Only reseq ids that actually belong to this machine.
       // ORDER BY keeps a deterministic order when appending "missing" ids below.
+      // The factory is that of the first plan in the list: the same machine name in
+      // another factory is a different queue.
+      const firstPlan = await client.query(
+        'SELECT machine, factory_id, order_no FROM plan_board WHERE machine = $1 AND id::text = ANY($2::text[]) ORDER BY array_position($2::text[], id::text) LIMIT 1',
+        [machine, orderedIds.map(String)]
+      );
+      if (!firstPlan.rows.length) {
+        await client.query('ROLLBACK');
+        client.release();
+        return res.json({ ok: false, error: 'These plans are not on this machine any more. Refresh and try again.' });
+      }
+      const scope = await planFactoryScope(client.query.bind(client), firstPlan.rows[0]);
       const existing = await client.query(
-        'SELECT id FROM plan_board WHERE machine = $1 ORDER BY COALESCE(seq, 999999) ASC, id ASC',
-        [machine]
+        `SELECT id FROM plan_board WHERE machine = $1 AND ${scope.sql('$2', '$3')} ORDER BY COALESCE(seq, 999999) ASC, id ASC`,
+        [machine, ...scope.params]
       );
       const valid = new Set(existing.rows.map(r => String(r.id)));
       const finalOrder = orderedIds.map(String).filter(id => valid.has(id));
@@ -18025,7 +18567,7 @@ app.post('/api/planning/reseq', async (req, res) => {
       }
 
       await client.query(
-        "INSERT INTO plan_audit_logs (plan_id, action, details, user_name) VALUES ($1, 'RESEQ', $2, 'System')",
+        "INSERT INTO plan_audit_logs (factory_id, plan_id, action, details, user_name) VALUES ((SELECT factory_id FROM plan_board WHERE id = $1), $1, 'RESEQ', $2, 'System')",
         [finalOrder[0] || null, JSON.stringify({ machine, order: finalOrder })]
       );
 
@@ -18308,7 +18850,7 @@ app.get('/api/planning/print-jc-plans', async (req, res) => {
     const conditions = ['COALESCE(pb.order_no, \'\') <> \'\''];
     if (factoryId) {
       params.push(factoryId);
-      conditions.push(`(pb.factory_id = $${params.length} OR pb.factory_id IS NULL)`);
+      conditions.push(planVisibleToFactorySql(`$${params.length}`));
     }
     if (from) {
       params.push(from);
@@ -18407,7 +18949,7 @@ app.get('/api/planning/job-card-approvals', async (req, res) => {
     conditions.push(`UPPER(COALESCE(pb.status, 'PLANNED')) NOT IN ('REJECTED', 'COMPLETED', 'DONE', 'CANCELLED')`);
     if (factoryId) {
       params.push(factoryId);
-      conditions.push(`(pb.factory_id = $${params.length} OR pb.factory_id IS NULL)`);
+      conditions.push(planVisibleToFactorySql(`$${params.length}`));
     }
     if (search) {
       params.push(`%${search}%`);
@@ -22241,20 +22783,11 @@ async function runErpAutoSyncCycle(trigger = 'auto') {
         fs.imported = saved.upsertCount;
 
         // Build Order Master + completion history in its own transaction.
-        const client = await pool.connect();
-        try {
-          await client.query('BEGIN');
-          const ord = await runOrdersFetchFromOrJr(client, { factoryId: f.id, actorName: 'ERP-AutoSync' });
-          await client.query('COMMIT');
-          fs.orders_added = ord.count;
-          fs.orders_updated = ord.updated;
-          fs.completion_flagged = ord.flagged;
-        } catch (e) {
-          await client.query('ROLLBACK').catch(() => {});
-          throw e;
-        } finally {
-          client.release();
-        }
+        const ord = await withTransactionDeadlockRetry(pool, (client) =>
+          runOrdersFetchFromOrJr(client, { factoryId: f.id, actorName: 'ERP-AutoSync' }));
+        fs.orders_added = ord.count;
+        fs.orders_updated = ord.updated;
+        fs.completion_flagged = ord.flagged;
 
         // Also import OR-JR Wise Summary + Details from the fetched ERP snapshot
         // into the planning tables, per factory, so LOCAL servers receive the new
@@ -22746,6 +23279,28 @@ async function buildErpPlanningRows(cfgKey, requestFactoryId) {
       seen.set(key, row);
     }
     rows = Array.from(seen.values());
+
+    // Orders whose ERP summary came with a blank mould: use the moulds in ERP Details.
+    // Planning rows are looked up across all factories because (or_jr_no, mould_no)
+    // is unique globally.
+    const blankOrderDetails = await q(`
+      SELECT d.* FROM erp_jr_details d
+       WHERE TRIM(COALESCE(d.mould_no, '')) <> '' AND TRIM(COALESCE(d.c_item_code, '')) <> ''
+         AND LOWER(TRIM(d.or_jr_no)) NOT IN (
+           SELECT LOWER(TRIM(s.or_jr_no)) FROM erp_jr_summary s
+            WHERE s.or_jr_no IS NOT NULL AND TRIM(COALESCE(s.mould_no, '')) <> '')
+       ORDER BY d.id
+    `);
+    const details = blankOrderDetails
+      .filter((r) => !['other', 'unresolved'].includes(classifyErpRowFactory(r, requestFactoryId, factoryMap)))
+      .map((r) => erpPlanningRowFromSnapshot(r, 'detail', requestFactoryId));
+    if (details.length) {
+      const planned = await q(
+        `SELECT DISTINCT or_jr_no FROM mould_planning_summary WHERE LOWER(TRIM(or_jr_no)) = ANY($1::text[])`,
+        [[...new Set(details.map((r) => r.or_jr_no.toLowerCase()))]]
+      );
+      rows.push(...deriveSummaryRowsFromDetails(rows, details, planned.map((r) => r.or_jr_no)));
+    }
   }
 
   return { rows, snapshotRows: snapshot.length, otherFactory, unresolved, missingMould, collapsed };
@@ -24310,14 +24865,14 @@ app.post('/api/admin/users/create', async (req, res) => {
     // Stored as a bcrypt hash like every other password path (this route stored plain text).
     const passwordHash = await bcrypt.hash(String(password), 12);
     await q(
-      `INSERT INTO users(username, password, line, role_code, permissions)
-VALUES($1, $2, $3, $4, $5)
+      `INSERT INTO users(username, password, line, role_code, permissions, factory_id)
+VALUES($1, $2, $3, $4, $5, $6)
        ON CONFLICT(username) DO UPDATE SET
 password = EXCLUDED.password,
   line = EXCLUDED.line,
   role_code = EXCLUDED.role_code,
   permissions = EXCLUDED.permissions`,
-      [username, passwordHash, line || null, requestedRole, permissions || '{}']
+      [username, passwordHash, line || null, requestedRole, permissions || '{}', normalizeFactoryId(getFactoryId(req))]
     );
     authSessions.invalidateUserCache(username);
 
@@ -24542,28 +25097,19 @@ app.post('/api/orders/fetch-from-orjr', async (req, res) => {
       return res.status(writeContext.status || 403).json({ ok: false, error: writeContext.error });
     }
     const requestFactoryId = writeContext.factoryId;
-    const client = await pool.connect();
-    try {
-      await client.query('BEGIN');
-      const r = await runOrdersFetchFromOrJr(client, {
+    const r = await withTransactionDeadlockRetry(pool, (client) =>
+      runOrdersFetchFromOrJr(client, {
         factoryId: requestFactoryId,
         actorName: getRequestUsername(req) || 'System'
-      });
-      await client.query('COMMIT');
-      res.json({
-        ok: true,
-        message: r.noCandidates
-          ? (r.flagged > 0
-            ? `No open OR-JR rows to fetch. ${r.flagged} orders moved to confirmation.`
-            : 'No matching active records found in OR-JR Report.')
-          : `Synced successfully. Added: ${r.count}, Updated: ${r.updated}, Pending confirmation: ${r.flagged}, Cleared: ${r.cleared}`
-      });
-    } catch (e) {
-      await client.query('ROLLBACK');
-      throw e;
-    } finally {
-      client.release();
-    }
+      }));
+    res.json({
+      ok: true,
+      message: r.noCandidates
+        ? (r.flagged > 0
+          ? `No open OR-JR rows to fetch. ${r.flagged} orders moved to confirmation.`
+          : 'No matching active records found in OR-JR Report.')
+        : `Synced successfully. Added: ${r.count}, Updated: ${r.updated}, Pending confirmation: ${r.flagged}, Cleared: ${r.cleared}`
+    });
   } catch (e) {
     console.error(e);
     sendServerError(res, e);
@@ -24732,14 +25278,21 @@ app.get('/api/orders/detail', async (req, res) => {
     if (!orderNo) return res.status(400).json({ ok: false, error: 'order_no is required' });
     const factoryScope = await getFactoryScopeForRequest(req);
 
-    const scoped = (col, base) => {
+    const viewFactoryId = getFactoryId(req);
+    const scoped = (col, base, extraCol) => {
       const params = [...base];
       const conditions = [];
       applyFactoryScopeCondition(conditions, params, col, factoryScope);
       if (!conditions.length) return { params, where: '' };
       // Legacy rows saved before factory_id existed stay visible, unless access is denied.
       const nullOk = factoryScope && factoryScope.denyAll ? '' : ` OR ${col} IS NULL`;
-      return { params, where: ` AND (${conditions.join(' AND ')}${nullOk})` };
+      // Factory Transfers: plans another factory runs for this factory's order.
+      let extra = '';
+      if (extraCol && viewFactoryId && !(factoryScope && factoryScope.denyAll)) {
+        params.push(viewFactoryId);
+        extra = ` OR ${extraCol} = $${params.length}`;
+      }
+      return { params, where: ` AND ((${conditions.join(' AND ')})${nullOk}${extra})` };
     };
 
     const m = scoped('factory_id', [orderNo]);
@@ -24749,11 +25302,14 @@ app.get('/api/orders/detail', async (req, res) => {
         WHERE TRIM(or_jr_no) = TRIM($1)${m.where}
         ORDER BY mould_no`, m.params);
 
-    const p = scoped('pb.factory_id', [orderNo]);
+    const p = scoped('pb.factory_id', [orderNo], 'pb.source_factory_id');
     const plans = await q(
       `SELECT pb.plan_id, pb.mould_name, pb.mould_code, pb.machine, pb.line,
               pb.start_date, pb.end_date, pb.plan_qty, pb.bal_qty, pb.status,
               pb.created_by, pb.created_at, pb.job_card_no,
+              pb.factory_id, pb.source_factory_id, pb.transfer_id,
+              (SELECT f.name FROM factories f WHERE f.id = pb.factory_id) AS factory_name,
+              (SELECT f.name FROM factories f WHERE f.id = pb.source_factory_id) AS transfer_from,
               COALESCE(d.good_qty, 0) AS good_qty, COALESCE(d.reject_qty, 0) AS reject_qty,
               d.first_dpr, d.last_dpr
          FROM plan_board pb
@@ -24762,6 +25318,9 @@ app.get('/api/orders/detail', async (req, res) => {
                   MIN(dpr_date) AS first_dpr, MAX(dpr_date) AS last_dpr
              FROM dpr_hourly dh
             WHERE dh.plan_id = pb.plan_id
+              -- plan ids repeat in every factory: only this plan's own factory
+              AND (dh.factory_id = pb.factory_id OR dh.factory_id IS NULL OR pb.factory_id IS NULL)
+              AND dh.is_deleted IS NOT TRUE
          ) d ON TRUE
         WHERE TRIM(pb.order_no) = TRIM($1)${p.where}
         ORDER BY pb.start_date NULLS LAST, pb.created_at`, p.params);
@@ -25923,28 +26482,30 @@ app.post('/api/dpr/auto-fill-ongoing', async (req, res) => {
         // Skip current (incomplete) slot — only fill fully elapsed slots
         if (i >= currentSlotIdx) continue;
 
-        const exists = await q(
-          'SELECT id FROM dpr_hourly WHERE machine=$1 AND dpr_date=$2 AND shift=$3 AND hour_slot=$4 AND is_deleted=false AND ($5::int IS NULL OR factory_id=$5 OR factory_id IS NULL)',
-          [last.machine, dprDate, currentShift, gapSlot, rowFactory]
-        );
-        if (exists.length === 0) {
-          await q(
-            `INSERT INTO dpr_hourly (
-              dpr_date, shift, hour_slot, shots, good_qty, reject_qty, downtime_min,
-              remarks, machine, plan_id, order_no, mould_no, jobcard_no,
-              colour, reject_breakup, downtime_breakup, entry_type,
-              created_by, supervisor, factory_id, created_at, updated_at
-            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,NOW(),NOW())`,
-            [
-              dprDate, currentShift, gapSlot, 0, 0, 0, 60,
-              (last.remarks ? (last.remarks.includes('[Auto-Filled]') ? last.remarks : last.remarks + ' [Auto-Filled]') : '[Auto-Filled]'),
-              last.machine, last.plan_id, last.order_no, last.mould_no, last.jobcard_no,
-              last.colour, last.reject_breakup, last.downtime_breakup, last.entry_type,
-              'SYSTEM-AUTOFILL', last.supervisor, rowFactory
-            ]
+        await withDprSlotLock(pool, dprSlotKey(rowFactory, last.machine, dprDate, currentShift, gapSlot), async (lq) => {
+          const exists = await lq(
+            'SELECT id FROM dpr_hourly WHERE machine=$1 AND dpr_date=$2 AND shift=$3 AND hour_slot=$4 AND is_deleted=false AND ($5::int IS NULL OR factory_id=$5 OR factory_id IS NULL)',
+            [last.machine, dprDate, currentShift, gapSlot, rowFactory]
           );
-          filled++;
-        }
+          if (exists.length === 0) {
+            await lq(
+              `INSERT INTO dpr_hourly (
+                dpr_date, shift, hour_slot, shots, good_qty, reject_qty, downtime_min,
+                remarks, machine, plan_id, order_no, mould_no, jobcard_no,
+                colour, reject_breakup, downtime_breakup, entry_type,
+                created_by, supervisor, factory_id, created_at, updated_at
+              ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,NOW(),NOW())`,
+              [
+                dprDate, currentShift, gapSlot, 0, 0, 0, 60,
+                (last.remarks ? (last.remarks.includes('[Auto-Filled]') ? last.remarks : last.remarks + ' [Auto-Filled]') : '[Auto-Filled]'),
+                last.machine, last.plan_id, last.order_no, last.mould_no, last.jobcard_no,
+                last.colour, last.reject_breakup, last.downtime_breakup, last.entry_type,
+                'SYSTEM-AUTOFILL', last.supervisor, rowFactory
+              ]
+            );
+            filled++;
+          }
+        });
       }
     }
 
@@ -26057,8 +26618,9 @@ app.get('/api/dpr/summary-matrix', async (req, res) => {
       sqlMachines += ` AND COALESCE(NULLIF(TRIM(machine_process), ''), 'Moulding') = $${mParams.length + 1}`;
       mParams.push(requestedProcess);
     }
-    const machinesRes = await q(sqlMachines, mParams);
-    const machines = machinesRes.sort((a, b) => naturalCompare(a.machine, b.machine));
+    // The queries below are independent, so they run side by side.
+    const settle = (p) => { p.catch(() => {}); return p; }; // a failure is raised where it is awaited
+    const machinesP = settle(q(sqlMachines, mParams));
 
     // 1.1 Get Closed Plants for this Range
     let sqlClosed = `SELECT id, dpr_date::text as dpr_date_str, plant, shift, remarks FROM closed_plants WHERE dpr_date BETWEEN $1 AND $2`;
@@ -26067,7 +26629,7 @@ app.get('/api/dpr/summary-matrix', async (req, res) => {
       sqlClosed += ` AND (factory_id = $3 OR factory_id IS NULL)`; // a closure saved without a factory applies to all
       cParams.push(factoryId);
     }
-    const closedPlants = await q(sqlClosed, cParams);
+    const closedP = settle(q(sqlClosed, cParams));
 
     // 2. Get DPR Entries for this Range
     let sqlEntries = `
@@ -26081,6 +26643,8 @@ app.get('/api/dpr/summary-matrix', async (req, res) => {
         TRIM(COALESCE(pb.mould_name, mps.mould_name)) as mould_name,
         ojr.job_card_no,
         COALESCE(ojr.client_name, o.client_name) as client_name,
+        -- Factory Transfers: the factory this plan is made for (NULL for own plans)
+        (SELECT sf.name FROM factories sf WHERE sf.id = pb.source_factory_id) as transfer_from,
         -- QC verify detail for this hour slot (one per DPR entry; legacy
         -- hour-level rows still match; qv/qh joined LATERAL below, fan-out-safe).
         (qv.id IS NOT NULL)   AS qc_verified,
@@ -26168,11 +26732,7 @@ app.get('/api/dpr/summary-matrix', async (req, res) => {
     if (factoryId) {
       entryParams.push(factoryId);
     }
-    const entries = await q(sqlEntries, entryParams);
-    // Safety net: a dpr_hourly row must appear exactly once. Even if a LEFT JOIN ever
-    // fans out again (a non-unique join key), collapse back to one row per dpr_hourly id
-    // so the matrix can never render the same entry twice.
-    dedupeById(entries);
+    const entriesP = settle(q(sqlEntries, entryParams));
 
     // 3. Get Setup Data (std_actual) for Range
     let setupQuery = `
@@ -26321,7 +26881,12 @@ app.get('/api/dpr/summary-matrix', async (req, res) => {
     const setupParams = [fDate, tDate, shift, factoryId || null];
 
     // 3. Get Setup Data (std_actual) for Date Range
-    const setups = await q(setupQuery, setupParams);
+    const [machinesRes, closedPlants, entries, setups] = await Promise.all([machinesP, closedP, entriesP, q(setupQuery, setupParams)]);
+    const machines = machinesRes.sort((a, b) => naturalCompare(a.machine, b.machine));
+    // Safety net: a dpr_hourly row must appear exactly once. Even if a LEFT JOIN ever
+    // fans out again (a non-unique join key), collapse back to one row per dpr_hourly id
+    // so the matrix can never render the same entry twice.
+    dedupeById(entries);
     // Safety net: one row per std_actual id (see dedupeById note on entries above).
     dedupeById(setups);
 
@@ -26694,7 +27259,8 @@ app.get('/api/admin/fix-sync-schema', async (req, res) => {
       'operator_history'
     ];
 
-    const FID = process.env.LOCAL_FACTORY_ID || 1;
+    // MAIN holds every factory's rows, so it never fills a missing factory by itself.
+    const FID = normalizeFactoryId(process.env.LOCAL_FACTORY_ID);
     const logs = [];
 
     for (const table of SYNC_TABLES) {
@@ -26706,7 +27272,9 @@ app.get('/api/admin/fix-sync-schema', async (req, res) => {
 
         // 2. Heal Data
         await q(`UPDATE ${table} SET sync_id = gen_random_uuid() WHERE sync_id IS NULL`);
-        await q(`UPDATE ${table} SET factory_id = $1 WHERE factory_id IS NULL`, [FID]);
+        // A plan's factory comes from its machine or order (planFactory.js), never from
+        // the server it happens to be on.
+        if (FID && table !== 'plan_board') await q(`UPDATE ${table} SET factory_id = $1 WHERE factory_id IS NULL`, [FID]);
 
         // 3. Unique index on sync_id (skipped when an equivalent one already exists)
         await ensureUniqueIndex(q, { table, columns: 'sync_id', name: `idx_${table}_sync_id` });
@@ -30160,7 +30728,7 @@ AND
 // POST /api/extra-qty/allow — grant extra qty for a plan+colour (role-gated)
 app.post('/api/extra-qty/allow', async (req, res) => {
   try {
-    const { plan_id, colour, extra_qty, remarks, session } = req.body || {};
+    const { plan_id, order_no, colour, extra_qty, remarks, session } = req.body || {};
     if (!session || !session.username) return res.status(401).json({ ok: false, error: 'Unauthorized' });
     if (!plan_id || !String(plan_id).trim()) return res.json({ ok: false, error: 'plan_id required' });
     const colourName = String(colour || '').trim();
@@ -30219,9 +30787,10 @@ app.post('/api/extra-qty/allow', async (req, res) => {
       `SELECT order_no, machine, mould_name, factory_id
          FROM plan_board
         WHERE plan_id = $1 AND ($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL)
-        ORDER BY (factory_id IS NOT DISTINCT FROM $2::int) DESC, id DESC
+        ORDER BY (TRIM(order_no) IS NOT DISTINCT FROM TRIM($3::text)) DESC,
+                 (factory_id IS NOT DISTINCT FROM $2::int) DESC, id DESC
         LIMIT 1`,
-      [String(plan_id), getFactoryId(req) || null]
+      [String(plan_id), getFactoryId(req) || null, order_no || null]
     );
     if (!pRows.length) return res.json({ ok: false, error: 'Plan not found: ' + plan_id });
     const p = pRows[0];
@@ -30243,8 +30812,9 @@ app.post('/api/extra-qty/allow', async (req, res) => {
     const ins = await q(
       `INSERT INTO extra_qty_allowances
          (plan_id, order_no, jc_no, machine, mould_name, colour, extra_qty, remarks,
-          allowed_by, allowed_role, factory_id)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+          allowed_by, allowed_role, factory_id, allowed_at)
+       -- allowed_at is part of the sync key and the sync wire carries only milliseconds
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11, date_trunc('milliseconds', NOW()))
        RETURNING id, allowed_at`,
       [String(plan_id), p.order_no || '', jcNo, p.machine || '', p.mould_name || '',
        colourName, qty, remarksText, session.username, role, p.factory_id || getFactoryId(req) || null]
@@ -30267,8 +30837,11 @@ app.get('/api/extra-qty', async (req, res) => {
       `SELECT id, colour, extra_qty, remarks, allowed_by, allowed_role, allowed_at
          FROM extra_qty_allowances
         WHERE plan_id = $1 AND is_deleted = FALSE
+          -- plan_id repeats per factory: never show another factory's grants. factory_id is TEXT here.
+          AND ($2::int IS NULL OR factory_id = $2::int::text OR factory_id IS NULL)
+          AND ($3::int IS NULL OR factory_id = $3::int::text OR factory_id IS NULL)
         ORDER BY allowed_at DESC`,
-      [String(plan_id)]
+      [String(plan_id), getFactoryId(req) || null, toNum(req.query.factory_id) || null]
     );
     res.json({ ok: true, data: rows });
   } catch (e) {
@@ -31399,7 +31972,11 @@ app.post('/api/hr/scan', async (req, res) => {
     const ops = await q('SELECT * FROM machine_operators WHERE operator_id=$1', [operator_id]);
     if (!ops.length) return res.status(404).json({ ok: false, error: 'Operator not found' });
     const operator = ops[0];
-    const historyCols = await q(`INSERT INTO operator_history(operator_id, machine_at_time, scanned_by) VALUES($1, $2, $3) RETURNING id, scanned_at`, [operator.operator_id, operator.assigned_machine, scanned_by || 'Engineer']);
+    const scanFactoryId = await resolveSaveFactory(q, {
+      factoryId: operator.factory_id ?? getFactoryId(req), machine: operator.assigned_machine
+    });
+    if (!scanFactoryId) return res.status(400).json({ ok: false, error: NO_FACTORY_MESSAGE });
+    const historyCols = await q(`INSERT INTO operator_history(operator_id, machine_at_time, scanned_by, factory_id) VALUES($1, $2, $3, $4) RETURNING id, scanned_at`, [operator.operator_id, operator.assigned_machine, scanned_by || 'Engineer', scanFactoryId]);
     res.json({ ok: true, operator, history: historyCols[0] });
   } catch (e) { sendServerError(res, e); }
 });
@@ -32024,6 +32601,11 @@ app.post('/api/qc/fpa', (req, res, next) => {
         )
       : [];
 
+    // History: the (re-)upload, plus the auto-approve when that window is on.
+    const submitHistory = action => JSON.stringify([
+      ...JSON.parse(fpaHistoryEvent(action, supervisor, remarks || '', now)),
+      ...(autoUntil ? JSON.parse(fpaHistoryEvent('Approved', autoReviewer, autoRemark, now)) : [])
+    ]);
     let fpaId;
     if (existing.length) {
       fpaId = existing[0].id;
@@ -32036,6 +32618,7 @@ app.post('/api/qc/fpa', (req, res, next) => {
           fpa_approval_status=$17, fpa_reject_reason=NULL,
           fpa_reviewed_by=$18, fpa_reviewed_at=$19, fpa_approve_remark=$20,
           fpa_resubmit_count=COALESCE(fpa_resubmit_count,0)+1,
+          fpa_history=COALESCE(fpa_history,'[]'::jsonb) || $21::jsonb,
           updated_at=NOW()
         WHERE id=$16
       `, [
@@ -32043,7 +32626,7 @@ app.post('/api/qc/fpa', (req, res, next) => {
         item_name || '', mould_name || '',
         formUrl, formUrl, JSON.stringify(productUrls),
         remarks || '', supervisor, now, supervisor, fpaId,
-        approvalStatus, autoReviewer, autoReviewedAt, autoRemark
+        approvalStatus, autoReviewer, autoReviewedAt, autoRemark, submitHistory('Re-submitted')
       ]);
     } else {
       const ins = await q(`
@@ -32051,8 +32634,8 @@ app.post('/api/qc/fpa', (req, res, next) => {
           date, shift, hour_slot, plan_id, job_card_no, order_no, line, machine, item_name, mould_name,
           fpa_status, fpa_form_image, fpa_form_url, product_images, remarks, supervisor,
           fpa_done_at, fpa_done_by, factory_id, fpa_approval_status,
-          fpa_reviewed_by, fpa_reviewed_at, fpa_approve_remark, updated_at
-        ) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'Done',$11,$12,$13::jsonb,$14,$15,$16,$17,$18,$19,$20,$21,$22,NOW())
+          fpa_reviewed_by, fpa_reviewed_at, fpa_approve_remark, fpa_history, updated_at
+        ) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'Done',$11,$12,$13::jsonb,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23::jsonb,NOW())
         RETURNING id
       `, [
         entryDate, shift || '', hour_slot || '',
@@ -32060,7 +32643,7 @@ app.post('/api/qc/fpa', (req, res, next) => {
         line || '', machine || '', item_name || '', mould_name || '',
         formUrl, formUrl, JSON.stringify(productUrls),
         remarks || '', supervisor, now, supervisor, factoryId,
-        approvalStatus, autoReviewer, autoReviewedAt, autoRemark
+        approvalStatus, autoReviewer, autoReviewedAt, autoRemark, submitHistory('Submitted')
       ]);
       fpaId = ins && ins[0] && ins[0].id;
     }
@@ -32235,7 +32818,12 @@ app.get('/api/qc/fpa/list', async (req, res) => {
   try {
     const { date, shift, machine } = req.query;
     const factoryId = resolveReportFactoryId ? resolveReportFactoryId(req) : getFactoryId(req);
-    const d = date || new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date());
+    // Date range: ?from=&to= (inclusive). The old ?date= still works as a one-day range.
+    const isDay = v => /^\d{4}-\d{2}-\d{2}$/.test(String(v || ''));
+    const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date());
+    let from = isDay(req.query.from) ? req.query.from : (isDay(date) ? date : today);
+    let to = isDay(req.query.to) ? req.query.to : (isDay(date) ? date : from);
+    if (to < from) [from, to] = [to, from];
     const mFilter = (machine && machine !== 'All' && machine !== 'All Machines') ? machine : null;
     const rows = await q(
       `SELECT
@@ -32246,25 +32834,71 @@ app.get('/api/qc/fpa/list', async (req, res) => {
          COALESCE(jc.fpa_approval_status, 'Pending') AS fpa_approval_status,
          jc.fpa_reviewed_by, jc.fpa_reviewed_at, jc.fpa_reject_reason, jc.fpa_approve_remark,
          COALESCE(jc.fpa_resubmit_count, 0) AS fpa_resubmit_count,
-         jc.fpa_transferred_from
+         jc.fpa_transferred_from,
+         COALESCE(jc.fpa_history, '[]'::jsonb) AS fpa_history,
+         to_char(jc.date, 'YYYY-MM-DD') AS fpa_date
        FROM qc_job_checks jc
        WHERE jc.fpa_status = 'Done'
-         -- Always surface PENDING FPAs regardless of the selected date so an
+         -- Always surface PENDING FPAs regardless of the selected dates so an
          -- approver never misses one stuck on an earlier day (this makes the
          -- page's Pending count match the sidebar badge). Approved/Rejected
-         -- stay scoped to the chosen date.
-         AND (COALESCE(jc.fpa_approval_status,'Pending') = 'Pending' OR jc.date = $1::date)
+         -- stay scoped to the chosen From..To range.
+         AND (COALESCE(jc.fpa_approval_status,'Pending') = 'Pending' OR jc.date BETWEEN $1::date AND $5::date)
          AND ($2::text IS NULL OR jc.shift = $2::text)
          AND ($3::text IS NULL OR jc.machine = $3::text)
          AND ($4::int IS NULL OR jc.factory_id = $4 OR jc.factory_id IS NULL)
        ORDER BY
          CASE COALESCE(jc.fpa_approval_status,'Pending')
            WHEN 'Pending' THEN 0 WHEN 'Rejected' THEN 1 ELSE 2 END,
-         jc.machine ASC, jc.fpa_done_at DESC
-       LIMIT 300`,
-      [d, shift || null, mFilter, factoryId]
+         jc.date DESC, jc.machine ASC, jc.fpa_done_at DESC
+       LIMIT 1000`,
+      [from, shift || null, mFilter, factoryId, to]
     );
-    res.json({ ok: true, data: rows || [] });
+    res.json({ ok: true, from, to, data: rows || [] });
+  } catch (e) {
+    sendServerError(res, e);
+  }
+});
+
+// GET /api/qc/fpa/reject-history?from=&to=&shift=&machine= — every FPA reject (one row per
+// reject, from fpa_history) whose reject time falls in the IST date range, newest first, with
+// the reason, who rejected, who had submitted it and where the FPA stands now.
+app.get('/api/qc/fpa/reject-history', async (req, res) => {
+  try {
+    const { shift, machine } = req.query;
+    const factoryId = resolveReportFactoryId ? resolveReportFactoryId(req) : getFactoryId(req);
+    const isDay = v => /^\d{4}-\d{2}-\d{2}$/.test(String(v || ''));
+    const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date());
+    let from = isDay(req.query.from) ? req.query.from : today;
+    let to = isDay(req.query.to) ? req.query.to : from;
+    if (to < from) [from, to] = [to, from];
+    const mFilter = (machine && machine !== 'All' && machine !== 'All Machines') ? machine : null;
+    const rows = await q(
+      `SELECT jc.id, jc.date, jc.shift, jc.machine, jc.line, jc.job_card_no, jc.order_no,
+              jc.item_name, jc.mould_name, jc.fpa_done_by,
+              to_char(jc.date, 'YYYY-MM-DD') AS fpa_date,
+              COALESCE(jc.fpa_approval_status, 'Pending') AS current_status,
+              ev.ord AS step_no,
+              ev.e->>'by' AS rejected_by,
+              ev.e->>'remark' AS reason,
+              (ev.e->>'at')::timestamptz AS rejected_at,
+              (SELECT p.e->>'by' FROM jsonb_array_elements(jc.fpa_history) WITH ORDINALITY AS p(e, ord)
+                WHERE p.ord < ev.ord AND p.e->>'action' IN ('Submitted', 'Re-submitted')
+                ORDER BY p.ord DESC LIMIT 1) AS submitted_by
+         FROM qc_job_checks jc
+         CROSS JOIN LATERAL jsonb_array_elements(COALESCE(jc.fpa_history, '[]'::jsonb)) WITH ORDINALITY AS ev(e, ord)
+        WHERE jc.fpa_status = 'Done'
+          AND ev.e->>'action' = 'Rejected'
+          AND ev.e->>'at' IS NOT NULL
+          AND ((ev.e->>'at')::timestamptz AT TIME ZONE 'Asia/Kolkata')::date BETWEEN $1::date AND $2::date
+          AND ($3::text IS NULL OR jc.shift = $3::text)
+          AND ($4::text IS NULL OR jc.machine = $4::text)
+          AND ($5::int IS NULL OR jc.factory_id = $5 OR jc.factory_id IS NULL)
+        ORDER BY rejected_at DESC
+        LIMIT 2000`,
+      [from, to, shift || null, mFilter, factoryId]
+    );
+    res.json({ ok: true, from, to, data: rows || [] });
   } catch (e) {
     sendServerError(res, e);
   }
@@ -32372,11 +33006,12 @@ app.post('/api/qc/fpa/:id/approve', async (req, res) => {
     const upd = await q(
       `UPDATE qc_job_checks
           SET fpa_approval_status='Approved', fpa_reviewed_by=$1, fpa_reviewed_at=NOW(),
-              fpa_reject_reason=NULL, fpa_approve_remark=$2, updated_at=NOW()
+              fpa_reject_reason=NULL, fpa_approve_remark=$2,
+              fpa_history=COALESCE(fpa_history,'[]'::jsonb) || $5::jsonb, updated_at=NOW()
         WHERE id=$3 AND fpa_status='Done'
           AND ($4::int IS NULL OR factory_id=$4 OR factory_id IS NULL)
         RETURNING id, machine, job_card_no, fpa_done_by`,
-      [reviewer, remark, id, factoryId]
+      [reviewer, remark, id, factoryId, fpaHistoryEvent('Approved', reviewer, remark)]
     );
     if (!upd.length) return res.status(404).json({ ok: false, error: 'FPA not found' });
     // Notify the submitting QC that their FPA was approved.
@@ -32412,11 +33047,12 @@ app.post('/api/qc/fpa/:id/reject', async (req, res) => {
     const upd = await q(
       `UPDATE qc_job_checks
           SET fpa_approval_status='Rejected', fpa_reject_reason=$1,
-              fpa_reviewed_by=$2, fpa_reviewed_at=NOW(), fpa_approve_remark=NULL, updated_at=NOW()
+              fpa_reviewed_by=$2, fpa_reviewed_at=NOW(), fpa_approve_remark=NULL,
+              fpa_history=COALESCE(fpa_history,'[]'::jsonb) || $5::jsonb, updated_at=NOW()
         WHERE id=$3 AND fpa_status='Done'
           AND ($4::int IS NULL OR factory_id=$4 OR factory_id IS NULL)
         RETURNING id, machine, job_card_no, fpa_done_by`,
-      [reason, reviewer, id, factoryId]
+      [reason, reviewer, id, factoryId, fpaHistoryEvent('Rejected', reviewer, reason)]
     );
     if (!upd.length) return res.status(404).json({ ok: false, error: 'FPA not found' });
     // Notify the submitting QC that their FPA was rejected (with reason).
@@ -34176,7 +34812,7 @@ app.get('/api/qc/factory-people', async (req, res) => {
   try {
     const factoryId = getFactoryId(req);
     const rows = await q(
-      `SELECT DISTINCT u.username, u.role_code, COALESCE(u.full_name, u.username) AS name
+      `SELECT DISTINCT u.username, u.role_code, u.username AS name
          FROM users u
          LEFT JOIN user_factories uf ON uf.user_id = u.id
         WHERE COALESCE(u.is_active, TRUE) = TRUE
@@ -34559,6 +35195,8 @@ app.get('/', (req, res) => {
 app.use((req, res, next) => {
   if (req.method !== 'GET') return next();
   if (req.path.startsWith('/api')) return next();
+  // A missing script, style, image or upload is a 404, not the home page with a 200.
+  if (isMissingFileRequest(req.path)) return res.status(404).type('text').send('Not found');
   res.sendFile(path.join(PUBLIC_DIR, 'index.html'));
 });
 
@@ -35000,10 +35638,37 @@ app.get('/api/dpr/labour/summary', async (req, res) => {
 // 1. GET Assembly Plans (Grid)
 
 // 2. Create/Update Assembly Plan
+// Packing tables a plan runs on ("A1,A2"), or null when the form sent none (keeps the saved list on edit).
+function planTables(v) {
+  if (v === undefined || v === null) return null;
+  const list = Array.isArray(v) ? v.slice(0, 240) : String(v).slice(0, 2000).split(/[\s,;]+/);
+  const out = [];
+  for (const c of list) {
+    const code = String(c || '').trim().toUpperCase().slice(0, 20);
+    if (code && !out.includes(code)) out.push(code);
+  }
+  return out.slice(0, 60).join(',');
+}
+
 app.post('/api/assembly/plan', async (req, res) => {
   try {
     console.log('[Assembly Plan] Body:', req.body);
     const { id, table_id, item_name, plan_qty, machine, start_time, duration_min, delay_min, end_time, created_by, client_name, job_card_no } = req.body;
+
+    // Packing plans may not start more than 7 days back (typed years like 2014
+    // or 1984 hid plans and confused the scanner). An edit that keeps the saved
+    // start time is still allowed.
+    if (start_time) {
+      const chk = await q(
+        `SELECT ($1::timestamp < LOCALTIMESTAMP - INTERVAL '7 days') AS too_old,
+                ($1::timestamp > LOCALTIMESTAMP + INTERVAL '400 days') AS too_far,
+                (SELECT start_time FROM assembly_plans WHERE id = $2) = $1::timestamp AS unchanged`,
+        [start_time, id || null]);
+      const c = chk[0] || {};
+      if ((c.too_old || c.too_far) && !c.unchanged) {
+        return res.status(400).json({ ok: false, error: 'Check the start date: a packing plan can start at most 7 days back and within the next year.' });
+      }
+    }
 
     if (id) {
       // Update
@@ -35012,18 +35677,21 @@ app.post('/api/assembly/plan', async (req, res) => {
 table_id = $1, item_name = $2, plan_qty = $3, machine = $4,
   start_time = $5, duration_min = $6, delay_min = $7, end_time = $8,
   ean_number = $9, client_name = $10, job_card_no = $11,
+  tables = COALESCE($13, tables),
   updated_at = NOW()
             WHERE id = $12
-  `, [table_id, item_name, plan_qty, machine, start_time, duration_min, delay_min, end_time, req.body.ean_number, client_name, job_card_no, id]);
+  `, [table_id, item_name, plan_qty, machine, start_time, duration_min, delay_min, end_time, req.body.ean_number, client_name, job_card_no, id, planTables(req.body.tables)]);
     } else {
       // Create
+      const planFactoryId = await resolveSaveFactory(q, { factoryId: getFactoryId(req), machine });
+      if (!planFactoryId) return res.status(400).json({ ok: false, error: NO_FACTORY_MESSAGE });
       await q(`
             INSERT INTO assembly_plans(
     table_id, item_name, plan_qty, machine,
     start_time, duration_min, delay_min, end_time, ean_number,
-    client_name, job_card_no, status, created_by, created_at, updated_at
-  ) VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'PLANNED', $12, NOW(), NOW())
-    `, [table_id, item_name, plan_qty, machine, start_time, duration_min, delay_min, end_time, req.body.ean_number, client_name, job_card_no, created_by]);
+    client_name, job_card_no, status, created_by, created_at, updated_at, tables, factory_id
+  ) VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'PLANNED', $12, NOW(), NOW(), $13, $14)
+    `, [table_id, item_name, plan_qty, machine, start_time, duration_min, delay_min, end_time, req.body.ean_number, client_name, job_card_no, created_by, planTables(req.body.tables), planFactoryId]);
     }
 
     res.json({ ok: true });
@@ -35081,12 +35749,13 @@ app.post('/api/assembly/lines', async (req, res) => {
   try {
     // Upsert
     const result = await pool.query(`
-            INSERT INTO assembly_lines(line_id, line_name, scanner_config, updated_at)
-VALUES($1, $2, $3, NOW())
+            INSERT INTO assembly_lines(line_id, line_name, scanner_config, updated_at, factory_id)
+VALUES($1, $2, $3, NOW(), $4)
             ON CONFLICT(line_id) 
-            DO UPDATE SET line_name = EXCLUDED.line_name, scanner_config = EXCLUDED.scanner_config, updated_at = NOW()
+            DO UPDATE SET line_name = EXCLUDED.line_name, scanner_config = EXCLUDED.scanner_config, updated_at = NOW(),
+              factory_id = COALESCE(assembly_lines.factory_id, EXCLUDED.factory_id)
 RETURNING *
-  `, [line_id, line_name, scanner_config]);
+  `, [line_id, line_name, scanner_config, getFactoryId(req)]);
     res.json({ ok: true, data: result.rows[0] });
   } catch (err) {
     console.error(err);
@@ -35099,8 +35768,7 @@ app.delete('/api/assembly/lines/:id', async (req, res) => {
     await pool.query('DELETE FROM assembly_lines WHERE line_id = $1', [req.params.id]);
     res.json({ ok: true, success: true });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ ok: false, error: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -35114,12 +35782,17 @@ SELECT *,
   EXTRACT(EPOCH FROM(NOW() - COALESCE(updated_at, created_at))) as idle_seconds
           FROM assembly_plans
 WHERE(UPPER(status) IN('PLANNED', 'RUNNING') OR start_time:: date >= CURRENT_DATE)
+            AND UPPER(COALESCE(status, '')) NOT IN ('DONE', 'ARCHIVED', 'CANCELLED')
+            -- Plans older than 14 days (stale 'Running' rows, mistyped years) no
+            -- longer count as active, so the scanner bridge never posts to them.
+            AND start_time >= CURRENT_DATE - INTERVAL '14 days'
           ORDER BY table_id, start_time ASC
   `;
 
     const rows = await q(sql);
-    // console.log(`[DEBUG] / api / assembly / active found ${ rows.length } plans.`);
-    res.json({ ok: true, data: rows });
+    // Packing table scanners: each plan again per table it runs on, as line "<station>/<code>".
+    const { tableAliasRows } = require('../modules/packing/registerPackingTableRoutes');
+    res.json({ ok: true, data: rows.concat(tableAliasRows(rows)) });
   } catch (e) {
     sendServerError(res, e);
   }
@@ -35191,7 +35864,10 @@ function parseScanEan(ean) {
   return { fullString, cleanEAN, uniqueId };
 }
 
-async function recordAssemblyScan(plan_id, ean) {
+async function recordAssemblyScan(plan_id, ean, opts = {}) {
+  // opts.table / opts.source: the packing table code ("B9") and 'device' for a
+  // headless ESP32 scanner, so live screens can say where the scan came from.
+  const scanFrom = { table: opts.table || null, source: opts.source || null };
   // --- UNIQUE BARCODE / QR LOGIC ---
   const { fullString, cleanEAN, uniqueId } = parseScanEan(ean);
 
@@ -35210,6 +35886,14 @@ async function recordAssemblyScan(plan_id, ean) {
 
   const plan = plans[0];
 
+  // 2b. Station locked after a wrong product (only when the factory has a
+  // supervisor PIN): refuse every scan until a supervisor unlocks it.
+  const packingFloor = require('../modules/packing/registerPackingFloorRoutes');
+  const openLock = await packingFloor.openLockFor(pool, plan.table_id);
+  if (openLock) {
+    return { ok: false, locked: true, error: 'STATION LOCKED: wrong product was scanned. A supervisor must unlock it with a PIN.', table_id: plan.table_id };
+  }
+
   // 3. Validate Match
   const targetEAN = String(plan.ean_number || '').trim();
   const isMatch = (targetEAN === cleanEAN);
@@ -35217,17 +35901,24 @@ async function recordAssemblyScan(plan_id, ean) {
   // 4. Log Scan (Store FULL STRING to track uniqueness)
   // Store the plan's stable sync_id alongside the local plan_id so the scan's
   // link to its plan survives cross-server sync (serial plan_id diverges).
-  await q(`INSERT INTO assembly_scans(plan_id, plan_sync_id, scanned_ean, is_match)
-           VALUES($1, (SELECT sync_id FROM assembly_plans WHERE id = $1), $2, $3)`,
+  await q(`INSERT INTO assembly_scans(plan_id, plan_sync_id, scanned_ean, is_match, factory_id)
+           VALUES($1, (SELECT sync_id FROM assembly_plans WHERE id = $1), $2, $3, (SELECT factory_id FROM assembly_plans WHERE id = $1))`,
     [plan_id, fullString, isMatch]);
 
   // 5. Update Qty IF Match
   let newQty = plan.scanned_qty || 0;
+  let newBoxes = [];
   if (isMatch) {
     newQty += 1;
     await q(`UPDATE assembly_plans SET scanned_qty = $1, updated_at = NOW() WHERE id = $2`, [newQty, plan_id]);
+    // Box / carton full -> saved here, labelled by the station screen. Never blocks the scan.
+    try {
+      newBoxes = await require('../modules/packing/registerPackingBoxRoutes').afterGoodScan(pool, plan, newQty);
+      if (newBoxes.length) broadcastEvent('box', { plan_id, table_id: plan.table_id, codes: newBoxes.map(b => b.code), ts: Date.now() });
+    } catch (e) { console.warn('[Packing] box save failed:', e.message); }
   } else {
     // WRONG BARCODE TRIGGER
+    await packingFloor.lockStationForWrongScan(pool, plan, cleanEAN, targetEAN).catch(e => console.warn('[Packing] lock failed:', e.message));
     const alertObj = {
       id: Date.now(),
       table_id: plan.table_id,
@@ -35235,6 +35926,7 @@ async function recordAssemblyScan(plan_id, ean) {
       ean: cleanEAN,
       expected: targetEAN,
       type: 'WRONG_BARCODE',
+      ...scanFrom,
       timestamp: Date.now()
     };
     ASSEMBLY_ALERTS.push(alertObj);
@@ -35257,10 +35949,11 @@ async function recordAssemblyScan(plan_id, ean) {
     plan_qty: plan.plan_qty,
     scanned_ean: cleanEAN,
     expected_ean: targetEAN,
+    ...scanFrom,
     ts: Date.now()
   });
 
-  return { ok: true, match: isMatch, new_qty: newQty, wrong_barcode: !isMatch, table_id: plan.table_id };
+  return { ok: true, match: isMatch, new_qty: newQty, plan_qty: plan.plan_qty, wrong_barcode: !isMatch, table_id: plan.table_id, boxes_made: newBoxes.length };
 }
 
 // Resolve which plan on a table a scanned barcode belongs to, by matching the
@@ -35268,6 +35961,20 @@ async function recordAssemblyScan(plan_id, ean) {
 // scanned product itself selects the plan. Prefer a RUNNING plan (case-
 // insensitive), else the newest by start_time.
 async function resolvePlanForTableByEan(table_id, cleanEAN) {
+  // A packing table line ("Station A/A1"): the station's plan that runs on that table.
+  const { splitTableLine } = require('../modules/packing/registerPackingTableRoutes');
+  const tl = splitTableLine(table_id);
+  if (tl) {
+    const onTable = await q(`
+      SELECT * FROM assembly_plans
+      WHERE LOWER(table_id) = LOWER($1) AND TRIM(ean_number) = $2
+        AND $3 = ANY(string_to_array(UPPER(COALESCE(tables, '')), ','))
+        AND UPPER(COALESCE(status, '')) NOT IN ('DONE', 'ARCHIVED', 'CANCELLED')
+      ORDER BY (UPPER(COALESCE(status, '')) = 'RUNNING') DESC, start_time DESC
+      LIMIT 1
+    `, [tl.station, String(cleanEAN || '').trim(), tl.code]);
+    if (onTable.length) return onTable[0];
+  }
   const plans = await q(`
     SELECT * FROM assembly_plans
     WHERE table_id = $1 AND TRIM(ean_number) = $2
@@ -35308,6 +36015,10 @@ app.post('/api/assembly/device-scan', async (req, res) => {
     // The scanned product picks the plan (headless: no operator selection).
     const { cleanEAN } = parseScanEan(ean);
     const plan = await resolvePlanForTableByEan(table_id, cleanEAN);
+    // "Station/B9" -> station + table code, for the live scan log.
+    const { splitTableLine } = require('../modules/packing/registerPackingTableRoutes');
+    const tl = splitTableLine(table_id);
+    const scanFrom = { table: tl ? tl.code : null, source: 'device' };
 
     if (!plan) {
       // Unknown/unexpected product for this table — no plan expects this EAN.
@@ -35320,6 +36031,8 @@ app.post('/api/assembly/device-scan', async (req, res) => {
         ean: cleanEAN,
         expected: null,
         type: 'UNKNOWN_BARCODE',
+        station: tl ? tl.station : table_id,
+        ...scanFrom,
         timestamp: Date.now()
       };
       ASSEMBLY_ALERTS.push(alertObj);
@@ -35328,7 +36041,7 @@ app.post('/api/assembly/device-scan', async (req, res) => {
       return res.json({ ok: false, match: false, error: `No plan on ${table_id} expects barcode ${cleanEAN}`, table_id });
     }
 
-    const result = await recordAssemblyScan(plan.id, ean);
+    const result = await recordAssemblyScan(plan.id, ean, scanFrom);
     // Include plan_id so the device/log can show which plan it hit.
     res.json({ ...result, plan_id: plan.id, table_id });
   } catch (e) {
@@ -36351,13 +37064,20 @@ app.post(/^\/api\/job\/supervisor-complete\/?$/, async (req, res) => {
       return res.status(400).json({ ok: false, error: 'Missing PlanID' });
     }
 
+    // Plan IDs and machine names repeat across factories: work on the one plan row.
+    const found = await findPlanByCode(pool.query.bind(pool), planId, getFactoryId(req));
+    if (found.ambiguous) return res.status(409).json({ ok: false, error: 'This Plan ID exists in more than one factory. Select your factory and try again.' });
+    if (!found.plan) return res.status(404).json({ ok: false, error: 'Job not found' });
+    const plan = found.plan;
+    const scope = await planFactoryScope(pool.query.bind(pool), plan);
+
     // 1. Mark current job as 'Stopped' (User override: NOT COMPLETED_PENDING)
     const r = await q(`
       UPDATE plan_board 
       SET status = 'Stopped', updated_at = NOW()
-      WHERE plan_id = $1
+      WHERE id = $1
 RETURNING *
-  `, [planId]);
+  `, [plan.id]);
 
     if (!r.length) return res.status(404).json({ ok: false, error: 'Job not found' });
 
@@ -36367,7 +37087,7 @@ RETURNING *
 
     // 2. Log action
     await q(
-      "INSERT INTO plan_audit_logs (plan_id, action, details, user_name) VALUES ($1, 'COMPLETE_STOP', $2, 'System')",
+      "INSERT INTO plan_audit_logs (factory_id, plan_id, action, details, user_name) VALUES ((SELECT factory_id FROM plan_board WHERE id = $1), $1, 'COMPLETE_STOP', $2, 'System')",
       [currentJobId, JSON.stringify({ machine, msg: 'Job stopped from supervisor completion' })]
     );
 
@@ -36378,7 +37098,7 @@ RETURNING *
         FROM plan_board pb
         LEFT JOIN moulds m ON m.mould_name = pb.mould_name 
         LEFT JOIN mould_planning_summary mps ON (mps.or_jr_no = pb.order_no AND mps.mould_name = pb.mould_name)
-        WHERE pb.plan_id = $2
+        WHERE pb.id = $2
         LIMIT 1
       )
       SELECT pb.id, pb.plan_id, pb.machine, pb.status 
@@ -36387,7 +37107,8 @@ RETURNING *
       LEFT JOIN mould_planning_summary mps ON (mps.or_jr_no = pb.order_no AND mps.mould_name = pb.mould_name)
       WHERE pb.machine = $1 
         AND pb.status NOT IN ('Running', 'COMPLETED', 'COMPLETED_PENDING', 'CANCELLED', 'ARCHIVED')
-        AND pb.plan_id != $2
+        AND pb.id != $2
+        AND ${scope.sql('$3', '$4', 'pb')}
       ORDER BY 
         CASE 
           WHEN COALESCE(mps.mould_no, m.mould_number, '-') = (SELECT mould_no FROM current_mould) 
@@ -36400,21 +37121,21 @@ RETURNING *
       LIMIT 1
     `;
 
-    const nextJobRes = await q(nextJobQuery, [machine, planId]);
+    const nextJobRes = await q(nextJobQuery, [machine, currentJobId, ...scope.params]);
 
     let autoStartMessage = 'Job stopped successfully.';
     if (nextJobRes.length > 0) {
       const nextJob = nextJobRes[0];
 
       // Auto-Start next prioritized job
-      await q("UPDATE plan_board SET status = 'Running', start_date = NOW(), updated_at = NOW() WHERE plan_id = $1", [nextJob.plan_id]);
+      await q("UPDATE plan_board SET status = 'Running', start_date = NOW(), updated_at = NOW() WHERE id = $1", [nextJob.id]);
 
       // Stop any other accidentally overlapping active jobs on same machine
-      await q("UPDATE plan_board SET status = 'Stopped', updated_at = NOW() WHERE TRIM(UPPER(machine)) = TRIM(UPPER($1)) AND plan_id != $2 AND UPPER(status) = 'RUNNING'", [machine, nextJob.plan_id]);
+      await q(`UPDATE plan_board SET status = 'Stopped', updated_at = NOW() WHERE TRIM(UPPER(machine)) = TRIM(UPPER($1)) AND id != $2 AND UPPER(status) = 'RUNNING' AND ${scope.sql('$3', '$4')}`, [machine, nextJob.id, ...scope.params]);
 
       // Log auto-start
       await q(
-        "INSERT INTO plan_audit_logs (plan_id, action, details, user_name) VALUES ($1, 'AUTO_START', $2, 'System')",
+        "INSERT INTO plan_audit_logs (factory_id, plan_id, action, details, user_name) VALUES ((SELECT factory_id FROM plan_board WHERE id = $1), $1, 'AUTO_START', $2, 'System')",
         [nextJob.id, JSON.stringify({ machine, trigger: 'Previous job completed/stopped' })]
       );
 

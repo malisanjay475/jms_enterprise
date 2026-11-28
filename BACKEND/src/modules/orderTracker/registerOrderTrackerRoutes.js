@@ -29,8 +29,23 @@
 const { getFactoryId } = require('../../app/requestContext');
 const { sendServerError } = require('../../app/httpErrors');
 const { buildTonnageWorkbook } = require('./tonnageWorkbook');
+const packingProgress = require('./packingProgress');
+const { allocateParts, buildParts } = require('./orderParts');
 
 const RATE_DAYS = 3;
+
+/* Factory Transfers: a plan another factory runs for this factory's order
+   (plan_board.source_factory_id = this factory) counts toward the order here,
+   with the hourly entries made on it there. Plan ids repeat in every factory,
+   so its plan id and machine carry " @ <factory>" and never meet a plan of ours.
+   $2 is the factory being viewed; with All Factories nothing changes. */
+const XFER_AT = fid => `(SELECT f.name FROM factories f WHERE f.id = ${fid})`;
+const xferLabel = (col, fid) => `CASE WHEN $2::int IS NOT NULL AND ${fid} IS NOT NULL AND ${fid} <> $2
+      THEN ${col} || ' @ ' || COALESCE(${XFER_AT(fid)}, 'factory ' || ${fid}) ELSE ${col} END`;
+const XFER_DPR_OR = a => `OR ($2::int IS NOT NULL AND EXISTS (
+           SELECT 1 FROM plan_board xp
+            WHERE xp.source_factory_id = $2 AND xp.factory_id = ${a}factory_id AND xp.plan_id = TRIM(${a}plan_id::text)
+              AND TRIM(xp.order_no) = TRIM(${a}order_no)))`;
 /* a set needing more pieces of one mould than this is almost certainly a data error */
 const MAX_SANE_RATIO = 24;
 /* the factory runs on IST; an ERP target date means the end of that day there */
@@ -112,16 +127,19 @@ const BOM_SQL = `
    GROUP BY 1, 2`;
 
 const PLAN_SQL = `
-  SELECT pb.id, pb.plan_id, TRIM(pb.order_no) AS order_no, pb.machine, pb.line,
+  SELECT pb.id, ${xferLabel('pb.plan_id', 'pb.factory_id')} AS plan_id, TRIM(pb.order_no) AS order_no,
+         ${xferLabel('pb.machine', 'pb.factory_id')} AS machine, pb.line,
          TRIM(COALESCE(pb.mould_code, '')) AS mould_code, pb.mould_name, pb.item_name,
          COALESCE(pb.plan_qty, 0) AS plan_qty, UPPER(COALESCE(pb.status, '')) AS status,
          NULLIF(TRIM(pb.job_card_no), '') AS job_card_no, pb.consumption_ratio_qty,
          pb.start_date, pb.end_date, pb.completed_at, pb.completed_by, NULLIF(TRIM(pb.remarks), '') AS remarks, pb.seq,
-         pb.created_at, pb.colour_details, pb.job_card_date
+         pb.created_at, pb.colour_details, pb.job_card_date,
+         CASE WHEN $2::int IS NOT NULL AND pb.factory_id <> $2 THEN ${XFER_AT('pb.factory_id')} END AS transfer_at,
+         pb.factory_id AS run_factory_id, pb.plan_id AS raw_plan_id
     FROM plan_board pb
    WHERE TRIM(pb.order_no) = ANY($1::text[])
      AND UPPER(COALESCE(pb.status, '')) NOT IN ('REJECTED', 'CANCELLED', 'DELETED')
-     AND ($2::int IS NULL OR pb.factory_id = $2 OR pb.factory_id IS NULL)`;
+     AND ($2::int IS NULL OR pb.factory_id = $2 OR pb.factory_id IS NULL OR pb.source_factory_id = $2)`;
 
 /* One row per hourly entry (latest edit wins), rolled up per day. */
 const DPR_SQL = `
@@ -129,15 +147,15 @@ const DPR_SQL = `
          SUM(good_qty) AS good, SUM(reject_qty) AS reject,
          COUNT(*) FILTER (WHERE good_qty > 0) AS run_hours
     FROM (
-      SELECT DISTINCT ON (machine, hour_slot, plan_id, dpr_date, shift, COALESCE(colour, ''))
-             TRIM(order_no) AS order_no, plan_id, TRIM(COALESCE(mould_no, '')) AS mould_no,
-             NULLIF(TRIM(jobcard_no), '') AS jobcard_no, TRIM(machine) AS machine, dpr_date,
+      SELECT DISTINCT ON (factory_id, machine, hour_slot, plan_id, dpr_date, shift, COALESCE(colour, ''))
+             TRIM(order_no) AS order_no, ${xferLabel('dpr_hourly.plan_id', 'dpr_hourly.factory_id')} AS plan_id, TRIM(COALESCE(mould_no, '')) AS mould_no,
+             NULLIF(TRIM(jobcard_no), '') AS jobcard_no, ${xferLabel('TRIM(dpr_hourly.machine)', 'dpr_hourly.factory_id')} AS machine, dpr_date,
              COALESCE(good_qty, 0) AS good_qty, COALESCE(reject_qty, 0) AS reject_qty
         FROM dpr_hourly
        WHERE is_deleted IS NOT TRUE
          AND TRIM(order_no) = ANY($1::text[])
-         AND ($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL)
-       ORDER BY machine, hour_slot, plan_id, dpr_date, shift, COALESCE(colour, ''), id DESC
+         AND ($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL ${XFER_DPR_OR('dpr_hourly.')})
+       ORDER BY factory_id, machine, hour_slot, plan_id, dpr_date, shift, COALESCE(colour, ''), id DESC
     ) x
    GROUP BY 1, 2, 3, 4, 5, 6`;
 
@@ -164,6 +182,56 @@ const MACHINES_SQL = `
      AND COALESCE(NULLIF(TRIM(machine_process), ''), 'Moulding') = 'Moulding'
      AND ($1::int IS NULL OR factory_id = $1 OR factory_id IS NULL)`;
 
+/* ERP part rows per mould: alternative moulds repeat the same part code */
+const PART_ITEM_SQL = `
+  SELECT TRIM(or_jr_no) AS order_no, TRIM(mould_no) AS mould_no, TRIM(mould_item_code) AS item_code, MAX(mould_item_name) AS item_name,
+         SUM(COALESCE(NULLIF(regexp_replace(COALESCE(mould_item_qty::text, ''), '[^0-9.]+', '', 'g'), '')::numeric, 0)) AS qty
+    FROM mould_planning_report
+   WHERE TRIM(or_jr_no) = ANY($1::text[])
+     AND COALESCE(TRIM(mould_no), '') <> ''
+     AND ($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL)
+   GROUP BY 1, 2, 3`;
+
+const DROP_SQL = `
+  SELECT TRIM(order_no) AS order_no, mould_no, item_code, mould_name, remarks, dropped_by, created_at
+    FROM planning_drops
+   WHERE TRIM(COALESCE(order_no, '')) = ANY($1::text[])
+     AND ($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL)
+   ORDER BY id DESC`;
+
+/* same entries as DPR_SQL, by colour */
+const PART_COLOUR_SQL = `
+  SELECT mould_no, colour, SUM(good_qty) AS good, SUM(reject_qty) AS reject
+    FROM (
+      SELECT DISTINCT ON (d.factory_id, d.machine, d.hour_slot, d.plan_id, d.dpr_date, d.shift, COALESCE(d.colour, ''))
+             COALESCE(NULLIF(TRIM(d.mould_no), ''), (
+               SELECT TRIM(pb.mould_code) FROM plan_board pb
+                WHERE pb.plan_id = d.plan_id AND TRIM(pb.order_no) = TRIM(d.order_no)
+                ORDER BY (pb.factory_id IS NOT DISTINCT FROM d.factory_id) DESC LIMIT 1)) AS mould_no,
+             TRIM(COALESCE(d.colour, '')) AS colour,
+             COALESCE(d.good_qty, 0) AS good_qty, COALESCE(d.reject_qty, 0) AS reject_qty
+        FROM dpr_hourly d
+       WHERE d.is_deleted IS NOT TRUE
+         AND TRIM(d.order_no) = ANY($1::text[])
+         AND ($2::int IS NULL OR d.factory_id = $2 OR d.factory_id IS NULL ${XFER_DPR_OR('d.')})
+       ORDER BY d.factory_id, d.machine, d.hour_slot, d.plan_id, d.dpr_date, d.shift, COALESCE(d.colour, ''), d.id DESC
+    ) x
+   GROUP BY 1, 2`;
+
+const HEAD_SQL = `
+  SELECT or_qty, uom, std_pack, NULLIF(TRIM(or_remarks), '') AS or_remarks, NULLIF(TRIM(jr_remarks), '') AS jr_remarks
+    FROM or_jr_report
+   WHERE TRIM(or_jr_no) = ANY($1::text[])
+     AND ($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL)
+   ORDER BY job_card_date NULLS LAST, id LIMIT 1`;
+
+const INACTIVE_SQL = `
+  SELECT UPPER(TRIM(mould_number)) AS code
+    FROM moulds
+   WHERE UPPER(TRIM(mould_number)) = ANY($1::text[])
+     AND ($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL)
+   GROUP BY 1 HAVING bool_and(is_active IS FALSE)`;
+
 /* ------------------------------------------------------- order engine --- */
 
 /* Moulds of an item when the order has no ERP mould BOM and no plan: mould
@@ -179,7 +247,7 @@ const ITEM_MOULD_SQL = `
      AND ($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL)`;
 const itemBase = v => key(v).replace(/[A-Z]+$/, '').replace(/^0+/, '');
 
-async function loadOrders(pool, orderNos, factoryId, sched, board, { itemFallback = false } = {}) {
+async function loadOrders(pool, orderNos, factoryId, sched, board, { itemFallback = false, byPart = false } = {}) {
   if (!orderNos.length) return [];
   const p = [orderNos, factoryId];
   const [jc, bom, plans, dpr] = await Promise.all([
@@ -205,6 +273,37 @@ async function loadOrders(pool, orderNos, factoryId, sched, board, { itemFallbac
       });
     });
   }
+  let itemRows = [];
+  let dropRows = [];
+  let offMoulds = new Set();
+  if (byPart) {
+    const codes = [...new Set(bom.rows.map(b => key(b.mould_no)))];
+    const [it, dr, off] = await Promise.all([
+      pool.query(PART_ITEM_SQL, p), pool.query(DROP_SQL, p),
+      codes.length ? pool.query(INACTIVE_SQL, [codes, factoryId]) : { rows: [] }
+    ]);
+    itemRows = it.rows;
+    dropRows = dr.rows;
+    offMoulds = new Set(off.rows.map(r => r.code));
+  }
+  /* Factory Transfers: a transfer plan waits in the other factory's machine queue,
+     so its start / finish come from that factory's board (keyed by its " @ " plan id). */
+  const foreign = factoryId
+    ? [...new Set(plans.rows.filter(r => r.transfer_at && r.run_factory_id).map(r => Number(r.run_factory_id)))] : [];
+  if (foreign.length) {
+    sched = new Map(sched || []);
+    for (const fid of foreign) {
+      try {
+        const { map } = await queueSchedule(pool, fid);
+        plans.rows.filter(r => r.transfer_at && Number(r.run_factory_id) === fid).forEach(r => {
+          const j = map.get(String(r.raw_plan_id));
+          if (j) sched.set(String(r.plan_id), { ...j, plan_id: r.plan_id, machine: `${j.machine} @ ${r.transfer_at}` });
+        });
+      } catch (e) {
+        console.warn('[order-tracker] transfer plan schedule skipped:', e.message);
+      }
+    }
+  }
   const planIds = plans.rows.map(r => Number(r.id)).filter(Number.isInteger);
   const shifted = planIds.length
     ? (await pool.query(SHIFT_SQL, [planIds]).catch(() => ({ rows: [] }))).rows : [];
@@ -219,8 +318,10 @@ async function loadOrders(pool, orderNos, factoryId, sched, board, { itemFallbac
   const bomBy = group(bom.rows, r => r.order_no);
   const planBy = group(plans.rows, r => r.order_no);
   const dprBy = group(dpr.rows, r => r.order_no);
+  const itemBy = group(itemRows, r => r.order_no);
+  const dropBy = group(dropRows, r => r.order_no);
 
-  return orderNos.map(orderNo => buildOrder(orderNo, {
+  const built = orderNos.map(orderNo => buildOrder(orderNo, {
     jcRows: jcBy.get(orderNo) || [],
     bomRows: bomBy.get(orderNo) || [],
     planRows: planBy.get(orderNo) || [],
@@ -228,11 +329,20 @@ async function loadOrders(pool, orderNos, factoryId, sched, board, { itemFallbac
     mouldStd,
     sched,
     board,
-    shiftByPlan
+    shiftByPlan,
+    partInfo: byPart ? { items: itemBy.get(orderNo) || [], drops: dropBy.get(orderNo) || [], inactive: offMoulds } : null
   })).filter(Boolean);
+  /* packing to dispatch (packing module scans); never fails the order view */
+  try {
+    const pk = await packingProgress.loadPackingRows(pool, built.flatMap(o => o.job_cards.map(j => j.job_card_no)), factoryId);
+    built.forEach(o => packingProgress.applyPacking(o, pk));
+  } catch (e) {
+    console.warn('[order-tracker] packing progress skipped:', e.message);
+  }
+  return built;
 }
 
-function buildOrder(orderNo, { jcRows, bomRows, planRows, dprRows, mouldStd, sched, board, shiftByPlan }) {
+function buildOrder(orderNo, { jcRows, bomRows, planRows, dprRows, mouldStd, sched, board, shiftByPlan, partInfo }) {
   if (!jcRows.length && !planRows.length) return null;
   const head = jcRows[0] || {};
   const orderQty = num(head.jr_qty) || num(head.or_qty) || Math.max(0, ...bomRows.map(b => num(b.jr_qty)));
@@ -274,6 +384,30 @@ function buildOrder(orderNo, { jcRows, bomRows, planRows, dprRows, mouldStd, sch
     return plan ? key(plan.mould_code || plan.mould_name) : '';
   };
 
+  /* ---- alternative moulds of one part: the part is needed once ---- */
+  let alloc = new Map();
+  let spareMoulds = [];
+  if (partInfo) {
+    const r = allocateParts([...moulds.entries()].map(([k, m]) => ({
+      key: k, mould_no: m.mould_no, mould_name: m.mould_name, ratio: m.ratio, ratio_bom: m.bomRatio, ratio_source: m.ratioSource,
+      produced: dprRows.filter(d => mouldKeyOfDpr(d) === k).reduce((s, d) => s + num(d.good), 0),
+      plans: planRows.filter(p => key(p.mould_code || p.mould_name) === k).map(p => ({
+        plan_qty: num(p.plan_qty), status: p.status, colour_details: Array.isArray(p.colour_details) ? p.colour_details : [],
+        produced: dprRows.filter(d => d.plan_id != null && (String(d.plan_id) === String(p.plan_id) || String(d.plan_id) === String(p.id)))
+          .reduce((s, d) => s + num(d.good), 0)
+      }))
+    })), partInfo.items, {
+      drops: partInfo.drops, inactive: partInfo.inactive, jrQty: orderQty,
+      jcQty: jcRows.filter(x => x.job_card_no).reduce((s, x) => s + num(x.prod_plan_qty), 0)
+    });
+    if (r.alloc.size) {
+      alloc = r.alloc;
+      spareMoulds = r.spare;
+      [...moulds.keys()].forEach(k => { if (!alloc.has(k)) moulds.delete(k); });
+      alloc.forEach((a, k) => { const m = moulds.get(k); m.ratio = a.ratio; m.ratioSource = a.source; });
+    }
+  }
+
   /* recent window for the live rate */
   const allDates = [...new Set(dprRows.map(d => d.dpr_date))].sort();
   const recentFrom = allDates.length ? allDates[Math.max(0, allDates.length - RATE_DAYS)] : null;
@@ -284,7 +418,8 @@ function buildOrder(orderNo, { jcRows, bomRows, planRows, dprRows, mouldStd, sch
   const mouldList = [...moulds.entries()].map(([k, m]) => {
     const rows = dprRows.filter(d => mouldKeyOfDpr(d) === k);
     const plansOf = planRows.filter(p => key(p.mould_code || p.mould_name) === k);
-    const required = Math.round(orderQty * m.ratio);
+    const part = alloc.get(k);
+    const required = part ? part.required : Math.round(orderQty * m.ratio);
     const produced = rows.reduce((s, r) => s + num(r.good), 0);
     const reject = rows.reduce((s, r) => s + num(r.reject), 0);
 
@@ -381,6 +516,7 @@ function buildOrder(orderNo, { jcRows, bomRows, planRows, dprRows, mouldStd, sch
       queue: queued ? { machine: queued.q.machine, position: queued.q.queue_pos, plan_id: queued.p.plan_id } : null,
       shifted: shiftedQty, closed_short: closedShort,
       ratio_source: m.ratioSource, ratio_bom: m.bomRatio,
+      part_group: part ? part.group : null, part_moulds: part ? part.partMoulds : 1, part_share: part ? part.share : 1,
       copies: m.copies || 1,
       mould_source: m.fromItem ? 'item code' : (bomRows.some(b => key(b.mould_no) === k) ? 'ERP BOM' : 'plan'),
       /* suspect = the ratio in use is implausible; mismatch = the ERP BOM disagrees with it */
@@ -415,6 +551,12 @@ function buildOrder(orderNo, { jcRows, bomRows, planRows, dprRows, mouldStd, sch
     };
   });
 
+  /* moulds sharing a part: their pieces together make the sets */
+  mouldList.filter(m => m.part_moulds > 1).forEach(m => {
+    const made = mouldList.filter(x => x.part_group === m.part_group).reduce((s, x) => s + x.produced, 0);
+    m.sets_equiv = m.ratio > 0 ? Math.floor(made / m.ratio) : 0;
+  });
+
   /* ---- start sequence: the mould that must start first gets 1 ---- */
   mouldList.filter(m => m.status !== 'COMPLETE')
     .sort((a, b) => String(a.must_start_by || '9').localeCompare(String(b.must_start_by || '9')) || (a.pct - b.pct))
@@ -436,7 +578,7 @@ function buildOrder(orderNo, { jcRows, bomRows, planRows, dprRows, mouldStd, sch
     .slice().sort((a, b) => String(a.job_card_date || '9').localeCompare(String(b.job_card_date || '9')));
   mouldList.forEach(m => {
     let cum = 0;
-    jcSorted.forEach(r => { cum += Math.round(num(r.prod_plan_qty) * m.ratio); fifoNeed.set(r.job_card_no + '|' + m.mould_no, cum); });
+    jcSorted.forEach(r => { cum += Math.round(num(r.prod_plan_qty) * m.ratio * m.part_share); fifoNeed.set(r.job_card_no + '|' + m.mould_no, cum); });
   });
   const reachDate = (m, need) => {
     let run = 0;
@@ -449,7 +591,7 @@ function buildOrder(orderNo, { jcRows, bomRows, planRows, dprRows, mouldStd, sch
       const k = key(m.mould_no);
       const made = dprRows.filter(d => d.jobcard_no === r.job_card_no && mouldKeyOfDpr(d) === k)
         .reduce((s, d) => s + num(d.good), 0);
-      const need = Math.round(qty * m.ratio);
+      const need = Math.round(qty * m.ratio * m.part_share);
       const cumNeed = fifoNeed.get(r.job_card_no + '|' + m.mould_no) || 0;
       const doneOn = cumNeed > 0 && m.produced >= cumNeed ? reachDate(m, cumNeed) : null;
       let eta = null;
@@ -459,7 +601,12 @@ function buildOrder(orderNo, { jcRows, bomRows, planRows, dprRows, mouldStd, sch
       }
       return { mould_no: m.mould_no, mould_name: m.mould_name, ratio: m.ratio, required: need, produced: made,
         balance: Math.max(0, need - made), sets_equiv: m.ratio > 0 ? Math.floor(made / m.ratio) : 0,
+        part_group: m.part_moulds > 1 ? m.part_group : null,
         done_on: doneOn, eta };
+    });
+    perMould.filter(x => x.part_group != null).forEach(x => {
+      const made = perMould.filter(y => y.part_group === x.part_group).reduce((s, y) => s + y.produced, 0);
+      x.sets_equiv = x.ratio > 0 ? Math.floor(made / x.ratio) : 0;
     });
     const allDone = perMould.length > 0 && perMould.every(x => x.done_on);
     const ends = perMould.map(x => x.done_on || x.eta);
@@ -544,6 +691,7 @@ function buildOrder(orderNo, { jcRows, bomRows, planRows, dprRows, mouldStd, sch
       const n = mouldList.filter(m => !['COMPLETE', 'RUNNING'].includes(m.status)).sort((a, b) => a.start_seq - b.start_seq)[0];
       return n ? { mould_no: n.mould_no, mould_name: n.mould_name, must_start_by: n.must_start_by, expected_start: n.expected_start, start_state: n.start_state, machine: n.queue && n.queue.machine } : null;
     })(),
+    spare_moulds: spareMoulds,
     moulds: mouldList, job_cards: jobCards
   };
   order.process = orderProcess(jobCards);
@@ -716,9 +864,10 @@ function suggest(o, board) {
 }
 
 const slim = o => {
-  const { moulds, job_cards, suggestions, ...rest } = o;
+  const { moulds, job_cards, suggestions, packing, ...rest } = o;
   return {
     ...rest,
+    packing: packingProgress.slimPacking(packing),
     action_count: (suggestions || []).filter(x => x.level !== 'good').length,
     moulds: moulds.map(m => ({ mould_no: m.mould_no, mould_name: m.mould_name, ratio: m.ratio, pct: m.pct,
       produced: m.produced, required: m.required, status: m.status, machines: m.machines, eta: m.eta,
@@ -734,10 +883,14 @@ const slim = o => {
    goes to the tonnage of the machine it is running or queued on, else to the
    smallest machine class that fits its tonnage (mould master, ERP BOM, else the
    machine it ran on). Days are 24 machine hours.
-   Complete moulds and orders the ERP has closed are listed but not counted.
+   Complete moulds and orders the ERP has closed are listed but not counted,
+   except while they still have a running / queued plan with pieces to make:
+   then the machine is in use, and the balance of those plans is the load.
    A mould runs on one machine at a time (more only when it is running on more
    machines now, i.e. there are copies), so hours of one mould beyond the hours
    left are a mould limit, not a machine shortage. */
+const ACTIVE_PLAN = ['RUNNING', 'PLANNED', 'PENDING', 'ON HOLD', 'HOLD'];
+
 function buildTonnageLoad(orders, board, { untilMs, eff, basis, colourByPlan }) {
   const days = Math.max(0, (untilMs - Date.now()) / 86400000);
   const perMachine = 24 * days * eff;
@@ -747,6 +900,8 @@ function buildTonnageLoad(orders, board, { untilMs, eff, basis, colourByPlan }) 
   const rows = new Map(classes.map(c => [c, {
     tonnage: c, machines: board.filter(m => num(m.tonnage) === c).map(m => m.machine), items: []
   }]));
+  const queueOf = new Map(board.flatMap(b => (b.queue || []).map(j =>
+    [String(j.plan_id), { machine: b.machine, position: j.queue_pos, plan_id: j.plan_id, start_eta: j.start_eta }])));
   const unknown = { tonnage: null, machines: [], items: [] };
   const noMould = [];
 
@@ -800,11 +955,29 @@ function buildTonnageLoad(orders, board, { untilMs, eff, basis, colourByPlan }) 
       }
       const rate = num(m.rate_pph);
       const done = m.status === 'COMPLETE' || m.balance <= 0;
-      const counted = !done && !o.erp_closed;
+      const activePlans = (m.plans || []).filter(p => ACTIVE_PLAN.includes(p.status));
+      /* the plans that still hold work: on a machine, with pieces left to make */
+      const left = p => Math.max(0, num(p.plan_qty) - num(p.produced));
+      const workPlans = activePlans.filter(p => String(p.machine || '').trim() && left(p) > 0);
+      const planBalance = workPlans.reduce((s, p) => s + left(p), 0);
+      /* they decide the machine; a finished plan still marked running does not,
+         unless it is all there is */
+      const runPlans = workPlans.filter(p => p.status === 'RUNNING');
+      const machines = workPlans.length ? [...new Set(runPlans.map(p => p.machine))] : (m.machines || []);
+      const queue = workPlans.length
+        ? workPlans.filter(p => p.status !== 'RUNNING').map(p => queueOf.get(String(p.plan_id))).filter(Boolean)
+          .sort((a, b) => String(a.start_eta || '9').localeCompare(String(b.start_eta || '9')))[0] || null
+        : m.queue;
+      /* closed or complete on paper, but its plan is still on a machine */
+      const planBasis = (done || o.erp_closed) && planBalance > 0;
+      const counted = planBasis || (!done && !o.erp_closed);
+      const balance = planBasis ? planBalance : m.balance;
+      const live = machines.length ? 'RUNNING' : planBasis || workPlans.length ? 'PLANNED'
+        : m.status === 'PLANNED' && !activePlans.length ? 'STOPPED' : m.status;
       /* work running or queued on a machine loads that machine's tonnage (a 60 T mould on an
          80 T machine fills the 80 T machine); only work not on any machine goes by mould tonnage */
-      const onTon = counted ? Math.max(0, ...(m.status === 'RUNNING' ? m.machines || [] : []).map(n => tonOf.get(key(n)) || 0),
-        m.queue && m.status !== 'RUNNING' ? tonOf.get(key(m.queue.machine)) || 0 : 0) : 0;
+      const onTon = counted ? Math.max(0, ...(live === 'RUNNING' ? machines : []).map(n => tonOf.get(key(n)) || 0),
+        queue && live !== 'RUNNING' ? tonOf.get(key(queue.machine)) || 0 : 0) : 0;
       const cls = onTon && rows.has(onTon) ? onTon : ton ? fit(ton) : null;
       const item = {
         order_no: o.order_no, order_date: o.order_date, client_name: o.client_name, product_name: o.product_name, target_date: o.target_date,
@@ -812,11 +985,11 @@ function buildTonnageLoad(orders, board, { untilMs, eff, basis, colourByPlan }) 
         mould_source: m.mould_source,
         oversize: !!(ton && cls && !onTon && ton > cls * 1.05),
         on_machine_tonnage: onTon && cls === onTon && (!ton || fit(ton) !== onTon) ? onTon : null,
-        required: m.required, produced: m.produced, balance: m.balance, rate_pph: rate,
-        hours: counted ? (rate > 0 ? +(m.balance / rate).toFixed(1) : null) : 0,
-        counted, status: done ? 'COMPLETE' : (o.erp_closed ? 'ERP_CLOSED' : m.status), erp_state: o.erp_state,
-        lanes: Math.max(m.lanes || 1, m.copies || 1),
-        machines: m.machines, queue: m.queue, start_state: m.start_state, slack_hours: m.slack_hours, must_start_by: m.must_start_by,
+        required: m.required, produced: m.produced, balance, plan_basis: planBasis, rate_pph: rate,
+        hours: counted ? (rate > 0 ? +(balance / rate).toFixed(1) : null) : 0,
+        counted, status: counted ? live : done ? 'COMPLETE' : 'ERP_CLOSED', erp_state: o.erp_state,
+        lanes: Math.max(workPlans.length ? machines.length : m.lanes || 1, 1, m.copies || 1),
+        machines, queue, start_state: m.start_state, slack_hours: m.slack_hours, must_start_by: m.must_start_by,
         lines: linesOf(o, m)
       };
       (cls ? rows.get(cls) : unknown).items.push(item);
@@ -885,6 +1058,8 @@ function buildTonnageLoad(orders, board, { untilMs, eff, basis, colourByPlan }) 
       excess_machines: needed != null && needed < count ? +(count - needed).toFixed(2) : 0,
       excess_days: availDays > loadDays ? +(availDays - loadDays).toFixed(2) : 0,
       booked_pct: availH > 0 ? Math.round(load / availH * 100) : (load > 0 ? null : 0),
+      /* booked by the hours the machines can really take: agrees with machines needed */
+      machine_booked_pct: availH > 0 ? Math.round(machLoad / availH * 100) : null,
       orders: new Set(live.map(i => i.order_no)).size,
       moulds: live.length, no_rate: live.filter(i => i.hours == null).length,
       done_moulds: r.items.length - live.length,
@@ -899,9 +1074,14 @@ function buildTonnageLoad(orders, board, { untilMs, eff, basis, colourByPlan }) 
     return t;
   }, {});
   tot.booked_pct = tot.avail_hours > 0 ? Math.round(tot.load_hours / tot.avail_hours * 100) : null;
+  tot.machine_booked_pct = tot.avail_hours > 0 ? Math.round((tot.load_hours - tot.mould_limited_hours) / tot.avail_hours * 100) : null;
   tot.orders = new Set(data.flatMap(r => r.items.filter(i => i.counted).map(i => i.order_no))).size;
   tot.all_orders = orders.length;
-  tot.closed_orders = orders.filter(o => o.erp_closed || o.status === 'COMPLETE').length;
+  /* moulds left out: another mould makes the part, or Planning dropped it */
+  tot.spare_moulds = orders.reduce((s, o) => s + (o.spare_moulds || []).length, 0);
+  const inLoad = new Set([...data, unknown].flatMap(r => r.items.filter(i => i.counted).map(i => i.order_no)));
+  tot.closed_orders = orders.filter(o => (o.erp_closed || o.status === 'COMPLETE') && !inLoad.has(o.order_no)).length;
+  tot.plan_basis = data.reduce((s, r) => s + r.items.filter(i => i.plan_basis).length, 0);
   /* no tonnage = no machines to compare with; show only its load */
   const unk = Object.assign(summarise(unknown), { machines_needed: null, shortage_machines: 0, shortage_days: 0, booked_pct: null, machine_rows: [] });
   return { days: +days.toFixed(2), eff, classes: data, total: tot, unknown: unk, no_mould: noMould };
@@ -930,6 +1110,7 @@ async function buildMachineBoard(pool, factoryId) {
          AND COALESCE(TRIM(pb.machine), '') <> ''
          AND ($1::int IS NULL OR pb.factory_id = $1 OR pb.factory_id IS NULL)`, [factoryId])
   ]);
+  /* plan ids repeat in every factory: count only this factory's production */
   const planCodes = plans.rows.map(p => String(p.plan_id || '')).filter(Boolean);
   const [made, recent] = planCodes.length ? await Promise.all([
     pool.query(`SELECT plan_id, SUM(good_qty) AS good, MAX(dpr_date)::text AS last_date,
@@ -938,14 +1119,16 @@ async function buildMachineBoard(pool, factoryId) {
                                plan_id, dpr_date, COALESCE(good_qty, 0) AS good_qty
                           FROM dpr_hourly
                          WHERE is_deleted IS NOT TRUE AND plan_id = ANY($1::text[])
+                           AND ($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL)
                          ORDER BY machine, hour_slot, plan_id, dpr_date, shift, COALESCE(colour, ''), id DESC) x
-                 GROUP BY plan_id`, [planCodes]),
+                 GROUP BY plan_id`, [planCodes, factoryId]),
     pool.query(`SELECT plan_id, SUM(good_qty) AS good, COUNT(*) FILTER (WHERE good_qty > 0) AS hrs,
                        SUM(good_qty) FILTER (WHERE dpr_date = CURRENT_DATE) AS today
                   FROM dpr_hourly
                  WHERE is_deleted IS NOT TRUE AND plan_id = ANY($1::text[])
-                   AND dpr_date >= CURRENT_DATE - ${RATE_DAYS}
-                 GROUP BY plan_id`, [planCodes])
+                   AND ($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL)
+                  AND dpr_date >= CURRENT_DATE - ${RATE_DAYS}
+                 GROUP BY plan_id`, [planCodes, factoryId])
   ]) : [{ rows: [] }, { rows: [] }];
   const madeBy = new Map(made.rows.map(r => [String(r.plan_id), r]));
   const rateBy = new Map(recent.rows.map(r => [String(r.plan_id), r]));
@@ -1044,6 +1227,14 @@ function machineMaster(rows, board) {
   };
 }
 
+/* another plant's order mis-filed under this factory (JR/JP/... is Kachigam's):
+   the plant code in the order no wins, as in Order Master ($1 = factory) */
+const OWN_PLANT = col => `($1::int IS NULL OR NOT EXISTS (
+     SELECT 1 FROM factories pf
+      WHERE pf.id <> $1
+        AND UPPER(SPLIT_PART(TRIM(${col}), '/', 2))
+            = ANY(string_to_array(UPPER(REPLACE(COALESCE(pf.plant_codes, ''), ' ', '')), ','))))`;
+
 /* open orders for the tonnage load: order master not completed / cancelled,
    JR rows the ERP still has open (jr_close is 'Open' / 'Close'), and anything
    on the plan board now */
@@ -1070,13 +1261,7 @@ const OPEN_ORDERS_SQL = `
     LEFT JOIN LATERAL (
       SELECT created_at::date::text AS order_date, client_name, item_code, item_name, qty
         FROM orders WHERE TRIM(order_no) = o.order_no ORDER BY id DESC LIMIT 1) m ON TRUE
-   /* another plant's order mis-filed under this factory (JR/JP/... is Kachigam's):
-      the plant code in the order no wins, as in Order Master */
-   WHERE $1::int IS NULL OR NOT EXISTS (
-     SELECT 1 FROM factories pf
-      WHERE pf.id <> $1
-        AND UPPER(SPLIT_PART(o.order_no, '/', 2))
-            = ANY(string_to_array(UPPER(REPLACE(COALESCE(pf.plant_codes, ''), ' ', '')), ',')))`;
+   WHERE ${OWN_PLANT('o.order_no')}`;
 
 /* good pieces per plan and colour (latest edit of each hourly entry) */
 const COLOUR_SQL = `
@@ -1085,6 +1270,7 @@ const COLOUR_SQL = `
                  plan_id, colour, COALESCE(good_qty, 0) AS good_qty
             FROM dpr_hourly
            WHERE is_deleted IS NOT TRUE AND plan_id::text = ANY($1::text[])
+            AND ($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL)
            ORDER BY machine, hour_slot, plan_id, dpr_date, shift, COALESCE(colour, ''), id DESC) x
    GROUP BY 1, 2`;
 
@@ -1099,7 +1285,7 @@ async function tonnageFor(pool, req) {
   const open = (await pool.query(OPEN_ORDERS_SQL, [factoryId])).rows;
   const orderNos = open.map(r => r.order_no);
   const q = await queueSchedule(pool, factoryId);
-  const orders = await loadOrders(pool, orderNos, factoryId, q.map, q.board, { itemFallback: true });
+  const orders = await loadOrders(pool, orderNos, factoryId, q.map, q.board, { itemFallback: true, byPart: true });
   /* order master rows with no JR and no plan: nothing to build an order from */
   const built = new Set(orders.map(o => o.order_no));
   open.filter(r => !built.has(r.order_no)).forEach(r => orders.push({
@@ -1109,7 +1295,7 @@ async function tonnageFor(pool, req) {
   const planIds = [...new Set(orders.flatMap(o => o.moulds.flatMap(m => (m.plans || []).map(p => String(p.plan_id)))).filter(Boolean))];
   const colourByPlan = new Map();
   if (planIds.length) {
-    (await pool.query(COLOUR_SQL, [planIds])).rows.forEach(r => {
+    (await pool.query(COLOUR_SQL, [planIds, factoryId])).rows.forEach(r => {
       const m = colourByPlan.get(r.plan_id) || colourByPlan.set(r.plan_id, new Map()).get(r.plan_id);
       m.set(key(r.colour), (m.get(key(r.colour)) || 0) + num(r.good));
     });
@@ -1134,11 +1320,13 @@ function registerOrderTrackerRoutes(app, pool) {
       if (scope === 'running') {
         sql = `SELECT DISTINCT TRIM(order_no) AS order_no FROM plan_board
                 WHERE UPPER(COALESCE(status, '')) = 'RUNNING' AND COALESCE(TRIM(order_no), '') <> ''
-                  AND ($1::int IS NULL OR factory_id = $1 OR factory_id IS NULL) AND $2::int > 0`;
+                  AND ($1::int IS NULL OR factory_id = $1 OR factory_id IS NULL) AND $2::int > 0
+                  AND ${OWN_PLANT('order_no')}`;
       } else {
         sql = `SELECT TRIM(or_jr_no) AS order_no, MAX(or_jr_date) AS d FROM or_jr_report
                 WHERE COALESCE(TRIM(or_jr_no), '') <> ''
                   AND ($1::int IS NULL OR factory_id = $1 OR factory_id IS NULL)
+                  AND ${OWN_PLANT('or_jr_no')}
                   AND or_jr_date >= CURRENT_DATE - $2::int
                   ${scope === 'open' ? `AND COALESCE(TRIM(jr_close), '') <> 'Yes' AND is_closed IS NOT TRUE` : ''}
                   ${search ? `AND (or_jr_no ILIKE $3 OR job_card_no ILIKE $3 OR product_name ILIKE $3 OR client_name ILIKE $3)` : ''}
@@ -1147,9 +1335,9 @@ function registerOrderTrackerRoutes(app, pool) {
       }
       const orderNos = (await pool.query(sql, params)).rows.map(r => r.order_no);
       const q = await queueSchedule(pool, factoryId);
-      const orders = await loadOrders(pool, orderNos, factoryId, q.map, q.board);
+      const orders = await loadOrders(pool, orderNos, factoryId, q.map, q.board, { byPart: true });
       /* open scope hides orders already complete in production */
-      const data = (scope === 'open' ? orders.filter(o => o.status !== 'COMPLETE') : orders).map(slim);
+      const data = (scope === 'open' ? orders.filter(o => !packingProgress.fullyDone(o)) : orders).map(slim);
       res.json({ ok: true, scope, server_time: new Date().toISOString(), data });
     } catch (e) {
       console.error('[order-tracker/orders]', e);
@@ -1164,11 +1352,59 @@ function registerOrderTrackerRoutes(app, pool) {
       if (!orderNo) return res.status(400).json({ ok: false, error: 'order_no is required' });
       const factoryId = getFactoryId(req) || null;
       const q = await queueSchedule(pool, factoryId);
-      const [order] = await loadOrders(pool, [orderNo], factoryId, q.map, q.board);
+      const [order] = await loadOrders(pool, [orderNo], factoryId, q.map, q.board, { byPart: true });
       if (!order) return res.status(404).json({ ok: false, error: 'Order not found' });
       res.json({ ok: true, server_time: new Date().toISOString(), data: order });
     } catch (e) {
       console.error('[order-tracker/order]', e);
+      sendServerError(res, e);
+    }
+  });
+
+  /* GET /api/order-tracker/parts?order_no= - one order part by part (alternative
+     moulds of the same part counted together), for the Machine Timeline popup */
+  app.get('/api/order-tracker/parts', async (req, res) => {
+    try {
+      const orderNo = String(req.query.order_no || '').trim();
+      if (!orderNo) return res.status(400).json({ ok: false, error: 'order_no is required' });
+      let factoryId = getFactoryId(req) || null;
+      if (!factoryId) {
+        /* All Factories: use the factory that holds the order, so nothing is counted twice */
+        const f = await pool.query(`
+          SELECT factory_id FROM (
+            SELECT factory_id, 1 AS pref FROM plan_board WHERE TRIM(order_no) = $1 AND factory_id IS NOT NULL
+            UNION ALL
+            SELECT factory_id, 2 FROM or_jr_report WHERE TRIM(or_jr_no) = $1 AND factory_id IS NOT NULL) x
+           GROUP BY factory_id, pref ORDER BY pref, COUNT(*) DESC, factory_id LIMIT 1`, [orderNo]);
+        factoryId = f.rows.length ? Number(f.rows[0].factory_id) : null;
+      }
+      const p = [[orderNo], factoryId];
+      const q = await queueSchedule(pool, factoryId);
+      const [[order], items, drops, colours, head] = await Promise.all([
+        loadOrders(pool, [orderNo], factoryId, q.map, q.board),
+        pool.query(PART_ITEM_SQL, p), pool.query(DROP_SQL, p), pool.query(PART_COLOUR_SQL, p), pool.query(HEAD_SQL, p)
+      ]);
+      if (!order) return res.status(404).json({ ok: false, error: 'Order not found' });
+      const codes = order.moulds.map(m => key(m.mould_no));
+      const off = codes.length ? (await pool.query(INACTIVE_SQL, [codes, factoryId])).rows : [];
+      const view = buildParts(order, { items: items.rows, drops: drops.rows, colours: colours.rows, inactive: new Set(off.map(r => r.code)) });
+      const h = head.rows[0] || {};
+      const orQty = num(h.or_qty);
+      const jrQty = num(order.order_qty);
+      const pk = packingProgress.slimPacking(order.packing);
+      res.json({ ok: true, server_time: new Date().toISOString(), data: {
+        order_no: order.order_no, order_date: order.order_date, client_name: order.client_name, product_name: order.product_name,
+        item_code: order.item_code, uom: h.uom || 'pcs', std_pack: num(h.std_pack) || null,
+        or_qty: orQty || null, jr_qty: jrQty, jc_qty: order.jc_qty, jc_count: order.jc_count,
+        or_left: Math.max(0, orQty - jrQty), jr_left: Math.max(0, jrQty - order.jc_qty),
+        start_date: order.start_date, last_date: order.last_date, target_date: order.target_date,
+        plan_start: order.plan_start, plan_end: order.plan_end, running_machines: order.running_machines,
+        or_remarks: h.or_remarks || null, jr_remarks: h.jr_remarks || null,
+        packing: pk && pk.tracked ? { packed: pk.packed, reached: pk.reached, in_store: pk.in_store, dispatched: pk.dispatched } : null,
+        ...view
+      } });
+    } catch (e) {
+      console.error('[order-tracker/parts]', e);
       sendServerError(res, e);
     }
   });
@@ -1199,6 +1435,11 @@ function registerOrderTrackerRoutes(app, pool) {
   /* GET /api/order-tracker/tonnage.xlsx - same figures as an Excel sheet */
   app.get('/api/order-tracker/tonnage.xlsx', async (req, res) => {
     try {
+      /* no factory sent (an old page still open) must not mean every factory; an
+         All Factories login says so with 'all' */
+      if (!String(req.headers['x-factory-id'] || '').trim() && !process.env.LOCAL_FACTORY_ID) {
+        return res.status(400).json({ ok: false, error: 'No factory selected. Refresh the page (or log in again) and download once more.' });
+      }
       const { until, basis, data } = await tonnageFor(pool, req);
       const factoryName = String(req.query.factory || '').replace(/[^\w .&()-]/g, '').slice(0, 40);
       const buf = await buildTonnageWorkbook(data, { until, basis, factoryName });

@@ -19,6 +19,7 @@ describe('Supervisor queue', () => {
     const pool = {
       query: jest.fn().mockResolvedValue({ rows: [] })
     };
+    pool.connect = async () => ({ query: pool.query, release() {} });
     const services = {
       aiService: { init: jest.fn() },
       syncService: { triggerSync: jest.fn() },
