@@ -477,9 +477,9 @@ const CONFLICT_KEYS = {
     npd_products: 'sync_id',
     npd_files: 'sync_id',
     // Order Hold (src/modules/orderHold): set on MAIN or any LOCAL, no factory_id, so every
-    // server gets all. One row per order (natural key, released rows stay with active=FALSE);
-    // the history is an append-only log keyed by sync_id.
-    order_holds: 'order_no',
+    // server gets all. One row per order + mould (natural key; mould_no '' = an old whole-order
+    // hold; released rows stay with active=FALSE); the history is an append-only log keyed by sync_id.
+    order_holds: 'order_no, mould_no',
     order_hold_history: 'sync_id',
     order_completion_history: 'factory_id, order_no, action_type, changed_at',
     raw_material_issues: 'factory_id, plan_id, created_at',
@@ -715,7 +715,8 @@ const SYNC_SCHEMA_READY_KEY = 'SYNC_SCHEMA_READY_VERSION';
 // 2026-11-23: packing_workers (MAIN-only, id) + packing_crew (sync_id, LOCAL -> MAIN).
 // 2026-11-24: packing_loss_reasons (MAIN-only, id) + packing_day_closes (sync_id, LOCAL -> MAIN).
 // 2026-11-26: order_holds (natural key order_no) + order_hold_history (sync_id), both ways.
-const SYNC_SCHEMA_READY_VERSION = '2026-11-26-order-holds-v22';
+// 2026-11-27: order_holds per mould, natural key (order_no, mould_no); history gets the mould too.
+const SYNC_SCHEMA_READY_VERSION = '2026-11-27-order-holds-mould-v23';
 
 // "Sync token" columns: app-schema UNIQUE columns that carry a per-row identity
 // token (a UUID) MAIN considers authoritative, but which a LOCAL row may have been
