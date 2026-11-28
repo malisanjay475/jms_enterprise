@@ -42,3 +42,15 @@ describe('order hold access', () => {
     expect(orderKey(null)).toBe('');
   });
 });
+
+describe('order hold mould key', () => {
+  const { mouldKey } = require('../src/modules/orderHold/registerOrderHoldRoutes');
+  test('mould codes match however typed', () => {
+    expect(mouldKey('  m-1234 ')).toBe('M-1234');
+  });
+  test('the board\'s "-" and empty mean no mould', () => {
+    expect(mouldKey('-')).toBe('');
+    expect(mouldKey(' ')).toBe('');
+    expect(mouldKey(null)).toBe('');
+  });
+});

@@ -103,8 +103,10 @@
         .holdbar { display: flex; align-items: center; gap: 16px; border-radius: 16px; padding: 14px 20px; margin: 14px 0; border: 1px solid #f87171; border-left: 6px solid var(--red); background: repeating-linear-gradient(135deg, #fef2f2 0 12px, #fee2e2 12px 24px); color: #7f1d1d; }
         .holdbar .hi { width: 44px; height: 44px; border-radius: 12px; display: grid; place-items: center; font-size: 22px; flex: none; color: #fff; background: #b91c1c; }
         .holdbar .ht { font-size: 18px; font-weight: 800; color: #991b1b; }
-        .holdbar .hd { margin-top: 2px; font-weight: 600; overflow-wrap: anywhere; }
+        .holdbar .hd { display: block; margin: 2px 0 0; font-weight: 600; overflow-wrap: anywhere; }
         .holdbar .hm { font-size: 12px; margin-top: 4px; color: #991b1b; }
+        .holdbar .hl + .hl { margin-top: 6px; padding-top: 6px; border-top: 1px dashed #fca5a5; }
+        .mbar .holdtag.sm { margin-left: 4px; font-size: 9px; padding: 0 5px; }
         .job.held { border-left: 3px solid var(--red); padding-left: 8px; }
         .orow .no { font-weight: 800; font-size: 15px; }
         .orow .prod { font-weight: 600; color: var(--ink2); margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -625,26 +627,53 @@
                 $('live').classList.toggle('off', !ok);
                 $('upd').textContent = ok ? `Updated ${new Date().toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' })} · refreshes every minute` : 'Could not refresh, retrying';
             }
-            /* Orders on hold — set with the Hold button on the Planning timelines (/api/order-holds).
-               Loaded with every refresh; a failure just shows no holds. */
+            /* Holds - set with the Hold button on the Planning timelines (/api/order-holds).
+               A hold is on ONE MOULD of an order; holds made before v1.217.0 have no mould
+               (mould_no '') and cover the whole order. Loaded with every refresh; a failure
+               just shows no holds. */
             S.holds = {}; S.holdsP = Promise.resolve();
             const holdKey = v => String(v == null ? '' : v).trim().toUpperCase();
-            const holdOf = no => (holdKey(no) && S.holds[holdKey(no)]) || null;
+            /* Mould codes compare with letters and digits only, the same as the Planning Board. */
+            const holdMk = v => { const t = String(v == null ? '' : v).trim(); return t === '-' ? '' : t.toUpperCase().replace(/[^A-Z0-9]/g, ''); };
+            /* All holds of an order */
+            const holdsOf = no => S.holds[holdKey(no)] || [];
+            const wholeHold = no => holdsOf(no).find(h => h.whole) || null;
+            /* Hold covering one mould of an order: its own hold, else a whole-order hold */
+            const holdOf = (no, mould) => { const m = holdMk(mould); return (m && holdsOf(no).find(h => !h.whole && holdMk(h.mould_no) === m)) || wholeHold(no); };
             function loadHolds() {
                 S.holdsP = fetch('/api/order-holds', { credentials: 'same-origin' })
                     .then(r => r.json())
-                    .then(d => { if (d && d.ok) { const m = {}; (d.data || []).forEach(h => { m[holdKey(h.order_no)] = h; }); S.holds = m; } })
+                    .then(d => { if (d && d.ok) { const m = {}; (d.data || []).forEach(h => { h.whole = !holdMk(h.mould_no); (m[holdKey(h.order_no)] = m[holdKey(h.order_no)] || []).push(h); }); S.holds = m; } })
                     .catch(() => { /* keep the last holds */ });
                 return S.holdsP;
             }
-            const holdTag = (no, small) => { const h = holdOf(no); return h ? `<span class="holdtag ${small ? 'sm' : ''}" title="Order on hold&#10;Reason: ${esc(h.reason)}&#10;By ${esc(h.updated_by || h.held_by || '')}"><i class="bi bi-pause-circle-fill"></i> ${small ? 'HOLD' : 'ON HOLD: ' + esc(h.reason)}</span>` : ''; };
+            const holdTitle = h => `${h.whole ? 'Whole order on hold' : 'Mould ' + esc(h.mould_no) + ' on hold'}&#10;Reason: ${esc(h.reason)}&#10;By ${esc(h.updated_by || h.held_by || '')}`;
+            /* Tag for one job (order + mould) */
+            const holdTag = (no, mould) => { const h = holdOf(no, mould); return h ? `<span class="holdtag sm" title="${holdTitle(h)}"><i class="bi bi-pause-circle-fill"></i> HOLD</span>` : ''; };
+            /* Tag for an order row: whole order, or how many moulds are held */
+            function orderHoldTag(o) {
+                const w = wholeHold(o.order_no);
+                if (w) return `<span class="holdtag" title="${holdTitle(w)}"><i class="bi bi-pause-circle-fill"></i> ORDER ON HOLD: ${esc(w.reason)}</span>`;
+                const hs = holdsOf(o.order_no);
+                if (!hs.length) return '';
+                const tip = hs.map(h => `${esc(h.mould_no)}${h.mould_name ? ' ' + esc(h.mould_name) : ''}: ${esc(h.reason)}`).join('&#10;');
+                return `<span class="holdtag" title="${tip}"><i class="bi bi-pause-circle-fill"></i> ${hs.length === 1 ? '1 mould' : hs.length + ' moulds'} on hold${hs.length === 1 ? ': ' + esc(hs[0].reason) : ''}</span>`;
+            }
             function holdHtml(o) {
-                const h = holdOf(o.order_no);
-                if (!h) return '';
-                const changed = h.updated_by && h.updated_by !== h.held_by ? ` · reason last changed by <b>${esc(h.updated_by)}</b> on ${fd(h.updated_at, true)}` : '';
+                const hs = holdsOf(o.order_no);
+                if (!hs.length) return '';
+                const nameOf = h => { const m = (o.moulds || []).find(x => holdMk(x.mould_no) === holdMk(h.mould_no)); return (m && m.mould_name) || h.mould_name || ''; };
+                const line = h => {
+                    const changed = h.updated_by && h.updated_by !== h.held_by ? ` · reason last changed by <b>${esc(h.updated_by)}</b> on ${fd(h.updated_at, true)}` : '';
+                    const what = h.whole ? 'Whole order (every mould)' : `Mould ${esc(h.mould_no)}${nameOf(h) ? ' · ' + esc(nameOf(h)) : ''}`;
+                    return `<div class="hl"><div class="hd"><b>${what}</b>: ${esc(h.reason)}</div><div class="hm">Held by <b>${esc(h.held_by || '—')}</b> on ${fd(h.held_at, true)}${changed}</div></div>`;
+                };
+                const w = hs.find(h => h.whole);
+                const title = w ? 'Order on hold' : (hs.length === 1 ? '1 mould on hold' : `${hs.length} moulds on hold`);
+                const note = w ? '' : ' Other moulds of this order are not held.';
                 return `<div class="holdbar"><div class="hi"><i class="bi bi-pause-circle-fill"></i></div>
-                    <div><div class="ht">Order on hold</div><div class="hd">${esc(h.reason)}</div>
-                    <div class="hm">Held by <b>${esc(h.held_by || '—')}</b> on ${fd(h.held_at, true)}${changed}. To release it, use the Hold button on the Planning Board.</div></div></div>`;
+                    <div style="min-width:0"><div class="ht">${title}</div>${hs.map(line).join('')}
+                    <div class="hm">${note} To release a hold, use the Hold button on the Planning Board.</div></div></div>`;
             }
             const kpi = (ic, tone, v, l, f) => `<div class="kpi" ${f != null ? `data-f="${f}"` : ''}><div class="ic t-${tone}"><i class="bi ${ic}"></i></div><div><div class="v">${v}</div><div class="l">${l}</div></div></div>`;
 
@@ -657,7 +686,7 @@
             }
 
             const OFILTERS = [['', 'All'], ['RUNNING', 'Running'], ['LATE', 'Late'], ['LATESTART', 'Mould late'], ['PAUSED', 'Paused'], ['NOT_STARTED', 'Not started'], ['UNSCHED', 'No end date'], ['COMPLETE', 'Complete'], ['HOLD', 'On hold']];
-            const omatch = (o, f) => !f || (f === 'HOLD' ? !!holdOf(o.order_no) : f === 'LATE' ? isLate(o) : f === 'LATESTART' ? o.late_starts > 0 : f === 'UNSCHED' ? (o.status !== 'COMPLETE' && !o.expected_end) : o.status === f);
+            const omatch = (o, f) => !f || (f === 'HOLD' ? holdsOf(o.order_no).length > 0 : f === 'LATE' ? isLate(o) : f === 'LATESTART' ? o.late_starts > 0 : f === 'UNSCHED' ? (o.status !== 'COMPLETE' && !o.expected_end) : o.status === f);
 
             function nextLine(o) {
                 const n = o.next_start;
@@ -690,14 +719,14 @@
                     const late = isLate(o);
                     const neck = o.bottleneck && o.bottleneck.mould_no;
                     const bars = o.moulds.map(m => `<div class="mbar ${m.mould_no === neck ? 'neck' : ''}" title="${esc(m.mould_name)} · ${n0(m.produced)} / ${n0(m.required)} pcs">
-                            <div class="nm"><span>${esc(short(m.mould_name))}</span><span>${pf(m.pct)}</span></div>
+                            <div class="nm"><span>${esc(short(m.mould_name))}${wholeHold(o.order_no) ? '' : holdTag(o.order_no, m.mould_no)}</span><span>${pf(m.pct)}</span></div>
                             ${track(m.pct, 'thin ' + (m.status === 'COMPLETE' ? 'g' : m.mould_no === neck ? 'a' : ''))}</div>`).join('');
-                    return `<div class="otc orow ${o.status} ${late ? 'late' : ''} ${holdOf(o.order_no) ? 'held' : ''}" data-order="${esc(o.order_no)}">
+                    return `<div class="otc orow ${o.status} ${late ? 'late' : ''} ${holdsOf(o.order_no).length ? 'held' : ''}" data-order="${esc(o.order_no)}">
                         <div style="min-width:0">
                             <div class="no">${esc(o.order_no)}</div>
                             <div class="prod" title="${esc(o.product_name)}">${esc(o.product_name) || '—'}</div>
                             <div class="muted small">${esc(o.client_name)}${o.order_date ? ' · ' + fd(o.order_date) : ''} · ${o.jc_count} JC</div>
-                            ${holdTag(o.order_no)}
+                            ${orderHoldTag(o)}
                         </div>
                         <div>
                             <div class="sets"><span><span class="big">${n0(o.sets_made)}</span> <span class="muted">/ ${n0(o.order_qty)} sets</span></span><span class="b">${pf(o.pct)}</span></div>
@@ -841,7 +870,7 @@
                     const seq = mDone ? '<span class="sq done"><i class="bi bi-check"></i></span>' : `<span class="sq ${run ? 'run' : ''}">${m.start_seq || '·'}</span>`;
                     const where = run ? m.machines.join(', ') : m.queue ? `${m.queue.machine} (#${m.queue.position} in queue)` : (mDone ? m.all_machines.filter(x => x && x.length > 1).join(', ') : 'no machine');
                     return row('lvl1' + (o.bottleneck && o.bottleneck.mould_no === m.mould_no ? ' neck' : ''),
-                        `${seq}${esc(m.mould_name)}`, `×${m.ratio} per set · ${n0(m.produced)} / ${n0(m.required)} pcs · ${esc(where)}${m.rate_pph ? ' · ' + n0(m.rate_pph) + '/h' : ''}`,
+                        `${seq}${esc(m.mould_name)}${holdTag(o.order_no, m.mould_no)}`, `×${m.ratio} per set · ${n0(m.produced)} / ${n0(m.required)} pcs · ${esc(where)}${m.rate_pph ? ' · ' + n0(m.rate_pph) + '/h' : ''}`,
                         dPlan(m.plan_start), start, must, dPlan(o.target_date), end, variance(mDone ? m.completed_on : m.eta, o.target_date), m.pct, stHtml(m));
                 }).join('');
 
@@ -1009,7 +1038,7 @@
                     const tone = m.closed_short || ['START_LATE', 'OVERDUE', 'FINISH_LATE'].includes(m.start_state) ? 'bad' : m.start_state === 'NEEDS_MACHINE' ? 'warn' : '';
                     return `<div class="seqc ${m.status} ${tone}">
                         <div class="hd2"><span class="sq ${done ? 'done' : run ? 'run' : ''}">${done ? '<i class="bi bi-check"></i>' : m.start_seq}</span>
-                            <div style="flex:1"><div class="nm2">${esc(m.mould_name)}</div><div class="muted small">×${m.ratio} per set <span class="src">${esc(m.ratio_source || '')}</span> · ${esc(where)}</div></div></div>
+                            <div style="flex:1"><div class="nm2">${esc(m.mould_name)}${holdTag(o.order_no, m.mould_no)}</div><div class="muted small">×${m.ratio} per set <span class="src">${esc(m.ratio_source || '')}</span> · ${esc(where)}</div></div></div>
                         ${m.ratio_suspect ? `<div class="shortb"><i class="bi bi-exclamation-octagon"></i> Ratio ×${m.ratio} cannot be right: fix the consumption ratio</div>` : m.ratio_mismatch ? `<div class="mism"><i class="bi bi-info-circle"></i> ERP BOM says ×${m.ratio_bom}; using ×${m.ratio} from ${esc(m.ratio_source)}</div>` : ''}
                         <div class="qty"><div><b>${n0(m.required)}</b><span>Need</span></div><div><b>${n0(m.produced)}</b><span>Made</span></div>
                             <div class="${m.balance ? 'bal' : ''}"><b>${n0(m.balance)}</b><span>Balance</span></div><div><b>${n0(m.shifted)}</b><span>Shifted</span></div></div>
@@ -1145,8 +1174,8 @@
             }
 
             function jobHtml(j) {
-                return `<div class="job ${holdOf(j.order_no) ? 'held' : ''}">
-                    <div class="ord"><span><a class="lnk" data-order="${esc(j.order_no)}">${esc(j.order_no || '—')}</a>${holdTag(j.order_no, true)} <span class="muted">${esc(j.job_card_no || '')}</span></span><span class="muted">${esc(j.plan_id)}</span></div>
+                return `<div class="job ${holdOf(j.order_no, j.mould_no) ? 'held' : ''}">
+                    <div class="ord"><span><a class="lnk" data-order="${esc(j.order_no)}">${esc(j.order_no || '—')}</a>${holdTag(j.order_no, j.mould_no)} <span class="muted">${esc(j.job_card_no || '')}</span></span><span class="muted">${esc(j.plan_id)}</span></div>
                     <div class="mould">${esc(j.mould_name)}</div>
                     <div class="sets"><span><b>${n0(j.produced)}</b> <span class="muted">/ ${n0(j.plan_qty)} pcs</span></span><span class="b">${pf(j.pct)}</span></div>
                     ${track(j.pct)}
@@ -1183,7 +1212,7 @@
                         <div class="mh"><div><span class="mn">${esc(m.machine)}</span>${m.tonnage ? ` <span class="muted small">${esc(m.tonnage)} T</span>` : ''}</div>${pill(m.state)}</div>
                         ${m.running.map(jobHtml).join('') || `<div class="muted small" style="margin-top:12px">${m.queue.length ? 'Nothing running. Next job is waiting.' : 'Nothing running or planned.'}</div>`}
                         ${m.queue.length ? `<div class="queue"><div class="qh">UP NEXT · ${m.queue.length}</div>${m.queue.slice(0, 4).map((j, i) => `
-                            <div class="qi"><span class="k">${i + 1}</span><span><a class="lnk" data-order="${esc(j.order_no)}">${esc(j.order_no)}</a>${holdTag(j.order_no, true)} · ${esc(short(j.mould_name))} <span class="muted">· ${n0(j.balance)} pcs</span></span><span class="muted nowrap">${j.eta ? fd(j.eta, true) : '—'}</span></div>`).join('')}
+                            <div class="qi"><span class="k">${i + 1}</span><span><a class="lnk" data-order="${esc(j.order_no)}">${esc(j.order_no)}</a>${holdTag(j.order_no, j.mould_no)} · ${esc(short(j.mould_name))} <span class="muted">· ${n0(j.balance)} pcs</span></span><span class="muted nowrap">${j.eta ? fd(j.eta, true) : '—'}</span></div>`).join('')}
                             ${m.queue.length > 4 ? `<div class="muted small">+${m.queue.length - 4} more</div>` : ''}</div>` : ''}
                         ${m.free_at ? `<div class="free"><i class="bi bi-flag"></i> Free from <b>${fd(m.free_at, true)}</b></div>` : ''}
                     </div>`).join('')}</div>`).join('');

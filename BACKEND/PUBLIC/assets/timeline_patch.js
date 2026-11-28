@@ -1427,8 +1427,9 @@
 
                 // P2: over-produced flag
                 const isOverProduced = (p.balQty || 0) < 0;
-                // Order on hold (set from the Hold button): grey striped card + ON HOLD reason.
-                const hold = (typeof window.etvHoldFor === 'function') ? window.etvHoldFor(p.orderNo) : null;
+                // Mould of this order on hold (Hold button): red striped card + ON HOLD reason.
+                // Only this mould's cards; an old whole-order hold still covers every mould.
+                const hold = (typeof window.etvHoldFor === 'function') ? window.etvHoldFor(p.orderNo, p.mouldNo || p.mould_no) : null;
                 const canHold = !!(window._etvHoldPerm && window._etvHoldPerm.edit && p.orderNo);
                 const holdAttr = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
                 if (hold) leftBorder = '#dc2626';
@@ -1466,7 +1467,7 @@
                           <div style="font-weight:800; color:#0f172a; font-size:0.9rem; line-height:1.1">${esc(p.orderNo || '-')}</div>
                           <div style="font-size:0.7rem; font-weight:700; text-transform:uppercase; background:${bgTag}; color:${txtTag}; padding:2px 5px; border-radius:4px; white-space:nowrap">${st}</div>
                        </div>
-                       ${hold ? `<div class="tl-hold-badge" title="Order on hold&#10;Reason: ${holdAttr(hold.reason)}&#10;By ${holdAttr(hold.updated_by || hold.held_by || '')}" style="display:block; font-size:0.72rem; font-weight:800; color:#fff; background:#b91c1c; border-radius:4px; padding:3px 6px; line-height:1.3; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"><i class="bi bi-pause-circle-fill"></i> ON HOLD: ${holdAttr(hold.reason)}</div>` : ''}
+                       ${hold ? `<div class="tl-hold-badge" title="${hold.whole ? 'Whole order on hold (every mould)' : 'This mould on hold'}&#10;Reason: ${holdAttr(hold.reason)}&#10;By ${holdAttr(hold.updated_by || hold.held_by || '')}" style="display:block; font-size:0.72rem; font-weight:800; color:#fff; background:#b91c1c; border-radius:4px; padding:3px 6px; line-height:1.3; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"><i class="bi bi-pause-circle-fill"></i> ${hold.whole ? 'ORDER ON HOLD' : 'ON HOLD'}: ${holdAttr(hold.reason)}</div>` : ''}
                        
                        ${p.transferFromFactory ? `<div class="tl-xfer-badge" title="Factory Transfer: this order belongs to ${esc(p.transferFromFactory)}" style="display:block; font-size:0.72rem; font-weight:800; color:#9a3412; background:#ffedd5; border:1px solid #fdba74; border-radius:4px; padding:2px 6px; line-height:1.3; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"><i class="bi bi-arrow-left-right"></i> Transfer from ${esc(p.transferFromFactory)}</div>` : ''}
                        <div style="font-size:0.8rem; color:#64748b; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis" title="${esc(p.clientName)}">
@@ -1540,8 +1541,9 @@
                            <div style="display:flex; gap:6px;">
                                ${canHold ? `
                                <button class="btn icon mini tl-hold-btn"
-                                   onclick="window.etvOpenHold('${holdAttr(p.orderNo)}'); event.stopPropagation();"
-                                   title="${hold ? 'Order on hold — click to edit the reason or release it' : 'Put this whole order on hold'}"
+                                   data-order="${holdAttr(p.orderNo)}" data-mould="${holdAttr(p.mouldNo || p.mould_no || '')}" data-mname="${holdAttr(p.mouldName || '')}"
+                                   onclick="window.etvOpenHoldEl(this); event.stopPropagation();"
+                                   title="${hold ? (hold.whole ? 'Whole order on hold — click to hold only this mould, edit or release' : 'This mould is on hold — click to edit the reason or release it') : 'Put only this mould of the order on hold'}"
                                    style="background:${hold ? '#b91c1c' : '#f8fafc'}; color:${hold ? '#fff' : '#475569'}; border:1px solid ${hold ? '#b91c1c' : '#cbd5e1'}; width:26px; height:26px; display:flex; align-items:center; justify-content:center; border-radius:4px; cursor:pointer;">
                                    <i class="bi bi-pause-circle${hold ? '-fill' : ''}" style="font-size:0.9rem"></i>
                                </button>` : ''}
@@ -2103,7 +2105,7 @@
                 if (s === 'Stopped' && mPlans.length > 0) return false;
                 if (s === 'Planned' && mPlans.length === 0) return false;
                 if (s === 'MouldChange' && !mPlans.some((p, i) => i > 0 && ((p.mouldNo || '') !== (mPlans[i - 1].mouldNo || '')))) return false;
-                if (s === 'Hold' && !mPlans.some(p => window.etvHoldFor && window.etvHoldFor(p.orderNo))) return false;
+                if (s === 'Hold' && !mPlans.some(p => window.etvHoldFor && window.etvHoldFor(p.orderNo, p.mouldNo || p.mould_no))) return false;
             }
             if (q) {
                 if (m.code.toLowerCase().includes(q)) return true;
