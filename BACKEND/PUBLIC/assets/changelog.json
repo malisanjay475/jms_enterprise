@@ -11,8 +11,21 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.217.0",
+  "latest": "1.217.1",
   "versions": [
+    {
+      "version": "1.217.1",
+      "date": "2026-11-28",
+      "title": "QR labels print on 50 x 50 mm",
+      "modules": [
+        {
+          "app": "planning",
+          "changes": [
+            {"type": "fix", "text": "Job Card QR labels now print one label per 50 x 50 mm page instead of two labels side by side on a 100 x 50 mm page."}
+          ]
+        }
+      ]
+    },
     {
       "version": "1.217.0",
       "date": "2026-11-27",
