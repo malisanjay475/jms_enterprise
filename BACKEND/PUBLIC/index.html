@@ -1139,7 +1139,7 @@
                 <article class="kpi-card">
                     <div class="kpi-label">Active Machines</div>
                     <div class="kpi-value" id="kpi-active">0</div>
-                    <div class="kpi-sub">Running plans on the board now</div>
+                    <div class="kpi-sub">Machines with a DPR entry in the last 2 hours</div>
                 </article>
                 <article class="kpi-card">
                     <div class="kpi-label">Pending Orders</div>
@@ -1159,6 +1159,11 @@
                     <p class="section-copy">Jump straight into the modules used most often across planning, moulding, quality, WIP, and packing.</p>
 
                     <div class="action-grid">
+                        <a href="workspace.html" class="action-card">
+                            <i class="bi bi-compass"></i>
+                            <strong>Role Workspace</strong>
+                            <span>Open the job spine for this login, from requirement through dispatch.</span>
+                        </a>
                         <a href="planning.html" class="action-card">
                             <i class="bi bi-calendar-week"></i>
                             <strong>Planning Board</strong>
@@ -1507,13 +1512,12 @@
 
         async function loadKPIs() {
             try {
-                const res = await JPSMS.api.get('/dashboard/kpis');
-                const data = res.data || {};
+                const data = await JPSMS.api.get('/dashboard/kpis');
 
                 animateValue('kpi-prod', data.production);
-                animateValue('kpi-active', data.active);
-                animateValue('kpi-orders', data.orders);
-                animateValue('kpi-dpr', data.dpr);
+                animateValue('kpi-active', data.active_machines);
+                animateValue('kpi-orders', data.pending_orders);
+                animateValue('kpi-dpr', data.dpr_24h);
             } catch (_error) {
                 document.getElementById('statusMessage').textContent = 'Live KPI data could not be loaded right now.';
             }
